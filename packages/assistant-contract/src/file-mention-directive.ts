@@ -19,7 +19,9 @@
  * is the DB `roots.id` (the same id `file_records.root_id` references and the
  * desktop tools resolve against) and `path` is the workspace-relative path. We
  * split on the FIRST `::` only, so a path that itself contains `:` or `::`
- * survives the round-trip.
+ * survives the round-trip, and the path's `{`/`}`/`%` are percent-encoded inside
+ * the id so a path containing `}` cannot truncate the directive's `{name=…}`
+ * attribute at parse time (see {@link encodeFileMentionPathSegment}).
  */
 
 /** The mention `type` for a file reference directive (`:file[…]{…}`). */
@@ -27,6 +29,29 @@ export const FILE_MENTION_DIRECTIVE_TYPE = 'file' as const;
 
 /** Separator between the root id and the workspace path inside a mention id. */
 const FILE_MENTION_ID_SEPARATOR = '::';
+
+/**
+ * Percent-encode the characters that would otherwise corrupt a mention id inside
+ * the directive's `{name=…}` attribute. A literal `}` ends the attribute early at
+ * parse time ({@link DIRECTIVE_RE}'s `[^}]+`), truncating the id; we also encode
+ * `{` so the encoded id is brace-free, and `%` so the encoding is reversible (a
+ * path literally containing `%7D` must not decode to `}`). `%` is escaped FIRST
+ * so already-present `%` sequences are not conflated with our escapes.
+ */
+function encodeFileMentionPathSegment(path: string): string {
+  return path.replaceAll('%', '%25').replaceAll('{', '%7B').replaceAll('}', '%7D');
+}
+
+/**
+ * Reverse {@link encodeFileMentionPathSegment}. Braces are decoded before `%25`
+ * is restored to `%`: because every literal `%` was encoded to `%25`, a bare `%`
+ * in the encoded text only ever begins one of our escapes, so the brace passes
+ * can never consume an escaped percent and the final `%25`→`%` pass can never
+ * forge a new brace escape. The result equals a single left-to-right decode.
+ */
+function decodeFileMentionPathSegment(encodedPath: string): string {
+  return encodedPath.replaceAll('%7B', '{').replaceAll('%7D', '}').replaceAll('%25', '%');
+}
 
 /**
  * Mirrors assistant-ui's `unstable_defaultDirectiveFormatter` directive regex:
@@ -53,9 +78,10 @@ export interface ParsedFileMention extends FileMentionDirective {
 }
 
 /**
- * Encode a `(rootId, path)` pair into the directive id `rootId::path`. Throws on
- * an empty root id or path — a directive with a missing identity is a bug, never
- * silently coerced.
+ * Encode a `(rootId, path)` pair into the directive id `rootId::path`, percent-
+ * encoding `{`/`}`/`%` in the path so the id stays brace-free (a raw `}` would
+ * truncate the directive's `{name=…}` at parse time). Throws on an empty root id
+ * or path — a directive with a missing identity is a bug, never silently coerced.
  */
 export function encodeFileMentionId(rootId: string, path: string): string {
   if (!rootId) {
@@ -64,14 +90,15 @@ export function encodeFileMentionId(rootId: string, path: string): string {
   if (!path) {
     throw new Error('encodeFileMentionId requires a non-empty path.');
   }
-  return `${rootId}${FILE_MENTION_ID_SEPARATOR}${path}`;
+  return `${rootId}${FILE_MENTION_ID_SEPARATOR}${encodeFileMentionPathSegment(path)}`;
 }
 
 /**
  * Decode a directive id `rootId::path` back into its parts. Splits on the FIRST
- * `::` only so a path containing `:`/`::` survives. Returns `null` when the id is
- * not a valid `rootId::path` (no separator, or an empty side) — the caller must
- * skip such a malformed reference rather than guess.
+ * `::` only so a path containing `:`/`::` survives, then reverses the path's
+ * `{`/`}`/`%` percent-encoding ({@link decodeFileMentionPathSegment}). Returns
+ * `null` when the id is not a valid `rootId::path` (no separator, or an empty
+ * side) — the caller must skip such a malformed reference rather than guess.
  */
 export function decodeFileMentionId(id: string): { rootId: string; path: string } | null {
   const separatorIndex = id.indexOf(FILE_MENTION_ID_SEPARATOR);
@@ -79,11 +106,11 @@ export function decodeFileMentionId(id: string): { rootId: string; path: string 
     return null;
   }
   const rootId = id.slice(0, separatorIndex);
-  const path = id.slice(separatorIndex + FILE_MENTION_ID_SEPARATOR.length);
-  if (!(rootId && path)) {
+  const encodedPath = id.slice(separatorIndex + FILE_MENTION_ID_SEPARATOR.length);
+  if (!(rootId && encodedPath)) {
     return null;
   }
-  return { rootId, path };
+  return { rootId, path: decodeFileMentionPathSegment(encodedPath) };
 }
 
 /**

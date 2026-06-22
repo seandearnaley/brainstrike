@@ -4,7 +4,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.writeWorkspaceFile':
     'Write or create a UTF-8 file in the selected workspace root (overwrites existing content; workspace-scoped, requires approval)',
   'brainstrike.stringReplaceWorkspaceFile':
-    'Surgically edit a workspace file by replacing one old_str block with new_str (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
+    'Surgically edit a workspace file by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; workspace-scoped, requires approval)',
   'brainstrike.findWorkspaceSymbol':
     "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   'brainstrike.readWorkspaceDirectory':
