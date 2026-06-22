@@ -408,6 +408,7 @@ async function proveFts(dbPath: string): Promise<boolean> {
 
 async function proveFtsWithMvcc(db: TursoDatabase | null): Promise<boolean> {
   const database = requireOpenDatabase(db);
+  await database.exec("PRAGMA journal_mode = 'mvcc'");
   await database.exec(`
     CREATE TABLE turso_fts_mvcc_probe (
       id INTEGER PRIMARY KEY,
