@@ -30,6 +30,32 @@ describe('Brainstrike DB runtime selection', () => {
     });
   });
 
+  it('keeps node-test on the existing PGlite memory runtime by default', () => {
+    expect(resolveBrainstrikeDbRuntimeSelection({ platform: 'node-test' })).toEqual({
+      bootstrapRuntime: {
+        engine: 'pglite',
+        host: 'node',
+        persistence: 'memory',
+      },
+      engine: 'pglite',
+      platform: 'node-test',
+      source: 'default',
+    });
+  });
+
+  it('preserves caller provenance when the runtime defaults to PGlite', () => {
+    expect(resolveBrainstrikeDbRuntimeSelection({ platform: 'desktop', source: 'env' })).toEqual({
+      bootstrapRuntime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      engine: 'pglite',
+      platform: 'desktop',
+      source: 'env',
+    });
+  });
+
   it('allows an explicit Turso runtime only on desktop', () => {
     expect(
       resolveBrainstrikeDbRuntimeSelection({
@@ -49,20 +75,41 @@ describe('Brainstrike DB runtime selection', () => {
     });
   });
 
-  it('rejects Turso on web instead of falling back to PGlite', () => {
+  it.each([
+    'node-test',
+    'web',
+  ] as const)('rejects Turso on %s instead of falling back to PGlite', (platform) => {
     expectSelectionError(
       () =>
         resolveBrainstrikeDbRuntimeSelection({
-          platform: 'web',
+          platform,
           requestedEngine: 'turso',
           source: 'env',
         }),
       {
-        code: 'turso_runtime_web_unsupported',
-        message: 'Turso DB runtime is desktop-only because the JavaScript package is Node-only.',
-        platform: 'web',
+        code: 'turso_runtime_platform_unsupported',
+        message:
+          'Turso DB runtime is desktop-only until Brainstrike wires a production adapter behind the desktop host.',
+        platform,
         requestedEngine: 'turso',
         source: 'env',
+      }
+    );
+  });
+
+  it('reports config provenance for explicit runtime values without an explicit source', () => {
+    expectSelectionError(
+      () =>
+        resolveBrainstrikeDbRuntimeSelection({
+          platform: 'desktop',
+          requestedEngine: 'sqlite',
+        }),
+      {
+        code: 'unsupported_db_runtime',
+        message: 'Unsupported Brainstrike DB runtime: sqlite',
+        platform: 'desktop',
+        requestedEngine: 'sqlite',
+        source: 'config',
       }
     );
   });

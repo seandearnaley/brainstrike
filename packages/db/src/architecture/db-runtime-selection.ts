@@ -20,7 +20,7 @@ export interface BrainstrikeDbRuntimeSelectionInput {
 }
 
 export interface BrainstrikeDbRuntimeSelectionErrorDetails {
-  readonly code: 'turso_runtime_web_unsupported' | 'unsupported_db_runtime';
+  readonly code: 'turso_runtime_platform_unsupported' | 'unsupported_db_runtime';
   readonly platform: BrainstrikeDbRuntimePlatform;
   readonly requestedEngine: unknown;
   readonly source: BrainstrikeDbRuntimeSelectionSource;
@@ -45,14 +45,14 @@ export class BrainstrikeDbRuntimeSelectionError extends Error {
 export function resolveBrainstrikeDbRuntimeSelection(
   input: BrainstrikeDbRuntimeSelectionInput
 ): BrainstrikeDbRuntimeSelection {
-  const source = input.requestedEngine === undefined ? 'default' : (input.source ?? 'config');
+  const source = input.source ?? (input.requestedEngine === undefined ? 'default' : 'config');
   const engine = parseRequestedRuntimeEngine(input, source);
 
-  if (engine === 'turso' && input.platform === 'web') {
+  if (engine === 'turso' && input.platform !== 'desktop') {
     throw new BrainstrikeDbRuntimeSelectionError(
-      'Turso DB runtime is desktop-only because the JavaScript package is Node-only.',
+      'Turso DB runtime is desktop-only until Brainstrike wires a production adapter behind the desktop host.',
       {
-        code: 'turso_runtime_web_unsupported',
+        code: 'turso_runtime_platform_unsupported',
         platform: input.platform,
         requestedEngine: input.requestedEngine,
         source,
