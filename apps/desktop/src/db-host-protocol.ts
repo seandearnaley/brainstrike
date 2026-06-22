@@ -99,8 +99,13 @@ export type DbHostToMainMessage =
   | DbHostLogEnvelope
   | DbHostResponseEnvelope;
 
+export interface DbHostCapabilities {
+  readonly liveQuery: boolean;
+}
+
 export interface DbHostInitResult {
   readonly bootstrapReport: ProfileBootstrapReport;
+  readonly capabilities: DbHostCapabilities;
   readonly initialized: boolean;
 }
 

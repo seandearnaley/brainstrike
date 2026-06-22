@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Database as TursoDatabase } from '@tursodatabase/database';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTursoOwnerClient } from '../src/turso/owner-client.js';
 
 describe('Turso owner client', () => {
@@ -35,6 +36,41 @@ describe('Turso owner client', () => {
     }
   });
 
+  it('opens the owner handle with the same Turso index-method option as bootstrap', async () => {
+    const database = createMockTursoDatabase();
+    const openDatabase = vi.fn(async () => database);
+
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'profile.db'),
+      openDatabase,
+    });
+
+    try {
+      expect(openDatabase).toHaveBeenCalledWith(
+        join(tempDir, 'profile.db'),
+        expect.objectContaining({ experimental: ['index_method'] })
+      );
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('rejects parameterized exec calls that contain more than one SQL statement', async () => {
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'single-statement.db'),
+    });
+
+    try {
+      await expect(
+        client.exec('CREATE TABLE notes (value TEXT); INSERT INTO notes (value) VALUES (?)', [
+          'alpha',
+        ])
+      ).rejects.toThrow('Parameterized Turso exec accepts exactly one SQL statement.');
+    } finally {
+      await client.close();
+    }
+  });
+
   it('rolls back failed callback transactions', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'transactions.db'),
@@ -61,6 +97,30 @@ describe('Turso owner client', () => {
     }
   });
 
+  it('fails fast when a transaction callback re-enters the outer owner client', async () => {
+    const database = createMockTursoDatabase();
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'reentrant.db'),
+      openDatabase: async () => database,
+    });
+
+    const result = await Promise.race([
+      client
+        .transaction(async () => {
+          await client.query('SELECT 1 AS value');
+        })
+        .then(
+          () => 'resolved',
+          (error: unknown) => (error instanceof Error ? error.message : String(error))
+        ),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timed out'), 50)),
+    ]);
+
+    expect(result).toBe(
+      'Use the transaction callback client inside Turso owner transactions; the outer owner client is locked until the callback finishes.'
+    );
+  });
+
   it('fails loudly after the owner handle is closed', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'closed.db'),
@@ -76,3 +136,13 @@ describe('Turso owner client', () => {
     );
   });
 });
+
+function createMockTursoDatabase(): TursoDatabase {
+  return {
+    all: vi.fn(async () => []),
+    close: vi.fn(async () => undefined),
+    exec: vi.fn(async () => undefined),
+    pragma: vi.fn(async () => [{ journal_mode: 'mvcc' }]),
+    run: vi.fn(async () => undefined),
+  } as unknown as TursoDatabase;
+}

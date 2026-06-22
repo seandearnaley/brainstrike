@@ -262,6 +262,7 @@ describe('initializeMainDatabase', () => {
         phase: 'ready',
         ready: true,
       }),
+      capabilities: { liveQuery: true },
       initialized: true,
     });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
@@ -292,6 +293,7 @@ describe('initializeMainDatabase', () => {
         phase: 'blocked',
         ready: false,
       }),
+      capabilities: { liveQuery: true },
       initialized: false,
     });
     expect(PGliteMock).not.toHaveBeenCalled();
@@ -331,6 +333,7 @@ describe('initializeMainDatabase', () => {
         runtime: expect.objectContaining({ engine: 'turso' }),
         search: expect.objectContaining({ ownershipMode: 'split-search-index-store' }),
       }),
+      capabilities: { liveQuery: false },
       initialized: true,
     });
     expect(queryResult).toEqual({
@@ -397,6 +400,7 @@ describe('initializeMainDatabase', () => {
         phase: 'ready',
         ready: true,
       }),
+      capabilities: { liveQuery: true },
       initialized: true,
     });
     expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledTimes(2);

@@ -132,6 +132,7 @@ describe('db-host-entry', () => {
     dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockReset();
     dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
       bootstrapReport: createReadyBootstrapProbeReport().bootstrapReport,
+      capabilities: { liveQuery: true },
       initialized: true,
     });
     dbMainMocks.resetLocalDatabase.mockReset();
@@ -173,6 +174,7 @@ describe('db-host-entry', () => {
             persistence: 'filesystem',
           },
         }),
+        capabilities: { liveQuery: true },
         initialized: true,
       },
     });
@@ -213,6 +215,7 @@ describe('db-host-entry', () => {
         phase: 'blocked',
         ready: false,
       },
+      capabilities: { liveQuery: true },
       initialized: false,
     });
     const { listeners, parentPort } = installParentPortMock();
@@ -236,6 +239,7 @@ describe('db-host-entry', () => {
           phase: 'blocked',
           ready: false,
         }),
+        capabilities: { liveQuery: true },
         initialized: false,
       },
     });
@@ -249,6 +253,7 @@ describe('db-host-entry', () => {
         phase: 'blocked',
         ready: false,
       },
+      capabilities: { liveQuery: true },
       initialized: false,
     });
     const query = vi.fn(async () => ({ rows: [] }));

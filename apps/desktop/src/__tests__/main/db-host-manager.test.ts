@@ -166,10 +166,12 @@ function createReadyTursoBootstrapReport() {
   };
 }
 
-function createReadyInitResult() {
+function createReadyInitResult(overrides: Record<string, unknown> = {}) {
   return {
     bootstrapReport: createReadyBootstrapReport(),
+    capabilities: { liveQuery: true },
     initialized: true,
+    ...overrides,
   };
 }
 
@@ -238,6 +240,30 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     expect(getMissingBrainstrikeDbClientCapabilities(database)).toEqual([]);
+  });
+
+  it('fails live queries locally without sending live:start when Turso disables live-query capability', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: createReadyTursoBootstrapReport(),
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    const database = await databasePromise;
+    expect(database.capabilities).toEqual({ liveQuery: false });
+    const messageCountBeforeLiveQuery = firstHost.messages.length;
+
+    await expect(database.live.query({ query: 'SELECT 1' })).rejects.toThrow(
+      'DB host live queries are unavailable for runtime engine turso.'
+    );
+    expect(firstHost.messages).toHaveLength(messageCountBeforeLiveQuery);
   });
 
   it('passes the resolved desktop database root path to the utility DB host', async () => {
