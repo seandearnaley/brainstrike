@@ -98,6 +98,50 @@ function restoreEnvValue(key: string, value: string | undefined): void {
   process.env[key] = value;
 }
 
+function createReadyBootstrapReport() {
+  const checks = [
+    'store.open',
+    'schema.migrated',
+    'extension.pgvector',
+    'extension.pg_trgm',
+    'search.fts-grep',
+    'capability.transaction',
+    'capability.live-query',
+    'queue.table',
+    'assistant-memory.run-usage',
+    'assistant-memory.mastra-schema',
+    'workspace-index.system-role',
+    'store.close',
+  ].map((id) => ({
+    id,
+    label: id,
+    required: id !== 'assistant-memory.mastra-schema',
+    status: id === 'assistant-memory.mastra-schema' ? 'skipped' : 'passed',
+  }));
+
+  return {
+    checks,
+    failure: null,
+    phase: 'ready',
+    profileId: 'default',
+    ready: true,
+    runtime: {
+      engine: 'pglite',
+      host: 'electron-utility',
+      persistence: 'filesystem',
+    },
+    startedAt: '2026-06-22T00:00:00.000Z',
+    updatedAt: '2026-06-22T00:00:01.000Z',
+  };
+}
+
+function createReadyInitResult() {
+  return {
+    bootstrapReport: createReadyBootstrapReport(),
+    initialized: true,
+  };
+}
+
 describe('DbHostManager', () => {
   const originalNodeEnv = process.env['NODE_ENV'];
   const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
@@ -129,7 +173,7 @@ describe('DbHostManager', () => {
     const databasePromise = manager.getDatabase();
     const initMessage = latestProcess().messages.at(-1);
     expect(initMessage?.request.kind).toBe('init');
-    latestProcess().reply(initMessage as PostedMessage, { initialized: true });
+    latestProcess().reply(initMessage as PostedMessage, createReadyInitResult());
     const database = await databasePromise;
 
     const queryPromise = database.query('SELECT $1::text AS value', ['ok']);
@@ -155,7 +199,7 @@ describe('DbHostManager', () => {
 
     const databasePromise = manager.getDatabase();
     const initMessage = latestProcess().messages.at(-1);
-    latestProcess().reply(initMessage as PostedMessage, { initialized: true });
+    latestProcess().reply(initMessage as PostedMessage, createReadyInitResult());
 
     const database = await databasePromise;
 
@@ -368,7 +412,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     const livePromise = database.live.query({
@@ -400,7 +447,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     const livePromise = database.live.query({
@@ -427,7 +477,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     const livePromise = database.live.query({ query: 'SELECT 1' });
@@ -482,9 +535,10 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
-      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-        initialized: true,
-      });
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult()
+      );
       const database = await databasePromise;
 
       const queryPromise = database.query(
@@ -524,9 +578,10 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
-      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-        initialized: true,
-      });
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult()
+      );
       const database = await databasePromise;
 
       const execPromise = database.maintenance.exec(
@@ -605,10 +660,89 @@ describe('DbHostManager', () => {
 
     const nextDatabasePromise = manager.getDatabase();
     expect(forkMock).toHaveBeenCalledTimes(2);
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
+    await expect(nextDatabasePromise).resolves.toBeDefined();
+  });
+
+  it('terminates the utility DB host when init omits the bootstrap report', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, { initialized: true });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init completed without a bootstrap report.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init returns a blocked bootstrap report', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: {
+        ...createReadyBootstrapReport(),
+        phase: 'blocked',
+        ready: false,
+      },
       initialized: true,
     });
-    await expect(nextDatabasePromise).resolves.toBeDefined();
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: Bootstrap phase has not reached ready: blocked.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init returns an inconsistent ready report', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: {
+        ...createReadyBootstrapReport(),
+        checks: createReadyBootstrapReport().checks.map((check) =>
+          check.id === 'queue.table' ? { ...check, status: 'failed' } : check
+        ),
+        ready: true,
+      },
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: Required bootstrap check failed: queue.table.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init returns a stale partial bootstrap report', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: {
+        ...createReadyBootstrapReport(),
+        checks: [],
+      },
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: Bootstrap report missing required check: store.open.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
   });
 
   it('terminates the utility DB host when a transaction request times out', async () => {
@@ -620,9 +754,10 @@ describe('DbHostManager', () => {
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
-      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-        initialized: true,
-      });
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult()
+      );
       const database = await databasePromise;
 
       const transactionPromise = database.transaction(async () => 'unreachable');
@@ -658,7 +793,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     let transactionId = '';
@@ -694,7 +832,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     const resultPromise = database.transaction(async () => {
@@ -722,7 +863,10 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
     const database = await databasePromise;
 
     const resultPromise = database.transaction(async () => 'unreachable');

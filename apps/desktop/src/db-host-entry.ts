@@ -7,6 +7,7 @@ import {
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
 import type {
+  DbHostInitResult,
   DbHostLiveStartResult,
   DbHostQueryResult,
   DbHostRequest,
@@ -20,7 +21,7 @@ import {
   closeDatabase,
   getDatabase,
   getDatabaseDiagnostics,
-  initializeMainDatabase,
+  initializeMainDatabaseWithBootstrapReport,
   resetLocalDatabase,
 } from './db-main';
 import {
@@ -323,6 +324,10 @@ function nextRunnableRequest(): DbHostRequestEnvelope | null {
 }
 
 async function getQueryableDatabase(): Promise<QueryableDatabase> {
+  const initResult = await initializeMainDatabaseWithBootstrapReport();
+  if (!initResult.initialized) {
+    throw new Error(`DB host bootstrap blocked during ${initResult.bootstrapReport.phase}.`);
+  }
   return (await getDatabase()) as QueryableDatabase;
 }
 
@@ -353,6 +358,18 @@ function throwUnknownRequestKind(request: never): never {
       ? (request as { readonly kind?: unknown }).kind
       : 'unknown';
   throw new Error(`Unknown DB host request kind: ${String(kind)}`);
+}
+
+async function createDbHostInitResult(): Promise<DbHostInitResult> {
+  const initResult = await initializeMainDatabaseWithBootstrapReport();
+
+  if (!initResult.bootstrapReport.ready) {
+    postLog('error', 'DB host bootstrap capability probe blocked init', {
+      phase: initResult.bootstrapReport.phase,
+    });
+  }
+
+  return initResult;
 }
 
 async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:start' }>) {
@@ -395,11 +412,12 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
 
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
   switch (request.kind) {
-    case 'init':
+    case 'init': {
       postLog('debug', 'DB host init started');
-      await initializeMainDatabase();
-      postLog('info', 'DB host init completed');
-      return { initialized: true };
+      const initResult = await createDbHostInitResult();
+      postLog('info', initResult.initialized ? 'DB host init completed' : 'DB host init blocked');
+      return initResult;
+    }
     case 'query': {
       const db = await getQueryableDatabase();
       const params = requireParamsArray(request.params, 'query');

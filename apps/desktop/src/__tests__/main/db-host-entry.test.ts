@@ -10,6 +10,7 @@ const dbMainMocks = vi.hoisted(() => ({
   getDatabase: vi.fn(),
   getDatabaseDiagnostics: vi.fn(() => ({ hasDatabaseHandle: true })),
   initializeMainDatabase: vi.fn(),
+  initializeMainDatabaseWithBootstrapReport: vi.fn(),
   resetLocalDatabase: vi.fn(),
 }));
 
@@ -26,6 +27,49 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
   };
 });
+
+function createReadyBootstrapProbeReport() {
+  const checks = [
+    'store.open',
+    'schema.migrated',
+    'extension.pgvector',
+    'extension.pg_trgm',
+    'search.fts-grep',
+    'capability.transaction',
+    'capability.live-query',
+    'queue.table',
+    'assistant-memory.run-usage',
+    'assistant-memory.mastra-schema',
+    'workspace-index.system-role',
+    'store.close',
+  ].map((id) => ({
+    id,
+    label: id,
+    required: id !== 'assistant-memory.mastra-schema',
+    status: id === 'assistant-memory.mastra-schema' ? 'skipped' : 'passed',
+  }));
+
+  return {
+    blockingIssues: [],
+    bootstrapReport: {
+      checks,
+      failure: null,
+      phase: 'ready',
+      profileId: 'default',
+      ready: true,
+      runtime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      startedAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:01.000Z',
+    },
+    checks,
+    generatedAt: '2026-06-22T00:00:01.000Z',
+    reportVersion: 1,
+  };
+}
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 
@@ -67,10 +111,9 @@ function installParentPortMock(): {
 }
 
 async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe('db-host-entry', () => {
@@ -79,9 +122,18 @@ describe('db-host-entry', () => {
     dbMainMocks.closeDatabase.mockReset();
     dbMainMocks.getDatabase.mockReset();
     dbMainMocks.getDatabaseDiagnostics.mockReset();
-    dbMainMocks.getDatabaseDiagnostics.mockReturnValue({ hasDatabaseHandle: true });
+    dbMainMocks.getDatabaseDiagnostics.mockReturnValue({
+      dataDir: '/mock/profile/pgdata',
+      databaseProfile: 'default',
+      hasDatabaseHandle: true,
+    });
     dbMainMocks.initializeMainDatabase.mockReset();
     dbMainMocks.initializeMainDatabase.mockResolvedValue(undefined);
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockReset();
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: createReadyBootstrapProbeReport().bootstrapReport,
+      initialized: true,
+    });
     dbMainMocks.resetLocalDatabase.mockReset();
     dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs.mockClear();
   });
@@ -105,15 +157,129 @@ describe('db-host-entry', () => {
     });
     await flushMicrotasks();
 
-    expect(dbMainMocks.initializeMainDatabase).toHaveBeenCalledTimes(1);
+    expect(dbMainMocks.initializeMainDatabaseWithBootstrapReport).toHaveBeenCalledTimes(1);
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       id: 'init-request',
       kind: 'response',
       ok: true,
-      result: { initialized: true },
+      result: {
+        bootstrapReport: expect.objectContaining({
+          phase: 'ready',
+          profileId: 'default',
+          ready: true,
+          runtime: {
+            engine: 'pglite',
+            host: 'electron-utility',
+            persistence: 'filesystem',
+          },
+        }),
+        initialized: true,
+      },
     });
+    const initResponse = parentPort.postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === 'object' &&
+        message !== null &&
+        'id' in message &&
+        message.id === 'init-request'
+    )?.[0] as { result?: { bootstrapReport?: { checks?: readonly { id: string }[] } } };
+    expect(initResponse.result?.bootstrapReport?.checks?.map((check) => check.id)).toEqual([
+      'store.open',
+      'schema.migrated',
+      'extension.pgvector',
+      'extension.pg_trgm',
+      'search.fts-grep',
+      'capability.transaction',
+      'capability.live-query',
+      'queue.table',
+      'assistant-memory.run-usage',
+      'assistant-memory.mastra-schema',
+      'workspace-index.system-role',
+      'store.close',
+    ]);
     expect(parentPort.postMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ id: 'unknown' })
+    );
+  });
+
+  it('returns a blocked bootstrap report without opening the long-lived DB handle', async () => {
+    const blockedReport = createReadyBootstrapProbeReport();
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: {
+        ...blockedReport.bootstrapReport,
+        checks: blockedReport.bootstrapReport.checks.map((check) =>
+          check.id === 'queue.table' ? { ...check, status: 'failed' } : check
+        ),
+        phase: 'blocked',
+        ready: false,
+      },
+      initialized: false,
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'init-request',
+        kind: 'request',
+        request: { kind: 'init' },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'init-request',
+      kind: 'response',
+      ok: true,
+      result: {
+        bootstrapReport: expect.objectContaining({
+          phase: 'blocked',
+          ready: false,
+        }),
+        initialized: false,
+      },
+    });
+  });
+
+  it('blocks query requests when lazy bootstrap reports not ready', async () => {
+    const blockedReport = createReadyBootstrapProbeReport().bootstrapReport;
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: {
+        ...blockedReport,
+        phase: 'blocked',
+        ready: false,
+      },
+      initialized: false,
+    });
+    const query = vi.fn(async () => ({ rows: [] }));
+    dbMainMocks.getDatabase.mockResolvedValue({ query });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'query-request',
+        kind: 'request',
+        request: {
+          kind: 'query',
+          sql: 'SELECT 1',
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(dbMainMocks.initializeMainDatabaseWithBootstrapReport).toHaveBeenCalledTimes(1);
+    expect(dbMainMocks.getDatabase).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: 'DB host bootstrap blocked during blocked.',
+        }),
+        id: 'query-request',
+        kind: 'response',
+        ok: false,
+      })
     );
   });
 
