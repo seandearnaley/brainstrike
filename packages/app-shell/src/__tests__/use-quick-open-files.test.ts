@@ -2,10 +2,10 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const usePGliteLiveQueryMock = vi.fn();
+const useBrainstrikeLiveQueryMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+  useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
   QUICK_OPEN_MAX_LIMIT: 50,
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
@@ -43,7 +43,7 @@ interface DbRow {
 }
 
 function mockRows(rows: DbRow[], loading = false): void {
-  usePGliteLiveQueryMock.mockReturnValue({ rows, loading, error: null, refresh: vi.fn() });
+  useBrainstrikeLiveQueryMock.mockReturnValue({ rows, loading, error: null, refresh: vi.fn() });
 }
 
 function setRoots(
@@ -70,7 +70,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  usePGliteLiveQueryMock.mockReset();
+  useBrainstrikeLiveQueryMock.mockReset();
   adapterByDbRootId = new Map();
   setRoots([], {});
 });
@@ -196,7 +196,7 @@ describe('useQuickOpenFiles', () => {
     const { result } = renderSettled('   ');
 
     expect(result.current.files).toEqual([]);
-    const options = usePGliteLiveQueryMock.mock.calls.at(-1)?.[0] as { enabled?: boolean };
+    const options = useBrainstrikeLiveQueryMock.mock.calls.at(-1)?.[0] as { enabled?: boolean };
     expect(options.enabled).toBe(false);
   });
 
@@ -206,7 +206,7 @@ describe('useQuickOpenFiles', () => {
 
     renderSettled('  read  ');
 
-    const options = usePGliteLiveQueryMock.mock.calls.at(-1)?.[0] as {
+    const options = useBrainstrikeLiveQueryMock.mock.calls.at(-1)?.[0] as {
       params?: readonly unknown[];
       mode?: string;
       key?: string;

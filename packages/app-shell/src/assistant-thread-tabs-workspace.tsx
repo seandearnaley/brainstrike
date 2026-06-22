@@ -1,8 +1,8 @@
 import {
+  useBrainstrikeDbClient,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
-  usePGliteDatabase,
 } from '@brainstrike/db';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
@@ -34,7 +34,7 @@ export function AssistantThreadTabsWorkspace({
   initialProviders,
   loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
-  const database = usePGliteDatabase();
+  const database = useBrainstrikeDbClient();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
@@ -174,7 +174,9 @@ export function AssistantThreadTabsWorkspace({
   }, [ensureResourceThreads, repository, resourceId]);
 
   if (!repository && databaseStartupLoading) {
-    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+    return (
+      <ThreadWorkspaceState description="Loading assistant memory database." title="Loading" />
+    );
   }
 
   if (!repository && databaseError) {
@@ -190,7 +192,7 @@ export function AssistantThreadTabsWorkspace({
   if (!repository) {
     return (
       <ThreadWorkspaceState
-        description="Assistant memory requires an initialized PGlite database."
+        description="Assistant memory requires an initialized database."
         title="Memory database unavailable"
         variant="error"
       />
@@ -208,7 +210,9 @@ export function AssistantThreadTabsWorkspace({
   }
 
   if (loadState?.status === 'loading' && openThreadIds.length === 0) {
-    return <ThreadWorkspaceState description="Loading PGlite-backed threads." title="Loading" />;
+    return (
+      <ThreadWorkspaceState description="Loading assistant memory database." title="Loading" />
+    );
   }
 
   return (

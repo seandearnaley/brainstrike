@@ -4,7 +4,7 @@ import {
   QUICK_OPEN_MAX_LIMIT,
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
-  usePGliteLiveQuery,
+  useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
@@ -66,7 +66,7 @@ function resolveMentionAdapterRootId(
 
 /**
  * Debounce window for the "@" mention query. Each distinct query spins up a new
- * PGlite live subscription, so we wait for typing to settle before resubscribing
+ * database live subscription, so we wait for typing to settle before resubscribing
  * (mirrors the ⌘P quick-open debounce).
  */
 const FILE_MENTION_DEBOUNCE_MS = 150;
@@ -104,7 +104,7 @@ export function useFileMentions(query: string): UseFileMentionsResult {
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
 
-  const { rows, loading } = usePGliteLiveQuery<QuickOpenFileRow>({
+  const { rows, loading } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('file-mention', debounced),
     query: QUICK_OPEN_NAME_SEARCH_SQL,
     params: [debounced, QUICK_OPEN_MAX_LIMIT],

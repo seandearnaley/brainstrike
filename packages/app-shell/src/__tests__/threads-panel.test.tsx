@@ -44,7 +44,7 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
   useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  useBrainstrikeDbClient: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
