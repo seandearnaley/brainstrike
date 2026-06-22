@@ -186,21 +186,18 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   it('should throw error when electron dialog is unavailable', async () => {
-    vi.resetModules();
-    vi.doMock('electron', () => ({}));
-    // re-import adapter to pick up failing import
-    const { ElectronFileSystemAdapter: FailingAdapter } = await import(
-      '../adapters/electron-adapter'
-    );
-    const failing = new FailingAdapter();
-    await expect(failing.requestDirectoryAccess()).rejects.toThrow(
-      'Electron is not available - this adapter should only be used in the main process'
-    );
-    vi.doUnmock('electron');
-    vi.doMock('electron', () => ({
-      dialog: { showOpenDialog: vi.fn() },
-    }));
-    vi.resetModules();
+    const { dialog } = await import('electron');
+    const dialogMock = dialog as unknown as { showOpenDialog?: unknown };
+    const originalShowOpenDialog = dialogMock.showOpenDialog;
+    dialogMock.showOpenDialog = undefined;
+
+    try {
+      await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
+        'Electron is not available - this adapter should only be used in the main process'
+      );
+    } finally {
+      dialogMock.showOpenDialog = originalShowOpenDialog;
+    }
   });
 
   it('should throw AccessError when selected path is not a directory', async () => {
@@ -314,16 +311,25 @@ describe('ElectronFileSystemAdapter', () => {
     await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
 
     // Verify chokidar was initialized correctly
-    expect(chokidar.default.watch).toHaveBeenCalledWith(tempDir, {
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 100,
-        pollInterval: 100,
-      },
-      ignored: /(^|[/\\])\../,
-      depth: 0,
-    });
+    expect(chokidar.default.watch).toHaveBeenCalledWith(
+      tempDir,
+      expect.objectContaining({
+        ignoreInitial: true,
+        persistent: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 100,
+        },
+        followSymlinks: false,
+        atomic: true,
+        ignored: expect.any(Function),
+      })
+    );
+    const watchOptions = vi.mocked(chokidar.default.watch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(watchOptions).not.toHaveProperty('depth');
 
     // Simulate file addition
     const addCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'add')?.[1];
@@ -332,6 +338,7 @@ describe('ElectronFileSystemAdapter', () => {
       addCallback(filePath);
     }
 
+    await waitForCondition(() => callback.mock.calls.length > 0);
     expect(callback).toHaveBeenCalledWith([{ type: 'added', path: filePath, kind: 'file' }]);
 
     stop();
@@ -368,7 +375,7 @@ describe('ElectronFileSystemAdapter', () => {
     await waitForCondition(() => fsWatchSpy.mock.calls.length > 0);
 
     // Verify fs.watch was called as fallback
-    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: false }, expect.any(Function));
+    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: true }, expect.any(Function));
 
     // Since fs.watch callback testing is complex due to overloads, just verify the watcher was set up
     // The actual functionality is tested in integration tests
@@ -587,6 +594,7 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       // Callback should have been called
+      await waitForCondition(() => callback.mock.calls.length > 0);
       expect(callback).toHaveBeenCalled();
     });
   });

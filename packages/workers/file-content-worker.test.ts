@@ -317,6 +317,22 @@ describe('file-content-worker', () => {
     expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
   });
 
+  it('rejects text extension files with null bytes beyond the initial sample', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/late-null.txt');
+    MockFileSystemAdapter.setMockFileContent(
+      '/late-null.txt',
+      `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+    );
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(true);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+  });
+
   it('accepts unknown extension file with text content', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });

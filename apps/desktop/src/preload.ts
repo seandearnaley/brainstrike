@@ -10,6 +10,10 @@ const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT =
   'assistant:workspace-context-tapestry-update' as const;
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
+const DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL =
+  'db:managed-cache:invalidate-by-identity' as const;
+const DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL =
+  'db:chunks:insert-and-enqueue-embedding-jobs' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
 const DB_DIAGNOSTICS_CHANNEL = 'db:diagnostics' as const;
@@ -54,6 +58,8 @@ const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
 const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
 const APP_POWER_SNAPSHOT_CHANNEL = 'app:power-snapshot' as const;
 const APP_POWER_STATE_EVENT = 'app:power-state' as const;
+const COMMAND_PALETTE_OPEN_EVENT = 'command-palette:open' as const;
+const QUICK_OPEN_OPEN_EVENT = 'quick-open:open' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -65,14 +71,34 @@ const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapsh
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const GIT_STATUS_CHANNEL = 'git:status' as const;
+const GIT_DIFF_CHANNEL = 'git:diff' as const;
+const GIT_STAGE_CHANNEL = 'git:stage' as const;
+const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
+const GIT_COMMIT_CHANNEL = 'git:commit' as const;
+const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
+const GIT_PUSH_CHANNEL = 'git:push' as const;
+const GIT_PULL_CHANNEL = 'git:pull' as const;
+const TERMINAL_CREATE_CHANNEL = 'terminal:create' as const;
+const TERMINAL_WRITE_CHANNEL = 'terminal:write' as const;
+const TERMINAL_RESIZE_CHANNEL = 'terminal:resize' as const;
+const TERMINAL_DESTROY_CHANNEL = 'terminal:destroy' as const;
+const TERMINAL_DATA_EVENT = 'terminal:data' as const;
+const TERMINAL_EXIT_EVENT = 'terminal:exit' as const;
 
-import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
+import type {
+  ApplyManagedCacheBatchArgs,
+  ApplyManagedCacheInvalidationsArgs,
+  ManagedCacheInvalidationResult,
+} from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
   DatabaseWorkOptions,
+  ElectronChunkInsert,
+  ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -84,6 +110,7 @@ import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences'
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
+  EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
 } from './embedding-host-shared';
@@ -100,6 +127,7 @@ const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop' as const;
 const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
+const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = 'embedding-host:query-embedding' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
 const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
   'embedding-host:query-embedding-request' as const;
@@ -226,6 +254,47 @@ function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
 }
 
+function assertPreloadNonEmptyString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function assertPreloadPositiveInteger(value: unknown, message: string): number {
+  if (!Number.isInteger(value) || (value as number) <= 0) {
+    throw new Error(message);
+  }
+  return value as number;
+}
+
+function assertEmbeddingHostQueryEmbeddingPayload(
+  value: unknown
+): EmbeddingHostQueryEmbeddingPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host query embedding payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    dimensions: assertPreloadPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    ),
+    modelId: assertPreloadNonEmptyString(
+      payload['modelId'],
+      'Embedding host query embedding payload.modelId must be a non-empty string.'
+    ),
+    modelKey: assertPreloadNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    ),
+    query: assertPreloadNonEmptyString(
+      payload['query'],
+      'Embedding host query embedding payload.query must be a non-empty string.'
+    ),
+  };
+}
+
 function createDisabledLocalRuntimeAvailability() {
   return {
     state: 'unavailable' as const,
@@ -250,6 +319,15 @@ type LlmHostLifecycleState = EmbeddingHostLifecycleState;
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly embeddingRuntime?: {
+    readonly actualWorkerMetadata: {
+      readonly device: 'webgpu' | 'wasm';
+      readonly dtype: string;
+      readonly fallbackApplied: boolean;
+    } | null;
+    readonly backendMismatch: boolean;
+    readonly selectedDevicePreference: 'webgpu' | 'wasm';
+  };
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';
@@ -467,6 +545,26 @@ if (shouldExposeBridge('electronAPI')) {
         payload: ApplyManagedCacheBatchArgs,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload, options),
+      invalidateManagedCacheEntriesByIdentity: (
+        payload: ApplyManagedCacheInvalidationsArgs,
+        options?: DatabaseWorkOptions
+      ): Promise<ManagedCacheInvalidationResult> =>
+        ipcRenderer.invoke(
+          DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+          payload,
+          options
+        ),
+      insertChunksAndEnqueueEmbeddingJobs: (
+        chunks: readonly ElectronChunkInsert[],
+        fileRecordId: string,
+        options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+        workOptions?: DatabaseWorkOptions
+      ): Promise<void> =>
+        ipcRenderer.invoke(
+          DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+          { chunks, fileRecordId, options },
+          workOptions
+        ),
       ping: () => ipcRenderer.invoke(DB_PING_CHANNEL),
       diagnostics: () => ipcRenderer.invoke(DB_DIAGNOSTICS_CHANNEL),
       schedulerSnapshot: () => ipcRenderer.invoke(DB_SCHEDULER_SNAPSHOT_CHANNEL),
@@ -749,6 +847,32 @@ contextBridge.exposeInMainWorld('power', {
   },
 });
 
+// ⌘K command palette: the app menu's Cmd+K accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) can open the palette. Mirrors
+// the other one-way main→renderer `on*` bridges (e.g. power.onPowerState).
+contextBridge.exposeInMainWorld('commandPalette', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(COMMAND_PALETTE_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(COMMAND_PALETTE_OPEN_EVENT, listener);
+    };
+  },
+});
+
+// ⌘P quick-open: the app menu's Cmd+P accelerator pushes this event to the
+// focused window so the renderer (visible-UI root) opens the quick-open finder.
+// Mirrors the commandPalette one-way main→renderer bridge.
+contextBridge.exposeInMainWorld('quickOpen', {
+  onOpen: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(QUICK_OPEN_OPEN_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(QUICK_OPEN_OPEN_EVENT, listener);
+    };
+  },
+});
+
 contextBridge.exposeInMainWorld('embeddingHost', {
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
@@ -760,6 +884,11 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
   getBackfillsInFlight: (): Promise<EmbeddingHostBackfillInfo[]> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
+  queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> =>
+    ipcRenderer.invoke(
+      EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
+      assertEmbeddingHostQueryEmbeddingPayload(payload)
+    ),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
   getStatus: (): Promise<EmbeddingHostStatus> =>
@@ -917,5 +1046,68 @@ if (shouldExposeBridge('platform')) {
     openPath: (absolutePath: string) => ipcRenderer.invoke(SHELL_OPEN_PATH_CHANNEL, absolutePath),
     showItemInFolder: (absolutePath: string) =>
       ipcRenderer.invoke(SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL, absolutePath),
+  });
+}
+
+// Git bridge (desktop-only): typed git operations on a workspace root. Every
+// call passes the durable `rootId` (DB roots.id) — main resolves + containment-
+// checks it to an absolute cwd and runs git via execFile (no shell). Web never
+// constructs this bridge (there is no preload), so `window.git` is simply
+// absent there; consumers must capability-check `window.git` rather than
+// `isElectron()`. The Git panel UI lands in a later PR.
+if (shouldExposeBridge('git')) {
+  contextBridge.exposeInMainWorld('git', {
+    status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    diff: (rootId: string, params?: { path?: string; staged?: boolean; untracked?: boolean }) =>
+      ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params ?? {}),
+    stage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
+    unstage: (rootId: string, params?: { path?: string }) =>
+      ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+    commit: (rootId: string, params: { message: string }) =>
+      ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
+    aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
+    push: (rootId: string) => ipcRenderer.invoke(GIT_PUSH_CHANNEL, rootId),
+    pull: (rootId: string) => ipcRenderer.invoke(GIT_PULL_CHANNEL, rootId),
+  });
+}
+
+// Terminal bridge (desktop-only): a PTY backend for a future TerminalPanel.
+// `create` pins the shell cwd to a validated workspace `rootId` (main resolves
+// + containment-checks it, no shell-string injection in the spawn). Output and
+// exit are pushed one-way to THIS renderer over `terminal:data` / `terminal:exit`;
+// `onData`/`onExit` register a listener and return an unsubscribe fn. Web never
+// constructs this bridge (no preload), so consumers must capability-check
+// `window.terminal`. The xterm UI lands in the next PR.
+if (shouldExposeBridge('terminal')) {
+  contextBridge.exposeInMainWorld('terminal', {
+    create: (params: { rootId: string; cols?: number; rows?: number }) =>
+      ipcRenderer.invoke(TERMINAL_CREATE_CHANNEL, params),
+    write: (params: { terminalId: string; data: string }) =>
+      ipcRenderer.invoke(TERMINAL_WRITE_CHANNEL, params),
+    resize: (params: { terminalId: string; cols: number; rows: number }) =>
+      ipcRenderer.invoke(TERMINAL_RESIZE_CHANNEL, params),
+    destroy: (params: { terminalId: string }) =>
+      ipcRenderer.invoke(TERMINAL_DESTROY_CHANNEL, params),
+    onData: (callback: (event: { terminalId: string; data: string }) => void) => {
+      const listener = (_event: unknown, payload: { terminalId: string; data: string }) =>
+        callback(payload);
+      ipcRenderer.on(TERMINAL_DATA_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_DATA_EVENT, listener);
+      };
+    },
+    onExit: (
+      callback: (event: { terminalId: string; exitCode: number; signal: number | null }) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload: { terminalId: string; exitCode: number; signal: number | null }
+      ) => callback(payload);
+      ipcRenderer.on(TERMINAL_EXIT_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(TERMINAL_EXIT_EVENT, listener);
+      };
+    },
   });
 }

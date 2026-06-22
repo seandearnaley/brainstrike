@@ -13,6 +13,7 @@ interface VectorPreferencesData {
 }
 
 interface VectorPreferencesActions {
+  markHydrated: () => void;
   setDetectedDevicePref: (v: DevicePref) => void;
   setDevicePref: (v: DevicePref) => void;
   setReinitEveryN: (n: number) => void;
@@ -22,6 +23,8 @@ interface VectorPreferencesActions {
 export type VectorPreferencesStore = VectorPreferencesData & VectorPreferencesActions;
 
 const STORE_NAME = 'vector-preferences.v1' as const;
+const AUTOMATIC_WASM_DETECTION_ERROR =
+  'Automatic vector device detection cannot persist WASM. Configure WASM explicitly if you need the slow/debug backend.';
 
 interface ElectronStorageBridge {
   readonly getItem: (key: string) => Promise<string | null>;
@@ -62,6 +65,48 @@ function createVectorPreferencesStorage() {
   return createBrowserJsonStorage();
 }
 
+function normalizePersistedVectorPreferences(
+  persistedState: Partial<VectorPreferencesStore> & {
+    devicePrefConfigured?: boolean | null;
+    devicePref?: string | null;
+  }
+): Partial<VectorPreferencesStore> {
+  const devicePrefConfigured = persistedState.devicePrefConfigured === true;
+  const parsedDevicePref = persistedState.devicePref === 'wasm' ? 'wasm' : 'webgpu';
+  return {
+    devicePrefConfigured,
+    devicePref: devicePrefConfigured ? parsedDevicePref : 'webgpu',
+    reinitEveryN: persistedState.reinitEveryN ?? 200,
+    verboseOrtLogs: persistedState.verboseOrtLogs ?? false,
+  };
+}
+
+interface VectorPreferencesPersistApi {
+  readonly hasHydrated?: () => boolean;
+  readonly onFinishHydration?: (listener: (state: VectorPreferencesStore) => void) => () => void;
+  readonly rehydrate?: () => Promise<void>;
+}
+
+type BoundVectorPreferencesStore = ReturnType<ReturnType<typeof create<VectorPreferencesStore>>>;
+
+function installVectorPreferencesHydrationMarker(store: BoundVectorPreferencesStore): void {
+  const persistApi = (
+    store as BoundVectorPreferencesStore & {
+      persist?: VectorPreferencesPersistApi;
+    }
+  ).persist;
+
+  persistApi?.onFinishHydration?.((state) => {
+    if (!state.hasHydrated) {
+      store.setState({ hasHydrated: true });
+    }
+  });
+
+  if (persistApi?.hasHydrated?.() && !store.getState().hasHydrated) {
+    store.setState({ hasHydrated: true });
+  }
+}
+
 /**
  * Desktop renderers must share preferences through the Electron storage bridge so
  * hidden hosts observe the same canonical settings as the visible UI.
@@ -77,7 +122,13 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: false,
-      setDetectedDevicePref: (v) => set({ devicePref: v, devicePrefConfigured: false }),
+      markHydrated: () => set({ hasHydrated: true }),
+      setDetectedDevicePref: (v) => {
+        if (v === 'wasm') {
+          throw new Error(AUTOMATIC_WASM_DETECTION_ERROR);
+        }
+        set({ devicePref: v, devicePrefConfigured: false });
+      },
       setDevicePref: (v) => set({ devicePref: v, devicePrefConfigured: true }),
       setReinitEveryN: (n) => set({ reinitEveryN: Math.max(1, Math.floor(n)) }),
       setVerboseOrtLogs: (v) => set({ verboseOrtLogs: !!v }),
@@ -93,11 +144,11 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         verboseOrtLogs: s.verboseOrtLogs,
       }),
       onRehydrateStorage: () => (_state, error) => {
-        if (!error) {
-          useVectorPreferencesStore.setState({ hasHydrated: true });
+        if (error) {
+          return;
         }
       },
-      migrate: (persistedState, version) => {
+      migrate: (persistedState) => {
         if (!persistedState) {
           // Return explicit defaults so Zustand never sees undefined fields
           // during hydration — hooks read state.devicePref synchronously and
@@ -109,29 +160,17 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
             verboseOrtLogs: false,
           } satisfies Partial<VectorPreferencesStore>;
         }
-        if (version >= 3) {
-          return persistedState as Partial<VectorPreferencesStore>;
-        }
         const state = persistedState as Partial<VectorPreferencesStore> & {
           devicePrefConfigured?: boolean | null;
           devicePref?: string | null;
         };
-        const nextDevicePref = state.devicePref === 'wasm' ? 'wasm' : ('webgpu' as DevicePref);
-        return {
-          devicePrefConfigured: state.devicePrefConfigured === true,
-          devicePref: nextDevicePref,
-          reinitEveryN: state.reinitEveryN ?? 200,
-          verboseOrtLogs: state.verboseOrtLogs ?? false,
-        } satisfies Partial<VectorPreferencesStore>;
+        return normalizePersistedVectorPreferences(state);
       },
     }
   )
 );
 
-interface VectorPreferencesPersistApi {
-  readonly hasHydrated?: () => boolean;
-  readonly rehydrate?: () => Promise<void>;
-}
+installVectorPreferencesHydrationMarker(useVectorPreferencesStore);
 
 export async function ensureVectorPreferencesHydrated(options?: {
   forceReload?: boolean;
@@ -155,7 +194,11 @@ export async function ensureVectorPreferencesHydrated(options?: {
     await rehydrate();
   }
 
-  if (!hasHydrated()) {
+  if (hasHydrated() && !useVectorPreferencesStore.getState().hasHydrated) {
+    useVectorPreferencesStore.setState({ hasHydrated: true });
+  }
+
+  if (!(hasHydrated() || useVectorPreferencesStore.getState().hasHydrated)) {
     throw new Error('Vector preferences store failed to hydrate.');
   }
 

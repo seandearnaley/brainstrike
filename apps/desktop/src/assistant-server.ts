@@ -27,6 +27,7 @@ import {
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
+  resolveRequestPermissionPolicy,
   sanitizeAssistantRunEventMetadata,
   streamMastraToolApprovalAction,
   toAiSdkStyleStream,
@@ -54,12 +55,16 @@ interface AgentStreamFailure {
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
-import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import {
+  buildDesktopAssistantTools,
+  readWorkspaceTextFile,
+} from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import {
   type AssistantLlmHostManager,
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
+import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
@@ -1071,18 +1076,39 @@ async function initializeAgentStream(
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
-  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
+  //
+  // `permissionPolicyRequest` (renderer-supplied) is stripped here and resolved
+  // into the TRUSTED `permissionPolicy` below: only when the user opted in
+  // (`enforce: true`) is a snapshot built (with server-owned tool risk
+  // classification); otherwise `permissionPolicy` stays unset and the runtime
+  // gate is a no-op (passthrough — current production behavior). A malformed
+  // policy is NOT repaired here; it surfaces from the runtime resolver.
+  const {
+    mcpConfig: _ignoredMcpConfig,
+    // Strip any client-supplied `permissionPolicy`: the runtime gate TRUSTS this
+    // field, so it must only ever be the server-resolved snapshot below — a
+    // client must not be able to inject `riskByTool` or bypass the opt-in.
+    permissionPolicy: _ignoredClientPermissionPolicy,
+    permissionPolicyRequest,
+    ...runtimeWithoutMcpConfig
+  } = runtimeData ?? {};
+  const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
   try {
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
       mcpEnabled: true,
+      // The execute-risk shell tool is registered like every other native tool;
+      // the permission gate (enforce-on-by-default → execute:ask) suspends the
+      // run for per-call approval before it executes, so it is no longer gated at
+      // registration time.
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
       signal, // ← AbortSignal passed here, used by stream iterator
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
+      ...(permissionPolicy ? { permissionPolicy } : {}),
     };
     // Cold model loads (multi-GB download) exceed the generate request's hard
     // 5-minute ceiling, so warm the host (20-minute ceiling, progress-aware)
@@ -1116,6 +1142,12 @@ async function initializeAgentStream(
         },
       };
     }
+    // @file context-insert: resolve any `:file[…]{name=…}` directives in the
+    // current turn's user message into a prepended `system` context message
+    // carrying the referenced files' content. Uses the same containment/size/
+    // binary-guarded reader as the read tools; unresolvable references surface a
+    // visible note rather than being silently dropped. Skipped on the approval-
+    // resume path (no new user turn to scan).
     const stream = toolApprovalAction
       ? await streamMastraToolApprovalAction(toolApprovalAction, {
           ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
@@ -1123,7 +1155,7 @@ async function initializeAgentStream(
           runtime,
         })
       : await toAiSdkStyleStream(
-          messages,
+          await injectReferencedFilesContext(messages, runtime, readWorkspaceTextFile),
           runtime,
           memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}
         );

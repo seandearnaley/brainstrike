@@ -1,6 +1,6 @@
 import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChunkingHostRuntime } from '../../../renderer/components/chunking-host-runtime';
 
 const { ensureStartedMock, getChunkingStrategyMock } = vi.hoisted(() => ({
@@ -75,6 +75,10 @@ describe('ChunkingHostRuntime', () => {
     };
 
     window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=test-runtime');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('loads file content by id inside the hidden host before chunking', async () => {
@@ -277,6 +281,82 @@ describe('ChunkingHostRuntime', () => {
         })
       );
     });
+  });
+
+  it('emits liveness progress while a chunk-file-by-id request is pending', async () => {
+    vi.useFakeTimers();
+    let resolveQuery:
+      | ((value: { rows: Array<{ content: string; name: string; path: string }> }) => void)
+      | null = null;
+    dbQueryMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQuery = resolve;
+        })
+    );
+    chunkFileMock.mockResolvedValue({
+      chunks: [],
+      fileRecordId: 'file-1',
+      id: 'req-heartbeat',
+      skipped: true,
+      skipReason: 'Empty file content',
+      strategyUsed: 'sentence',
+      totalTokens: 0,
+      type: 'result',
+    });
+
+    render(<ChunkingHostRuntime />);
+
+    await act(async () => {
+      onRequestCallback?.({
+        type: 'request',
+        channel: 'chunk',
+        requestId: 'req-heartbeat',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'chunk-file-by-id',
+          requestId: 'req-heartbeat',
+          fileRecordId: 'file-1',
+          options: {},
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(reportResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'progress',
+        channel: 'chunk',
+        requestId: 'req-heartbeat',
+        runtimeId: 'test-runtime',
+        payload: {
+          chunksCreated: 0,
+          fileRecordId: 'file-1',
+          currentIndex: 0,
+          totalFiles: 1,
+        },
+      })
+    );
+
+    await act(async () => {
+      resolveQuery?.({
+        rows: [{ name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: '' }],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(reportResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'result',
+        channel: 'chunk-result',
+        requestId: 'req-heartbeat',
+      })
+    );
   });
 
   it('stops cleanly if a request resolves after cleanup', async () => {

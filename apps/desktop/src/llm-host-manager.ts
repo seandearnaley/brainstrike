@@ -158,6 +158,7 @@ export class LlmHostManager {
   private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
   private controlState: RuntimeHostControlState | null = null;
+  private engineResetInFlight = false;
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<LlmHostStatus>({
@@ -254,6 +255,37 @@ export class LlmHostManager {
     }
   }
 
+  /**
+   * Escalate a persistent engine fault (reported with `errorDetails.engineReset`)
+   * to a full host-window reset. The renderer already disposed the ORT session,
+   * but GPU-memory exhaustion wedges the WebGPU DEVICE, and a transformers.js
+   * tensor-disposal leak (huggingface/transformers.js#860) keeps the leaked
+   * buffers alive — only recreating the host window gives a fresh device. Fired
+   * only when the renderer's own dispose+retry already failed, so it is not
+   * over-aggressive. Debounced via `engineResetInFlight` so a burst of failed
+   * requests triggers at most one reset; skipped while disposed or already
+   * resetting.
+   */
+  private scheduleHostResetAfterEngineFault(requestId: string): void {
+    if (this.disposed || this.engineResetInFlight || this.controlState === 'resetting') {
+      return;
+    }
+    this.engineResetInFlight = true;
+    logger.warn('Recovering the llm host WebGPU device with a window reset after an engine fault', {
+      requestId,
+    });
+    void this.reset()
+      .catch((error) => {
+        logger.error('Llm host window reset after engine fault failed', {
+          error: error instanceof Error ? error.message : String(error),
+          requestId,
+        });
+      })
+      .finally(() => {
+        this.engineResetInFlight = false;
+      });
+  }
+
   async dispose(): Promise<void> {
     try {
       await this.stop();
@@ -333,6 +365,13 @@ export class LlmHostManager {
           ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
           : report.payload.errorMessage;
       pending.reject(createRequestFailure(enrichedMessage));
+      // A persistent engine fault means the renderer already disposed the ORT
+      // session but the WebGPU device stays wedged (GPU-memory exhaustion +
+      // transformers.js#860 tensor leak). Escalate to a host-window reset so the
+      // NEXT generation runs on a fresh device instead of failing forever.
+      if (report.payload.errorDetails?.engineReset) {
+        this.scheduleHostResetAfterEngineFault(report.requestId);
+      }
       return;
     }
     pending.resolve(report.payload.result);

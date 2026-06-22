@@ -74,6 +74,36 @@ describe('device-detection', () => {
       expect(caps.recommendedDevice).toBe('webgpu');
     });
 
+    it('detects WebGPU when adapter info is exposed as a standard property', async () => {
+      const mockAdapter = {
+        isFallbackAdapter: false,
+        features: new Set(['shader-f16']),
+        info: {
+          vendor: 'apple',
+          architecture: 'apple-gpu',
+          description: 'Apple GPU',
+        },
+        limits: {
+          maxBufferSize: 2_147_483_647,
+          maxComputeWorkgroupsPerDimension: 65_535,
+          maxStorageBufferBindingSize: 2_147_483_647,
+        },
+      };
+
+      vi.stubGlobal('navigator', {
+        gpu: {
+          requestAdapter: vi.fn().mockResolvedValue(mockAdapter),
+        },
+      });
+
+      const caps = await detectDeviceCapabilities();
+
+      expect(caps.webgpuAdapterAvailable).toBe(true);
+      expect(caps.webgpuAdapterInfo?.vendor).toBe('apple');
+      expect(caps.webgpuAdapterInfo?.description).toBe('Apple GPU');
+      expect(caps.recommendedDevice).toBe('webgpu');
+    });
+
     it('handles missing WebGPU API', async () => {
       vi.stubGlobal('navigator', {});
 

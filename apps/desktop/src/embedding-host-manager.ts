@@ -319,12 +319,16 @@ export class EmbeddingHostManager {
     }
 
     const currentStatus = this.lifecycle.getStatus();
-    const nextStatus = EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
+    const baseStatus = EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
       state: report.state,
       active: report.active,
       lastError: report.lastError,
       runtimeId: report.runtimeId,
     });
+    const nextStatus: EmbeddingHostStatus = {
+      ...baseStatus,
+      ...(report.embeddingRuntime ? { embeddingRuntime: report.embeddingRuntime } : {}),
+    };
     if (
       currentStatus.runtimeId !== EMBEDDING_HOST_STOPPED_RUNTIME_ID &&
       currentStatus.runtimeId !== nextStatus.runtimeId

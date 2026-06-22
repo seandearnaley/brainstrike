@@ -168,7 +168,8 @@ export interface RuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<stri
 
 function areRuntimeStatusesEqual<TStatus extends BackgroundRuntimeStatus<string>>(
   left: TStatus,
-  right: TStatus
+  right: TStatus,
+  allowedExtensionKeys: ReadonlySet<string>
 ): boolean {
   // BackgroundRuntimeStatus intentionally treats these five fields as the canonical runtime
   // contract. If a runtime status adds another UI-significant field, update this comparison at
@@ -178,7 +179,12 @@ function areRuntimeStatusesEqual<TStatus extends BackgroundRuntimeStatus<string>
     left.runtimeId === right.runtimeId &&
     left.state === right.state &&
     left.active === right.active &&
-    left.lastError === right.lastError
+    left.lastError === right.lastError &&
+    [...allowedExtensionKeys].every(
+      (key) =>
+        JSON.stringify((left as Record<string, unknown>)[key]) ===
+        JSON.stringify((right as Record<string, unknown>)[key])
+    )
   );
 }
 
@@ -192,10 +198,16 @@ const canonicalRuntimeStatusKeys = new Set<keyof BackgroundRuntimeStatus<string>
 
 function assertCanonicalRuntimeStatusShape<TStatus extends BackgroundRuntimeStatus<string>>(
   status: TStatus,
-  context: string
+  context: string,
+  allowedExtensionKeys: ReadonlySet<string> = new Set()
 ): TStatus {
   for (const key of Object.keys(status)) {
-    if (!canonicalRuntimeStatusKeys.has(key as keyof BackgroundRuntimeStatus<string>)) {
+    if (
+      !(
+        canonicalRuntimeStatusKeys.has(key as keyof BackgroundRuntimeStatus<string>) ||
+        allowedExtensionKeys.has(key)
+      )
+    ) {
       throw new Error(`${context} must not include non-canonical status field "${key}".`);
     }
   }
@@ -421,10 +433,14 @@ export function assertRuntimeRequestPayloadBase<TKind extends string>(
 }
 
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(
-  initialStatus: TStatus
+  initialStatus: TStatus,
+  options?: {
+    readonly allowedExtensionKeys?: readonly string[];
+  }
 ): RuntimeStatusStore<TStatus> {
+  const allowedExtensionKeys = new Set(options?.allowedExtensionKeys ?? []);
   let currentStatus = cloneRuntimeStatus(
-    assertCanonicalRuntimeStatusShape(initialStatus, 'Runtime status')
+    assertCanonicalRuntimeStatusShape(initialStatus, 'Runtime status', allowedExtensionKeys)
   );
   const listeners = new Set<(status: TStatus) => void>();
 
@@ -432,9 +448,9 @@ export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus
     getStatus: () => cloneRuntimeStatus(currentStatus),
     setStatus: (status: TStatus) => {
       const nextStatus = cloneRuntimeStatus(
-        assertCanonicalRuntimeStatusShape(status, 'Runtime status')
+        assertCanonicalRuntimeStatusShape(status, 'Runtime status', allowedExtensionKeys)
       );
-      if (areRuntimeStatusesEqual(currentStatus, nextStatus)) {
+      if (areRuntimeStatusesEqual(currentStatus, nextStatus, allowedExtensionKeys)) {
         return cloneRuntimeStatus(currentStatus);
       }
       currentStatus = nextStatus;

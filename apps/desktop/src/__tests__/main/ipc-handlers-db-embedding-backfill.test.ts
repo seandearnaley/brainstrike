@@ -80,11 +80,19 @@ describe('database IPC embedding backfill handlers', () => {
       current: 0,
       total: 450,
     });
-    expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+    expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       source: 'manual',
       stage: 'backfill',
+      current: 450,
+      total: 450,
+    });
+    expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      embeddingSetId: 'set-123',
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+      source: 'manual',
+      stage: 'complete',
       current: 450,
       total: 450,
     });
@@ -168,9 +176,11 @@ describe('database IPC embedding backfill handlers', () => {
       source: 'background-indexing',
     });
 
-    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
-    expect(snapshot.priorityStats.background.completed).toBe(1);
-    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    await vi.waitFor(() => {
+      const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+      expect(snapshot.priorityStats.background.completed).toBe(1);
+      expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    });
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
       expect.any(Object),
       expect.any(Object),
@@ -179,6 +189,7 @@ describe('database IPC embedding backfill handlers', () => {
       expect.objectContaining({
         drainTimeoutMs: 86_400_000,
         queueCapacityTimeoutMs: 600_000,
+        rebuildDimensionIndexOnCompletion: false,
       })
     );
     expect(result).toEqual({
@@ -752,6 +763,37 @@ describe('database IPC embedding backfill handlers', () => {
     await expect(handler({ sender } as unknown, 'set-a')).rejects.toThrow(
       'Embedding backfill is already running for set set-a.'
     );
+    resolveBackfill?.();
+    await first;
+  });
+
+  it('embedding-host:enqueue-backfill attaches concurrent background-indexing submissions for the same set', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          resolveBackfill = () => resolve(undefined);
+        })
+    );
+
+    const sender = {
+      id: 46,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    const request = { embeddingSetId: 'set-a', source: 'background-indexing' };
+    const first = handler({ sender } as unknown, request);
+    const second = await handler({ sender } as unknown, request);
+
+    expect(second).toEqual({ requestId: expect.stringMatching(/^background-indexing-backfill:/) });
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
     resolveBackfill?.();
     await first;
   });

@@ -84,8 +84,6 @@ export interface WorkerClientError {
  *   terminate: () => { worker.terminate(); state = 'terminated'; },
  * };
  * ```
- *
- * @see apps/docs/docs/reference/adr/queue-boundaries.md
  */
 export interface WorkerClient {
   /**
@@ -134,8 +132,6 @@ export type WorkerClientWithTimeout = WorkerClient & {
  *
  * Provides standardized control semantics across durable (JobQueue) and
  * ephemeral (workerpool) queue implementations per ADR-0002.
- *
- * @see apps/docs/docs/reference/adr/queue-boundaries.md
  */
 export interface QueueAdapter {
   /** Submit a single task for execution */

@@ -30,10 +30,24 @@ describe('vector-preferences-store', () => {
     expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(true);
   });
 
-  it('updates detected device preference without marking it as user-configured', () => {
-    useVectorPreferencesStore.getState().setDetectedDevicePref('wasm');
+  it('updates detected WebGPU preference without marking it as user-configured', () => {
+    useVectorPreferencesStore.setState({
+      devicePref: 'wasm',
+      devicePrefConfigured: true,
+    });
 
-    expect(useVectorPreferencesStore.getState().devicePref).toBe('wasm');
+    useVectorPreferencesStore.getState().setDetectedDevicePref('webgpu');
+
+    expect(useVectorPreferencesStore.getState().devicePref).toBe('webgpu');
+    expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(false);
+  });
+
+  it('rejects automatic WASM detection instead of persisting a slow backend', () => {
+    expect(() => useVectorPreferencesStore.getState().setDetectedDevicePref('wasm')).toThrow(
+      'Automatic vector device detection cannot persist WASM.'
+    );
+
+    expect(useVectorPreferencesStore.getState().devicePref).toBe('webgpu');
     expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(false);
   });
 
@@ -99,7 +113,7 @@ describe('vector-preferences-store', () => {
     expect(afterClear).toBeNull();
   });
 
-  it('migrates legacy snapshots strictly and passes through v2 snapshots', () => {
+  it('migrates legacy snapshots strictly and repairs unconfigured WASM snapshots', () => {
     const options = storeWithPersist.persist?.getOptions?.();
     if (!options?.migrate) {
       throw new Error('persist migrate unavailable for test');
@@ -115,7 +129,7 @@ describe('vector-preferences-store', () => {
     });
     expect(options.migrate({ devicePref: 'wasm', reinitEveryN: 8 }, 1)).toEqual({
       devicePrefConfigured: false,
-      devicePref: 'wasm',
+      devicePref: 'webgpu',
       reinitEveryN: 8,
       verboseOrtLogs: false,
     });
@@ -129,18 +143,31 @@ describe('vector-preferences-store', () => {
     const v2Snapshot = { devicePref: 'wasm' as const, reinitEveryN: 32, verboseOrtLogs: true };
     expect(options.migrate(v2Snapshot, 2)).toEqual({
       devicePrefConfigured: false,
-      devicePref: 'wasm',
+      devicePref: 'webgpu',
       reinitEveryN: 32,
       verboseOrtLogs: true,
     });
 
-    const v3Snapshot = {
+    const configuredV3Snapshot = {
       devicePrefConfigured: true,
       devicePref: 'wasm' as const,
       reinitEveryN: 32,
       verboseOrtLogs: true,
     };
-    expect(options.migrate(v3Snapshot, 3)).toEqual(v3Snapshot);
+    expect(options.migrate(configuredV3Snapshot, 3)).toEqual(configuredV3Snapshot);
+
+    const unconfiguredV3Snapshot = {
+      devicePrefConfigured: false,
+      devicePref: 'wasm' as const,
+      reinitEveryN: 32,
+      verboseOrtLogs: true,
+    };
+    expect(options.migrate(unconfiguredV3Snapshot, 3)).toEqual({
+      devicePrefConfigured: false,
+      devicePref: 'webgpu',
+      reinitEveryN: 32,
+      verboseOrtLogs: true,
+    });
   });
 
   it('marks the store as hydrated after successful rehydration', async () => {
@@ -217,5 +244,65 @@ describe('vector-preferences-store', () => {
     expect(rehydrateSpy).toHaveBeenCalledOnce();
     expect(state.devicePref).toBe('wasm');
     expect(state.devicePrefConfigured).toBe(true);
+  });
+
+  it('accepts the explicit store hydration marker after rehydrate completes', async () => {
+    const persistApi = storeWithPersist.persist;
+
+    useVectorPreferencesStore.setState({
+      hasHydrated: false,
+      devicePrefConfigured: false,
+      devicePref: 'webgpu',
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+    });
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(false);
+    vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
+      useVectorPreferencesStore.setState({
+        hasHydrated: true,
+        devicePrefConfigured: false,
+        devicePref: 'webgpu',
+        reinitEveryN: 200,
+        verboseOrtLogs: false,
+      });
+    });
+
+    await expect(ensureVectorPreferencesHydrated({ forceReload: true })).resolves.toMatchObject({
+      devicePref: 'webgpu',
+      hasHydrated: true,
+    });
+  });
+
+  it('repairs the store hydration marker when persist has completed', async () => {
+    const persistApi = storeWithPersist.persist;
+
+    useVectorPreferencesStore.setState({
+      hasHydrated: false,
+      devicePrefConfigured: false,
+      devicePref: 'webgpu',
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+    });
+
+    vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(true);
+    vi.spyOn(persistApi, 'rehydrate').mockResolvedValue(undefined);
+
+    await expect(ensureVectorPreferencesHydrated()).resolves.toMatchObject({
+      devicePref: 'webgpu',
+      hasHydrated: true,
+    });
+  });
+
+  it('auto-hydrates on first module evaluation without manual rehydrate', async () => {
+    vi.resetModules();
+
+    const module = await import('../stores/vector-preferences-store');
+    const freshStore = module.useVectorPreferencesStore as PersistApi<
+      typeof module.useVectorPreferencesStore
+    >;
+
+    expect(freshStore.getState().hasHydrated).toBe(true);
+    expect(freshStore.persist?.hasHydrated?.()).toBe(true);
   });
 });

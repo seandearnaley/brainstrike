@@ -171,6 +171,35 @@ describe('Bulk Import with Batching', () => {
     expect(count).toBe(250);
   });
 
+  it('reports null-byte content as batch errors before records reach PGlite', async () => {
+    const requests: FileImportRequest[] = [
+      {
+        name: 'clean.txt',
+        path: '/path/to/clean.txt',
+        size: 10,
+        content: 'clean file',
+      },
+      {
+        name: 'late-null.txt',
+        path: '/path/to/late-null.txt',
+        size: 620,
+        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      },
+    ];
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(2);
+    expect(results.every((result) => result.imported)).toBe(false);
+    expect(results.map((result) => result.error)).toEqual([
+      'Batch failed: File record content cannot contain null bytes.',
+      'Batch failed: File record content cannot contain null bytes.',
+    ]);
+    await expect(db.query('SELECT COUNT(*)::int AS count FROM file_records')).resolves.toEqual(
+      expect.objectContaining({ rows: [expect.objectContaining({ count: 0 })] })
+    );
+  });
+
   it('should handle empty batch', async () => {
     const results = await repository.bulkImport([]);
 

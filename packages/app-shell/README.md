@@ -471,8 +471,6 @@ ISC © BrainStrike
 
 - 🐛 [Issue Tracker](https://github.com/seandearnaley/brainstrike/issues)
 - 💬 [Discussions](https://github.com/seandearnaley/brainstrike/discussions)
-- 📖 Internal docs: see `apps/docs/docs/` (run `pnpm docs:dev` to browse locally).
-
 ---
 
 Built with ❤️ by the BrainStrike team

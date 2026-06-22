@@ -135,9 +135,9 @@ jobs:
       # `turbo run test --affected`. `!./` excludes the root workspace
       # (which would otherwise run its root-level `test` script that
       # delegates back to turbo over every workspace, defeating the scoping).
-      # --if-present skips packages that don't define a `test` script (e.g.
-      # apps/docs). Turbo silently skipped them via its task graph; pnpm
-      # errors without this flag. Per https://pnpm.io/cli/run:
+      # --if-present skips packages that don't define a `test` script. Turbo
+      # silently skipped them via its task graph; pnpm errors without this
+      # flag. Per https://pnpm.io/cli/run:
       # "Use the --if-present flag to avoid exiting with a non-zero exit
       # code when the script is undefined."
       - name: Pull request affected unit tests
@@ -160,7 +160,7 @@ jobs:
     name: Coverage
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -339,7 +339,15 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prod=false
+        # Exclude apps/desktop: it is the ONLY project carrying node-pty, a native
+        # module compiled from source via node-gyp. This Playwright container ships
+        # no C toolchain (make/g++ absent) and pwuser (`--user 1001`) has no sudo to
+        # apt-get one, so a full install dies building node-pty. The web E2E never
+        # loads node-pty (the terminal is desktop-only); dropping just the desktop
+        # app keeps root + web + every shared package (41/42 projects). Do NOT
+        # revert to a bare full install — it will re-break this job. See node-pty in
+        # apps/desktop/package.json.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8

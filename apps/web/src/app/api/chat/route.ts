@@ -16,6 +16,10 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_MAX_CLIENTS = 1024;
 const logger = createLogger('WebChatRoute');
+const JSON_ERROR_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Type': 'application/json; charset=utf-8',
+} as const;
 const chatRequestBodyLimitBytes = resolveBodyLimit(process.env[BODY_LIMIT_ENV_VAR]);
 let lastRateLimitSaturationWarnAt = 0;
 
@@ -98,10 +102,7 @@ export async function POST(req: Request): Promise<Response> {
           reason: provider.disabledReason ?? 'missing_api_key',
         }),
         {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-store',
-          },
+          headers: JSON_ERROR_HEADERS,
           status: 503,
         }
       );
@@ -289,10 +290,7 @@ export function __setRateLimiterEntryForTests(
 function createErrorResponse(err: unknown): Response {
   if (err instanceof AssistantRequestBodyTooLargeError) {
     return new Response(JSON.stringify({ error: err.code, message: err.message }), {
-      headers: {
-        'Cache-Control': 'no-store',
-        'Content-Type': 'application/json; charset=utf-8',
-      },
+      headers: JSON_ERROR_HEADERS,
       status: 413,
     });
   }
@@ -304,7 +302,7 @@ function createErrorResponse(err: unknown): Response {
         message: 'Assistant stream initialization failed',
       }),
       {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: JSON_ERROR_HEADERS,
         status: 502,
       }
     );
@@ -317,7 +315,7 @@ function createErrorResponse(err: unknown): Response {
     }
   }
   return new Response(JSON.stringify({ error: 'Failed to process chat request' }), {
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: JSON_ERROR_HEADERS,
     status: 500,
   });
 }
@@ -327,7 +325,7 @@ function parseInvalidBodyError(message: string): Response | null {
     const payload = JSON.parse(message) as { code?: string; issues?: unknown };
     if (payload?.code === 'invalid_body') {
       return new Response(JSON.stringify(payload), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        headers: JSON_ERROR_HEADERS,
         status: 400,
       });
     }

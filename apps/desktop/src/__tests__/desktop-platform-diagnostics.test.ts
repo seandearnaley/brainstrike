@@ -57,6 +57,33 @@ describe('desktop platform diagnostics', () => {
         source: 'background-indexing' as const,
       },
     ];
+    const dimensionIndexMaintenance = {
+      maintenance: [
+        {
+          attempts: 1,
+          completedAt: null,
+          dimension: 384,
+          lastDurationMs: null,
+          lastError: null,
+          lastForegroundProbeMaxMs: null,
+          lastForegroundProbeP95Ms: null,
+          lastInvalidIndexName: null,
+          nextRunAt: '2026-05-20T18:03:00.000Z',
+          reason: 'embedding-backfill:set-1',
+          requestedAt: '2026-05-20T18:02:30.000Z',
+          startedAt: null,
+          state: 'pending' as const,
+          strategy: 'regular' as const,
+        },
+      ],
+      suspensions: [
+        {
+          dimension: 384,
+          reason: 'nonblocking-background-indexing',
+          suspendedAt: '2026-05-20T18:02:00.000Z',
+        },
+      ],
+    };
     const crashRecovery = {
       lastRendererCrashAt: '2026-05-20T18:02:00.000Z',
       lastRendererCrashReason: 'crashed',
@@ -123,7 +150,10 @@ describe('desktop platform diagnostics', () => {
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseScheduler: { getSnapshot: vi.fn(() => schedulerSnapshot) },
       embeddingHost: { getPlatformStatus: vi.fn(() => embeddingHostStatus) },
-      indexing: { getBackfillsInFlight: vi.fn(() => activeBackfills) },
+      indexing: {
+        getBackfillsInFlight: vi.fn(() => activeBackfills),
+        getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
+      },
       llmHost: { getPlatformStatus: vi.fn(() => llmHostStatus) },
       logging: { getState: vi.fn(() => loggingState) },
       reset: {
@@ -151,6 +181,7 @@ describe('desktop platform diagnostics', () => {
         databaseWork: {
           scheduler: schedulerSnapshot,
         },
+        dimensionIndexMaintenance,
       },
       llmHost: llmHostStatus,
       logging: loggingState,
@@ -193,6 +224,9 @@ describe('desktop platform diagnostics', () => {
         getBackfillsInFlight: vi.fn(() => {
           throw new Error('backfills unavailable');
         }),
+        getDimensionIndexMaintenanceSnapshot: vi.fn(() => {
+          throw new Error('dimension maintenance unavailable');
+        }),
       },
       llmHost: {
         getPlatformStatus: vi.fn(() => {
@@ -220,6 +254,7 @@ describe('desktop platform diagnostics', () => {
       activeBackfills: 'backfills unavailable',
       crashRecovery: 'crash unavailable',
       databaseScheduler: 'scheduler unavailable',
+      dimensionIndexMaintenance: 'dimension maintenance unavailable',
       embeddingHost: 'embedding unavailable',
       llmHost: 'llm unavailable',
       logging: 'logging unavailable',
@@ -228,6 +263,10 @@ describe('desktop platform diagnostics', () => {
     });
     expect(snapshot.databaseScheduler).toBeNull();
     expect(snapshot.indexing.activeBackfills).toEqual([]);
+    expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({
+      maintenance: [],
+      suspensions: [],
+    });
     expect(snapshot.reset.userDataPath).toBe('<redacted>');
   });
 });

@@ -39,6 +39,10 @@ interface ChunkingOptions {
     fileRecordId: string
   ) => Promise<void>;
   forceStrategy?: boolean;
+  insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: FileChunk[],
+    fileRecordId: string
+  ) => Promise<void>;
   /**
    * Keep inserted chunk rows on the returned result.
    * Disable this when the caller only needs counts/side effects to avoid
@@ -205,6 +209,33 @@ async function insertChunksWithTransaction(
     await chunkRepository.insertManyWithTx(tx, chunks);
   } else {
     await chunkRepository.insertMany(chunks);
+  }
+}
+
+async function persistChunksAndMaybeEnqueueJobs(
+  chunks: FileChunk[],
+  fileRecordId: string,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
+  options: ChunkingOptions
+): Promise<void> {
+  if (options.embedQueueEnabled && options.insertChunksAndEnqueueEmbeddingJobs) {
+    await options.insertChunksAndEnqueueEmbeddingJobs(chunks, fileRecordId);
+    return;
+  }
+
+  if (options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx) {
+    await options.runInTransaction(async (tx) => {
+      await insertChunksWithTransaction(tx, chunkRepository, chunks);
+      await options.enqueueJobsForChunksTx?.(tx, chunks, fileRecordId);
+      return;
+    });
+    return;
+  }
+
+  await chunkRepository.insertMany(chunks);
+  if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+    throwIfAborted(options.abortSignal);
+    await options.enqueueJobsForChunks(chunks, fileRecordId);
   }
 }
 
@@ -548,22 +579,7 @@ async function processFileChunkingHostProxyPath(
   const { toFileChunkInserts } = await import('./chunking-worker-port');
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
   throwIfAborted(options.abortSignal);
-  const shouldUseTransaction =
-    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
-
-  if (shouldUseTransaction && options.runInTransaction) {
-    await options.runInTransaction(async (tx) => {
-      await insertChunksWithTransaction(tx, preparation.chunkRepository, chunks);
-      await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return;
-    });
-  } else {
-    await preparation.chunkRepository.insertMany(chunks);
-    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-      throwIfAborted(options.abortSignal);
-      await options.enqueueJobsForChunks(chunks, result.id);
-    }
-  }
+  await persistChunksAndMaybeEnqueueJobs(chunks, result.id, preparation.chunkRepository, options);
 
   await updateFileRecordWithChunkInfo(
     preparation.repository,
@@ -650,24 +666,7 @@ async function processFileChunkingWorkerPath(
   // Convert portable chunks to database inserts
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
   throwIfAborted(options.abortSignal);
-
-  // Insert chunks into database (on main thread)
-  const shouldUseTransaction =
-    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
-
-  if (shouldUseTransaction && options.runInTransaction) {
-    await options.runInTransaction(async (tx) => {
-      await insertChunksWithTransaction(tx, chunkRepository, chunks);
-      await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return;
-    });
-  } else {
-    await chunkRepository.insertMany(chunks);
-    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-      throwIfAborted(options.abortSignal);
-      await options.enqueueJobsForChunks(chunks, result.id);
-    }
-  }
+  await persistChunksAndMaybeEnqueueJobs(chunks, result.id, chunkRepository, options);
 
   await updateFileRecordWithChunkInfo(
     repository,

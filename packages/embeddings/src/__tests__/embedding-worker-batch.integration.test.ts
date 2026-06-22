@@ -242,7 +242,7 @@ describe('embedding-worker-batch', () => {
     const res = await db.query<{ error: string }>('SELECT error FROM job_queue WHERE id = $1', [
       jobId,
     ]);
-    expect(res.rows[0]?.error).toContain('Chunk not found');
+    expect(res.rows[0]?.error).toContain('Chunk no longer exists');
 
     await controller.stop();
   });

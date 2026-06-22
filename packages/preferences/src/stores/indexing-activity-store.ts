@@ -58,6 +58,7 @@ export interface IndexingDatabaseWorkSnapshot {
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<IndexingDatabaseWorkPriority, IndexingDatabaseWorkPriorityStats>;
   readonly queued: Record<IndexingDatabaseWorkPriority, number>;
+  readonly queuedLabels: Record<IndexingDatabaseWorkPriority, readonly (string | null)[]>;
   readonly runningLabel: string | null;
   readonly runningPriority: IndexingDatabaseWorkPriority | null;
   readonly snapshotAt: number;

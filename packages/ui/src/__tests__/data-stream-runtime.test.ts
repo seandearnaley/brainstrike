@@ -1029,6 +1029,41 @@ describe('assistant-stream integration', () => {
     expect(onUsage).not.toHaveBeenCalled();
   });
 
+  it('does not call onUsage for a zero-token finish (approval-pause junk row guard)', async () => {
+    // Approval-pause turns emit a {0,0} message-finish (makeToolCallsFinishChunk);
+    // onUsage must skip it so no junk (provider, model, 0, 0) durable row is written.
+    const onUsage = vi.fn();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            '0:"Hello"',
+            'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onUsage,
+    });
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yielded.push(nextMessage);
+    }
+
+    expect(yielded.length).toBeGreaterThan(0);
+    // The stream still completes (pass-through tap), it just skips the {0,0} usage.
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
   it('decodes tool result data stream chunks into accumulated assistant messages', async () => {
     const messages = await readAssistantStreamMessages([
       'f:{"messageId":"msg-test"}',

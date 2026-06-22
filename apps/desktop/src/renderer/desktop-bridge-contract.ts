@@ -4,6 +4,7 @@ interface DesktopBridgeLike {
       clearAll?: unknown;
       diagnostics?: unknown;
       exec?: unknown;
+      insertChunksAndEnqueueEmbeddingJobs?: unknown;
       query?: unknown;
       resetLocal?: unknown;
       test?: unknown;
@@ -43,6 +44,7 @@ const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['electronAPI', 'fileSystem', 'saveLastFolder'],
   ['electronAPI', 'db', 'query'],
   ['electronAPI', 'db', 'exec'],
+  ['electronAPI', 'db', 'insertChunksAndEnqueueEmbeddingJobs'],
   ['electronAPI', 'db', 'test'],
   ['electronAPI', 'db', 'clearAll'],
   ['electronAPI', 'db', 'resetLocal'],

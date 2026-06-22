@@ -24,6 +24,8 @@ import {
   hnswParams,
   MAX_DIMENSION_INDEX_BUILD_ATTEMPTS,
   MAX_HNSW_DIMENSION,
+  resumeDimensionIndexBuilds,
+  suspendDimensionIndexBuilds,
 } from '../src/migrations/dimension-index-helpers';
 
 describe('Dimension HNSW Index Helpers', () => {
@@ -153,6 +155,42 @@ describe('Dimension HNSW Index Helpers', () => {
 
       await ensureDimensionIndexExists(db, 512);
       expect(await dimensionIndexExists(db, 512)).toBe(true);
+    });
+  });
+
+  describe('deferred dimension index suspension', () => {
+    it('does not recreate a dimension index while backfill has suspended builds', async () => {
+      vi.useFakeTimers();
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS embedding_dimension_index_suspensions (
+          dimension INTEGER PRIMARY KEY,
+          reason TEXT NOT NULL,
+          suspended_at TEXT NOT NULL
+        )
+      `);
+      await dropDimensionIndex(db, 384);
+      await suspendDimensionIndexBuilds(db, 384, 'workspace-backfill', '2026-06-18T00:00:00.000Z');
+
+      const builder = createDeferredDimensionIndexBuilder({
+        getDb: () => db,
+        onError: (dimension, error) => {
+          throw new Error(`Unexpected ${dimension}D index build failure: ${String(error)}`);
+        },
+      });
+
+      builder.schedule(384);
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS + 1);
+      await builder.whenSettled();
+
+      expect(await dimensionIndexExists(db, 384)).toBe(false);
+
+      await resumeDimensionIndexBuilds(db, 384);
+      builder.schedule(384);
+      await vi.advanceTimersByTimeAsync(DIMENSION_INDEX_BUILD_START_DELAY_MS + 1);
+      await builder.whenSettled();
+
+      expect(await dimensionIndexExists(db, 384)).toBe(true);
+      vi.useRealTimers();
     });
   });
 });

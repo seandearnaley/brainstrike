@@ -195,6 +195,7 @@ export interface LocalRuntimeDiscoveryServiceOptions {
 }
 
 export interface ProbeLocalRuntimeOptions {
+  readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
   /**
    * Per-call override for the runtime's endpoint config. When provided, the
    * probe list is rebuilt from the supplied `baseUrl` and the request carries
@@ -206,6 +207,8 @@ export interface ProbeLocalRuntimeOptions {
   readonly signal?: AbortSignal;
   readonly surface?: LocalRuntimeSurface;
 }
+
+export type RuntimeDiagnosticLogLevel = 'debug' | 'warn';
 
 interface ProbeAllOptions extends Omit<ProbeLocalRuntimeOptions, 'signal'> {
   readonly signal?: AbortSignal;
@@ -575,7 +578,7 @@ export class LocalRuntimeDiscoveryService {
     if (options.signal || options.endpoint?.apiToken) {
       return null;
     }
-    return `${runtime}\u0000${baseUrl}\u0000${surface}`;
+    return [runtime, baseUrl, surface, options.diagnosticLogLevel ?? 'warn'].join('\u0000');
   }
 
   private async probeRuntimeUnshared(
@@ -638,7 +641,7 @@ export class LocalRuntimeDiscoveryService {
       hint: 'hint' in result ? result.hint : undefined,
       consecutiveFailures: nextFailures,
     };
-    if (nextFailures === 1) {
+    if (nextFailures === 1 && options.diagnosticLogLevel !== 'debug') {
       this.logger.warn('local runtime probe did not reach available state', probeFailurePayload);
     } else {
       this.logger.debug('local runtime probe did not reach available state', probeFailurePayload);

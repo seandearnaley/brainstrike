@@ -13,7 +13,6 @@ import {
   CircleDashed,
   Radio,
 } from 'lucide-react';
-import * as m from 'motion/react-m';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
@@ -77,6 +76,23 @@ function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
     isAssistantRunEventStatus(value['status']) &&
     typeof value['timestamp'] === 'string'
   );
+}
+
+/**
+ * Run-event rows that must surface even when background activity is hidden
+ * (non-Developer detail). A failed or cancelled TURN would otherwise be silently
+ * swallowed: tool-level failures already surface on their ToolFallback cards, and
+ * a run rejected before any stream part renders via AssistantMessageError — but a
+ * mid-run failure/cancellation has neither, so its terminal run-event row is the
+ * only visible signal. Matched by `kind` (not `status`) on purpose: `tool.failed`
+ * is also `status: 'failed'`, and re-surfacing it here would double-report the
+ * card.
+ */
+export function isAlwaysVisibleRunEvent(data: unknown): boolean {
+  if (!isAssistantRunEvent(data)) {
+    return false;
+  }
+  return data.kind === 'run.failed' || data.kind === 'run.cancelled';
 }
 
 export function getMessageParts(message: unknown): readonly unknown[] {
@@ -414,12 +430,10 @@ export function AssistantRunTimeline({
   // the visually dominant element in the thread, so lifecycle/memory events
   // stay compact with status, label, inline detail, and timing on one line.
   return (
-    <m.div
+    <div
       className={`bs-run-timeline rounded-md ${isFailed ? 'bg-destructive/5' : ''}`}
       data-testid="assistant-run-timeline"
       data-tool-category={category}
-      layout
-      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
       <div className="flex min-w-0 items-center gap-2 px-2 py-1">
         <Tooltip>
@@ -491,7 +505,7 @@ export function AssistantRunTimeline({
           metadataEntries={metadataEntries}
         />
       ) : null}
-    </m.div>
+    </div>
   );
 }
 

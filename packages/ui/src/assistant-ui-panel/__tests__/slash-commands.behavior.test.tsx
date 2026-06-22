@@ -1,0 +1,167 @@
+import '@testing-library/jest-dom/vitest';
+import type { ChatModelAdapter } from '@assistant-ui/react';
+import { useLocalRuntime } from '@assistant-ui/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Keep @assistant-ui/react REAL (per CLAUDE.md: real AssistantRuntimeProvider,
+// not mocked stream parts) so the actual slash-command + trigger-popover
+// machinery runs. We only swap the panel's data-stream runtime for a real
+// local runtime (no network on submit) and stub heavy leaf renderers.
+const NOOP_ADAPTER: ChatModelAdapter = {
+  // The composer never submits in these tests, so this is never iterated; it
+  // yields one empty result purely to be a valid async generator.
+  async *run() {
+    yield { content: [] };
+  },
+};
+
+vi.mock('../data-stream-runtime', () => ({
+  // A real assistant runtime backs the composer so typing "/" exercises the
+  // library's trigger detection against actual composer state.
+  useBrainstrikeDataStreamRuntime: () => useLocalRuntime(NOOP_ADAPTER),
+}));
+
+vi.mock('../assistant-message-text', () => ({
+  AssistantMessageText: () => <div data-testid="markdown-text" />,
+  preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@assistant-ui/styles/index.css', () => ({}));
+
+// The panel statically imports `local-runtime-adapter` at module load, which
+// transitively pulls `@brainstrike/utils` → `@brainstrike/types` (a value
+// import with no test alias). The data-stream path never constructs the local
+// adapter, so stub the module to cut that chain while keeping the real panel +
+// real @assistant-ui/react runtime.
+vi.mock('../local-runtime-adapter', () => ({
+  createLocalModelAdapter: vi.fn(() => ({ run: vi.fn() })),
+  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
+  hasDesktopLlmHost: vi.fn(() => false),
+}));
+
+import { AssistantUiPanel } from '../assistant-ui-panel';
+import type { SlashCommand } from '../slash-commands';
+
+const SettingsIcon = (_props: { className?: string }) => null;
+
+function renderPanel(slashCommands: readonly SlashCommand[]) {
+  return render(
+    <AssistantUiPanel pickerModels={[]} pickerProviders={[]} slashCommands={slashCommands} />
+  );
+}
+
+async function typeSlash(): Promise<ReturnType<typeof userEvent.setup>> {
+  const input = await screen.findByRole('textbox', { name: 'Message input' });
+  const user = userEvent.setup();
+  await user.click(input);
+  await user.keyboard('/');
+  return user;
+}
+
+describe('composer slash commands', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('opens the slash popover listing the passed commands when "/" is typed', async () => {
+    const slashCommands: SlashCommand[] = [
+      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
+      { id: 'nav.settings', label: 'Settings', icon: SettingsIcon, execute: vi.fn() },
+    ];
+
+    renderPanel(slashCommands);
+    await typeSlash();
+
+    const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
+    expect(popover).toBeInTheDocument();
+    expect(within(popover).getByText('New thread')).toBeInTheDocument();
+    expect(within(popover).getByText('Settings')).toBeInTheDocument();
+  });
+
+  it('runs the selected command execute on ArrowDown + Enter', async () => {
+    const newThread = vi.fn();
+    const settings = vi.fn();
+    const slashCommands: SlashCommand[] = [
+      { id: 'thread.new', label: 'New thread', execute: newThread },
+      { id: 'nav.settings', label: 'Settings', execute: settings },
+    ];
+
+    renderPanel(slashCommands);
+    await typeSlash();
+
+    const input = await screen.findByRole('textbox', { name: 'Message input' });
+    await screen.findByRole('listbox', { name: 'Slash commands' });
+    // The library wires keyboard navigation through the composer input's
+    // onKeyDown plugin chain. ArrowDown moves the highlight from index 0 → 1
+    // (the second command), then Enter commits it — proving keyboard selection
+    // fires the bound execute (not the default first item).
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(settings).toHaveBeenCalledTimes(1));
+    expect(newThread).not.toHaveBeenCalled();
+  });
+
+  it('removes the "/" trigger text from the composer after a command is selected', async () => {
+    const slashCommands: SlashCommand[] = [
+      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
+    ];
+
+    renderPanel(slashCommands);
+    const user = await typeSlash();
+
+    const input = await screen.findByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Message input',
+    });
+    expect(input.value).toContain('/');
+
+    const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
+    await user.click(within(popover).getByText('New thread'));
+
+    // The verified Unstable_SlashCommandRoot uses the "action" select behavior:
+    // selecting consumes the `/command` trigger text (it is never inserted as a
+    // directive chip in this version) and calls execute. So the composer is left
+    // clean — no stray "/".
+    await waitFor(() => expect(input.value).not.toContain('/'));
+  });
+
+  it('omits a desktop-only command when the passed commands were built under web capabilities', async () => {
+    // The capability gate lives in the APP (registry.available(ctx) filters
+    // desktop-only commands on web), so the proof is: a slashCommands prop
+    // built from a WEB capability set contains no `shell`/`fs.reveal` command,
+    // and the popover therefore never renders it. Here we model that by passing
+    // the web-filtered list (no reveal) and asserting its absence.
+    const webSlashCommands: SlashCommand[] = [
+      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
+    ];
+
+    renderPanel(webSlashCommands);
+    await typeSlash();
+
+    const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
+    expect(within(popover).getByText('New thread')).toBeInTheDocument();
+    expect(within(popover).queryByText('Reveal in Finder')).not.toBeInTheDocument();
+  });
+
+  it('does NOT mount the slash root (no popover opens) when no commands are passed', async () => {
+    renderPanel([]);
+    await typeSlash();
+
+    // The installed @assistant-ui opens the popover whenever "/" is typed and an
+    // adapter is mounted — it does NOT check that search() returns items. So the
+    // panel must not mount the slash root at all when there are no commands;
+    // otherwise an empty menu would appear. Assert the listbox never opens.
+    // (queryByRole is synchronous — if the root were mounted the popover would
+    // already be open by now since the trigger char is in the textarea.)
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).not.toBeInTheDocument();
+    // The composer itself still works (Input/Send rendered).
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
+});

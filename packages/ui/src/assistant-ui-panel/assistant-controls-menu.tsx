@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '../dropdown-menu';
 import { Switch } from '../switch';
+import { DetailLevelControl } from './assistant-detail-control';
 import type {
   AssistantToolMenuConfig,
   AssistantToolMenuItem,
@@ -236,10 +237,8 @@ export const ControlsMenu: FC<ControlsMenuProps> = ({
     [toolMenuOnToggleTool]
   );
 
-  if (!(hasTools || hasReasoning)) {
-    return null;
-  }
-
+  // The Detail control is always relevant, so the menu always renders even
+  // without tools or reasoning settings.
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
 
   return (
@@ -256,6 +255,7 @@ export const ControlsMenu: FC<ControlsMenuProps> = ({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px] p-2">
+        <DetailLevelControl />
         <ReasoningControlsSection
           hasReasoning={hasReasoning}
           modelName={modelName}

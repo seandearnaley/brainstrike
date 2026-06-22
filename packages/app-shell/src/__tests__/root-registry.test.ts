@@ -13,9 +13,37 @@ function fsaRoot(rootId: string, name: string): RootDescriptor {
   };
 }
 
+function pathRoot(rootId: string, name: string, path: string): RootDescriptor {
+  return {
+    displayName: name,
+    handle: { kind: 'directory', name, path, platform: 'electron' },
+    kind: 'path',
+    permissionState: 'granted',
+    persisted: true,
+    rootId,
+  };
+}
+
 describe('reconcileRoots', () => {
-  it('maps adapter roots onto an existing DB row by path without modifying it', async () => {
-    const dbRows = [{ id: 'db-1', path: 'my-project' }];
+  it('maps desktop path roots onto an existing DB row by path without modifying it', async () => {
+    const dbRows = [{ id: 'db-1', path: '/workspace/my-project' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
+      platformKind: 'path',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+  });
+
+  it('does not path-match FSA roots because path is only the directory display name', async () => {
+    const dbRows = [{ id: 'db-1', kind: 'fsa', path: 'my-project' }];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -26,9 +54,49 @@ describe('reconcileRoots', () => {
       query,
     });
 
-    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('adapter-1');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(true);
+  });
+
+  it('maps a unique FSA root onto its legacy DB row without modifying it', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'my-project' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
+  });
+
+  it('keeps a promoted unique FSA bridge idempotent across reconciles', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'my-project' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const first = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+    const second = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-1', 'my-project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(first.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
+    expect(second.dbRootIdByAdapterRootId.get('adapter-1')).toBe('legacy-db-1');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
   });
 
   it('skips roots with persisted:false or permissionState unknown (no DB rows for session-only ids)', async () => {
@@ -69,7 +137,7 @@ describe('reconcileRoots', () => {
     );
   });
 
-  it('issues exactly one INSERT for two same-path roots in one call; second maps to the first id', async () => {
+  it('registers two same-name FSA roots independently', async () => {
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: [] } : { rows: [] }
     );
@@ -83,10 +151,28 @@ describe('reconcileRoots', () => {
     const insertCalls = query.mock.calls.filter(([sql]) =>
       (sql as string).includes('INSERT INTO roots')
     );
-    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls).toHaveLength(2);
     expect(insertCalls[0]?.[1]).toEqual(expect.arrayContaining(['adapter-a']));
+    expect(insertCalls[1]?.[1]).toEqual(expect.arrayContaining(['adapter-b']));
     expect(result.dbRootIdByAdapterRootId.get('adapter-a')).toBe('adapter-a');
-    expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-a');
+    expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-b');
+  });
+
+  it('does not map same-name FSA roots onto a legacy row because the bridge is ambiguous', async () => {
+    const dbRows = [{ id: 'legacy-db-1', kind: 'legacy', path: 'shared-folder' }];
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [fsaRoot('adapter-a', 'shared-folder'), fsaRoot('adapter-b', 'shared-folder')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    expect(result.dbRootIdByAdapterRootId.get('adapter-a')).toBe('adapter-a');
+    expect(result.dbRootIdByAdapterRootId.get('adapter-b')).toBe('adapter-b');
+    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
   });
 
   it('converges on the existing row when a concurrent writer wins the path-unique race', async () => {
@@ -107,8 +193,11 @@ describe('reconcileRoots', () => {
     });
 
     const result = await reconcileRoots({
-      adapterRoots: [fsaRoot('adapter-1', 'my-project'), fsaRoot('adapter-2', 'other-project')],
-      platformKind: 'fsa',
+      adapterRoots: [
+        pathRoot('adapter-1', 'my-project', '/workspace/my-project'),
+        pathRoot('adapter-2', 'other-project', '/workspace/other-project'),
+      ],
+      platformKind: 'path',
       query,
     });
 

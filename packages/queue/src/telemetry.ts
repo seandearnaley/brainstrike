@@ -4,8 +4,6 @@
  * - 'job-queue': Durable DB-backed JobQueue (SQL persistence)
  * - 'workerpool': Ephemeral in-memory workerpool (browser compute)
  * - 'custom': Custom/third-party queue implementations
- *
- * @see apps/docs/docs/reference/adr/queue-boundaries.md for queue mental model
  */
 export type QueueTelemetryAdapter = 'job-queue' | 'workerpool' | 'custom';
 

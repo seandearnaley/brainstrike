@@ -1,4 +1,5 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
+import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
@@ -30,6 +31,41 @@ vi.mock('@brainstrike/file-import', () => ({
   runEnhancedImport: runEnhancedImportMock,
 }));
 const COMPOSITE_KEY = encodeFileSelection(ROOT_PATH, FILE_PATH);
+const ROOT_B_PATH = '/workspace/root-b';
+const DB_ROOT_A_ID = 'db-root-a';
+const DB_ROOT_B_ID = 'db-root-b';
+const ROOT_B_COMPOSITE_KEY = encodeFileSelection(ROOT_B_PATH, FILE_PATH);
+
+function createTestQosPolicy(
+  policy: Omit<
+    WorkspaceIndexingQosPolicy,
+    | 'completionOverlapBatches'
+    | 'maxPendingCompletionBytes'
+    | 'maxPendingCompletionChunks'
+    | 'streamBatchSize'
+  >
+): WorkspaceIndexingQosPolicy {
+  return {
+    completionOverlapBatches: 1,
+    maxPendingCompletionBytes: 3072,
+    maxPendingCompletionChunks: 1,
+    streamBatchSize: 1,
+    ...policy,
+  };
+}
+
+function createMockNodeHandle(args: {
+  kind: 'directory' | 'file';
+  name: string;
+  path: string;
+}): IFileNode['handle'] {
+  return {
+    kind: args.kind,
+    name: args.name,
+    path: args.path,
+    platform: 'electron',
+  } as unknown as IFileNode['handle'];
+}
 
 describe('WorkspaceCollectionSyncService', () => {
   beforeEach(() => {
@@ -88,6 +124,30 @@ describe('WorkspaceCollectionSyncService', () => {
         update: vi.fn(async () => undefined),
         updateStatMetadata: vi.fn(async () => undefined),
       },
+      fileSystemAdapter: {
+        readDirectory: vi.fn(
+          async (): Promise<IFileNode[]> => [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
+              name: 'index.ts',
+              path: `${ROOT_PATH}/${FILE_PATH}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 23,
+              type: 'file',
+            },
+          ]
+        ),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -110,7 +170,7 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('waits and retries when startup QoS temporarily yields scan work to foreground DB pressure', async () => {
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -123,7 +183,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -165,7 +225,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
   it('backs off before re-resolving foreground-yielding QoS when the permit returns immediately', async () => {
     vi.useFakeTimers();
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -178,7 +238,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -221,8 +281,9 @@ describe('WorkspaceCollectionSyncService', () => {
     }
   });
 
-  it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
-    const foregroundYieldPolicy: WorkspaceIndexingQosPolicy = {
+  it('requests the foreground-db-pressure bypass and proceeds once a sync phase is starved past the bound', async () => {
+    vi.useFakeTimers();
+    const foregroundYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -235,8 +296,72 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
-    const pausedPolicy: WorkspaceIndexingQosPolicy = {
+    });
+    // The resolver downgrades foreground-db-pressure to workable, constrained
+    // work ONLY when the starvation bypass is requested — mirroring the real
+    // resolveWorkspaceIndexingQosPolicy behaviour.
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 7;',
+        })),
+      },
+      resolveQosPolicy: vi.fn(
+        async (options?: { foregroundDbPressureStarvationBypass?: boolean }) =>
+          options?.foregroundDbPressureStarvationBypass
+            ? BALANCED_QOS_POLICY
+            : foregroundYieldPolicy
+      ),
+      waitForBackgroundPermit: vi.fn(async () => undefined),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    try {
+      let settled = false;
+      const syncPromise = service
+        .sync({
+          enabled: true,
+          indexingPolicyPreset: 'balanced',
+          managedCollectionId: 'set-1',
+          rootDirectoryHandle: createRootHandle(ROOT_PATH),
+        })
+        .finally(() => {
+          settled = true;
+        });
+      // Step fake time forward (the loop re-resolves every interBatchDelayMs)
+      // until the starved phases cross the 5s bound and the sync completes.
+      for (let step = 0; step < 400 && !settled; step += 1) {
+        await vi.advanceTimersByTimeAsync(250);
+      }
+      await syncPromise;
+
+      // The starved pass must have requested the bypass and then completed the
+      // import instead of yielding forever.
+      expect(deps.resolveQosPolicy).toHaveBeenCalledWith({
+        foregroundDbPressureStarvationBypass: true,
+      });
+      expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
+
+  it('does not surface an error when QoS changes to paused while waiting for scan work', async () => {
+    const foregroundYieldPolicy = createTestQosPolicy({
+      allowNewWork: false,
+      allowPowerSaveBlocker: false,
+      backfillQueueDepth: 0,
+      contentReadBatchSize: 0,
+      contentReadConcurrency: 0,
+      importBatchSize: 0,
+      interBatchDelayMs: 250,
+      progressThrottleMs: 500,
+      reason: 'foreground-db-pressure',
+      scanBatchSize: 0,
+      state: 'foreground-yielding',
+      workerClaimBatchSize: 0,
+    });
+    const pausedPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -249,7 +374,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'paused',
       workerClaimBatchSize: 0,
-    };
+    });
     const log = {
       error: vi.fn(),
       warn: vi.fn(),
@@ -349,7 +474,7 @@ describe('WorkspaceCollectionSyncService', () => {
         insertMany: vi.fn(async () => []),
         update: vi.fn(async () => null),
       },
-      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]),
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
       subscribeToBackfillProgress: vi.fn((callback) => {
         callback({
           embeddingSetId: 'set-1',
@@ -389,7 +514,8 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         scanSummary: expect.objectContaining({
           unchangedFiles: 1,
           changedFiles: 0,
@@ -521,6 +647,927 @@ describe('WorkspaceCollectionSyncService', () => {
       expect.objectContaining({
         source: 'background-indexing',
       })
+    );
+  });
+
+  it('defers collection-wide backfill when an intermediate root has missing embeddings', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        lastModified: 1000,
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => {
+          throw new Error('Stat-skipped files must not be read.');
+        }),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: 'hash-never-consulted',
+            mtimeMs: 1000,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileContentProcessor?.processFiles).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.ensureEmbeddingRuntimeStarted).not.toHaveBeenCalled();
+    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'idle',
+        processedFiles: 1,
+        queuedFiles: 0,
+      })
+    );
+  });
+
+  it('reprocesses stat-matching files whose prior import never completed chunking', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        lastModified: 1000,
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            chunksCount: 0,
+            chunksProcessedAt: null,
+            mtimeMs: 1000,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(runEnhancedImportMock).toHaveBeenCalledOnce();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rootId: ROOT_PATH,
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-1',
+              path: FILE_PATH,
+              content: unchangedContent,
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
+  it('force-reads a watcher-modified file and replaces only the matching db root identity', async () => {
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(
+        async (): Promise<IFileNode[]> => [
+          {
+            depth: 1,
+            handle: createMockNodeHandle({
+              kind: 'file',
+              name: 'index.ts',
+              path: `${ROOT_B_PATH}/${FILE_PATH}`,
+            }),
+            lastModified: 1000,
+            name: 'index.ts',
+            path: `${ROOT_B_PATH}/${FILE_PATH}`,
+            rootFolderId: ROOT_B_PATH,
+            selectionState: 'unchecked',
+            size: 23,
+            type: 'file',
+          },
+        ]
+      ),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [ROOT_B_COMPOSITE_KEY]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-root-a',
+            embeddingSetId: 'set-1',
+            rootId: DB_ROOT_A_ID,
+            relativePath: FILE_PATH,
+            contentHash: oldHash,
+            mtimeMs: 1000,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            fileRecordId: 'file-root-b',
+            embeddingSetId: 'set-1',
+            rootId: DB_ROOT_B_ID,
+            relativePath: FILE_PATH,
+            contentHash: oldHash,
+            mtimeMs: 1000,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+      resolveDbRootId: vi.fn(async (rootPath: string) =>
+        rootPath === ROOT_B_PATH ? DB_ROOT_B_ID : DB_ROOT_A_ID
+      ),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'file', path: `${ROOT_B_PATH}/${FILE_PATH}`, type: 'modified' }],
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rootId: DB_ROOT_B_ID,
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-root-b',
+              path: FILE_PATH,
+              content: newContent,
+            }),
+          }),
+        ],
+      })
+    );
+    const serializedBatch = JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls);
+    expect(serializedBatch).not.toContain('file-root-a');
+  });
+
+  it('invalidates a watcher-removed file by exact root identity without import or chunking', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'exact',
+          rootId: ROOT_PATH,
+          relativePath: FILE_PATH,
+        },
+      ],
+    });
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores root-level watcher removals without invalidation or import', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: ROOT_PATH, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
+  });
+
+  it('does not invalidate a file path that is recreated in the same watcher batch', async () => {
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+        if (handle.path === ROOT_PATH) {
+          return [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+              }),
+              name: 'src',
+              path: `${ROOT_PATH}/src`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src`) {
+          return [
+            {
+              depth: 2,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
+              name: 'index.ts',
+              path: `${ROOT_PATH}/${FILE_PATH}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 23,
+              type: 'file',
+            },
+          ];
+        }
+        return [];
+      }),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-1',
+            mtimeMs: 1000,
+            relativePath: FILE_PATH,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' },
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'added' },
+        ],
+      },
+    });
+
+    expect(vi.mocked(deps.setStatus).mock.calls).not.toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            state: 'error',
+          }),
+        ],
+      ])
+    );
+    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-1',
+              path: FILE_PATH,
+              content: newContent,
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
+  it('invalidates a same-batch recreated file when the replacement is excluded', async () => {
+    const oldContent = 'export const value = 1;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+        if (handle.path === ROOT_PATH) {
+          return [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+              }),
+              name: 'src',
+              path: `${ROOT_PATH}/src`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src`) {
+          return [
+            {
+              depth: 2,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
+              name: 'index.ts',
+              path: `${ROOT_PATH}/${FILE_PATH}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 800 * 1024,
+              type: 'file',
+            },
+          ];
+        }
+        return [];
+      }),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-1',
+            mtimeMs: 1000,
+            relativePath: FILE_PATH,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' },
+          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'added' },
+        ],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'exact',
+          relativePath: FILE_PATH,
+          rootId: ROOT_PATH,
+        },
+      ],
+    });
+    expect(deps.fileContentProcessor?.processFiles).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('deletes stale children when a removed directory is recreated with fewer files', async () => {
+    const keptFilePath = 'src/rebuilt/keep.ts';
+    const staleFilePath = 'src/rebuilt/stale.ts';
+    const keptCompositeKey = encodeFileSelection(ROOT_PATH, keptFilePath);
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+        if (handle.path === ROOT_PATH) {
+          return [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+              }),
+              name: 'src',
+              path: `${ROOT_PATH}/src`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src`) {
+          return [
+            {
+              depth: 2,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'rebuilt',
+                path: `${ROOT_PATH}/src/rebuilt`,
+              }),
+              name: 'rebuilt',
+              path: `${ROOT_PATH}/src/rebuilt`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src/rebuilt`) {
+          return [
+            {
+              depth: 3,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'keep.ts',
+                path: `${ROOT_PATH}/${keptFilePath}`,
+              }),
+              lastModified: 1000,
+              name: 'keep.ts',
+              path: `${ROOT_PATH}/${keptFilePath}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 24,
+              type: 'file',
+            },
+          ];
+        }
+        return [];
+      }),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [keptCompositeKey]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'kept-file',
+            mtimeMs: 1000,
+            relativePath: keptFilePath,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'stale-file',
+            mtimeMs: 1000,
+            relativePath: staleFilePath,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [
+          { kind: 'directory', path: `${ROOT_PATH}/src/rebuilt`, type: 'removed' },
+          { kind: 'directory', path: `${ROOT_PATH}/src/rebuilt`, type: 'added' },
+        ],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          expectedFileRecordId: 'stale-file',
+          mode: 'exact',
+          relativePath: staleFilePath,
+          rootId: ROOT_PATH,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls)
+    ).not.toContain('kept-file');
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'kept-file',
+              path: keptFilePath,
+              content: newContent,
+            }),
+          }),
+        ],
+      })
+    );
+  });
+
+  it('invalidates a watcher-removed directory by prefix root identity', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: `${ROOT_PATH}/src/generated`, type: 'removed' }],
+      },
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'prefix',
+          rootId: ROOT_PATH,
+          relativePathPrefix: 'src/generated',
+        },
+      ],
+    });
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('hard-deletes full-scan entries missing from only the active db root', async () => {
+    const indexedFilePath = 'src/index.ts';
+    const missingFilePath = 'src/deleted.ts';
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([
+      {
+        depth: 1,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'index.ts',
+          path: `${ROOT_B_PATH}/${indexedFilePath}`,
+        }),
+        lastModified: 1000,
+        name: 'index.ts',
+        path: `${ROOT_B_PATH}/${indexedFilePath}`,
+        rootFolderId: ROOT_B_PATH,
+        selectionState: 'unchecked',
+        size: 23,
+        type: 'file',
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({})),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: 'indexed-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-b-indexed',
+            mtimeMs: 1000,
+            relativePath: indexedFilePath,
+            rootId: DB_ROOT_B_ID,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'stale-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-b-deleted',
+            mtimeMs: 1000,
+            relativePath: missingFilePath,
+            rootId: DB_ROOT_B_ID,
+            size: 11,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'other-root-hash',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-root-a-deleted',
+            mtimeMs: 1000,
+            relativePath: missingFilePath,
+            rootId: DB_ROOT_A_ID,
+            size: 11,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      resolveDbRootId: vi.fn(async () => DB_ROOT_B_ID),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          expectedFileRecordId: 'file-root-b-deleted',
+          mode: 'exact',
+          rootId: DB_ROOT_B_ID,
+          relativePath: missingFilePath,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls)
+    ).not.toContain('file-root-a-deleted');
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('requests strict full-scan traversal before planning missing-file deletes', async () => {
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        propagateDirectoryReadErrors: true,
+      })
+    );
+  });
+
+  it('scans only the changed watcher directory subtree', async () => {
+    const subtreeFilePath = 'src/components/button.ts';
+    const outsideFilePath = 'src/other.ts';
+    const subtreeCompositeKey = encodeFileSelection(ROOT_PATH, subtreeFilePath);
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([
+      {
+        depth: 1,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'other.ts',
+          path: `${ROOT_PATH}/${outsideFilePath}`,
+        }),
+        name: 'other.ts',
+        path: `${ROOT_PATH}/${outsideFilePath}`,
+        rootFolderId: ROOT_PATH,
+        selectionState: 'unchecked',
+        type: 'file',
+      },
+      {
+        depth: 2,
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: 'button.ts',
+          path: `${ROOT_PATH}/${subtreeFilePath}`,
+        }),
+        name: 'button.ts',
+        path: `${ROOT_PATH}/${subtreeFilePath}`,
+        rootFolderId: ROOT_PATH,
+        selectionState: 'unchecked',
+        type: 'file',
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [subtreeCompositeKey]: 'export const Button = 1;',
+        })),
+      },
+      fileSystemAdapter: {
+        readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+          if (handle.path === ROOT_PATH) {
+            return [
+              {
+                depth: 1,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'src',
+                  path: `${ROOT_PATH}/src`,
+                }),
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              },
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src`) {
+            return [
+              {
+                depth: 2,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'components',
+                  path: `${ROOT_PATH}/src/components`,
+                }),
+                name: 'components',
+                path: `${ROOT_PATH}/src/components`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              },
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src/components`) {
+            return [
+              {
+                depth: 3,
+                handle: createMockNodeHandle({
+                  kind: 'file',
+                  name: 'button.ts',
+                  path: `${ROOT_PATH}/${subtreeFilePath}`,
+                }),
+                name: 'button.ts',
+                path: `${ROOT_PATH}/${subtreeFilePath}`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'file',
+              },
+            ];
+          }
+          return [];
+        }),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [{ kind: 'directory', path: `${ROOT_PATH}/src/components`, type: 'modified' }],
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    const processFiles = deps.fileContentProcessor?.processFiles;
+    if (!processFiles) {
+      throw new Error('Expected test fileContentProcessor.');
+    }
+    const firstReadRequests = vi.mocked(processFiles).mock.calls[0]?.[0];
+    expect(firstReadRequests?.map((request) => request.fileNode.path)).toEqual([
+      `${ROOT_PATH}/${subtreeFilePath}`,
+    ]);
+    expect(JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls)).not.toContain(
+      outsideFilePath
     );
   });
 
@@ -999,13 +2046,42 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.fileRecordRepository.update).not.toHaveBeenCalled();
   });
 
-  it('imports with collection-assignment semantics and then backfills through the runtime pipeline', async () => {
+  it('imports with transactional chunk enqueue and then backfills through the runtime pipeline', async () => {
+    const events: string[] = [];
     const deps = createDeps({
+      ensureChunkingWorker: vi.fn(async () => {
+        events.push('ensure-chunking-worker');
+        return {
+          chunkBatch: vi.fn(),
+          chunkFile: vi.fn(),
+          isReady: () => true,
+          terminate: vi.fn(),
+          transportKind: 'local-worker' as const,
+        };
+      }),
+      ensureEmbeddingRuntimeStarted: vi.fn(async () => {
+        events.push('ensure-embedding-runtime-started');
+      }),
+      enqueueBackfill: vi.fn(async () => {
+        events.push('enqueue-backfill');
+        return { requestId: 'background-indexing-backfill:test' };
+      }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
+    });
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      events.push('run-enhanced-import-start');
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      events.push('run-enhanced-import-complete');
+      return [];
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -1020,8 +2096,17 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).toHaveBeenCalledWith(
       expect.objectContaining({
         embedding: expect.objectContaining({
-          enabled: false,
+          enabled: true,
+          model: 'openai::text-embedding-3-small',
           resolveTargetEmbeddingSetId: expect.any(Function),
+        }),
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.objectContaining({
+            runInTransaction: expect.any(Function),
+          }),
         }),
       })
     );
@@ -1031,10 +2116,17 @@ describe('WorkspaceCollectionSyncService', () => {
         source: 'background-indexing',
       })
     );
+    expect(events).toEqual([
+      'ensure-embedding-runtime-started',
+      'ensure-chunking-worker',
+      'run-enhanced-import-start',
+      'run-enhanced-import-complete',
+      'enqueue-backfill',
+    ]);
   });
 
   it('waits for import QoS before entering importing status', async () => {
-    const importYieldPolicy: WorkspaceIndexingQosPolicy = {
+    const importYieldPolicy = createTestQosPolicy({
       allowNewWork: false,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
@@ -1047,7 +2139,7 @@ describe('WorkspaceCollectionSyncService', () => {
       scanBatchSize: 0,
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
-    };
+    });
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -1215,7 +2307,7 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('preserves detailed scan, chunking, embedding, and queue telemetry through idle completion', async () => {
+  it('preserves detailed scan, chunking, embedding, and queue telemetry while embedding remains active', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -1305,7 +2397,8 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         scanSummary: {
           discoveredFiles: 1,
           changedFiles: 1,
@@ -1318,14 +2411,14 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('checks managed backfill in-flight state again after enqueueing before transitioning to idle', async () => {
+  it('leaves embedding work in flight after enqueueing instead of waiting to transition to idle', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
-      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]),
+      getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
       subscribeToBackfillProgress: vi.fn((callback) => {
         callback({
           embeddingSetId: 'set-1',
@@ -1346,7 +2439,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
+    expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
     expect(deps.setStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'embedding',
@@ -1355,7 +2448,128 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        state: 'idle',
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
+      })
+    );
+  });
+
+  it('surfaces detached background backfill terminal errors in Workspace Index status', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        return () => {};
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    if (!progressListener) {
+      throw new Error('Expected backfill progress listener to be registered');
+    }
+    progressListener({
+      embeddingSetId: 'set-1',
+      requestId: 'background-indexing-backfill:test',
+      source: 'background-indexing',
+      stage: 'error',
+      current: 0,
+      total: 0,
+      message: 'metadata missing',
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: 'set-1',
+        activeRootPath: ROOT_PATH,
+        lastError: 'metadata missing',
+      })
+    );
+  });
+
+  it('keeps listening after backfill progress reaches total so later terminal failures surface', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    let subscribed = false;
+    const unsubscribe = vi.fn(() => {
+      subscribed = false;
+    });
+    const emitProgress = (progress: Parameters<BackfillProgressListener>[0]): void => {
+      if (subscribed) {
+        progressListener?.(progress);
+      }
+    };
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        subscribed = true;
+        return unsubscribe;
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    if (!progressListener) {
+      throw new Error('Expected backfill progress listener to be registered');
+    }
+    emitProgress({
+      embeddingSetId: 'set-1',
+      requestId: 'background-indexing-backfill:test',
+      source: 'background-indexing',
+      stage: 'backfill',
+      current: 1,
+      total: 1,
+      message: 'queued all embedding jobs',
+    });
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    emitProgress({
+      embeddingSetId: 'set-1',
+      requestId: 'background-indexing-backfill:test',
+      source: 'background-indexing',
+      stage: 'error',
+      current: 1,
+      total: 1,
+      message: 'Backfill failed for embedding set',
+    });
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: 'set-1',
+        activeRootPath: ROOT_PATH,
+        lastError: 'Backfill failed for embedding set',
       })
     );
   });
@@ -1483,52 +2697,20 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.enqueueBackfill).not.toHaveBeenCalled();
   });
 
-  it('enters recovering state when the managed collection already has an in-flight backfill', async () => {
-    const unchangedContent = 'export const value = 1;';
-    const unchangedHash = await generateContentHash(unchangedContent);
+  it('continues scan and import work when the managed collection already has an in-flight backfill', async () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
-      fileRecordRepository: {
-        findById: vi.fn(async () => null),
-        findByIds: vi.fn(async () => []),
-        listManagedCacheEntryMetadata: vi.fn(async () => [
-          {
-            fileRecordId: 'file-1',
-            embeddingSetId: 'set-1',
-            rootId: ROOT_PATH,
-            relativePath: FILE_PATH,
-            contentHash: unchangedHash,
-            updatedAt: new Date().toISOString(),
-          } satisfies ManagedCacheEntryMetadata,
-        ]),
-        update: vi.fn(async () => undefined),
-        updateStatMetadata: vi.fn(async () => undefined),
-      },
-      getBackfillsInFlight: vi
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 2, total: 4 },
-          },
-        ])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]),
-      subscribeToBackfillProgress: vi.fn((callback) => {
-        callback({
+      getBackfillsInFlight: vi.fn(async () => [
+        {
           embeddingSetId: 'set-1',
           requestId: 'background-indexing-backfill:test',
-          current: 3,
-          total: 4,
-          message: 'chunk 3/4',
-        });
-        return () => {};
-      }),
+          progress: { current: 2, total: 4 },
+        },
+      ]),
     });
     const service = new WorkspaceCollectionSyncService(deps);
 
@@ -1539,52 +2721,50 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.setStatus).toHaveBeenCalledWith(
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(1);
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'recovering',
-        backfillRequestId: 'background-indexing-backfill:test',
       })
     );
-    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
   });
 
-  it('times out when an attached backfill never drains', async () => {
-    vi.useFakeTimers();
-    try {
-      const deps = createDeps({
-        backfillDrainTimeoutMs: 500,
-        getBackfillsInFlight: vi.fn(async () => [
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 1, total: 4 },
-          },
-        ]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
-        waitForBackfillToDrain: (args: {
-          abortSignal: AbortSignal;
-          collectionId: string;
-          requestId: string;
-        }) => Promise<void>;
-      };
-      const abortController = new AbortController();
+  it('does not wait for in-flight backfill drain before discovering missing files', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      getBackfillsInFlight: vi.fn(async () => [
+        {
+          embeddingSetId: 'set-1',
+          requestId: 'background-indexing-backfill:test',
+          progress: { current: 1, total: 4 },
+        },
+      ]),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
 
-      const drainPromise = service.waitForBackfillToDrain({
-        abortSignal: abortController.signal,
-        collectionId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
-      });
-      const drainExpectation = expect(drainPromise).rejects.toThrow(
-        'Timed out waiting for background indexing backfill to drain for collection set-1.'
-      );
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
 
-      await vi.advanceTimersByTimeAsync(1000);
-
-      await drainExpectation;
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        lastError:
+          'Timed out waiting for background indexing backfill to drain for collection set-1.',
+      })
+    );
   });
 
   it('imports changed files in bounded batches instead of building a single full-run content map', async () => {
@@ -1634,69 +2814,6 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(batchSizes.every((size) => size <= 24)).toBe(true);
   });
 
-  it('backs off drain polling instead of polling at a fixed interval', async () => {
-    vi.useFakeTimers();
-    try {
-      const deps = createDeps({
-        getBackfillsInFlight: vi
-          .fn()
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 1, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 2, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              embeddingSetId: 'set-1',
-              requestId: 'background-indexing-backfill:test',
-              progress: { current: 3, total: 4 },
-            },
-          ])
-          .mockResolvedValueOnce([]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
-        waitForBackfillToDrain: (args: {
-          abortSignal: AbortSignal;
-          collectionId: string;
-          requestId: string;
-        }) => Promise<void>;
-      };
-      const abortController = new AbortController();
-
-      const drainPromise = service.waitForBackfillToDrain({
-        abortSignal: abortController.signal,
-        collectionId: 'set-1',
-        requestId: 'background-indexing-backfill:test',
-      });
-
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(249);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(499);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
-      await vi.advanceTimersByTimeAsync(999);
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
-      await vi.advanceTimersByTimeAsync(1);
-      await drainPromise;
-      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(4);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('preserves the last import/chunk summary when no explicit complete progress event is emitted', async () => {
     const deps = createDeps({
       fileContentProcessor: {
@@ -1733,10 +2850,8 @@ describe('WorkspaceCollectionSyncService', () => {
 
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        importProgress: expect.objectContaining({
-          completed: 1,
-          total: 1,
-        }),
+        state: 'embedding',
+        backfillRequestId: 'background-indexing-backfill:test',
         chunkingProgress: expect.objectContaining({
           filesProcessed: 1,
           chunksCreated: 2,
@@ -1863,6 +2978,73 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.ensureEmbeddingRuntimeStarted).not.toHaveBeenCalled();
   });
 
+  it('cancels the previously tracked backfill when hosted provider access later rejects', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    const deps = createDeps({
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            rootId: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+      validateHostedProviderAccess: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Hosted provider API key is missing')),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        lastError: 'Hosted provider API key is missing',
+      })
+    );
+  });
+
   it('skips hosted-provider validation for local collections and starts the runtime directly', async () => {
     const deps = createDeps({
       embeddingSetsRepository: {
@@ -1913,66 +3095,6 @@ describe('WorkspaceCollectionSyncService', () => {
 
     expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
     expect(deps.enqueueBackfill).not.toHaveBeenCalled();
-  });
-
-  it('surfaces a recovery failure when an attached backfill never drains during sync', async () => {
-    vi.useFakeTimers();
-    try {
-      const unchangedContent = 'export const value = 1;';
-      const unchangedHash = await generateContentHash(unchangedContent);
-      const deps = createDeps({
-        backfillDrainTimeoutMs: 500,
-        fileContentProcessor: {
-          processFiles: vi.fn(async () => ({
-            [COMPOSITE_KEY]: unchangedContent,
-          })),
-        },
-        fileRecordRepository: {
-          findById: vi.fn(async () => null),
-          findByIds: vi.fn(async () => []),
-          listManagedCacheEntryMetadata: vi.fn(async () => [
-            {
-              fileRecordId: 'file-1',
-              embeddingSetId: 'set-1',
-              rootId: ROOT_PATH,
-              relativePath: FILE_PATH,
-              contentHash: unchangedHash,
-              updatedAt: new Date().toISOString(),
-            } satisfies ManagedCacheEntryMetadata,
-          ]),
-          update: vi.fn(async () => undefined),
-          updateStatMetadata: vi.fn(async () => undefined),
-        },
-        getBackfillsInFlight: vi.fn(async () => [
-          {
-            embeddingSetId: 'set-1',
-            requestId: 'background-indexing-backfill:test',
-            progress: { current: 1, total: 4 },
-          },
-        ]),
-      });
-      const service = new WorkspaceCollectionSyncService(deps);
-
-      const syncPromise = service.sync({
-        enabled: true,
-        indexingPolicyPreset: 'balanced',
-        managedCollectionId: 'set-1',
-        rootDirectoryHandle: createRootHandle(ROOT_PATH),
-      });
-
-      await vi.advanceTimersByTimeAsync(1000);
-      await syncPromise;
-
-      expect(deps.setStatus).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          state: 'error',
-          lastError:
-            'Timed out waiting for background indexing backfill to drain for collection set-1.',
-        })
-      );
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('cancels superseded background-indexing backfills for other collections before syncing the managed collection', async () => {
@@ -2065,6 +3187,65 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.setStatus).not.toHaveBeenLastCalledWith(
       expect.objectContaining({
         state: 'idle',
+      })
+    );
+  });
+
+  it('does not overwrite a terminal backfill progress event with stale pending status', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    let subscribed = false;
+    const unsubscribe = vi.fn(() => {
+      subscribed = false;
+    });
+    const requestId = 'background-indexing-backfill:complete-before-return';
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async () => {
+        if (!(subscribed && progressListener)) {
+          throw new Error('Expected backfill progress listener to be registered before enqueue.');
+        }
+        progressListener({
+          embeddingSetId: 'set-1',
+          requestId,
+          source: 'background-indexing',
+          stage: 'complete',
+          current: 7,
+          total: 7,
+          message: 'queued all embedding jobs',
+        });
+        return { requestId };
+      }),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        subscribed = true;
+        return unsubscribe;
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'embedding',
+        backfillRequestId: requestId,
+        embeddingProgress: expect.objectContaining({
+          chunksProcessed: 7,
+          totalChunks: 7,
+        }),
       })
     );
   });

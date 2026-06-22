@@ -1,13 +1,15 @@
 import { ipcMain } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
+  assertEmbeddingHostQueryEmbeddingPayload,
   assertEmbeddingHostQueryEmbeddingResponseReport,
+  assertEmbeddingHostStatus,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
-  EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STOP_CHANNEL,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
@@ -18,7 +20,7 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
   const unregisterLifecycle =
     registerBackgroundRuntimeLifecycleIpcHandlers<EmbeddingHostStatusReport>({
       manager,
-      assertStatus: EMBEDDING_HOST_STATUS_ADAPTER.assertStatus,
+      assertStatus: assertEmbeddingHostStatus,
       channels: {
         ensureStarted: EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
         stop: EMBEDDING_HOST_STOP_CHANNEL,
@@ -30,6 +32,12 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
     });
   const registry = createDesktopIpcRegistry({ ipcMain });
 
+  registry.registerInvoke(
+    'embeddings',
+    EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
+    async (_event, payload) =>
+      manager.queryEmbedding(assertEmbeddingHostQueryEmbeddingPayload(payload))
+  );
   registry.registerEvent(
     'embeddings',
     EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,

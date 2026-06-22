@@ -1336,16 +1336,6 @@ export async function chunkContent(
       totalCandidateChunks: pendingChunks.length,
     });
   }
-  if (sourceRangeResolution.fuzzyMatchedChunks > 0) {
-    // biome-ignore lint/suspicious/noConsole: worker warning surfaces non-exact line-range matching rates.
-    console.warn('[portable-chunking] resolved source ranges with whitespace-normalized matching', {
-      fileName: options.fileName,
-      filePath: options.filePath,
-      fuzzyMatchedChunks: sourceRangeResolution.fuzzyMatchedChunks,
-      totalCandidateChunks: pendingChunks.length,
-    });
-  }
-
   if (pendingChunks.length > 0 && chunks.length === 0) {
     return {
       chunks,

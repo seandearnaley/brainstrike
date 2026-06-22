@@ -4,10 +4,12 @@ import type {
   DbHandle,
   EmbeddingSet,
   FileImportResult,
+  IDatabase,
   ImportProgress,
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -22,6 +24,7 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -36,6 +39,21 @@ import {
 } from './workspace-collection-sync-progress';
 
 const logger = createLogger('WorkspaceCollectionSyncImport');
+const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index background import requires transactional chunk/job enqueue support.';
+
+interface FirstEmbedChunkJobEnqueueMarker {
+  batchNumber: number;
+  chunkCount: number;
+  fileRecordId: string;
+}
+
+function hasTransactionalChunkJobEnqueueSupport(db: DbHandle): boolean {
+  return (
+    typeof db.transaction === 'function' ||
+    typeof db.insertChunksAndEnqueueEmbeddingJobs === 'function'
+  );
+}
 
 type WorkspaceIndexingImportQosPolicy = Pick<
   WorkspaceIndexingQosPolicy,
@@ -45,6 +63,14 @@ type WorkspaceIndexingImportQosPolicy = Pick<
 function assertPositiveQosCapacity(value: number, label: string): void {
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error(`Workspace Index QoS ${label} must be a positive integer.`);
+  }
+}
+
+function assertManagedCollectionModelKey(modelKey: string): void {
+  if (modelKey.trim().length === 0) {
+    throw new Error(
+      'Workspace Index managed collection requires a model key before chunk embedding jobs can be enqueued.'
+    );
   }
 }
 
@@ -129,12 +155,26 @@ const INACCESSIBLE_CONTENT_VALUES = new Set([
   'Binary file - preview not available',
   'Error accessing file',
 ]);
+const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
+
+function getContentIndexingError(content: string): string | null {
+  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
+    return content;
+  }
+  const inaccessiblePrefix = INACCESSIBLE_CONTENT_PREFIXES.find((prefix) =>
+    content.startsWith(prefix)
+  );
+  if (inaccessiblePrefix) {
+    return content;
+  }
+  if (content.includes('\0')) {
+    return NULL_BYTE_CONTENT_ERROR;
+  }
+  return null;
+}
 
 function isContentAccessible(content: string): boolean {
-  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
-    return false;
-  }
-  return !INACCESSIBLE_CONTENT_PREFIXES.some((prefix) => content.startsWith(prefix));
+  return getContentIndexingError(content) === null;
 }
 
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
@@ -203,15 +243,25 @@ async function collectDiscoveredPreparedFiles(args: {
   fileContents: Record<string, string>;
   metadataByKey: Map<string, FileBatchPreparation>;
   rootId: string;
-}): Promise<Array<DiscoveredPreparedFile | null>> {
+}): Promise<{
+  excludedEntries: number;
+  files: Array<DiscoveredPreparedFile | null>;
+}> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
+  let excludedEntries = 0;
   for (const [compositeKey, content] of Object.entries(args.fileContents)) {
-    if (!isContentAccessible(content)) {
+    const metadata = args.metadataByKey.get(compositeKey);
+    if (!metadata) {
       discoveredFiles.push(null);
       continue;
     }
-    const metadata = args.metadataByKey.get(compositeKey);
-    if (!metadata) {
+    const indexingError = getContentIndexingError(content);
+    if (indexingError) {
+      excludedEntries += 1;
+      logger.debug('Workspace Index skipped file content that cannot be indexed', {
+        reason: indexingError,
+        relativePath: metadata.relativePath,
+      });
       discoveredFiles.push(null);
       continue;
     }
@@ -231,7 +281,7 @@ async function collectDiscoveredPreparedFiles(args: {
       rootId: args.rootId,
     });
   }
-  return discoveredFiles;
+  return { excludedEntries, files: discoveredFiles };
 }
 
 function applyDiscoveredPreparedFiles(args: {
@@ -257,6 +307,14 @@ function applyDiscoveredPreparedFiles(args: {
       continue;
     }
     if (existing.contentHash === discovered.contentHash) {
+      if (!hasCompletedChunking(existing)) {
+        args.changes.push({
+          ...discovered,
+          id: existing.fileRecordId,
+          mode: 'replace',
+        });
+        continue;
+      }
       unchangedCount += 1;
       // Unchanged rows never write, so stamp missing/stale stats here or
       // pre-migration rows miss the stat-cache on every future sync.
@@ -360,6 +418,11 @@ async function applyBackgroundImportBatch(args: {
 
   try {
     await args.waitForBackgroundPermit({ label: 'background import batch' });
+    logger.info('Workspace Index import batch managed-cache apply started', {
+      batchFileCount: mutations.length,
+      collectionId: args.collectionId,
+      rootId: args.rootId ?? null,
+    });
     await args.applyManagedCacheBatch({
       embeddingSetId: args.collectionId,
       changes: mutations.map((entry) => entry.mutation),
@@ -378,6 +441,19 @@ async function applyBackgroundImportBatch(args: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const sampleRelativePaths = mutations.slice(0, 10).map((entry) => entry.relativePath);
+    logger.warn('Workspace Index managed-cache batch import failed', {
+      batchFileCount: mutations.length,
+      collectionId: args.collectionId,
+      error: message,
+      mutationModes: {
+        import: mutations.filter((entry) => entry.mode === 'import').length,
+        replace: mutations.filter((entry) => entry.mode === 'replace').length,
+      },
+      rootId: args.rootId ?? null,
+      sampleRelativePaths,
+      truncatedRelativePathCount: Math.max(0, mutations.length - sampleRelativePaths.length),
+    });
     return {
       errors: [
         ...skippedErrors,
@@ -397,6 +473,17 @@ async function applyBackgroundImportBatch(args: {
       ],
     };
   }
+}
+
+function getSkippedBatchContentError(
+  change: PreparedCacheChange,
+  batchContents: Readonly<Record<string, string>>
+): string {
+  const content = batchContents[change.compositeKey];
+  if (content === undefined) {
+    return 'Background cache import descriptor is missing.';
+  }
+  return getContentIndexingError(content) ?? content;
 }
 
 function buildBatchedEnhancedImportProgress(args: {
@@ -513,7 +600,20 @@ function isStatCacheHit(
   if (preparation.mtimeMs === null) {
     return false;
   }
+  if (!hasCompletedChunking(existing)) {
+    return false;
+  }
   return existing.size === preparation.size && existing.mtimeMs === preparation.mtimeMs;
+}
+
+function hasCompletedChunking(existing: ManagedCacheEntryMetadata): boolean {
+  if (existing.chunksProcessedAt === undefined) {
+    return true;
+  }
+  if (existing.chunksProcessedAt === null) {
+    return false;
+  }
+  return typeof existing.chunksProcessedAt === 'string' && existing.chunksProcessedAt.length > 0;
 }
 
 export async function collectPreparedChangesInBatches(args: {
@@ -522,6 +622,7 @@ export async function collectPreparedChangesInBatches(args: {
   fileContentProcessor?: FileContentProcessor;
   fileNodes: readonly IFileNode[];
   fileSystemAdapter: FileSystemAdapter;
+  forceReadRelativePaths?: ReadonlySet<string>;
   onCurrentFile: (path: string | null) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   // rootPath drives path normalization / composite keys; rootId is the durable
@@ -535,6 +636,7 @@ export async function collectPreparedChangesInBatches(args: {
     fileContentProcessor,
     fileNodes,
     fileSystemAdapter,
+    forceReadRelativePaths,
     onCurrentFile,
     qosPolicy,
     rootId,
@@ -560,11 +662,29 @@ export async function collectPreparedChangesInBatches(args: {
   // Stat-cache fast-path: drop files whose size+mtime already match the stored
   // entry before any content read, so unchanged files cost a stat lookup instead
   // of a full read + SHA-256 hash. Skipped files count as unchanged directly.
-  const { needsRead: preparations, skippedUnchanged } = partitionPreparationsByStatCache({
+  const statCacheEligiblePreparations =
+    forceReadRelativePaths && forceReadRelativePaths.size > 0
+      ? allPreparations.filter(
+          (preparation) => !forceReadRelativePaths.has(preparation.relativePath)
+        )
+      : allPreparations;
+  const forceReadPreparations =
+    forceReadRelativePaths && forceReadRelativePaths.size > 0
+      ? allPreparations.filter((preparation) =>
+          forceReadRelativePaths.has(preparation.relativePath)
+        )
+      : [];
+  const { needsRead, skippedUnchanged } = partitionPreparationsByStatCache({
     existingByIdentity,
-    preparations: allPreparations,
+    preparations: statCacheEligiblePreparations,
     rootId,
   });
+  const needsReadIdentities = new Set(
+    [...forceReadPreparations, ...needsRead].map((preparation) => preparation.relativePath)
+  );
+  const preparations = allPreparations.filter((preparation) =>
+    needsReadIdentities.has(preparation.relativePath)
+  );
   if (skippedUnchanged.length > 0) {
     // One line per scan: without this, a stat-skipped file leaves no trace at
     // all, which makes "why didn't my edit get indexed" undiagnosable.
@@ -575,6 +695,7 @@ export async function collectPreparedChangesInBatches(args: {
   }
   const changes: PreparedCacheChange[] = [];
   const statRefreshes: StatMetadataRefresh[] = [];
+  let excludedEntries = 0;
   let unchangedCount = skippedUnchanged.length;
 
   for (let index = 0; index < preparations.length; index += qosPolicy.contentReadBatchSize) {
@@ -592,15 +713,16 @@ export async function collectPreparedChangesInBatches(args: {
     );
     throwIfAborted(abortSignal);
 
-    const discoveredFiles = await collectDiscoveredPreparedFiles({
+    const discovered = await collectDiscoveredPreparedFiles({
       fileContents,
       metadataByKey,
       rootId,
     });
+    excludedEntries += discovered.excludedEntries;
     throwIfAborted(abortSignal);
     unchangedCount = applyDiscoveredPreparedFiles({
       changes,
-      discoveredFiles,
+      discoveredFiles: discovered.files,
       existingByIdentity,
       statRefreshes,
       unchangedCount,
@@ -609,7 +731,7 @@ export async function collectPreparedChangesInBatches(args: {
 
   return {
     changes,
-    excludedEntries: 0,
+    excludedEntries,
     statRefreshes,
     totalFiles: fileNodes.length,
     unchangedCount,
@@ -665,11 +787,74 @@ export async function runRootFolderCacheImport(args: {
   if (!firstChange) {
     return;
   }
+  assertManagedCollectionModelKey(collection.modelKey);
+  if (!hasTransactionalChunkJobEnqueueSupport(db)) {
+    throw new Error(TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR);
+  }
+  const firstEmbedChunkJobEnqueueRef: { current: FirstEmbedChunkJobEnqueueMarker | null } = {
+    current: null,
+  };
+  const logFirstEmbedChunkJobEnqueued = (args: {
+    batchNumber: number;
+    chunkCount: number;
+    fileRecordId: string;
+  }): void => {
+    if (firstEmbedChunkJobEnqueueRef.current || args.chunkCount <= 0) {
+      return;
+    }
+    firstEmbedChunkJobEnqueueRef.current = args;
+    logger.info('Workspace Index first durable embed_chunk job enqueued', {
+      batchNumber: args.batchNumber,
+      chunkCount: args.chunkCount,
+      collectionId: collection.id,
+      fileRecordId: args.fileRecordId,
+      rootId: rootId ?? null,
+    });
+  };
+  const insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs
+    ? db.insertChunksAndEnqueueEmbeddingJobs.bind(db)
+    : null;
+  let activeBatchNumber = 0;
+  const sql = {
+    query: db.query.bind(db),
+    ...(insertChunksAndEnqueueEmbeddingJobs
+      ? {
+          insertChunksAndEnqueueEmbeddingJobs: (async (chunks, fileRecordId, options) => {
+            await insertChunksAndEnqueueEmbeddingJobs(chunks, fileRecordId, options);
+            logFirstEmbedChunkJobEnqueued({
+              batchNumber: activeBatchNumber,
+              chunkCount: chunks.length,
+              fileRecordId,
+            });
+          }) satisfies NonNullable<typeof db.insertChunksAndEnqueueEmbeddingJobs>,
+        }
+      : {}),
+    ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
+  };
+  const rawEmbeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+    db,
+    createQueue: (executor) => new JobQueue(executor),
+    defaultExpectedDimension: collection.dimensions,
+  });
+  const embeddingQueue = {
+    ...rawEmbeddingQueue,
+    enqueueBatch: async (...params: Parameters<typeof rawEmbeddingQueue.enqueueBatch>) => {
+      const [chunks, fileRecordId] = params;
+      await rawEmbeddingQueue.enqueueBatch(...params);
+      logFirstEmbedChunkJobEnqueued({
+        batchNumber: activeBatchNumber,
+        chunkCount: chunks.length,
+        fileRecordId,
+      });
+    },
+  };
   const embeddingConfig = {
-    enabled: false,
+    enabled: true,
+    model: collection.modelKey,
     service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
+    targetDimension: collection.dimensions,
   };
   const processor =
     fileContentProcessor ??
@@ -688,6 +873,16 @@ export async function runRootFolderCacheImport(args: {
     for (let index = 0; index < changes.length; index += qosPolicy.importBatchSize) {
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
       const batch = changes.slice(index, index + qosPolicy.importBatchSize);
+      const batchNumber = Math.floor(index / qosPolicy.importBatchSize) + 1;
+      activeBatchNumber = batchNumber;
+      firstEmbedChunkJobEnqueueRef.current = null;
+      logger.info('Workspace Index import batch content read started', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       const batchMetadataByKey = new Map(
         batch.map(
           (change) =>
@@ -716,6 +911,14 @@ export async function runRootFolderCacheImport(args: {
         { abortSignal }
       );
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+      logger.info('Workspace Index import batch content read completed', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        contentEntries: Object.keys(batchContents).length,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
 
       const fileContents = Object.fromEntries(
         batch
@@ -728,6 +931,14 @@ export async function runRootFolderCacheImport(args: {
           .filter((entry): entry is readonly [string, string] => entry !== null)
       );
       const selectedFilePaths = new Set(Object.keys(fileContents));
+      logger.info('Workspace Index import batch chunking started', {
+        batchFileCount: batch.length,
+        batchNumber,
+        collectionId: collection.id,
+        indexableFileCount: selectedFilePaths.size,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         request: {
@@ -777,9 +988,7 @@ export async function runRootFolderCacheImport(args: {
 
           for (const change of batch) {
             if (!selectedKeys.has(change.compositeKey)) {
-              const content = batchContents[change.compositeKey];
-              const message =
-                content === undefined ? 'Background cache import descriptor is missing.' : content;
+              const message = getSkippedBatchContentError(change, batchContents);
               errors.push({
                 file: change.relativePath,
                 error: message,
@@ -808,6 +1017,10 @@ export async function runRootFolderCacheImport(args: {
           chunkingWorkerPort,
         },
         embedding: embeddingConfig,
+        ports: {
+          embeddingQueue,
+          sql,
+        },
         progressHandlers: {
           emit: (progress) => {
             const batchChunking = progress.chunkingProgress;
@@ -831,9 +1044,24 @@ export async function runRootFolderCacheImport(args: {
           update: () => null,
         },
       });
+      logger.info('Workspace Index import batch chunking completed', {
+        batchFileCount: batch.length,
+        batchNumber,
+        chunksCreated: batchResults.reduce((sum, result) => sum + result.chunksCreated, 0),
+        collectionId: collection.id,
+        importedFiles: batchResults.filter((result) => result.imported).length,
+        rootId: rootId ?? null,
+        totalFiles: changes.length,
+      });
       await waitForBackgroundPermit({ label: 'background import assignment' });
+      logger.info('Workspace Index import batch assignment reconciliation requested', {
+        batchNumber,
+        collectionId: collection.id,
+        importedFiles: batchResults.filter((result) => result.imported).length,
+        rootId: rootId ?? null,
+      });
       await backfillEmbeddingSetAssignments(
-        { query: db.query.bind(db) },
+        sql,
         collection.id,
         batchResults.filter((result) => result.imported).map((result) => result.id)
       );

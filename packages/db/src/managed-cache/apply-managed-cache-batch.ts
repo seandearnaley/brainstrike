@@ -1,5 +1,6 @@
 import type { IDatabase } from '../repositories/interfaces.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
+import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
 interface ManagedCacheRecordBase {
   content: string;
@@ -42,14 +43,48 @@ export interface ApplyManagedCacheBatchArgs {
   readonly rootId?: string | null;
 }
 
+export type ManagedCacheInvalidationTarget =
+  | {
+      readonly expectedFileRecordId?: string;
+      readonly mode?: 'exact';
+      readonly relativePath: string;
+      readonly rootId: string;
+    }
+  | {
+      readonly mode: 'prefix';
+      readonly relativePathPrefix: string;
+      readonly rootId: string;
+    };
+
+export interface ApplyManagedCacheInvalidationsArgs {
+  readonly embeddingSetId: string;
+  readonly targets: readonly ManagedCacheInvalidationTarget[];
+}
+
+export interface ManagedCacheInvalidationResult {
+  readonly canceledEmbeddingJobCount: number;
+  readonly deletedChunkIds: string[];
+  readonly deletedFileRecordIds: string[];
+}
+
 interface QueryLike {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
 const POSTGRES_PARAMETER_LIMIT = 65_535;
+const MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY = 250;
+const MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY = 5000;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function chunkArray<T>(values: readonly T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 /**
@@ -289,12 +324,20 @@ function assertNoDuplicateMutationIds(changes: readonly ManagedCacheBatchMutatio
   }
 }
 
-function buildValuePlaceholders(rowCount: number, columnCount: number): string {
+function assertNoNullBytesInManagedCacheContent(
+  changes: readonly ManagedCacheBatchMutation[]
+): void {
+  for (const change of changes) {
+    assertTextContentHasNoNullBytes(change.record.content, 'Managed cache content');
+  }
+}
+
+function buildValuePlaceholders(rowCount: number, columnCount: number, startIndex = 1): string {
   const rows: string[] = [];
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
     const placeholders: string[] = [];
     for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-      placeholders.push(`$${rowIndex * columnCount + columnIndex + 1}`);
+      placeholders.push(`$${startIndex + rowIndex * columnCount + columnIndex}`);
     }
     rows.push(`(${placeholders.join(', ')})`);
   }
@@ -370,6 +413,8 @@ async function applyManagedCacheReplacements(
   }
 
   const replacementIds = replacements.map((record) => record.id);
+  const chunkIdsToDelete = await listChunkIdsForFileRecords(tx, replacementIds);
+  await cancelQueuedOrRunningEmbeddingJobsForChunks(tx, chunkIdsToDelete, 'replacement');
   // Legacy migrations still persist text ids while newer schema surfaces use uuid columns.
   // Keep the text-form comparison here until that id contract is unified across both paths.
   await tx.query('DELETE FROM file_chunks WHERE file_record_id::text = ANY($1::text[])', [
@@ -430,6 +475,250 @@ async function applyManagedCacheReplacements(
   assertReturnedIds(result.rows, replacementIds, 'update');
 }
 
+async function listChunkIdsForFileRecords(
+  tx: QueryLike,
+  fileRecordIds: readonly string[]
+): Promise<string[]> {
+  if (fileRecordIds.length === 0) {
+    return [];
+  }
+
+  const result = await tx.query<{ id: string }>(
+    `SELECT id
+       FROM file_chunks
+      WHERE file_record_id::text = ANY($1::text[])
+      ORDER BY id`,
+    [[...fileRecordIds]]
+  );
+  return result.rows.map((row) => row.id).filter(isNonEmptyString);
+}
+
+async function cancelQueuedOrRunningEmbeddingJobsForChunks(
+  tx: QueryLike,
+  chunkIds: readonly string[],
+  operation: 'invalidation' | 'replacement'
+): Promise<number> {
+  if (chunkIds.length === 0) {
+    return 0;
+  }
+
+  const updatedAt = new Date().toISOString();
+  let canceledCount = 0;
+  for (const chunkIdBatch of chunkArray(chunkIds, MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY)) {
+    const result = await tx.query<{ count: string }>(
+      `WITH canceled AS (
+         UPDATE job_queue
+            SET state = 'canceled',
+                lease_token = NULL,
+                leased_until = NULL,
+                worker_id = NULL,
+                error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
+                updated_at = $1
+          WHERE job_type = 'embed_chunk'
+            AND state IN ('queued', 'running')
+            AND chunk_id = ANY($2::text[])
+          RETURNING 1
+       )
+       SELECT COUNT(*)::text AS count
+         FROM canceled`,
+      [updatedAt, chunkIdBatch]
+    );
+    canceledCount += Number(result.rows[0]?.count ?? 0);
+  }
+  return canceledCount;
+}
+
+interface NormalizedManagedCacheInvalidationTarget {
+  readonly expectedFileRecordId: string | null;
+  readonly mode: 'exact' | 'prefix';
+  readonly relativePath: string;
+  readonly rootId: string;
+}
+
+function normalizePrefixInvalidationPath(relativePathPrefix: string): string {
+  const normalized = relativePathPrefix.replace(/\/+$/u, '');
+  if (!isNonEmptyString(normalized)) {
+    throw new Error(
+      'Managed cache prefix invalidation target requires a non-empty relativePathPrefix.'
+    );
+  }
+  return normalized;
+}
+
+function normalizeInvalidationTargets(
+  targets: readonly ManagedCacheInvalidationTarget[]
+): NormalizedManagedCacheInvalidationTarget[] {
+  return targets.map((target) => {
+    if (!isNonEmptyString(target.rootId)) {
+      throw new Error('Managed cache invalidation target requires a non-empty rootId.');
+    }
+
+    if (target.mode === 'prefix') {
+      if (!isNonEmptyString(target.relativePathPrefix)) {
+        throw new Error(
+          'Managed cache prefix invalidation target requires a non-empty relativePathPrefix.'
+        );
+      }
+      return {
+        expectedFileRecordId: null,
+        mode: 'prefix',
+        relativePath: normalizePrefixInvalidationPath(target.relativePathPrefix),
+        rootId: target.rootId,
+      };
+    }
+
+    if (target.mode !== undefined && target.mode !== 'exact') {
+      throw new Error('Managed cache invalidation target mode must be exact or prefix.');
+    }
+    if (!isNonEmptyString(target.relativePath)) {
+      throw new Error('Managed cache exact invalidation target requires a non-empty relativePath.');
+    }
+    if (
+      target.expectedFileRecordId !== undefined &&
+      !isNonEmptyString(target.expectedFileRecordId)
+    ) {
+      throw new Error(
+        'Managed cache exact invalidation target expectedFileRecordId must be a non-empty string when provided.'
+      );
+    }
+
+    return {
+      expectedFileRecordId: target.expectedFileRecordId ?? null,
+      mode: 'exact',
+      relativePath: target.relativePath,
+      rootId: target.rootId,
+    };
+  });
+}
+
+async function listInvalidationMatches(
+  tx: QueryLike,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<{
+  chunkIds: string[];
+  fileRecordIds: string[];
+}> {
+  if (targets.length === 0) {
+    return {
+      chunkIds: [],
+      fileRecordIds: [],
+    };
+  }
+
+  const placeholders = buildValuePlaceholders(targets.length, 4, 2);
+  const values = targets.flatMap((target) => [
+    target.mode,
+    target.rootId,
+    target.relativePath,
+    target.expectedFileRecordId,
+  ]);
+  const result = await tx.query<{ chunk_id: string | null; file_record_id: string }>(
+    `WITH targets(mode, root_id, relative_path, expected_file_record_id) AS (
+       VALUES ${placeholders}
+     )
+     SELECT DISTINCT
+            fr.id::text AS file_record_id,
+            fc.id::text AS chunk_id
+       FROM file_records fr
+       JOIN targets t
+         ON fr.root_id = t.root_id
+        AND fr.root_id IS NOT NULL
+      LEFT JOIN file_chunks fc
+        ON fc.file_record_id::text = fr.id::text
+      WHERE fr.embedding_set_id::text = $1
+        AND (
+          (
+            t.mode = 'exact'
+            AND fr.path = t.relative_path
+            AND (
+              t.expected_file_record_id IS NULL
+              OR fr.id::text = t.expected_file_record_id
+            )
+          )
+          OR (
+            t.mode = 'prefix'
+            AND (
+              fr.path = t.relative_path
+              OR substr(fr.path, 1, length(t.relative_path) + 1) = t.relative_path || '/'
+            )
+          )
+        )
+      ORDER BY file_record_id, chunk_id`,
+    [embeddingSetId, ...values]
+  );
+
+  const fileRecordIds = [...new Set(result.rows.map((row) => row.file_record_id))].sort();
+  const chunkIds = [
+    ...new Set(result.rows.map((row) => row.chunk_id).filter(isNonEmptyString)),
+  ].sort();
+
+  return {
+    chunkIds,
+    fileRecordIds,
+  };
+}
+
+export async function invalidateManagedCacheEntriesByIdentity(
+  db: IDatabase,
+  args: ApplyManagedCacheInvalidationsArgs
+): Promise<ManagedCacheInvalidationResult> {
+  if (!isNonEmptyString(args.embeddingSetId)) {
+    throw new Error('Managed cache invalidation requires a non-empty embeddingSetId.');
+  }
+  if (!db.transaction) {
+    throw new Error('Managed cache invalidation requires transactional database support.');
+  }
+
+  const targets = normalizeInvalidationTargets(args.targets);
+  if (targets.length === 0) {
+    return {
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    };
+  }
+
+  return await db.transaction(async (tx) => {
+    const deletedChunkIds = new Set<string>();
+    const deletedFileRecordIds = new Set<string>();
+    let canceledEmbeddingJobCount = 0;
+
+    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+      const matches = await listInvalidationMatches(tx, args.embeddingSetId, targetBatch);
+      canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
+        tx,
+        matches.chunkIds,
+        'invalidation'
+      );
+
+      for (const chunkId of matches.chunkIds) {
+        deletedChunkIds.add(chunkId);
+      }
+      for (const fileRecordId of matches.fileRecordIds) {
+        deletedFileRecordIds.add(fileRecordId);
+      }
+
+      for (const fileRecordIds of chunkArray(
+        matches.fileRecordIds,
+        MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY
+      )) {
+        await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
+          fileRecordIds,
+        ]);
+      }
+    }
+
+    await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
+
+    return {
+      canceledEmbeddingJobCount,
+      deletedChunkIds: [...deletedChunkIds].sort(),
+      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
+    };
+  });
+}
+
 export async function applyManagedCacheBatch(
   db: IDatabase,
   args: ApplyManagedCacheBatchArgs
@@ -442,6 +731,7 @@ export async function applyManagedCacheBatch(
   }
   assertTotalBatchWithinLimit(args.changes.length);
   assertNoDuplicateMutationIds(args.changes);
+  assertNoNullBytesInManagedCacheContent(args.changes);
 
   const imports = args.changes.flatMap((change) =>
     change.mode === 'import' ? [change.record] : []

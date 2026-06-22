@@ -4,6 +4,7 @@ import type {
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
+import { runEnhancedImport } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
@@ -68,6 +69,8 @@ function existingEntry(
 ): ManagedCacheEntryMetadata {
   return {
     contentHash: 'hash',
+    chunksCount: 1,
+    chunksProcessedAt: '2026-06-09T00:00:00.000Z',
     embeddingSetId: 'set-1',
     fileRecordId: `rec-${relativePath}`,
     mtimeMs: 1000,
@@ -94,13 +97,37 @@ describe('partitionPreparationsByStatCache', () => {
   it('skips files whose size AND mtime both match the stored entry', () => {
     const preparations = [prep('a.ts', 42, 1000)];
     const result = partitionPreparationsByStatCache({
-      existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
+      existingByIdentity: existingByIdentity([
+        existingEntry('a.ts', {
+          size: 42,
+          mtimeMs: 1000,
+          chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+        }),
+      ]),
       preparations,
       rootId: ROOT,
     });
 
     expect(result.skippedUnchanged).toEqual(preparations);
     expect(result.needsRead).toEqual([]);
+  });
+
+  it('reads files whose stat metadata matches but chunking has never completed', () => {
+    const preparations = [prep('a.ts', 42, 1000)];
+    const result = partitionPreparationsByStatCache({
+      existingByIdentity: existingByIdentity([
+        existingEntry('a.ts', {
+          size: 42,
+          mtimeMs: 1000,
+          chunksProcessedAt: null,
+        }),
+      ]),
+      preparations,
+      rootId: ROOT,
+    });
+
+    expect(result.skippedUnchanged).toEqual([]);
+    expect(result.needsRead).toEqual(preparations);
   });
 
   it('reads files whose size matches but mtime differs', () => {
@@ -253,7 +280,12 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     const result = await collectPreparedChangesInBatches({
       abortSignal: new AbortController().signal,
       existingEntries: [
-        existingEntry('unchanged.ts', { size: 42, mtimeMs: 1000, contentHash: 'stale-hash' }),
+        existingEntry('unchanged.ts', {
+          size: 42,
+          mtimeMs: 1000,
+          contentHash: 'stale-hash',
+          chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+        }),
       ],
       fileContentProcessor: processor,
       fileNodes: [makeFileNode('unchanged.ts', 42, 1000), makeFileNode('fresh.ts', 10, 2000)],
@@ -273,6 +305,44 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.unchangedCount).toBe(1);
     expect(result.changes.map((change) => change.relativePath)).toEqual(['fresh.ts']);
     expect(result.totalFiles).toBe(2);
+  });
+
+  it('requeues hash-unchanged files whose file record was imported but never chunked', async () => {
+    const { processor, readPaths } = createRecordingProcessor();
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [
+        existingEntry('unchunked.ts', {
+          contentHash: await hashForRecordedContent('unchunked.ts'),
+          size: 42,
+          mtimeMs: 1000,
+          chunksProcessedAt: null,
+        }),
+      ],
+      fileContentProcessor: processor,
+      fileNodes: [makeFileNode('unchunked.ts', 42, 1000)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(readPaths()).toEqual([`${ROOT}/unchunked.ts`]);
+    expect(result.unchangedCount).toBe(0);
+    expect(result.statRefreshes).toEqual([]);
+    expect(result.changes).toEqual([
+      expect.objectContaining({
+        id: 'rec-unchunked.ts',
+        mode: 'replace',
+        relativePath: 'unchunked.ts',
+      }),
+    ]);
   });
 
   it('emits stat refreshes for hash-unchanged files whose stored stats are missing or stale', async () => {
@@ -316,7 +386,11 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       abortSignal: new AbortController().signal,
       existingEntries: [
         // Stat-cache hit: skipped entirely, no refresh needed.
-        existingEntry('hit.ts', { size: 42, mtimeMs: 1000 }),
+        existingEntry('hit.ts', {
+          size: 42,
+          mtimeMs: 1000,
+          chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+        }),
         // Content changed: goes through replace, which persists stats itself.
         existingEntry('changed.ts', { contentHash: 'old-hash', mtimeMs: null }),
       ],
@@ -402,6 +476,54 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect(result.unchangedCount).toBe(1);
     expect(result.changes).toEqual([]);
   });
+
+  it('keeps a large workspace scan moving when one text file contains a late null byte', async () => {
+    const fileCount = 15_134;
+    const invalidIndex = 12_345;
+    const fileNodes = Array.from({ length: fileCount }, (_, index) =>
+      makeFileNode(`large/file-${index}.txt`, 32, 2000 + index)
+    );
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
+        const contents: Record<string, string> = {};
+        for (const request of requests) {
+          contents[request.compositeKey] = request.fileNode.path.endsWith(
+            `file-${invalidIndex}.txt`
+          )
+            ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+            : `content-of-${request.fileNode.path}`;
+        }
+        return contents;
+      }
+    );
+
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [],
+      fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
+      fileNodes,
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 500,
+        contentReadConcurrency: 4,
+        importBatchSize: 500,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(result.totalFiles).toBe(fileCount);
+    expect(result.excludedEntries).toBe(1);
+    expect(result.changes).toHaveLength(fileCount - 1);
+    expect(result.changes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relativePath: `large/file-${invalidIndex}.txt` }),
+      ])
+    );
+    expect(processFiles).toHaveBeenCalledTimes(Math.ceil(fileCount / 500));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -409,6 +531,22 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
 // ---------------------------------------------------------------------------
 
 const COMPOSITE_KEY = `${ROOT}::a.ts`;
+
+function makeMinimalDb() {
+  const query = vi.fn().mockResolvedValue({ rows: [] });
+  return {
+    query,
+    transaction: vi.fn(async (fn) => fn({ query })),
+  };
+}
+
+function makeMinimalIpcDbWithoutCallbackTransaction() {
+  const query = vi.fn().mockResolvedValue({ rows: [] });
+  return { query };
+}
+
+const TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index background import requires transactional chunk/job enqueue support.';
 
 function makeMinimalChange(): PreparedCacheChange {
   return {
@@ -455,6 +593,563 @@ function makeMinimalFileContentProcessor(change: PreparedCacheChange): FileConte
 }
 
 describe('runRootFolderCacheImport — rootId threading', () => {
+  it('rejects missing collection model keys before file import starts', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = {
+      ...makeMinimalCollection(),
+      modelKey: '   ',
+    };
+
+    await expect(
+      runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection,
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow(
+      'Workspace Index managed collection requires a model key before chunk embedding jobs can be enqueued.'
+    );
+
+    expect(runEnhancedImport).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('passes a durable embedding queue port so chunking can enqueue jobs before final backfill', async () => {
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection,
+      db: makeMinimalDb() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(vi.mocked(runEnhancedImport)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embedding: expect.objectContaining({
+          enabled: true,
+          resolveTargetEmbeddingSetId: expect.any(Function),
+          targetDimension: collection.dimensions,
+        }),
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.objectContaining({
+            runInTransaction: expect.any(Function),
+          }),
+        }),
+      })
+    );
+  });
+
+  it('logs the managed import batch lifecycle and first durable enqueue marker', async () => {
+    vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
+      const results = await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      await params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.(
+        [
+          {
+            id: 'chunk-1',
+            fileRecordId: 'file-id-a',
+            content: 'content',
+            contentHash: 'chunk-hash-1',
+            chunkIndex: 0,
+            startLine: 1,
+            endLine: 1,
+            startOffset: 0,
+            endOffset: 7,
+            tokenCount: 1,
+            chunkType: 'sentence',
+            chunkSize: 7,
+            embeddingSetId: 'collection-1',
+          },
+        ] as never,
+        'file-id-a',
+        {
+          model: 'local:model-1',
+          targetEmbeddingSetId: 'collection-1',
+        }
+      );
+      return results.map((result) => ({ ...result, chunksCreated: 1 }));
+    });
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: {
+          ...makeMinimalIpcDbWithoutCallbackTransaction(),
+          insertChunksAndEnqueueEmbeddingJobs: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
+
+    const messages = captured.map((record) => record.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        'Workspace Index import batch content read started',
+        'Workspace Index import batch managed-cache apply started',
+        'Workspace Index import batch chunking started',
+        'Workspace Index first durable embed_chunk job enqueued',
+        'Workspace Index import batch chunking completed',
+        'Workspace Index import batch assignment reconciliation requested',
+      ])
+    );
+    expect(
+      messages.indexOf('Workspace Index first durable embed_chunk job enqueued')
+    ).toBeGreaterThan(messages.indexOf('Workspace Index import batch chunking started'));
+    expect(messages.indexOf('Workspace Index first durable embed_chunk job enqueued')).toBeLessThan(
+      messages.indexOf('Workspace Index import batch chunking completed')
+    );
+  });
+
+  it('skips null-byte content as a per-file import error without poisoning the batch', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const cleanChange = makeMinimalChange();
+    const invalidCompositeKey = `${ROOT}::late-null.txt`;
+    const invalidChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: invalidCompositeKey,
+      contentHash: 'hash-late-null',
+      id: 'file-id-late-null',
+      name: 'late-null.txt',
+      relativePath: 'late-null.txt',
+      request: {
+        compositeKey: invalidCompositeKey,
+        fileNode: makeFileNode('late-null.txt', 620, 1000),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+      size: 620,
+    };
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
+        const contents: Record<string, string> = {};
+        for (const request of requests) {
+          contents[request.compositeKey] =
+            request.compositeKey === invalidCompositeKey
+              ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+              : `content-of-${request.fileNode.path}`;
+        }
+        return contents;
+      }
+    );
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [cleanChange, invalidChange],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
+
+    expect(applyManagedCacheBatch).toHaveBeenCalledOnce();
+    expect(applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: [
+          expect.objectContaining({
+            record: expect.objectContaining({ id: cleanChange.id }),
+          }),
+        ],
+      })
+    );
+    const enhancedImportResult = await vi.mocked(runEnhancedImport).mock.results[0]?.value;
+    expect(enhancedImportResult).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: cleanChange.id, imported: true }),
+        expect.objectContaining({
+          error: 'File contains null bytes and cannot be indexed.',
+          id: invalidChange.id,
+          imported: false,
+        }),
+      ])
+    );
+    expect(captured).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.WARN,
+          message: 'Workspace Index skipped file content that cannot be indexed',
+        }),
+      ])
+    );
+  });
+
+  it('uses desktop atomic chunk/job enqueue when callback transactions are unavailable', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      captured.push(record);
+    });
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          insertMany: vi.fn().mockResolvedValue([]),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection,
+        db: {
+          ...makeMinimalIpcDbWithoutCallbackTransaction(),
+          insertChunksAndEnqueueEmbeddingJobs,
+        } as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+    } finally {
+      removeListener();
+    }
+
+    const enhancedImportCall = vi.mocked(runEnhancedImport).mock.calls[0]?.[0];
+    expect(enhancedImportCall).toEqual(
+      expect.objectContaining({
+        ports: expect.objectContaining({
+          embeddingQueue: expect.objectContaining({
+            enqueueBatch: expect.any(Function),
+          }),
+          sql: expect.objectContaining({
+            insertChunksAndEnqueueEmbeddingJobs: expect.any(Function),
+          }),
+        }),
+      })
+    );
+    await enhancedImportCall?.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+    expect(captured).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message:
+            'Workspace Index import DB handle does not expose callback transactions; chunk/job recovery relies on backfill reconciliation.',
+        }),
+      ])
+    );
+  });
+
+  it('rejects DB handles without atomic chunk/job enqueue support before import starts', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+
+    await expect(
+      runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalIpcDbWithoutCallbackTransaction() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow(TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR);
+
+    expect(runEnhancedImport).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('logs managed-cache batch failures with root-relative file context', async () => {
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceCollectionSyncImport') {
+        captured.push(record);
+      }
+    });
+    const dbTimeout = new Error(
+      "Error invoking remote method 'db:query': Error: DB host request timed out: query"
+    );
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {
+        throw dbTimeout;
+      }
+    );
+    const firstChange = makeMinimalChange();
+    const secondCompositeKey = `${ROOT}::nested/b.ts`;
+    const secondChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: secondCompositeKey,
+      contentHash: 'hash-b',
+      id: 'file-id-b',
+      name: 'b.ts',
+      relativePath: 'nested/b.ts',
+      request: {
+        compositeKey: secondCompositeKey,
+        fileNode: makeFileNode('nested/b.ts', 50, 1001),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+      size: 50,
+    };
+
+    try {
+      await runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [firstChange, secondChange],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
+        fileRecordRepository: {
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const failureLog = captured.find((record) =>
+        record.message?.includes('Workspace Index managed-cache batch import failed')
+      );
+      expect(failureLog).toBeDefined();
+      expect(failureLog?.args ?? []).toContainEqual(
+        expect.objectContaining({
+          batchFileCount: 2,
+          collectionId: 'collection-1',
+          error: dbTimeout.message,
+          mutationModes: { import: 2, replace: 0 },
+          rootId: 'root-db-1',
+          sampleRelativePaths: ['a.ts', 'nested/b.ts'],
+        })
+      );
+    } finally {
+      removeListener();
+    }
+  });
+
   it('passes rootId to applyManagedCacheBatch when rootId is provided', async () => {
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
       async () => {}
@@ -479,7 +1174,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: { query: vi.fn().mockResolvedValue({ rows: [] }) } as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
@@ -527,7 +1222,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: { query: vi.fn().mockResolvedValue({ rows: [] }) } as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),

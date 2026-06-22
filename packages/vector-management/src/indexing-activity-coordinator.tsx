@@ -1,8 +1,7 @@
 import {
+  createPriorityDbHandle,
   getDatabaseWorkScheduler,
-  makeLiveQueryKey,
   usePGliteDatabase,
-  usePGliteLiveQuery,
 } from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
@@ -34,6 +33,7 @@ const QUEUE_AGGREGATE_QUERY = `
   WHERE queue = $1
 `.trim();
 const DATABASE_WORK_SNAPSHOT_POLL_MS = 500;
+const QUEUE_SNAPSHOT_POLL_MS = 1000;
 
 interface QueueAggregateRow {
   readonly failed: number | string | null;
@@ -98,6 +98,17 @@ function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function readQueueSnapshot(
+  db: ReturnType<typeof usePGliteDatabase>
+): Promise<IndexingQueueSnapshot | null> {
+  if (!db || typeof db.query !== 'function') {
+    return null;
+  }
+  const result = await db.query<QueueAggregateRow>(QUEUE_AGGREGATE_QUERY, [EMBEDDINGS_QUEUE]);
+  const row = result.rows[0];
+  return row ? toQueueSnapshot(row) : null;
+}
+
 function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkSnapshot>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -107,6 +118,10 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 
 export function IndexingActivityCoordinator(): null {
   const db = usePGliteDatabase();
+  const backgroundDb = useMemo(
+    () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
+    [db]
+  );
   const { controller } = useSharedEmbeddingRuntime();
   const setQueueSnapshot = useIndexingActivityStore((state) => state.setQueueSnapshot);
   const setBackfills = useIndexingActivityStore((state) => state.setBackfills);
@@ -133,13 +148,6 @@ export function IndexingActivityCoordinator(): null {
     lastError: state.lastError,
     pauseReasons: state.pauseReasons,
   }));
-
-  const queueResult = usePGliteLiveQuery<QueueAggregateRow>({
-    query: QUEUE_AGGREGATE_QUERY,
-    params: [EMBEDDINGS_QUEUE],
-    cacheKey: makeLiveQueryKey('indexing-activity', EMBEDDINGS_QUEUE),
-    enabled: true,
-  });
 
   useEffect(() => {
     const scheduler = getDatabaseWorkScheduler(db);
@@ -182,42 +190,57 @@ export function IndexingActivityCoordinator(): null {
   }, [db, setDatabaseWorkSnapshot, setIndexingActivityError]);
 
   useEffect(() => {
-    if (queueResult.loading) {
-      return;
-    }
+    let disposed = false;
 
-    if (queueResult.error) {
+    const applyQueue = (queue: IndexingQueueSnapshot | null): void => {
+      if (queue) {
+        setIndexingActivityError(null);
+        setQueueSnapshot(queue);
+        setDurableQueueStats(queue);
+        setIsJobQueueActive(isQueueActive(queue));
+        return;
+      }
+
       setQueueSnapshot(null);
       setDurableQueueStats(null);
       setIsJobQueueActive(false);
-      setIndexingActivityError(queueResult.error.message);
-      return;
+    };
+
+    const refresh = async (): Promise<void> => {
+      try {
+        const queue = await readQueueSnapshot(backgroundDb);
+        if (disposed) {
+          return;
+        }
+        applyQueue(queue);
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+        setQueueSnapshot(null);
+        setDurableQueueStats(null);
+        setIsJobQueueActive(false);
+        setIndexingActivityError(normalizeError(error));
+      }
+    };
+
+    void refresh();
+    if (!backgroundDb || typeof backgroundDb.query !== 'function') {
+      return () => {
+        disposed = true;
+      };
     }
 
-    setIndexingActivityError(null);
-    const row = queueResult.rows[0];
-    if (!row) {
-      setQueueSnapshot(null);
-      setDurableQueueStats(null);
-      setIsJobQueueActive(false);
-      return;
-    }
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, QUEUE_SNAPSHOT_POLL_MS);
 
-    try {
-      const queue = toQueueSnapshot(row);
-      setQueueSnapshot(queue);
-      setDurableQueueStats(queue);
-      setIsJobQueueActive(isQueueActive(queue));
-    } catch (error) {
-      setQueueSnapshot(null);
-      setDurableQueueStats(null);
-      setIsJobQueueActive(false);
-      setIndexingActivityError(normalizeError(error));
-    }
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
   }, [
-    queueResult.error,
-    queueResult.loading,
-    queueResult.rows,
+    backgroundDb,
     setDurableQueueStats,
     setIndexingActivityError,
     setIsJobQueueActive,

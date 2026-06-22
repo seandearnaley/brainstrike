@@ -68,6 +68,7 @@ export function useLocalRuntimeEmbeddingModelCatalog(
       }));
       try {
         const runtimeCatalog = await getLocalRuntimeModels({
+          diagnosticLogLevel: refreshOptions?.force ? 'warn' : 'debug',
           ...(refreshOptions?.force ? { force: true } : {}),
           ...modelCatalogOptions,
         });

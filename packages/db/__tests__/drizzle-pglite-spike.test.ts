@@ -123,6 +123,8 @@ describe('Drizzle + PGlite Spike', () => {
         "queue" text NOT NULL,
         "job_type" text NOT NULL,
         "payload" text NOT NULL,
+        "chunk_id" text,
+        "embedding_set_id" text,
         "state" text DEFAULT 'queued' NOT NULL,
         "run_at" timestamp with time zone DEFAULT now() NOT NULL,
         "attempts" integer DEFAULT 0 NOT NULL,

@@ -8,11 +8,21 @@ import { resolveEmbeddingWorkerUrlHref } from './resolve-embedding-worker-url';
 
 let singletonQueue: QueueAdapter | null = null;
 
-function createSingletonQueue(): QueueAdapter {
+function registerEmbeddingWorkerRuntime(): string {
   const embeddingWorkerUrl: string = resolveEmbeddingWorkerUrlHref();
   registerEmbeddingRuntimeConfig({
     streamingWorkerUrl: embeddingWorkerUrl,
   });
+  return embeddingWorkerUrl;
+}
+
+export function registerWebEmbeddingRuntimeConfig(): void {
+  registerEmbeddingWorkerRuntime();
+  registerEmbeddingQueueFactory(() => getEmbeddingQueue());
+}
+
+function createSingletonQueue(): QueueAdapter {
+  const embeddingWorkerUrl = registerEmbeddingWorkerRuntime();
 
   const queue: QueueAdapter = createBrowserEmbeddingQueue({
     requireWorkerpool: true,

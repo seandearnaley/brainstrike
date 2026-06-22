@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it } from 'vitest';
 import {
   buildFileNodeCache,
@@ -172,6 +173,38 @@ describe('getFileNodeFromCache', () => {
     const result = getFileNodeFromCache(cache, tree, 'project', 'does-not-exist.ts');
 
     expect(result).toBeNull();
+  });
+
+  it('allows callers to demote expected cache misses to debug', () => {
+    setLogLevel(LogLevel.INFO);
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'FileNodeCache') {
+        captured.push(record);
+      }
+    });
+    const tree: IFileNode[] = [
+      createFileNode({ name: 'exists.ts', path: 'exists.ts', rootFolderId: 'project' }),
+    ];
+    const cache = buildFileNodeCache(tree);
+
+    try {
+      const result = getFileNodeFromCache(cache, tree, 'project', 'direct-only.ts', {
+        warnOnMiss: false,
+      });
+
+      expect(result).toBeNull();
+      expect(captured).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: LogLevel.WARN,
+            message: 'Node not found in cache or tree',
+          }),
+        ])
+      );
+    } finally {
+      removeListener();
+    }
   });
 
   it('returns null for non-existent folder', () => {

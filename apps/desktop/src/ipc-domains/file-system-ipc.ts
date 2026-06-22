@@ -37,6 +37,7 @@ interface ElectronE2eFileSystemFixture {
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
 
@@ -141,6 +142,28 @@ function isE2eTestMode(): boolean {
   );
 }
 
+async function resolveE2eRealRootDirectoryHandle(
+  fileSystem: ElectronFileSystemAdapter
+): Promise<DirectoryHandle | null> {
+  const configuredPath = process.env[E2E_REAL_ROOT_PATH_ENV]?.trim();
+  if (!configuredPath) {
+    return null;
+  }
+  const resolvedPath = await resolveFileSystemIpcPath(configuredPath, E2E_REAL_ROOT_PATH_ENV);
+  const exists = await fileSystem.exists(resolvedPath);
+  if (!exists) {
+    throw new Error(
+      `${E2E_REAL_ROOT_PATH_ENV} points to a path that does not exist: ${resolvedPath}`
+    );
+  }
+  return {
+    kind: 'directory',
+    name: path.basename(resolvedPath),
+    path: resolvedPath,
+    platform: 'electron',
+  };
+}
+
 /**
  * Resolve the picked directory handle for access-request flows. In test mode
  * the OS dialog cannot open, so the registered E2E fixture's root handle (or
@@ -153,6 +176,10 @@ async function resolveRequestedDirectoryHandle(
   fileSystem: ElectronFileSystemAdapter
 ): Promise<DirectoryHandle> {
   if (isE2eTestMode()) {
+    const realRootHandle = await resolveE2eRealRootDirectoryHandle(fileSystem);
+    if (realRootHandle) {
+      return realRootHandle;
+    }
     const fixture = getElectronE2eFileSystemFixture();
     if (fixture) {
       fixture.requestDirectoryAccessCount += 1;

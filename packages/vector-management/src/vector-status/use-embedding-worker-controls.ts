@@ -21,6 +21,7 @@ export interface UseEmbeddingWorkerControlsResult {
   startWorkerError: string | null;
   stopWorker: () => Promise<void>;
   workerLocalRunning: boolean;
+  workerStatus?: EmbeddingRuntimeStatus | null;
 }
 
 function applyHostStatus(
@@ -67,12 +68,14 @@ export function useEmbeddingWorkerControls(
   const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null);
+  const [workerStatus, setWorkerStatus] = useState<EmbeddingRuntimeStatus | null>(null);
   const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
 
   const clearWorkerError = useCallback(() => setStartWorkerError(null), []);
 
   useEffect(() => {
     const syncStatus = (status: EmbeddingRuntimeStatus) => {
+      setWorkerStatus(status);
       applyHostStatus(status, {
         setStartWorkerError,
         setStartingWorker,
@@ -95,6 +98,7 @@ export function useEmbeddingWorkerControls(
   const launchWorker = useCallback(
     async (successToast: { title: string; description: string }) => {
       const status = await controller.start();
+      setWorkerStatus(status);
       applyHostStatus(status, {
         setStartWorkerError,
         setStartingWorker,
@@ -134,6 +138,7 @@ export function useEmbeddingWorkerControls(
   const stopWorker = useCallback(async () => {
     try {
       const status = await controller.stop();
+      setWorkerStatus(status);
       applyHostStatus(status, {
         setStartWorkerError,
         setStartingWorker,
@@ -153,6 +158,7 @@ export function useEmbeddingWorkerControls(
     setStartingWorker(true);
     try {
       const status = await controller.reset();
+      setWorkerStatus(status);
       applyHostStatus(status, {
         setStartWorkerError,
         setStartingWorker,
@@ -180,6 +186,7 @@ export function useEmbeddingWorkerControls(
     workerLocalRunning,
     startingWorker,
     startWorkerError,
+    workerStatus,
     clearWorkerError,
     startWorker,
     stopWorker,

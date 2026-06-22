@@ -10,6 +10,7 @@ import {
   getDbHostManagerMock,
   handleRuntimeCorruptionMock,
   handlers,
+  invalidateManagedCacheEntriesByIdentityMock,
   isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
@@ -416,6 +417,96 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
+  });
+
+  it('db:managed-cache:invalidate-by-identity validates payload and delegates to the DB host', async () => {
+    const handler = handlers.get('db:managed-cache:invalidate-by-identity');
+    const payload = {
+      embeddingSetId: 'set-1',
+      targets: [
+        {
+          mode: 'exact',
+          rootId: 'root-1',
+          relativePath: 'src/index.ts',
+        },
+        {
+          mode: 'prefix',
+          rootId: 'root-2',
+          relativePathPrefix: 'src/generated',
+        },
+      ],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).toHaveBeenCalled();
+    expect(invalidateManagedCacheEntriesByIdentityMock).toHaveBeenCalledWith(payload);
+  });
+
+  it('schedules db:managed-cache:invalidate-by-identity as background when requested', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const invalidationHandler = handlers.get('db:managed-cache:invalidate-by-identity');
+      const queryHandler = handlers.get('db:query');
+      const order: string[] = [];
+      invalidateManagedCacheEntriesByIdentityMock.mockImplementation(async () => {
+        order.push('invalidation');
+        return {
+          canceledEmbeddingJobCount: 0,
+          deletedChunkIds: [],
+          deletedFileRecordIds: [],
+        };
+      });
+      mockDb.query.mockImplementation(async () => {
+        order.push('query');
+        return { rows: [] };
+      });
+      const payload = { embeddingSetId: 'set-1', targets: [] };
+
+      await queryHandler?.({} as unknown, 'SELECT warmup', []);
+      order.length = 0;
+
+      const background = invalidationHandler?.({} as unknown, payload, {
+        priority: 'background',
+        label: 'managed cache invalidation',
+      });
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      await queryHandler?.({} as unknown, 'SELECT foreground_query', []);
+      expect(order).toEqual(['query']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['query', 'invalidation']);
+      expect(invalidateManagedCacheEntriesByIdentityMock).toHaveBeenCalledWith(payload);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('db:managed-cache:invalidate-by-identity rejects invalid payloads before touching the database', async () => {
+    const handler = handlers.get('db:managed-cache:invalidate-by-identity');
+
+    await expect(
+      handler?.({} as unknown, {
+        embeddingSetId: '',
+        targets: 'invalid',
+      })
+    ).rejects.toThrow();
+
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).not.toHaveBeenCalled();
+    expect(invalidateManagedCacheEntriesByIdentityMock).not.toHaveBeenCalled();
+    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {

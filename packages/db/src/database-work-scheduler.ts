@@ -28,6 +28,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly queuedLabels: Record<DatabaseWorkPriority, readonly (string | null)[]>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
   readonly snapshotAt: number;
@@ -61,6 +62,12 @@ export interface DatabaseWorkScheduler {
 
 export interface ScheduledDbHandle {
   readonly exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  readonly insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly never[],
+    fileRecordId: string,
+    options: never,
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<void>;
   readonly query: <T = unknown>(
     sql: string,
     params?: unknown[],
@@ -114,6 +121,16 @@ function createQueuedCounts(
     foreground: queues.foreground.length,
     normal: queues.normal.length,
     background: queues.background.length,
+  };
+}
+
+function createQueuedLabels(
+  queues: Record<DatabaseWorkPriority, readonly QueuedTask[]>
+): Record<DatabaseWorkPriority, readonly (string | null)[]> {
+  return {
+    foreground: queues.foreground.map((task) => task.label),
+    normal: queues.normal.map((task) => task.label),
+    background: queues.background.map((task) => task.label),
   };
 }
 
@@ -315,6 +332,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       lastStartedAt: this.#lastStartedAt,
       priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
+      queuedLabels: createQueuedLabels(this.#queues),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
       snapshotAt: now,
@@ -580,6 +598,31 @@ function mergeOptions(
   };
 }
 
+function describeSqlWork(kind: 'exec' | 'query', args: readonly unknown[]): string {
+  const sql = typeof args[0] === 'string' ? args[0] : null;
+  if (!sql) {
+    return kind;
+  }
+  const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+  if (!normalizedSql) {
+    return kind;
+  }
+  return `${kind}: ${normalizedSql.slice(0, 120)}`;
+}
+
+function mergeSqlWorkOptions(
+  defaultPriority: DatabaseWorkPriority,
+  options: DatabaseWorkOptions | undefined,
+  kind: 'exec' | 'query',
+  args: readonly unknown[]
+): DatabaseWorkRunOptions {
+  const merged = mergeOptions(defaultPriority, options);
+  return {
+    ...merged,
+    label: merged.label ?? describeSqlWork(kind, args),
+  };
+}
+
 function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
   if (!isObjectRecord(value)) {
     return false;
@@ -640,7 +683,7 @@ function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
 function createScheduledLiveQueryHandle<THandle extends object>(
   handle: THandle,
   scheduler: DatabaseWorkScheduler,
-  priority: DatabaseWorkPriority
+  refreshPriority: DatabaseWorkPriority
 ): THandle {
   return new Proxy(handle, {
     get(target, property, receiver) {
@@ -652,7 +695,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         return async (...args: unknown[]) =>
           await scheduler.run(
             async () => await Reflect.apply(refresh as CallableUnknown, target, args),
-            { priority, label: 'live query refresh' }
+            { priority: refreshPriority, label: 'live query refresh' }
           );
       }
       return Reflect.get(target, property, receiver);
@@ -665,6 +708,11 @@ function createScheduledLiveNamespace<TLive extends object>(
   scheduler: DatabaseWorkScheduler,
   priority: DatabaseWorkPriority
 ): TLive {
+  const liveQueryPriority = priority === 'foreground' ? 'normal' : priority;
+  // PGlite live-query refreshes can fire from broad invalidations. Keep the
+  // initial subscription responsive, but route repaint refreshes through the
+  // idle lane so reactive churn cannot starve background indexing indefinitely.
+  const liveRefreshPriority = priority === 'foreground' ? 'background' : priority;
   return new Proxy(live, {
     get(target, property, receiver) {
       if (property === 'query' || property === 'incrementalQuery') {
@@ -678,10 +726,10 @@ function createScheduledLiveNamespace<TLive extends object>(
             async () => {
               const handle = await Reflect.apply(startLiveQuery as CallableUnknown, target, args);
               return isObjectRecord(handle)
-                ? createScheduledLiveQueryHandle(handle, scheduler, priority)
+                ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
                 : handle;
             },
-            { priority, label }
+            { priority: liveQueryPriority, label }
           );
       }
       return Reflect.get(target, property, receiver);
@@ -701,7 +749,7 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       db,
       appendDatabaseWorkOptions(
         forwardedArgs,
-        mergeOptions(priority, databaseWorkOptions),
+        mergeSqlWorkOptions(priority, databaseWorkOptions, 'query', forwardedArgs),
         scheduler
       )
     )) as { rows: T[] };
@@ -715,10 +763,21 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
           db,
           appendDatabaseWorkOptions(
             forwardedArgs,
-            mergeOptions(priority, databaseWorkOptions),
+            mergeSqlWorkOptions(priority, databaseWorkOptions, 'exec', forwardedArgs),
             scheduler
           )
         );
+      }
+    : undefined;
+
+  const baseInsertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs;
+  const prioritizedInsertChunksAndEnqueueEmbeddingJobs = baseInsertChunksAndEnqueueEmbeddingJobs
+    ? async (...args: unknown[]) => {
+        const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+        return await Reflect.apply(baseInsertChunksAndEnqueueEmbeddingJobs, db, [
+          ...forwardedArgs,
+          mergeOptions(priority, databaseWorkOptions),
+        ]);
       }
     : undefined;
 
@@ -737,6 +796,9 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       }
       if (property === 'exec') {
         return prioritizedExec;
+      }
+      if (property === 'insertChunksAndEnqueueEmbeddingJobs') {
+        return prioritizedInsertChunksAndEnqueueEmbeddingJobs;
       }
       if (property === 'transaction') {
         return prioritizedTransaction;
@@ -779,7 +841,7 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
     const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
     return (await scheduler.run(
       async () => await Reflect.apply(db.query, db, forwardedArgs),
-      mergeOptions(defaultPriority, databaseWorkOptions)
+      mergeSqlWorkOptions(defaultPriority, databaseWorkOptions, 'query', forwardedArgs)
     )) as { rows: T[] };
   };
 
@@ -788,7 +850,7 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
         const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
         return await scheduler.run(
           async () => await Reflect.apply(db.exec as CallableUnknown, db, forwardedArgs),
-          mergeOptions(defaultPriority, databaseWorkOptions)
+          mergeSqlWorkOptions(defaultPriority, databaseWorkOptions, 'exec', forwardedArgs)
         );
       }
     : undefined;

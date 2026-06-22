@@ -53,22 +53,6 @@
         "config": "tsconfig.json"
       }
     },
-    "apps/docs": {
-      "entry": [
-        "docusaurus.config.ts", // Docusaurus runtime entry
-        "sidebars.ts", // Sidebar declaration consumed by Docusaurus
-        "src/css/custom.css" // Referenced from docusaurus.config.ts theme.customCss
-      ],
-      "project": [
-        "docusaurus.config.ts",
-        "sidebars.ts",
-        "src/**/*.{ts,tsx,css}",
-        "docs/**/*.{md,mdx}"
-      ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
     "apps/desktop": {
       "entry": [
         "src/main.ts", // Electron main process
@@ -343,6 +327,13 @@
       }
     },
     "packages/context-actions": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/commands": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {

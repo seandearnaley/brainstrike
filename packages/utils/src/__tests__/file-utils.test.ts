@@ -15,6 +15,11 @@ describe('file-utils', () => {
     expect(isBinaryFile('icon.svg')).toBe(false);
   });
 
+  it('treats wasm artifacts as binary', () => {
+    expect(isTextFile('python.wasm')).toBe(false);
+    expect(isBinaryFile('python.wasm')).toBe(true);
+  });
+
   describe('getBaseFilename', () => {
     it('extracts base from simple filenames', () => {
       expect(getBaseFilename('file.txt')).toBe('file');

@@ -9,7 +9,13 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
-import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from '../db-shared';
+import {
+  DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+  DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+  DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+  parseInsertChunksAndEnqueueEmbeddingJobsArgs,
+  parseManagedCacheInvalidationsArgs,
+} from '../db-shared';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
   getDesktopDatabaseWorkSchedulerSnapshot,
@@ -64,7 +70,12 @@ interface PGliteLiveQuerySurface {
   };
 }
 
-type OptionalRelationTable = 'collection_indexing_stats' | 'embedding_sets' | 'job_queue' | 'roots';
+type OptionalRelationTable =
+  | 'brainstrike_assistant_run_usage'
+  | 'collection_indexing_stats'
+  | 'embedding_sets'
+  | 'job_queue'
+  | 'roots';
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
@@ -576,6 +587,44 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
+  registry.registerInvoke(
+    'db',
+    DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+    async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
+      const parsedPayload = parseManagedCacheInvalidationsArgs(payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDbHostManager } = await import('../db-host-manager');
+            return await getDbHostManager().invalidateManagedCacheEntriesByIdentity(parsedPayload);
+          }, DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+    async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
+      const parsedPayload = parseInsertChunksAndEnqueueEmbeddingJobsArgs(payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDbHostManager } = await import('../db-host-manager');
+            await getDbHostManager().insertChunksAndEnqueueEmbeddingJobs(parsedPayload);
+          }, DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL)
+      );
+    }
+  );
+
   registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.test, async () => {
     try {
       return await withCorruptionRecovery(async () => {
@@ -643,6 +692,11 @@ export function registerDatabaseIpcHandlers(
             await clearOptionalRelation(tx, 'collection_indexing_stats');
             await clearOptionalRelation(tx, 'embedding_sets');
             await clearOptionalRelation(tx, 'job_queue');
+            // Durable per-thread token usage (Phase 5.1) is a new persisted
+            // store; a factory reset must wipe it so cost/usage history does not
+            // survive a "true fresh start" (see FACTORY RESET CONTRACT). It has
+            // no FK, so nothing cascades it — it must be cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_run_usage');
 
             return {
               deletedChunks,

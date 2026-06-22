@@ -142,6 +142,51 @@ describe('walkDirectoryParallel', () => {
     expect(tree.map((node) => node.name)).toEqual(['alpha', 'beta', 'alpha.ts', 'zeta.ts']);
   });
 
+  it('uses canonical entry handle paths for web child directory reads while preserving relative node paths', async () => {
+    const webRootHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'web-root',
+      path: 'web-root',
+      platform: 'web',
+      _internal: undefined,
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === 'web-root') {
+        return [
+          {
+            ...createDirectoryEntry('docs', 'web-root/docs'),
+            handle: {
+              kind: 'directory',
+              name: 'docs',
+              path: 'web-root/docs',
+              platform: 'web',
+            } as unknown as IFileNode['handle'],
+          },
+        ];
+      }
+      if (handle.path === 'web-root/docs') {
+        return [createFileEntry('guide.md', 'web-root/docs/guide.md')];
+      }
+      throw new Error(`Unexpected directory read: ${handle.path}`);
+    });
+
+    const tree = await walkDirectoryParallel(createFileSystemAdapter(readDirectory), webRootHandle);
+
+    expect(readDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: 'web-root/docs' }));
+    expect(tree).toEqual([
+      expect.objectContaining({
+        name: 'docs',
+        path: 'docs',
+        children: [
+          expect.objectContaining({
+            name: 'guide.md',
+            path: 'docs/guide.md',
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it('rejects a root handle without a canonical path', async () => {
     const readDirectory = vi.fn(async () => []);
     const handleWithoutPath = {

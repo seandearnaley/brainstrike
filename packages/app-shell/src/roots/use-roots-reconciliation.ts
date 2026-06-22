@@ -1,25 +1,25 @@
 import type { DbHandle } from '@brainstrike/db';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { reconcileRoots } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
 
-// Module-level set of root paths already warned about, so each unmapped path
-// only logs once across the lifetime of the app (not per-call).
-const warnedUnmappedPaths = new Set<string>();
+// Module-level set of root identities already warned about, so each unmapped
+// root only logs once across the lifetime of the app (not per-call).
+const warnedUnmappedRoots = new Set<string>();
 
-type PathMap = Map<string, string>;
+type DbRootIdMap = Map<string, string>;
 
 interface SettlingMapPromise {
-  promise: Promise<PathMap>;
-  resolve: (map: PathMap) => void;
+  promise: Promise<DbRootIdMap>;
+  resolve: (map: DbRootIdMap) => void;
 }
 
 function createSettlingMapPromise(): SettlingMapPromise {
-  let resolve!: (map: PathMap) => void;
-  const promise = new Promise<PathMap>((res) => {
+  let resolve!: (map: DbRootIdMap) => void;
+  const promise = new Promise<DbRootIdMap>((res) => {
     resolve = res;
   });
   return { promise, resolve };
@@ -32,6 +32,15 @@ export interface UseRootsReconciliationArgs {
 
 export interface UseRootsReconciliationResult {
   /**
+   * Reactive snapshot of the adapter-rootId → DB-rootId mapping for the
+   * currently-reconciled roots (canonical adapter-id keys ONLY — no path
+   * fallback keys). Unlike the ref-backed `resolveDbRootId` callback this is a
+   * new Map identity each time the mapping grows, so consumers that need to
+   * INVERT it (DB id → adapter id, e.g. quick-open) re-render when it resolves.
+   * Empty until the boot reconcile settles.
+   */
+  dbRootIdByAdapterRootId: ReadonlyMap<string, string>;
+  /**
    * Registers a root added mid-session (Add Folder) in the DB `roots` table
    * immediately, so its imports carry a real `root_id` without waiting for the
    * next boot's reconciliation pass. Ref-stable. Awaits the boot settle first
@@ -42,30 +51,33 @@ export interface UseRootsReconciliationResult {
    */
   registerRoot: (descriptor: RootDescriptor) => Promise<void>;
   /**
-   * Resolves to the DB root id (from the `roots` table) for the given root
-   * directory path once reconciliation has settled. Returns `null` if the path
-   * is not mapped (logs a warning once per path). ALWAYS settles — never hangs,
-   * even if reconciliation encountered an error (empty map → null for all paths).
+   * Resolves to the DB root id (from the `roots` table) for the given adapter
+   * root id once reconciliation has settled. `rootPath` is retained only as a
+   * legacy fallback for unstamped handles. Returns `null` if the root is not
+   * mapped (logs a warning once per identity). ALWAYS settles — never hangs.
    */
-  resolveDbRootId: (rootPath: string) => Promise<string | null>;
+  resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
 }
 
 interface PerformRootRegistrationArgs {
   adapter: FileSystemAdapter;
   db: DbHandle | null;
+  dbRootIdMap: DbRootIdMap;
   descriptor: RootDescriptor;
-  pathMap: PathMap;
+  /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
+  publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
 }
 
 /**
  * The body of a single mid-session registration, run AFTER the boot settle.
- * Mutates `pathMap` (the hook's growable ref target) on success. Never throws.
+ * Mutates `dbRootIdMap` (the hook's growable ref target) on success. Never throws.
  */
 async function performRootRegistration({
   adapter,
   db,
   descriptor,
-  pathMap,
+  dbRootIdMap,
+  publishCanonicalMapping,
 }: PerformRootRegistrationArgs): Promise<void> {
   if (!adapter.restoreRoots) {
     // Mirrors the boot no-op: on adapters without restoreRoots the registered
@@ -86,7 +98,7 @@ async function performRootRegistration({
     });
     return;
   }
-  if (pathMap.has(descriptor.handle.path)) {
+  if (dbRootIdMap.has(descriptor.rootId)) {
     // Already mapped — the boot reconcile (or an earlier registerRoot) won.
     return;
   }
@@ -105,7 +117,9 @@ async function performRootRegistration({
     });
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
     if (dbRootId !== undefined) {
-      pathMap.set(descriptor.handle.path, dbRootId);
+      dbRootIdMap.set(descriptor.rootId, dbRootId);
+      dbRootIdMap.set(descriptor.handle.path, dbRootId);
+      publishCanonicalMapping(descriptor.rootId, dbRootId);
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -123,8 +137,8 @@ async function performRootRegistration({
  *
  * Returns ref-stable callbacks:
  * - `resolveDbRootId` awaits the boot reconciliation (plus any mid-session
- *   registrations already enqueued) and maps a root directory path to its DB
- *   root id (`null` if unmapped).
+ *   registrations already enqueued) and maps adapter root id to its DB root id
+ *   (`rootPath` is only the legacy fallback when no adapter id is available).
  * - `registerRoot` registers a root added mid-session so its DB row exists at
  *   add time instead of at next boot.
  */
@@ -133,6 +147,14 @@ export function useRootsReconciliation({
   db,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
+
+  // Reactive snapshot of the canonical adapter-rootId → DB-rootId mapping
+  // (adapter-id keys only — never the path fallback keys held in
+  // dbRootIdMapRef). Exposed so consumers that invert it (DB id → adapter id)
+  // re-render when reconciliation settles or a mid-session root registers.
+  const [dbRootIdByAdapterRootId, setDbRootIdByAdapterRootId] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
 
   // The settling promise resolves with the path→dbRootId map on success, or an
   // empty map on the already-logged error path — it NEVER rejects or hangs.
@@ -147,13 +169,14 @@ export function useRootsReconciliation({
   // restoreRoots. If a later adapter identity DOES have it, the effect re-runs
   // and must re-key the settling promise — promises settle once, so reusing the
   // already-empty one would leave the real mapping only eventually visible via
-  // pathMapRef instead of deterministically awaited.
+  // dbRootIdMapRef instead of deterministically awaited.
   const settledWithoutRestoreRef = useRef(false);
 
-  // The growable path→dbRootId map. Seeded by the boot reconcile result and
-  // extended by registerRoot, so later imports see mid-session roots
-  // immediately. The settling promise above stays the boot-ordering gate.
-  const pathMapRef = useRef<PathMap>(new Map());
+  // The growable adapterRootId→dbRootId map. Seeded by the boot reconcile result
+  // and extended by registerRoot, so later imports see mid-session roots
+  // immediately. Legacy path keys are written only as a fallback for unstamped
+  // handles; canonical callers pass adapter rootId.
+  const dbRootIdMapRef = useRef<DbRootIdMap>(new Map());
 
   // Tail of the serialized mid-session registration chain. Grown synchronously
   // inside registerRoot so resolveDbRootId can await every registration that
@@ -166,6 +189,22 @@ export function useRootsReconciliation({
   adapterRef.current = adapter;
   const dbRef = useRef(db);
   dbRef.current = db;
+
+  // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
+  // the pair is already present so a re-resolved boot map never churns the Map
+  // identity (and therefore never re-renders inverting consumers needlessly).
+  // Declared before the boot effect that calls it (avoids a TDZ in the effect's
+  // dep array).
+  const publishCanonicalMapping = useCallback((adapterRootId: string, dbRootId: string): void => {
+    setDbRootIdByAdapterRootId((prev) => {
+      if (prev.get(adapterRootId) === dbRootId) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(adapterRootId, dbRootId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (hasRunRef.current) {
@@ -184,7 +223,7 @@ export function useRootsReconciliation({
       // restoreRoots also have no sync consumers needing real ids).
       // hasRunRef is deliberately NOT set here: if the adapter is later
       // replaced by one WITH restoreRoots, the boot reconcile still runs and
-      // seeds pathMapRef.
+      // seeds dbRootIdMapRef.
       settledWithoutRestoreRef.current = true;
       settling.resolve(new Map());
       return;
@@ -192,7 +231,7 @@ export function useRootsReconciliation({
     if (settledWithoutRestoreRef.current) {
       // A previous restoreRoots-less adapter settled the boot promise empty.
       // Start a fresh settling promise for this capable adapter so waiters
-      // deterministically await its real mapping (pathMapRef read-through
+      // deterministically await its real mapping (dbRootIdMapRef read-through
       // would only make it eventually visible); resolveDbRootId reads the
       // ref at call time, so new waiters pick up the fresh promise.
       settling = createSettlingMapPromise();
@@ -220,28 +259,37 @@ export function useRootsReconciliation({
           platformKind,
           query: db.query,
         });
-        // Build path → dbRootId map from the descriptors + the registry result.
+        // Build adapterRootId → dbRootId map from the descriptors + registry result.
         // Descriptors the registry skipped (not in the mapping) are simply absent.
-        const pathMap: PathMap = new Map();
+        const dbRootIdMap: DbRootIdMap = new Map();
         for (const descriptor of adapterRoots) {
           const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
           if (dbRootId !== undefined) {
-            pathMap.set(descriptor.handle.path, dbRootId);
+            dbRootIdMap.set(descriptor.rootId, dbRootId);
+            dbRootIdMap.set(descriptor.handle.path, dbRootId);
           }
         }
         // Seed the growable ref BEFORE settling, so consumers awaiting the
         // settle observe the boot mappings the instant the promise resolves.
-        for (const [rootPath, dbRootId] of pathMap) {
-          pathMapRef.current.set(rootPath, dbRootId);
+        for (const [rootKey, dbRootId] of dbRootIdMap) {
+          dbRootIdMapRef.current.set(rootKey, dbRootId);
         }
-        resolve(pathMap);
+        // Publish ONLY the canonical adapter-id keys to reactive state (the
+        // descriptor.rootId entries — never the path fallback keys).
+        for (const descriptor of adapterRoots) {
+          const dbRootId = dbRootIdMap.get(descriptor.rootId);
+          if (dbRootId !== undefined) {
+            publishCanonicalMapping(descriptor.rootId, dbRootId);
+          }
+        }
+        resolve(dbRootIdMap);
       })
       .catch((err: unknown) => {
         logger.error('Root reconciliation failed', { error: err });
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
       });
-  }, [adapter, db]);
+  }, [adapter, db, publishCanonicalMapping]);
 
   // Reads the settling ref at call time (the effect may have re-keyed it when
   // a restoreRoots-capable adapter replaced an incapable one). The null case
@@ -265,7 +313,8 @@ export function useRootsReconciliation({
           adapter: adapterRef.current,
           db: dbRef.current,
           descriptor,
-          pathMap: pathMapRef.current,
+          dbRootIdMap: dbRootIdMapRef.current,
+          publishCanonicalMapping,
         });
       };
       // Serialize registrations so two adds for the same path cannot interleave
@@ -275,26 +324,27 @@ export function useRootsReconciliation({
       pendingRegistrationsRef.current = chained;
       return await chained;
     },
-    [awaitBootSettle]
+    [awaitBootSettle, publishCanonicalMapping]
   );
 
   const resolveDbRootId = useCallback(
-    async (rootPath: string): Promise<string | null> => {
+    async (rootPath: string, adapterRootId?: string | null): Promise<string | null> => {
       await awaitBootSettle();
       // Mid-session registrations enqueued before this call must be visible:
       // a sync pass triggered by the same Add Folder commit would otherwise
       // race the INSERT and write root_id = NULL. The chain only grows
       // synchronously inside registerRoot, so awaiting the tail is sufficient.
       await pendingRegistrationsRef.current;
-      const dbRootId = pathMapRef.current.get(rootPath) ?? null;
-      if (dbRootId === null && !warnedUnmappedPaths.has(rootPath)) {
-        warnedUnmappedPaths.add(rootPath);
-        logger.warn('Root path has no mapped db root id', { rootPath });
+      const rootKey = adapterRootId || rootPath;
+      const dbRootId = dbRootIdMapRef.current.get(rootKey) ?? null;
+      if (dbRootId === null && !warnedUnmappedRoots.has(rootKey)) {
+        warnedUnmappedRoots.add(rootKey);
+        logger.warn('Root identity has no mapped db root id', { adapterRootId, rootPath });
       }
       return dbRootId;
     },
     [awaitBootSettle]
   );
 
-  return { registerRoot, resolveDbRootId };
+  return { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId };
 }

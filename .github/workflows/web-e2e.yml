@@ -65,7 +65,12 @@ jobs:
             ${{ runner.os }}-turbo-web-e2e-${{ github.job }}-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prod=false
+        # Exclude apps/desktop: it alone carries node-pty (native, node-gyp). This
+        # Playwright container has no C toolchain and pwuser cannot sudo one in, so
+        # a full install dies building node-pty. The web regression never loads it
+        # (terminal is desktop-only). Keeps root + web + all shared packages. See
+        # the matching note in test.yml's web-e2e job.
+        run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop'
 
       - name: Build web
         run: pnpm run build --filter @brainstrike/web

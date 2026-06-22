@@ -519,8 +519,6 @@ MIT © BrainStrike Team
 ## Support
 
 - [GitHub Issues](https://github.com/seandearnaley/brainstrike/issues)
-- Internal docs: see `apps/docs/docs/` (run `pnpm docs:dev` to browse locally).
-
 ## Related Packages
 
 - [`@brainstrike/ui`](../ui) - React components for agent interfaces

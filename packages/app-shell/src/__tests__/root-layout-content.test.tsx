@@ -103,6 +103,18 @@ vi.mock('../assistant-chat-panel', () => ({
   AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
 }));
 
+// The palette host pulls in the DB, theme, and command registry; this
+// layout-routing test mocks it the same way it mocks every other child panel.
+vi.mock('../command-palette-host', () => ({
+  CommandPaletteHost: () => <div data-testid="command-palette-host" />,
+}));
+
+// The quick-open host pulls in the file-explorer store, DB live query, and the
+// file-open seam; mock it the same way as the command palette host.
+vi.mock('../quick-open-host', () => ({
+  QuickOpenHost: () => <div data-testid="quick-open-host" />,
+}));
+
 vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,

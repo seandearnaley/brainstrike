@@ -4,6 +4,7 @@ import type {
   LocalRuntimeId,
   LocalRuntimeLogger,
   LocalRuntimeSurface,
+  RuntimeDiagnosticLogLevel,
 } from './local-runtime-discovery.js';
 import type { LocalRuntimeEndpointConfig } from './local-runtime-utils.js';
 
@@ -131,6 +132,7 @@ export function isLoadedRuntimeModelCatalogState(
 }
 
 export interface ListLocalRuntimeModelsOptions {
+  readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
   /**
    * Per-call override for the runtime's endpoint config (baseUrl, bearer token).
    * Propagated to both the discovery probe and the model-list / embedding-probe

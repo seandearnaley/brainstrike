@@ -185,6 +185,19 @@ export default defineConfig({
         find: '@brainstrike/app-shell',
         replacement: path.resolve(__dirname, '../../packages/app-shell/src'),
       },
+      // Source-alias these two like every other @brainstrike package. Without
+      // it they resolve to their built `dist`, which lands `defineContextAction`
+      // in a separate (dist) chunk from the source feature `*/context-actions`
+      // that call it at module-init → circular chunk-init TDZ ("t is not a
+      // function") that hangs the BUILT renderer on startup (dev is unaffected).
+      {
+        find: '@brainstrike/commands',
+        replacement: path.resolve(__dirname, '../../packages/commands/src'),
+      },
+      {
+        find: '@brainstrike/context-actions',
+        replacement: path.resolve(__dirname, '../../packages/context-actions/src'),
+      },
       {
         find: '@brainstrike/db-explorer',
         replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),

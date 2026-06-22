@@ -346,10 +346,15 @@ function buildUsageTap(
           usage &&
           (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number')
         ) {
-          onUsage({
-            inputTokens: typeof usage.inputTokens === 'number' ? usage.inputTokens : 0,
-            outputTokens: typeof usage.outputTokens === 'number' ? usage.outputTokens : 0,
-          });
+          const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : 0;
+          const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : 0;
+          // Skip zero-token finishes: approval-pause turns emit a {0,0}
+          // message-finish (makeToolCallsFinishChunk), which would otherwise
+          // write a junk durable usage row. Mirrors the local path's
+          // `if (result.usage)` gate and the live-loop test's own zero-guard.
+          if (inputTokens + outputTokens > 0) {
+            onUsage({ inputTokens, outputTokens });
+          }
         }
       }
       controller.enqueue(chunk);
