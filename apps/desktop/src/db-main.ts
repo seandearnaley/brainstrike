@@ -274,6 +274,7 @@ let db: any = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 let dbInitializationPromise: Promise<any> | null = null;
+let utilityDatabaseBootstrapPromise: Promise<MainDatabaseBootstrapInitResult> | null = null;
 interface DatabaseMutableState {
   cachedDatabaseProfile: string | null;
   // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
@@ -970,6 +971,7 @@ function classifyInitializationFailure(
   if (
     stage === 'load-extensions' ||
     message.includes('@electric-sql/pglite-pgvector') ||
+    message.includes('pgvector extension is required') ||
     message.includes('vector export missing') ||
     message.includes('failed to load via esm import')
   ) {
@@ -1012,6 +1014,34 @@ function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): 
     category: classifyInitializationFailure(stage, error),
     timestamp: new Date().toISOString(),
   };
+}
+
+function recordBootstrapReportInitializationFailure(
+  failure: NonNullable<ProfileBootstrapReport['failure']>
+): Error {
+  if (mutableState.initializationAttemptCount === 0) {
+    mutableState.initializationAttemptCount = 1;
+    mutableState.lastInitializationStartedAt = failure.timestamp;
+  }
+
+  const error = new Error(failure.message);
+  if (failure.name) {
+    error.name = failure.name;
+  }
+  const errorWithCode = error as Error & { code?: string };
+  if (failure.code) {
+    errorWithCode.code = failure.code;
+  }
+
+  const stage =
+    isWasmAbortError(errorWithCode) ||
+    classifyInitializationFailure('open-database', errorWithCode) === 'missing-extension'
+      ? 'load-extensions'
+      : failure.phase === 'migrating-schema'
+        ? 'migration'
+        : 'open-database';
+  recordInitializationFailure(stage, errorWithCode);
+  return errorWithCode;
 }
 
 function recordInitializationSuccess(): void {
@@ -1082,6 +1112,7 @@ export function __resetDatabaseModuleStateForTests(): void {
 
   db = null;
   dbInitializationPromise = null;
+  utilityDatabaseBootstrapPromise = null;
   releaseDatabaseProcessLock();
   mutableState.initializationAttemptCount = 0;
   mutableState.lastInitializationStartedAt = null;
@@ -1355,9 +1386,7 @@ async function initializeMainDatabaseInternal(
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
       // lock is held, so we never touch a data dir another process is using.
       const movedAsideBackup =
-        reconcileIncompatiblePgDataDir(dataDir) ??
-        options.engineUpgradeBackupPruneExclusion ??
-        null;
+        options.engineUpgradeBackupPruneExclusion ?? reconcileIncompatiblePgDataDir(dataDir);
 
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
@@ -1471,19 +1500,6 @@ async function initializeLocalMainDatabase(
   } finally {
     dbInitializationPromise = null;
   }
-}
-
-/**
- * Get the database instance
- * Automatically initializes if not already done (lazy loading)
- */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function getLocalDatabase(): Promise<any> {
-  if (!db) {
-    logger.debug('Lazy-loading database (triggered by IPC usage)');
-    await initializeLocalMainDatabase();
-  }
-  return db;
 }
 
 type DesktopProfileBootstrapProbeReport =
@@ -1620,7 +1636,12 @@ export async function initializeMainDatabaseWithBootstrapReport(
   try {
     releaseInitializationLock =
       runtimeSelection.engine === 'pglite' ? await acquirePGliteInitializationLock() : null;
-    acquireDatabaseProcessLock(appDataDir);
+    try {
+      acquireDatabaseProcessLock(appDataDir);
+    } catch (error) {
+      recordInitializationFailure('open-database', error);
+      throw error;
+    }
     let movedAsideBackup =
       runtimeSelection.engine === 'pglite' ? reconcileIncompatiblePgDataDir(dataDir) : null;
 
@@ -1691,6 +1712,32 @@ export async function initializeMainDatabaseWithBootstrapReport(
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for PGlite and Turso utility-process handles
+async function getInitializedUtilityDatabase(retryAfterCorruption = true): Promise<any> {
+  if (!utilityDatabaseBootstrapPromise) {
+    utilityDatabaseBootstrapPromise =
+      initializeMainDatabaseWithBootstrapReport(retryAfterCorruption);
+  }
+
+  let result: MainDatabaseBootstrapInitResult;
+  try {
+    result = await utilityDatabaseBootstrapPromise;
+  } finally {
+    utilityDatabaseBootstrapPromise = null;
+  }
+
+  if (!(result.initialized && db)) {
+    const failure = result.bootstrapReport.failure;
+    if (failure) {
+      throw recordBootstrapReportInitializationFailure(failure);
+    }
+    throw new Error(
+      `Database bootstrap did not initialize runtime ${result.bootstrapReport.runtime.engine}; phase ${result.bootstrapReport.phase}.`
+    );
+  }
+  return db;
+}
+
 /**
  * Close the database connection
  */
@@ -1721,7 +1768,7 @@ export async function reinitializeDatabase(): Promise<any> {
     return await manager.getDatabase();
   }
   await closeLocalDatabase();
-  return await initializeLocalMainDatabase();
+  return await getInitializedUtilityDatabase();
 }
 
 /**
@@ -1738,7 +1785,7 @@ async function handleLocalRuntimeCorruption(context: string): Promise<any> {
   await safeCloseDatabase();
   await resetLocalDatabaseInternal();
   logger.info('Database reset complete after runtime corruption. Reinitializing...');
-  return await initializeLocalMainDatabase(false);
+  return await getInitializedUtilityDatabase(false);
 }
 
 /**
@@ -1793,7 +1840,7 @@ async function resetLocalDatabaseInternal(): Promise<void> {
 // biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
 export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
   if (isUtilityProcessRuntime()) {
-    return await initializeLocalMainDatabase(retryAfterCorruption);
+    return await getInitializedUtilityDatabase(retryAfterCorruption);
   }
   const manager = await getRemoteDbHostManager();
   return await manager.getDatabase();
@@ -1802,7 +1849,7 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
 // biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
 export async function getDatabase(): Promise<any> {
   if (isUtilityProcessRuntime()) {
-    return await getLocalDatabase();
+    return await getInitializedUtilityDatabase();
   }
   const manager = await getRemoteDbHostManager();
   return await manager.getDatabase();

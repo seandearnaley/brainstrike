@@ -108,6 +108,7 @@ const closeMock = vi.fn(async () => {});
 const queryMock = vi.fn(async () => ({ rows: [{ '?column?': 1 }] }));
 const execMock = vi.fn(async () => {});
 const syncToFsMock = vi.fn(async () => {});
+const runPgliteBootstrapCapabilityProbeMock = vi.fn(() => createReadyBootstrapProbeReport());
 const PGliteMock = vi.fn().mockImplementation(function (this: {
   close: () => Promise<void>;
   query: () => Promise<unknown>;
@@ -124,6 +125,24 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
+  resolveBrainstrikeDbRuntimeSelection: vi.fn(
+    (input: {
+      platform: 'desktop';
+      requestedEngine?: 'pglite' | 'turso';
+      source?: 'default' | 'env';
+    }) => ({
+      bootstrapRuntime: {
+        engine: input.requestedEngine ?? 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      engine: input.requestedEngine ?? 'pglite',
+      platform: input.platform,
+      source: input.source ?? (input.requestedEngine ? 'env' : 'default'),
+    })
+  ),
+  runPgliteBootstrapCapabilityProbe: (...args: unknown[]) =>
+    runPgliteBootstrapCapabilityProbeMock(...args),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -149,6 +168,7 @@ describe('db-main lifecycle', () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
+    runPgliteBootstrapCapabilityProbeMock.mockReturnValue(createReadyBootstrapProbeReport());
     // clearAllMocks() resets call history but NOT implementations, so without this
     // a per-test override (a PG_VERSION major, a thrown utimes, an enumerated
     // backup) would leak into later tests. Restore defaults so each test starts
@@ -828,3 +848,45 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(0);
   });
 });
+
+function createReadyBootstrapProbeReport() {
+  const checks = [
+    'store.open',
+    'schema.migrated',
+    'extension.pgvector',
+    'extension.pg_trgm',
+    'search.fts-grep',
+    'capability.transaction',
+    'capability.live-query',
+    'queue.table',
+    'assistant-memory.run-usage',
+    'workspace-index.system-role',
+    'store.close',
+  ].map((id) => ({
+    id,
+    label: id,
+    required: true,
+    status: 'passed',
+  }));
+
+  return {
+    blockingIssues: [],
+    bootstrapReport: {
+      checks,
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      startedAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:01.000Z',
+    },
+    checks,
+    generatedAt: '2026-06-22T00:00:01.000Z',
+    reportVersion: 1,
+  };
+}

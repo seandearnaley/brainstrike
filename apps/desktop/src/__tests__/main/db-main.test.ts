@@ -342,6 +342,64 @@ describe('initializeMainDatabase', () => {
     expect(tursoOwnerQueryMock).toHaveBeenCalledWith('SELECT ? AS value', ['ok']);
   });
 
+  it('getDatabase uses the runtime-aware Turso bootstrap path without explicit pre-initialization', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { getDatabase } = await import('../../db-main');
+    const db = await getDatabase();
+    const queryResult = await db.query('SELECT ? AS value', ['lazy']);
+
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+      profileId: 'test',
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(queryResult).toEqual({
+      rows: [{ sql: 'SELECT ? AS value', params: ['lazy'], value: 'ok' }],
+    });
+  });
+
+  it('coalesces concurrent Turso lazy initialization into one bootstrap and owner handle', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+    let releaseBootstrap = () => {};
+    const bootstrapGate = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    runTursoProfileBootstrapMock.mockImplementation(async () => {
+      await bootstrapGate;
+      return createReadyTursoProfileBootstrapReport();
+    });
+
+    const { getDatabase } = await import('../../db-main');
+    const first = getDatabase();
+    const second = getDatabase();
+    const third = getDatabase();
+
+    releaseBootstrap();
+    const [firstDb, secondDb, thirdDb] = await Promise.all([first, second, third]);
+
+    expect(firstDb).toBe(secondDb);
+    expect(secondDb).toBe(thirdDb);
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(1);
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+  });
+
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
     process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
     existsSyncMock.mockReturnValue(true);

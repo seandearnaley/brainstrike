@@ -58,6 +58,51 @@ vi.mock('electron', () => ({
   },
 }));
 
+function createReadyBootstrapProbeReport() {
+  return {
+    blockingIssues: [],
+    bootstrapReport: {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'PGlite owns indexed search.',
+        ownershipMode: 'primary-store-indexes',
+      },
+      startedAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:01.000Z',
+    },
+    checks: [],
+    generatedAt: '2026-06-22T00:00:01.000Z',
+    reportVersion: 1,
+  };
+}
+
+function createBrainstrikeDbMock() {
+  return {
+    migrate: vi.fn().mockResolvedValue(undefined),
+    resolveBrainstrikeDbRuntimeSelection: vi.fn(() => ({
+      bootstrapRuntime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      engine: 'pglite',
+      platform: 'desktop',
+      source: 'default',
+    })),
+    runPgliteBootstrapCapabilityProbe: vi.fn().mockResolvedValue(createReadyBootstrapProbeReport()),
+  };
+}
+
 function mockSuccessfulDatabaseModules(options?: {
   liveModule?: unknown;
   pgTrgmModule?: unknown;
@@ -80,7 +125,7 @@ function mockSuccessfulDatabaseModules(options?: {
   });
 
   vi.doMock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
-  vi.doMock('@brainstrike/db', () => ({ migrate: vi.fn().mockResolvedValue(undefined) }));
+  vi.doMock('@brainstrike/db', () => createBrainstrikeDbMock());
   vi.doMock('@electric-sql/pglite-pgvector', () => options?.vectorModule ?? { vector: 'vector' });
   vi.doMock('@electric-sql/pglite/live', () => options?.liveModule ?? { live: 'live' });
   vi.doMock(

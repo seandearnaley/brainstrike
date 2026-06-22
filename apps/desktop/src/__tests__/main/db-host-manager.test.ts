@@ -270,6 +270,31 @@ describe('DbHostManager', () => {
     expect(firstHost.messages).toHaveLength(messageCountBeforeLiveQuery);
   });
 
+  it('rejects ready Turso bootstrap reports that omit the schema baseline check', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const reportWithoutSchemaBaseline = {
+      ...createReadyTursoBootstrapReport(),
+      checks: createReadyTursoBootstrapReport().checks.filter(
+        (check) => check.id !== 'schema.baseline'
+      ),
+    };
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: reportWithoutSchemaBaseline,
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    await expect(databasePromise).rejects.toThrow(
+      'Bootstrap report missing required check: schema.baseline'
+    );
+  });
+
   it('fails incremental live queries locally without sending live:start when Turso disables live-query capability', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });

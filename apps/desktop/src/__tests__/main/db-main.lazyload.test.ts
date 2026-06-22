@@ -98,6 +98,41 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: (...args: unknown[]) => migrateMock(...args),
+  resolveBrainstrikeDbRuntimeSelection: vi.fn(() => ({
+    bootstrapRuntime: {
+      engine: 'pglite',
+      host: 'electron-utility',
+      persistence: 'filesystem',
+    },
+    engine: 'pglite',
+    platform: 'desktop',
+    source: 'default',
+  })),
+  runPgliteBootstrapCapabilityProbe: vi.fn(() => ({
+    blockingIssues: [],
+    bootstrapReport: {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'PGlite owns indexed search.',
+        ownershipMode: 'primary-store-indexes',
+      },
+      startedAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:01.000Z',
+    },
+    checks: [],
+    generatedAt: '2026-06-22T00:00:01.000Z',
+    reportVersion: 1,
+  })),
 }));
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
