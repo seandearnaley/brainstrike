@@ -121,6 +121,48 @@ describe('Turso owner client', () => {
     );
   });
 
+  it('queues unrelated outer-client callers while a transaction callback is active', async () => {
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'transaction-queue.db'),
+    });
+    let releaseTransaction: (() => void) | null = null;
+    let markTransactionStarted: (() => void) | null = null;
+    const transactionStarted = new Promise<void>((resolve) => {
+      markTransactionStarted = resolve;
+    });
+
+    try {
+      await client.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
+      const transactionPromise = client.transaction(async (tx) => {
+        await tx.exec('INSERT INTO notes (value) VALUES (?)', ['inside-transaction']);
+        markTransactionStarted?.();
+        await new Promise<void>((resolve) => {
+          releaseTransaction = resolve;
+        });
+      });
+
+      await transactionStarted;
+      const queryPromise = client.query<{ count: number }>('SELECT COUNT(*) AS count FROM notes');
+
+      await expect(
+        Promise.race([
+          queryPromise.then(
+            () => 'resolved',
+            (error: unknown) => (error instanceof Error ? error.message : String(error))
+          ),
+          new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 50)),
+        ])
+      ).resolves.toBe('pending');
+
+      releaseTransaction?.();
+      await transactionPromise;
+      await expect(queryPromise).resolves.toEqual({ rows: [{ count: 1 }] });
+    } finally {
+      releaseTransaction?.();
+      await client.close();
+    }
+  });
+
   it('fails loudly after the owner handle is closed', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'closed.db'),

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { connect, type Database as TursoDatabase } from '@tursodatabase/database';
 import type {
   BrainstrikeDbQueryResult,
@@ -8,6 +9,8 @@ import {
   createTursoDatabaseConnectOptions,
   type TursoDatabaseConnectOptions,
 } from './connect-options.js';
+
+const transactionCallbackContext = new AsyncLocalStorage<symbol>();
 
 export interface TursoOwnerClientOptions {
   readonly dbPath: string;
@@ -31,7 +34,7 @@ export async function createTursoOwnerClient(
   const database = await openDatabase(options.dbPath, createTursoDatabaseConnectOptions());
   let closed = false;
   let exclusiveTail = Promise.resolve();
-  let transactionCallbackActive = false;
+  const ownerClientId = Symbol('turso-owner-client');
 
   await applyTursoMvccJournalMode(database);
 
@@ -42,7 +45,7 @@ export async function createTursoOwnerClient(
   };
 
   const assertOuterClientAvailable = (): void => {
-    if (transactionCallbackActive) {
+    if (transactionCallbackContext.getStore() === ownerClientId) {
       throw new Error(
         'Use the transaction callback client inside Turso owner transactions; the outer owner client is locked until the callback finishes.'
       );
@@ -117,13 +120,9 @@ export async function createTursoOwnerClient(
         assertOpen();
         await database.exec('BEGIN');
         try {
-          transactionCallbackActive = true;
-          let result: TResult;
-          try {
-            result = await callback(runWithoutLock);
-          } finally {
-            transactionCallbackActive = false;
-          }
+          const result = await transactionCallbackContext.run(ownerClientId, () =>
+            callback(runWithoutLock)
+          );
           await database.exec('COMMIT');
           return result;
         } catch (error) {
