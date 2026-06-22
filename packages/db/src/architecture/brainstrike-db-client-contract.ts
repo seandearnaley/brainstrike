@@ -1,8 +1,48 @@
 import type { ProfileBootstrapCheck } from '../bootstrap/profile-bootstrap-report.js';
 
 export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
+export type BrainstrikeDbExecutionClientCapability = Exclude<
+  BrainstrikeDbClientCapability,
+  'live-query'
+>;
+export type BrainstrikeDbSqlDialect = 'postgres' | 'sqlite';
+export type BrainstrikeDbSqlFeature =
+  | 'data-modifying-cte'
+  | 'jsonb'
+  | 'postgres-fts'
+  | 'postgres-vector'
+  | 'skip-locked'
+  | 'sqlite-json'
+  | 'sqlite-returning'
+  | 'trigram'
+  | 'turso-fts'
+  | 'turso-vector';
 
 export type BrainstrikeDbRuntimeHostCapability = 'close' | 'diagnostics' | 'reset';
+
+export const BRAINSTRIKE_DB_SQL_DIALECTS = [
+  'postgres',
+  'sqlite',
+] as const satisfies readonly BrainstrikeDbSqlDialect[];
+
+export const BRAINSTRIKE_DB_SQL_FEATURES = [
+  'data-modifying-cte',
+  'jsonb',
+  'postgres-fts',
+  'postgres-vector',
+  'skip-locked',
+  'sqlite-json',
+  'sqlite-returning',
+  'trigram',
+  'turso-fts',
+  'turso-vector',
+] as const satisfies readonly BrainstrikeDbSqlFeature[];
+
+export const BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES = [
+  'query',
+  'exec',
+  'transaction',
+] as const satisfies readonly BrainstrikeDbExecutionClientCapability[];
 
 export const BRAINSTRIKE_DB_CLIENT_CAPABILITIES = [
   'query',
@@ -17,6 +57,20 @@ export const BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES = [
   'close',
 ] as const satisfies readonly BrainstrikeDbRuntimeHostCapability[];
 
+export const BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES = [
+  'data-modifying-cte',
+  'jsonb',
+  'postgres-fts',
+  'postgres-vector',
+  'skip-locked',
+  'trigram',
+] as const satisfies readonly BrainstrikeDbSqlFeature[];
+
+export const BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES = {
+  dialect: 'sqlite',
+  features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],
+} as const satisfies BrainstrikeDbSqlCapabilities;
+
 export interface BrainstrikeDbQueryResult<TRecord = unknown> {
   readonly rows: readonly TRecord[];
 }
@@ -30,6 +84,11 @@ export interface BrainstrikeDbDiagnosticsSnapshot {
 export interface BrainstrikeDbWorkOptions {
   readonly label?: string;
   readonly priority?: 'background' | 'foreground' | 'normal';
+}
+
+export interface BrainstrikeDbSqlCapabilities {
+  readonly dialect: BrainstrikeDbSqlDialect;
+  readonly features: readonly BrainstrikeDbSqlFeature[];
 }
 
 export interface BrainstrikeLiveQueryOptions {
@@ -65,7 +124,13 @@ export interface BrainstrikeDbTransactionClient {
   ) => Promise<BrainstrikeDbQueryResult<TRecord>>;
 }
 
-export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
+export interface BrainstrikeDbExecutionClient extends BrainstrikeDbTransactionClient {
+  readonly transaction: <TResult>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+  ) => Promise<TResult>;
+}
+
+export interface BrainstrikeDbClient extends BrainstrikeDbExecutionClient {
   readonly live: {
     readonly incrementalQuery?: <TRecord = unknown>(
       options: BrainstrikeLiveQueryOptions & { readonly key: string }
@@ -74,9 +139,6 @@ export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
       options: BrainstrikeLiveQueryOptions
     ) => Promise<BrainstrikeLiveQueryHandle<TRecord>>;
   };
-  readonly transaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-  ) => Promise<TResult>;
 }
 
 export interface BrainstrikeDbRuntimeHost {
@@ -97,6 +159,18 @@ export function getMissingBrainstrikeDbClientCapabilities(
   );
 }
 
+export function getMissingBrainstrikeDbExecutionClientCapabilities(
+  candidate: unknown
+): readonly BrainstrikeDbExecutionClientCapability[] {
+  if (!isObjectRecord(candidate)) {
+    return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES;
+  }
+
+  return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES.filter((capability) =>
+    isBrainstrikeDbExecutionClientCapabilityMissing(candidate, capability)
+  );
+}
+
 export function buildBrainstrikeDbClientCapabilityBootstrapChecks(
   candidate: unknown
 ): readonly ProfileBootstrapCheck[] {
@@ -107,6 +181,58 @@ export function buildBrainstrikeDbClientCapabilityBootstrapChecks(
     label: `DB client ${capability} capability`,
     required: true,
     status: missingCapabilities.has(capability) ? 'failed' : 'passed',
+  }));
+}
+
+export function buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks(
+  candidate: unknown
+): readonly ProfileBootstrapCheck[] {
+  const missingCapabilities = new Set(
+    getMissingBrainstrikeDbExecutionClientCapabilities(candidate)
+  );
+
+  return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES.map((capability) => ({
+    id: `db.execution-client.${capability}`,
+    label: `DB execution client ${capability} capability`,
+    required: true,
+    status: missingCapabilities.has(capability) ? 'failed' : 'passed',
+  }));
+}
+
+export function hasBrainstrikeDbSqlDialect(
+  candidate: unknown,
+  dialect: BrainstrikeDbSqlDialect
+): boolean {
+  if (!isBrainstrikeDbSqlCapabilities(candidate)) {
+    return false;
+  }
+
+  return candidate.dialect === dialect;
+}
+
+export function getMissingBrainstrikeDbSqlFeatures(
+  candidate: unknown,
+  requiredFeatures: readonly BrainstrikeDbSqlFeature[]
+): readonly BrainstrikeDbSqlFeature[] {
+  if (!isBrainstrikeDbSqlCapabilities(candidate)) {
+    return requiredFeatures;
+  }
+
+  const availableFeatures = new Set(candidate.features);
+  return requiredFeatures.filter((feature) => !availableFeatures.has(feature));
+}
+
+export function buildBrainstrikeDbSqlFeatureBootstrapChecks(
+  candidate: unknown,
+  requiredFeatures: readonly BrainstrikeDbSqlFeature[]
+): readonly ProfileBootstrapCheck[] {
+  const missingFeatures = new Set(getMissingBrainstrikeDbSqlFeatures(candidate, requiredFeatures));
+
+  return requiredFeatures.map((feature) => ({
+    id: `db.sql-feature.${feature}`,
+    label: `DB SQL feature ${feature}`,
+    required: true,
+    status: missingFeatures.has(feature) ? 'failed' : 'passed',
   }));
 }
 
@@ -123,6 +249,20 @@ function isBrainstrikeDbClientCapabilityMissing(
       return !hasFunctionProperty(candidate, capability);
     default:
       return assertUnreachableDbClientCapability(capability);
+  }
+}
+
+function isBrainstrikeDbExecutionClientCapabilityMissing(
+  candidate: Record<PropertyKey, unknown>,
+  capability: BrainstrikeDbExecutionClientCapability
+): boolean {
+  switch (capability) {
+    case 'exec':
+    case 'query':
+    case 'transaction':
+      return !hasFunctionProperty(candidate, capability);
+    default:
+      return assertUnreachableDbExecutionClientCapability(capability);
   }
 }
 
@@ -186,8 +326,28 @@ function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isBrainstrikeDbSqlCapabilities(value: unknown): value is BrainstrikeDbSqlCapabilities {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  const knownFeatures = new Set(BRAINSTRIKE_DB_SQL_FEATURES);
+
+  return (
+    BRAINSTRIKE_DB_SQL_DIALECTS.includes(value['dialect'] as BrainstrikeDbSqlDialect) &&
+    Array.isArray(value['features']) &&
+    value['features'].every(
+      (feature) =>
+        typeof feature === 'string' && knownFeatures.has(feature as BrainstrikeDbSqlFeature)
+    )
+  );
+}
+
 function assertUnreachableDbClientCapability(value: never): never {
   throw new Error(`Unhandled Brainstrike DB client capability: ${String(value)}`);
+}
+
+function assertUnreachableDbExecutionClientCapability(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB execution client capability: ${String(value)}`);
 }
 
 function assertUnreachableDbRuntimeHostCapability(value: never): never {

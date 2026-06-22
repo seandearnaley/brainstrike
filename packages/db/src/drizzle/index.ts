@@ -20,7 +20,9 @@ export {
   type DrizzleDb,
   drizzle,
   drizzleFromHandle,
+  extractDbExecutionClient,
   extractPGlite,
+  hasDbExecutionClientRaw,
   hasPGliteRaw,
 } from './database.js';
 // Migration utilities

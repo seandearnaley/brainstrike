@@ -1,15 +1,26 @@
 import type {
   BrainstrikeDbClient,
+  BrainstrikeDbExecutionClient,
   BrainstrikeDbRuntimeHost,
+  BrainstrikeDbSqlCapabilities,
   BrainstrikeDbTransactionClient,
 } from '../src/architecture/brainstrike-db-client-contract.js';
 import {
   BRAINSTRIKE_DB_CLIENT_CAPABILITIES,
+  BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES,
+  BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES,
   BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES,
+  BRAINSTRIKE_DB_SQL_DIALECTS,
+  BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES,
   buildBrainstrikeDbClientCapabilityBootstrapChecks,
+  buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks,
   buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks,
+  buildBrainstrikeDbSqlFeatureBootstrapChecks,
   getMissingBrainstrikeDbClientCapabilities,
+  getMissingBrainstrikeDbExecutionClientCapabilities,
   getMissingBrainstrikeDbRuntimeHostCapabilities,
+  getMissingBrainstrikeDbSqlFeatures,
+  hasBrainstrikeDbSqlDialect,
 } from '../src/architecture/brainstrike-db-client-contract.js';
 
 describe('Brainstrike DB client contract', () => {
@@ -20,6 +31,8 @@ describe('Brainstrike DB client contract', () => {
       'transaction',
       'live-query',
     ]);
+    expect(BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES).toEqual(['query', 'exec', 'transaction']);
+    expect(BRAINSTRIKE_DB_SQL_DIALECTS).toEqual(['postgres', 'sqlite']);
     expect(BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES).toEqual(['diagnostics', 'reset', 'close']);
   });
 
@@ -33,6 +46,64 @@ describe('Brainstrike DB client contract', () => {
       'transaction',
       'live-query',
     ]);
+    expect(getMissingBrainstrikeDbExecutionClientCapabilities(partialClient)).toEqual([
+      'transaction',
+    ]);
+  });
+
+  it('accepts a Turso-shaped owner as an execution client without requiring live query', () => {
+    const txClient: BrainstrikeDbTransactionClient = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
+      exec: async () => undefined,
+    };
+    const tursoShapedOwner = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
+      exec: async () => undefined,
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ) => callback(txClient),
+      close: async () => undefined,
+    } satisfies BrainstrikeDbExecutionClient & { readonly close: () => Promise<void> };
+
+    expect(getMissingBrainstrikeDbExecutionClientCapabilities(tursoShapedOwner)).toEqual([]);
+    expect(getMissingBrainstrikeDbClientCapabilities(tursoShapedOwner)).toEqual(['live-query']);
+  });
+
+  it('does not treat Turso execution shape as Postgres repository compatibility', () => {
+    const tursoSql = {
+      dialect: 'sqlite',
+      features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],
+    } satisfies BrainstrikeDbSqlCapabilities;
+
+    expect(hasBrainstrikeDbSqlDialect(tursoSql, 'postgres')).toBe(false);
+    expect(hasBrainstrikeDbSqlDialect(tursoSql, 'sqlite')).toBe(true);
+    expect(
+      getMissingBrainstrikeDbSqlFeatures(tursoSql, BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES)
+    ).toEqual(BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES);
+  });
+
+  it('records the current Turso baseline as SQLite with no Postgres-only features', () => {
+    expect(BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES).toEqual({
+      dialect: 'sqlite',
+      features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],
+    });
+    expect(
+      getMissingBrainstrikeDbSqlFeatures(
+        BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES,
+        BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES
+      )
+    ).toEqual(BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES);
+  });
+
+  it('rejects unknown SQL feature names instead of treating them as available', () => {
+    const malformedSqlCapabilities = {
+      dialect: 'sqlite',
+      features: ['totally-made-up'],
+    };
+
+    expect(
+      getMissingBrainstrikeDbSqlFeatures(malformedSqlCapabilities, ['totally-made-up' as never])
+    ).toEqual(['totally-made-up']);
   });
 
   it('accepts a complete structural client', () => {
@@ -134,6 +205,56 @@ describe('Brainstrike DB client contract', () => {
       {
         id: 'db.client.live-query',
         label: 'DB client live-query capability',
+        required: true,
+        status: 'failed',
+      },
+    ]);
+  });
+
+  it('turns execution-client capability gaps into required bootstrap checks', () => {
+    const partialClient = {
+      query: async () => ({ rows: [] }),
+      exec: async () => undefined,
+    };
+
+    expect(buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks(partialClient)).toEqual([
+      {
+        id: 'db.execution-client.query',
+        label: 'DB execution client query capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.execution-client.exec',
+        label: 'DB execution client exec capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.execution-client.transaction',
+        label: 'DB execution client transaction capability',
+        required: true,
+        status: 'failed',
+      },
+    ]);
+  });
+
+  it('turns SQL feature gaps into required bootstrap checks', () => {
+    expect(
+      buildBrainstrikeDbSqlFeatureBootstrapChecks(BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES, [
+        'postgres-vector',
+        'skip-locked',
+      ])
+    ).toEqual([
+      {
+        id: 'db.sql-feature.postgres-vector',
+        label: 'DB SQL feature postgres-vector',
+        required: true,
+        status: 'failed',
+      },
+      {
+        id: 'db.sql-feature.skip-locked',
+        label: 'DB SQL feature skip-locked',
         required: true,
         status: 'failed',
       },

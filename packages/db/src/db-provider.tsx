@@ -34,7 +34,7 @@ import {
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
-import { type DrizzleDb, drizzle } from './drizzle/database.js';
+import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import type { FileChunk } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
@@ -767,6 +767,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         databaseWorkSchedulerRef.current,
         getRendererDefaultDatabaseWorkPriority()
       ) as unknown as PGlite & ScheduledDbHandle;
+      markPGliteDrizzleCompatible(scheduledDb);
 
       await migrate(scheduledDb);
       publishDbProviderBootstrapReport({
@@ -1387,6 +1388,10 @@ export function usePGliteDatabase(): DbHandle | null {
   return ctx.ready && !ctx.error ? ctx.db : null;
 }
 
+export function useBrainstrikeDatabase(): DbHandle | null {
+  return usePGliteDatabase();
+}
+
 export function useOptionalPGliteDatabase(): DbHandle | null {
   const ctx = useContext(DbContext);
   const db = ctx?.db;
@@ -1403,6 +1408,10 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   }, [db, error, initializing, initializeDatabase]);
 
   return ctx?.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useOptionalBrainstrikeDatabase(): DbHandle | null {
+  return useOptionalPGliteDatabase();
 }
 
 export function useDbProviderError(): Error | null {

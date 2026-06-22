@@ -4,7 +4,13 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DbProvider, useFileRecordRepository } from '../src/db-provider';
+import {
+  DbProvider,
+  useBrainstrikeDatabase,
+  useFileRecordRepository,
+  useOptionalBrainstrikeDatabase,
+  usePGliteDatabase,
+} from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
@@ -68,6 +74,31 @@ describe('DbProvider', () => {
 
   it('returns null when hook used outside provider', () => {
     const { result } = renderHook(() => useFileRecordRepository());
+    expect(result.current).toBeNull();
+  });
+
+  it('exposes the database through runtime-neutral hook aliases', async () => {
+    const mockDb = createMockDb();
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+
+    const { result } = renderHook(
+      () => ({
+        db: useBrainstrikeDatabase(),
+        optionalDb: useOptionalBrainstrikeDatabase(),
+        pgliteDb: usePGliteDatabase(),
+      }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.db).toBeTruthy();
+      expect(result.current.optionalDb).toBe(result.current.db);
+      expect(result.current.pgliteDb).toBe(result.current.db);
+    });
+  });
+
+  it('returns null from the optional runtime-neutral database hook outside provider', () => {
+    const { result } = renderHook(() => useOptionalBrainstrikeDatabase());
     expect(result.current).toBeNull();
   });
 
