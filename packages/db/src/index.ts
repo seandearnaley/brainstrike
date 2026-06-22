@@ -13,6 +13,7 @@ export {
 export * from './architecture/brainstrike-db-client-contract.js';
 export * from './architecture/db-migration-authority.js';
 export * from './architecture/db-runtime-baseline.js';
+export * from './architecture/db-runtime-selection.js';
 export * from './atomic-transaction.js';
 export * from './bootstrap/bootstrap-capability-probe.js';
 export * from './bootstrap/profile-bootstrap-report.js';
