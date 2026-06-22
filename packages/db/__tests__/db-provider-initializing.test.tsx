@@ -324,6 +324,52 @@ describe('DbProvider initializing state', () => {
     });
   });
 
+  it('fails closed instead of falling back to direct PGlite when Electron IPC is required but missing', async () => {
+    const createPGliteSpy = vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockRejectedValue(new Error('direct fallback attempted'));
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(createPGliteSpy).not.toHaveBeenCalled();
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        message: 'Electron database IPC bridge is unavailable while useElectronIPC is enabled.',
+        phase: 'opening-store',
+      },
+      runtime: {
+        engine: 'pglite',
+        host: 'desktop-ipc',
+        persistence: 'filesystem',
+      },
+    });
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'failed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'pending' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'pending' }),
+      ])
+    );
+  });
+
   it('does not pass database work options as PGlite params for one-argument exposed queries', async () => {
     const mockDb = createMockDb();
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);

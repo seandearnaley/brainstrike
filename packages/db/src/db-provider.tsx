@@ -233,6 +233,9 @@ function requireNodePath(): { join: (...parts: string[]) => string } {
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
+const ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE =
+  'Electron database IPC bridge is unavailable while useElectronIPC is enabled.';
+
 /** Clear active embedding set ID from localStorage to prevent stale collection references */
 function clearActiveEmbeddingSetIdFromStorage(): void {
   if (typeof localStorage === 'undefined') {
@@ -426,6 +429,27 @@ function createInitialDbProviderBootstrapReport(input: {
   });
 }
 
+function getElectronDatabaseBridge(): ElectronDatabaseAPI | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return window.electronAPI?.db ?? null;
+}
+
+function createMissingElectronBridgeBootstrapReportInput(): {
+  readonly checks: readonly ProfileBootstrapCheck[];
+  readonly phase: ProfileBootstrapPhase;
+} {
+  return {
+    checks: createDbProviderBootstrapChecks({
+      schemaMigrated: 'pending',
+      storeOpen: 'failed',
+      vectorExtension: 'pending',
+    }),
+    phase: 'opening-store',
+  };
+}
+
 function coerceFailureBootstrapPhase(
   phase: ProfileBootstrapPhase
 ): Exclude<ProfileBootstrapPhase, 'failed'> {
@@ -614,13 +638,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
-      if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
+      if (!useElectronIPC) {
         return false;
+      }
+
+      const electronDB = getElectronDatabaseBridge();
+      if (!electronDB) {
+        publishDbProviderBootstrapReport(createMissingElectronBridgeBootstrapReportInput());
+        throw new Error(ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE);
       }
 
       logger.debug('Using Electron IPC database connection');
 
-      const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
 
