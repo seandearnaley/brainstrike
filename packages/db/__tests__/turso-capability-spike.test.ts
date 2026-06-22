@@ -11,7 +11,7 @@ const TURSO_CAPABILITY_SPIKE_TIMEOUT_MS = 30_000;
 
 describe('Turso capability spike', () => {
   it(
-    'reports local Turso runtime capabilities and blocks on MVCC search-index incompatibility',
+    'reports local Turso runtime capabilities and requires a split search index architecture',
     async () => {
       const dbPath = join(tmpdir(), `brainstrike-turso-capability-spike-${Date.now()}.db`);
 
@@ -25,28 +25,14 @@ describe('Turso capability spike', () => {
 
         expect(report.reportVersion).toBe(1);
         expect(report.generatedAt).toBe('2026-06-22T00:00:00.000Z');
-        expect(report.bootstrapReport.ready).toBe(false);
-        expect(report.bootstrapReport.phase).toBe('blocked');
+        expect(report.bootstrapReport.ready).toBe(true);
+        expect(report.bootstrapReport.phase).toBe('ready');
         expect(report.bootstrapReport.runtime).toEqual({
           engine: 'turso',
           host: 'node',
           persistence: 'filesystem',
         });
-        expect(report.blockingIssues).toEqual([
-          {
-            checkId: 'search.fts-mvcc-compatibility',
-            message:
-              'Required bootstrap check failed: Turso FTS custom indexes remain usable with MVCC concurrent writes enabled',
-            phase: 'blocked',
-            severity: 'blocking',
-          },
-          {
-            checkId: null,
-            message: 'Bootstrap phase has not reached ready: blocked',
-            phase: 'blocked',
-            severity: 'blocking',
-          },
-        ]);
+        expect(report.blockingIssues).toEqual([]);
         expect(report.checks.map((check) => check.id)).toEqual([
           'package.tursodatabase-database',
           'package.tursodatabase-sync',
@@ -59,6 +45,7 @@ describe('Turso capability spike', () => {
           'search.vector-distance',
           'search.fts-index',
           'search.fts-mvcc-compatibility',
+          'architecture.split-search-index',
           'store.close',
         ]);
         expect(report.checks).toEqual(
@@ -81,10 +68,17 @@ describe('Turso capability spike', () => {
             expect.objectContaining({ id: 'search.fts-index', required: true, status: 'passed' }),
             expect.objectContaining({
               id: 'search.fts-mvcc-compatibility',
-              required: true,
+              required: false,
               status: 'failed',
               message:
                 'failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode',
+            }),
+            expect.objectContaining({
+              id: 'architecture.split-search-index',
+              required: true,
+              status: 'passed',
+              message:
+                'Turso FTS and MVCC are both available but cannot share one MVCC-enabled database file; Brainstrike must use an explicitly owned search-index store or equivalent non-FTS search implementation.',
             }),
           ])
         );
@@ -98,7 +92,10 @@ describe('Turso capability spike', () => {
         expect(markdown).toContain('Runtime: `turso` on `node` using `filesystem` persistence');
         expect(markdown).toContain('| `sql.concurrent-writes-mvcc` | Required | `passed` |');
         expect(markdown).toContain(
-          '| `search.fts-mvcc-compatibility` | Required | `failed` | failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode |'
+          '| `search.fts-mvcc-compatibility` | Optional | `failed` | failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode |'
+        );
+        expect(markdown).toContain(
+          '| `architecture.split-search-index` | Required | `passed` | Turso FTS and MVCC are both available but cannot share one MVCC-enabled database file; Brainstrike must use an explicitly owned search-index store or equivalent non-FTS search implementation. |'
         );
         expect(markdown).not.toContain(dbPath);
       } finally {
