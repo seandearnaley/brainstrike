@@ -109,6 +109,93 @@ describe('bootstrap capability probe', () => {
     );
   });
 
+  it('fails closed on migration result failure without running downstream capability probes', async () => {
+    let capabilityProbeQueryCount = 0;
+    const report = await runPgliteBootstrapCapabilityProbe({
+      dataDir: `memory://bootstrap-capability-probe-migration-failure-${Date.now()}`,
+      generatedAt: () => '2026-06-22T00:00:00.000Z',
+      openDatabase: async (dataDir) => {
+        const db = await wasmLoader.createPGlite(dataDir);
+        const originalQuery = db.query.bind(db);
+        (db as unknown as { query: typeof db.query }).query = async (sql, params) => {
+          const sqlText = String(sql);
+          if (
+            sqlText.includes('pg_extension') ||
+            sqlText.includes('pg_indexes') ||
+            sqlText.includes('information_schema') ||
+            sqlText.includes('SELECT 1 AS ok')
+          ) {
+            capabilityProbeQueryCount += 1;
+          }
+          return originalQuery(sql, params);
+        };
+        return db;
+      },
+      profileId: 'migration-failure-profile',
+      runMigrations: async () => ({
+        appliedMigrations: ['0000_probe_setup'],
+        error: 'CREATE EXTENSION vector failed in migration 0001',
+        success: false,
+      }),
+    });
+
+    expect(capabilityProbeQueryCount).toBe(0);
+    expect(report.bootstrapReport.ready).toBe(false);
+    expect(report.bootstrapReport.phase).toBe('blocked');
+    expect(report.bootstrapReport.failure).toBeNull();
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'schema.migrated',
+          message:
+            'Schema migration failed after 1 migration(s): CREATE EXTENSION vector failed in migration 0001',
+          required: true,
+          status: 'failed',
+        }),
+        expect.objectContaining({ id: 'extension.pgvector', status: 'pending' }),
+        expect.objectContaining({ id: 'store.close', status: 'passed' }),
+      ])
+    );
+    expect(report.blockingIssues.map((issue) => issue.message)).toContain(
+      'Required bootstrap check failed: Schema migrations complete'
+    );
+  });
+
+  it('attributes thrown capability probes to the in-flight check id', async () => {
+    const report = await runPgliteBootstrapCapabilityProbe({
+      dataDir: `memory://bootstrap-capability-probe-queue-throw-${Date.now()}`,
+      generatedAt: () => '2026-06-22T00:00:00.000Z',
+      openDatabase: async (dataDir) => {
+        const db = await wasmLoader.createPGlite(dataDir);
+        const originalQuery = db.query.bind(db);
+        (db as unknown as { query: typeof db.query }).query = async (sql, params) => {
+          if (Array.isArray(params) && params[0] === 'job_queue') {
+            throw new Error('job_queue catalog lookup failed');
+          }
+          return originalQuery(sql, params);
+        };
+        return db;
+      },
+      profileId: 'queue-throw-profile',
+    });
+
+    expect(report.bootstrapReport.ready).toBe(false);
+    expect(report.bootstrapReport.phase).toBe('failed');
+    expect(report.bootstrapReport.failure).toMatchObject({
+      message: 'job_queue catalog lookup failed',
+      phase: 'probing-capabilities',
+    });
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'extension.pgvector', status: 'passed' }),
+        expect.objectContaining({ id: 'queue.table', required: true, status: 'failed' }),
+      ])
+    );
+    expect(report.blockingIssues.map((issue) => issue.message)).toContain(
+      'Bootstrap failed during probing-capabilities: job_queue catalog lookup failed'
+    );
+  });
+
   it('fails closed when the selected current-runtime store cannot close', async () => {
     const report = await runPgliteBootstrapCapabilityProbe({
       dataDir: `memory://bootstrap-capability-probe-close-${Date.now()}`,

@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { runMigrations } from '../drizzle/migrate.js';
+import { type MigrationResult, runMigrations } from '../drizzle/migrate.js';
 import { wasmLoader } from '../wasm-loader.js';
 import {
   createProfileBootstrapReport,
@@ -26,6 +26,7 @@ export interface PgliteBootstrapCapabilityProbeOptions {
   readonly generatedAt?: () => string;
   readonly openDatabase?: (dataDir: string) => Promise<PGlite>;
   readonly profileId?: string;
+  readonly runMigrations?: (db: PGlite) => Promise<MigrationResult>;
   readonly runtime?: ProfileBootstrapRuntime;
 }
 
@@ -99,6 +100,7 @@ export async function runPgliteBootstrapCapabilityProbe(
     options.dataDir ?? `memory://brainstrike-bootstrap-capability-probe-${Date.now()}`;
   const openDatabase =
     options.openDatabase ?? ((selectedDataDir) => wasmLoader.createPGlite(selectedDataDir));
+  const migrateDatabase = options.runMigrations ?? runMigrations;
   let checks = createPendingChecks();
   let phase: Exclude<ProfileBootstrapPhase, 'failed'> = 'opening-store';
   let db: ProbeDatabase | null = null;
@@ -109,18 +111,20 @@ export async function runPgliteBootstrapCapabilityProbe(
     checks = setCheck(checks, 'store.open', 'passed');
 
     phase = 'migrating-schema';
-    const migrationResult = await runMigrations(db as PGlite);
+    const migrationResult = await migrateDatabase(db as PGlite);
     checks = setCheck(
       checks,
       'schema.migrated',
       migrationResult.success ? 'passed' : 'failed',
       migrationResult.success
         ? `Applied ${migrationResult.appliedMigrations.length} migration(s).`
-        : 'Schema migration failed.'
+        : formatMigrationFailureMessage(migrationResult)
     );
 
-    phase = 'probing-capabilities';
-    checks = await probePostMigrationCapabilities(db, checks);
+    if (migrationResult.success) {
+      phase = 'probing-capabilities';
+      checks = await probePostMigrationCapabilities(db, checks);
+    }
 
     const hasFailedRequiredCheck = checks.some(
       (check) => check.required && check.status !== 'passed'
@@ -134,12 +138,8 @@ export async function runPgliteBootstrapCapabilityProbe(
       updatedAt: now(),
     });
   } catch (error) {
-    checks = setCheck(
-      checks,
-      phase === 'opening-store' ? 'store.open' : checkIdForPhase(phase),
-      'failed',
-      failureMessageForPhase(phase)
-    );
+    const failure = getProbeFailureAttribution(error, checks, phase);
+    checks = setCheck(failure.checks, failure.checkId, 'failed', failure.message);
 
     bootstrapReport = failProfileBootstrapReport(
       createProfileBootstrapReport({
@@ -221,45 +221,31 @@ async function probePostMigrationCapabilities(
 ): Promise<readonly ProfileBootstrapCheck[]> {
   let nextChecks = checks;
 
-  nextChecks = setCheck(
-    nextChecks,
-    'extension.pgvector',
-    (await extensionExists(db, 'vector')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'extension.pgvector', () =>
+    extensionExists(db, 'vector')
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'extension.pg_trgm',
-    (await extensionExists(db, 'pg_trgm')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'extension.pg_trgm', () =>
+    extensionExists(db, 'pg_trgm')
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'search.fts-grep',
-    (await indexExists(db, 'idx_file_chunks_content_trgm')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'search.fts-grep', () =>
+    indexExists(db, 'idx_file_chunks_content_trgm')
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'capability.transaction',
-    (await transactionWorks(db)) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'capability.transaction', () =>
+    transactionWorks(db)
   );
-  nextChecks = setCheck(
+  nextChecks = await setCapabilityCheck(
     nextChecks,
     'capability.live-query',
-    typeof db.live?.query === 'function' ? 'passed' : 'failed'
+    async () => typeof db.live?.query === 'function'
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'queue.table',
-    (await tableExists(db, 'job_queue')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'queue.table', () =>
+    tableExists(db, 'job_queue')
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'assistant-memory.run-usage',
-    (await tableExists(db, 'brainstrike_assistant_run_usage')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'assistant-memory.run-usage', () =>
+    tableExists(db, 'brainstrike_assistant_run_usage')
   );
-  nextChecks = setCheck(
-    nextChecks,
-    'workspace-index.system-role',
-    (await columnExists(db, 'embedding_sets', 'system_role')) ? 'passed' : 'failed'
+  nextChecks = await setCapabilityCheck(nextChecks, 'workspace-index.system-role', () =>
+    columnExists(db, 'embedding_sets', 'system_role')
   );
 
   return nextChecks;
@@ -312,6 +298,18 @@ async function transactionWorks(db: ProbeDatabase): Promise<boolean> {
 
   const result = await db.transaction(async (tx) => tx.query<{ ok: number }>('SELECT 1 AS ok'));
   return result.rows[0]?.ok === 1;
+}
+
+async function setCapabilityCheck(
+  checks: readonly ProfileBootstrapCheck[],
+  id: CheckId,
+  probe: () => Promise<boolean>
+): Promise<readonly ProfileBootstrapCheck[]> {
+  try {
+    return setCheck(checks, id, (await probe()) ? 'passed' : 'failed');
+  } catch (error) {
+    throw new CapabilityProbeCheckError(id, error, checks);
+  }
 }
 
 function createCapabilityProbeReport(
@@ -378,6 +376,36 @@ function setCheck(
   });
 }
 
+function formatMigrationFailureMessage(result: MigrationResult): string {
+  const appliedCount = result.appliedMigrations.length;
+  const baseMessage = `Schema migration failed after ${appliedCount} migration(s)`;
+  return result.error ? `${baseMessage}: ${result.error}` : `${baseMessage}.`;
+}
+
+function getProbeFailureAttribution(
+  error: unknown,
+  checks: readonly ProfileBootstrapCheck[],
+  phase: Exclude<ProfileBootstrapPhase, 'failed'>
+): {
+  readonly checkId: CheckId;
+  readonly checks: readonly ProfileBootstrapCheck[];
+  readonly message: string;
+} {
+  if (error instanceof CapabilityProbeCheckError) {
+    return {
+      checkId: error.checkId,
+      checks: error.checksAtFailure,
+      message: `Capability check failed: ${error.message}`,
+    };
+  }
+
+  return {
+    checkId: phase === 'opening-store' ? 'store.open' : checkIdForPhase(phase),
+    checks,
+    message: failureMessageForPhase(phase),
+  };
+}
+
 function checkIdForPhase(phase: Exclude<ProfileBootstrapPhase, 'failed'>): CheckId {
   switch (phase) {
     case 'migrating-schema':
@@ -425,6 +453,28 @@ function failureMessageForPhase(phase: Exclude<ProfileBootstrapPhase, 'failed'>)
 
 function coerceBoolean(value: unknown): boolean {
   return value === true || value === 1 || value === '1' || value === 't' || value === 'true';
+}
+
+class CapabilityProbeCheckError extends Error {
+  readonly checkId: CheckId;
+  readonly checksAtFailure: readonly ProfileBootstrapCheck[];
+
+  constructor(checkId: CheckId, error: unknown, checksAtFailure: readonly ProfileBootstrapCheck[]) {
+    super(errorMessage(error));
+    this.checkId = checkId;
+    this.checksAtFailure = checksAtFailure;
+    this.name = 'CapabilityProbeCheckError';
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return String(error);
 }
 
 function assertUnreachablePhase(value: never): never {
