@@ -117,4 +117,27 @@ describe('profile bootstrap report', () => {
       },
     ]);
   });
+
+  it.each([
+    '/home/alice/.config/brainstrike/profile.db',
+    '/root/.config/brainstrike/profile.db',
+    '/tmp/brainstrike/profile.db',
+  ])('redacts POSIX absolute paths from failure messages: %s', (path) => {
+    const report = createProfileBootstrapReport({
+      checks: [passedRequiredCheck('store.open')],
+      phase: 'opening-store',
+      profileId: 'default',
+      runtime: BASE_RUNTIME,
+      startedAt: '2026-06-21T00:00:00.000Z',
+      updatedAt: '2026-06-21T00:00:01.000Z',
+    });
+
+    const failed = failProfileBootstrapReport(report, {
+      error: new Error(`could not open store at ${path}`),
+      failedAt: '2026-06-21T00:00:03.000Z',
+      phase: 'opening-store',
+    });
+
+    expect(failed.failure?.message).toBe('could not open store at <path>');
+  });
 });

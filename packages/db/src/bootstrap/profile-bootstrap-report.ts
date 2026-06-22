@@ -214,7 +214,9 @@ function errorName(error: unknown): string | null {
 }
 
 function sanitizeBootstrapFailureMessage(message: string): string {
-  return message.replace(/\/Users\/[^\s'"]+/g, '<path>').replace(/[A-Za-z]:\\[^\s'"]+/g, '<path>');
+  return message
+    .replace(/(^|[\s([{:=])\/(?!\/)(?:[^/\s'"]+\/)+[^\s'"]+/g, '$1<path>')
+    .replace(/[A-Za-z]:\\[^\s'"]+/g, '<path>');
 }
 
 function assertUnreachableCheckStatus(value: never): never {

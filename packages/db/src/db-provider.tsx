@@ -538,12 +538,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     () => inferDbProviderBootstrapRuntime(resolvedPath, useElectronIPC),
     [resolvedPath, useElectronIPC]
   );
-  const bootstrapStartedAtRef = useRef(new Date().toISOString());
   const [profileBootstrapReport, setProfileBootstrapReport] = useState<ProfileBootstrapReport>(() =>
     createInitialDbProviderBootstrapReport({
       profileId: resolvedPath,
       runtime: bootstrapRuntime,
-      timestamp: bootstrapStartedAtRef.current,
+      timestamp: new Date().toISOString(),
     })
   );
   const profileBootstrapReportRef = useRef(profileBootstrapReport);
@@ -588,7 +587,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         phase: input.phase,
         profileId: resolvedPath,
         runtime: bootstrapRuntime,
-        startedAt: bootstrapStartedAtRef.current,
+        startedAt: profileBootstrapReportRef.current.startedAt,
         updatedAt: new Date().toISOString(),
       });
       publishProfileBootstrapReport(report);
@@ -642,6 +641,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository(repositoryDb);
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'passed',
+          storeOpen: 'passed',
+          vectorExtension: 'pending',
+        }),
+        phase: 'probing-capabilities',
+      });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
@@ -657,6 +664,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         if (!diagnostics) {
           diagnostics = await getElectronDiagnostics(electronDB);
         }
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'failed',
+          }),
+          phase: 'probing-capabilities',
+        });
         logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
         throw new Error(
           formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
@@ -762,7 +777,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           storeOpen: 'passed',
           vectorExtension: 'passed',
         }),
-        phase: 'ready',
+        phase: 'probing-capabilities',
       });
 
       // Create Drizzle instance and type-safe repositories
@@ -784,6 +799,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setError(null);
         setReady(true);
         setExposedDb(createDbHandle(scheduledDb as unknown as QueryExecutor));
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'passed',
+          }),
+          phase: 'ready',
+        });
       }
     },
     [resolvedPath, publishDbProviderBootstrapReport]
