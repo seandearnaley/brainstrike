@@ -59,6 +59,7 @@
   "private": true,
   "scripts": {
     "build": "tsc --build",
+    "bootstrap:capability-probe": "tsx scripts/bootstrap-capability-probe.mts",
     "db:export": "tsx scripts/export-migrations.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "pnpm db:generate && pnpm db:export",
