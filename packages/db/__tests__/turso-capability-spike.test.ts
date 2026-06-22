@@ -91,6 +91,9 @@ describe('Turso capability spike', () => {
         const markdown = formatTursoCapabilitySpikeReportAsMarkdown(report);
         expect(markdown).toContain('# Brainstrike Turso Capability Spike');
         expect(markdown).toContain('Runtime: `turso` on `node` using `filesystem` persistence');
+        expect(markdown).toContain(
+          'Search Ownership: `split-search-index-store` with indexed search `available`'
+        );
         expect(markdown).toContain('| `sql.concurrent-writes-mvcc` | Required | `passed` |');
         expect(markdown).toContain(
           '| `search.fts-mvcc-compatibility` | Optional | `failed` | failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode |'

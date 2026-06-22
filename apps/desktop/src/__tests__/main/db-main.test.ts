@@ -84,6 +84,7 @@ vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 
 const migrateMock = vi.fn();
 const runPgliteBootstrapCapabilityProbeMock = vi.fn();
+const runTursoProfileBootstrapMock = vi.fn();
 const closeMock = vi.fn(async () => {});
 const queryMock = vi.fn(async () => ({ rows: [{ '?column?': 1 }] }));
 const execMock = vi.fn(async () => {});
@@ -101,7 +102,26 @@ vi.mock('@electric-sql/pglite-pgvector', () => ({ vector: { name: 'vector' } }))
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   migrate: migrateMock,
+  resolveBrainstrikeDbRuntimeSelection: vi.fn(
+    (input: {
+      platform: 'desktop';
+      requestedEngine?: 'pglite' | 'turso';
+      source?: 'env' | 'default';
+    }) => ({
+      bootstrapRuntime: {
+        engine: input.requestedEngine ?? 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      engine: input.requestedEngine ?? 'pglite',
+      platform: input.platform,
+      source: input.source ?? (input.requestedEngine ? 'env' : 'default'),
+    })
+  ),
   runPgliteBootstrapCapabilityProbe: runPgliteBootstrapCapabilityProbeMock,
+}));
+vi.mock('@brainstrike/db/bootstrap/turso-profile-bootstrap', () => ({
+  runTursoProfileBootstrap: runTursoProfileBootstrapMock,
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -126,9 +146,11 @@ describe('initializeMainDatabase', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     process.argv = [...originalArgv];
     runPgliteBootstrapCapabilityProbeMock.mockResolvedValue(createReadyBootstrapProbeReport());
+    runTursoProfileBootstrapMock.mockResolvedValue(createReadyTursoProfileBootstrapReport());
   });
 
   afterEach(() => {
@@ -261,6 +283,36 @@ describe('initializeMainDatabase', () => {
     });
     expect(PGliteMock).not.toHaveBeenCalled();
     expect(migrateMock).not.toHaveBeenCalled();
+  });
+
+  it('runs Turso profile bootstrap without falling back to the PGlite owner handle', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+      profileId: 'test',
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      bootstrapReport: expect.objectContaining({
+        ready: true,
+        runtime: expect.objectContaining({ engine: 'turso' }),
+        search: expect.objectContaining({ ownershipMode: 'split-search-index-store' }),
+      }),
+      initialized: false,
+    });
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
@@ -401,6 +453,43 @@ function createReadyBootstrapProbeReport() {
         engine: 'pglite',
         host: 'electron-utility',
         persistence: 'filesystem',
+      },
+      startedAt: '2026-06-22T00:00:00.000Z',
+      updatedAt: '2026-06-22T00:00:01.000Z',
+    },
+    checks,
+    generatedAt: '2026-06-22T00:00:01.000Z',
+    reportVersion: 1,
+  };
+}
+
+function createReadyTursoProfileBootstrapReport() {
+  const checks = ['store.open', 'primary-store.mvcc', 'search.ownership', 'store.close'].map(
+    (id) => ({
+      id,
+      label: id,
+      required: true,
+      status: 'passed',
+    })
+  );
+
+  return {
+    blockingIssues: [],
+    bootstrapReport: {
+      checks,
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'Primary Turso MVCC store requires an explicitly owned search-index store.',
+        ownershipMode: 'split-search-index-store',
       },
       startedAt: '2026-06-22T00:00:00.000Z',
       updatedAt: '2026-06-22T00:00:01.000Z',

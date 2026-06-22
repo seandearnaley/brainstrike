@@ -14,7 +14,12 @@ import type {
   DbHostToMainMessage,
   DbHostTransactionStartResult,
 } from './db-host-protocol';
-import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  DB_PROFILE_ENV,
+  DB_ROOT_PATH_ENV,
+  DB_RUNTIME_ENV,
+  SERIALIZE_PGLITE_INIT_ENV,
+} from './db-runtime-env';
 
 const logger = createLogger('DbHostManager');
 
@@ -34,6 +39,12 @@ const PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'queue.table',
   'assistant-memory.run-usage',
   'workspace-index.system-role',
+  'store.close',
+] as const;
+const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
+  'store.open',
+  'primary-store.mvcc',
+  'search.ownership',
   'store.close',
 ] as const;
 
@@ -181,8 +192,13 @@ function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | n
     return `Bootstrap failed during ${bootstrapReport.failure.phase}: ${bootstrapReport.failure.message}`;
   }
 
+  const requiredCheckIds = getRequiredBootstrapCheckIds(bootstrapReport.runtime.engine);
+  if (!requiredCheckIds) {
+    return `Unsupported bootstrap runtime engine: ${bootstrapReport.runtime.engine}`;
+  }
+
   const presentCheckIds = new Set(bootstrapReport.checks.map((check) => check.id));
-  for (const requiredCheckId of PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS) {
+  for (const requiredCheckId of requiredCheckIds) {
     if (!presentCheckIds.has(requiredCheckId)) {
       return `Bootstrap report missing required check: ${requiredCheckId}`;
     }
@@ -208,6 +224,17 @@ function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | n
   }
 
   return null;
+}
+
+function getRequiredBootstrapCheckIds(engine: string): readonly string[] | null {
+  switch (engine) {
+    case 'pglite':
+      return PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS;
+    case 'turso':
+      return TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS;
+    default:
+      return null;
+  }
 }
 
 function assertReadyDbHostInitResult(result: DbHostInitResult): void {
@@ -334,6 +361,10 @@ function createDbHostEnvironment(): Record<string, string> {
   const databaseProfile = process.env[DB_PROFILE_ENV];
   if (databaseProfile !== undefined) {
     environment[DB_PROFILE_ENV] = databaseProfile;
+  }
+  const databaseRuntime = process.env[DB_RUNTIME_ENV];
+  if (databaseRuntime !== undefined) {
+    environment[DB_RUNTIME_ENV] = databaseRuntime;
   }
   environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
   return environment;

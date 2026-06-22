@@ -30,6 +30,21 @@ export interface ProfileBootstrapRuntime {
   readonly persistence: 'filesystem' | 'idb' | 'memory' | 'remote' | 'unknown';
 }
 
+export type ProfileBootstrapSearchOwnershipMode =
+  | 'external-search-service'
+  | 'non-fts-primary-store'
+  | 'primary-store-indexes'
+  | 'split-search-index-store'
+  | 'unavailable';
+
+export type ProfileBootstrapIndexedSearchAvailability = 'available' | 'unavailable';
+
+export interface ProfileBootstrapSearchOwnership {
+  readonly indexedSearch: ProfileBootstrapIndexedSearchAvailability;
+  readonly message: string;
+  readonly ownershipMode: ProfileBootstrapSearchOwnershipMode;
+}
+
 export interface ProfileBootstrapCheck {
   readonly details?: Record<string, unknown>;
   readonly id: string;
@@ -61,6 +76,7 @@ export interface ProfileBootstrapReport {
   readonly profileId: string;
   readonly ready: boolean;
   readonly runtime: ProfileBootstrapRuntime;
+  readonly search: ProfileBootstrapSearchOwnership;
   readonly startedAt: string;
   readonly updatedAt: string;
 }
@@ -71,6 +87,7 @@ export interface CreateProfileBootstrapReportInput {
   readonly phase: ProfileBootstrapPhase;
   readonly profileId: string;
   readonly runtime: ProfileBootstrapRuntime;
+  readonly search?: ProfileBootstrapSearchOwnership;
   readonly startedAt: string;
   readonly updatedAt: string;
 }
@@ -91,6 +108,7 @@ export function createProfileBootstrapReport(
     phase: input.phase,
     profileId: input.profileId,
     runtime: input.runtime,
+    search: resolveSearchOwnership(input.runtime, input.search),
     startedAt: input.startedAt,
     updatedAt: input.updatedAt,
   };
@@ -120,6 +138,7 @@ export function failProfileBootstrapReport(
     phase: 'failed',
     profileId: report.profileId,
     runtime: report.runtime,
+    search: report.search,
     startedAt: report.startedAt,
     updatedAt: input.failedAt,
   });
@@ -179,6 +198,35 @@ function isReportReady(report: Omit<ProfileBootstrapReport, 'ready'>): boolean {
     !report.failure &&
     report.checks.every((check) => !check.required || check.status === 'passed')
   );
+}
+
+function resolveSearchOwnership(
+  runtime: ProfileBootstrapRuntime,
+  explicitSearch: ProfileBootstrapSearchOwnership | undefined
+): ProfileBootstrapSearchOwnership {
+  if (explicitSearch) {
+    return explicitSearch;
+  }
+
+  if (runtime.engine === 'turso') {
+    throw new Error('Turso profile bootstrap reports must declare search ownership explicitly.');
+  }
+
+  if (runtime.engine === 'pglite') {
+    return {
+      indexedSearch: 'available',
+      message:
+        'PGlite primary store owns pgvector, pg_trgm, and full-text search indexes in the same database.',
+      ownershipMode: 'primary-store-indexes',
+    };
+  }
+
+  return {
+    indexedSearch: 'unavailable',
+    message:
+      'Search ownership is unavailable until the selected database runtime declares an indexed search implementation.',
+    ownershipMode: 'unavailable',
+  };
 }
 
 function statusMessageFragment(status: ProfileBootstrapCheckStatus): string {

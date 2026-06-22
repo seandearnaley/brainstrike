@@ -182,6 +182,7 @@ export function formatBootstrapCapabilityProbeReportAsMarkdown(
     '',
     `Generated: \`${report.generatedAt}\``,
     `Runtime: \`${report.bootstrapReport.runtime.engine}\` on \`${report.bootstrapReport.runtime.host}\` using \`${report.bootstrapReport.runtime.persistence}\` persistence`,
+    `Search Ownership: \`${report.bootstrapReport.search.ownershipMode}\` with indexed search \`${report.bootstrapReport.search.indexedSearch}\``,
     `Phase: \`${report.bootstrapReport.phase}\``,
     `Ready: \`${String(report.bootstrapReport.ready)}\``,
     '',

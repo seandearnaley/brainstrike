@@ -39,4 +39,6 @@ Do not silently replace indexed search with an unbounded scan. If a search index
 
 ## Next Implementation Step
 
-Build a Turso profile bootstrap path that opens the primary MVCC store and returns a typed capability report before any production repository wiring. The report must include the selected search ownership mode so downstream repositories/tools can branch on explicit capability, not on hidden fallback behavior.
+The Turso profile bootstrap contract now opens the primary MVCC store and returns a typed capability report with `search.ownershipMode = "split-search-index-store"` before production repository wiring. See `docs/turso-migration/profile-bootstrap.md`.
+
+Next, introduce the Turso owner client/adapter behind the desktop DB host. Do not route query, search, or UI paths through Turso until the host returns an initialized Turso execution surface instead of the current fail-closed bootstrap-only report.

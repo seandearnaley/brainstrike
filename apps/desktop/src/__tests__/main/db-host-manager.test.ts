@@ -135,6 +135,37 @@ function createReadyBootstrapReport() {
   };
 }
 
+function createReadyTursoBootstrapReport() {
+  const checks = ['store.open', 'primary-store.mvcc', 'search.ownership', 'store.close'].map(
+    (id) => ({
+      id,
+      label: id,
+      required: true,
+      status: 'passed',
+    })
+  );
+
+  return {
+    checks,
+    failure: null,
+    phase: 'ready',
+    profileId: 'default',
+    ready: true,
+    runtime: {
+      engine: 'turso',
+      host: 'electron-utility',
+      persistence: 'filesystem',
+    },
+    search: {
+      indexedSearch: 'available',
+      message: 'Primary Turso MVCC store requires an explicitly owned search-index store.',
+      ownershipMode: 'split-search-index-store',
+    },
+    startedAt: '2026-06-22T00:00:00.000Z',
+    updatedAt: '2026-06-22T00:00:01.000Z',
+  };
+}
+
 function createReadyInitResult() {
   return {
     bootstrapReport: createReadyBootstrapReport(),
@@ -145,6 +176,7 @@ function createReadyInitResult() {
 describe('DbHostManager', () => {
   const originalNodeEnv = process.env['NODE_ENV'];
   const originalDbProfile = process.env['BRAINSTRIKE_DB_PROFILE'];
+  const originalDbRuntime = process.env['BRAINSTRIKE_DB_RUNTIME'];
   const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
   beforeEach(() => {
@@ -156,6 +188,7 @@ describe('DbHostManager', () => {
     loggerInfoMock.mockReset();
     loggerWarnMock.mockReset();
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     Reflect.deleteProperty(process.env, 'SECRET_TOKEN');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
   });
@@ -163,6 +196,7 @@ describe('DbHostManager', () => {
   afterEach(() => {
     restoreEnvValue('NODE_ENV', originalNodeEnv);
     restoreEnvValue('BRAINSTRIKE_DB_PROFILE', originalDbProfile);
+    restoreEnvValue('BRAINSTRIKE_DB_RUNTIME', originalDbRuntime);
     restoreEnvValue('BRAINSTRIKE_SERIALIZE_PGLITE_INIT', originalSerializePgliteInit);
   });
 
@@ -239,6 +273,25 @@ describe('DbHostManager', () => {
       expect.objectContaining({
         env: expect.objectContaining({
           BRAINSTRIKE_DB_PROFILE: 'branch-main-wt-155ffb69',
+        }),
+        serviceName: 'brainstrike-db-host',
+      })
+    );
+  });
+
+  it('forwards the explicit database runtime selector to the utility DB host', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+
+    expect(forkMock).toHaveBeenCalledWith(
+      '/mock/db-host-entry.js',
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          BRAINSTRIKE_DB_RUNTIME: 'turso',
         }),
         serviceName: 'brainstrike-db-host',
       })
@@ -721,6 +774,47 @@ describe('DbHostManager', () => {
 
     await expect(databasePromise).rejects.toThrow(
       'DB host init bootstrap report is not ready: Required bootstrap check failed: queue.table.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates Turso bootstrap reports against Turso checks before failing closed on missing client initialization', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: createReadyTursoBootstrapReport(),
+      initialized: false,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: DB host did not initialize the database.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init returns a ready report for an unsupported runtime engine', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: {
+        ...createReadyBootstrapReport(),
+        runtime: {
+          engine: 'sqlite',
+          host: 'electron-utility',
+          persistence: 'filesystem',
+        },
+      },
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: Unsupported bootstrap runtime engine: sqlite.'
     );
     expect(firstHost.kill).toHaveBeenCalledTimes(1);
   });
