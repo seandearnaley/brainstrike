@@ -90,3 +90,7 @@
 ## 2026-06-13 - Ancestor path chains avoid recursive spread
 **Learning:** `packages/utils/src/path-ancestors.ts` builds ancestor directory chains for recursive selection count updates. The recursive `[...buildAncestorDirectoryChain(parent)]` path measured roughly 43-56ms for a 4,000-deep chain after warmup on Node 24.16.0 and throws `RangeError: Maximum call stack size exceeded` at 12,000 nested directories; the iterative parent walk measured roughly 37-44ms for the 4,000-deep case and completed the 12,000-deep case in ~101ms.
 **Action:** Keep ancestor chain construction iterative and avoid reintroducing recursive spread copies in path ancestor utilities.
+
+## 2026-06-21 - Workspace sync watcher paths avoid split/filter arrays
+**Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
+**Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.

@@ -59,6 +59,30 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('does not write unavailable web-search query text to logs', async () => {
+    const privateQuery = 'look up private workspace token sk-live-sensitive';
+    const records: LogRecord[] = [];
+    const removeListener = addLogListener((record) => records.push(record));
+    try {
+      const fetchImpl = vi.fn();
+      const deps: WebSearchToolDependencies = {
+        resolveApiKey: () => Promise.resolve(undefined),
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      };
+
+      const result = await runWebSearch({ query: privateQuery }, deps);
+
+      expect(result.available).toBe(false);
+      expect(
+        records.some((r) => r.message === 'webSearch requested without a configured Tavily key')
+      ).toBe(true);
+      expect(JSON.stringify(records)).not.toContain(privateQuery);
+      expect(JSON.stringify(records)).not.toContain('sk-live-sensitive');
+    } finally {
+      removeListener();
+    }
+  });
+
   it('short-circuits a whitespace-only query: no key resolution, no network, non-fatal empty-query result', async () => {
     const fetchImpl = vi.fn();
     const resolveApiKey = vi.fn(() => Promise.resolve(SECRET_TAVILY_KEY));

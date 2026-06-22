@@ -78,6 +78,8 @@ interface ScopedPendingRemoval {
 
 type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
+const SLASH_CHAR_CODE = 47;
+
 function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
   return {
     invalidationTargets: [],
@@ -101,8 +103,32 @@ function joinRootRelativePath(rootPath: string, relativePath: string): string {
 }
 
 function getPathName(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.at(-1) ?? path;
+  let end = path.length;
+  while (end > 0 && path.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
+    end -= 1;
+  }
+  if (end === 0) {
+    return path;
+  }
+  const separatorIndex = path.lastIndexOf('/', end - 1);
+  return path.slice(separatorIndex + 1, end);
+}
+
+function countRelativePathSegments(path: string): number {
+  let count = 0;
+  let inSegment = false;
+  for (let index = 0; index < path.length; index += 1) {
+    if (path.charCodeAt(index) === SLASH_CHAR_CODE) {
+      inSegment = false;
+      continue;
+    }
+    if (inSegment) {
+      continue;
+    }
+    count += 1;
+    inSegment = true;
+  }
+  return count;
 }
 
 function getParentRelativePath(relativePath: string): string | null {
@@ -183,15 +209,18 @@ function toSyntheticFileNode(args: {
   rootPath: string;
 }): IFileNode {
   const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
+  const fileName = getPathName(args.relativePath);
   return {
-    depth: args.relativePath.split('/').filter(Boolean).length,
+    // Watcher batches can synthesize many file nodes; scan once instead of
+    // allocating split/filter arrays for every changed path.
+    depth: countRelativePathSegments(args.relativePath),
     handle: {
       kind: 'file',
-      name: getPathName(args.relativePath),
+      name: fileName,
       path: absolutePath,
       platform: args.rootHandle.platform,
     } as unknown as IFileNode['handle'],
-    name: getPathName(args.relativePath),
+    name: fileName,
     path: absolutePath,
     rootFolderId: args.rootPath,
     selectionState: 'unchecked',
@@ -765,3 +794,8 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
   }
   return await collectPreparedFullChanges(args);
 }
+
+export const __workspaceCollectionSyncScanInternalsForTests = {
+  countRelativePathSegments,
+  getPathName,
+};

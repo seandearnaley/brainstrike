@@ -51,7 +51,7 @@ describe('desktop renderer dev url', () => {
     expect(DESKTOP_DEV_RENDERER_PORT).toBe(38_181);
     expect(DESKTOP_DEV_RENDERER_URL).toBe('http://localhost:38181');
     expect(loggerWarn).toHaveBeenCalledWith(
-      'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an absolute URL with an explicit port.',
+      'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an HTTP(S) URL with an explicit port.',
       {
         configuredUrl: 'not-a-url',
       }
@@ -73,9 +73,31 @@ describe('desktop renderer dev url', () => {
     expect(DESKTOP_DEV_RENDERER_PORT).toBe(38_181);
     expect(DESKTOP_DEV_RENDERER_URL).toBe('http://localhost:38181');
     expect(loggerWarn).toHaveBeenCalledWith(
-      'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an absolute URL with an explicit port.',
+      'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an HTTP(S) URL with an explicit port.',
       {
         configuredUrl: 'http://localhost',
+      }
+    );
+  });
+
+  it('warns and falls back when the configured override uses a non-http scheme', async () => {
+    process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = 'ws://localhost:39191';
+    vi.doMock('@brainstrike/utils/logger', () => ({
+      createLogger: () => ({
+        warn: loggerWarn,
+      }),
+    }));
+
+    const { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } = await import(
+      '../desktop-renderer-url'
+    );
+
+    expect(DESKTOP_DEV_RENDERER_PORT).toBe(38_181);
+    expect(DESKTOP_DEV_RENDERER_URL).toBe('http://localhost:38181');
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an HTTP(S) URL with an explicit port.',
+      {
+        configuredUrl: 'ws://localhost:39191',
       }
     );
   });
