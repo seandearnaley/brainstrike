@@ -13,6 +13,7 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
+import { buildWebAssistantStream } from './server/web-mastra-storage';
 
 export type { StreamChunk };
 
@@ -101,28 +102,52 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
-  const agentMessages = convertAssistantUiMessages(rawMessages);
-  const data = (body?.data ?? undefined) as RuntimeData | undefined;
-  if (sendToolApprovalResponse(res, body?.runConfig)) {
+  // Validate any approval action up front (400 on malformed). A valid action
+  // resumes a SUSPENDED run below with workflow storage — no longer a 501. Only a
+  // normal turn carries user messages; the resume path has none.
+  const approvalResult = readToolApprovalRunConfigAction(body?.runConfig);
+  if (approvalResult && 'invalid' in approvalResult) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        error: 'invalid_tool_approval_action',
+        message: 'Tool approval action must include action, runId, and toolCallId.',
+      })
+    );
     return;
   }
+  const toolApprovalAction = approvalResult?.action;
 
+  const data = (body?.data ?? undefined) as RuntimeData | undefined;
   const abortController = new AbortController();
   const onAbort = () => abortController.abort();
   if (req) {
     req.on('close', onAbort);
     req.on('aborted', onAbort);
   }
+  const removeAbortListeners = (): void => {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
+  };
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    agentStream = await toAiSdkStyleStream(agentMessages, {
-      ...(data ?? {}),
+    const rawMessages = Array.isArray(body?.messages)
+      ? (body.messages as AssistantUiMessage[])
+      : [];
+    // The seam resolves the TRUSTED permission policy from `data` (strips any
+    // client-supplied policy) so ask tools actually suspend on a normal turn.
+    agentStream = await buildWebAssistantStream({
+      agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
+      data,
       apiKey: provider.apiKey,
       signal: abortController.signal,
+      ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {
+    removeAbortListeners();
     logger.error('Failed to initialize assistant stream', { error });
     res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(
@@ -139,10 +164,7 @@ export async function handleAssistantEndpoint(
   try {
     await streamResponse(res, response, req);
   } finally {
-    if (req) {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
-    }
+    removeAbortListeners();
   }
 }
 
@@ -169,33 +191,6 @@ function sendAssistantDisabledResponse(
       reason: assistantStatusPayload(provider).reason,
     })
   );
-}
-
-function sendToolApprovalResponse(res: http.ServerResponse, runConfig: unknown): boolean {
-  const toolApprovalAction = readToolApprovalRunConfigAction(runConfig);
-  if (!toolApprovalAction) {
-    return false;
-  }
-
-  if ('invalid' in toolApprovalAction) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'invalid_tool_approval_action',
-        message: 'Tool approval action must include action, runId, and toolCallId.',
-      })
-    );
-    return true;
-  }
-
-  res.writeHead(501, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(
-    JSON.stringify({
-      error: 'tool_approval_resume_unsupported',
-      message: 'Tool approval resume requires the desktop assistant backend.',
-    })
-  );
-  return true;
 }
 
 function assistantStatusPayload(provider: AssistantProviderConfig): {

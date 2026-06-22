@@ -8,13 +8,9 @@
  * the user explicitly enables accurate counting or requests a token count.
  */
 
-import {
-  countTokensHeuristic,
-  estimateTokenCost,
-  formatTokenCount,
-} from './token-counting-heuristics';
+import { countTokensHeuristic, formatTokenCount } from './token-counting-heuristics';
 
-export { countTokensHeuristic, estimateTokenCost, formatTokenCount };
+export { countTokensHeuristic, formatTokenCount };
 
 type TokenUtilsModule = typeof import('./token-utils');
 

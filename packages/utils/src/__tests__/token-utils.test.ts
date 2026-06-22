@@ -3,7 +3,6 @@ import {
   calculateGroupTokens,
   countTokensAccurate,
   countTokensHeuristic,
-  estimateTokenCost,
   formatTokenCount,
 } from '../token-utils';
 
@@ -53,26 +52,6 @@ describe('Token Utilities', () => {
   describe('calculateGroupTokens', () => {
     it('should sum tokens for a group of texts using the accurate method by default', async () => {
       await expect(calculateGroupTokens(['Short', 'Medium', 'Long text'])).resolves.toBe(4);
-    });
-  });
-
-  describe('estimateTokenCost', () => {
-    it('should calculate cost based on input tokens only when output tokens not provided', () => {
-      // 100,000 tokens at $0.01 per 1K tokens = $1.00
-      const result = estimateTokenCost(100_000);
-      expect(result).toBe(1);
-
-      // 500 tokens at $0.01 per 1K tokens = $0.005
-      const result2 = estimateTokenCost(500);
-      expect(result2).toBe(0.005);
-    });
-
-    it('should calculate combined cost for both input and output tokens when provided', () => {
-      // 100,000 input tokens at $0.01 per 1K tokens = $1.00
-      // 10,000 output tokens at $0.03 per 1K tokens = $0.30
-      // Total: $1.30
-      const result = estimateTokenCost(100_000, 10_000);
-      expect(result).toBe(1.3);
     });
   });
 });

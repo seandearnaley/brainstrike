@@ -420,6 +420,8 @@ export class DataStreamMapper {
       runId: chunk.runId,
       toolCallId: callId,
       toolName: chunk.toolName,
+      ...(chunk.riskCategory === undefined ? {} : { riskCategory: chunk.riskCategory }),
+      ...(chunk.policyDecision === undefined ? {} : { policyDecision: chunk.policyDecision }),
       ...(args === undefined ? {} : { args: toJsonSafe(args) }),
       ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
     };

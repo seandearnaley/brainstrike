@@ -291,10 +291,74 @@ emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
 Parallel tool calls: Mastra executes tool calls within a step concurrently
 (default concurrency 10; `toolCallConcurrency` loop option). Mastra forces
-sequential execution when `requireToolApproval` is set or any active tool has
-`requireApproval`/a suspend schema — we only set `requireToolApproval` on the
-approval-resume path, so the normal path stays parallel. The data-stream
+sequential execution when the run-wide `requireToolApproval` is set OR any active
+tool carries the per-tool `requireApproval` flag / a suspend schema. The
+permission engine (see PERMISSION ENGINE below) marks `'ask'` tools with the
+PER-TOOL `requireApproval`, so a run that includes any ask tool executes its step
+sequentially (the price of the per-tool gate), but only the ask tool actually
+suspends — allowed tools still run. A run with no ask tools stays parallel. The
+approval-resume path sets the run-wide `requireToolApproval`. The data-stream
 mapper and UI key all per-call state by toolCallId and handle interleaving.
+
+When changing this flow, update this section and the related tests.
+
+---
+
+## PERMISSION ENGINE (TOOL APPROVAL)
+
+Mutation tools PROMPT for per-call approval by default. The permission policy
+store (`packages/preferences/src/stores/permission-policy-store.ts`) defaults to
+`enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
+so by default read/MCP tools run free while edits and shell commands suspend the
+run for user approval. A user can turn `enforce` off (explicit opt-out), set a
+category to `allow`/YOLO, or grant a session category.
+
+Flow (desktop assistant server → agent runtime):
+1. The renderer attaches the persisted policy snapshot to the request only when
+   `enforce` is true. `resolveRequestPermissionPolicy` (agent) builds the trusted
+   `PermissionToolGateSnapshot` with a SERVER-built `riskByTool`
+   (`buildNativeToolRiskMap`) — the client never classifies tool risk.
+2. `filterToolsByPermissionWithMetadata` (`packages/agent/src/mastra/permission-tool-gate.ts`)
+   gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
+   `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
+   `requireApproval: true` and record in `askToolIds`.
+3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
+   >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
+   `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
+   the run-wide `requireToolApproval` (it would suspend EVERY tool call, breaking
+   the read-only default). `createMastraAgentRuntime`'s `resolveAskToolsForRun`
+   only decides whether ask tools may STAY: WITH Mastra workflow storage they stay
+   (their per-tool flag suspends + the resume path can restore the run); WITHOUT
+   storage (`streamMastraToolApprovalAction` throws) they are fail-safe OMITTED
+   (never run an approval-required tool unprompted — no-silent-fallbacks).
+4. The approval UI + resume chain (`makeApprovalRequiredChunks` →
+   `tool-approval-required` chunk → `DataStreamMapper.handleToolApprovalRequired`
+   → `TOOL_APPROVAL_DATA_NAME` data part → `assistant-tool-approval-notice.tsx`)
+   prompts the user; approve→execute, decline→skip. The chunk carries an optional
+   `riskCategory`/`policyDecision` so the notice can name the reason. The
+   approve/decline resume (`streamMastraToolApprovalAction`) passes
+   `requireToolApproval: true` (the resume API needs it); the gate runs again on
+   resume so the ask tools keep their per-tool flag.
+
+Migration (enforce-on is a SECURITY fix): the store bumps to v2. Under v1,
+`false` was the default AND always persisted, so a pre-v2 `false` slice is
+indistinguishable from an opt-out — `migrate` adopts the secure default (`true`)
+for ANY pre-v2 slice (a genuine v1 opt-out gets re-prompted once, the safe
+direction). Only a v2+ persisted boolean is honored verbatim. Skipping this would
+leave upgrading `enforce:false` users with the now-always-registered, ungated
+`executeCommand` — the regression this guards against.
+
+Web: the in-renderer LocalRuntimeChat never reaches `streamMastraAgent` (no
+assistant server / storage), so ask tools are fail-safe-omitted there and web
+local chat is unaffected (desktop-first).
+
+Live-loop proof (real Agent + real PGlite workflow storage, no agent mock):
+`packages/agent/src/__tests__/mastra-tool-approval-suspend.spec.ts` —
+suspend→approve→execute, suspend→decline→skip, AND an allowed read tool runs
+FREE while an ask tool is in the map (the per-tool-not-global guard). NOTE: the
+scripted model's synchronous stream starves the event loop during the
+PGlite-backed resume; the test drains with a per-chunk `setImmediate` yield
+(mirrors real streaming) — a harness concern, not a production bug.
 
 When changing this flow, update this section and the related tests.
 

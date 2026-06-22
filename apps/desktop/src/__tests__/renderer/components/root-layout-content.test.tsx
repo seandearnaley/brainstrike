@@ -1,5 +1,5 @@
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -90,15 +90,58 @@ vi.mock('@brainstrike/app-shell', () => ({
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
+// The Git surface is capability-gated. `gitBridgeAvailableMock` lets each test
+// drive the `isGitBridgeAvailable()` branch (default false = web-safe). Mocking
+// the availability subpath keeps the heavy @codemirror/merge graph out of this
+// test.
+const gitBridgeAvailableMock = vi.fn(() => false);
+vi.mock('@brainstrike/app-shell/git-panel/availability', () => ({
+  isGitBridgeAvailable: () => gitBridgeAvailableMock(),
+}));
+
+vi.mock('../../../renderer/components/git-page-content', () => ({
+  default: () => <div data-testid="git-page-content" />,
+}));
+
+// The Terminal surface is capability-gated the same way (default false =
+// web-safe). Mocking the availability subpath keeps @xterm out of this test.
+const terminalBridgeAvailableMock = vi.fn(() => false);
+vi.mock('@brainstrike/app-shell/terminal-panel/availability', () => ({
+  isTerminalBridgeAvailable: () => terminalBridgeAvailableMock(),
+}));
+
+vi.mock('../../../renderer/components/terminal-page-content', () => ({
+  default: () => <div data-testid="terminal-page-content" />,
+}));
+
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: ({
     contextExplorerPageContent,
+    gitPageContent,
+    terminalPageContent,
+    navigationItems,
   }: {
     contextExplorerPageContent: React.ReactNode;
+    gitPageContent?: React.ReactNode;
+    terminalPageContent?: React.ReactNode;
+    navigationItems?: Array<{ name: string; path: string }>;
   }) => (
     <div data-testid="file-explorer-provider">
       <div data-testid="app-layout">
+        {/* Surface the nav items + git/terminal pages so capability-gating can
+            be asserted. */}
+        <nav data-testid="nav-items">
+          {(navigationItems ?? []).map((item) => (
+            <span data-testid={`nav-item-${item.path}`} key={item.path}>
+              {item.name}
+            </span>
+          ))}
+        </nav>
         <main>{contextExplorerPageContent}</main>
+        {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
+        {terminalPageContent ? (
+          <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
+        ) : null}
       </div>
     </div>
   ),
@@ -182,6 +225,10 @@ describe('RootLayoutContent', () => {
     currentDb = null;
     homeMountCount = 0;
     vi.clearAllMocks();
+    // Default: Git + Terminal bridges unavailable (web-safe). clearAllMocks wiped
+    // the impls.
+    gitBridgeAvailableMock.mockReturnValue(false);
+    terminalBridgeAvailableMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -209,6 +256,43 @@ describe('RootLayoutContent', () => {
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+  });
+
+  it('does NOT surface the Git tab when window.git is absent (web-safe gate)', () => {
+    gitBridgeAvailableMock.mockReturnValue(false);
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('nav-item-/git')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('git-page-slot')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the Git nav item + mounts the git page when window.git is available', () => {
+    gitBridgeAvailableMock.mockReturnValue(true);
+    render(<RootLayoutContent />);
+    const gitNavItem = screen.getByTestId('nav-item-/git');
+    expect(gitNavItem).toBeInTheDocument();
+    expect(gitNavItem).toHaveTextContent('Git');
+    // gitPageContent was passed → the git page surface mounts.
+    const gitSlot = screen.getByTestId('git-page-slot');
+    expect(gitSlot).toBeInTheDocument();
+    expect(within(gitSlot).getByTestId('git-page-content')).toBeInTheDocument();
+  });
+
+  it('does NOT surface the Terminal tab when window.terminal is absent (web-safe gate)', () => {
+    terminalBridgeAvailableMock.mockReturnValue(false);
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('nav-item-/terminal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('terminal-page-slot')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the Terminal nav item + mounts the terminal page when window.terminal is available', () => {
+    terminalBridgeAvailableMock.mockReturnValue(true);
+    render(<RootLayoutContent />);
+    const terminalNavItem = screen.getByTestId('nav-item-/terminal');
+    expect(terminalNavItem).toBeInTheDocument();
+    expect(terminalNavItem).toHaveTextContent('Terminal');
+    const terminalSlot = screen.getByTestId('terminal-page-slot');
+    expect(terminalSlot).toBeInTheDocument();
+    expect(within(terminalSlot).getByTestId('terminal-page-content')).toBeInTheDocument();
   });
 
   it('keeps home content mounted while the database becomes available', async () => {

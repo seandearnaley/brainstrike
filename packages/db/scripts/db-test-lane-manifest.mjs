@@ -14,6 +14,7 @@ export const dbUnitLaneDefinitions = [
       /^drizzle-migrate\.test\.ts$/,
       /^drizzle-pglite-spike\.test\.ts$/,
       /^gemma-local-llm-migration\.test\.ts$/,
+      /^mastra-om-schema-projection\.test\.ts$/,
       /^migration-/,
       /^migration-integration\.test\.ts$/,
       /^pglite-engine-major\.integration\.test\.ts$/,

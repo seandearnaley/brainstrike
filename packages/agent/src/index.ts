@@ -1,6 +1,15 @@
 // Types — all inline type definitions live in types.ts
 
 export {
+  decodeFileMentionId,
+  encodeFileMentionId,
+  FILE_MENTION_DIRECTIVE_TYPE,
+  type FileMentionDirective,
+  type ParsedFileMention,
+  parseFileMentionDirectives,
+  serializeFileMentionDirective,
+} from '@brainstrike/assistant-contract';
+export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
@@ -71,6 +80,11 @@ export {
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
+export {
+  type AssistantPermissionPolicyRequest,
+  isAssistantPermissionPolicyRequest,
+  resolveRequestPermissionPolicy,
+} from './mastra/permission-policy-request';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
@@ -314,6 +328,7 @@ export {
   type QueryFileTreeToolResult,
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
+export { withFileLock } from './tools/file-write-lock';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,
@@ -359,8 +374,12 @@ export {
   type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type ExecuteCommandInput,
+  ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
+  type GlobWorkspaceInput,
+  GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
@@ -379,6 +398,8 @@ export {
   RetrievalContextInputSchema,
   type SelectRootTreeFilesInput,
   SelectRootTreeFilesInputSchema,
+  type StringReplaceWorkspaceFileInput,
+  StringReplaceWorkspaceFileInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
   type UpdateWorkspaceContextSelectionInput,
@@ -386,7 +407,18 @@ export {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
+  type WebSearchInput,
+  WebSearchInputSchema,
+  type WriteWorkspaceFileInput,
+  WriteWorkspaceFileInputSchema,
 } from './tools/schemas';
+export {
+  applyStringReplace,
+  StringReplaceError,
+  type StringReplaceFailureReason,
+  type StringReplaceMatchType,
+  type StringReplaceResult,
+} from './tools/string-replace';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

@@ -5,7 +5,9 @@ import type {
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
+import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';
@@ -106,6 +108,34 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Mastra dependency. Do NOT move this to assistant-contract.
    */
   memory?: RuntimeMemoryContext;
+  /**
+   * Serializable permission posture + caller-provided tool risk classification.
+   * When present, the runtime gates the agent's tool map by the policy BEFORE
+   * the immutable Mastra `Agent` is built (`filterToolsByPermissionWithMetadata`):
+   * `'allow'` keeps a tool, `'deny'` omits it, and `'ask'` keeps a CLONE carrying
+   * Mastra's PER-TOOL `requireApproval: true` so the run SUSPENDS for approval
+   * only when that tool is called (allowed tools run free; the run-wide
+   * `requireToolApproval` is NOT forced). Never silently run; when no storage
+   * exists to resume, `'ask'` falls back to a fail-safe omit. OPTIONAL — when
+   * absent, the tool map is unchanged (production-default). Agent-only. See
+   * `mastra/permission-tool-gate.ts`.
+   *
+   * This is the TRUSTED, server-built snapshot (risk classification is
+   * registry-side). The renderer never sets it directly — it sends the OPT-IN
+   * `permissionPolicyRequest` below, and the assistant server resolves that into
+   * this field via `resolveRequestPermissionPolicy`.
+   */
+  permissionPolicy?: PermissionToolGateSnapshot;
+  /**
+   * The renderer-supplied permission snapshot from the user's
+   * `permission-policy-store`, carried over the wire. The server reads it and,
+   * when `enforce === true`, builds the trusted `permissionPolicy` above
+   * (`resolveRequestPermissionPolicy`); when `enforce` is absent/false the
+   * server leaves `permissionPolicy` unset (passthrough). It carries NO
+   * `riskByTool` — tool risk classification is server-owned, never client-
+   * supplied. Cleared from the runtime before the agent is built. Agent-only.
+   */
+  permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
    * Provider-specific runtime options. Agent keeps the AI-SDK-bound shape
    * (`@ai-sdk/provider` SharedV2/V3ProviderOptions) — diverges from the

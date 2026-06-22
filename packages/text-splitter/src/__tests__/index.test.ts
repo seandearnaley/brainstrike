@@ -3,7 +3,6 @@ import {
   ACCURATE_TOKEN_ENCODING,
   ACCURATE_TOKEN_MODEL_HINT,
   countTokensHeuristic,
-  estimateTokenCost,
   formatTokenCount,
   getChunkingPreset,
   getChunkingPresetDefinitions,
@@ -240,7 +239,6 @@ describe('@brainstrike/text-splitter', () => {
   it('exports lightweight token heuristics from the package root', () => {
     expect(countTokensHeuristic('abcdefgh')).toBe(2);
     expect(formatTokenCount(1500)).toBe('1.5K tokens');
-    expect(estimateTokenCost(1000, 1000)).toBe(0.04);
   });
 
   it('resolves auto strategy from file extension', () => {

@@ -7,6 +7,8 @@
  * - Consistent tool organization across native and MCP tools
  */
 
+import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
+
 /**
  * Source of a tool - either built into the application or from an MCP server.
  */
@@ -117,6 +119,14 @@ export interface NativeToolDefaultMetadata {
   loadingTier: ToolLoadingTier;
   /** Whether this tool performs mutations requiring user approval */
   requiresApproval: boolean;
+  /**
+   * Explicit permission-engine risk bucket. Optional and backward compatible:
+   * when omitted, the risk category is derived by `resolveToolRiskCategory`
+   * (see tool-risk.ts). Declare it explicitly for any tool that is not
+   * unambiguously read-only. This is SEPARATE from `category` above, which is a
+   * load-ordering/UI taxonomy.
+   */
+  riskCategory?: ToolRiskCategory;
 }
 
 /**
@@ -130,6 +140,24 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: false,
     estimatedTokens: 140,
+  },
+  // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
+  // the Phase 1 permission engine gates it when enforcement is on.
+  'brainstrike.writeWorkspaceFile': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 140,
+    riskCategory: 'edit',
+  },
+  // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an old_str
+  // block and replaces it. Same edit-risk gating.
+  'brainstrike.stringReplaceWorkspaceFile': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 160,
+    riskCategory: 'edit',
   },
   'brainstrike.findWorkspaceSymbol': {
     category: 'retrieval',
@@ -160,12 +188,14 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     loadingTier: 'critical',
     requiresApproval: true,
     estimatedTokens: 150,
+    riskCategory: 'edit',
   },
   'brainstrike.updateWorkspaceTapestrySelections': {
     category: 'action',
     loadingTier: 'critical',
     requiresApproval: true,
     estimatedTokens: 190,
+    riskCategory: 'edit',
   },
   'brainstrike.listEmbeddingSpaces': {
     category: 'analysis',
@@ -185,7 +215,63 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 160,
   },
+  // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
+  // risk bucket (it is also derivable from retrieval + no-approval) so the
+  // permission engine allows it by default, like the other workspace readers.
+  'brainstrike.globWorkspace': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 130,
+    riskCategory: 'read',
+  },
+  // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
+  // false: it does NOT mutate workspace state, so the permission engine allows
+  // it by default like the other readers. NOTE the privacy caveat documented on
+  // the tool description: it sends the query to an EXTERNAL service (Tavily).
+  'brainstrike.webSearch': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 130,
+    riskCategory: 'read',
+  },
+  // Arbitrary shell execution — THE highest-risk native tool. There is NO
+  // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
+  // When the permission engine enforces a policy and `execute` is `'ask'` (the
+  // default), this tool SUSPENDS for per-call approval before it runs (Mastra's
+  // per-tool requireApproval); it is omitted from the map only as a fail-safe
+  // when there is no workflow storage to resume the suspend, or when `execute`
+  // is `'deny'`. `'allow'`/YOLO runs it unprompted.
+  'brainstrike.executeCommand': {
+    category: 'action',
+    loadingTier: 'critical',
+    requiresApproval: true,
+    estimatedTokens: 180,
+    riskCategory: 'execute',
+  },
 };
+
+/**
+ * Build the native-tool risk classification map for the permission gate.
+ *
+ * Maps every {@link NATIVE_TOOL_DEFAULTS} tool id → its {@link ToolRiskCategory}
+ * via {@link resolveToolRiskCategory}. This is the caller-provided `riskByTool`
+ * the runtime permission gate consumes (the gate never introspects Mastra tool
+ * objects for brainstrike risk metadata — that classification is registry-side).
+ *
+ * STRICT: if a native tool's risk cannot be derived and is not explicitly
+ * declared, {@link resolveToolRiskCategory} throws {@link UndeterminableToolRiskError}.
+ * That surfaces a misconfigured catalog entry rather than silently bucketing a
+ * potentially dangerous tool into a permissive category (no-silent-fallbacks).
+ */
+export function buildNativeToolRiskMap(): Record<string, ToolRiskCategory> {
+  const riskByTool: Record<string, ToolRiskCategory> = {};
+  for (const [toolId, metadata] of Object.entries(NATIVE_TOOL_DEFAULTS)) {
+    riskByTool[toolId] = resolveToolRiskCategory(metadata);
+  }
+  return riskByTool;
+}
 
 /**
  * Get default metadata for a native tool by ID.

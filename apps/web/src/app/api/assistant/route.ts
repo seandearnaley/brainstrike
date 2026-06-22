@@ -1,4 +1,5 @@
 import type {
+  AgentMessage,
   AssistantUiMessageStrict as AssistantUiMessage,
   RuntimeData,
   StreamChunk,
@@ -15,10 +16,10 @@ import {
   readToolApprovalRunConfigAction,
   resolveAssistantRequestBodyLimitBytes,
   resolveDataStreamSession,
-  toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+import { buildWebAssistantStream } from '../../../server/web-mastra-storage';
 
 const logger = createLogger('WebAssistantRoute');
 const JSON_ERROR_HEADERS = {
@@ -56,11 +57,18 @@ export async function POST(req: Request): Promise<Response> {
     }
     throw error;
   }
-  const toolApprovalResponse = resolveToolApprovalResponse(runConfig);
-  if (toolApprovalResponse) {
-    return toolApprovalResponse;
+  // A tool-approval action resumes a SUSPENDED run (no new user turn). Validate
+  // its shape here; the resume itself runs below with workflow storage, like the
+  // desktop assistant server — no longer a 501 (web has in-process storage now).
+  const approvalResult = readToolApprovalRunConfigAction(runConfig);
+  if (approvalResult && 'invalid' in approvalResult) {
+    return jsonError(
+      400,
+      'invalid_tool_approval_action',
+      'Tool approval action must include action, runId, and toolCallId.'
+    );
   }
-  const agentMessages = convertAssistantUiMessages(rawMessages);
+  const toolApprovalAction = approvalResult?.action;
 
   const provider = resolveAssistantProviderConfig();
   if (!(provider.enabled && provider.apiKey)) {
@@ -76,15 +84,24 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  if (!hasNonEmptyAssistantPrompt(agentMessages)) {
-    return jsonError(400, 'empty_prompt');
+  // Only a normal turn carries user messages; the approval-resume path has none.
+  let agentMessages: AgentMessage[] = [];
+  if (!toolApprovalAction) {
+    agentMessages = convertAssistantUiMessages(rawMessages);
+    if (!hasNonEmptyAssistantPrompt(agentMessages)) {
+      return jsonError(400, 'empty_prompt');
+    }
   }
 
   let agentStream: AsyncIterable<StreamChunk>;
   try {
-    agentStream = await toAiSdkStyleStream(agentMessages, {
-      ...(data ?? {}),
+    // The seam resolves the TRUSTED permission policy from `data` (strips any
+    // client-supplied policy) so ask tools actually suspend on a normal turn.
+    agentStream = await buildWebAssistantStream({
+      agentMessages,
+      data,
       apiKey: provider.apiKey,
+      ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
   } catch (error) {
     logger.error('Failed to initialize assistant stream', { error });
@@ -102,37 +119,6 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = assistantDataStreamSessions.create(agentStream);
   return session.createResponse();
-}
-
-function resolveToolApprovalResponse(runConfig: unknown): Response | undefined {
-  const toolApprovalAction = readToolApprovalRunConfigAction(runConfig);
-  if (!toolApprovalAction) {
-    return;
-  }
-
-  if ('invalid' in toolApprovalAction) {
-    return new Response(
-      JSON.stringify({
-        error: 'invalid_tool_approval_action',
-        message: 'Tool approval action must include action, runId, and toolCallId.',
-      }),
-      {
-        status: 400,
-        headers: JSON_ERROR_HEADERS,
-      }
-    );
-  }
-
-  return new Response(
-    JSON.stringify({
-      error: 'tool_approval_resume_unsupported',
-      message: 'Tool approval resume requires the desktop assistant backend.',
-    }),
-    {
-      status: 501,
-      headers: JSON_ERROR_HEADERS,
-    }
-  );
 }
 
 function jsonError(status: number, error: string, message?: string): Response {
