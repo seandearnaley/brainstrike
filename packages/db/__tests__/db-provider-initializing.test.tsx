@@ -9,6 +9,7 @@ import {
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
+  useProfileBootstrapReport,
 } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
@@ -129,6 +130,95 @@ describe('DbProvider initializing state', () => {
         expect(result.current.initializing).toBe(false);
       },
       { timeout: 10_000 }
+    );
+  });
+
+  it('reports direct PGlite bootstrap readiness after open, migration, and pgvector checks pass', async () => {
+    const mockDb = createMockDb();
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, report };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeTruthy();
+        expect(result.current.report).toMatchObject({
+          failure: null,
+          phase: 'ready',
+          profileId: 'memory://',
+          ready: true,
+          runtime: {
+            engine: 'pglite',
+            host: 'browser',
+            persistence: 'memory',
+          },
+        });
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'passed' }),
+      ])
+    );
+  });
+
+  it('marks pgvector as the failed required check when direct bootstrap cannot detect it', async () => {
+    const mockDb = createMockDb({
+      query: vi.fn(async (sql: string) => {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    });
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeNull();
+        expect(result.current.initializationStatus).toBe('error');
+        expect(result.current.report).toMatchObject({
+          phase: 'failed',
+          ready: false,
+          failure: {
+            message:
+              'pgvector extension failed to initialize. Ensure @electric-sql/pglite-pgvector is bundled.',
+            phase: 'probing-capabilities',
+          },
+        });
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'failed' }),
+      ])
     );
   });
 

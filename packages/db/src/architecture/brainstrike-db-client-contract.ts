@@ -1,3 +1,5 @@
+import type { ProfileBootstrapCheck } from '../bootstrap/profile-bootstrap-report.js';
+
 export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
 
 export type BrainstrikeDbRuntimeHostCapability = 'close' | 'diagnostics' | 'reset';
@@ -95,6 +97,19 @@ export function getMissingBrainstrikeDbClientCapabilities(
   );
 }
 
+export function buildBrainstrikeDbClientCapabilityBootstrapChecks(
+  candidate: unknown
+): readonly ProfileBootstrapCheck[] {
+  const missingCapabilities = new Set(getMissingBrainstrikeDbClientCapabilities(candidate));
+
+  return BRAINSTRIKE_DB_CLIENT_CAPABILITIES.map((capability) => ({
+    id: `db.client.${capability}`,
+    label: `DB client ${capability} capability`,
+    required: true,
+    status: missingCapabilities.has(capability) ? 'failed' : 'passed',
+  }));
+}
+
 function isBrainstrikeDbClientCapabilityMissing(
   candidate: Record<PropertyKey, unknown>,
   capability: BrainstrikeDbClientCapability
@@ -121,6 +136,19 @@ export function getMissingBrainstrikeDbRuntimeHostCapabilities(
   return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES.filter((capability) =>
     isBrainstrikeDbRuntimeHostCapabilityMissing(candidate, capability)
   );
+}
+
+export function buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks(
+  candidate: unknown
+): readonly ProfileBootstrapCheck[] {
+  const missingCapabilities = new Set(getMissingBrainstrikeDbRuntimeHostCapabilities(candidate));
+
+  return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES.map((capability) => ({
+    id: `db.runtime-host.${capability}`,
+    label: `DB runtime host ${capability} capability`,
+    required: true,
+    status: missingCapabilities.has(capability) ? 'failed' : 'passed',
+  }));
 }
 
 function isBrainstrikeDbRuntimeHostCapabilityMissing(
