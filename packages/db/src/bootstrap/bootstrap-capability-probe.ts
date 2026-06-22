@@ -373,7 +373,7 @@ async function closeProbeDatabase(
   usesDefaultOpenDatabase: boolean
 ): Promise<void> {
   if (usesDefaultOpenDatabase && isIndexedDbPGliteDataDir(dataDir)) {
-    await wasmLoader.closeCached(dataDir);
+    await wasmLoader.closeCached(dataDir, { throwOnCloseError: true });
     return;
   }
 

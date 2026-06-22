@@ -229,6 +229,32 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       // Should not throw even when close fails
       await expect(loader.disposeAll()).resolves.toBeUndefined();
     });
+
+    it('closeCached can propagate cached close failures for diagnostics', async () => {
+      vi.resetModules();
+      vi.doMock('@electric-sql/pglite', () => {
+        PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+          this.query = vi.fn().mockResolvedValue(undefined);
+          this.close = vi.fn().mockRejectedValue(new Error('already closed'));
+        });
+        return { PGlite: PGliteMock };
+      });
+      vi.doMock('@electric-sql/pglite-pgvector', () => ({ vector: {} }));
+      vi.doMock('@electric-sql/pglite/live', () => ({ live: {} }));
+      vi.doMock('@electric-sql/pglite/contrib/pg_trgm', () => ({ pg_trgm: {} }));
+
+      const mod = await import('../src/wasm-loader');
+      const loader = mod.wasmLoader;
+
+      await loader.createPGlite('idb://test-strict-error');
+
+      await expect(
+        loader.closeCached('idb://test-strict-error', { throwOnCloseError: true })
+      ).rejects.toThrow('already closed');
+
+      const internal = loader as unknown as { dbCache: Map<string, unknown> };
+      expect(internal.dbCache.size).toBe(0);
+    });
   });
 });
 

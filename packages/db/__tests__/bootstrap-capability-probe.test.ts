@@ -125,13 +125,53 @@ describe('bootstrap capability probe', () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith('idb://bootstrap-capability-probe-cache');
-    expect(closeCachedSpy).toHaveBeenCalledWith('idb://bootstrap-capability-probe-cache');
+    expect(closeCachedSpy).toHaveBeenCalledWith('idb://bootstrap-capability-probe-cache', {
+      throwOnCloseError: true,
+    });
     expect(fakeDb.close).not.toHaveBeenCalled();
     expect(report.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'schema.migrated', status: 'failed' }),
         expect.objectContaining({ id: 'store.close', required: true, status: 'passed' }),
       ])
+    );
+  });
+
+  it('fails closed when cached IndexedDB default-opener handles cannot close', async () => {
+    const fakeDb = {
+      close: vi.fn().mockResolvedValue(undefined),
+      query: vi.fn(),
+      transaction: vi.fn(),
+    } as unknown as Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+    vi.spyOn(wasmLoader, 'createPGlite').mockResolvedValue(fakeDb);
+    const closeCachedSpy = vi
+      .spyOn(wasmLoader, 'closeCached')
+      .mockRejectedValue(new Error('could not close /tmp/brainstrike/profile.db'));
+
+    const report = await runPgliteBootstrapCapabilityProbe({
+      dataDir: 'idb://bootstrap-capability-probe-cache-close-failure',
+      generatedAt: () => '2026-06-22T00:00:00.000Z',
+      profileId: 'cached-idb-close-failure-profile',
+      runMigrations: async () => ({
+        appliedMigrations: [],
+        error: 'stop before capability probes',
+        success: false,
+      }),
+    });
+
+    expect(closeCachedSpy).toHaveBeenCalledWith(
+      'idb://bootstrap-capability-probe-cache-close-failure',
+      { throwOnCloseError: true }
+    );
+    expect(report.bootstrapReport.ready).toBe(false);
+    expect(report.bootstrapReport.phase).toBe('blocked');
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.close', required: true, status: 'failed' }),
+      ])
+    );
+    expect(report.blockingIssues.map((issue) => issue.message)).toContain(
+      'Required bootstrap check failed: Selected profile store closes cleanly'
     );
   });
 
