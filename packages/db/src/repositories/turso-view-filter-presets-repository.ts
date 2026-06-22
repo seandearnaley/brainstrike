@@ -199,7 +199,12 @@ function validateUpdateColumn(column: string): void {
 }
 
 function parseJsonStringArray(value: string, column: string, id: string): string[] {
-  const parsed = JSON.parse(value) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`Invalid Turso view filter preset ${column} JSON for preset ${id}.`);
+  }
   if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
     throw new Error(`Invalid Turso view filter preset ${column} JSON for preset ${id}.`);
   }

@@ -871,6 +871,7 @@ describe('database IPC handlers', () => {
       success: true,
       message: 'Database connection successful',
       dbLocation: 'DB Host',
+      profileBootstrapReport: null,
     });
   });
 

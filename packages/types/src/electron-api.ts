@@ -6,6 +6,7 @@ import type { TapestryColorName } from './tapestry-colors';
  */
 export interface DatabaseTestResult {
   message: string;
+  profileBootstrapReport?: DatabaseProfileBootstrapReportSnapshot | null;
   success: boolean;
 }
 

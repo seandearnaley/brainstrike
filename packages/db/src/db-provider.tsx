@@ -2,7 +2,12 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
-import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseProfileBootstrapReportSnapshot,
+  DatabaseTestResult,
+  ElectronDatabaseAPI,
+} from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -562,9 +567,8 @@ async function getElectronDiagnostics(
 }
 
 function getReadyElectronTursoBootstrapReport(
-  diagnostics: DatabaseDiagnosticsSnapshot | null
+  report: DatabaseProfileBootstrapReportSnapshot | null | undefined
 ): ProfileBootstrapReport | null {
-  const report = diagnostics?.profileBootstrapReport ?? null;
   if (!report) {
     return null;
   }
@@ -578,7 +582,7 @@ function getReadyElectronTursoBootstrapReport(
 }
 
 async function createElectronTursoViewFilterPresetsRepository(
-  diagnostics: DatabaseDiagnosticsSnapshot | null,
+  bootstrapReport: DatabaseProfileBootstrapReportSnapshot | null | undefined,
   repositoryDb: {
     readonly exec: (
       sql: string,
@@ -595,7 +599,7 @@ async function createElectronTursoViewFilterPresetsRepository(
   readonly report: ProfileBootstrapReport;
   readonly repository: ViewFilterPresetsRepo;
 } | null> {
-  const report = getReadyElectronTursoBootstrapReport(diagnostics);
+  const report = getReadyElectronTursoBootstrapReport(bootstrapReport);
   if (!report) {
     return null;
   }
@@ -696,9 +700,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [bootstrapRuntime, publishProfileBootstrapReport, resolvedPath]
   );
 
-  const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
+  const testElectronConnection: (
+    electronDB: ElectronDatabaseAPI
+  ) => Promise<DatabaseTestResult | null> = useCallback(async (electronDB) => {
     if (!electronDB.test) {
-      return;
+      return null;
     }
 
     try {
@@ -707,8 +713,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         throw new Error(`Database test failed: ${testResult.message}`);
       }
       logger.debug('Database test passed', { message: testResult.message });
+      return testResult;
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
+      return null;
     }
   }, []);
 
@@ -726,7 +734,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       logger.debug('Using Electron IPC database connection');
 
-      await testElectronConnection(electronDB);
+      const testResult = await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
 
       if (!electronExec) {
@@ -748,13 +756,16 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
       };
 
-      const diagnostics = await getElectronDiagnostics(electronDB);
       const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
-        diagnostics,
+        testResult?.profileBootstrapReport,
         repositoryDb
       );
       if (tursoViewFilterPresets) {
         if (!cancelled.value) {
+          logger.warn('Desktop Turso DB provider initialized with partial repository coverage', {
+            migratedRepositories: ['view_filter_presets'],
+            unavailableRepositories: ['file_records', 'file_chunks', 'embedding_sets'],
+          });
           connectionRef.current = { kind: 'ipc', bridge: electronDB };
           setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
           setFileRecordRepository(null);
@@ -780,7 +791,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         phase: 'probing-capabilities',
       });
       // Detect pgvector extension availability over IPC
-      const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, diagnostics);
+      const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, null);
       const hasVector = vectorProbe.hasVector;
       let pgliteDiagnostics = vectorProbe.diagnostics;
       if (!hasVector) {

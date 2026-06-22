@@ -358,46 +358,48 @@ describe('DbProvider initializing state', () => {
     const exec = vi.fn(async (_sql: string, params?: unknown[]) => {
       createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
     });
+    const profileBootstrapReport = {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'split search store required',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-22T19:00:00.000Z',
+      updatedAt: '2026-06-22T19:00:01.000Z',
+    } as const;
+    const diagnostics = vi.fn(async () => ({
+      appDataDir: '/mock/userData',
+      databaseLockHeld: false,
+      databaseLockPath: null,
+      databaseProfile: 'test',
+      dataDir: '/mock/userData/profiles/test/turso-primary.db',
+      hasDatabaseHandle: true,
+      initializationAttemptCount: 1,
+      initializationInFlight: false,
+      lastInitializationFailure: null,
+      lastInitializationStartedAt: '2026-06-22T19:00:00.000Z',
+      lastInitializationSucceededAt: '2026-06-22T19:00:01.000Z',
+      lastRuntimeCorruptionAt: null,
+      lastRuntimeCorruptionContext: null,
+      nodeEnv: 'test',
+      profileBootstrapReport,
+      runtimeCorruptionRecoveryCount: 0,
+    }));
     setWindowElectronDbBridge({
-      diagnostics: vi.fn(async () => ({
-        appDataDir: '/mock/userData',
-        databaseLockHeld: false,
-        databaseLockPath: null,
-        databaseProfile: 'test',
-        dataDir: '/mock/userData/profiles/test/turso-primary.db',
-        hasDatabaseHandle: true,
-        initializationAttemptCount: 1,
-        initializationInFlight: false,
-        lastInitializationFailure: null,
-        lastInitializationStartedAt: '2026-06-22T19:00:00.000Z',
-        lastInitializationSucceededAt: '2026-06-22T19:00:01.000Z',
-        lastRuntimeCorruptionAt: null,
-        lastRuntimeCorruptionContext: null,
-        nodeEnv: 'test',
-        profileBootstrapReport: {
-          checks: [],
-          failure: null,
-          phase: 'ready',
-          profileId: 'test',
-          ready: true,
-          runtime: {
-            engine: 'turso',
-            host: 'electron-utility',
-            persistence: 'filesystem',
-          },
-          search: {
-            indexedSearch: 'available',
-            message: 'split search store required',
-            ownershipMode: 'split-search-index-store',
-          },
-          startedAt: '2026-06-22T19:00:00.000Z',
-          updatedAt: '2026-06-22T19:00:01.000Z',
-        },
-        runtimeCorruptionRecoveryCount: 0,
-      })),
+      diagnostics,
       exec,
       query,
-      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+      test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
     });
 
     const { result } = renderHook(
@@ -418,6 +420,7 @@ describe('DbProvider initializing state', () => {
     );
 
     expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    expect(diagnostics).not.toHaveBeenCalled();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );

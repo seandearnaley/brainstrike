@@ -84,4 +84,16 @@ describe('TursoViewFilterPresetsRepository', () => {
     await expect(repository.delete('typescript-javascript')).resolves.toBe(false);
     await expect(repository.getById('typescript-javascript')).resolves.not.toBeNull();
   });
+
+  it('reports the preset id and column when stored JSON is malformed', async () => {
+    await client.exec('PRAGMA ignore_check_constraints = ON');
+    await client.exec('UPDATE view_filter_presets SET includes = ? WHERE id = ?', [
+      'not-json',
+      'typescript-javascript',
+    ]);
+
+    await expect(repository.getById('typescript-javascript')).rejects.toThrow(
+      'Invalid Turso view filter preset includes JSON for preset typescript-javascript.'
+    );
+  });
 });
