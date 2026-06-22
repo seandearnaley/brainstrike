@@ -404,10 +404,11 @@ describe('DbProvider initializing state', () => {
 
     const { result } = renderHook(
       () => {
+        const db = usePGliteDatabase();
         const initializationStatus = useDbInitializationStatus();
         const report = useProfileBootstrapReport();
         const presetsRepository = useViewFilterPresetsRepository();
-        return { initializationStatus, presetsRepository, report };
+        return { db, initializationStatus, presetsRepository, report };
       },
       { wrapper: electronIpcWrapper }
     );
@@ -421,6 +422,7 @@ describe('DbProvider initializing state', () => {
 
     expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
     expect(diagnostics).not.toHaveBeenCalled();
+    expect(result.current.db).toBeNull();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
