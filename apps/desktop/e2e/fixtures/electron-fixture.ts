@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -235,6 +236,7 @@ export const test = base.extend<ElectronTestFixtures>({
       await use(harness);
     } finally {
       await harness.dispose();
+      await removeElectronUserDataDir(userDataDir);
     }
   },
 
@@ -314,4 +316,12 @@ function deriveUserDataDir(
     os.tmpdir(),
     `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}-test-${testSuffix}-retry-${retrySuffix}`
   );
+}
+
+async function removeElectronUserDataDir(userDataDir: string | undefined): Promise<void> {
+  if (!userDataDir) {
+    return;
+  }
+
+  await rm(userDataDir, { force: true, recursive: true });
 }
