@@ -166,10 +166,12 @@ function createReadyTursoBootstrapReport() {
   };
 }
 
-function createReadyInitResult() {
+function createReadyInitResult(overrides: Record<string, unknown> = {}) {
   return {
     bootstrapReport: createReadyBootstrapReport(),
+    capabilities: { liveQuery: true },
     initialized: true,
+    ...overrides,
   };
 }
 
@@ -238,6 +240,53 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     expect(getMissingBrainstrikeDbClientCapabilities(database)).toEqual([]);
+  });
+
+  it('fails live queries locally without sending live:start when Turso disables live-query capability', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: createReadyTursoBootstrapReport(),
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    const database = await databasePromise;
+    expect(database.capabilities).toEqual({ liveQuery: false });
+    const messageCountBeforeLiveQuery = firstHost.messages.length;
+
+    await expect(database.live.query({ query: 'SELECT 1' })).rejects.toThrow(
+      'DB host live queries are unavailable for runtime engine turso.'
+    );
+    expect(firstHost.messages).toHaveLength(messageCountBeforeLiveQuery);
+  });
+
+  it('fails incremental live queries locally without sending live:start when Turso disables live-query capability', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: createReadyTursoBootstrapReport(),
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    const database = await databasePromise;
+    const messageCountBeforeLiveQuery = firstHost.messages.length;
+
+    await expect(
+      database.live.incrementalQuery('SELECT 1', null, 'turso-live-disabled')
+    ).rejects.toThrow('DB host live queries are unavailable for runtime engine turso.');
+    expect(firstHost.messages).toHaveLength(messageCountBeforeLiveQuery);
   });
 
   it('passes the resolved desktop database root path to the utility DB host', async () => {
@@ -488,6 +537,44 @@ describe('DbHostManager', () => {
     });
     latestProcess().reply(liveMessage as PostedMessage, {
       liveId: 'live-1',
+      initialResults: { rows: [] },
+    });
+
+    await expect(livePromise).resolves.toMatchObject({
+      initialResults: { rows: [] },
+    });
+  });
+
+  it('sends incremental live query text to the DB host with the caller-provided key', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(
+      latestProcess().messages.at(-1) as PostedMessage,
+      createReadyInitResult()
+    );
+    const database = await databasePromise;
+
+    const livePromise = database.live.incrementalQuery(
+      'SELECT * FROM file_records WHERE name = $1',
+      ['readme.md'],
+      'file-records:readme'
+    );
+    const liveMessage = latestProcess().messages.at(-1);
+
+    expect(liveMessage).toMatchObject({
+      request: {
+        kind: 'live:start',
+        payload: {
+          key: 'file-records:readme',
+          mode: 'incremental',
+          query: 'SELECT * FROM file_records WHERE name = $1',
+          params: ['readme.md'],
+        },
+      },
+    });
+    latestProcess().reply(liveMessage as PostedMessage, {
+      liveId: 'live-incremental-1',
       initialResults: { rows: [] },
     });
 
@@ -791,6 +878,41 @@ describe('DbHostManager', () => {
 
     await expect(databasePromise).rejects.toThrow(
       'DB host init bootstrap report is not ready: DB host did not initialize the database.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init omits a valid capability contract', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: createReadyBootstrapReport(),
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: DB host did not return a valid capability contract.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when init returns a malformed capability contract', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: createReadyBootstrapReport(),
+      capabilities: { liveQuery: 'yes' },
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: DB host did not return a valid capability contract.'
     );
     expect(firstHost.kill).toHaveBeenCalledTimes(1);
   });

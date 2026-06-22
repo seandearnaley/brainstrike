@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
+  DbHostCapabilities,
   DbHostDiagnosticsResult,
   DbHostInitResult,
   DbHostLiveStartResult,
@@ -87,6 +88,7 @@ export interface RemoteDbLiveQuery<TRecord = unknown> {
 }
 
 export interface RemoteDbClient extends RemoteDbTransaction {
+  readonly capabilities: DbHostCapabilities;
   readonly live: {
     readonly incrementalQuery: <TRecord = unknown>(
       payload:
@@ -223,7 +225,19 @@ function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | n
     return 'DB host did not initialize the database';
   }
 
+  if (!isDbHostCapabilities(result.capabilities)) {
+    return 'DB host did not return a valid capability contract';
+  }
+
   return null;
+}
+
+function isDbHostCapabilities(value: unknown): value is DbHostCapabilities {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as { readonly liveQuery?: unknown };
+  return typeof candidate.liveQuery === 'boolean';
 }
 
 function getRequiredBootstrapCheckIds(engine: string): readonly string[] | null {
@@ -649,66 +663,24 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async #initialize(): Promise<RemoteDbClient> {
+    let result: DbHostInitResult;
     try {
-      const result = await this.send<DbHostInitResult>({ kind: 'init' });
+      result = await this.send<DbHostInitResult>({ kind: 'init' });
       assertReadyDbHostInitResult(result);
     } catch (error) {
       this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
-    this.#client = this.#createClient();
+    this.#client = this.#createClient(result);
     return this.#client;
   }
 
-  #createClient(): RemoteDbClient {
+  #createClient(initResult: DbHostInitResult): RemoteDbClient {
     return {
+      capabilities: initResult.capabilities,
       exec: async (sql, params) =>
         await this.send({ kind: 'exec', sql, ...(params ? { params } : {}) }),
-      live: {
-        incrementalQuery: async <TRecord = unknown>(
-          payload:
-            | {
-                readonly key: string;
-                readonly limit?: number;
-                readonly offset?: number;
-                readonly params?: readonly unknown[] | null;
-                readonly query: string;
-              }
-            | string,
-          params?: readonly unknown[] | null,
-          key?: string
-        ) =>
-          await this.#startLiveQuery<TRecord>(
-            typeof payload === 'string'
-              ? {
-                  mode: 'incremental',
-                  query: payload,
-                  ...(params === undefined || params === null ? {} : { params }),
-                  ...(key === undefined ? {} : { key }),
-                }
-              : { ...payload, mode: 'incremental' }
-          ),
-        query: async <TRecord = unknown>(
-          payload:
-            | {
-                readonly limit?: number;
-                readonly offset?: number;
-                readonly params?: readonly unknown[] | null;
-                readonly query: string;
-              }
-            | string,
-          params?: readonly unknown[] | null
-        ) =>
-          await this.#startLiveQuery<TRecord>(
-            typeof payload === 'string'
-              ? {
-                  mode: 'query',
-                  query: payload,
-                  ...(params === undefined || params === null ? {} : { params }),
-                }
-              : { ...payload, mode: 'query' }
-          ),
-      },
+      live: this.#createLiveNamespace(initResult),
       maintenance: {
         exec: async (sql, params) =>
           await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
@@ -721,6 +693,69 @@ class DefaultDbHostManager implements DbHostManager {
         }),
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
         await this.#transaction(fn),
+    };
+  }
+
+  #createLiveNamespace(initResult: DbHostInitResult): RemoteDbClient['live'] {
+    if (!initResult.capabilities.liveQuery) {
+      const createUnavailableError = () =>
+        new Error(
+          `DB host live queries are unavailable for runtime engine ${initResult.bootstrapReport.runtime.engine}.`
+        );
+      return {
+        incrementalQuery: async () => {
+          throw createUnavailableError();
+        },
+        query: async () => {
+          throw createUnavailableError();
+        },
+      };
+    }
+
+    return {
+      incrementalQuery: async <TRecord = unknown>(
+        payload:
+          | {
+              readonly key: string;
+              readonly limit?: number;
+              readonly offset?: number;
+              readonly params?: readonly unknown[] | null;
+              readonly query: string;
+            }
+          | string,
+        params?: readonly unknown[] | null,
+        key?: string
+      ) =>
+        await this.#startLiveQuery<TRecord>(
+          typeof payload === 'string'
+            ? {
+                mode: 'incremental',
+                query: payload,
+                ...(params === undefined || params === null ? {} : { params }),
+                ...(key === undefined ? {} : { key }),
+              }
+            : { ...payload, mode: 'incremental' }
+        ),
+      query: async <TRecord = unknown>(
+        payload:
+          | {
+              readonly limit?: number;
+              readonly offset?: number;
+              readonly params?: readonly unknown[] | null;
+              readonly query: string;
+            }
+          | string,
+        params?: readonly unknown[] | null
+      ) =>
+        await this.#startLiveQuery<TRecord>(
+          typeof payload === 'string'
+            ? {
+                mode: 'query',
+                query: payload,
+                ...(params === undefined || params === null ? {} : { params }),
+              }
+            : { ...payload, mode: 'query' }
+        ),
     };
   }
 

@@ -53,6 +53,11 @@
       "types": "./dist/bootstrap/turso-profile-bootstrap.d.ts",
       "import": "./dist/bootstrap/turso-profile-bootstrap.js",
       "require": "./dist/bootstrap/turso-profile-bootstrap.js"
+    },
+    "./turso/owner-client": {
+      "types": "./dist/turso/owner-client.d.ts",
+      "import": "./dist/turso/owner-client.js",
+      "require": "./dist/turso/owner-client.js"
     }
   },
   "files": [

@@ -1,5 +1,9 @@
 import { connect, type Database as TursoDatabase } from '@tursodatabase/database';
 import {
+  createTursoDatabaseConnectOptions,
+  type TursoDatabaseConnectOptions,
+} from '../turso/connect-options.js';
+import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
   getBlockingProfileBootstrapIssues,
@@ -22,7 +26,10 @@ export interface TursoProfileBootstrapReport {
 export interface TursoProfileBootstrapOptions {
   readonly dbPath: string;
   readonly generatedAt?: () => string;
-  readonly openDatabase?: (dbPath: string) => Promise<TursoProfileDatabase>;
+  readonly openDatabase?: (
+    dbPath: string,
+    options: TursoDatabaseConnectOptions
+  ) => Promise<TursoProfileDatabase>;
   readonly profileId?: string;
   readonly runtime?: ProfileBootstrapRuntime;
 }
@@ -83,7 +90,7 @@ export async function runTursoProfileBootstrap(
   let bootstrapReport: ProfileBootstrapReport;
 
   try {
-    db = await openDatabase(options.dbPath);
+    db = await openDatabase(options.dbPath, createTursoDatabaseConnectOptions());
     checks = setCheck(checks, 'store.open', 'passed');
 
     phase = 'probing-capabilities';
@@ -136,10 +143,11 @@ export async function runTursoProfileBootstrap(
   };
 }
 
-async function connectTursoProfileDatabase(dbPath: string): Promise<TursoDatabase> {
-  return connect(dbPath, {
-    experimental: ['index_method'],
-  } as Parameters<typeof connect>[1]);
+async function connectTursoProfileDatabase(
+  dbPath: string,
+  options: TursoDatabaseConnectOptions
+): Promise<TursoDatabase> {
+  return connect(dbPath, options);
 }
 
 function createPendingChecks(): readonly ProfileBootstrapCheck[] {

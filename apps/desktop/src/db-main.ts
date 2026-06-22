@@ -29,6 +29,7 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import type { DbHostCapabilities } from './db-host-protocol';
 import {
   DB_PROFILE_ENV,
   DB_ROOT_PATH_ENV,
@@ -347,7 +348,16 @@ interface InitializeMainDatabaseInternalOptions {
 
 export interface MainDatabaseBootstrapInitResult {
   readonly bootstrapReport: ProfileBootstrapReport;
+  readonly capabilities: DbHostCapabilities;
   readonly initialized: boolean;
+}
+
+function getDbHostCapabilitiesForRuntime(
+  runtime: Pick<ProfileBootstrapReport['runtime'], 'engine'>
+): DbHostCapabilities {
+  return {
+    liveQuery: runtime.engine === 'pglite',
+  };
 }
 
 async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
@@ -1580,6 +1590,9 @@ export async function initializeMainDatabaseWithBootstrapReport(
     }
     return {
       bootstrapReport: mutableState.lastProfileBootstrapReport,
+      capabilities: getDbHostCapabilitiesForRuntime(
+        mutableState.lastProfileBootstrapReport.runtime
+      ),
       initialized: true,
     };
   }
@@ -1635,17 +1648,27 @@ export async function initializeMainDatabaseWithBootstrapReport(
     if (!capabilityProbeReport.bootstrapReport.ready) {
       return {
         bootstrapReport: capabilityProbeReport.bootstrapReport,
+        capabilities: getDbHostCapabilitiesForRuntime(
+          capabilityProbeReport.bootstrapReport.runtime
+        ),
         initialized: false,
       };
     }
 
     if (runtimeSelection.engine === 'turso') {
-      logger.info('Turso profile bootstrap completed without opening a PGlite owner handle', {
+      const { createTursoOwnerClient } = await import('@brainstrike/db/turso/owner-client');
+      db = await createTursoOwnerClient({
+        dbPath: runtimeStorePath,
+      });
+      logger.info('Turso profile bootstrap completed and owner handle opened', {
         runtimeStorePath,
       });
       return {
         bootstrapReport: capabilityProbeReport.bootstrapReport,
-        initialized: false,
+        capabilities: getDbHostCapabilitiesForRuntime(
+          capabilityProbeReport.bootstrapReport.runtime
+        ),
+        initialized: true,
       };
     }
 
@@ -1657,6 +1680,7 @@ export async function initializeMainDatabaseWithBootstrapReport(
 
     return {
       bootstrapReport: capabilityProbeReport.bootstrapReport,
+      capabilities: getDbHostCapabilitiesForRuntime(capabilityProbeReport.bootstrapReport.runtime),
       initialized: true,
     };
   } finally {

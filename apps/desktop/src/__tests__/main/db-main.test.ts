@@ -85,6 +85,16 @@ vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 const migrateMock = vi.fn();
 const runPgliteBootstrapCapabilityProbeMock = vi.fn();
 const runTursoProfileBootstrapMock = vi.fn();
+const tursoOwnerQueryMock = vi.fn(async (sql: string, params?: readonly unknown[]) => ({
+  rows: [{ sql, params, value: 'ok' }],
+}));
+const tursoOwnerExecMock = vi.fn(async () => {});
+const tursoOwnerCloseMock = vi.fn(async () => {});
+const createTursoOwnerClientMock = vi.fn(async () => ({
+  close: tursoOwnerCloseMock,
+  exec: tursoOwnerExecMock,
+  query: tursoOwnerQueryMock,
+}));
 const closeMock = vi.fn(async () => {});
 const queryMock = vi.fn(async () => ({ rows: [{ '?column?': 1 }] }));
 const execMock = vi.fn(async () => {});
@@ -122,6 +132,9 @@ vi.mock('@brainstrike/db', () => ({
 }));
 vi.mock('@brainstrike/db/bootstrap/turso-profile-bootstrap', () => ({
   runTursoProfileBootstrap: runTursoProfileBootstrapMock,
+}));
+vi.mock('@brainstrike/db/turso/owner-client', () => ({
+  createTursoOwnerClient: createTursoOwnerClientMock,
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -249,6 +262,7 @@ describe('initializeMainDatabase', () => {
         phase: 'ready',
         ready: true,
       }),
+      capabilities: { liveQuery: true },
       initialized: true,
     });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
@@ -279,19 +293,24 @@ describe('initializeMainDatabase', () => {
         phase: 'blocked',
         ready: false,
       }),
+      capabilities: { liveQuery: true },
       initialized: false,
     });
     expect(PGliteMock).not.toHaveBeenCalled();
     expect(migrateMock).not.toHaveBeenCalled();
   });
 
-  it('runs Turso profile bootstrap without falling back to the PGlite owner handle', async () => {
+  it('initializes Turso owner client and executes simple SQL without opening PGlite', async () => {
     process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
     existsSyncMock.mockReturnValue(false);
     appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
 
-    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const { getDatabase, initializeMainDatabaseWithBootstrapReport } = await import(
+      '../../db-main'
+    );
     const result = await initializeMainDatabaseWithBootstrapReport();
+    const db = await getDatabase();
+    const queryResult = await db.query('SELECT ? AS value', ['ok']);
 
     expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
       dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
@@ -302,6 +321,9 @@ describe('initializeMainDatabase', () => {
         persistence: 'filesystem',
       },
     });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
     expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
     expect(PGliteMock).not.toHaveBeenCalled();
     expect(migrateMock).not.toHaveBeenCalled();
@@ -311,8 +333,13 @@ describe('initializeMainDatabase', () => {
         runtime: expect.objectContaining({ engine: 'turso' }),
         search: expect.objectContaining({ ownershipMode: 'split-search-index-store' }),
       }),
-      initialized: false,
+      capabilities: { liveQuery: false },
+      initialized: true,
     });
+    expect(queryResult).toEqual({
+      rows: [{ sql: 'SELECT ? AS value', params: ['ok'], value: 'ok' }],
+    });
+    expect(tursoOwnerQueryMock).toHaveBeenCalledWith('SELECT ? AS value', ['ok']);
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
@@ -373,6 +400,7 @@ describe('initializeMainDatabase', () => {
         phase: 'ready',
         ready: true,
       }),
+      capabilities: { liveQuery: true },
       initialized: true,
     });
     expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledTimes(2);
