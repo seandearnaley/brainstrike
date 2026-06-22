@@ -17,8 +17,8 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type {
   BootstrapCapabilityProbeReport,
+  BrainstrikeDbRuntimeSelection,
   ProfileBootstrapReport,
-  ProfileBootstrapRuntime,
 } from '@brainstrike/db';
 import type {
   DatabaseDiagnosticsSnapshot,
@@ -29,7 +29,12 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
-import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  DB_PROFILE_ENV,
+  DB_ROOT_PATH_ENV,
+  DB_RUNTIME_ENV,
+  SERIALIZE_PGLITE_INIT_ENV,
+} from './db-runtime-env';
 import {
   BUNDLED_PG_MAJOR,
   ENGINE_UPGRADE_BACKUP_RETENTION_MS,
@@ -326,6 +331,7 @@ const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
 const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
 const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
 const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
+const TURSO_PRIMARY_DATABASE_FILENAME = 'turso-primary.db' as const;
 
 interface PGliteInstanceShape {
   close?: () => Promise<void> | void;
@@ -343,12 +349,6 @@ export interface MainDatabaseBootstrapInitResult {
   readonly bootstrapReport: ProfileBootstrapReport;
   readonly initialized: boolean;
 }
-
-const DESKTOP_DB_BOOTSTRAP_RUNTIME: ProfileBootstrapRuntime = {
-  engine: 'pglite',
-  host: 'electron-utility',
-  persistence: 'filesystem',
-};
 
 async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
   if (typeof instance.syncToFs !== 'function') {
@@ -606,6 +606,10 @@ function getAppDataPath(): string {
 
 function getDatabasePath(): string {
   return path.join(getAppDataPath(), 'pgdata');
+}
+
+function getTursoPrimaryDatabasePath(): string {
+  return path.join(getAppDataPath(), TURSO_PRIMARY_DATABASE_FILENAME);
 }
 
 function createResetBackup(appDataDir: string): string | null {
@@ -1472,13 +1476,95 @@ async function getLocalDatabase(): Promise<any> {
   return db;
 }
 
-async function runCurrentProfileBootstrapCapabilityProbe(): Promise<BootstrapCapabilityProbeReport> {
+type DesktopProfileBootstrapProbeReport =
+  | BootstrapCapabilityProbeReport
+  | {
+      readonly bootstrapReport: ProfileBootstrapReport;
+    };
+
+function getRequestedDbRuntimeEngineFromEnv(): unknown {
+  const requestedRuntime = process.env[DB_RUNTIME_ENV]?.trim();
+  if (!requestedRuntime || requestedRuntime.toLowerCase() === 'undefined') {
+    return;
+  }
+  return requestedRuntime;
+}
+
+async function resolveCurrentDesktopDbRuntimeSelection(): Promise<BrainstrikeDbRuntimeSelection> {
+  const { resolveBrainstrikeDbRuntimeSelection } = await import('@brainstrike/db');
+  const requestedEngine = getRequestedDbRuntimeEngineFromEnv();
+  return resolveBrainstrikeDbRuntimeSelection({
+    platform: 'desktop',
+    requestedEngine,
+    source: requestedEngine === undefined ? 'default' : 'env',
+  });
+}
+
+async function runCurrentPgliteBootstrapCapabilityProbe(
+  runtimeSelection: BrainstrikeDbRuntimeSelection
+): Promise<BootstrapCapabilityProbeReport> {
   const { runPgliteBootstrapCapabilityProbe } = await import('@brainstrike/db');
   return await runPgliteBootstrapCapabilityProbe({
     dataDir: getDatabasePath(),
     profileId: getDatabaseProfile(),
-    runtime: DESKTOP_DB_BOOTSTRAP_RUNTIME,
+    runtime: runtimeSelection.bootstrapRuntime,
   });
+}
+
+async function runCurrentTursoProfileBootstrap(
+  runtimeSelection: BrainstrikeDbRuntimeSelection
+): Promise<DesktopProfileBootstrapProbeReport> {
+  const { runTursoProfileBootstrap } = await import(
+    '@brainstrike/db/bootstrap/turso-profile-bootstrap'
+  );
+  return await runTursoProfileBootstrap({
+    dbPath: getTursoPrimaryDatabasePath(),
+    profileId: getDatabaseProfile(),
+    runtime: runtimeSelection.bootstrapRuntime,
+  });
+}
+
+interface PgliteBootstrapCapabilityProbeWithRecoveryInput {
+  readonly appDataDir: string;
+  readonly dataDir: string;
+  readonly movedAsideBackup: string | null;
+  readonly retryAfterCorruption: boolean;
+  readonly runtimeSelection: BrainstrikeDbRuntimeSelection;
+}
+
+interface PgliteBootstrapCapabilityProbeWithRecoveryResult {
+  readonly capabilityProbeReport: BootstrapCapabilityProbeReport;
+  readonly movedAsideBackup: string | null;
+}
+
+async function runPgliteBootstrapCapabilityProbeWithRecovery(
+  input: PgliteBootstrapCapabilityProbeWithRecoveryInput
+): Promise<PgliteBootstrapCapabilityProbeWithRecoveryResult> {
+  let movedAsideBackup = input.movedAsideBackup;
+  let capabilityProbeReport = await runCurrentPgliteBootstrapCapabilityProbe(
+    input.runtimeSelection
+  );
+  if (
+    !capabilityProbeReport.bootstrapReport.ready &&
+    input.retryAfterCorruption &&
+    shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport)
+  ) {
+    recordInitializationFailure('open-database', capabilityProbeReport.bootstrapReport.failure);
+    await attemptCorruptionRecovery('bootstrap capability probe');
+    acquireDatabaseProcessLock(input.appDataDir);
+    if (!existsSync(input.dataDir)) {
+      mkdirSync(input.dataDir, { recursive: true });
+      logger.debug(`Created database directory: ${input.dataDir}`);
+    }
+    movedAsideBackup = reconcileIncompatiblePgDataDir(input.dataDir) ?? movedAsideBackup;
+    capabilityProbeReport = await runCurrentPgliteBootstrapCapabilityProbe(input.runtimeSelection);
+  }
+
+  return { capabilityProbeReport, movedAsideBackup };
+}
+
+function assertUnreachableDbRuntimeEngine(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB runtime engine: ${String(value)}`);
 }
 
 export async function initializeMainDatabaseWithBootstrapReport(
@@ -1498,11 +1584,15 @@ export async function initializeMainDatabaseWithBootstrapReport(
     };
   }
 
+  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection();
   const dataDir = getDatabasePath();
   const appDataDir = getAppDataPath();
-  if (!existsSync(dataDir)) {
-    mkdirSync(dataDir, { recursive: true });
-    logger.debug(`Created database directory: ${dataDir}`);
+  const runtimeStorePath =
+    runtimeSelection.engine === 'turso' ? getTursoPrimaryDatabasePath() : dataDir;
+  const directoryToCreate = runtimeSelection.engine === 'turso' ? appDataDir : dataDir;
+  if (!existsSync(directoryToCreate)) {
+    mkdirSync(directoryToCreate, { recursive: true });
+    logger.debug(`Created database directory: ${directoryToCreate}`);
   }
 
   let releaseInitializationLock: (() => void) | null = null;
@@ -1515,30 +1605,44 @@ export async function initializeMainDatabaseWithBootstrapReport(
   };
 
   try {
-    releaseInitializationLock = await acquirePGliteInitializationLock();
+    releaseInitializationLock =
+      runtimeSelection.engine === 'pglite' ? await acquirePGliteInitializationLock() : null;
     acquireDatabaseProcessLock(appDataDir);
-    let movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+    let movedAsideBackup =
+      runtimeSelection.engine === 'pglite' ? reconcileIncompatiblePgDataDir(dataDir) : null;
 
-    // The probe intentionally owns a separate open/close cycle: `store.close` is part
-    // of the report contract, and the long-lived DB handle is opened only after it passes.
-    let capabilityProbeReport = await runCurrentProfileBootstrapCapabilityProbe();
-    if (
-      !capabilityProbeReport.bootstrapReport.ready &&
-      retryAfterCorruption &&
-      shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport)
-    ) {
-      recordInitializationFailure('open-database', capabilityProbeReport.bootstrapReport.failure);
-      await attemptCorruptionRecovery('bootstrap capability probe');
-      acquireDatabaseProcessLock(appDataDir);
-      if (!existsSync(dataDir)) {
-        mkdirSync(dataDir, { recursive: true });
-        logger.debug(`Created database directory: ${dataDir}`);
+    let capabilityProbeReport: DesktopProfileBootstrapProbeReport;
+    switch (runtimeSelection.engine) {
+      case 'pglite': {
+        const probeResult = await runPgliteBootstrapCapabilityProbeWithRecovery({
+          appDataDir,
+          dataDir,
+          movedAsideBackup,
+          retryAfterCorruption,
+          runtimeSelection,
+        });
+        capabilityProbeReport = probeResult.capabilityProbeReport;
+        movedAsideBackup = probeResult.movedAsideBackup;
+        break;
       }
-      movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir) ?? movedAsideBackup;
-      capabilityProbeReport = await runCurrentProfileBootstrapCapabilityProbe();
+      case 'turso':
+        capabilityProbeReport = await runCurrentTursoProfileBootstrap(runtimeSelection);
+        break;
+      default:
+        return assertUnreachableDbRuntimeEngine(runtimeSelection.engine);
     }
     mutableState.lastProfileBootstrapReport = capabilityProbeReport.bootstrapReport;
     if (!capabilityProbeReport.bootstrapReport.ready) {
+      return {
+        bootstrapReport: capabilityProbeReport.bootstrapReport,
+        initialized: false,
+      };
+    }
+
+    if (runtimeSelection.engine === 'turso') {
+      logger.info('Turso profile bootstrap completed without opening a PGlite owner handle', {
+        runtimeStorePath,
+      });
       return {
         bootstrapReport: capabilityProbeReport.bootstrapReport,
         initialized: false,

@@ -1000,6 +1000,9 @@ importers:
       '@electric-sql/pglite-pgvector':
         specifier: 0.0.2
         version: 0.0.2(@electric-sql/pglite@0.5.1)
+      '@tursodatabase/database':
+        specifier: ^0.6.1
+        version: 0.6.1
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.1)(@libsql/client@0.17.4)(@opentelemetry/api@1.9.1)
@@ -1031,9 +1034,6 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      '@tursodatabase/database':
-        specifier: ^0.6.1
-        version: 0.6.1
       '@tursodatabase/sync':
         specifier: ^0.6.1
         version: 0.6.1

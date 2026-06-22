@@ -11,6 +11,7 @@ import {
   type ProfileBootstrapCheckStatus,
   type ProfileBootstrapReport,
   type ProfileBootstrapRuntime,
+  type ProfileBootstrapSearchOwnership,
 } from './profile-bootstrap-report.js';
 
 export interface TursoCapabilitySpikeReport {
@@ -111,6 +112,13 @@ const RUNTIME: ProfileBootstrapRuntime = {
   persistence: 'filesystem',
 };
 
+const SPLIT_SEARCH_INDEX_OWNERSHIP: ProfileBootstrapSearchOwnership = {
+  indexedSearch: 'available',
+  message:
+    'Primary Turso MVCC store requires an explicitly owned search-index store or equivalent indexed non-FTS implementation for search.',
+  ownershipMode: 'split-search-index-store',
+};
+
 const requireFromHere = createRequire(import.meta.url);
 
 export async function runTursoCapabilitySpike(
@@ -164,6 +172,7 @@ export async function runTursoCapabilitySpike(
       phase: hasBlockingCheck(checks) ? 'blocked' : 'ready',
       profileId: options.profileId ?? 'turso-capability-spike',
       runtime: RUNTIME,
+      search: SPLIT_SEARCH_INDEX_OWNERSHIP,
       startedAt: generatedAt,
       updatedAt: now(),
     });
@@ -174,6 +183,7 @@ export async function runTursoCapabilitySpike(
         phase: 'probing-capabilities',
         profileId: options.profileId ?? 'turso-capability-spike',
         runtime: RUNTIME,
+        search: SPLIT_SEARCH_INDEX_OWNERSHIP,
         startedAt: generatedAt,
         updatedAt: now(),
       }),
@@ -201,6 +211,7 @@ export function formatTursoCapabilitySpikeReportAsMarkdown(
     '',
     `Generated: \`${report.generatedAt}\``,
     `Runtime: \`${report.bootstrapReport.runtime.engine}\` on \`${report.bootstrapReport.runtime.host}\` using \`${report.bootstrapReport.runtime.persistence}\` persistence`,
+    `Search Ownership: \`${report.bootstrapReport.search.ownershipMode}\` with indexed search \`${report.bootstrapReport.search.indexedSearch}\``,
     `Phase: \`${report.bootstrapReport.phase}\``,
     `Ready: \`${String(report.bootstrapReport.ready)}\``,
     '',
@@ -578,6 +589,7 @@ async function closeTursoDatabaseAndUpdateReport(
     phase: report.failure ? report.phase : hasBlockingCheck(checks) ? 'blocked' : 'ready',
     profileId: report.profileId,
     runtime: report.runtime,
+    search: report.search,
     startedAt: report.startedAt,
     updatedAt: now(),
   });

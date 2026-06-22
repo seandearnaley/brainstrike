@@ -97,6 +97,9 @@ describe('bootstrap capability probe', () => {
 
       expect(markdown).toContain('# Brainstrike Bootstrap Capability Probe');
       expect(markdown).toContain('Runtime: `pglite` on `node` using `memory` persistence');
+      expect(markdown).toContain(
+        'Search Ownership: `primary-store-indexes` with indexed search `available`'
+      );
       expect(markdown).toContain('| `store.open` | Required | `passed` |');
       expect(markdown).toContain('| `assistant-memory.mastra-schema` | Optional | `skipped` |');
       expect(markdown).not.toContain('memory://bootstrap-capability-probe-markdown');

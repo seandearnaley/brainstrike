@@ -22,6 +22,64 @@ function passedRequiredCheck(id: string): ProfileBootstrapCheck {
 }
 
 describe('profile bootstrap report', () => {
+  it('includes the current PGlite primary-store search ownership by default', () => {
+    const report = createProfileBootstrapReport({
+      checks: [passedRequiredCheck('store.open')],
+      phase: 'ready',
+      profileId: 'default',
+      runtime: BASE_RUNTIME,
+      startedAt: '2026-06-21T00:00:00.000Z',
+      updatedAt: '2026-06-21T00:00:01.000Z',
+    });
+
+    expect(report.search).toEqual({
+      indexedSearch: 'available',
+      message:
+        'PGlite primary store owns pgvector, pg_trgm, and full-text search indexes in the same database.',
+      ownershipMode: 'primary-store-indexes',
+    });
+  });
+
+  it('requires Turso bootstrap reports to declare search ownership explicitly', () => {
+    expect(() =>
+      createProfileBootstrapReport({
+        checks: [passedRequiredCheck('store.open')],
+        phase: 'ready',
+        profileId: 'default',
+        runtime: {
+          engine: 'turso',
+          host: 'node',
+          persistence: 'filesystem',
+        },
+        startedAt: '2026-06-21T00:00:00.000Z',
+        updatedAt: '2026-06-21T00:00:01.000Z',
+      })
+    ).toThrow('Turso profile bootstrap reports must declare search ownership explicitly.');
+  });
+
+  it('keeps an explicit Turso split-search-index ownership mode in the report', () => {
+    const report = createProfileBootstrapReport({
+      checks: [passedRequiredCheck('store.open')],
+      phase: 'ready',
+      profileId: 'default',
+      runtime: {
+        engine: 'turso',
+        host: 'node',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message:
+          'Primary Turso MVCC store uses a separately owned non-MVCC FTS search-index store.',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-21T00:00:00.000Z',
+      updatedAt: '2026-06-21T00:00:01.000Z',
+    });
+
+    expect(report.search.ownershipMode).toBe('split-search-index-store');
+  });
+
   it('keeps a profile blocked until the phase is ready and every required check passes', () => {
     const report = createProfileBootstrapReport({
       checks: [

@@ -63,6 +63,9 @@
       "@brainstrike/db": [
         "packages/db/src"
       ],
+      "@brainstrike/db/bootstrap/turso-profile-bootstrap": [
+        "packages/db/src/bootstrap/turso-profile-bootstrap.ts"
+      ],
       "@brainstrike/queue": [
         "packages/queue/src"
       ],

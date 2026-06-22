@@ -64,6 +64,7 @@ export const dbUnitLaneDefinitions = [
       /^search-/,
       /^tsvector-generated-column\.integration\.test\.ts$/,
       /^turso-capability-spike\.test\.ts$/,
+      /^turso-profile-bootstrap\.test\.ts$/,
       /^uuidv7-primary-keys\.integration\.test\.ts$/,
       /^vector-extension\.integration\.test\.ts$/,
     ],

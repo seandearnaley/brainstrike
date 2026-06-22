@@ -36,6 +36,12 @@ const PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'workspace-index.system-role',
   'store.close',
 ] as const;
+const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
+  'store.open',
+  'primary-store.mvcc',
+  'search.ownership',
+  'store.close',
+] as const;
 
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
@@ -182,7 +188,7 @@ function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | n
   }
 
   const presentCheckIds = new Set(bootstrapReport.checks.map((check) => check.id));
-  for (const requiredCheckId of PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS) {
+  for (const requiredCheckId of getRequiredBootstrapCheckIds(bootstrapReport.runtime.engine)) {
     if (!presentCheckIds.has(requiredCheckId)) {
       return `Bootstrap report missing required check: ${requiredCheckId}`;
     }
@@ -208,6 +214,17 @@ function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | n
   }
 
   return null;
+}
+
+function getRequiredBootstrapCheckIds(engine: string): readonly string[] {
+  switch (engine) {
+    case 'pglite':
+      return PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS;
+    case 'turso':
+      return TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS;
+    default:
+      return [];
+  }
 }
 
 function assertReadyDbHostInitResult(result: DbHostInitResult): void {
