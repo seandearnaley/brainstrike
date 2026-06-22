@@ -1,9 +1,9 @@
 # Brainstrike Turso Capability Spike
 
-Generated: `2026-06-22T07:48:42.216Z`
+Generated: `2026-06-22T08:48:32.597Z`
 Runtime: `turso` on `node` using `filesystem` persistence
-Phase: `blocked`
-Ready: `false`
+Phase: `ready`
+Ready: `true`
 
 ## Package Versions
 
@@ -23,10 +23,6 @@ Ready: `false`
 | `sql.concurrent-writes-mvcc` | Required | `passed` |  |
 | `search.vector-distance` | Required | `passed` |  |
 | `search.fts-index` | Required | `passed` |  |
-| `search.fts-mvcc-compatibility` | Required | `failed` | failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode |
+| `search.fts-mvcc-compatibility` | Optional | `failed` | failed to consume stmt: Parse error: Custom index modules are not supported in MVCC mode |
+| `architecture.split-search-index` | Required | `passed` | Turso FTS and MVCC are both available but cannot share one MVCC-enabled database file; Brainstrike must use an explicitly owned search-index store or equivalent non-FTS search implementation. |
 | `store.close` | Required | `passed` |  |
-
-## Blocking Issues
-
-- Required bootstrap check failed: Turso FTS custom indexes remain usable with MVCC concurrent writes enabled
-- Bootstrap phase has not reached ready: blocked

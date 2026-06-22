@@ -29,6 +29,7 @@ export interface TursoCapabilitySpikeOptions {
 }
 
 type TursoSpikeCheckId =
+  | 'architecture.split-search-index'
   | 'package.tursodatabase-database'
   | 'package.tursodatabase-sync'
   | 'package.libsql-client'
@@ -93,7 +94,12 @@ const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   },
   {
     id: 'search.fts-mvcc-compatibility',
-    label: 'Turso FTS custom indexes remain usable with MVCC concurrent writes enabled',
+    label: 'Turso FTS custom indexes remain usable inside the MVCC primary database',
+    required: false,
+  },
+  {
+    id: 'architecture.split-search-index',
+    label: 'Search indexing architecture accounts for Turso FTS and MVCC ownership',
     required: true,
   },
   { id: 'store.close', label: 'Local Turso store closes cleanly', required: true },
@@ -151,6 +157,7 @@ export async function runTursoCapabilitySpike(
     checks = await setCapabilityCheck(checks, 'search.fts-mvcc-compatibility', () =>
       proveFtsWithMvcc(db)
     );
+    checks = setSplitSearchIndexArchitectureCheck(checks);
 
     bootstrapReport = createProfileBootstrapReport({
       checks,
@@ -421,18 +428,7 @@ async function proveFts(dbPath: string): Promise<boolean> {
 async function proveFtsWithMvcc(db: TursoDatabase | null): Promise<boolean> {
   const database = requireOpenDatabase(db);
   await database.exec("PRAGMA journal_mode = 'mvcc'");
-  await database.exec(`
-    CREATE TABLE turso_fts_mvcc_probe (
-      id INTEGER PRIMARY KEY,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL
-    )
-  `);
-  await database.exec(`
-    CREATE INDEX turso_fts_mvcc_probe_idx
-    ON turso_fts_mvcc_probe USING fts (title, body)
-  `);
-  return true;
+  return await createAndQueryFtsIndex(database);
 }
 
 async function createAndQueryFtsIndex(database: TursoDatabase): Promise<boolean> {
@@ -499,6 +495,68 @@ async function setCapabilityCheck(
   } catch (error) {
     return setCheck(checks, id, 'failed', sanitizeSpikeCheckMessage(error));
   }
+}
+
+function setSplitSearchIndexArchitectureCheck(
+  checks: readonly ProfileBootstrapCheck[]
+): readonly ProfileBootstrapCheck[] {
+  const mvccWrites = requireCheck(checks, 'sql.concurrent-writes-mvcc');
+  const ftsIndex = requireCheck(checks, 'search.fts-index');
+  const ftsWithMvcc = requireCheck(checks, 'search.fts-mvcc-compatibility');
+
+  if (mvccWrites.status !== 'passed' || ftsIndex.status !== 'passed') {
+    return setCheck(
+      checks,
+      'architecture.split-search-index',
+      'failed',
+      'Cannot choose a Turso search architecture until MVCC writes and standalone FTS both pass.'
+    );
+  }
+
+  if (ftsWithMvcc.status === 'passed') {
+    return setCheck(
+      checks,
+      'architecture.split-search-index',
+      'passed',
+      'Turso FTS and MVCC are compatible in one database file; a split search-index store is not required by the current runtime.'
+    );
+  }
+
+  if (isExpectedTursoFtsMvccIncompatibility(ftsWithMvcc.message)) {
+    return setCheck(
+      checks,
+      'architecture.split-search-index',
+      'passed',
+      'Turso FTS and MVCC are both available but cannot share one MVCC-enabled database file; Brainstrike must use an explicitly owned search-index store or equivalent non-FTS search implementation.'
+    );
+  }
+
+  return setCheck(
+    checks,
+    'architecture.split-search-index',
+    'failed',
+    ftsWithMvcc.message
+      ? `Same-store MVCC+FTS failed for an unclassified reason: ${ftsWithMvcc.message}`
+      : 'Same-store MVCC+FTS failed for an unclassified reason.'
+  );
+}
+
+function requireCheck(
+  checks: readonly ProfileBootstrapCheck[],
+  id: TursoSpikeCheckId
+): ProfileBootstrapCheck {
+  const check = checks.find((candidate) => candidate.id === id);
+  if (!check) {
+    throw new Error(`Missing Turso capability check: ${id}`);
+  }
+  return check;
+}
+
+function isExpectedTursoFtsMvccIncompatibility(message: string | undefined): boolean {
+  return (
+    typeof message === 'string' &&
+    message.includes('Custom index modules are not supported in MVCC mode')
+  );
 }
 
 async function closeTursoDatabaseAndUpdateReport(
@@ -575,3 +633,7 @@ function sanitizeSpikeCheckMessage(error: unknown): string {
     .replace(/(^|[\s([{:=])\/(?!\/)(?:[^/\s'"]+\/)+[^\s'"]+/g, '$1<path>')
     .replace(/[A-Za-z]:\\[^\s'"]+/g, '<path>');
 }
+
+export const __tursoCapabilitySpikeTestInternals = {
+  proveFtsWithMvcc,
+} as const;
