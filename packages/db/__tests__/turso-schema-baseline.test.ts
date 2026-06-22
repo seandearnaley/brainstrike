@@ -70,6 +70,38 @@ describe('Turso schema baseline', () => {
       rows: expect.arrayContaining([expect.objectContaining({ name: 'embedding', type: 'BLOB' })]),
     });
     await expect(
+      client.query<{ name: string; notnull: number; type: string }>(
+        'PRAGMA table_info(brainstrike_assistant_run_usage)'
+      )
+    ).resolves.toMatchObject({
+      rows: expect.arrayContaining([
+        expect.objectContaining({ name: 'run_id', notnull: 1, type: 'TEXT' }),
+        expect.objectContaining({ name: 'resource_id', notnull: 1, type: 'TEXT' }),
+        expect.objectContaining({ name: 'model', notnull: 1, type: 'TEXT' }),
+        expect.objectContaining({ name: 'provider', notnull: 1, type: 'TEXT' }),
+        expect.objectContaining({ name: 'root_id', type: 'TEXT' }),
+      ]),
+    });
+    const usageColumnNames = await columnNames('brainstrike_assistant_run_usage');
+    expect(usageColumnNames).not.toEqual(
+      expect.arrayContaining(['message_id', 'provider_id', 'model_id'])
+    );
+    await expect(
+      client.exec(`
+        INSERT INTO brainstrike_assistant_run_usage (
+          id,
+          thread_id,
+          run_id,
+          resource_id,
+          model,
+          provider,
+          input_tokens,
+          output_tokens
+        )
+        VALUES ('usage-1', 'thread-1', 'run-1', 'resource-1', 'gpt-5.5', 'openai', -1, 0)
+      `)
+    ).rejects.toThrow();
+    await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger')
     ).resolves.toEqual({
       rows: [
@@ -112,6 +144,20 @@ describe('Turso schema baseline', () => {
     await expect(
       client.query<{ is_enabled: number }>("SELECT is_enabled FROM models WHERE id = 'gpt-5.2'")
     ).resolves.toEqual({ rows: [{ is_enabled: 0 }] });
+    await expect(currentModelIds()).resolves.toEqual(
+      expect.arrayContaining([
+        'gpt-5.5',
+        'gpt-5.4-mini',
+        'claude-sonnet-4-6',
+        'gemini-3.5-flash',
+        'gemini-embedding-2',
+        'openai/gpt-5.5',
+        'anthropic/claude-sonnet-4.6',
+      ])
+    );
+    await expect(currentModelIds()).resolves.not.toEqual(
+      expect.arrayContaining(['claude-sonnet-4-5'])
+    );
   });
 
   it('fails closed when a Postgres or PGlite migration ledger is present', async () => {
@@ -153,5 +199,15 @@ describe('Turso schema baseline', () => {
       [tableName]
     );
     return result.rows.map((row) => row.name);
+  }
+
+  async function columnNames(tableName: string): Promise<readonly string[]> {
+    const result = await client.query<{ name: string }>(`PRAGMA table_info(${tableName})`);
+    return result.rows.map((row) => row.name);
+  }
+
+  async function currentModelIds(): Promise<readonly string[]> {
+    const result = await client.query<{ id: string }>('SELECT id FROM models ORDER BY id');
+    return result.rows.map((row) => row.id);
   }
 });
