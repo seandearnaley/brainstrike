@@ -45,6 +45,7 @@ const PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS = [
 const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'store.open',
   'primary-store.mvcc',
+  'schema.baseline',
   'search.ownership',
   'store.close',
 ] as const;

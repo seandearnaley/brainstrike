@@ -166,6 +166,16 @@ describe('Turso schema baseline', () => {
     await expect(currentModelIds()).resolves.not.toEqual(
       expect.arrayContaining(['claude-sonnet-4-5'])
     );
+    await expect(
+      client.query<{ id: string; name: string }>(
+        "SELECT id, name FROM providers WHERE id IN ('google', 'local') ORDER BY id"
+      )
+    ).resolves.toEqual({
+      rows: [
+        { id: 'google', name: 'Google AI Studio' },
+        { id: 'local', name: 'Local (Browser)' },
+      ],
+    });
   });
 
   it('includes seed parameters in the baseline checksum', () => {

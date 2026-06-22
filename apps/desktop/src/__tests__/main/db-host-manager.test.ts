@@ -136,14 +136,18 @@ function createReadyBootstrapReport() {
 }
 
 function createReadyTursoBootstrapReport() {
-  const checks = ['store.open', 'primary-store.mvcc', 'search.ownership', 'store.close'].map(
-    (id) => ({
-      id,
-      label: id,
-      required: true,
-      status: 'passed',
-    })
-  );
+  const checks = [
+    'store.open',
+    'primary-store.mvcc',
+    'schema.baseline',
+    'search.ownership',
+    'store.close',
+  ].map((id) => ({
+    id,
+    label: id,
+    required: true,
+    status: 'passed',
+  }));
 
   return {
     checks,
@@ -957,6 +961,28 @@ describe('DbHostManager', () => {
 
     await expect(databasePromise).rejects.toThrow(
       'DB host init bootstrap report is not ready: Bootstrap report missing required check: store.open.'
+    );
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when a Turso ready report omits the schema baseline check', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    const readyTursoReport = createReadyTursoBootstrapReport();
+    firstHost.reply(firstHost.messages.at(-1) as PostedMessage, {
+      bootstrapReport: {
+        ...readyTursoReport,
+        checks: readyTursoReport.checks.filter((check) => check.id !== 'schema.baseline'),
+      },
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+
+    await expect(databasePromise).rejects.toThrow(
+      'DB host init bootstrap report is not ready: Bootstrap report missing required check: schema.baseline.'
     );
     expect(firstHost.kill).toHaveBeenCalledTimes(1);
   });

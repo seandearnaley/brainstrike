@@ -287,8 +287,8 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
 const providerSeeds = [
   ['openai', 'OpenAI', 1, 1],
   ['anthropic', 'Anthropic', 2, 1],
-  ['google', 'Google', 3, 1],
-  ['local', 'Local Models', 4, 1],
+  ['google', 'Google AI Studio', 3, 1],
+  ['local', 'Local (Browser)', 4, 1],
   ['openrouter', 'OpenRouter', 5, 0],
   ['cohere', 'Cohere', 6, 0],
   ['voyage', 'Voyage AI', 7, 0],
