@@ -38,6 +38,45 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     expect(() => encodeFileMentionId('', 'src/app.ts')).toThrow();
     expect(() => encodeFileMentionId('root-1', '')).toThrow();
   });
+
+  it('percent-encodes `}` in the path so it cannot truncate the `{name=…}` id', () => {
+    // A literal `}` in the id would end the directive's `{name=…}` attribute early
+    // at parse time; encoding it keeps the id brace-free.
+    expect(encodeFileMentionId('root-1', 'src/a}b.ts')).toBe('root-1::src/a%7Db.ts');
+  });
+
+  it('percent-encodes `{` and `%` in the path (id has no raw brace, `%` unambiguous)', () => {
+    expect(encodeFileMentionId('root-1', 'src/a{b}c.ts')).toBe('root-1::src/a%7Bb%7Dc.ts');
+    expect(encodeFileMentionId('root-1', 'a%b.ts')).toBe('root-1::a%25b.ts');
+  });
+
+  it('round-trips a path containing `{`, `}`, and `%` exactly', () => {
+    const path = 'dir/a{b}c%d.ts';
+    const id = encodeFileMentionId('root-1', path);
+    expect(id).not.toContain('{');
+    expect(id.slice('root-1::'.length)).not.toContain('}');
+    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+  });
+
+  it('does not mis-decode a path that literally contains `%7D` (the encoded form of `}`)', () => {
+    const path = 'a%7Db.ts';
+    const id = encodeFileMentionId('root-1', path);
+    // Literal `%` is escaped to `%25` first, so decode reverses to the literal text.
+    expect(id).toBe('root-1::a%257Db.ts');
+    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+  });
+
+  it('preserves `::` in a path alongside an encoded brace', () => {
+    const path = 'a}::b.ts';
+    const id = encodeFileMentionId('root-1', path);
+    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+  });
+
+  it('leaves a path without special characters unchanged (no over-encoding)', () => {
+    // encodeURIComponent would mangle `/` and spaces; we touch only `{`/`}`/`%`.
+    const path = 'src/some dir/app.ts';
+    expect(encodeFileMentionId('root-1', path)).toBe('root-1::src/some dir/app.ts');
+  });
 });
 
 describe('serializeFileMentionDirective', () => {
@@ -99,6 +138,18 @@ describe('parseFileMentionDirectives', () => {
     const directive = serializeFileMentionDirective({ label: 'x.ts', id: 'r::dir/x.ts' });
     expect(parseFileMentionDirectives(`see ${directive}`)).toEqual([
       { label: 'x.ts', id: 'r::dir/x.ts', rootId: 'r', path: 'dir/x.ts' },
+    ]);
+  });
+
+  it('round-trips serialize -> parse for a path containing `}` (no id truncation)', () => {
+    // The real bug: a raw `}` in the id ends `{name=…}` early, truncating the path.
+    const path = 'dir/a}b.ts';
+    const directive = serializeFileMentionDirective({
+      label: 'a}b.ts',
+      id: encodeFileMentionId('root-1', path),
+    });
+    expect(parseFileMentionDirectives(`open ${directive} now`)).toEqual([
+      { label: 'a}b.ts', id: 'root-1::dir/a%7Db.ts', rootId: 'root-1', path },
     ]);
   });
 });
