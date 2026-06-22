@@ -95,6 +95,17 @@ describe('Brainstrike DB client contract', () => {
     ).toEqual(BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES);
   });
 
+  it('rejects unknown SQL feature names instead of treating them as available', () => {
+    const malformedSqlCapabilities = {
+      dialect: 'sqlite',
+      features: ['totally-made-up'],
+    };
+
+    expect(
+      getMissingBrainstrikeDbSqlFeatures(malformedSqlCapabilities, ['totally-made-up' as never])
+    ).toEqual(['totally-made-up']);
+  });
+
   it('accepts a complete structural client', () => {
     const txClient: BrainstrikeDbTransactionClient = {
       query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),

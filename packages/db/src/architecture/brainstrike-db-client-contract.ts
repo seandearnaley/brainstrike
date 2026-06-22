@@ -25,6 +25,19 @@ export const BRAINSTRIKE_DB_SQL_DIALECTS = [
   'sqlite',
 ] as const satisfies readonly BrainstrikeDbSqlDialect[];
 
+export const BRAINSTRIKE_DB_SQL_FEATURES = [
+  'data-modifying-cte',
+  'jsonb',
+  'postgres-fts',
+  'postgres-vector',
+  'skip-locked',
+  'sqlite-json',
+  'sqlite-returning',
+  'trigram',
+  'turso-fts',
+  'turso-vector',
+] as const satisfies readonly BrainstrikeDbSqlFeature[];
+
 export const BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES = [
   'query',
   'exec',
@@ -317,11 +330,15 @@ function isBrainstrikeDbSqlCapabilities(value: unknown): value is BrainstrikeDbS
   if (!isObjectRecord(value)) {
     return false;
   }
+  const knownFeatures = new Set(BRAINSTRIKE_DB_SQL_FEATURES);
 
   return (
     BRAINSTRIKE_DB_SQL_DIALECTS.includes(value['dialect'] as BrainstrikeDbSqlDialect) &&
     Array.isArray(value['features']) &&
-    value['features'].every((feature) => typeof feature === 'string')
+    value['features'].every(
+      (feature) =>
+        typeof feature === 'string' && knownFeatures.has(feature as BrainstrikeDbSqlFeature)
+    )
   );
 }
 

@@ -1,10 +1,10 @@
 import { sql } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { drizzleFromHandle } from '../src/drizzle/database.js';
+import { drizzleFromHandle, markPGliteDrizzleCompatible } from '../src/drizzle/database.js';
 
 describe('Drizzle database utilities integration', () => {
   it('executes Drizzle through an explicit raw worker-compatible client', async () => {
-    const client = createWorkerCompatibleClient();
+    const client = markPGliteDrizzleCompatible(createWorkerCompatibleClient());
     const drizzleDb = drizzleFromHandle({ raw: client });
 
     expect(drizzleDb).not.toBeNull();
@@ -22,11 +22,13 @@ describe('Drizzle database utilities integration', () => {
   });
 
   it('propagates query errors from the raw worker-compatible client', async () => {
-    const client = createWorkerCompatibleClient({
-      onQuery: async () => {
-        throw new Error('worker query failed');
-      },
-    });
+    const client = markPGliteDrizzleCompatible(
+      createWorkerCompatibleClient({
+        onQuery: async () => {
+          throw new Error('worker query failed');
+        },
+      })
+    );
     const drizzleDb = drizzleFromHandle({ raw: client });
 
     expect(drizzleDb).not.toBeNull();
@@ -48,9 +50,11 @@ describe('Drizzle database utilities integration', () => {
 
   it('routes transaction callback failures through the raw worker-compatible client', async () => {
     const rollbackEvents: string[] = [];
-    const client = createWorkerCompatibleClient({
-      onTransactionRollback: () => rollbackEvents.push('rollback'),
-    });
+    const client = markPGliteDrizzleCompatible(
+      createWorkerCompatibleClient({
+        onTransactionRollback: () => rollbackEvents.push('rollback'),
+      })
+    );
     const drizzleDb = drizzleFromHandle({ raw: client });
 
     expect(drizzleDb).not.toBeNull();

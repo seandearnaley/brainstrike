@@ -9,8 +9,15 @@ import type { PGlite } from '@electric-sql/pglite';
 import { drizzle as createDrizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 import type { BrainstrikeDbExecutionClient } from '../architecture/brainstrike-db-client-contract.js';
 
+export const BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE = Symbol.for(
+  'brainstrike.db.pglite-drizzle-compatible'
+);
+
 export type DrizzleDb = PgliteDatabase;
-type PGliteCompatibleClient = Pick<PGlite, 'exec' | 'query' | 'transaction'>;
+interface PGliteDrizzleCompatibilityMarker {
+  readonly [BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE]: true;
+}
+type PGliteCompatibleClient = BrainstrikeDbExecutionClient & PGliteDrizzleCompatibilityMarker;
 
 /**
  * Create a Drizzle database instance from a PGlite connection.
@@ -29,6 +36,17 @@ type PGliteCompatibleClient = Pick<PGlite, 'exec' | 'query' | 'transaction'>;
  */
 export function drizzle(pglite: PGlite): DrizzleDb {
   return createDrizzle(pglite);
+}
+
+export function markPGliteDrizzleCompatible<TClient extends object>(
+  client: TClient
+): TClient & PGliteDrizzleCompatibilityMarker {
+  Object.defineProperty(client, BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+  });
+  return client as TClient & PGliteDrizzleCompatibilityMarker;
 }
 
 /**
@@ -71,7 +89,7 @@ export function extractDbExecutionClient(db: unknown): BrainstrikeDbExecutionCli
  * @deprecated Prefer hasDbExecutionClientRaw for runtime-neutral call sites.
  */
 export function hasPGliteRaw(db: unknown): db is { raw: PGliteCompatibleClient } {
-  return hasDbExecutionClientRaw(db);
+  return hasDbExecutionClientRaw(db) && isPGliteDrizzleCompatible(db.raw);
 }
 
 /**
@@ -80,7 +98,10 @@ export function hasPGliteRaw(db: unknown): db is { raw: PGliteCompatibleClient }
  * @deprecated Prefer extractDbExecutionClient for runtime-neutral call sites.
  */
 export function extractPGlite(db: unknown): PGliteCompatibleClient | null {
-  return extractDbExecutionClient(db) as PGliteCompatibleClient | null;
+  if (hasPGliteRaw(db)) {
+    return db.raw;
+  }
+  return null;
 }
 
 /**
@@ -96,13 +117,22 @@ export function extractPGlite(db: unknown): PGliteCompatibleClient | null {
  * ```
  */
 export function drizzleFromHandle(dbHandle: unknown): DrizzleDb | null {
-  const pglite = extractDbExecutionClient(dbHandle);
+  const pglite = extractPGlite(dbHandle);
   if (pglite) {
-    // Drizzle's PGlite adapter is typed to the concrete PGlite class, while
-    // DbHandle.raw may expose a scheduled PGliteWorker-compatible client with
-    // the same query/exec/transaction execution surface. Keep this bridge
-    // explicit to DbHandle.raw so arbitrary structural objects are not accepted.
+    // Drizzle's PGlite adapter is typed to the concrete PGlite class. The raw
+    // bridge must be explicitly marked by the PGlite owner path so future
+    // Turso-shaped execution clients cannot enter this Postgres adapter.
     return drizzle(pglite as unknown as PGlite);
   }
   return null;
+}
+
+function isPGliteDrizzleCompatible(
+  value: BrainstrikeDbExecutionClient
+): value is PGliteCompatibleClient {
+  return (
+    (value as { [BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE]?: unknown })[
+      BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE
+    ] === true
+  );
 }
