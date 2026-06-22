@@ -18,9 +18,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const { getDatabaseMock, getAllWindowsMock } = vi.hoisted(() => ({
+const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
   getAllWindowsMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 vi.mock('../../db-main', () => ({
@@ -32,6 +34,19 @@ vi.mock('electron', () => ({
     getAllWindows: getAllWindowsMock,
   },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      error: loggerErrorMock,
+      info: vi.fn(),
+      warn: loggerWarnMock,
+    })),
+  };
+});
 
 describe('assistant-tools', () => {
   const trackedWindowIds: number[] = [];
@@ -582,6 +597,48 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('does not expose raw filesystem errors for skipped workspace context files', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: ['/missing.ts'],
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
+
+    expect(result.skippedFiles).toEqual([{ path: '/missing.ts', reason: 'missing' }]);
+    expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('logs generic workspace context read errors without exposing them in skipped files', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const readError = Object.assign(
+      new Error(`EACCES: permission denied, open '${path.join(workspaceRootPath, 'src/main.ts')}'`),
+      { code: 'EACCES' }
+    );
+    const readFileSpy = vi.spyOn(fsPromises, 'readFile').mockRejectedValueOnce(readError);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: ['/src/main.ts'],
+    } as RuntimeData);
+
+    try {
+      const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
+
+      expect(result.skippedFiles).toEqual([{ path: '/src/main.ts', reason: 'readError' }]);
+      expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
+      expect(loggerWarnMock).toHaveBeenCalledWith('Skipped workspace context file read', {
+        code: 'EACCES',
+        error: readError,
+        path: '/src/main.ts',
+      });
+    } finally {
+      readFileSpy.mockRestore();
+      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    }
+  });
+
   it('reads selected workspace context through curated tapestry line ranges', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
@@ -837,6 +894,8 @@ describe('assistant-tools', () => {
       skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
       notifiedWindowCount: 1,
     });
+    expect(result.skippedFiles[0]).not.toHaveProperty('message');
+    expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
     expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
       folderId: 'root-1',
       filePaths: ['/src/main.ts'],

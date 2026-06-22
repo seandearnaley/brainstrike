@@ -1240,9 +1240,10 @@ function classifyReadContextError(
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
-    return { path: workspacePath, reason: 'missing', message };
+    return { path: workspacePath, reason: 'missing' };
   }
-  return { path: workspacePath, reason: 'readError', message };
+  logger.warn('Skipped workspace context file read', { path: workspacePath, code, error });
+  return { path: workspacePath, reason: 'readError' };
 }
 
 function buildRangedContextContent(args: {
@@ -1619,9 +1620,9 @@ function classifySelectionPathError(
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
-    return { path: pathValue, reason: 'missing', message };
+    return { path: pathValue, reason: 'missing' };
   }
-  return { path: pathValue, reason: 'readError', message };
+  return { path: pathValue, reason: 'readError' };
 }
 
 async function validateSelectableWorkspaceFile(
@@ -1968,7 +1969,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runWebSearch(resolvedInput, dependencies.webSearch);
         } catch (error) {
-          logger.error('webSearch failed', { error, query: resolvedInput.query });
+          logger.error('webSearch failed', { error });
           throw error;
         }
       },

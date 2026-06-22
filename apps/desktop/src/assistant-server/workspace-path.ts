@@ -1,5 +1,8 @@
 import path from 'node:path';
 
+const DOT_CHAR_CODE = 46;
+const SLASH_CHAR_CODE = 47;
+
 /**
  * Pure, OS-portable helpers for the assistant's *virtual* workspace paths.
  *
@@ -79,7 +82,23 @@ export function joinSegments(
 
 /** True when any segment of the virtual path is dot-prefixed (e.g. ".git"). */
 export function isHiddenPath(entryPath: string): boolean {
-  return toPathSegments(entryPath).some((segment) => segment.startsWith('.'));
+  // Directory listings call this for every child. Scan in place so ordinary
+  // visible paths do not allocate a full segment array just to answer a boolean.
+  for (let index = 0; index < entryPath.length; index += 1) {
+    const code = entryPath.charCodeAt(index);
+    if (code === SLASH_CHAR_CODE) {
+      continue;
+    }
+    if (code === DOT_CHAR_CODE) {
+      return true;
+    }
+    const nextSlash = entryPath.indexOf('/', index);
+    if (nextSlash === -1) {
+      return false;
+    }
+    index = nextSlash;
+  }
+  return false;
 }
 
 /**

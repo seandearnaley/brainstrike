@@ -94,3 +94,11 @@
 ## 2026-06-17 - Workspace lookup path normalization avoids replace chains
 **Learning:** `packages/types/src/workspace-path-utils.ts` normalizes assistant workspace lookup paths before building candidate sets in app-shell. The old `trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '')` chain performed three replace passes per path and measured 375.30ms over 100k mixed lookup paths x 40 rounds on Node 24.16.0. A single scan for backslashes plus prefix-offset stripping measured 213.05ms with identical checksums.
 **Action:** Keep `normalizeWorkspaceLookupPath()` on direct scanning and prefix offsets; avoid reintroducing chained regex/string replace passes in workspace lookup candidate construction.
+
+## 2026-06-21 - Progress path labels scan from the tail
+**Learning:** `packages/file-explorer-ui/src/utils/path-display.ts` formats scanning/restoration/loading progress paths on every active path update. The old `path.split('/').slice(-2).join('/')` route allocated a segment array per path and incorrectly truncated absolute two-segment paths such as `/a/b`; a backward slash scan measured 780.87ms -> 438.10ms over 100k representative paths x 60 on Node 24.16.0 while preserving two real segments.
+**Action:** Keep compact progress labels on backward scanning when only the final path segments are needed; do not reintroduce full `split('/')` segment materialization in active progress rendering.
+
+## 2026-06-21 - Workspace sync watcher paths avoid split/filter arrays
+**Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
+**Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
