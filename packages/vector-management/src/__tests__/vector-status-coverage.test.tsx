@@ -154,7 +154,7 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...(actual as object),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteDatabase: () => mockDb,
+    useBrainstrikeDbClient: () => mockDb,
     useFileChunkRepository: () => mockChunkRepository,
     useVectorEnabled: () => mockVectorEnabled,
     JobQueue: class MockJobQueue {},

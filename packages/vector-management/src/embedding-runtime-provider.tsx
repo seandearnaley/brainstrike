@@ -1,4 +1,4 @@
-import { JobQueue, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db';
+import { JobQueue, useBrainstrikeDbClient, useFileChunkRepository } from '@brainstrike/db';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import {
@@ -34,7 +34,7 @@ function toEmbeddingCoverageRepository(
 }
 
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const chunkRepository = useFileChunkRepository();
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const reinitEveryN = useVectorPreferencesStore((state) => state.reinitEveryN);

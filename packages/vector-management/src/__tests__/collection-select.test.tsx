@@ -10,7 +10,7 @@ import {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: vi.fn(() => ({
+  useBrainstrikeLiveQuery: vi.fn(() => ({
     error: null,
     loading: false,
     refresh: vi.fn(),

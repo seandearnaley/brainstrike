@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { useBrainstrikeDbClient } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useCallback } from 'react';
 import { CollectionSelect } from '../collection-select/index.js';
@@ -25,7 +25,7 @@ export interface EmbeddingSetSelectorProps {
   /**
    * Database instance for querying embedding sets
    */
-  db: ReturnType<typeof usePGliteDatabase>;
+  db: ReturnType<typeof useBrainstrikeDbClient>;
 
   /**
    * Callback when selection changes

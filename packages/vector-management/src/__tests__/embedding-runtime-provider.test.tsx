@@ -8,7 +8,7 @@ const {
   JobQueueMock,
   useEmbeddingRuntimeControllerMock,
   useFileChunkRepositoryMock,
-  usePGliteDatabaseMock,
+  useBrainstrikeDbClientMock,
   useVectorPreferencesStoreMock,
 } = vi.hoisted(() => ({
   createVectorQueueServiceMock: vi.fn(),
@@ -17,14 +17,14 @@ const {
   }),
   useEmbeddingRuntimeControllerMock: vi.fn(),
   useFileChunkRepositoryMock: vi.fn(),
-  usePGliteDatabaseMock: vi.fn(),
+  useBrainstrikeDbClientMock: vi.fn(),
   useVectorPreferencesStoreMock: vi.fn(),
 }));
 
 vi.mock('@brainstrike/db', () => ({
   JobQueue: JobQueueMock,
   useFileChunkRepository: useFileChunkRepositoryMock,
-  usePGliteDatabase: usePGliteDatabaseMock,
+  useBrainstrikeDbClient: useBrainstrikeDbClientMock,
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
@@ -42,7 +42,7 @@ vi.mock('../vector-status/vector-queue-service', () => ({
 describe('EmbeddingRuntimeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    usePGliteDatabaseMock.mockReturnValue({ dialect: 'pglite' });
+    useBrainstrikeDbClientMock.mockReturnValue({ dialect: 'pglite' });
     useFileChunkRepositoryMock.mockReturnValue({
       clearEmbeddingsForSet: vi.fn(),
       getCoverageForSet: vi.fn(),

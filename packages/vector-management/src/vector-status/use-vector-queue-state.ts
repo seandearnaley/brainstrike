@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import {
   type ActiveBackfillState,
   useVectorStatusUIStore,
@@ -442,7 +442,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     setIsJobQueueActive,
   ]);
 
-  const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+  const queueCountsResult = useBrainstrikeLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
     query: QUEUE_COUNTS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
@@ -475,7 +475,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     [activeEmbeddingSetId]
   );
 
-  const activeSetQueueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+  const activeSetQueueCountsResult = useBrainstrikeLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('active-set-queue-counts', activeEmbeddingSetId),
     query: ACTIVE_SET_QUEUE_COUNTS_QUERY,
     ...(activeSetQueueCountsParams ? { params: activeSetQueueCountsParams } : {}),
@@ -495,7 +495,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     };
   }, [activeSetQueueCountsResult.rows]);
 
-  const throughputResult = usePGliteLiveQuery<ThroughputRow>({
+  const throughputResult = useBrainstrikeLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
     query: THROUGHPUT_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
@@ -510,7 +510,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     return Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0;
   }, [metrics.throughputPerMinute, throughputResult.rows]);
 
-  const lastErrorResult = usePGliteLiveQuery<LastErrorRow>({
+  const lastErrorResult = useBrainstrikeLiveQuery<LastErrorRow>({
     cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
     query: LAST_ERROR_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
@@ -519,7 +519,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
 
-  const latencyRowsResult = usePGliteLiveQuery<LatencyRow>({
+  const latencyRowsResult = useBrainstrikeLiveQuery<LatencyRow>({
     cacheKey: makeLiveQueryKey('latency', EMBEDDINGS_QUEUE),
     query: LATENCY_ROWS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
@@ -553,7 +553,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     [activeEmbeddingSetId]
   );
 
-  const coverageResult = usePGliteLiveQuery<CoverageRow>({
+  const coverageResult = useBrainstrikeLiveQuery<CoverageRow>({
     cacheKey: makeLiveQueryKey('coverage', activeEmbeddingSetId),
     query: COVERAGE_QUERY,
     ...(coverageParams ? { params: coverageParams } : {}),

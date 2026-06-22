@@ -1,4 +1,4 @@
-import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
+import { useBrainstrikeDbClient, useVectorEnabled } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
@@ -95,7 +95,7 @@ function getWorkerStatus(
 export function useEmbeddingControls({
   toast,
 }: UseEmbeddingControlsOptions): UseEmbeddingControlsResult {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const vectorEnabled = useVectorEnabled();
 
   // Get active collection from shared store

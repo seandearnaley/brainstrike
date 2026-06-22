@@ -79,7 +79,7 @@ const mockStoreState = {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
@@ -93,7 +93,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
   };
 });
 
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useBrainstrikeLiveQuery } from '@brainstrike/db';
 import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
@@ -109,14 +109,14 @@ describe('useCollections', () => {
     mockStoreState.schemaVerified = true;
     mockStoreState.cachedCollections = [];
     mockDb.query.mockImplementation(() => new Promise(() => {}));
-    vi.mocked(usePGliteLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
   });
 
   describe('Live Query Enabling', () => {
     it('should enable live query when db is available, schema is verified, and not importing', () => {
       renderHook(() => useCollections(mockDb as any));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: true,
         })
@@ -126,7 +126,7 @@ describe('useCollections', () => {
     it('uses incremental live query mode keyed by collection id', () => {
       renderHook(() => useCollections(mockDb as any));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'incremental',
           key: 'id',
@@ -137,7 +137,7 @@ describe('useCollections', () => {
     it('selects durable system role metadata with collection rows', () => {
       renderHook(() => useCollections(mockDb as any));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           query: expect.stringContaining('s.system_role AS "systemRole"'),
         })
@@ -149,7 +149,7 @@ describe('useCollections', () => {
 
       renderHook(() => useCollections(mockDb as any));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: false,
         })
@@ -161,7 +161,7 @@ describe('useCollections', () => {
 
       renderHook(() => useCollections(mockDb as any));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: false,
         })
@@ -171,7 +171,7 @@ describe('useCollections', () => {
     it('should disable live query when db is null', () => {
       renderHook(() => useCollections(null));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: false,
         })
@@ -183,7 +183,7 @@ describe('useCollections', () => {
 
       const { result } = renderHook(() => useCollections(mockDb as never));
 
-      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           enabled: true,
         })
@@ -205,7 +205,7 @@ describe('useCollections', () => {
     });
 
     it('preserves workspace index system role metadata from live rows', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         rows: [{ ...mockCollectionRows[0], systemRole: 'workspace-index' }],
       });
@@ -244,7 +244,7 @@ describe('useCollections', () => {
     });
 
     it('should return loading state from live query when enabled', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         loading: true,
       });
@@ -272,7 +272,7 @@ describe('useCollections', () => {
           embeddingCount: 3,
         },
       ];
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         loading: true,
       });
@@ -292,7 +292,7 @@ describe('useCollections', () => {
 
     it('should return error state from live query when enabled', () => {
       const testError = new Error('Test error');
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         error: testError,
       });
@@ -658,7 +658,7 @@ describe('useCollections', () => {
 
   describe('Data Normalization', () => {
     it('should normalize string fileCount to number', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         rows: [{ ...mockCollectionRows[0], fileCount: '42' }],
       });
@@ -671,7 +671,7 @@ describe('useCollections', () => {
     });
 
     it('should normalize string chunkCount to number', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         rows: [{ ...mockCollectionRows[0], chunkCount: '200' }],
       });
@@ -684,7 +684,7 @@ describe('useCollections', () => {
     });
 
     it('should normalize string embeddingCount to number', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         rows: [{ ...mockCollectionRows[0], embeddingCount: '75' }],
       });
@@ -697,7 +697,7 @@ describe('useCollections', () => {
     });
 
     it('should handle null/undefined counts as 0', () => {
-      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
         ...mockLiveQueryResult,
         rows: [
           {
