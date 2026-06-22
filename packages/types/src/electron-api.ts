@@ -6,6 +6,7 @@ import type { TapestryColorName } from './tapestry-colors';
  */
 export interface DatabaseTestResult {
   message: string;
+  profileBootstrapReport?: DatabaseProfileBootstrapReportSnapshot | null;
   success: boolean;
 }
 
@@ -74,6 +75,43 @@ export interface DatabaseInitFailureSnapshot {
   timestamp: string;
 }
 
+export interface DatabaseProfileBootstrapReportSnapshot {
+  checks: readonly {
+    id: string;
+    label: string;
+    message?: string;
+    required: boolean;
+    status: 'failed' | 'passed' | 'pending' | 'skipped';
+  }[];
+  failure: {
+    code?: string;
+    message: string;
+    name?: string;
+    phase: string;
+    timestamp: string;
+  } | null;
+  phase: string;
+  profileId: string;
+  ready: boolean;
+  runtime: {
+    engine: 'libsql' | 'pglite' | 'turso' | 'unknown';
+    host: 'browser' | 'desktop-ipc' | 'electron-main' | 'electron-utility' | 'node' | 'worker';
+    persistence: 'filesystem' | 'idb' | 'memory' | 'remote' | 'unknown';
+  };
+  search: {
+    indexedSearch: 'available' | 'unavailable';
+    message: string;
+    ownershipMode:
+      | 'external-search-service'
+      | 'non-fts-primary-store'
+      | 'primary-store-indexes'
+      | 'split-search-index-store'
+      | 'unavailable';
+  };
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface DatabaseDiagnosticsSnapshot {
   appDataDir: string;
   databaseLockHeld: boolean;
@@ -89,6 +127,7 @@ export interface DatabaseDiagnosticsSnapshot {
   lastRuntimeCorruptionAt: string | null;
   lastRuntimeCorruptionContext: string | null;
   nodeEnv: string | null;
+  profileBootstrapReport?: DatabaseProfileBootstrapReportSnapshot | null;
   runtimeCorruptionRecoveryCount: number;
 }
 

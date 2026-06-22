@@ -2,7 +2,12 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
-import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseProfileBootstrapReportSnapshot,
+  DatabaseTestResult,
+  ElectronDatabaseAPI,
+} from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -117,6 +122,11 @@ async function loadElectronEmbeddingSetsRepository() {
 async function loadElectronViewFilterPresetsRepository() {
   const mod = await import('./repositories/electron-view-filter-presets-repository.js');
   return mod.ElectronViewFilterPresetsRepository;
+}
+
+async function loadTursoViewFilterPresetsRepository() {
+  const mod = await import('./repositories/turso-view-filter-presets-repository.js');
+  return mod.TursoViewFilterPresetsRepository;
 }
 
 async function loadDrizzleEmbeddingSetsRepository() {
@@ -556,6 +566,76 @@ async function getElectronDiagnostics(
   }
 }
 
+function getReadyElectronTursoBootstrapReport(
+  report: DatabaseProfileBootstrapReportSnapshot | null | undefined
+): ProfileBootstrapReport | null {
+  if (!report) {
+    return null;
+  }
+  if (report.runtime.engine !== 'turso') {
+    return null;
+  }
+  if (!report.ready) {
+    throw new Error('Desktop Turso database bootstrap report is not ready.');
+  }
+  return report as ProfileBootstrapReport;
+}
+
+async function createElectronTursoViewFilterPresetsRepository(
+  bootstrapReport: DatabaseProfileBootstrapReportSnapshot | null | undefined,
+  repositoryDb: {
+    readonly exec: (
+      sql: string,
+      params?: readonly unknown[],
+      options?: DatabaseWorkOptions
+    ) => Promise<void>;
+    readonly query: <T = unknown>(
+      sql: string,
+      params?: readonly unknown[],
+      options?: DatabaseWorkOptions
+    ) => Promise<{ rows: T[] }>;
+  }
+): Promise<{
+  readonly report: ProfileBootstrapReport;
+  readonly repository: ViewFilterPresetsRepo;
+} | null> {
+  const report = getReadyElectronTursoBootstrapReport(bootstrapReport);
+  if (!report) {
+    return null;
+  }
+  const TursoViewFilterPresetsRepo = await loadTursoViewFilterPresetsRepository();
+  return {
+    report,
+    repository: new TursoViewFilterPresetsRepo(repositoryDb),
+  };
+}
+
+async function probeElectronPGliteVectorExtension(
+  electronDB: ElectronDatabaseAPI,
+  diagnostics: DatabaseDiagnosticsSnapshot | null
+): Promise<{
+  readonly diagnostics: DatabaseDiagnosticsSnapshot | null;
+  readonly hasVector: boolean;
+}> {
+  try {
+    const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    return {
+      diagnostics,
+      hasVector: Array.isArray(res.rows) && res.rows.length > 0,
+    };
+  } catch (error) {
+    const latestDiagnostics = await getElectronDiagnostics(electronDB);
+    logger.warn('Failed to detect pgvector extension over IPC', {
+      diagnostics: latestDiagnostics,
+      error,
+    });
+    return {
+      diagnostics: latestDiagnostics,
+      hasVector: false,
+    };
+  }
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const bootstrapRuntime = useMemo(
@@ -620,9 +700,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [bootstrapRuntime, publishProfileBootstrapReport, resolvedPath]
   );
 
-  const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
+  const testElectronConnection: (
+    electronDB: ElectronDatabaseAPI
+  ) => Promise<DatabaseTestResult | null> = useCallback(async (electronDB) => {
     if (!electronDB.test) {
-      return;
+      return null;
     }
 
     try {
@@ -631,8 +713,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         throw new Error(`Database test failed: ${testResult.message}`);
       }
       logger.debug('Database test passed', { message: testResult.message });
+      return testResult;
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
+      return null;
     }
   }, []);
 
@@ -650,7 +734,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       logger.debug('Using Electron IPC database connection');
 
-      await testElectronConnection(electronDB);
+      const testResult = await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
 
       if (!electronExec) {
@@ -658,15 +742,43 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       const repositoryDb = {
-        query: electronDB.query,
-        exec: async (sql: string) => {
-          await electronExec(sql);
+        query: async <T = unknown>(
+          sql: string,
+          params?: readonly unknown[],
+          options?: DatabaseWorkOptions
+        ) => await electronDB.query<T>(sql, params ? [...params] : undefined, options),
+        exec: async (sql: string, params?: readonly unknown[], options?: DatabaseWorkOptions) => {
+          await electronExec(sql, params ? [...params] : undefined, options);
         },
         // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
         // in ONE main-process pglite.transaction() so a concurrent FTS query can't
         // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
         ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
       };
+
+      const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
+        testResult?.profileBootstrapReport,
+        repositoryDb
+      );
+      if (tursoViewFilterPresets) {
+        if (!cancelled.value) {
+          logger.warn('Desktop Turso DB provider initialized with partial repository coverage', {
+            migratedRepositories: ['view_filter_presets'],
+            unavailableRepositories: ['file_records', 'file_chunks', 'embedding_sets'],
+          });
+          connectionRef.current = { kind: 'ipc', bridge: electronDB };
+          setExposedDb(null);
+          setFileRecordRepository(null);
+          setChunkRepository(null);
+          setEmbeddingSetsRepository(null);
+          setViewFilterPresetsRepository(tursoViewFilterPresets.repository);
+          setVectorEnabled(false);
+          publishProfileBootstrapReport(tursoViewFilterPresets.report);
+          setError(null);
+          setReady(true);
+        }
+        return true;
+      }
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository(repositoryDb);
@@ -679,19 +791,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         phase: 'probing-capabilities',
       });
       // Detect pgvector extension availability over IPC
-      let hasVector = false;
-      let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
-      try {
-        const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
-        hasVector = Array.isArray(res.rows) && res.rows.length > 0;
-      } catch (error) {
-        diagnostics = await getElectronDiagnostics(electronDB);
-        hasVector = false;
-        logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
-      }
+      const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, null);
+      const hasVector = vectorProbe.hasVector;
+      let pgliteDiagnostics = vectorProbe.diagnostics;
       if (!hasVector) {
-        if (!diagnostics) {
-          diagnostics = await getElectronDiagnostics(electronDB);
+        if (!pgliteDiagnostics) {
+          pgliteDiagnostics = await getElectronDiagnostics(electronDB);
         }
         publishDbProviderBootstrapReport({
           checks: createDbProviderBootstrapChecks({
@@ -701,9 +806,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           }),
           phase: 'probing-capabilities',
         });
-        logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
+        logger.error('Desktop database initialization missing pgvector extension', {
+          diagnostics: pgliteDiagnostics,
+        });
         throw new Error(
-          formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
+          formatDesktopDatabaseInitError(
+            pgliteDiagnostics,
+            'Desktop database failed to initialize.'
+          )
         );
       }
       const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
@@ -736,7 +846,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection, publishDbProviderBootstrapReport]
+    [
+      useElectronIPC,
+      testElectronConnection,
+      publishDbProviderBootstrapReport,
+      publishProfileBootstrapReport,
+    ]
   );
 
   const initializeDirectPGlite = useCallback(
@@ -1323,12 +1438,22 @@ export function useDbInitializationStatus(): DbInitializationStatus {
   return ctx.initializationStatus;
 }
 
+export function useOptionalDbInitializationStatus(): DbInitializationStatus {
+  const ctx = useContext(DbContext);
+  return ctx?.initializationStatus ?? 'idle';
+}
+
 export function useProfileBootstrapReport(): ProfileBootstrapReport {
   const ctx = useContext(DbContext);
   if (!ctx) {
     throw new Error('useProfileBootstrapReport must be used within a DbProvider');
   }
   return ctx.profileBootstrapReport;
+}
+
+export function useOptionalProfileBootstrapReport(): ProfileBootstrapReport | null {
+  const ctx = useContext(DbContext);
+  return ctx?.profileBootstrapReport ?? null;
 }
 
 export function useFileRecordRepository():
@@ -1342,16 +1467,20 @@ export function useFileRecordRepository():
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
+    if (
+      !(fileRecordRepository || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [fileRecordRepository, error, initializing, initializeDatabase]);
+  }, [fileRecordRepository, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useFileRecordRepository must be used within a DbProvider');
@@ -1369,16 +1498,17 @@ export function usePGliteDatabase(): DbHandle | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [db, error, initializing, initializeDatabase]);
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('usePGliteDatabase must be used within a DbProvider');
@@ -1398,14 +1528,15 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [db, error, initializing, initializeDatabase]);
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
   return ctx?.ready && !ctx.error ? ctx.db : null;
 }
@@ -1433,16 +1564,20 @@ export function useFileChunkRepository():
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(chunkRepository || error || initializing) && initializeDatabase) {
+    if (
+      !(chunkRepository || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [chunkRepository, error, initializing, initializeDatabase]);
+  }, [chunkRepository, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useFileChunkRepository must be used within a DbProvider');
@@ -1462,16 +1597,20 @@ export function useClearAllData():
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
+    if (
+      !(fileRecordRepository || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [fileRecordRepository, error, initializing, initializeDatabase]);
+  }, [fileRecordRepository, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useClearAllData must be used within a DbProvider');
@@ -1489,16 +1628,17 @@ export function useFactoryReset(): (() => Promise<void>) | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [db, error, initializing, initializeDatabase]);
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     return null;
@@ -1514,16 +1654,17 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [db, error, initializing, initializeDatabase]);
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     return null;
@@ -1543,15 +1684,19 @@ export function useDrizzleDb(): DrizzleDb | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   useEffect(() => {
-    if (!(drizzleDb || error || initializing) && initializeDatabase) {
+    if (
+      !(drizzleDb || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [drizzleDb, error, initializing, initializeDatabase]);
+  }, [drizzleDb, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useDrizzleDb must be used within a DbProvider');
@@ -1573,15 +1718,19 @@ export function useEmbeddingSetsRepository(): EmbeddingSetsRepo | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   useEffect(() => {
-    if (!(embeddingSetsRepository || error || initializing) && initializeDatabase) {
+    if (
+      !(embeddingSetsRepository || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [embeddingSetsRepository, error, initializing, initializeDatabase]);
+  }, [embeddingSetsRepository, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useEmbeddingSetsRepository must be used within a DbProvider');
@@ -1603,15 +1752,19 @@ export function useViewFilterPresetsRepository(): ViewFilterPresetsRepo | null {
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
 
   // Trigger lazy initialization when first accessed
   useEffect(() => {
-    if (!(viewFilterPresetsRepository || error || initializing) && initializeDatabase) {
+    if (
+      !(viewFilterPresetsRepository || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
       initializeDatabase().catch((err) => {
         logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
-  }, [viewFilterPresetsRepository, error, initializing, initializeDatabase]);
+  }, [viewFilterPresetsRepository, error, initializing, initializeDatabase, initializationStatus]);
 
   if (!ctx) {
     logger.warn('useViewFilterPresetsRepository must be used within a DbProvider');

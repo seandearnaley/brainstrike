@@ -1084,6 +1084,7 @@ function formatOpenDatabaseFailureMessage(
 }
 
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
+  const profileBootstrapReport = mutableState.lastProfileBootstrapReport;
   return {
     nodeEnv: process.env['NODE_ENV'] ?? null,
     databaseProfile: getDatabaseProfile(),
@@ -1103,6 +1104,15 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
     lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
     lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
+    profileBootstrapReport: profileBootstrapReport
+      ? {
+          ...profileBootstrapReport,
+          checks: [...profileBootstrapReport.checks],
+          failure: profileBootstrapReport.failure ? { ...profileBootstrapReport.failure } : null,
+          runtime: { ...profileBootstrapReport.runtime },
+          search: { ...profileBootstrapReport.search },
+        }
+      : null,
   };
 }
 
