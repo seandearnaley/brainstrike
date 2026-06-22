@@ -58,6 +58,11 @@
       "types": "./dist/turso/owner-client.d.ts",
       "import": "./dist/turso/owner-client.js",
       "require": "./dist/turso/owner-client.js"
+    },
+    "./turso/schema-baseline": {
+      "types": "./dist/turso/schema-baseline.d.ts",
+      "import": "./dist/turso/schema-baseline.js",
+      "require": "./dist/turso/schema-baseline.js"
     }
   },
   "files": [

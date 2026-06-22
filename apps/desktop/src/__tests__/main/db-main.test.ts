@@ -492,14 +492,18 @@ function createReadyBootstrapProbeReport() {
 }
 
 function createReadyTursoProfileBootstrapReport() {
-  const checks = ['store.open', 'primary-store.mvcc', 'search.ownership', 'store.close'].map(
-    (id) => ({
-      id,
-      label: id,
-      required: true,
-      status: 'passed',
-    })
-  );
+  const checks = [
+    'store.open',
+    'primary-store.mvcc',
+    'schema.baseline',
+    'search.ownership',
+    'store.close',
+  ].map((id) => ({
+    id,
+    label: id,
+    required: true,
+    status: 'passed',
+  }));
 
   return {
     blockingIssues: [],

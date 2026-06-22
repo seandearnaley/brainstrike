@@ -3,14 +3,24 @@ import { runTursoProfileBootstrap } from '../src/bootstrap/turso-profile-bootstr
 
 describe('Turso profile bootstrap', () => {
   it('opens the primary store in MVCC mode and declares split search ownership', async () => {
+    const execSql: string[] = [];
+    const querySql: string[] = [];
     const pragmaSql: string[] = [];
     const close = vi.fn(async () => undefined);
     const database = {
+      all: async (source: string) => {
+        querySql.push(source);
+        return [];
+      },
       close,
+      exec: async (source: string) => {
+        execSql.push(source);
+      },
       pragma: async (source: string) => {
         pragmaSql.push(source);
         return [{ journal_mode: 'mvcc' }];
       },
+      run: async () => undefined,
     };
 
     const report = await runTursoProfileBootstrap({
@@ -24,6 +34,15 @@ describe('Turso profile bootstrap', () => {
     });
 
     expect(pragmaSql).toEqual(["journal_mode = 'mvcc'"]);
+    expect(execSql).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_turso_schema_ledger'),
+        expect.stringContaining('CREATE TABLE IF NOT EXISTS view_filter_presets'),
+      ])
+    );
+    expect(querySql).toContain(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?) ORDER BY name"
+    );
     expect(close).toHaveBeenCalledTimes(1);
     expect(report.bootstrapReport).toMatchObject({
       phase: 'ready',
@@ -42,6 +61,7 @@ describe('Turso profile bootstrap', () => {
     expect(report.checks).toEqual([
       expect.objectContaining({ id: 'store.open', status: 'passed' }),
       expect.objectContaining({ id: 'primary-store.mvcc', status: 'passed' }),
+      expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
       expect.objectContaining({ id: 'search.ownership', status: 'passed' }),
       expect.objectContaining({ id: 'store.close', status: 'passed' }),
     ]);
@@ -126,6 +146,46 @@ describe('Turso profile bootstrap', () => {
         severity: 'blocking',
       },
     ]);
+  });
+
+  it('fails closed when the Turso schema baseline cannot be applied', async () => {
+    const close = vi.fn(async () => undefined);
+    const database = {
+      all: async () => [],
+      close,
+      exec: async (source: string) => {
+        if (source.includes('brainstrike_turso_schema_ledger')) {
+          throw new Error('schema directory is read-only at /tmp/private/profile.db');
+        }
+      },
+      pragma: async () => [{ journal_mode: 'mvcc' }],
+      run: async () => undefined,
+    };
+
+    const report = await runTursoProfileBootstrap({
+      dbPath: '/tmp/private/profile.db',
+      generatedAt: createClock(),
+      openDatabase: async () => database,
+      profileId: 'branch-turso',
+    });
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(report.bootstrapReport).toMatchObject({
+      failure: {
+        code: 'turso_profile_bootstrap_failed',
+        message: 'schema directory is read-only at <path>',
+        phase: 'probing-capabilities',
+      },
+      phase: 'failed',
+      ready: false,
+    });
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'schema.baseline',
+        message: 'schema directory is read-only at <path>',
+        status: 'failed',
+      })
+    );
   });
 });
 
