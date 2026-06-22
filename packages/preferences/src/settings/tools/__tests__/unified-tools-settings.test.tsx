@@ -13,8 +13,8 @@ import type {
 } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
-const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
-  usePGliteLiveQueryMock: vi.fn(() => ({
+const { useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
+  useBrainstrikeLiveQueryMock: vi.fn(() => ({
     rows: [],
     loading: false,
     error: null,
@@ -23,7 +23,7 @@ const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
+  useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
 // Mock child components
@@ -302,7 +302,7 @@ describe('UnifiedToolsSettings', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    usePGliteLiveQueryMock.mockReturnValue({
+    useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [],
       loading: false,
       error: null,
@@ -322,7 +322,7 @@ describe('UnifiedToolsSettings', () => {
 
       render(<UnifiedToolsSettings operations={operations} />);
 
-      expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           query: 'SELECT id FROM tools ORDER BY id',
           enabled: true,

@@ -5,8 +5,8 @@ import type { IDatabase } from '@brainstrike/db';
 import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 
 // Use vi.hoisted to ensure mock functions are available during module initialization
-const { mockUsePGliteDatabase, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
-  mockUsePGliteDatabase: vi.fn(),
+const { mockUseBrainstrikeDbClient, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
+  mockUseBrainstrikeDbClient: vi.fn(),
   mockStartEmbeddingWorker: vi.fn(),
   mockLogger: {
     info: vi.fn(),
@@ -26,7 +26,7 @@ function createMockDb(collectionCount = 1): MockDb {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: (...args: unknown[]) => mockUsePGliteDatabase(...args),
+  useBrainstrikeDbClient: (...args: unknown[]) => mockUseBrainstrikeDbClient(...args),
 }));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
@@ -89,7 +89,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('worker lifecycle', () => {
     it('does not start worker when database is not available', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseBrainstrikeDbClient.mockReturnValue(null);
 
       render(
         <EmbeddingWorkerProvider>
@@ -105,7 +105,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -142,7 +142,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -169,7 +169,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -193,7 +193,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -221,7 +221,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       const { unmount } = render(
@@ -250,7 +250,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('does not attempt to stop worker if it was never started', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseBrainstrikeDbClient.mockReturnValue(null);
 
       const { unmount } = render(
         <EmbeddingWorkerProvider>
@@ -266,7 +266,7 @@ describe('EmbeddingWorkerProvider', () => {
     it('does not crash if worker controller is null during unmount', async () => {
       const mockDb = createMockDb();
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       // Worker start never resolves
       mockStartEmbeddingWorker.mockImplementation(() => new Promise(() => {}));
 
@@ -288,7 +288,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockError = new Error('Failed to initialize worker');
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockRejectedValue(mockError);
 
       render(
@@ -321,7 +321,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -354,7 +354,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -383,7 +383,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('children rendering', () => {
     it('renders children correctly', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseBrainstrikeDbClient.mockReturnValue(null);
 
       render(
         <EmbeddingWorkerProvider>
@@ -400,7 +400,7 @@ describe('EmbeddingWorkerProvider', () => {
 
     it('renders children even when worker is starting', async () => {
       const mockDb = createMockDb();
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockImplementation(() => new Promise(() => {}));
 
       render(
@@ -416,7 +416,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -442,7 +442,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb2 = Object.assign(createMockDb(), { id: 2 } as const);
       const mockController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb1);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb1);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       const { rerender } = render(
@@ -459,7 +459,7 @@ describe('EmbeddingWorkerProvider', () => {
       );
 
       // Change database reference
-      mockUsePGliteDatabase.mockReturnValue(mockDb2);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb2);
 
       rerender(
         <EmbeddingWorkerProvider>
@@ -484,7 +484,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseBrainstrikeDbClient.mockReturnValue(null);
 
       const { rerender } = render(
         <EmbeddingWorkerProvider>
@@ -495,7 +495,7 @@ describe('EmbeddingWorkerProvider', () => {
       expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
 
       // Database becomes available
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       rerender(

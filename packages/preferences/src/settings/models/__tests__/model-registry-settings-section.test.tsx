@@ -15,10 +15,10 @@ import {
 // Mock imports
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(() => ({})),
+  useBrainstrikeDbClient: vi.fn(() => ({})),
 }));
 
-vi.mock('../../hooks/use-model-registry', () => ({
+vi.mock('../../../hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 

@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
@@ -45,7 +45,7 @@ function logWorkerStartError(error: unknown): void {
  */
 // Helper to create worker config
 function createWorkerConfig(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>
+  db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>
 ): Parameters<typeof startEmbeddingWorker>[0] {
   return {
     db,
@@ -69,7 +69,7 @@ function createWorkerConfig(
 }
 
 export function EmbeddingWorkerProvider({ children }: { children: React.ReactNode }) {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const startingRef = useRef(false);
 
