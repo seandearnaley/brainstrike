@@ -21,6 +21,21 @@ const logger = createLogger('DbHostManager');
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
+// Keep this local until the DB-host protocol carries a versioned required-check contract:
+// importing a runtime value from @brainstrike/db here would pull the DB package into the manager.
+const PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS = [
+  'store.open',
+  'schema.migrated',
+  'extension.pgvector',
+  'extension.pg_trgm',
+  'search.fts-grep',
+  'capability.transaction',
+  'capability.live-query',
+  'queue.table',
+  'assistant-memory.run-usage',
+  'workspace-index.system-role',
+  'store.close',
+] as const;
 
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
@@ -145,6 +160,64 @@ function toError(error: DbHostSerializedError): Error {
 
 function createRequestId(): string {
   return `db-host:${randomUUID()}`;
+}
+
+function bootstrapCheckStatusFragment(status: string): string {
+  switch (status) {
+    case 'failed':
+      return 'failed';
+    case 'pending':
+      return 'is pending';
+    case 'skipped':
+      return 'was skipped';
+    default:
+      return `has unexpected status ${status}`;
+  }
+}
+
+function getBootstrapReportBlockingMessage(result: DbHostInitResult): string | null {
+  const { bootstrapReport } = result;
+  if (bootstrapReport.failure) {
+    return `Bootstrap failed during ${bootstrapReport.failure.phase}: ${bootstrapReport.failure.message}`;
+  }
+
+  const presentCheckIds = new Set(bootstrapReport.checks.map((check) => check.id));
+  for (const requiredCheckId of PGLITE_BOOTSTRAP_REQUIRED_CHECK_IDS) {
+    if (!presentCheckIds.has(requiredCheckId)) {
+      return `Bootstrap report missing required check: ${requiredCheckId}`;
+    }
+  }
+
+  const failedRequiredCheck = bootstrapReport.checks.find(
+    (check) => check.required && check.status !== 'passed'
+  );
+  if (failedRequiredCheck) {
+    return `Required bootstrap check ${bootstrapCheckStatusFragment(failedRequiredCheck.status)}: ${failedRequiredCheck.label}`;
+  }
+
+  if (bootstrapReport.phase !== 'ready') {
+    return `Bootstrap phase has not reached ready: ${bootstrapReport.phase}`;
+  }
+
+  if (!bootstrapReport.ready) {
+    return 'Bootstrap report ready flag is false';
+  }
+
+  if (!result.initialized) {
+    return 'DB host did not initialize the database';
+  }
+
+  return null;
+}
+
+function assertReadyDbHostInitResult(result: DbHostInitResult): void {
+  if (!result.bootstrapReport) {
+    throw new Error('DB host init completed without a bootstrap report.');
+  }
+  const blockingMessage = getBootstrapReportBlockingMessage(result);
+  if (blockingMessage) {
+    throw new Error(`DB host init bootstrap report is not ready: ${blockingMessage}.`);
+  }
 }
 
 function createTransactionId(): string {
@@ -546,7 +619,8 @@ class DefaultDbHostManager implements DbHostManager {
 
   async #initialize(): Promise<RemoteDbClient> {
     try {
-      await this.send<DbHostInitResult>({ kind: 'init' });
+      const result = await this.send<DbHostInitResult>({ kind: 'init' });
+      assertReadyDbHostInitResult(result);
     } catch (error) {
       this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
       throw error;

@@ -1,3 +1,4 @@
+import type { ProfileBootstrapReport } from '@brainstrike/db';
 import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
 
 export interface DbHostQueryResult<TRecord = unknown> {
@@ -99,7 +100,8 @@ export type DbHostToMainMessage =
   | DbHostResponseEnvelope;
 
 export interface DbHostInitResult {
-  readonly initialized: true;
+  readonly bootstrapReport: ProfileBootstrapReport;
+  readonly initialized: boolean;
 }
 
 export interface DbHostTransactionStartResult {

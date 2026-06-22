@@ -16,6 +16,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type {
+  BootstrapCapabilityProbeReport,
+  ProfileBootstrapReport,
+  ProfileBootstrapRuntime,
+} from '@brainstrike/db';
+import type {
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
@@ -272,6 +277,7 @@ interface DatabaseMutableState {
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
+  lastProfileBootstrapReport: ProfileBootstrapReport | null;
   lastRuntimeCorruptionAt: string | null;
   lastRuntimeCorruptionContext: string | null;
   runtimeCorruptionRecoveryCount: number;
@@ -282,6 +288,7 @@ const mutableState: DatabaseMutableState = {
   lastInitializationStartedAt: null,
   lastInitializationSucceededAt: null,
   lastInitializationFailure: null,
+  lastProfileBootstrapReport: null,
   runtimeCorruptionRecoveryCount: 0,
   lastRuntimeCorruptionAt: null,
   lastRuntimeCorruptionContext: null,
@@ -326,6 +333,22 @@ interface PGliteInstanceShape {
   query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   syncToFs?: () => Promise<void>;
 }
+
+interface InitializeMainDatabaseInternalOptions {
+  readonly engineUpgradeBackupPruneExclusion?: string | null;
+  readonly skipInitializationLock?: boolean;
+}
+
+export interface MainDatabaseBootstrapInitResult {
+  readonly bootstrapReport: ProfileBootstrapReport;
+  readonly initialized: boolean;
+}
+
+const DESKTOP_DB_BOOTSTRAP_RUNTIME: ProfileBootstrapRuntime = {
+  engine: 'pglite',
+  host: 'electron-utility',
+  persistence: 'filesystem',
+};
 
 async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
   if (typeof instance.syncToFs !== 'function') {
@@ -982,6 +1005,21 @@ function recordInitializationSuccess(): void {
   mutableState.lastInitializationFailure = null;
 }
 
+function shouldRecoverAfterBootstrapProbeFailure(report: BootstrapCapabilityProbeReport): boolean {
+  const failure = report.bootstrapReport.failure;
+  if (!failure) {
+    return false;
+  }
+  if (!(failure.phase === 'opening-store' || failure.phase === 'migrating-schema')) {
+    return false;
+  }
+  return isCorruptionError({
+    code: failure.code,
+    message: failure.message,
+    name: failure.name,
+  });
+}
+
 function formatOpenDatabaseFailureMessage(
   category: DatabaseInitFailureCategory | undefined,
   details: string
@@ -1035,6 +1073,7 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.lastInitializationStartedAt = null;
   mutableState.lastInitializationSucceededAt = null;
   mutableState.lastInitializationFailure = null;
+  mutableState.lastProfileBootstrapReport = null;
   mutableState.runtimeCorruptionRecoveryCount = 0;
   mutableState.lastRuntimeCorruptionAt = null;
   mutableState.lastRuntimeCorruptionContext = null;
@@ -1054,6 +1093,7 @@ async function safeCloseDatabase(): Promise<void> {
     // ignore close errors
   } finally {
     db = null;
+    mutableState.lastProfileBootstrapReport = null;
     releaseDatabaseProcessLock();
   }
 }
@@ -1078,7 +1118,8 @@ async function attemptCorruptionRecovery(context: string): Promise<void> {
 async function handleCorruptionError(
   err: unknown,
   context: string,
-  retryAfterCorruption: boolean
+  retryAfterCorruption: boolean,
+  options: InitializeMainDatabaseInternalOptions = {}
   // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 ): Promise<any> {
   await safeCloseDatabase();
@@ -1090,7 +1131,7 @@ async function handleCorruptionError(
 
   try {
     await attemptCorruptionRecovery(context);
-    return await initializeMainDatabaseInternal(false);
+    return await initializeMainDatabaseInternal(false, options);
   } catch (resetErr) {
     recordInitializationFailure('runtime-corruption-recovery', resetErr);
     logger.error('Auto-recovery failed', {
@@ -1248,8 +1289,10 @@ function setIncompatibleDataDirAside(
  * Creates the directory if it doesn't exist and runs migrations.
  * If corruption is detected, automatically resets and retries once.
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function initializeMainDatabaseInternal(retryAfterCorruption = true): Promise<any> {
+async function initializeMainDatabaseInternal(
+  retryAfterCorruption = true,
+  options: InitializeMainDatabaseInternalOptions = {}
+): Promise<PGliteInstanceShape> {
   if (db) {
     return db;
   }
@@ -1274,7 +1317,9 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   };
 
   try {
-    releaseInitializationLock = await acquirePGliteInitializationLock();
+    if (!options.skipInitializationLock) {
+      releaseInitializationLock = await acquirePGliteInitializationLock();
+    }
     let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
 
     try {
@@ -1295,7 +1340,10 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
       // lock is held, so we never touch a data dir another process is using.
-      const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+      const movedAsideBackup =
+        reconcileIncompatiblePgDataDir(dataDir) ??
+        options.engineUpgradeBackupPruneExclusion ??
+        null;
 
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
@@ -1330,7 +1378,12 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
+      const recovered = await handleCorruptionError(
+        err,
+        'initialization',
+        retryAfterCorruption,
+        options
+      );
       if (recovered) {
         return recovered;
       }
@@ -1354,7 +1407,12 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     } catch (err) {
       recordInitializationFailure('migration', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
+      const recovered = await handleCorruptionError(
+        err,
+        'migration',
+        retryAfterCorruption,
+        options
+      );
       if (recovered) {
         return recovered;
       }
@@ -1380,8 +1438,10 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
  * Initialize the database once per process lifecycle event loop.
  * Concurrent callers share a single in-flight initialization.
  */
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<any> {
+async function initializeLocalMainDatabase(
+  retryAfterCorruption = true,
+  options: InitializeMainDatabaseInternalOptions = {}
+): Promise<PGliteInstanceShape> {
   if (db) {
     return db;
   }
@@ -1390,7 +1450,7 @@ async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise
     return await dbInitializationPromise;
   }
 
-  dbInitializationPromise = initializeMainDatabaseInternal(retryAfterCorruption);
+  dbInitializationPromise = initializeMainDatabaseInternal(retryAfterCorruption, options);
 
   try {
     return await dbInitializationPromise;
@@ -1412,6 +1472,97 @@ async function getLocalDatabase(): Promise<any> {
   return db;
 }
 
+async function runCurrentProfileBootstrapCapabilityProbe(): Promise<BootstrapCapabilityProbeReport> {
+  const { runPgliteBootstrapCapabilityProbe } = await import('@brainstrike/db');
+  return await runPgliteBootstrapCapabilityProbe({
+    dataDir: getDatabasePath(),
+    profileId: getDatabaseProfile(),
+    runtime: DESKTOP_DB_BOOTSTRAP_RUNTIME,
+  });
+}
+
+export async function initializeMainDatabaseWithBootstrapReport(
+  retryAfterCorruption = true
+): Promise<MainDatabaseBootstrapInitResult> {
+  if (!isUtilityProcessRuntime()) {
+    throw new Error('Database bootstrap report initialization must run in the DB utility process.');
+  }
+
+  if (db) {
+    if (!mutableState.lastProfileBootstrapReport) {
+      throw new Error('Database is already initialized without a bootstrap report.');
+    }
+    return {
+      bootstrapReport: mutableState.lastProfileBootstrapReport,
+      initialized: true,
+    };
+  }
+
+  const dataDir = getDatabasePath();
+  const appDataDir = getAppDataPath();
+  if (!existsSync(dataDir)) {
+    mkdirSync(dataDir, { recursive: true });
+    logger.debug(`Created database directory: ${dataDir}`);
+  }
+
+  let releaseInitializationLock: (() => void) | null = null;
+  const releaseInitializationLockOnce = (): void => {
+    if (!releaseInitializationLock) {
+      return;
+    }
+    releaseInitializationLock();
+    releaseInitializationLock = null;
+  };
+
+  try {
+    releaseInitializationLock = await acquirePGliteInitializationLock();
+    acquireDatabaseProcessLock(appDataDir);
+    let movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+
+    // The probe intentionally owns a separate open/close cycle: `store.close` is part
+    // of the report contract, and the long-lived DB handle is opened only after it passes.
+    let capabilityProbeReport = await runCurrentProfileBootstrapCapabilityProbe();
+    if (
+      !capabilityProbeReport.bootstrapReport.ready &&
+      retryAfterCorruption &&
+      shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport)
+    ) {
+      recordInitializationFailure('open-database', capabilityProbeReport.bootstrapReport.failure);
+      await attemptCorruptionRecovery('bootstrap capability probe');
+      acquireDatabaseProcessLock(appDataDir);
+      if (!existsSync(dataDir)) {
+        mkdirSync(dataDir, { recursive: true });
+        logger.debug(`Created database directory: ${dataDir}`);
+      }
+      movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir) ?? movedAsideBackup;
+      capabilityProbeReport = await runCurrentProfileBootstrapCapabilityProbe();
+    }
+    mutableState.lastProfileBootstrapReport = capabilityProbeReport.bootstrapReport;
+    if (!capabilityProbeReport.bootstrapReport.ready) {
+      return {
+        bootstrapReport: capabilityProbeReport.bootstrapReport,
+        initialized: false,
+      };
+    }
+
+    await initializeLocalMainDatabase(retryAfterCorruption, {
+      engineUpgradeBackupPruneExclusion: movedAsideBackup,
+      skipInitializationLock: true,
+    });
+    mutableState.lastProfileBootstrapReport = capabilityProbeReport.bootstrapReport;
+
+    return {
+      bootstrapReport: capabilityProbeReport.bootstrapReport,
+      initialized: true,
+    };
+  } finally {
+    releaseInitializationLockOnce();
+    if (!db) {
+      releaseDatabaseProcessLock();
+    }
+  }
+}
+
 /**
  * Close the database connection
  */
@@ -1429,6 +1580,7 @@ async function closeLocalDatabase(): Promise<void> {
     }
   } finally {
     db = null;
+    mutableState.lastProfileBootstrapReport = null;
     releaseDatabaseProcessLock();
   }
 }
