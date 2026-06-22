@@ -33,7 +33,9 @@ export {
   type DrizzleDb,
   drizzle,
   drizzleFromHandle,
+  extractDbExecutionClient,
   extractPGlite,
+  hasDbExecutionClientRaw,
   hasPGliteRaw,
   runMigrations as runDrizzleMigrations,
 } from './drizzle/index.js';

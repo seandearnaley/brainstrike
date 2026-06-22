@@ -1,14 +1,18 @@
 import type {
   BrainstrikeDbClient,
+  BrainstrikeDbExecutionClient,
   BrainstrikeDbRuntimeHost,
   BrainstrikeDbTransactionClient,
 } from '../src/architecture/brainstrike-db-client-contract.js';
 import {
   BRAINSTRIKE_DB_CLIENT_CAPABILITIES,
+  BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES,
   BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES,
   buildBrainstrikeDbClientCapabilityBootstrapChecks,
+  buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks,
   buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks,
   getMissingBrainstrikeDbClientCapabilities,
+  getMissingBrainstrikeDbExecutionClientCapabilities,
   getMissingBrainstrikeDbRuntimeHostCapabilities,
 } from '../src/architecture/brainstrike-db-client-contract.js';
 
@@ -20,6 +24,7 @@ describe('Brainstrike DB client contract', () => {
       'transaction',
       'live-query',
     ]);
+    expect(BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES).toEqual(['query', 'exec', 'transaction']);
     expect(BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES).toEqual(['diagnostics', 'reset', 'close']);
   });
 
@@ -33,6 +38,27 @@ describe('Brainstrike DB client contract', () => {
       'transaction',
       'live-query',
     ]);
+    expect(getMissingBrainstrikeDbExecutionClientCapabilities(partialClient)).toEqual([
+      'transaction',
+    ]);
+  });
+
+  it('accepts a Turso-shaped owner as an execution client without requiring live query', () => {
+    const txClient: BrainstrikeDbTransactionClient = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
+      exec: async () => undefined,
+    };
+    const tursoShapedOwner = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
+      exec: async () => undefined,
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ) => callback(txClient),
+      close: async () => undefined,
+    } satisfies BrainstrikeDbExecutionClient & { readonly close: () => Promise<void> };
+
+    expect(getMissingBrainstrikeDbExecutionClientCapabilities(tursoShapedOwner)).toEqual([]);
+    expect(getMissingBrainstrikeDbClientCapabilities(tursoShapedOwner)).toEqual(['live-query']);
   });
 
   it('accepts a complete structural client', () => {
@@ -134,6 +160,34 @@ describe('Brainstrike DB client contract', () => {
       {
         id: 'db.client.live-query',
         label: 'DB client live-query capability',
+        required: true,
+        status: 'failed',
+      },
+    ]);
+  });
+
+  it('turns execution-client capability gaps into required bootstrap checks', () => {
+    const partialClient = {
+      query: async () => ({ rows: [] }),
+      exec: async () => undefined,
+    };
+
+    expect(buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks(partialClient)).toEqual([
+      {
+        id: 'db.execution-client.query',
+        label: 'DB execution client query capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.execution-client.exec',
+        label: 'DB execution client exec capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.execution-client.transaction',
+        label: 'DB execution client transaction capability',
         required: true,
         status: 'failed',
       },

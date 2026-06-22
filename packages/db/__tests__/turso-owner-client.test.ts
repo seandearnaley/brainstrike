@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database as TursoDatabase } from '@tursodatabase/database';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BrainstrikeDbTransactionClient } from '../src/architecture/brainstrike-db-client-contract.js';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import { createTursoOwnerClient } from '../src/turso/owner-client.js';
 
 describe('Turso owner client', () => {
@@ -21,6 +24,8 @@ describe('Turso owner client', () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'profile.db'),
     });
+    const _executionClient: BrainstrikeDbExecutionClient = client;
+    expect(_executionClient).toBe(client);
 
     try {
       await client.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');

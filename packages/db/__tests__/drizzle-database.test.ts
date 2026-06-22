@@ -31,9 +31,43 @@ describe('Drizzle database utilities', () => {
     expect(drizzleMock).not.toHaveBeenCalled();
   });
 
-  it('returns null for partial query-only handles', async () => {
-    const { drizzleFromHandle } = await import('../src/drizzle/database.js');
+  it('extracts the generic DB execution client from DbHandle.raw', async () => {
+    const { extractDbExecutionClient, hasDbExecutionClientRaw } = await import(
+      '../src/drizzle/database.js'
+    );
+    const rawClient = createPGliteCompatibleClient();
+    const handle = { raw: rawClient };
 
+    expect(hasDbExecutionClientRaw(handle)).toBe(true);
+    expect(extractDbExecutionClient(handle)).toBe(rawClient);
+  });
+
+  it('keeps the PGlite raw helpers as compatibility aliases', async () => {
+    const { extractDbExecutionClient, extractPGlite, hasDbExecutionClientRaw, hasPGliteRaw } =
+      await import('../src/drizzle/database.js');
+    const rawClient = createPGliteCompatibleClient();
+    const handle = { raw: rawClient };
+
+    expect(hasPGliteRaw(handle)).toBe(hasDbExecutionClientRaw(handle));
+    expect(extractPGlite(handle)).toBe(extractDbExecutionClient(handle));
+  });
+
+  it('does not extract an unwrapped structural execution client', async () => {
+    const { extractDbExecutionClient, hasDbExecutionClientRaw } = await import(
+      '../src/drizzle/database.js'
+    );
+    const directClient = createPGliteCompatibleClient();
+
+    expect(hasDbExecutionClientRaw(directClient)).toBe(false);
+    expect(extractDbExecutionClient(directClient)).toBeNull();
+  });
+
+  it('returns null for partial query-only handles', async () => {
+    const { drizzleFromHandle, extractDbExecutionClient } = await import(
+      '../src/drizzle/database.js'
+    );
+
+    expect(extractDbExecutionClient({ query: async () => ({ rows: [] }) })).toBeNull();
     expect(drizzleFromHandle({ query: async () => ({ rows: [] }) })).toBeNull();
     expect(drizzleMock).not.toHaveBeenCalled();
   });

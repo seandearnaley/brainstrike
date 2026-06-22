@@ -1387,6 +1387,10 @@ export function usePGliteDatabase(): DbHandle | null {
   return ctx.ready && !ctx.error ? ctx.db : null;
 }
 
+export function useBrainstrikeDatabase(): DbHandle | null {
+  return usePGliteDatabase();
+}
+
 export function useOptionalPGliteDatabase(): DbHandle | null {
   const ctx = useContext(DbContext);
   const db = ctx?.db;
@@ -1403,6 +1407,10 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   }, [db, error, initializing, initializeDatabase]);
 
   return ctx?.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useOptionalBrainstrikeDatabase(): DbHandle | null {
+  return useOptionalPGliteDatabase();
 }
 
 export function useDbProviderError(): Error | null {

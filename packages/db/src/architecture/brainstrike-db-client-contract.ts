@@ -1,8 +1,18 @@
 import type { ProfileBootstrapCheck } from '../bootstrap/profile-bootstrap-report.js';
 
 export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
+export type BrainstrikeDbExecutionClientCapability = Exclude<
+  BrainstrikeDbClientCapability,
+  'live-query'
+>;
 
 export type BrainstrikeDbRuntimeHostCapability = 'close' | 'diagnostics' | 'reset';
+
+export const BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES = [
+  'query',
+  'exec',
+  'transaction',
+] as const satisfies readonly BrainstrikeDbExecutionClientCapability[];
 
 export const BRAINSTRIKE_DB_CLIENT_CAPABILITIES = [
   'query',
@@ -65,7 +75,13 @@ export interface BrainstrikeDbTransactionClient {
   ) => Promise<BrainstrikeDbQueryResult<TRecord>>;
 }
 
-export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
+export interface BrainstrikeDbExecutionClient extends BrainstrikeDbTransactionClient {
+  readonly transaction: <TResult>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+  ) => Promise<TResult>;
+}
+
+export interface BrainstrikeDbClient extends BrainstrikeDbExecutionClient {
   readonly live: {
     readonly incrementalQuery?: <TRecord = unknown>(
       options: BrainstrikeLiveQueryOptions & { readonly key: string }
@@ -74,9 +90,6 @@ export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
       options: BrainstrikeLiveQueryOptions
     ) => Promise<BrainstrikeLiveQueryHandle<TRecord>>;
   };
-  readonly transaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-  ) => Promise<TResult>;
 }
 
 export interface BrainstrikeDbRuntimeHost {
@@ -97,6 +110,18 @@ export function getMissingBrainstrikeDbClientCapabilities(
   );
 }
 
+export function getMissingBrainstrikeDbExecutionClientCapabilities(
+  candidate: unknown
+): readonly BrainstrikeDbExecutionClientCapability[] {
+  if (!isObjectRecord(candidate)) {
+    return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES;
+  }
+
+  return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES.filter((capability) =>
+    isBrainstrikeDbExecutionClientCapabilityMissing(candidate, capability)
+  );
+}
+
 export function buildBrainstrikeDbClientCapabilityBootstrapChecks(
   candidate: unknown
 ): readonly ProfileBootstrapCheck[] {
@@ -105,6 +130,21 @@ export function buildBrainstrikeDbClientCapabilityBootstrapChecks(
   return BRAINSTRIKE_DB_CLIENT_CAPABILITIES.map((capability) => ({
     id: `db.client.${capability}`,
     label: `DB client ${capability} capability`,
+    required: true,
+    status: missingCapabilities.has(capability) ? 'failed' : 'passed',
+  }));
+}
+
+export function buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks(
+  candidate: unknown
+): readonly ProfileBootstrapCheck[] {
+  const missingCapabilities = new Set(
+    getMissingBrainstrikeDbExecutionClientCapabilities(candidate)
+  );
+
+  return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES.map((capability) => ({
+    id: `db.execution-client.${capability}`,
+    label: `DB execution client ${capability} capability`,
     required: true,
     status: missingCapabilities.has(capability) ? 'failed' : 'passed',
   }));
@@ -123,6 +163,20 @@ function isBrainstrikeDbClientCapabilityMissing(
       return !hasFunctionProperty(candidate, capability);
     default:
       return assertUnreachableDbClientCapability(capability);
+  }
+}
+
+function isBrainstrikeDbExecutionClientCapabilityMissing(
+  candidate: Record<PropertyKey, unknown>,
+  capability: BrainstrikeDbExecutionClientCapability
+): boolean {
+  switch (capability) {
+    case 'exec':
+    case 'query':
+    case 'transaction':
+      return !hasFunctionProperty(candidate, capability);
+    default:
+      return assertUnreachableDbExecutionClientCapability(capability);
   }
 }
 
@@ -188,6 +242,10 @@ function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
 
 function assertUnreachableDbClientCapability(value: never): never {
   throw new Error(`Unhandled Brainstrike DB client capability: ${String(value)}`);
+}
+
+function assertUnreachableDbExecutionClientCapability(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB execution client capability: ${String(value)}`);
 }
 
 function assertUnreachableDbRuntimeHostCapability(value: never): never {
