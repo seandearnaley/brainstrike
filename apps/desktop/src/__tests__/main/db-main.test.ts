@@ -400,6 +400,35 @@ describe('initializeMainDatabase', () => {
     expect(migrateMock).not.toHaveBeenCalled();
   });
 
+  it('reports Turso lazy bootstrap as initialization in flight while bootstrap is gated', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+    let releaseBootstrap = () => {};
+    const bootstrapGate = new Promise<void>((resolve) => {
+      releaseBootstrap = resolve;
+    });
+    runTursoProfileBootstrapMock.mockImplementation(async () => {
+      await bootstrapGate;
+      return createReadyTursoProfileBootstrapReport();
+    });
+
+    const { getDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    const databasePromise = getDatabase();
+
+    try {
+      await vi.waitFor(() => {
+        expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(1);
+      });
+      expect(getDatabaseDiagnostics().initializationInFlight).toBe(true);
+    } finally {
+      releaseBootstrap();
+      await databasePromise;
+    }
+
+    expect(getDatabaseDiagnostics().initializationInFlight).toBe(false);
+  });
+
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
     process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
     existsSyncMock.mockReturnValue(true);

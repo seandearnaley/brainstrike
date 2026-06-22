@@ -1090,7 +1090,8 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     dataDir: getDatabasePath(),
     appDataDir: getAppDataPath(),
     initializationAttemptCount: mutableState.initializationAttemptCount,
-    initializationInFlight: dbInitializationPromise !== null,
+    initializationInFlight:
+      dbInitializationPromise !== null || utilityDatabaseBootstrapPromise !== null,
     hasDatabaseHandle: Boolean(db),
     databaseLockHeld: mutableState.dbProcessLockPath !== null,
     databaseLockPath: mutableState.dbProcessLockPath,
