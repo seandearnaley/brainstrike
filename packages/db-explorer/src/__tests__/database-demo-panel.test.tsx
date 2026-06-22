@@ -156,10 +156,29 @@ const mockDatabase = {
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  const useLiveQueryMock = (options: { query: string }) => {
+    // Return stable object references based on query type. The active-collection
+    // counts query is a live aggregate over file_records/file_chunks, so match it
+    // by its distinctive projection before the generic file_records branch.
+    if (options.query.includes('AS "recordsCount"')) {
+      return mockCollectionCountLiveQueryResult;
+    }
+    if (options.query.includes('FROM embedding_sets s')) {
+      return mockCollectionLiveQueryResult;
+    }
+    if (options.query.includes('FROM file_records')) {
+      return mockRecordLiveQueryResult;
+    }
+    if (options.query.includes('FROM file_chunks')) {
+      return mockChunkLiveQueryResult;
+    }
+    return mockRecordLiveQueryResult;
+  };
   return {
     ...actual,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
+    useBrainstrikeDbClient: () => mockDatabase,
     usePGliteDatabase: () => mockDatabase,
     useFileChunkRepository: () => mockChunkRepository,
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
@@ -175,24 +194,8 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       }
     },
     migrations: [],
-    usePGliteLiveQuery: (options: { query: string }) => {
-      // Return stable object references based on query type. The active-collection
-      // counts query is a live aggregate over file_records/file_chunks, so match it
-      // by its distinctive projection before the generic file_records branch.
-      if (options.query.includes('AS "recordsCount"')) {
-        return mockCollectionCountLiveQueryResult;
-      }
-      if (options.query.includes('FROM embedding_sets s')) {
-        return mockCollectionLiveQueryResult;
-      }
-      if (options.query.includes('FROM file_records')) {
-        return mockRecordLiveQueryResult;
-      }
-      if (options.query.includes('FROM file_chunks')) {
-        return mockChunkLiveQueryResult;
-      }
-      return mockRecordLiveQueryResult;
-    },
+    useBrainstrikeLiveQuery: useLiveQueryMock,
+    usePGliteLiveQuery: useLiveQueryMock,
   };
 });
 
