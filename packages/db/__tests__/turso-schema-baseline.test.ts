@@ -176,6 +176,27 @@ describe('Turso schema baseline', () => {
         { id: 'local', name: 'Local (Browser)' },
       ],
     });
+    await expect(
+      client.query<{ id: string; parameters: string }>(
+        "SELECT id, parameters FROM models WHERE id IN ('Xenova/all-MiniLM-L6-v2', 'onnx-community/gemma-4-E2B-it-ONNX') ORDER BY id"
+      )
+    ).resolves.toEqual({
+      rows: [
+        {
+          id: 'Xenova/all-MiniLM-L6-v2',
+          parameters: JSON.stringify({ size: '~23MB' }),
+        },
+        {
+          id: 'onnx-community/gemma-4-E2B-it-ONNX',
+          parameters: JSON.stringify({
+            architecture: 'Gemma 4 E2B',
+            device: 'webgpu',
+            quantization: 'q4f16',
+            size: '~3.9GB (text-only q4f16)',
+          }),
+        },
+      ],
+    });
   });
 
   it('includes seed parameters in the baseline checksum', () => {

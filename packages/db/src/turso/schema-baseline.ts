@@ -632,6 +632,7 @@ const modelSeeds = [
     'Code-aware embeddings',
     '["Code search","Multilingual"]',
     '{"type":"embedding","defaultDimension":768}',
+    '{"size":"~300MB"}',
     1,
     0,
   ],
@@ -642,6 +643,7 @@ const modelSeeds = [
     'Best English model',
     '["English","High performance"]',
     '{"type":"embedding","defaultDimension":768}',
+    '{"size":"~300MB"}',
     2,
     0,
   ],
@@ -652,6 +654,7 @@ const modelSeeds = [
     'Fast local embeddings',
     '["English","Speed"]',
     '{"type":"embedding","defaultDimension":384}',
+    '{"size":"~23MB"}',
     3,
     1,
   ],
@@ -662,6 +665,7 @@ const modelSeeds = [
     'Balanced local embeddings',
     '["English","General purpose"]',
     '{"type":"embedding","defaultDimension":384}',
+    '{"size":"~34MB"}',
     4,
     1,
   ],
@@ -672,6 +676,7 @@ const modelSeeds = [
     'High-quality local embeddings',
     '["English","Retrieval"]',
     '{"type":"embedding","defaultDimension":768}',
+    '{"size":"~110MB"}',
     5,
     0,
   ],
@@ -682,6 +687,7 @@ const modelSeeds = [
     'High-accuracy local embeddings',
     '["English","High accuracy"]',
     '{"type":"embedding","defaultDimension":1024}',
+    '{"size":"~340MB"}',
     6,
     0,
   ],
@@ -692,6 +698,7 @@ const modelSeeds = [
     'Desktop and browser local reasoning model with WebGPU acceleration',
     '["General tasks","Coding","Tool calling","Local reasoning"]',
     '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":131072}',
+    '{"architecture":"Gemma 4 E2B","device":"webgpu","quantization":"q4f16","size":"~3.9GB (text-only q4f16)"}',
     10,
     1,
   ],
@@ -845,24 +852,40 @@ export const TURSO_SCHEMA_BASELINE_SEED_DML = [
         updated_at = ${nowSql}
     `,
   })),
-  ...modelSeeds.map((seed) => ({
-    params: seed,
-    sql: `
+  ...modelSeeds.map((seed) => {
+    const parameters = seed.length === 9 ? seed[6] : null;
+    const sortOrder = seed.length === 9 ? seed[7] : seed[6];
+    const isEnabled = seed.length === 9 ? seed[8] : seed[7];
+    return {
+      params: [
+        seed[0],
+        seed[1],
+        seed[2],
+        seed[3],
+        seed[4],
+        seed[5],
+        parameters,
+        sortOrder,
+        isEnabled,
+      ],
+      sql: `
       INSERT INTO models (
-        id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled
+        id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         provider_id = excluded.provider_id,
         name = excluded.name,
         tagline = excluded.tagline,
         best_for = excluded.best_for,
         capabilities = excluded.capabilities,
+        parameters = excluded.parameters,
         sort_order = excluded.sort_order,
         is_enabled = models.is_enabled,
         updated_at = ${nowSql}
     `,
-  })),
+    };
+  }),
   ...viewFilterPresetSeeds.map((seed) => ({
     params: [
       seed[0],
