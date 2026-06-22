@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
+import { encodeFileMentionId, parseFileMentionDirectives } from '@brainstrike/assistant-contract';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, useCallback, useState } from 'react';
@@ -95,6 +96,32 @@ describe('composer @file mentions', () => {
     await user.click(within(popover).getByText('app.ts'));
 
     await waitFor(() => expect(input.value).toContain(':file[app.ts]{name=root-1::src/app.ts}'));
+  });
+
+  it('round-trips a file whose path contains `}` through the real library serializer + server parser', async () => {
+    // A `}` in the path would truncate the directive's `{name=…}` at parse time;
+    // the contract encodes it to `%7D`. This proves the encoded id survives the
+    // REAL assistant-ui formatter (not our contract serializer) and that the
+    // desktop server's parser decodes the original path back.
+    const braceFile: FileMention = {
+      id: encodeFileMentionId('root-1', 'src/a}b.ts'),
+      label: 'a}b.ts',
+      path: 'src/a}b.ts',
+      rootLabel: 'workspace',
+    };
+    renderPanel({ fileMentions: [braceFile], onFileMentionQueryChange: vi.fn() });
+    const user = await typeAt();
+
+    const input = await screen.findByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Message input',
+    });
+    const popover = await screen.findByRole('listbox', { name: 'File mentions' });
+    await user.click(within(popover).getByText('a}b.ts'));
+
+    await waitFor(() => expect(input.value).toContain(':file[a}b.ts]{name=root-1::src/a%7Db.ts}'));
+    expect(parseFileMentionDirectives(input.value)).toEqual([
+      expect.objectContaining({ rootId: 'root-1', path: 'src/a}b.ts' }),
+    ]);
   });
 
   it('notifies the query callback as the user types after "@" (drives async load)', async () => {
