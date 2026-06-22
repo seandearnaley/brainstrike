@@ -64,7 +64,9 @@ describe('useAssistantLocalRuntimeCatalog', () => {
     });
 
     expect(getLocalRuntimeStatuses).toHaveBeenCalledTimes(1);
+    expect(getLocalRuntimeStatuses).toHaveBeenCalledWith({ diagnosticLogLevel: 'debug' });
     expect(getLocalRuntimeModels).toHaveBeenCalledTimes(1);
+    expect(getLocalRuntimeModels).toHaveBeenCalledWith({ diagnosticLogLevel: 'debug' });
     expect(result.current.localRuntimeHint).toBe(
       'Detected local runtime: Ollama (1 models) on localhost.'
     );
@@ -99,6 +101,7 @@ describe('useAssistantLocalRuntimeCatalog', () => {
     });
 
     expect(getLocalRuntimeModels).not.toHaveBeenCalled();
+    expect(getLocalRuntimeStatuses).toHaveBeenCalledWith({ diagnosticLogLevel: 'debug' });
     expect(result.current.localRuntimeModels).toBeNull();
   });
 });

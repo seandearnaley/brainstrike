@@ -46,6 +46,7 @@ function createDatabaseWorkSnapshot(
       background: createPriorityStats(),
     },
     queued: { foreground: 0, normal: 0, background: 0 },
+    queuedLabels: { foreground: [], normal: [], background: [] },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 0,

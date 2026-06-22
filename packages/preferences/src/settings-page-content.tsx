@@ -1,12 +1,22 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, Cpu, Key, Palette, Search, Settings, Sigma } from 'lucide-react';
+import {
+  ChevronRight,
+  Cpu,
+  Key,
+  Palette,
+  Search,
+  Settings,
+  ShieldCheck,
+  Sigma,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import { PermissionSettingsSection } from './settings/system/permission-settings-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 
@@ -459,6 +469,29 @@ export function createSearchIndexingSettingsCategory(): SettingsCategory {
     keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
     icon: Search,
     content: <SearchIndexingSettingsSection />,
+  };
+}
+
+export function createPermissionSettingsCategory(): SettingsCategory {
+  return {
+    id: 'permissions',
+    title: 'Permissions',
+    description: 'Gate the assistant’s tools behind an allow / ask / deny policy.',
+    keywords: [
+      'permissions',
+      'permission',
+      'policy',
+      'enforce',
+      'allow',
+      'ask',
+      'deny',
+      'yolo',
+      'tools',
+      'safety',
+      'guardrails',
+    ],
+    icon: ShieldCheck,
+    content: <PermissionSettingsSection />,
   };
 }
 

@@ -8,6 +8,7 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   EmbeddingStreamBatch,
+  EmbeddingStreamOptions,
   ModelConfig,
   SimilarityResult,
 } from './types';
@@ -18,6 +19,7 @@ export interface DownloadModelOptions {
 }
 
 export interface SimpleEmbeddingServiceOptions {
+  readonly streamBatchSize?: number;
   readonly streamingWorkerUrl?: string;
 }
 
@@ -43,6 +45,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
       quantized: false,
+      ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
       ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
     };
     this._backend.setTargetDimensions(DEFAULT_EMBEDDING_DIMENSION);
@@ -165,8 +168,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
   async generateEmbeddingsStream(
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ): Promise<void> {
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
+  ): Promise<unknown> {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
@@ -178,7 +182,12 @@ export class SimpleEmbeddingService implements EmbeddingService {
         this._currentModelKey
       )
     );
-    await this._backend.generateEmbeddingsStream(withPrompts, this._config.modelId, onBatch);
+    return await this._backend.generateEmbeddingsStream(
+      withPrompts,
+      this._config.modelId,
+      onBatch,
+      options
+    );
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {

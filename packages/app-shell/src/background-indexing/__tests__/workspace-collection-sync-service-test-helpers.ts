@@ -16,6 +16,15 @@ export const BALANCED_QOS_POLICY = resolveWorkspaceIndexingQosPolicy({
   idleState: 'active',
   idleTimeMs: 0,
   manualPaused: false,
+  pipeline: {
+    accelerator: { available: false },
+    memory: { available: false },
+    progress: { available: false },
+    queueDepth: {
+      activeEmbeddingJobs: 0,
+      available: true,
+    },
+  },
   powerSource: 'ac',
   providerRateLimited: false,
   recentUserInputMs: null,

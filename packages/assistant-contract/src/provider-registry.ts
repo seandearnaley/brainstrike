@@ -41,6 +41,12 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   maxOutputTokens?: number;
   /**
+   * Approx. USD price per 1,000,000 tokens. ESTIMATE as of 2026-06-19 — list prices drift;
+   * treat as non-authoritative (override planned in settings). Omit for models with unknown
+   * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
+   */
+  pricing?: { inputPerMTok: number; outputPerMTok: number };
+  /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
@@ -129,6 +135,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'gpt-5.5-pro',
@@ -137,6 +144,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 15, outputPerMTok: 120 },
       },
       {
         id: 'gpt-5.4',
@@ -146,6 +154,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'gpt-5.4-pro',
@@ -154,6 +163,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 15, outputPerMTok: 120 },
       },
       {
         id: 'gpt-5.4-mini',
@@ -162,6 +172,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
       },
       {
         id: 'gpt-5.4-nano',
@@ -170,6 +181,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 0.05, outputPerMTok: 0.4 },
       },
       {
         id: 'gpt-5.3-codex',
@@ -178,6 +190,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'gpt-5.2',
@@ -186,6 +199,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'gpt-5.2-pro',
@@ -194,6 +208,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 15, outputPerMTok: 120 },
       },
       {
         id: 'text-embedding-3-small',
@@ -236,6 +251,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 5, outputPerMTok: 25 },
       },
       {
         id: 'claude-sonnet-4-6',
@@ -245,6 +261,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
       },
       {
         id: 'claude-haiku-4-5',
@@ -253,6 +270,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 1, outputPerMTok: 5 },
       },
     ],
   },
@@ -278,6 +296,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
       },
       {
         id: 'gemini-3.1-pro-preview',
@@ -286,6 +305,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 2, outputPerMTok: 12 },
       },
       {
         id: 'gemini-3.1-flash-lite',
@@ -294,6 +314,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
       },
       {
         id: 'gemini-2.5-pro',
@@ -302,6 +323,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'gemini-2.5-flash',
@@ -310,6 +332,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
       },
       {
         id: 'gemini-2.5-flash-lite',
@@ -318,6 +341,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.1, outputPerMTok: 0.4 },
       },
       {
         id: 'gemini-embedding-001',
@@ -364,6 +388,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'openai/gpt-5.4',
@@ -373,6 +398,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'openai/gpt-5.4-mini',
@@ -381,6 +407,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 0.25, outputPerMTok: 2 },
       },
       {
         id: 'openai/gpt-5.3-codex',
@@ -389,6 +416,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'openai/gpt-5.2',
@@ -397,6 +425,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 400_000,
         maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 10 },
       },
       {
         id: 'anthropic/claude-opus-4.8',
@@ -405,6 +434,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 5, outputPerMTok: 25 },
       },
       {
         id: 'anthropic/claude-sonnet-4.6',
@@ -413,6 +443,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
       },
       {
         id: 'anthropic/claude-haiku-4.5',
@@ -421,6 +452,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 200_000,
         maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 1, outputPerMTok: 5 },
       },
       {
         id: 'google/gemini-3.5-flash',
@@ -429,6 +461,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
       },
       {
         id: 'google/gemini-3.1-pro-preview',
@@ -437,6 +470,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 2, outputPerMTok: 12 },
       },
       {
         id: 'google/gemini-2.5-flash',
@@ -445,6 +479,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
       },
     ],
   },
@@ -520,14 +555,29 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         type: 'llm',
         default: true,
         supportsStreaming: false,
-        // 131_072 matches the value declared in the DB model-catalog migration
-        // (028-gemma-local-llm.ts, capabilities.contextWindow=131072) and is the
-        // context window Gemma 4 E2B actually supports per the Gemma 4 spec.
-        // The previous value (32_768) was incorrect — it was inherited from older
-        // local models (FunctionGemma 270M, Qwen3 0.6B) before migration 028 added
-        // Gemma 4 E2B. The runtime reports capabilities at contextWindow:131072.
-        contextWindow: 131_072,
-        maxOutputTokens: 8192,
+        // These are the RUNTIME budgets, not Gemma 4 E2B's architectural limits
+        // (the model spec lists ~128K context). The local provider runs q4f16
+        // weights through transformers.js on WebGPU, where prefilling a large
+        // prompt allocates an O(seq^2) attention buffer that exhausts GPU memory
+        // and aborts ONNX Runtime (SafeInt overflow / std::bad_alloc) well below
+        // the architectural window — empirically in the low thousands of tokens
+        // on a typical device. Declaring 131_072/8192 told the context-budget
+        // machinery (deriveEffectiveInputBudget -> agentLoop.inputTokenLimit ->
+        // Mastra TokenLimiter) and the meter that ~128K was usable, so multi-turn
+        // and tool-calling contexts ballooned straight into an OOM crash. These
+        // conservative values keep the assembled prompt bounded and cap local
+        // generation; a prompt that still exceeds a given device's GPU is caught
+        // by the engine-fault reset in llm-host-runtime (recovers + reports
+        // instead of poisoning the session). NOTE: this is RUNTIME-only metadata
+        // (no DB model-catalog migration). The DB catalog row (migration
+        // 028-gemma-local-llm.ts) still carries the DESCRIPTIVE
+        // capabilities.contextWindow: 131072, which is intentionally NOT
+        // consulted for budgeting — this static registry value is the sole
+        // budget source for the built-in 'local' provider — so the two
+        // diverging is harmless, not a bug. The deeper fix for reliable local
+        // tool-calling is a leaner local system-prompt/tool-schema footprint.
+        contextWindow: 8192,
+        maxOutputTokens: 2048,
       },
     ],
   },

@@ -9,6 +9,46 @@ export interface DatabaseTestResult {
   success: boolean;
 }
 
+export type ElectronChunkType = 'text' | 'code' | 'sentence' | 'recursive';
+
+export interface ElectronChunkInsert {
+  chunkIndex: number;
+  chunkSize: number;
+  chunkType: ElectronChunkType;
+  content: string;
+  contentHash: string;
+  createdAt: string;
+  embedding?: number[];
+  embeddingHash?: string;
+  embeddingSetId?: string;
+  embeddingUpdatedAt?: string;
+  endLine?: number;
+  endOffset?: number;
+  fileRecordId: string;
+  id: string;
+  startLine?: number;
+  startOffset?: number;
+  tokenCount: number;
+  updatedAt: string;
+}
+
+export interface ElectronInsertChunksAndEnqueueEmbeddingJobsOptions {
+  dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension' | null;
+  model?: string | null;
+  provider?:
+    | 'local'
+    | 'transformers'
+    | 'openai'
+    | 'google'
+    | 'cohere'
+    | 'voyage'
+    | 'ollama'
+    | 'lmstudio'
+    | null;
+  targetDimension?: number | null;
+  targetEmbeddingSetId?: string | null;
+}
+
 export type DatabaseInitFailureCategory =
   | 'missing-extension'
   | 'corruption'
@@ -85,6 +125,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly queuedLabels: Record<DatabaseWorkPriority, readonly (string | null)[]>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
   readonly snapshotAt: number;
@@ -190,6 +231,16 @@ export interface ElectronDatabaseAPI {
    * Get database file path (if applicable)
    */
   getPath?: () => Promise<string | null>;
+
+  /**
+   * Insert file chunks and enqueue their embedding jobs atomically in the DB host.
+   */
+  insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly ElectronChunkInsert[],
+    fileRecordId: string,
+    options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<void>;
 
   /**
    * Invalidate managed cache entries by embedding set, root id, and relative path identity.

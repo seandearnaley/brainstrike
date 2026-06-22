@@ -36,6 +36,7 @@ export * from './stores/logging-preferences-store';
 export * from './stores/model-registry-store';
 export * from './stores/native-tool-preferences-store';
 export * from './stores/panel-layout-store';
+export * from './stores/permission-policy-store';
 export * from './stores/secrets-store';
 export * from './stores/token-preferences-store';
 export * from './stores/tree-table-column-sizes-store';

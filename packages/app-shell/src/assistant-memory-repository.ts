@@ -99,12 +99,121 @@ export interface CompleteAssistantThreadRunInput {
   readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
 }
 
+/**
+ * One durable token-usage record. model/provider are stored PER ROW because a
+ * thread can switch models mid-conversation; cost must be computed per row
+ * against that row's pricing and summed, never against the thread's current
+ * model.
+ */
+export interface RecordRunUsageInput {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+  readonly resourceId: string;
+  /**
+   * Workspace ROOT this run was focused on, snapshotted at request start.
+   * Null/undefined when no root is focused — an honest "unattributed" bucket,
+   * NOT a fake root (no silent fallback).
+   */
+  readonly rootId?: string | null;
+  readonly runId: string;
+  readonly threadId: string;
+}
+
+/**
+ * One per-(root, provider, model) durable usage subtotal for a workspace
+ * (resourceId). `rootId` is null for runs that had no focused root.
+ * `rootDisplayName` is the root's human name from the joined `roots` row, or
+ * null when the root id is the null bucket or the join misses (e.g. a legacy
+ * path-remapped id). Cost is priced per (root, model) then summed per root —
+ * never cumulative tokens against a single price.
+ */
+export interface CrossRootUsageRow {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+  readonly rootDisplayName: string | null;
+  readonly rootId: string | null;
+}
+
+/**
+ * Single source of truth for the cross-root usage aggregation. Both the
+ * validated repo method (`getCrossRootUsage`) and the reactive live-query hook
+ * (`useCrossRootCost`) reference this exact string so the grouping/ordering and
+ * the roots join can never silently drift between them.
+ *
+ * `$1` = resourceId. Groups per (root, provider, model) so cost stays priceable
+ * per model. NULLS FIRST renders the "unattributed" bucket deterministically.
+ * The LEFT JOIN resolves the root's display name (null for the null bucket or a
+ * join miss); the `r.display_name` GROUP BY key is functionally determined by
+ * `u.root_id` (the roots PK), so it does not change the grouping.
+ */
+export const CROSS_ROOT_USAGE_AGGREGATION_SQL = `
+  SELECT
+    u.root_id AS "rootId",
+    -- Bound the rendered root name: an arbitrarily long display_name must not
+    -- blow up the cost panel. SUBSTR on a NULL (LEFT JOIN miss) stays NULL.
+    SUBSTR(r.display_name, 1, 512) AS "rootDisplayName",
+    u.provider AS provider,
+    u.model AS model,
+    SUM(u.input_tokens)::bigint AS "inputTokens",
+    SUM(u.output_tokens)::bigint AS "outputTokens"
+  FROM brainstrike_assistant_run_usage u
+  LEFT JOIN roots r ON r.id = u.root_id
+  WHERE u.resource_id = $1
+  GROUP BY u.root_id, r.display_name, u.provider, u.model
+  ORDER BY u.root_id ASC NULLS FIRST, u.provider ASC, u.model ASC
+`;
+
+/**
+ * Strict parser for one aggregation row from CROSS_ROOT_USAGE_AGGREGATION_SQL.
+ * Shared by the repo method and the live-query hook so the no-silent-fallbacks
+ * contract holds on BOTH paths — a malformed/non-finite/negative aggregate or a
+ * non-string provider/model THROWS rather than fabricating $0 / empty strings.
+ * Callers must catch and surface a visible "couldn't load" state.
+ */
+export function mapCrossRootUsageRow(row: Record<string, unknown>): CrossRootUsageRow {
+  return {
+    rootId: nullableString(row['rootId']),
+    // Defense for any non-SQL caller (the shared SQL already SUBSTRs to 512).
+    rootDisplayName: boundedNullableString(row['rootDisplayName'], MAX_ROOT_DISPLAY_NAME_CHARS),
+    provider: requireString(row['provider'], 'provider'),
+    model: requireString(row['model'], 'model'),
+    inputTokens: requireNonNegativeInteger(row['inputTokens'], 'inputTokens'),
+    outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
+  };
+}
+
+/** Per-model token subtotal for a single thread. */
+export interface ThreadModelUsageSubtotal {
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+}
+
+/**
+ * Cumulative durable token usage for a thread. `perModel` carries the
+ * per-(provider, model) subtotals so the UI can price each model with its own
+ * registry rate and sum — the thread totals alone cannot be priced when the
+ * thread mixed models.
+ */
+export interface ThreadCumulativeUsage {
+  readonly perModel: readonly ThreadModelUsageSubtotal[];
+  readonly totalInputTokens: number;
+  readonly totalOutputTokens: number;
+}
+
 export interface AssistantThreadRepository {
   appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;
   completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
   createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  getCrossRootUsage: (resourceId: string) => Promise<readonly CrossRootUsageRow[]>;
+  getThreadCumulativeUsage: (threadId: string) => Promise<ThreadCumulativeUsage | null>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
@@ -116,6 +225,7 @@ export interface AssistantThreadRepository {
     resourceId: string
   ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  recordRunUsage: (input: RecordRunUsageInput) => Promise<void>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
 }
@@ -135,6 +245,7 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
+const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -186,6 +297,36 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
   ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
+
+-- Durable per-thread token usage (Phase 5.1). model/provider are PER ROW so
+-- cost is attributable per model when a thread switches models mid-run.
+-- Bootstrapped here (alongside the runs table) AND created by migration 046 so
+-- both the test-only numbered runner and the real app converge on one shape.
+-- No FK to mastra_threads: usage may be recorded for non-memory-backed turns,
+-- and the row is a billing fact that should outlive a thread deletion cascade.
+-- root_id (Phase 5.2, nullable) groups usage by workspace ROOT for cross-root
+-- cost aggregation. Captured at request start (focus can change mid-run);
+-- NULL is an honest "unattributed" bucket, never a fake root. This bootstrap,
+-- migration 046 (table), and migration 047 (ALTER + index) must converge on
+-- one shape — keep the column + the root index byte-identical to 047.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  run_id text NOT NULL,
+  resource_id text NOT NULL,
+  model text NOT NULL,
+  provider text NOT NULL,
+  input_tokens integer NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens integer NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  root_id text
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
@@ -274,6 +415,28 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`Invalid Mastra memory row: ${fieldName} is not a string.`);
   }
   return value;
+}
+
+/**
+ * Validate a usage token count before persistence. Malformed values THROW —
+ * there is no silent coercion to 0 (see AGENTS.md "no silent fallbacks").
+ */
+function assertUsageTokenCount(value: number, fieldName: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Assistant run usage ${fieldName} must be a non-negative safe integer.`);
+  }
+}
+
+/**
+ * Coerce a SUM() aggregate (PGlite returns ::bigint as a string) into a
+ * non-negative integer, throwing if the DB hands back something unparseable.
+ */
+function requireNonNegativeInteger(value: unknown, fieldName: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!(Number.isFinite(parsed) && Number.isInteger(parsed)) || parsed < 0) {
+    throw new Error(`Invalid run usage aggregate: ${fieldName} is not a non-negative integer.`);
+  }
+  return parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -395,6 +558,22 @@ function getRowValue(row: Record<string, unknown>, camelKey: string, snakeKey: s
 
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+/** Char cap for a rendered root display name (mirrors the SUBSTR in the SQL). */
+const MAX_ROOT_DISPLAY_NAME_CHARS = 512;
+
+function boundedNullableString(value: unknown, maxChars: number): string | null {
+  const text = nullableString(value);
+  if (text === null) {
+    return text;
+  }
+  // Slice by code POINTS, not UTF-16 code units, so this actually mirrors the
+  // SQL `SUBSTR(..., 1, N)` (which counts characters): a name ending in a
+  // surrogate-pair grapheme (e.g. an emoji) at the boundary never leaves a lone
+  // surrogate. `[...text]` iterates code points.
+  const codePoints = [...text];
+  return codePoints.length <= maxChars ? text : codePoints.slice(0, maxChars).join('');
 }
 
 const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
@@ -1369,6 +1548,73 @@ export function createPgliteAssistantThreadRepository(
         ]
       );
       return record;
+    },
+    async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
+      assertUsageTokenCount(input.inputTokens, 'inputTokens');
+      assertUsageTokenCount(input.outputTokens, 'outputTokens');
+      await initialize();
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          crypto.randomUUID(),
+          input.threadId,
+          input.runId,
+          input.resourceId,
+          input.model,
+          input.provider,
+          input.inputTokens,
+          input.outputTokens,
+          new Date(),
+          input.rootId ?? null,
+        ]
+      );
+    },
+    async getThreadCumulativeUsage(threadId: string): Promise<ThreadCumulativeUsage | null> {
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT
+            provider,
+            model,
+            SUM(input_tokens)::bigint AS "inputTokens",
+            SUM(output_tokens)::bigint AS "outputTokens"
+         FROM ${ASSISTANT_RUN_USAGE_TABLE}
+         WHERE thread_id = $1
+         GROUP BY provider, model
+         ORDER BY provider ASC, model ASC`,
+        [threadId]
+      );
+      if (result.rows.length === 0) {
+        return null;
+      }
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      const perModel = result.rows.map((row) => {
+        const inputTokens = requireNonNegativeInteger(row['inputTokens'], 'inputTokens');
+        const outputTokens = requireNonNegativeInteger(row['outputTokens'], 'outputTokens');
+        totalInputTokens += inputTokens;
+        totalOutputTokens += outputTokens;
+        return {
+          provider: requireString(row['provider'], 'provider'),
+          model: requireString(row['model'], 'model'),
+          inputTokens,
+          outputTokens,
+        } satisfies ThreadModelUsageSubtotal;
+      });
+      return { perModel, totalInputTokens, totalOutputTokens };
+    },
+    async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
+      await initialize();
+      // Single source of truth shared with the reactive live-query hook
+      // (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the
+      // grouping/ordering/roots-join and the strict no-fabrication parse can
+      // never drift between the validated method and the panel's query.
+      const result = await database.query<Record<string, unknown>>(
+        CROSS_ROOT_USAGE_AGGREGATION_SQL,
+        [resourceId]
+      );
+      return result.rows.map(mapCrossRootUsageRow);
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();

@@ -118,13 +118,14 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
     await db.query(
       `INSERT INTO job_queue (
-         id, queue, job_type, payload, state, run_at,
+         id, queue, job_type, payload, chunk_id, state, run_at,
          lease_token, leased_until, worker_id, error, created_at, updated_at
        )
-       VALUES ($1, 'embeddings', 'embed_chunk', $2::jsonb, $3, $4, $5, $6, $7, $8, $4, $4)`,
+       VALUES ($1, 'embeddings', 'embed_chunk', $2::jsonb, $3, $4, $5, $6, $7, $8, $9, $5, $5)`,
       [
         args.id,
         JSON.stringify({ chunkId: args.chunkId }),
+        args.chunkId,
         args.state ?? 'queued',
         now,
         args.leaseToken ?? null,
@@ -158,7 +159,7 @@ describe('applyManagedCacheBatch', () => {
       `SELECT
          id,
          state,
-         payload->>'chunkId' AS chunk_id,
+         chunk_id,
          lease_token,
          leased_until,
          worker_id,
@@ -436,6 +437,37 @@ describe('applyManagedCacheBatch', () => {
     ).rejects.toThrow('Managed cache batch mutation requires transactional database support.');
   });
 
+  it('rejects null bytes in managed-cache content before reaching PGlite', async () => {
+    const now = new Date().toISOString();
+    const querySpy = vi.spyOn(db, 'query');
+
+    await expect(
+      applyManagedCacheBatch(db, {
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'file-null-byte',
+              name: 'late-null.txt',
+              path: 'src/late-null.txt',
+              size: 620,
+              createdAt: now,
+              updatedAt: now,
+              processedAt: now,
+              content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+              contentHash: 'hash-null-byte',
+              tokenCount: 155,
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow('Managed cache content cannot contain null bytes.');
+
+    expect(querySpy).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO file_records'));
+  });
+
   it('invalidates only the exact managed-cache identity and leaves the same relative path in another root', async () => {
     await seedRoot('root-other', '/workspace/other');
     await importManagedCacheFile({
@@ -644,20 +676,35 @@ describe('applyManagedCacheBatch', () => {
     await expect(fileRecordRepository.findById('prefix-trailing-slash-child')).resolves.toBeNull();
   });
 
-  it('rejects invalidation batches that exceed the PostgreSQL parameter limit', async () => {
-    const tooManyTargets = Array.from({ length: 16_384 }, (_, index) => ({
+  it('splits large invalidation batches into bounded target queries', async () => {
+    const queryMock = vi.fn(async () => ({ rows: [] }));
+    const fakeDb = {
+      transaction: async (callback: (tx: { query: typeof queryMock }) => Promise<unknown>) =>
+        await callback({ query: queryMock }),
+    };
+    const targets = Array.from({ length: 20_000 }, (_, index) => ({
       rootId: 'root-fixture',
       relativePath: `src/${index}.ts`,
     }));
 
     await expect(
-      invalidateManagedCacheEntriesByIdentity(db, {
+      invalidateManagedCacheEntriesByIdentity(fakeDb, {
         embeddingSetId: 'set-1',
-        targets: tooManyTargets,
+        targets,
       })
-    ).rejects.toThrow(
-      'Managed cache invalidation exceeds the PostgreSQL parameter limit. Received 16384 targets; maximum supported invalidation target count is 16383.'
+    ).resolves.toEqual({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    });
+
+    const targetMatchQueries = queryMock.mock.calls.filter(([sql]) =>
+      sql.includes('WITH targets(mode, root_id, relative_path, expected_file_record_id)')
     );
+    expect(targetMatchQueries.length).toBeGreaterThan(1);
+    for (const [, params] of targetMatchQueries) {
+      expect(params?.length ?? 0).toBeLessThanOrEqual(1 + 250 * 4);
+    }
   });
 
   it('invalidates file records, cascades chunk deletion, refreshes stats, and returns deleted ids', async () => {
@@ -924,6 +971,83 @@ describe('applyManagedCacheBatch', () => {
         worker_id: null,
       },
     ]);
+  });
+
+  it('cancels managed-cache replacement jobs through indexed chunk_id instead of JSON payload scans', async () => {
+    const now = new Date().toISOString();
+    const executedSql: string[] = [];
+    const recordingDb = {
+      exec: db.exec.bind(db),
+      query: db.query.bind(db),
+      transaction: async <T>(callback: (tx: PGlite) => Promise<T>): Promise<T> =>
+        await db.transaction(async (tx) => {
+          const recordingTx = {
+            exec: tx.exec.bind(tx),
+            query: async <TRow = unknown>(
+              sql: string,
+              params?: unknown[]
+            ): Promise<{ rows: TRow[] }> => {
+              executedSql.push(sql);
+              return await tx.query<TRow>(sql, params);
+            },
+          };
+          return await callback(recordingTx as PGlite);
+        }),
+    };
+
+    await fileRecordRepository.createWithContent({
+      id: 'replace-indexed-job-file',
+      name: 'replace-indexed-job.ts',
+      path: 'src/replace-indexed-job.ts',
+      size: 10,
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-indexed-job-old-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+      chunksCount: 1,
+      chunksProcessedAt: now,
+      chunkingStrategy: 'sentence',
+    });
+    await insertChunk({
+      chunkId: 'replace-indexed-job-old-chunk',
+      fileRecordId: 'replace-indexed-job-file',
+    });
+    await insertEmbeddingJob({
+      chunkId: 'replace-indexed-job-old-chunk',
+      id: 'replace-indexed-job-old-queued',
+      state: 'queued',
+    });
+
+    await applyManagedCacheBatch(recordingDb as unknown as PGlite, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'replace-indexed-job-file',
+            name: 'replace-indexed-job.ts',
+            path: 'src/replace-indexed-job.ts',
+            size: 11,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const version = 2;',
+            contentHash: 'replace-indexed-job-new-hash',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
+    const cancellationSql = executedSql.find(
+      (sql) => sql.includes('UPDATE job_queue') && sql.includes('Managed-cache replacement')
+    );
+
+    expect(cancellationSql).toContain('chunk_id = ANY($2::text[])');
+    expect(cancellationSql).not.toContain("payload->>'chunkId'");
   });
 
   it('rolls back replacement chunk deletion when a later import in the batch fails', async () => {

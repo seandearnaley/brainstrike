@@ -9,8 +9,10 @@ export type JobType = 'embed_chunk';
 export interface JobRow {
   attempts: number;
   backoff_ms: number;
+  chunk_id?: string | null;
   created_at: string;
   dedupe_key?: string | null;
+  embedding_set_id?: string | null;
   error?: string | null;
   id: string;
   job_type: string;
@@ -54,11 +56,29 @@ function fromRow(row: JobRow): Job {
     leasedUntil: row.leased_until ?? null,
     worker_id: row.worker_id ?? null,
     dedupe_key: row.dedupe_key ?? null,
+    chunk_id: row.chunk_id ?? null,
+    embedding_set_id: row.embedding_set_id ?? null,
     error: row.error ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
   return job;
+}
+
+function extractEmbedChunkId(jobType: JobType, payload: unknown): string | null {
+  if (jobType !== 'embed_chunk' || !(payload && typeof payload === 'object')) {
+    return null;
+  }
+  const chunkId = (payload as { chunkId?: unknown }).chunkId;
+  return typeof chunkId === 'string' && chunkId.length > 0 ? chunkId : null;
+}
+
+function extractEmbedEmbeddingSetId(jobType: JobType, payload: unknown): string | null {
+  if (jobType !== 'embed_chunk' || !(payload && typeof payload === 'object')) {
+    return null;
+  }
+  const embeddingSetId = (payload as { embeddingSetId?: unknown }).embeddingSetId;
+  return typeof embeddingSetId === 'string' && embeddingSetId.length > 0 ? embeddingSetId : null;
 }
 
 function computeElapsedMs(startIso: string, endIso: string): number | null {
@@ -97,6 +117,13 @@ export interface CompleteParams {
   leaseToken: string;
 }
 
+export interface CompleteEmbeddingChunkParams extends CompleteParams {
+  chunkId: string;
+  embedding: number[];
+  embeddingHash: string;
+  embeddingSetId: string;
+}
+
 export interface FailParams {
   backoffMs?: number;
   error: string;
@@ -127,6 +154,7 @@ type IdTypeProbe = 'information_schema' | 'pg_catalog';
 export class JobQueue {
   private static readonly DEFAULT_MAX_ATTEMPTS = 5;
   private static readonly MAX_BATCH_SIZE = 9000;
+  private fileChunkIdType: 'uuid' | 'text' | null = null;
   private idType: 'uuid' | 'text' | null = null;
 
   constructor(
@@ -152,69 +180,86 @@ export class JobQueue {
     return null;
   }
 
-  private async resolveIdTypeFromPgCatalog(): Promise<'uuid' | 'text' | null> {
+  private async resolveIdTypeFromPgCatalog(table: string): Promise<'uuid' | 'text' | null> {
     const res = await this.db.query<{ data_type: string }>(
       `SELECT format_type(a.atttypid, a.atttypmod) AS data_type
          FROM pg_catalog.pg_attribute a
          JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public'
-          AND c.relname = 'job_queue'
+          AND c.relname = $1
           AND a.attname = 'id'
           AND NOT a.attisdropped
-        LIMIT 1`
+        LIMIT 1`,
+      [table]
     );
     return this.normalizeIdType(res.rows[0]?.data_type);
   }
 
-  private async resolveIdTypeFromInformationSchema(): Promise<'uuid' | 'text' | null> {
+  private async resolveIdTypeFromInformationSchema(table: string): Promise<'uuid' | 'text' | null> {
     const res = await this.db.query<{ data_type: string }>(
       `SELECT data_type
          FROM information_schema.columns
         WHERE table_schema = 'public'
-          AND table_name = 'job_queue'
+          AND table_name = $1
           AND column_name = 'id'
-        LIMIT 1`
+        LIMIT 1`,
+      [table]
     );
     return this.normalizeIdType(res.rows[0]?.data_type);
   }
 
-  private async getOrResolveIdType(): Promise<'uuid' | 'text'> {
-    if (this.idType) {
-      return this.idType;
-    }
+  private async resolveTableIdType(table: string): Promise<'uuid' | 'text'> {
     const errors: string[] = [];
 
     try {
-      const type = await this.resolveIdTypeFromPgCatalog();
+      const type = await this.resolveIdTypeFromPgCatalog(table);
       if (type) {
-        this.idType = type;
-        return this.idType;
+        return type;
       }
     } catch (error) {
-      this.recordIdTypeProbeError(errors, 'pg_catalog', error);
+      this.recordIdTypeProbeError(errors, 'pg_catalog', table, error);
     }
 
     try {
-      const type = await this.resolveIdTypeFromInformationSchema();
+      const type = await this.resolveIdTypeFromInformationSchema(table);
       if (type) {
-        this.idType = type;
-        return this.idType;
+        return type;
       }
     } catch (error) {
-      this.recordIdTypeProbeError(errors, 'information_schema', error);
+      this.recordIdTypeProbeError(errors, 'information_schema', table, error);
     }
 
     const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
-    throw new Error(`Failed to resolve ID type for job_queue.id.${suffix}`);
+    throw new Error(`Failed to resolve ID type for ${table}.id.${suffix}`);
   }
 
-  private recordIdTypeProbeError(errors: string[], probe: IdTypeProbe, error: unknown): void {
+  private async getOrResolveIdType(): Promise<'uuid' | 'text'> {
+    if (!this.idType) {
+      this.idType = await this.resolveTableIdType('job_queue');
+    }
+    return this.idType;
+  }
+
+  private async getOrResolveFileChunkIdType(): Promise<'uuid' | 'text'> {
+    if (!this.fileChunkIdType) {
+      this.fileChunkIdType = await this.resolveTableIdType('file_chunks');
+    }
+    return this.fileChunkIdType;
+  }
+
+  private recordIdTypeProbeError(
+    errors: string[],
+    probe: IdTypeProbe,
+    table: string,
+    error: unknown
+  ): void {
     const message = error instanceof Error ? error.message : String(error);
     errors.push(`${probe}: ${message}`);
-    logger.error('Failed to resolve job_queue id type probe', {
+    logger.error('Failed to resolve table id type probe', {
       message,
       probe,
+      table,
     });
   }
 
@@ -240,6 +285,8 @@ export class JobQueue {
     const maxAttempts =
       params.maxAttempts ?? this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
     const dedupe = params.dedupeKey ?? null;
+    const chunkId = extractEmbedChunkId(params.jobType, params.payload);
+    const embeddingSetId = extractEmbedEmbeddingSetId(params.jobType, params.payload);
 
     // Portable idempotent enqueue using CTEs (works with partial unique index)
     const inserted = await this.db.query<JobRow>(
@@ -250,16 +297,19 @@ export class JobQueue {
        ),
        upd AS (
          UPDATE job_queue
-            SET run_at = LEAST(run_at, $5), updated_at = GREATEST(updated_at, $8)
+            SET run_at = LEAST(run_at, $5),
+                chunk_id = COALESCE(chunk_id, $9),
+                embedding_set_id = COALESCE(embedding_set_id, $10),
+                updated_at = GREATEST(updated_at, $8)
           WHERE id IN (SELECT id FROM existing)
           RETURNING *
        ),
        ins AS (
          INSERT INTO job_queue (
-           id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+           id, queue, job_type, payload, chunk_id, embedding_set_id, state, run_at, attempts, max_attempts, backoff_ms,
            lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
          )
-         SELECT $1,$2,$3,$4,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
+         SELECT $1,$2,$3,$4,$9,$10,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
          WHERE NOT EXISTS (SELECT 1 FROM existing)
          RETURNING *
        )
@@ -276,6 +326,8 @@ export class JobQueue {
         maxAttempts,
         dedupe,
         now,
+        chunkId,
+        embeddingSetId,
       ]
     );
 
@@ -353,8 +405,8 @@ export class JobQueue {
     const idTypeCast = idType === 'uuid' ? 'uuid' : 'text';
     return `WITH input AS (
              SELECT * FROM unnest(
-               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
-             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
+               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[], $8::text[], $9::text[]
+             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key, chunk_id, embedding_set_id)
            ),
            existing AS (
              SELECT jq.id, jq.dedupe_key, i.run_at_text
@@ -364,19 +416,23 @@ export class JobQueue {
            ),
            upd AS (
              UPDATE job_queue jq
-             SET run_at = LEAST(jq.run_at, e.run_at_text), updated_at = $8
+             SET run_at = LEAST(jq.run_at, e.run_at_text),
+                 chunk_id = COALESCE(jq.chunk_id, i.chunk_id),
+                 embedding_set_id = COALESCE(jq.embedding_set_id, i.embedding_set_id),
+                 updated_at = $10
              FROM existing e
+             JOIN input i ON i.dedupe_key = e.dedupe_key
              WHERE jq.id = e.id
              RETURNING jq.*
            ),
            ins AS (
              INSERT INTO job_queue (
-               id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+               id, queue, job_type, payload, chunk_id, embedding_set_id, state, run_at, attempts, max_attempts, backoff_ms,
                lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
              )
              SELECT
-               i.id, i.queue, i.job_type, i.payload, 'queued', i.run_at_text, 0, i.max_attempts, 0,
-               NULL, NULL, NULL, i.dedupe_key, NULL, $8, $8
+               i.id, i.queue, i.job_type, i.payload, i.chunk_id, i.embedding_set_id, 'queued', i.run_at_text, 0, i.max_attempts, 0,
+               NULL, NULL, NULL, i.dedupe_key, NULL, $10, $10
              FROM input i
              WHERE NOT EXISTS (SELECT 1 FROM existing e WHERE e.dedupe_key = i.dedupe_key)
              RETURNING *
@@ -424,6 +480,8 @@ export class JobQueue {
     const runAts: string[] = [];
     const maxAttemptsArr: number[] = [];
     const dedupeKeys: (string | null)[] = [];
+    const chunkIds: (string | null)[] = [];
+    const embeddingSetIds: (string | null)[] = [];
 
     const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
 
@@ -435,6 +493,8 @@ export class JobQueue {
       runAts.push(p.runAt ?? now);
       maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
       dedupeKeys.push(p.dedupeKey ?? null);
+      chunkIds.push(extractEmbedChunkId(p.jobType, p.payload));
+      embeddingSetIds.push(extractEmbedEmbeddingSetId(p.jobType, p.payload));
     }
 
     const sql = this.buildBatchQuery(idType);
@@ -447,6 +507,8 @@ export class JobQueue {
       runAts,
       maxAttemptsArr,
       dedupeKeys,
+      chunkIds,
+      embeddingSetIds,
       now,
     ]);
 
@@ -655,6 +717,114 @@ export class JobQueue {
 
     if (completedJobs.length > 0) {
       logger.trace('Jobs completed in batch', { count: completedJobs.length });
+    }
+
+    for (const job of completedJobs) {
+      const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'complete',
+        taskId: job.id,
+        ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+        },
+      });
+    }
+
+    return completedJobs;
+  }
+
+  /**
+   * Atomically writes chunk embeddings and completes their jobs under the same lease guard.
+   * A stale worker must not persist a vector after losing ownership of its job.
+   */
+  async completeEmbeddingChunkBatch(jobs: CompleteEmbeddingChunkParams[]): Promise<Job[]> {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const jobIdType = await this.getOrResolveIdType();
+    const chunkIdType = await this.getOrResolveFileChunkIdType();
+    this.validateIdType(jobIdType);
+    this.validateIdType(chunkIdType);
+
+    const updatedAt = new Date().toISOString();
+    const ids = jobs.map((job) => job.id);
+    const leaseTokens = jobs.map((job) => job.leaseToken);
+    const chunkIds = jobs.map((job) => job.chunkId);
+    const embeddings = jobs.map((job) => `[${job.embedding.join(',')}]`);
+    const embeddingSetIds = jobs.map((job) => job.embeddingSetId);
+    const embeddingHashes = jobs.map((job) => job.embeddingHash);
+    const jobIdArrayType = jobIdType === 'uuid' ? 'uuid[]' : 'text[]';
+    const chunkIdArrayType = chunkIdType === 'uuid' ? 'uuid[]' : 'text[]';
+
+    const res = await this.db.query<JobRow>(
+      `WITH input AS (
+         SELECT *
+           FROM unnest(
+             $2::${jobIdArrayType},
+             $3::text[],
+             $4::${chunkIdArrayType},
+             $5::text[],
+             $6::text[],
+             $7::text[]
+           ) AS t(id, lease_token, chunk_id, embedding, embedding_set_id, embedding_hash)
+       ),
+       owned_jobs AS (
+         SELECT
+           j.id AS job_id,
+           i.chunk_id,
+           i.embedding,
+           i.embedding_set_id,
+           i.embedding_hash
+         FROM job_queue AS j
+         JOIN input AS i
+          ON j.id = i.id
+          AND j.lease_token = i.lease_token
+         WHERE j.state = 'running'
+       ),
+       chunk_updates AS (
+         SELECT DISTINCT ON (chunk_id)
+           chunk_id,
+           embedding,
+           embedding_set_id,
+           embedding_hash
+         FROM owned_jobs
+         ORDER BY chunk_id, job_id
+       ),
+       updated_chunks AS (
+         UPDATE file_chunks AS fc
+            SET embedding = u.embedding::vector,
+                embedding_set_id = u.embedding_set_id,
+                embedding_updated_at = $1,
+                embedding_hash = u.embedding_hash,
+                updated_at = $1
+           FROM chunk_updates AS u
+          WHERE fc.id = u.chunk_id
+          RETURNING fc.id AS chunk_id
+       ),
+       completed_jobs AS (
+         UPDATE job_queue AS j
+            SET state = 'succeeded',
+                chunk_id = COALESCE(j.chunk_id, o.chunk_id::text),
+                embedding_set_id = COALESCE(j.embedding_set_id, o.embedding_set_id),
+                leased_until = NULL,
+                updated_at = $1
+           FROM owned_jobs AS o
+           JOIN updated_chunks AS u ON u.chunk_id = o.chunk_id
+          WHERE j.id = o.job_id
+          RETURNING j.*
+       )
+       SELECT * FROM completed_jobs`,
+      [updatedAt, ids, leaseTokens, chunkIds, embeddings, embeddingSetIds, embeddingHashes]
+    );
+
+    const completedJobs = res.rows.map(fromRow);
+
+    if (completedJobs.length > 0) {
+      logger.trace('Embedding chunks completed in batch', { count: completedJobs.length });
     }
 
     for (const job of completedJobs) {
@@ -1210,7 +1380,7 @@ export class JobQueue {
     }
     if (options.embeddingSetId) {
       params.push(options.embeddingSetId);
-      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
+      conditions.push(`embedding_set_id = $${params.length}`);
     }
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (
@@ -1250,7 +1420,7 @@ export class JobQueue {
     }
     if (options.embeddingSetId) {
       params.push(options.embeddingSetId);
-      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
+      conditions.push(`embedding_set_id = $${params.length}`);
     }
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (

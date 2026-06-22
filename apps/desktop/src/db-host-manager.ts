@@ -14,7 +14,7 @@ import type {
   DbHostToMainMessage,
   DbHostTransactionStartResult,
 } from './db-host-protocol';
-import { DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 
 const logger = createLogger('DbHostManager');
 
@@ -87,6 +87,9 @@ export interface RemoteDbClient extends RemoteDbTransaction {
       params?: readonly unknown[] | null
     ) => Promise<RemoteDbLiveQuery<TRecord>>;
   };
+  readonly maintenance: {
+    readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  };
   readonly transaction: <TResult>(
     fn: (tx: RemoteDbTransaction) => Promise<TResult>
   ) => Promise<TResult>;
@@ -97,6 +100,7 @@ export interface DbHostManager {
   readonly close: () => Promise<void>;
   readonly getDatabase: () => Promise<RemoteDbClient>;
   readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
 }
@@ -105,13 +109,26 @@ export interface DbHostManagerOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly initializationTimeoutMs?: number;
+  readonly maintenanceRequestTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
 }
 
 interface PendingRequest {
   readonly reject: (reason: unknown) => void;
+  readonly requestKind: DbHostRequest['kind'];
   readonly resolve: (value: unknown) => void;
+  readonly startedAt: number;
+  readonly timeoutMs: number;
   readonly timer: ReturnType<typeof setTimeout>;
+}
+
+interface RequestTimeoutDiagnostics {
+  readonly liveId?: string;
+  readonly paramsCount?: number;
+  readonly payloadQueryPreview?: string;
+  readonly requestKind: DbHostRequest['kind'];
+  readonly sqlPreview?: string;
+  readonly transactionId?: string;
 }
 
 function toError(error: DbHostSerializedError): Error {
@@ -142,6 +159,63 @@ function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
     request.kind === 'transaction:commit' ||
     request.kind === 'transaction:rollback'
   );
+}
+
+function createQueryPreview(query: string): string {
+  return query.replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function getParamsCount(params: readonly unknown[] | undefined): number | undefined {
+  return params === undefined ? undefined : params.length;
+}
+
+function createParamsCountDiagnostic(params: readonly unknown[] | undefined): {
+  readonly paramsCount?: number;
+} {
+  const paramsCount = getParamsCount(params);
+  return paramsCount === undefined ? {} : { paramsCount };
+}
+
+function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeoutDiagnostics {
+  switch (request.kind) {
+    case 'query':
+    case 'exec':
+    case 'maintenance:exec':
+      return {
+        requestKind: request.kind,
+        sqlPreview: createQueryPreview(request.sql),
+        ...createParamsCountDiagnostic(request.params),
+      };
+    case 'transaction:query':
+    case 'transaction:exec':
+      return {
+        requestKind: request.kind,
+        transactionId: request.transactionId,
+        sqlPreview: createQueryPreview(request.sql),
+        ...createParamsCountDiagnostic(request.params),
+      };
+    case 'transaction:commit':
+    case 'transaction:rollback':
+    case 'transaction:start':
+      return {
+        requestKind: request.kind,
+        transactionId: request.transactionId,
+      };
+    case 'live:start':
+      return {
+        requestKind: request.kind,
+        payloadQueryPreview: createQueryPreview(request.payload.query),
+        ...createParamsCountDiagnostic(request.payload.params),
+      };
+    case 'live:refresh':
+    case 'live:stop':
+      return {
+        requestKind: request.kind,
+        liveId: request.liveId,
+      };
+    default:
+      return { requestKind: request.kind };
+  }
 }
 
 function resolveDefaultEntryPath(): string {
@@ -183,6 +257,10 @@ function createDbHostEnvironment(): Record<string, string> {
   const serializePGliteInit = process.env[SERIALIZE_PGLITE_INIT_ENV];
   if (serializePGliteInit !== undefined) {
     environment[SERIALIZE_PGLITE_INIT_ENV] = serializePGliteInit;
+  }
+  const databaseProfile = process.env[DB_PROFILE_ENV];
+  if (databaseProfile !== undefined) {
+    environment[DB_PROFILE_ENV] = databaseProfile;
   }
   environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
   return environment;
@@ -283,6 +361,7 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #closeTimeoutMs: number;
   readonly #initializationTimeoutMs: number;
+  readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
@@ -292,6 +371,8 @@ class DefaultDbHostManager implements DbHostManager {
     this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#maintenanceRequestTimeoutMs =
+      options.maintenanceRequestTimeoutMs ?? Math.max(10 * 60_000, this.#requestTimeoutMs);
     this.#initializationTimeoutMs =
       options.initializationTimeoutMs ??
       Math.max(DEFAULT_INITIALIZATION_TIMEOUT_MS, this.#requestTimeoutMs);
@@ -368,14 +449,32 @@ class DefaultDbHostManager implements DbHostManager {
     return await this.send({ kind: 'managed-cache:invalidate-by-identity', payload });
   }
 
+  async insertChunksAndEnqueueEmbeddingJobs(payload: unknown): Promise<void> {
+    await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
+  }
+
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
     const host = this.#ensureHost();
     const id = createRequestId();
     const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
     return await new Promise<TResult>((resolve, reject) => {
       const timeoutMs = this.#getRequestTimeoutMs(request);
+      const startedAt = Date.now();
+      const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
         const error = new Error(`DB host request timed out: ${request.kind}`);
+        logger.warn(
+          {
+            ...timeoutDiagnostics,
+            elapsedMs: Math.max(0, Date.now() - startedAt),
+            pendingByKind: this.#getPendingRequestCountsByKind(),
+            pendingCount: this.#pending.size,
+            requestId: id,
+            timeoutMs,
+            willTerminateHost: requiresHostTerminationOnTimeout(request),
+          },
+          'DB host request timed out'
+        );
         this.#pending.delete(id);
         reject(error);
         if (requiresHostTerminationOnTimeout(request)) {
@@ -384,15 +483,32 @@ class DefaultDbHostManager implements DbHostManager {
       }, timeoutMs);
       this.#pending.set(id, {
         reject,
+        requestKind: request.kind,
         resolve: resolve as (value: unknown) => void,
+        startedAt,
         timer,
+        timeoutMs,
       });
       host.postMessage(envelope);
     });
   }
 
+  #getPendingRequestCountsByKind(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const pending of this.#pending.values()) {
+      counts[pending.requestKind] = (counts[pending.requestKind] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   #getRequestTimeoutMs(request: DbHostRequest): number {
-    return request.kind === 'init' ? this.#initializationTimeoutMs : this.#requestTimeoutMs;
+    if (request.kind === 'init') {
+      return this.#initializationTimeoutMs;
+    }
+    if (request.kind === 'maintenance:exec') {
+      return this.#maintenanceRequestTimeoutMs;
+    }
+    return this.#requestTimeoutMs;
   }
 
   registerLiveQuery(liveId: string, query: RemoteLiveQuery<unknown>): void {
@@ -487,6 +603,10 @@ class DefaultDbHostManager implements DbHostManager {
                 }
               : { ...payload, mode: 'query' }
           ),
+      },
+      maintenance: {
+        exec: async (sql, params) =>
+          await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
       query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
         await this.send<DbHostQueryResult<TRecord>>({

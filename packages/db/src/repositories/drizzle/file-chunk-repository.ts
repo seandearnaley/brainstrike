@@ -24,6 +24,10 @@ import {
   selectionSnapshotFiles,
 } from '../../schema/index.js';
 import {
+  assertTextContentHasNoNullBytes,
+  assertTextContentsHaveNoNullBytes,
+} from '../../text-content-invariants.js';
+import {
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
   FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY,
@@ -157,6 +161,7 @@ export class DrizzleFileChunkRepository {
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
+    assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
     const [row] = await this.db
       .insert(fileChunks)
       .values({
@@ -211,6 +216,7 @@ export class DrizzleFileChunkRepository {
     if (chunks.length === 0) {
       return [];
     }
+    assertTextContentsHaveNoNullBytes(chunks, (chunk) => chunk.content, 'File chunk content');
 
     const values = chunks.map((chunk) => ({
       id: chunk.id,
@@ -266,6 +272,7 @@ export class DrizzleFileChunkRepository {
     };
 
     if (chunk.content !== undefined) {
+      assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
       // content_tsvector is a STORED generated column; Postgres recomputes it
       // automatically when `content` changes, so we must not set it here.
       updateData.content = chunk.content;

@@ -16,6 +16,10 @@ export * from './architecture/db-runtime-baseline.js';
 export * from './atomic-transaction.js';
 export * from './browser-pglite-storage.js';
 export * from './browser-pglite-storage-benchmark.js';
+export {
+  type InsertChunksAndEnqueueEmbeddingJobsArgs,
+  insertChunksAndEnqueueEmbeddingJobs,
+} from './chunk-embedding-job-batch.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';
@@ -42,6 +46,13 @@ export {
 } from './managed-cache/index.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
+export {
+  createDimensionIndex,
+  dropDimensionIndex,
+  hnswParams,
+  resumeDimensionIndexBuilds,
+  suspendDimensionIndexBuilds,
+} from './migrations/dimension-index-helpers.js';
 export type { Migration } from './migrations/index.js';
 // New migration system
 export { MigrationRunner, migrations } from './migrations/index.js';
@@ -116,6 +127,23 @@ export {
   markCollectionIndexingStatsDirty,
   refreshCollectionIndexingStats,
 } from './services/collection-indexing-stats.js';
+export {
+  type DimensionIndexMaintenanceClockOptions,
+  type DimensionIndexMaintenanceRow,
+  type DimensionIndexMaintenanceSkipReason,
+  type DimensionIndexMaintenanceState,
+  type DimensionIndexMaintenanceStatus,
+  type DimensionIndexMaintenanceStrategy,
+  type DimensionIndexSuspensionRow,
+  listDimensionIndexMaintenance,
+  listDimensionIndexSuspensions,
+  type RequestDimensionIndexMaintenanceInput,
+  type RunDimensionIndexMaintenanceOptions,
+  type RunDimensionIndexMaintenanceResult,
+  reconcileSuspendedDimensionIndexMaintenance,
+  requestDimensionIndexMaintenance,
+  runNextDimensionIndexMaintenance,
+} from './services/dimension-index-maintenance.js';
 export {
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,

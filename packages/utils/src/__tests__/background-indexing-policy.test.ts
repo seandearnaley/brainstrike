@@ -92,6 +92,18 @@ describe('background-indexing-policy', () => {
     ).toBe(false);
     expect(
       policy.shouldTraverseDirectory({
+        directoryName: 'worktrees',
+        relativePath: '.claude/worktrees',
+      })
+    ).toBe(true);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'dual-state-refactor',
+        relativePath: '.claude/worktrees/dual-state-refactor',
+      })
+    ).toBe(true);
+    expect(
+      policy.shouldTraverseDirectory({
         directoryName: 'dist',
         relativePath: 'dist',
       })
@@ -141,12 +153,48 @@ describe('background-indexing-policy', () => {
         relativePath: 'public/assets/app.min.js',
       })
     ).toBe(true);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'coverage',
-        relativePath: 'coverage',
-      })
-    ).toBe(true);
+  });
+
+  it('full-root policy still skips hard generated and cache directories', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+    for (const relativePath of [
+      '.git',
+      '.turbo',
+      '.turbo/cache',
+      'node_modules',
+      '.pnpm-store',
+      '.next',
+      'dist',
+      'build',
+      'coverage',
+      'test-results',
+    ]) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+        })
+      ).toBe(false);
+    }
+  });
+
+  it('full-root policy skips macOS app and framework bundles', () => {
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+    for (const relativePath of [
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework',
+      'apps/desktop/release/mac-arm64/BrainStrike Desktop.app/Contents/Frameworks/Electron Framework.framework/Versions/Current',
+    ]) {
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+        })
+      ).toBe(false);
+    }
   });
 
   it('skips binary and oversized files regardless of preset', () => {

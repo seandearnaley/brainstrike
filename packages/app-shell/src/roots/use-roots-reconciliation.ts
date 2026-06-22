@@ -1,7 +1,7 @@
 import type { DbHandle } from '@brainstrike/db';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { reconcileRoots } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
@@ -32,6 +32,15 @@ export interface UseRootsReconciliationArgs {
 
 export interface UseRootsReconciliationResult {
   /**
+   * Reactive snapshot of the adapter-rootId → DB-rootId mapping for the
+   * currently-reconciled roots (canonical adapter-id keys ONLY — no path
+   * fallback keys). Unlike the ref-backed `resolveDbRootId` callback this is a
+   * new Map identity each time the mapping grows, so consumers that need to
+   * INVERT it (DB id → adapter id, e.g. quick-open) re-render when it resolves.
+   * Empty until the boot reconcile settles.
+   */
+  dbRootIdByAdapterRootId: ReadonlyMap<string, string>;
+  /**
    * Registers a root added mid-session (Add Folder) in the DB `roots` table
    * immediately, so its imports carry a real `root_id` without waiting for the
    * next boot's reconciliation pass. Ref-stable. Awaits the boot settle first
@@ -55,6 +64,8 @@ interface PerformRootRegistrationArgs {
   db: DbHandle | null;
   dbRootIdMap: DbRootIdMap;
   descriptor: RootDescriptor;
+  /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
+  publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
 }
 
 /**
@@ -66,6 +77,7 @@ async function performRootRegistration({
   db,
   descriptor,
   dbRootIdMap,
+  publishCanonicalMapping,
 }: PerformRootRegistrationArgs): Promise<void> {
   if (!adapter.restoreRoots) {
     // Mirrors the boot no-op: on adapters without restoreRoots the registered
@@ -107,6 +119,7 @@ async function performRootRegistration({
     if (dbRootId !== undefined) {
       dbRootIdMap.set(descriptor.rootId, dbRootId);
       dbRootIdMap.set(descriptor.handle.path, dbRootId);
+      publishCanonicalMapping(descriptor.rootId, dbRootId);
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -134,6 +147,14 @@ export function useRootsReconciliation({
   db,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
+
+  // Reactive snapshot of the canonical adapter-rootId → DB-rootId mapping
+  // (adapter-id keys only — never the path fallback keys held in
+  // dbRootIdMapRef). Exposed so consumers that invert it (DB id → adapter id)
+  // re-render when reconciliation settles or a mid-session root registers.
+  const [dbRootIdByAdapterRootId, setDbRootIdByAdapterRootId] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
 
   // The settling promise resolves with the path→dbRootId map on success, or an
   // empty map on the already-logged error path — it NEVER rejects or hangs.
@@ -168,6 +189,22 @@ export function useRootsReconciliation({
   adapterRef.current = adapter;
   const dbRef = useRef(db);
   dbRef.current = db;
+
+  // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
+  // the pair is already present so a re-resolved boot map never churns the Map
+  // identity (and therefore never re-renders inverting consumers needlessly).
+  // Declared before the boot effect that calls it (avoids a TDZ in the effect's
+  // dep array).
+  const publishCanonicalMapping = useCallback((adapterRootId: string, dbRootId: string): void => {
+    setDbRootIdByAdapterRootId((prev) => {
+      if (prev.get(adapterRootId) === dbRootId) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(adapterRootId, dbRootId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (hasRunRef.current) {
@@ -237,6 +274,14 @@ export function useRootsReconciliation({
         for (const [rootKey, dbRootId] of dbRootIdMap) {
           dbRootIdMapRef.current.set(rootKey, dbRootId);
         }
+        // Publish ONLY the canonical adapter-id keys to reactive state (the
+        // descriptor.rootId entries — never the path fallback keys).
+        for (const descriptor of adapterRoots) {
+          const dbRootId = dbRootIdMap.get(descriptor.rootId);
+          if (dbRootId !== undefined) {
+            publishCanonicalMapping(descriptor.rootId, dbRootId);
+          }
+        }
         resolve(dbRootIdMap);
       })
       .catch((err: unknown) => {
@@ -244,7 +289,7 @@ export function useRootsReconciliation({
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
       });
-  }, [adapter, db]);
+  }, [adapter, db, publishCanonicalMapping]);
 
   // Reads the settling ref at call time (the effect may have re-keyed it when
   // a restoreRoots-capable adapter replaced an incapable one). The null case
@@ -269,6 +314,7 @@ export function useRootsReconciliation({
           db: dbRef.current,
           descriptor,
           dbRootIdMap: dbRootIdMapRef.current,
+          publishCanonicalMapping,
         });
       };
       // Serialize registrations so two adds for the same path cannot interleave
@@ -278,7 +324,7 @@ export function useRootsReconciliation({
       pendingRegistrationsRef.current = chained;
       return await chained;
     },
-    [awaitBootSettle]
+    [awaitBootSettle, publishCanonicalMapping]
   );
 
   const resolveDbRootId = useCallback(
@@ -300,5 +346,5 @@ export function useRootsReconciliation({
     [awaitBootSettle]
   );
 
-  return { registerRoot, resolveDbRootId };
+  return { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId };
 }

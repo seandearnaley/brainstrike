@@ -41,6 +41,13 @@ vi.mock('../server/assistant-config', async () => {
   };
 });
 
+// The handler builds its stream (normal turn OR approval resume) through this
+// seam, which owns the in-process workflow storage. Mock it so the unit test
+// never spins up a real PGlite store.
+vi.mock('../server/web-mastra-storage', () => ({
+  buildWebAssistantStream: vi.fn(),
+}));
+
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
   assistantDataStreamSessions,
@@ -55,6 +62,7 @@ import {
   sendAssistantStatusResponse,
 } from '../assistant-stream-helpers';
 import { resolveAssistantProviderConfig } from '../server/assistant-config';
+import { buildWebAssistantStream } from '../server/web-mastra-storage';
 
 class ResponseSink extends EventEmitter {
   status?: number;
@@ -145,7 +153,7 @@ describe('assistant-stream-helpers', () => {
 
   it('returns 502 when streaming initialization fails', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
-    vi.mocked(toAiSdkStyleStream).mockRejectedValue(new Error('boom'));
+    vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
@@ -169,7 +177,7 @@ describe('assistant-stream-helpers', () => {
       },
     };
 
-    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
     vi.mocked(assistantDataStreamSessions.create).mockImplementation(
       () =>
         ({
@@ -187,33 +195,41 @@ describe('assistant-stream-helpers', () => {
     expect(res.body).toContain('ok');
   });
 
-  it('rejects tool approval resume actions on the web assistant helper route', async () => {
+  it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'resumed' } as StreamChunk;
+      },
+    };
+    vi.mocked(buildWebAssistantStream).mockResolvedValue(stream);
+    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
+      () =>
+        ({
+          createResponse: () => new Response('resumed'),
+        }) as unknown as AssistantDataStreamSession
+    );
 
+    const approvalAction = {
+      action: 'decline',
+      runId: 'run-approval-1',
+      toolCallId: 'tool-call-1',
+      toolName: 'workspace.writeFile',
+    };
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
     await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
       messages: [{ id: '1', role: 'user', parts: [] }],
-      runConfig: {
-        custom: {
-          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
-            action: 'decline',
-            runId: 'run-approval-1',
-            toolCallId: 'tool-call-1',
-            toolName: 'workspace.writeFile',
-          },
-        },
-      },
+      runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
     });
 
-    expect(res.status).toBe(501);
-    expect(JSON.parse(res.body)).toMatchObject({
-      error: 'tool_approval_resume_unsupported',
-    });
-    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
-    expect(assistantDataStreamSessions.create).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('resumed');
+    expect(buildWebAssistantStream).toHaveBeenCalledWith(
+      expect.objectContaining({ toolApprovalAction: approvalAction })
+    );
   });
 
   it('rejects malformed tool approval actions on the web assistant helper route', async () => {

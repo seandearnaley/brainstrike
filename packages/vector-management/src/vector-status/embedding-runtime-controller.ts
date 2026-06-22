@@ -29,7 +29,21 @@ export interface EmbeddingRuntimeBackfillInfo {
   readonly source: EmbeddingRuntimeBackfillSource;
 }
 
-export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
+export interface EmbeddingHostRuntimeMetadata {
+  readonly actualWorkerMetadata: {
+    readonly device: 'webgpu' | 'wasm';
+    readonly dtype: string;
+    readonly fallbackApplied: boolean;
+  } | null;
+  readonly backendMismatch: boolean;
+  readonly selectedDevicePreference: 'webgpu' | 'wasm';
+}
+
+export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<
+  'embedding-host' | 'embedding-worker'
+> & {
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
+};
 
 /**
  * Result of enqueueBackfill. `{ canceled: true }` is returned (desktop only) when
@@ -60,6 +74,7 @@ export interface EmbeddingRuntimeController {
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
   readonly lastError: string | null;
   readonly runtimeId: string;
   readonly runtimeKind: 'embedding-host';
@@ -204,11 +219,31 @@ async function enqueueLocalBackfill(args: {
         : {}),
       ...(signal ? { signal } : {}),
     });
+    const backfill = args.localBackfills.get(args.embeddingSetId);
+    args.notifyBackfillProgress({
+      embeddingSetId: args.embeddingSetId,
+      requestId,
+      source,
+      stage: 'complete',
+      current: backfill?.progress?.current ?? 0,
+      total: backfill?.progress?.total ?? 0,
+    });
     return { requestId };
   } catch (error) {
     if (signal?.aborted) {
       throw createAbortError('Embedding backfill was canceled.');
     }
+    const message = error instanceof Error ? error.message : String(error);
+    const backfill = args.localBackfills.get(args.embeddingSetId);
+    args.notifyBackfillProgress({
+      embeddingSetId: args.embeddingSetId,
+      requestId,
+      source,
+      stage: 'error',
+      current: backfill?.progress?.current ?? 0,
+      total: backfill?.progress?.total ?? 0,
+      message,
+    });
     throw error;
   } finally {
     const backfill = args.localBackfills.get(args.embeddingSetId);
@@ -246,7 +281,8 @@ export function useEmbeddingRuntimeController(
     createRuntimeStatusStore<EmbeddingRuntimeStatus>(
       desktopHost
         ? createBackgroundRuntimeStatus('embedding-host', 'embedding-host:stopped', 'stopped')
-        : createStoppedLocalStatus(localRuntimeIdRef.current)
+        : createStoppedLocalStatus(localRuntimeIdRef.current),
+      { allowedExtensionKeys: ['embeddingRuntime'] }
     )
   );
   const backfillListenersRef = useRef(

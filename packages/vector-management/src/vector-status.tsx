@@ -89,6 +89,26 @@ function formatLatencyMs(value: number): string {
   return `${Math.round(value)}`;
 }
 
+function formatDeviceLabel(device: 'webgpu' | 'wasm'): string {
+  return device === 'webgpu' ? 'WebGPU' : 'WASM';
+}
+
+function formatBackendMismatchMessage(
+  runtimeMetadata: {
+    readonly actualWorkerMetadata: { readonly device: 'webgpu' | 'wasm' } | null;
+    readonly backendMismatch: boolean;
+    readonly selectedDevicePreference: 'webgpu' | 'wasm';
+  } | null
+): string | null {
+  const actualWorkerMetadata = runtimeMetadata?.actualWorkerMetadata ?? null;
+  if (!(runtimeMetadata?.backendMismatch && actualWorkerMetadata)) {
+    return null;
+  }
+  return `Backend mismatch: pref ${formatDeviceLabel(
+    runtimeMetadata.selectedDevicePreference
+  )}, actual ${formatDeviceLabel(actualWorkerMetadata.device)}`;
+}
+
 function Sparkline({
   values,
   ariaLabel,
@@ -725,11 +745,16 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   const workerStatus = getWorkerStatus(
     queueEnabled,
     queueState.queueCounts,
-    workerControls.startWorkerError,
+    workerControls.workerStatus?.embeddingRuntime?.backendMismatch
+      ? 'Embedding backend mismatch.'
+      : workerControls.startWorkerError,
     workerControls.startingWorker,
     workerControls.workerLocalRunning,
     queueState.throughput
   );
+  const runtimeMetadata = workerControls.workerStatus?.embeddingRuntime ?? null;
+  const actualWorkerMetadata = runtimeMetadata?.actualWorkerMetadata ?? null;
+  const backendMismatchMessage = formatBackendMismatchMessage(runtimeMetadata);
 
   const hasDb = Boolean(db);
 
@@ -815,6 +840,22 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             value={reinitEveryN}
           />
         </div>
+        {runtimeMetadata && (
+          <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span>Selected: {formatDeviceLabel(runtimeMetadata.selectedDevicePreference)}</span>
+            <span>
+              Actual:{' '}
+              {actualWorkerMetadata
+                ? `${formatDeviceLabel(actualWorkerMetadata.device)} ${actualWorkerMetadata.dtype}`
+                : 'pending'}
+            </span>
+            {actualWorkerMetadata?.fallbackApplied && (
+              <Badge className="h-4 px-1 py-0 text-[9px]" variant="destructive">
+                fallback
+              </Badge>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-1">
           <WorkerControls
             db={db}
@@ -906,13 +947,13 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             </div>
           </div>
         </div>
-        {(workerControls.startWorkerError || queueState.lastError) && (
+        {(backendMismatchMessage || workerControls.startWorkerError || queueState.lastError) && (
           <div
             aria-live="polite"
             className="break-words rounded border border-destructive/20 bg-destructive/10 p-1 text-[10px] text-destructive"
             role="alert"
           >
-            {workerControls.startWorkerError ?? queueState.lastError}
+            {backendMismatchMessage ?? workerControls.startWorkerError ?? queueState.lastError}
           </div>
         )}
       </CardContent>

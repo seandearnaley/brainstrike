@@ -52,6 +52,83 @@ describe('JobQueue Batch Operations', () => {
     expect(result[0]?.id).toBe(job1.id);
   });
 
+  it('does not write embeddings when the completion lease is stale', async () => {
+    const queue = new JobQueue(db);
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-stale-completion';
+    const fileId = 'file-stale-completion';
+    const chunkId = 'chunk-stale-completion';
+    const embedding = Array.from({ length: 768 }, (_, index) => index / 1000);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::test-model', 'test-model', 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'stale-completion.ts',
+        '/stale-completion.ts',
+        100,
+        'content',
+        'stale-completion-hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'stale-completion-hash', 10, now]
+    );
+
+    await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: { chunkId, embeddingSetId },
+    });
+    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    expect(claimed).not.toBeNull();
+
+    const completed = await queue.completeEmbeddingChunkBatch([
+      {
+        chunkId,
+        embedding,
+        embeddingHash: 'stale-completion-embedding-hash',
+        embeddingSetId,
+        id: claimed!.id,
+        leaseToken: 'stale-lease-token',
+      },
+    ]);
+
+    expect(completed).toEqual([]);
+
+    const chunk = await db.query<{
+      embedding: string | null;
+      embedding_hash: string | null;
+      embedding_set_id: string | null;
+    }>(
+      `SELECT embedding::text AS embedding, embedding_hash, embedding_set_id
+       FROM file_chunks
+       WHERE id = $1`,
+      [chunkId]
+    );
+    expect(chunk.rows[0]).toEqual({
+      embedding: null,
+      embedding_hash: null,
+      embedding_set_id: null,
+    });
+
+    const job = await db.query<{ state: string }>('SELECT state FROM job_queue WHERE id = $1', [
+      claimed!.id,
+    ]);
+    expect(job.rows[0]?.state).toBe('running');
+  });
+
   describe('enqueueBatch', () => {
     it('enqueues multiple jobs', async () => {
       const queue = new JobQueue(db);
@@ -65,6 +142,42 @@ describe('JobQueue Batch Operations', () => {
 
       const stats = await queue.getQueueStats('q1');
       expect(stats[0].queued).toBe(2);
+    });
+
+    it('persists chunk_id for batch-enqueued embedding jobs', async () => {
+      const queue = new JobQueue(db);
+      const jobs = await queue.enqueueBatch([
+        { queue: 'q1', jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-1' } },
+        { queue: 'q1', jobType: 'embed_chunk', payload: { chunkId: 'batch-chunk-2' } },
+      ]);
+
+      const result = await db.query<{ chunk_id: string | null }>(
+        'SELECT chunk_id FROM job_queue WHERE id = ANY($1::text[]) ORDER BY chunk_id',
+        [jobs.map((job) => job.id)]
+      );
+      expect(result.rows).toEqual([{ chunk_id: 'batch-chunk-1' }, { chunk_id: 'batch-chunk-2' }]);
+    });
+
+    it('persists embedding_set_id for batch-enqueued embedding jobs', async () => {
+      const queue = new JobQueue(db);
+      const jobs = await queue.enqueueBatch([
+        {
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { chunkId: 'chunk-1', embeddingSetId: 'set-1' },
+        },
+        {
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { chunkId: 'chunk-2', embeddingSetId: 'set-2' },
+        },
+      ]);
+
+      const result = await db.query<{ embedding_set_id: string | null }>(
+        'SELECT embedding_set_id FROM job_queue WHERE id = ANY($1::text[]) ORDER BY embedding_set_id',
+        [jobs.map((job) => job.id)]
+      );
+      expect(result.rows).toEqual([{ embedding_set_id: 'set-1' }, { embedding_set_id: 'set-2' }]);
     });
 
     it('deduplicates within batch', async () => {

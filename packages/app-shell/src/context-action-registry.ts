@@ -1,6 +1,7 @@
 import {
   type ActionRegistry,
   type ActionServices,
+  type AnyContextAction,
   type CapabilityKey,
   createActionRegistry,
   createClipboardService,
@@ -38,7 +39,22 @@ function resolvePlatformBridge(): PlatformBridge | null {
   return bridge as PlatformBridge;
 }
 
-export function createAppActionRegistry(): ActionRegistry {
+/**
+ * The shared building blocks for every action-driven surface in the app: the
+ * raw context-action list, the capability set inferred from the bridges that
+ * exist, and the services those actions run against. The context-action
+ * registry (right-click menus) and the ⌘K command registry are BOTH projections
+ * of these parts — a single source of truth, so a capability or bridge is wired
+ * exactly once. Capability gating is data-driven (a bridge's presence adds a
+ * capability); there is no isElectron branch.
+ */
+export interface AppActionRegistryParts {
+  readonly actions: readonly AnyContextAction[];
+  readonly capabilities: ReadonlySet<CapabilityKey>;
+  readonly services: ActionServices;
+}
+
+export function buildAppActionRegistryParts(): AppActionRegistryParts {
   const services: ActionServices = { clipboard: createClipboardService() };
   const capabilities = new Set<CapabilityKey>(['clipboard']);
 
@@ -58,9 +74,14 @@ export function createAppActionRegistry(): ActionRegistry {
     capabilities.add('fs.openPath');
   }
 
-  return createActionRegistry({
+  return {
     actions: [...fileEntryActions, ...collectionActions],
     capabilities,
     services,
-  });
+  };
+}
+
+export function createAppActionRegistry(): ActionRegistry {
+  const { actions, capabilities, services } = buildAppActionRegistryParts();
+  return createActionRegistry({ actions, capabilities, services });
 }

@@ -186,6 +186,54 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
+  it('uses configured stream batch size as the worker max batch size', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('Worker', class {});
+
+    const { queue, add } = createQueueStub();
+    add.mockResolvedValueOnce({
+      type: 'result',
+      id: 'batch',
+      vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
+      metadata: {
+        model: 'bge-m3',
+        device: 'webgpu',
+        dtype: 'fp16',
+        batchSize: 3,
+        elapsedMs: 1,
+        fallbackApplied: false,
+        dimensions: 2,
+      },
+    });
+
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
+
+    registerEmbeddingQueueFactory(() => queue);
+
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      modelId: 'bge-m3',
+      device: 'webgpu',
+      quantized: false,
+      streamBatchSize: 3,
+    });
+
+    await backend.generateEmbeddings(
+      Array.from({ length: 10 }, (_, index) => `text ${index}`),
+      'bge-m3'
+    );
+
+    const call = add.mock.calls[0]![0] as QueueAddCall;
+    expect(call.maxBatchSize).toBe(3);
+
+    await backend.dispose();
+    resetEmbeddingQueueFactory();
+  });
+
   it('disposes without touching the local pipeline when using the queue', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', class {});

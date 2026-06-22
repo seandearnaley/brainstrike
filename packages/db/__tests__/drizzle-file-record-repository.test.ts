@@ -12,6 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
+import {
+  QUICK_OPEN_MAX_LIMIT,
+  QUICK_OPEN_NAME_SEARCH_SQL,
+  type QuickOpenFileRow,
+} from '../src/search/quick-open-query.js';
 
 describe('DrizzleFileRecordRepository', () => {
   let client: PGlite;
@@ -376,6 +381,27 @@ describe('DrizzleFileRecordRepository', () => {
       expect(updated?.tokenCount).toBe(4);
       expect(updated?.processedAt).toBeDefined();
     });
+
+    it('rejects null bytes in content updates before PGlite', async () => {
+      const now = new Date().toISOString();
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000099',
+        name: 'file.ts',
+        path: '/src/file.ts',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(
+        repository.updateContent(
+          '00000000-0000-0000-0000-000000000099',
+          `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          'hash-null-update',
+          1
+        )
+      ).rejects.toThrow('File record content cannot contain null bytes.');
+    });
   });
 
   describe('delete', () => {
@@ -459,6 +485,24 @@ describe('DrizzleFileRecordRepository', () => {
       expect(await repository.count()).toBe(3);
     });
 
+    it('reports null-byte content as batch errors before records reach PGlite', async () => {
+      const results = await repository.bulkImport([
+        { name: 'clean.ts', path: '/src/clean.ts', size: 10, content: 'const clean = true;' },
+        {
+          name: 'late-null.ts',
+          path: '/src/late-null.ts',
+          size: 620,
+          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        },
+      ]);
+
+      expect(results.map((result) => result.error)).toEqual([
+        'Batch failed: File record content cannot contain null bytes.',
+        'Batch failed: File record content cannot contain null bytes.',
+      ]);
+      expect(await repository.count()).toBe(0);
+    });
+
     it('should detect duplicates by content hash', async () => {
       const content = 'const same = true;';
       const requests = [
@@ -499,6 +543,174 @@ describe('DrizzleFileRecordRepository', () => {
       const cleared = await repository.clearAll();
       expect(cleared).toBe(2);
       expect(await repository.count()).toBe(0);
+    });
+  });
+
+  describe('findByNameSubstring (quick-open)', () => {
+    // Seeds a roots row + a file_records row stamped with that root_id. Mirrors
+    // the managed-cache identity: repository.create never writes root_id, so we
+    // stamp it via the raw client (the same approach as seedManagedCacheEntry).
+    async function seedFile(args: {
+      id: string;
+      name: string;
+      path: string;
+      rootId?: string;
+      rootDisplayName?: string;
+    }): Promise<void> {
+      if (args.rootId) {
+        await client.query(
+          `INSERT INTO roots (id, kind, display_name) VALUES ($1, 'path', $2)
+           ON CONFLICT (id) DO NOTHING`,
+          [args.rootId, args.rootDisplayName ?? args.rootId]
+        );
+      }
+      const now = new Date().toISOString();
+      await repository.create({
+        id: args.id,
+        name: args.name,
+        path: args.path,
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (args.rootId) {
+        await client.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [
+          args.rootId,
+          args.id,
+        ]);
+      }
+    }
+
+    it('returns substring name matches ranked by shortest name then path', async () => {
+      await seedFile({
+        id: 'r1',
+        name: 'readme.md',
+        path: 'docs/readme.md',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+      await seedFile({
+        id: 'r2',
+        name: 'read-stream.ts',
+        path: 'src/read-stream.ts',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+      await seedFile({
+        id: 'r3',
+        name: 'unrelated.ts',
+        path: 'src/unrelated.ts',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+
+      const results = await repository.findByNameSubstring('read', 50);
+
+      // Only the two 'read*' rows match; 'readme.md' (9 chars) sorts before
+      // 'read-stream.ts' (14 chars).
+      expect(results.map((row) => row.name)).toEqual(['readme.md', 'read-stream.ts']);
+      expect(results[0]?.display_name).toBe('Alpha');
+      expect(results[0]?.root_id).toBe('root-a');
+    });
+
+    it('returns TWO distinct rows for the same relative path in two roots', async () => {
+      // Multi-root correctness: identical name + relative path under two roots
+      // must come back as two rows with distinct root_id / display_name.
+      await seedFile({
+        id: 'a-index',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+      await seedFile({
+        id: 'b-index',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        rootId: 'root-b',
+        rootDisplayName: 'Beta',
+      });
+
+      const results = await repository.findByNameSubstring('index', 50);
+
+      expect(results).toHaveLength(2);
+      const byRoot = new Map(results.map((row) => [row.root_id, row]));
+      expect(byRoot.get('root-a')?.display_name).toBe('Alpha');
+      expect(byRoot.get('root-b')?.display_name).toBe('Beta');
+      // Distinct file_records ids — the open path can disambiguate by root.
+      expect(new Set(results.map((row) => row.id)).size).toBe(2);
+    });
+
+    it('labels legacy NULL root_id rows with a NULL display_name (honest)', async () => {
+      await seedFile({ id: 'legacy', name: 'legacy.ts', path: 'legacy.ts' });
+
+      const results = await repository.findByNameSubstring('legacy', 50);
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.root_id).toBeNull();
+      expect(results[0]?.display_name).toBeNull();
+    });
+
+    it('returns an empty list when nothing matches', async () => {
+      await seedFile({
+        id: 'only',
+        name: 'only.ts',
+        path: 'only.ts',
+        rootId: 'root-a',
+      });
+
+      const results = await repository.findByNameSubstring('zzz-no-match', 50);
+      expect(results).toEqual([]);
+    });
+
+    it('clamps the limit to the bounded maximum', async () => {
+      for (let i = 0; i < 60; i++) {
+        await seedFile({
+          id: `bulk-${i}`,
+          name: `match-${i}.ts`,
+          path: `src/match-${i}.ts`,
+          rootId: 'root-a',
+        });
+      }
+
+      const results = await repository.findByNameSubstring('match', 1000);
+      expect(results.length).toBeLessThanOrEqual(50);
+    });
+
+    it('uses the trigram index created by migration 048', async () => {
+      const index = await client.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes WHERE tablename = 'file_records'`
+      );
+      expect(index.rows.map((row) => row.indexname)).toContain('idx_file_records_name_trgm');
+    });
+
+    it('matches the renderer raw SQL row-for-row (drift guard between the two impls)', async () => {
+      // The repo rebuilds the shared SQL with the Drizzle builder; the renderer
+      // runs QUICK_OPEN_NAME_SEARCH_SQL verbatim. Assert they agree so the two
+      // implementations can never silently diverge.
+      await seedFile({
+        id: 'q1',
+        name: 'query.ts',
+        path: 'src/query.ts',
+        rootId: 'root-a',
+        rootDisplayName: 'Alpha',
+      });
+      await seedFile({
+        id: 'q2',
+        name: 'query-builder.ts',
+        path: 'src/query-builder.ts',
+        rootId: 'root-b',
+        rootDisplayName: 'Beta',
+      });
+      await seedFile({ id: 'q3', name: 'unmatched.ts', path: 'src/unmatched.ts' });
+
+      const viaRepo = await repository.findByNameSubstring('query', QUICK_OPEN_MAX_LIMIT);
+      const viaRawSql = await client.query<QuickOpenFileRow>(QUICK_OPEN_NAME_SEARCH_SQL, [
+        'query',
+        QUICK_OPEN_MAX_LIMIT,
+      ]);
+
+      expect(viaRepo).toEqual(viaRawSql.rows);
     });
   });
 });

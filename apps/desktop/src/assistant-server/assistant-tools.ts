@@ -1,9 +1,15 @@
+import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  applyStringReplace,
+  type ExecuteCommandInput,
+  ExecuteCommandInputSchema,
   type FindWorkspaceSymbolInput,
   FindWorkspaceSymbolInputSchema,
   fitItemsToCharBudget,
+  type GlobWorkspaceInput,
+  GlobWorkspaceInputSchema,
   type GrepSearchInput,
   GrepSearchInputSchema,
   type ListEmbeddingSetsInput,
@@ -23,10 +29,18 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  type StringReplaceMatchType,
+  type StringReplaceWorkspaceFileInput,
+  StringReplaceWorkspaceFileInputSchema,
   type UpdateWorkspaceContextSelectionInput,
   UpdateWorkspaceContextSelectionInputSchema,
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
+  type WebSearchInput,
+  WebSearchInputSchema,
+  type WriteWorkspaceFileInput,
+  WriteWorkspaceFileInputSchema,
+  withFileLock,
 } from '@brainstrike/agent';
 import {
   EmbeddingSetsRepository,
@@ -46,9 +60,17 @@ import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
+import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-tool';
 import { findSymbolMatches } from './find-workspace-symbol';
+import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
+import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
+import {
+  runWebSearch,
+  WEB_SEARCH_TOOL_ID,
+  type WebSearchToolDependencies,
+} from './web-search-tool';
 import {
   isHiddenPath,
   isWithinRoot,
@@ -63,12 +85,21 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  /**
+   * Optional override for the webSearch tool's network/key resolution. Used by
+   * tests to inject a stubbed Tavily fetch and key resolver so the loop runs
+   * hermetically. In production this is omitted and runWebSearch resolves the
+   * real keychain key and uses the real fetch.
+   */
+  webSearch?: WebSearchToolDependencies | undefined;
 }
 
 const logger = createLogger('DesktopAssistantTools');
 
 const FIND_WORKSPACE_SYMBOL_TOOL_ID = 'brainstrike.findWorkspaceSymbol' as const;
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
+const WRITE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.writeWorkspaceFile' as const;
+const STRING_REPLACE_WORKSPACE_FILE_TOOL_ID = 'brainstrike.stringReplaceWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
@@ -84,6 +115,7 @@ const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceCon
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
+const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
@@ -185,6 +217,125 @@ async function resolveWorkspaceAbsolutePath(
   };
 }
 
+/**
+ * Find the canonical (symlink-resolved) path of the nearest existing ancestor of
+ * `absolutePath`. The target file may not exist yet (the common write case), so
+ * `fs.realpath` on it would throw ENOENT. We walk up until a directory exists,
+ * `realpath` THAT, then re-append the not-yet-created tail. This canonicalizes
+ * every existing symlink on the path so a symlinked parent that points outside
+ * the root is still caught by the containment check below.
+ */
+async function resolveCanonicalWritablePath(absolutePath: string): Promise<string> {
+  const segments: string[] = [];
+  let current = absolutePath;
+  // Walk up to the nearest existing ancestor. `path.dirname` is a fixpoint at the
+  // filesystem root, so the loop always terminates.
+  for (;;) {
+    try {
+      const canonicalExisting = await fsPromises.realpath(current);
+      return segments.length > 0
+        ? path.join(canonicalExisting, ...segments.reverse())
+        : canonicalExisting;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        // Reached the filesystem root without finding an existing ancestor; return
+        // the path unchanged (containment is still checked by the caller).
+        return absolutePath;
+      }
+      segments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Resolve a virtual workspace path to a containment-checked absolute path for a
+ * WRITE, where the target file (and possibly some parent directories) may not yet
+ * exist. Mirrors {@link resolveWorkspaceAbsolutePath}'s guarantees: ".." is
+ * clamped in `normalizeWorkspacePath`, and the canonical existing-ancestor path
+ * is containment-checked against the canonical root so a symlinked directory
+ * cannot redirect the write outside the workspace.
+ */
+async function resolveWorkspaceWritePath(
+  rootPath: string,
+  workspacePath: string
+): Promise<{ canonicalRootPath: string; workspacePath: string; absolutePath: string }> {
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  const relativePath =
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+  if (relativePath.length === 0) {
+    throw new Error(`Path "${workspacePath}" is the workspace root, not a writable file.`);
+  }
+  const absolutePath = path.resolve(rootPath, relativePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const canonicalAbsolutePath = await resolveCanonicalWritablePath(absolutePath);
+  if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
+    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+  }
+  return {
+    canonicalRootPath,
+    workspacePath: normalizedWorkspacePath,
+    absolutePath: canonicalAbsolutePath,
+  };
+}
+
+/**
+ * Create every missing directory between `canonicalRootPath` (which must already
+ * exist) and `targetDir`, ONE component at a time, rejecting any existing
+ * component that is a symlink. A plain `mkdir -p` would happily traverse a
+ * symlinked intermediate directory (including a dangling one, by creating its
+ * target), which is a containment-escape vector. Walking component-by-component
+ * with an `lstat` guard keeps every created/traversed segment a real directory
+ * inside the root.
+ */
+async function ensureContainedDirectory(
+  canonicalRootPath: string,
+  targetDir: string
+): Promise<void> {
+  if (targetDir === canonicalRootPath) {
+    return;
+  }
+  const relative = path.relative(canonicalRootPath, targetDir);
+  // Defence in depth: resolveWorkspaceWritePath already guarantees containment.
+  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Path "${targetDir}" is outside the selected workspace root.`);
+  }
+  const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
+  let current = canonicalRootPath;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let stats: import('node:fs').Stats | undefined;
+    try {
+      stats = await fsPromises.lstat(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    if (stats) {
+      // An existing component that is a symlink (live OR dangling) could redirect
+      // the write outside the root — reject it rather than traverse it.
+      if (stats.isSymbolicLink()) {
+        throw new Error(
+          `Path component "${current}" is a symlink, which is outside the selected workspace root.`
+        );
+      }
+      if (!stats.isDirectory()) {
+        throw new Error(`Path component "${current}" is not a directory.`);
+      }
+      continue;
+    }
+    // Component does not exist: mkdir creates a REAL directory (it never follows
+    // into a symlink it did not create).
+    await fsPromises.mkdir(current);
+  }
+}
+
 function sliceContentByLineRange(
   content: string,
   startLine: number | undefined,
@@ -212,7 +363,10 @@ function truncateContent(
   };
 }
 
-async function readWorkspaceTextFile(args: { requestedPath: string; rootPath: string }): Promise<{
+export async function readWorkspaceTextFile(args: {
+  requestedPath: string;
+  rootPath: string;
+}): Promise<{
   content: string;
   path: string;
   size: number;
@@ -302,6 +456,272 @@ async function runReadWorkspaceFile(
     omittedChars: truncated.omittedChars,
     approxOutputTokens: countTokensHeuristic(truncated.content),
     content: truncated.content,
+  };
+}
+
+/**
+ * Symlink-safe, containment-checked write of `buffer` to the already-resolved
+ * workspace write path. This is the SINGLE audited write path shared by
+ * `writeWorkspaceFile` and `stringReplaceWorkspaceFile` — do not fork a weaker
+ * copy. It enforces every PR-2.1 guarantee:
+ *  - leaf lstat rejects a symlink leaf (live OR dangling) and a directory target,
+ *  - parents are created one component at a time, rejecting symlinked intermediates,
+ *  - the final open uses O_NOFOLLOW to close the lstat→open TOCTOU window.
+ *
+ * Caller must have resolved the path through {@link resolveWorkspaceWritePath}
+ * (so ".." is clamped and the canonical existing-ancestor is contained) and must
+ * pass `requestedPath` only for error messages. Returns whether the file was
+ * newly created.
+ */
+async function writeContainedFileBytes(args: {
+  resolved: { absolutePath: string; canonicalRootPath: string };
+  buffer: Buffer;
+  requestedPath: string;
+}): Promise<{ created: boolean }> {
+  const { resolved, buffer, requestedPath } = args;
+
+  // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
+  // dangling) passes the canonical-ancestor containment check yet writeFile would
+  // follow it OUTSIDE the root — reject it as a containment escape. lstat also
+  // distinguishes a directory target, which cannot be overwritten with content.
+  let created = true;
+  try {
+    const leafStats = await fsPromises.lstat(resolved.absolutePath);
+    if (leafStats.isSymbolicLink()) {
+      throw new Error(`Path "${requestedPath}" is outside the selected workspace root.`);
+    }
+    if (leafStats.isDirectory()) {
+      throw new Error(
+        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
+      );
+    }
+    created = false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  // Create missing parents one component at a time, rejecting symlinked
+  // intermediates (a plain mkdir -p would traverse them).
+  await ensureContainedDirectory(resolved.canonicalRootPath, path.dirname(resolved.absolutePath));
+
+  // O_NOFOLLOW closes the lstat→open TOCTOU window: if the leaf is (or becomes) a
+  // symlink, the open syscall itself fails with ELOOP rather than following it.
+  // (Falls back to 0 on platforms without O_NOFOLLOW, e.g. Windows; the lstat
+  // guard above is the portable backstop.)
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  const writeFlags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | noFollow;
+  const fileHandle = await fsPromises.open(resolved.absolutePath, writeFlags);
+  try {
+    await fileHandle.writeFile(buffer);
+  } finally {
+    await fileHandle.close();
+  }
+  return { created };
+}
+
+/**
+ * Convert the normalized (leading-slash, forward-slash) workspace path the write
+ * tools produce into the root-relative form stored in `file_records.path`
+ * (no leading slash). Both edit tools share this so the re-index lookup keys the
+ * same way the importer wrote the row.
+ */
+function toFileRecordRelativePath(workspacePath: string): string {
+  return workspacePath.replace(/^\/+/, '');
+}
+
+/**
+ * Post-write hook (PR-2.3): keep the RAG index coherent after the agent edits a
+ * file. The file is ALREADY written when this runs, so it runs AFTER the write
+ * and is non-fatal — a re-index failure is LOGGED but never propagated, because
+ * the edit already succeeded and the model is owed its write result regardless.
+ *
+ * It reuses the SAME entry point the background indexer uses for a changed file
+ * (`applyManagedCacheBatch` in replace mode via {@link reindexEditedFile}):
+ * stale chunks are cleared, in-flight embed jobs canceled, the row marked
+ * un-chunked, and indexing stats refreshed. When the path is not part of the
+ * Workspace Index (no embedding set, or no file_records row), it no-ops.
+ *
+ * Two failure tiers, both non-fatal (the edit already succeeded):
+ *  - DB UNAVAILABLE (getDatabase() throws — e.g. no DB initialized, as in the
+ *    DB-less unit tests): DEBUG log only. A missing DB is an environment state,
+ *    not a re-index defect, so it must not raise alarm-level noise on every edit.
+ *  - RE-INDEX FAILED on a real DB (the transaction throws): ERROR log, since a
+ *    resolvable DB that then fails to re-index is a genuine, debuggable problem.
+ */
+async function triggerEditedFileReindex(args: {
+  runtimeData: RuntimeData | undefined;
+  rootId: string;
+  workspacePath: string;
+  absolutePath: string;
+  content: string;
+  size: number;
+}): Promise<void> {
+  let db: ReindexDatabaseHandle;
+  try {
+    db = (await getDatabase()) as unknown as ReindexDatabaseHandle;
+  } catch (error) {
+    // DB unavailable (no DB initialized). Non-fatal and expected outside a
+    // running app — log at debug so it is traceable without alarming.
+    logger.debug('Skipped re-index: database unavailable', {
+      error,
+      path: args.workspacePath,
+    });
+    return;
+  }
+
+  try {
+    const relativePath = toFileRecordRelativePath(args.workspacePath);
+    await reindexEditedFile(db, {
+      rootId: args.rootId,
+      relativePath,
+      name: path.basename(relativePath) || relativePath,
+      content: args.content,
+      size: args.size,
+      mtimeMs: await statMtimeMs(args.absolutePath),
+      workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
+    });
+  } catch (error) {
+    // A resolvable DB that then fails to re-index is a genuine problem — surface
+    // it (no silent swallow) but never fail the already-successful edit.
+    logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
+      error,
+      path: args.workspacePath,
+    });
+  }
+}
+
+async function runWriteWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  rootName: string;
+  path: string;
+  bytesWritten: number;
+  created: boolean;
+}> {
+  const buffer = Buffer.from(input.content, 'utf8');
+  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+    );
+  }
+
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+
+  // Serialize same-file writes against concurrent edits (Mastra runs tool calls
+  // within a step concurrently). Key by the canonical absolute path so two edits
+  // to the same file can never interleave and lose an update. The re-index runs
+  // INSIDE the lock so the write + the re-index-enqueue are one atomic critical
+  // section per file: a concurrent edit can never slip its newer bytes (and
+  // mtime) between this write and its re-index, which would otherwise leave the
+  // RAG row stale relative to disk. `triggerEditedFileReindex` is already
+  // non-fatal (it catches+logs internally), so it never extends the lock's
+  // failure surface.
+  const { created } = await withFileLock(resolved.absolutePath, async () => {
+    const writeResult = await writeContainedFileBytes({
+      resolved,
+      buffer,
+      requestedPath: input.path,
+    });
+    await triggerEditedFileReindex({
+      runtimeData,
+      rootId: root.rootId,
+      workspacePath: resolved.workspacePath,
+      absolutePath: resolved.absolutePath,
+      content: input.content,
+      size: buffer.byteLength,
+    });
+    return writeResult;
+  });
+
+  return {
+    rootName: root.displayName,
+    path: resolved.workspacePath,
+    bytesWritten: buffer.byteLength,
+    created,
+  };
+}
+
+async function runStringReplaceWorkspaceFile(
+  input: StringReplaceWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  rootName: string;
+  path: string;
+  bytesWritten: number;
+  matchType: StringReplaceMatchType;
+  replaced: true;
+}> {
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  // Resolve the write path up front so we can lock on the canonical absolute
+  // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
+  // ancestors; the read below uses the same containment as the read tools.
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+
+  // The whole read-modify-write-AND-reindex cycle runs under the per-file lock so
+  // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
+  // SAME file cannot interleave and drop an update or stale the RAG row. Edits to
+  // different files still run in parallel.
+  const result = await withFileLock(resolved.absolutePath, async () => {
+    // Read through the SAME checked read path the read tools use (isFile, 2 MB
+    // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
+    // edit inherits PR-2.1's path-escape protection on the read side too.
+    const file = await readWorkspaceTextFile({
+      rootPath: root.path,
+      requestedPath: input.path,
+    });
+
+    // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
+    // matches — never applies a low-confidence edit (no silent fallbacks).
+    const replacement = applyStringReplace({
+      fileContent: file.content,
+      oldStr: input.oldStr,
+      newStr: input.newStr,
+    });
+
+    const buffer = Buffer.from(replacement.newContent, 'utf8');
+    if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+      throw new Error(
+        `Edited content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+      );
+    }
+
+    await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
+
+    // Keep the RAG index coherent: re-index the edited file INSIDE the same
+    // per-file critical section as the read-modify-write. Running it after the
+    // lock released reopened the very race the lock closes — a concurrent edit
+    // could land its newer bytes (and mtime) between this write and its
+    // re-index, leaving the file_records row stale relative to disk and
+    // self-healing-proof (matching mtime skips the next sync's re-read). No-ops
+    // when the file isn't part of the Workspace Index; already non-fatal (it
+    // catches+logs internally), so it never undoes a successful edit nor
+    // extends the lock's failure surface.
+    await triggerEditedFileReindex({
+      runtimeData,
+      rootId: root.rootId,
+      workspacePath: resolved.workspacePath,
+      absolutePath: resolved.absolutePath,
+      content: replacement.newContent,
+      size: buffer.byteLength,
+    });
+
+    return {
+      bytesWritten: buffer.byteLength,
+      matchType: replacement.matchType,
+    };
+  });
+
+  return {
+    rootName: root.displayName,
+    path: resolved.workspacePath,
+    bytesWritten: result.bytesWritten,
+    matchType: result.matchType,
+    replaced: true,
   };
 }
 
@@ -1510,7 +1930,7 @@ export function buildDesktopAssistantTools(
     [GREP_SEARCH_TOOL_ID]: {
       id: GREP_SEARCH_TOOL_ID,
       description:
-        "Grep indexed file content for an exact string (default) or JavaScript regex. Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
+        "Grep file content for an exact string (default) or JavaScript regex. HYBRID: searches BOTH the index AND the live on-disk files and merges, so just-edited / not-yet-reindexed files are found fresh (each match is labelled source: 'index' | 'live' | 'both'; re-grep after an edit to confirm your change is on disk). Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
       inputSchema: GrepSearchInputSchema,
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
@@ -1518,6 +1938,38 @@ export function buildDesktopAssistantTools(
           return await runGrepSearch(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('grepSearch failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [GLOB_WORKSPACE_TOOL_ID]: {
+      id: GLOB_WORKSPACE_TOOL_ID,
+      description:
+        'Enumerate workspace files by glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Use this to find files by NAME/PATH shape when you do not know their content — complementary to grepSearch (content) and readWorkspaceDirectory (one level). Skips .git/node_modules/build output by default (includeIgnored to override). Results are truncated to a fixed budget — follow the returned hint (offset, narrower pattern) to continue.',
+      inputSchema: GlobWorkspaceInputSchema,
+      execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
+        const resolvedInput = parseToolExecuteInput(GlobWorkspaceInputSchema, input);
+        try {
+          return await runGlobWorkspace(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('globWorkspace failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [WEB_SEARCH_TOOL_ID]: {
+      id: WEB_SEARCH_TOOL_ID,
+      description:
+        'Search the web via Tavily for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. Requires a Tavily API key in Settings → API Keys: when none is configured the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results (title, url, snippet) are truncated to a fixed budget.',
+      inputSchema: WebSearchInputSchema,
+      // The Tavily key is resolved server-side inside runWebSearch and never
+      // returned to the model. No injected deps here → real fetch + keychain.
+      execute: async (input: ToolExecuteInput<WebSearchInput>) => {
+        const resolvedInput = parseToolExecuteInput(WebSearchInputSchema, input);
+        try {
+          return await runWebSearch(resolvedInput, dependencies.webSearch);
+        } catch (error) {
+          logger.error('webSearch failed', { error, query: resolvedInput.query });
           throw error;
         }
       },
@@ -1533,6 +1985,42 @@ export function buildDesktopAssistantTools(
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('readWorkspaceFile failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [WRITE_WORKSPACE_FILE_TOOL_ID]: {
+      id: WRITE_WORKSPACE_FILE_TOOL_ID,
+      description:
+        'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
+      inputSchema: WriteWorkspaceFileInputSchema,
+      execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
+        try {
+          return await runWriteWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('writeWorkspaceFile failed', {
+            error,
+            input: { ...resolvedInput, content: undefined },
+          });
+          throw error;
+        }
+      },
+    },
+    [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
+      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+      description:
+        'Surgically edit an existing workspace file: replace one old_str block with new_str. Read the file first, then pass an old_str with enough surrounding context to identify ONE location (a single line matching several places is refused), and the new_str (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
+      inputSchema: StringReplaceWorkspaceFileInputSchema,
+      execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
+        const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
+        try {
+          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('stringReplaceWorkspaceFile failed', {
+            error,
+            input: { ...resolvedInput, oldStr: undefined, newStr: undefined },
+          });
           throw error;
         }
       },
@@ -1651,6 +2139,36 @@ export function buildDesktopAssistantTools(
       },
     },
   };
+
+  // Arbitrary shell execution is registered like every other native tool and
+  // gated by the permission engine. With enforce-on-by-default, its 'execute'
+  // risk bucket resolves to 'ask', so the run SUSPENDS for per-call approval
+  // before the command runs (approve → execute, decline → skip). A user can set
+  // execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it — that is
+  // the permission gate's job now, not a registration-time conditional.
+  tools[EXECUTE_COMMAND_TOOL_ID] = {
+    id: EXECUTE_COMMAND_TOOL_ID,
+    description:
+      "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
+    inputSchema: ExecuteCommandInputSchema,
+    // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
+    // we thread into the run so a cancelled run kills the process tree.
+    execute: async (
+      input: ToolExecuteInput<ExecuteCommandInput>,
+      options?: { abortSignal?: AbortSignal }
+    ) => {
+      const resolvedInput = parseToolExecuteInput(ExecuteCommandInputSchema, input);
+      try {
+        return await runExecuteCommand(resolvedInput, runtimeData, {
+          signal: options?.abortSignal,
+        });
+      } catch (error) {
+        logger.error('executeCommand failed', { error, input: resolvedInput });
+        throw error;
+      }
+    },
+  };
+
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;
   if (!Array.isArray(enabledNativeToolIds)) {
     return tools;

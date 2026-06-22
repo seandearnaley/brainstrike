@@ -90,6 +90,85 @@ describe('tool schemas', () => {
     expect(workspaceIndexOnly?.type).toBe('boolean');
   });
 
+  it('validates globWorkspace input and rejects unknown fields (strict)', () => {
+    expect(validateToolInput('brainstrike.globWorkspace', { pattern: '**/*.ts' }).ok).toBe(true);
+    expect(
+      validateToolInput('brainstrike.globWorkspace', {
+        pattern: 'src/**',
+        root: 'app',
+        limit: 50,
+        offset: 0,
+        includeIgnored: true,
+      }).ok
+    ).toBe(true);
+    // Missing required pattern → invalid.
+    expect(validateToolInput('brainstrike.globWorkspace', {}).ok).toBe(false);
+    // Unknown field → rejected by .strict().
+    expect(
+      validateToolInput('brainstrike.globWorkspace', { pattern: '*.ts', bogus: true }).ok
+    ).toBe(false);
+  });
+
+  it('documents globWorkspace in schema display metadata', () => {
+    const display = getToolSchemaDisplay('brainstrike.globWorkspace');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'pattern')?.required).toBe(true);
+    expect(display?.parameters.find((param) => param.name === 'includeIgnored')?.type).toBe(
+      'boolean'
+    );
+  });
+
+  it('executeCommand description reflects the per-call approval flow (no stale "no approval prompt" text)', () => {
+    const display = getToolSchemaDisplay('brainstrike.executeCommand');
+    expect(display).toBeDefined();
+    const desc = (display?.description ?? '').toLowerCase();
+    // The approval flow shipped — the description must not claim otherwise.
+    expect(desc).not.toContain('no interactive approval prompt');
+    expect(desc).not.toContain('gating is available but off');
+    expect(desc).toContain('approval');
+  });
+
+  it('rejects an invalid regex grepSearch pattern at parse when isRegex=true (fail-fast)', () => {
+    // A regex-special string is fine as PLAIN text (isRegex omitted/false).
+    expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b' }).ok).toBe(true);
+    // A valid regex with isRegex=true is accepted.
+    expect(
+      validateToolInput('brainstrike.grepSearch', { pattern: 'foo.*bar', isRegex: true }).ok
+    ).toBe(true);
+    // An INVALID regex with isRegex=true is rejected at parse — not deferred to execution
+    // (fail-fast / no silent fallback).
+    expect(validateToolInput('brainstrike.grepSearch', { pattern: 'a(b', isRegex: true }).ok).toBe(
+      false
+    );
+    expect(
+      validateToolInput('brainstrike.grepSearch', { pattern: '[z-a]', isRegex: true }).ok
+    ).toBe(false);
+  });
+
+  it('validates webSearch input and rejects unknown fields (strict)', () => {
+    expect(validateToolInput('brainstrike.webSearch', { query: 'react useEffect' }).ok).toBe(true);
+    expect(
+      validateToolInput('brainstrike.webSearch', { query: 'react useEffect', maxResults: 3 }).ok
+    ).toBe(true);
+    // Missing required query → invalid.
+    expect(validateToolInput('brainstrike.webSearch', {}).ok).toBe(false);
+    // maxResults over the cap → invalid.
+    expect(validateToolInput('brainstrike.webSearch', { query: 'x y', maxResults: 50 }).ok).toBe(
+      false
+    );
+    // Unknown field → rejected by .strict().
+    expect(validateToolInput('brainstrike.webSearch', { query: 'react', bogus: true }).ok).toBe(
+      false
+    );
+  });
+
+  it('documents webSearch in schema display metadata with the external-service caveat', () => {
+    const display = getToolSchemaDisplay('brainstrike.webSearch');
+    expect(display).toBeDefined();
+    expect(display?.parameters.find((param) => param.name === 'query')?.required).toBe(true);
+    expect(display?.description).toContain('EXTERNAL SERVICE');
+  });
+
   it('documents context curation tools in schema display metadata', () => {
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
     expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();

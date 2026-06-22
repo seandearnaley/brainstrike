@@ -12,21 +12,86 @@
  */
 import { useAuiState } from '@assistant-ui/react';
 import {
+  type CostEstimate,
   countTokensHeuristic,
   formatTokenCount,
+  formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
 import { type FC, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { getMessageParts } from './assistant-run-timeline';
 import { useContextUsageStore } from './context-usage-store';
 
+/**
+ * Durable cumulative usage for the active thread, resolved upstream (tokens +
+ * a discriminated cost). Distinct from the one-turn-lag bar above: this is the
+ * running total persisted across reloads. `cost` is never $0 for an unavailable
+ * price — the `available: false` branch renders "cost unavailable".
+ */
+export interface CumulativeUsageDisplay {
+  readonly cost: CostEstimate;
+  readonly totalTokens: number;
+}
+
+/** Resolve a cost estimate to its display string (never $0 for unavailable). */
+function costLabel(cost: CostEstimate): string {
+  if (cost.available) {
+    return formatUsdCost(cost.usdAmount);
+  }
+  return 'cost unavailable';
+}
+
+/**
+ * Resolved observational-memory (OM) state for the active thread. Produced by the
+ * app-shell resolver (assistant-om-segment.ts) and rendered as INFORMATIONAL
+ * stats next to the chat-vs-budget bar — the observation is NOT a budget segment
+ * (it is retrievalMode-dependent and, when injected, already counted in chat
+ * usage, so summing it into the budget would double-count / false-trip
+ * over-budget; see the resolver doc). Each variant is an HONEST state — never a
+ * fabricated 0:
+ *   chat-only → web (no durable OM persistence); OM stats hidden.
+ *   inactive  → OM disabled in settings.
+ *   loading   → live query fetching (initial / thread switch); stays quiet.
+ *   empty     → no OM row yet (first turn).
+ *   error     → malformed OM row / live-query error (strict parse failed upstream).
+ *   stats     → live informational values (observed tokens + compaction saved).
+ */
+export type OmMeterState =
+  | { readonly kind: 'chat-only' }
+  | { readonly kind: 'inactive' }
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'error'; readonly reason: string }
+  | {
+      readonly kind: 'stats';
+      /** observationTokenCount — what OM is currently holding for this thread. */
+      readonly observationTokens: number;
+      /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
+      readonly compactionSavedTokens: number;
+    };
+
 export interface ContextUsageMeterProps {
   /** Full model context window size. Meter is hidden when absent. */
   contextWindow: number | undefined;
+  /**
+   * Durable cumulative usage for this thread (running token total + cost),
+   * hydrated from the DB. Absent on web / before hydration → the cumulative line
+   * is not shown (the last-turn bar still renders).
+   */
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   /** Effective input budget (contextWindow − output reservation). Meter is hidden when absent. */
   effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
   estimatedTokens?: number | undefined;
+  /**
+   * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
+   * below the chat-vs-budget bar (observed tokens + compaction saved) — NOT a
+   * budget segment. Absent → no OM line (desktop before the first resolve).
+   * Desktop-only: on web the resolver supplies `{ kind: 'chat-only' }` so the
+   * stats are hidden honestly. Prop name kept as `omSegment` for call-site
+   * stability across the panel layers.
+   */
+  omSegment?: OmMeterState | undefined;
   /** Thread key — MUST match the key used by recordUsage writers (same as threadKey prop on AssistantUiPanel). Falls back to 'active'. */
   threadKey?: string | undefined;
 }
@@ -49,11 +114,83 @@ function formatCompact(count: number): string {
   return formatTokenCount(count).replace(' tokens', '');
 }
 
+/**
+ * Short note + testid for the non-`stats` OM states (honest, never a 0). Returns
+ * null for `loading` so the OM line stays quiet during the initial fetch / a
+ * thread switch instead of flashing the empty state.
+ */
+function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } | null {
+  switch (state.kind) {
+    case 'chat-only':
+      return { text: 'Observations available on desktop', tone: 'muted' };
+    case 'inactive':
+      return { text: 'OM inactive', tone: 'muted' };
+    case 'empty':
+      return { text: 'No observations yet', tone: 'muted' };
+    case 'error':
+      return { text: 'Observations unavailable', tone: 'error' };
+    default:
+      // 'loading' and 'stats' are handled by OmMeterSection, not as a note.
+      return null;
+  }
+}
+
+interface OmMeterSectionProps {
+  state: OmMeterState;
+}
+
+/**
+ * Renders the OM portion of the meter as INFORMATIONAL stats (observed tokens +
+ * compaction saved) for the `stats` state, or an honest one-line note for every
+ * other state (never zeros). The observation is deliberately NOT drawn as a
+ * budget segment — it does not consume this turn's input budget (see OmMeterState
+ * doc). Extracted so ContextUsageMeter stays under the cognitive-complexity budget.
+ */
+const OmMeterSection: FC<OmMeterSectionProps> = ({ state }) => {
+  if (state.kind === 'stats') {
+    return (
+      <div
+        className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground/70"
+        data-testid="context-usage-om-stats"
+      >
+        <span className="tabular-nums" data-testid="context-usage-om-observed">
+          OM context: ~{formatCompact(state.observationTokens)} tokens observed
+        </span>
+        {state.compactionSavedTokens > 0 && (
+          <span className="tabular-nums" data-testid="context-usage-om-compaction">
+            Reflection saved ~{formatCompact(state.compactionSavedTokens)} tokens
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  const note = omNote(state);
+  if (!note) {
+    return null;
+  }
+  return (
+    <p
+      className={cn(
+        'mt-1.5 text-[11px]',
+        note.tone === 'error' ? 'text-destructive/80' : 'text-muted-foreground/70'
+      )}
+      data-testid="context-usage-om-note"
+    >
+      {note.text}
+    </p>
+  );
+};
+
+OmMeterSection.displayName = 'OmMeterSection';
+
 export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
   threadKey,
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
   estimatedTokens,
+  omSegment,
 }) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
@@ -98,9 +235,12 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
       // not lost while the fraction shows the effective input budget.
       title={`model window ${formatTokenCount(contextWindow)}`}
     >
-      {/* Token counts row — denominator is effectiveInputBudget so the text
-          fraction and the bar fill tell the same story (both use the same
-          denominator). The full contextWindow is visible in the title above. */}
+      {/* Last-turn token counts row — this bar is a ONE-TURN-LAG estimate of
+          the next prompt's size (prev input + prev output), so it is labelled
+          "last turn" to disambiguate it from the cumulative line below. The
+          denominator is effectiveInputBudget so the text fraction and the bar
+          fill tell the same story. The full contextWindow is visible in the
+          title above. */}
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -112,6 +252,9 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
                 : 'text-muted-foreground'
           )}
         >
+          <span className="mr-1 text-[10px] text-muted-foreground/60 uppercase tracking-wide">
+            last turn
+          </span>
           {formatCompact(usedTokens)} / {formatTokenCount(effectiveInputBudget)}
         </span>
         {isEstimated && (
@@ -136,6 +279,33 @@ export const ContextUsageMeter: FC<ContextUsageMeterProps> = ({
         />
       </div>
 
+      {/* OM informational stats (observed tokens + compaction saved), or an
+          honest note for the other states. NOT a budget segment — the
+          observation does not consume this turn's input budget. Desktop-only:
+          web supplies { kind: 'chat-only' } so the stats are hidden, never
+          zeros. */}
+      {omSegment && <OmMeterSection state={omSegment} />}
+
+      {/* Cumulative durable usage + cost. Only shown when hydrated from the DB
+          (desktop). Cost renders via formatUsdCost, or the literal "cost
+          unavailable" for the available:false branch — NEVER $0. */}
+      {cumulativeUsage && (
+        <div
+          className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80"
+          data-testid="context-usage-cumulative"
+        >
+          <span className="tabular-nums">
+            <span className="mr-1 text-[10px] text-muted-foreground/60 uppercase tracking-wide">
+              cumulative
+            </span>
+            {formatTokenCount(cumulativeUsage.totalTokens)}
+          </span>
+          <span className="tabular-nums" data-testid="context-usage-cost">
+            {costLabel(cumulativeUsage.cost)}
+          </span>
+        </div>
+      )}
+
       {/* Critical windowing notice */}
       {state === 'critical' && (
         <p className="mt-1 text-[11px] text-destructive/80">
@@ -158,13 +328,17 @@ ContextUsageMeter.displayName = 'ContextUsageMeter';
  */
 export interface ThreadContextMeterProps {
   contextWindow: number | undefined;
+  cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget: number | undefined;
+  omSegment?: OmMeterState | undefined;
   threadKey: string | undefined;
 }
 
 export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   contextWindow,
+  cumulativeUsage,
   effectiveInputBudget,
+  omSegment,
   threadKey,
 }) => {
   // Access all messages to build a heuristic token estimate.
@@ -198,8 +372,10 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   return (
     <ContextUsageMeter
       contextWindow={contextWindow}
+      {...(cumulativeUsage ? { cumulativeUsage } : {})}
       effectiveInputBudget={effectiveInputBudget}
       estimatedTokens={estimatedTokens}
+      {...(omSegment ? { omSegment } : {})}
       threadKey={threadKey}
     />
   );

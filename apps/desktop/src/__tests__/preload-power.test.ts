@@ -18,6 +18,7 @@ import {
   EMBEDDING_HOST_COMMAND_EVENT,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STATUS_EVENT,
@@ -109,6 +110,7 @@ describe('preload power bridge', () => {
           stop: () => Promise<unknown>;
           reset: () => Promise<unknown>;
           getStatus: () => Promise<unknown>;
+          queryEmbedding: (payload: unknown) => Promise<unknown>;
           reportStatus: (status: unknown) => void;
           onStatus: (cb: (status: unknown) => void) => () => void;
           onCommand: (cb: (command: unknown) => void) => () => void;
@@ -308,11 +310,42 @@ describe('preload power bridge', () => {
     await embeddingHostApi?.stop();
     await embeddingHostApi?.reset();
     await embeddingHostApi?.getStatus();
+    await embeddingHostApi?.queryEmbedding({
+      dimensions: 384,
+      modelId: 'embedding-model',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'workspace index benchmark',
+    });
 
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_STOP_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_RESET_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_GET_STATUS_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL, {
+      dimensions: 384,
+      modelId: 'embedding-model',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'workspace index benchmark',
+    });
+  });
+
+  it('rejects invalid embeddingHost query payloads before IPC', async () => {
+    mockInvoke.mockClear();
+    const embeddingHostApi = getEmbeddingHostApi();
+    expect(embeddingHostApi).toBeDefined();
+    if (!embeddingHostApi) {
+      throw new Error('embeddingHost bridge unavailable');
+    }
+
+    expect(() =>
+      embeddingHostApi.queryEmbedding({
+        dimensions: 0,
+        modelId: 'embedding-model',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        query: 'workspace index benchmark',
+      })
+    ).toThrow('Embedding host query embedding payload.dimensions must be a positive integer.');
+    expect(mockInvoke).not.toHaveBeenCalled();
   });
 
   it('forwards embedding host reports and subscribes to host events', () => {

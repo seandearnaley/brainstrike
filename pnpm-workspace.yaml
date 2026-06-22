@@ -18,6 +18,7 @@ allowBuilds:
   electron-winstaller: true
   esbuild: false
   lefthook: true
+  node-pty: true
   onnxruntime-node: true
   oxc-resolver: true
   protobufjs: true

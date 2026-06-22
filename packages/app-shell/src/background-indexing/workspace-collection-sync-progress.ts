@@ -10,8 +10,6 @@ import type {
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 
 const SCANNING_STATUS_THROTTLE_MS = 100;
-const BACKFILL_DRAIN_POLL_BASE_MS = 250;
-const BACKFILL_DRAIN_POLL_MAX_MS = 2000;
 
 interface WorkspaceCollectionSyncProgressStatusBase {
   activeRootPath: string;
@@ -123,11 +121,6 @@ export async function waitForAbortableDelay(ms: number, signal: AbortSignal): Pr
     };
     signal.addEventListener('abort', onAbort, { once: true });
   });
-}
-
-export function getBackfillDrainPollDelayMs(attempt: number): number {
-  const safeAttempt = Math.max(0, attempt);
-  return Math.min(BACKFILL_DRAIN_POLL_MAX_MS, BACKFILL_DRAIN_POLL_BASE_MS * 2 ** safeAttempt);
 }
 
 export function dispatchQueueDrainedEvent(embeddingSetId: string): void {

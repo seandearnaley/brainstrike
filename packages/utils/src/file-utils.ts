@@ -146,6 +146,7 @@ const binaryFileExtensions = new Set([
   'bin',
   'dat',
   'lock',
+  'wasm',
 ]);
 
 function normalizeExtension(extension: string): string {

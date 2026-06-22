@@ -27,6 +27,7 @@ import type {
 
 const {
   databaseWorkSchedulerState,
+  createPriorityDbHandleMock,
   getDatabaseWorkSchedulerMock,
   makeLiveQueryKeyMock,
   usePGliteDatabaseMock,
@@ -41,6 +42,7 @@ const {
   };
   return {
     databaseWorkSchedulerState,
+    createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
     usePGliteDatabaseMock: vi.fn((): unknown => null),
@@ -119,6 +121,7 @@ function createDatabaseWorkSnapshot(
       background: createPriorityStats(),
     },
     queued: { foreground: 0, normal: 0, background: 0 },
+    queuedLabels: { foreground: [], normal: [], background: [] },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 0,
@@ -127,6 +130,7 @@ function createDatabaseWorkSnapshot(
 }
 
 vi.mock('@brainstrike/db', () => ({
+  createPriorityDbHandle: createPriorityDbHandleMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
   usePGliteDatabase: usePGliteDatabaseMock,
@@ -220,16 +224,19 @@ describe('IndexingActivityCoordinator', () => {
     });
   });
 
-  it('reports active queue state from a live aggregate without app activity gating', async () => {
-    liveQueryState.rows = [
-      {
-        queued: '7',
-        running: '1',
-        failed: '0',
-        succeeded: '23',
-        nextRunnableAt: '2026-04-25T12:00:00.000Z',
-      },
-    ];
+  it('samples queue state without subscribing live to the hot job_queue table', async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          queued: '7',
+          running: '1',
+          failed: '0',
+          succeeded: '23',
+          nextRunnableAt: '2026-04-25T12:00:00.000Z',
+        },
+      ],
+    }));
+    usePGliteDatabaseMock.mockReturnValue({ query });
 
     render(<IndexingActivityCoordinator />);
 
@@ -247,12 +254,9 @@ describe('IndexingActivityCoordinator', () => {
       });
     });
 
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enabled: true,
-        params: ['embeddings'],
-      })
-    );
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM job_queue'), ['embeddings']);
+    expect(createPriorityDbHandleMock).toHaveBeenCalledWith({ query }, 'background');
+    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       queued: 7,
       running: 1,

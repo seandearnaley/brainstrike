@@ -17,6 +17,12 @@ export const fileContent = {
    * for null bytes or control characters
    */
   isTextContent(content: string): boolean {
+    // Postgres/PGlite TEXT cannot store NUL bytes. Check the full string so a
+    // late NUL in an otherwise-text file cannot poison the workspace index.
+    if (content.includes('\0')) {
+      return false;
+    }
+
     const sampleSize = Math.min(512, content.length);
     for (let i = 0; i < sampleSize; i++) {
       const charCode = content.charCodeAt(i);

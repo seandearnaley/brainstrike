@@ -255,6 +255,7 @@ describe('runEnhancedImport', () => {
         service: {} as never,
         chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'set-1',
+        targetDimension: 384,
       },
       progressHandlers: {
         update: (updater) => updater(null),
@@ -289,7 +290,7 @@ describe('runEnhancedImport', () => {
       expect.objectContaining({
         model: 'local::mock-model',
         targetEmbeddingSetId: 'set-1',
-        targetDimension: 768,
+        targetDimension: 384,
         provider: 'local',
         dimensionParameter: null,
       })
@@ -1583,5 +1584,100 @@ describe('runEnhancedImport', () => {
         targetDimension: 256,
       })
     );
+  });
+
+  it('exposes desktop atomic chunk/job enqueue options without callback transactions', async () => {
+    const queuePort: EmbeddingJobQueuePort = {
+      enqueueBatch: vi.fn().mockResolvedValue(undefined),
+    };
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const sqlPort = {
+      query: vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('FROM models')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'atomic-model',
+                providerId: 'transformers',
+                capabilities: { type: 'embedding', defaultDimension: 384 },
+              },
+            ],
+          });
+        }
+        if (
+          sql.startsWith(
+            'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+          )
+        ) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      insertChunksAndEnqueueEmbeddingJobs,
+    } as SqlExecutorPort & {
+      insertChunksAndEnqueueEmbeddingJobs: typeof insertChunksAndEnqueueEmbeddingJobs;
+    };
+    const chunk = {
+      id: 'chunk-atomic',
+      fileRecordId: '1',
+      content: 'atomic content',
+      contentHash: 'hash-atomic',
+    } as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::atomic-model',
+        service: null,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'atomic-set',
+      },
+      ports: {
+        embeddingQueue: queuePort,
+        sql: sqlPort,
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [chunk],
+      '1',
+      expect.objectContaining({
+        model: 'local::atomic-model',
+        targetEmbeddingSetId: null,
+        provider: 'local',
+        targetDimension: 384,
+      })
+    );
+    expect(queuePort.enqueueBatch).not.toHaveBeenCalled();
   });
 });

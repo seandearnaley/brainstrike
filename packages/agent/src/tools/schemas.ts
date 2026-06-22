@@ -148,6 +148,53 @@ export const ReadWorkspaceFileInputSchema = z
 
 export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
 
+export const WriteWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
+      ),
+    content: z
+      // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
+      // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
+      .string()
+      .max(8_000_000)
+      .describe('Full UTF-8 file content to write (up to ~2 MB). Overwrites any existing file.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSchema>;
+
+export const StringReplaceWorkspaceFileInputSchema = z
+  .object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to edit (same path convention as readWorkspaceFile). The file must already exist.'
+      ),
+    oldStr: z
+      // Outer DoS guard only; the desktop tool reads the file under the same
+      // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
+      .string()
+      .min(1)
+      .max(8_000_000)
+      .describe(
+        'The exact block of existing text to replace. Pass WHOLE LINES with enough surrounding context that the block uniquely identifies ONE location: a block that matches more than once is REFUSED (re-call with more context), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings.'
+      ),
+    newStr: z
+      .string()
+      .max(8_000_000)
+      .describe('The replacement text. Use an empty string to delete the matched block.'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+  })
+  .strict();
+
+export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorkspaceFileInputSchema>;
+
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
     path: z.string().optional().describe('Directory path (defaults to root)'),
@@ -468,9 +515,129 @@ export const GrepSearchInputSchema = z
         'Skip this many files/matches to continue a truncated result instead of re-querying'
       ),
   })
-  .strict();
+  .strict()
+  // Fail-fast: when the caller asks for regex matching, reject an invalid pattern
+  // at parse rather than deferring the failure to execution (no silent fallback).
+  .refine(
+    (value) => {
+      if (value.isRegex !== true) {
+        return true;
+      }
+      try {
+        // Compilation is what validates the syntax; flags don't affect validity here.
+        new RegExp(value.pattern);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    {
+      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
+      path: ['pattern'],
+    }
+  );
 
 export type GrepSearchInput = z.infer<typeof GrepSearchInputSchema>;
+
+export const GlobWorkspaceInputSchema = z
+  .object({
+    pattern: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe(
+        'Glob pattern matched against workspace-relative paths, e.g. "**/*.test.ts", "src/**/*.tsx", "**/package.json". A bare pattern with no leading "**/" or "/" matches at any depth (so "*.ts" behaves like "**/*.ts").'
+      ),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: scope the walk to one open folder by its name or id (from listWorkspaceContext or a result). Omit to enumerate every open folder; results are always labelled with their root.'
+      ),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(1000)
+      .optional()
+      .describe('Maximum matching paths to return (default 200)'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(100_000)
+      .optional()
+      .describe('Skip this many matches to continue a truncated result instead of re-querying'),
+    includeIgnored: z
+      .boolean()
+      .optional()
+      .describe(
+        'Include files normally excluded (.git, node_modules, dist/build output, lockfiles, minified/generated artifacts). Default false: the same exclusions the workspace indexer applies.'
+      ),
+  })
+  .strict();
+
+export type GlobWorkspaceInput = z.infer<typeof GlobWorkspaceInputSchema>;
+
+// ============================================================================
+// Web Search Tool Schema
+// ============================================================================
+
+export const WebSearchInputSchema = z
+  .object({
+    query: z
+      .string()
+      .min(2)
+      .max(400)
+      .describe(
+        'The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents.'
+      ),
+    maxResults: z
+      .number()
+      .int()
+      .positive()
+      .max(10)
+      .optional()
+      .describe('Maximum number of results to return (default 5, max 10)'),
+  })
+  .strict();
+
+export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
+
+export const ExecuteCommandInputSchema = z
+  .object({
+    command: z
+      .string()
+      .min(1)
+      .max(10_000)
+      .describe(
+        'The shell command line to run, passed verbatim to the shell as `-c command`. Arbitrary execution — there is NO sandbox.'
+      ),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: which open folder to start in, by name or id (from listWorkspaceContext). Omit when only one folder is open; required to disambiguate when several are.'
+      ),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        'Optional start directory. Absolute, or relative to the chosen root. MUST resolve inside an open workspace folder (the command itself is unrestricted; only the start dir is pinned). Defaults to the workspace root.'
+      ),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(600_000)
+      .optional()
+      .describe(
+        'Kill the whole process tree after this many milliseconds (default 120000, max 600000). On timeout the result reports timedOut: true.'
+      ),
+  })
+  .strict();
+
+export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
@@ -478,6 +645,8 @@ const schemaMap: Record<string, z.ZodSchema> = {
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
+  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
@@ -486,6 +655,9 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.grepSearch': GrepSearchInputSchema,
+  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
+  'brainstrike.webSearch': WebSearchInputSchema,
+  'brainstrike.executeCommand': ExecuteCommandInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

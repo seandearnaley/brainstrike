@@ -4,6 +4,7 @@ import {
   type LocalRuntimeId,
   LocalRuntimeModelCatalogService,
   type LocalRuntimeModelCatalogState,
+  type RuntimeDiagnosticLogLevel,
 } from '@brainstrike/assistant-contract/local-runtime';
 import {
   getProviderDefaultModel,
@@ -25,6 +26,7 @@ import type {
 } from '@brainstrike/types';
 import { mergeAssistantProviderSettings } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
+import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
@@ -32,8 +34,6 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
-import { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
-import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -68,6 +68,7 @@ interface AssistantPreferencesActions {
   getAvailableProviders: () => Promise<SupportedProvider[]>;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getLocalRuntimeModels: (options?: {
+    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     force?: boolean;
     verifyEmbeddingDimensions?: boolean;
     maxVerificationModels?: number;
@@ -81,9 +82,10 @@ interface AssistantPreferencesActions {
    */
   getLocalRuntimeStatus: (
     runtimeId: LocalRuntimeId,
-    options?: { force?: boolean }
+    options?: { diagnosticLogLevel?: RuntimeDiagnosticLogLevel; force?: boolean }
   ) => Promise<LocalRuntimeAvailabilityState>;
   getLocalRuntimeStatuses: (options?: {
+    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     force?: boolean;
   }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
   getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
@@ -104,9 +106,9 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-export { ASSISTANT_PREFERENCES_STORE_NAME };
+export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
 export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
-const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
+const STORE_NAME = 'assistant-preferences.v1';
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
@@ -285,6 +287,7 @@ function summarizeBridgeResult(value: unknown): string {
 async function probeRuntimeViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
+    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
     readonly force?: boolean;
   }
@@ -312,6 +315,7 @@ async function probeRuntimeViaBridgeOrService(
 async function listRuntimeModelsViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
+    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
     readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
     readonly force?: boolean;
     readonly maxVerificationModels?: number;
@@ -652,6 +656,7 @@ async function getDetectedRuntimeProviders(
           providerSettings[providerId]
         );
         const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+          diagnosticLogLevel: 'debug',
           ...(endpoint ? { endpoint } : {}),
         });
         return { providerId, status };
@@ -749,7 +754,62 @@ function buildMigratedSelectedModel(
   return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
+function readLocalStorage(): Storage | undefined {
+  try {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    return window.localStorage;
+  } catch {
+    return;
+  }
+}
+
+function createAssistantPreferencesStorage(): StateStorage {
+  const memory = new Map<string, string>();
+
+  return {
+    getItem: (key) => {
+      const storage = readLocalStorage();
+      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
+      if (raw === null) {
+        return null;
+      }
+
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        try {
+          storage?.removeItem(key);
+        } catch {
+          // Local storage cleanup is best-effort; the invalid in-memory copy is still cleared.
+        }
+        memory.delete(key);
+        return null;
+      }
+    },
+    removeItem: (key) => {
+      const storage = readLocalStorage();
+      try {
+        storage?.removeItem(key);
+      } catch {
+        // Local storage cleanup is best-effort; the in-memory copy is still cleared.
+      }
+      memory.delete(key);
+    },
+    setItem: (key, value) => {
+      const storage = readLocalStorage();
+      if (storage) {
+        storage.setItem(key, value);
+        return;
+      }
+      memory.set(key, value);
+    },
+  };
+}
+
+const storage = createJSONStorage(() => createAssistantPreferencesStorage());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
@@ -1013,6 +1073,9 @@ export const useAssistantPreferencesStore = create<Store>()(
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const status = await probeRuntimeViaBridgeOrService(runtimeId, {
+              ...(options?.diagnosticLogLevel
+                ? { diagnosticLogLevel: options.diagnosticLogLevel }
+                : {}),
               ...(options?.force ? { force: true } : {}),
               ...(endpoint ? { endpoint } : {}),
             });
@@ -1036,6 +1099,9 @@ export const useAssistantPreferencesStore = create<Store>()(
         }
         const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
         return probeRuntimeViaBridgeOrService(runtimeId, {
+          ...(options?.diagnosticLogLevel
+            ? { diagnosticLogLevel: options.diagnosticLogLevel }
+            : {}),
           ...(options?.force ? { force: true } : {}),
           ...(endpoint ? { endpoint } : {}),
         });
@@ -1068,6 +1134,9 @@ export const useAssistantPreferencesStore = create<Store>()(
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const catalogState = await listRuntimeModelsViaBridgeOrService(runtimeId, {
+              ...(options?.diagnosticLogLevel
+                ? { diagnosticLogLevel: options.diagnosticLogLevel }
+                : {}),
               ...(options?.force ? { force: true } : {}),
               ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
               ...(typeof options?.maxVerificationModels === 'number'

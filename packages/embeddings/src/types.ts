@@ -16,6 +16,8 @@ export interface EmbeddingConfig {
   quantized?: boolean;
   /** Model revision/version */
   revision?: string;
+  /** Maximum local streaming inference batch size. */
+  streamBatchSize?: number;
   /** Explicit worker URL for streamed local embedding execution. */
   streamingWorkerUrl?: string;
 }
@@ -67,10 +69,18 @@ export interface EmbeddingResult {
   embedding: number[];
   /** Model used for generation */
   model: string;
+  /** Runtime metadata reported by the local embedding worker when available */
+  runtime?: EmbeddingWorkerRuntimeMetadata;
   /** Token usage information */
   usage?: {
     totalTokens?: number;
   };
+}
+
+export interface EmbeddingWorkerRuntimeMetadata {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dtype: string;
+  readonly fallbackApplied: boolean;
 }
 
 export interface EmbeddingStreamBatch {
@@ -80,6 +90,11 @@ export interface EmbeddingStreamBatch {
   results: EmbeddingResult[];
   /** Inclusive batch start index within the original request order */
   startIndex: number;
+}
+
+export interface EmbeddingStreamOptions {
+  /** Maximum local inference sub-batch size for this stream. */
+  streamBatchSize?: number;
 }
 
 /**
@@ -150,8 +165,9 @@ export interface EmbeddingService {
    */
   generateEmbeddingsStream?(
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ): Promise<void>;
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
+  ): Promise<unknown>;
 
   /** Generate an embedding optimized for search queries */
   generateQueryEmbedding(text: string): Promise<EmbeddingResult>;

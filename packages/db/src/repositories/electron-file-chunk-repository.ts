@@ -6,6 +6,10 @@ import type {
   FileChunkUpdate,
 } from '../models/file-chunk';
 import {
+  assertTextContentHasNoNullBytes,
+  assertTextContentsHaveNoNullBytes,
+} from '../text-content-invariants.js';
+import {
   appendColumn,
   appendColumnIfDefined,
   batchArray,
@@ -83,6 +87,7 @@ export class ElectronFileChunkRepository {
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
+    assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
     await validateEmbeddingDimensions(this.db as unknown as Queryable, [
       { embedding: chunk.embedding, embeddingSetId: chunk.embeddingSetId ?? null },
     ]);
@@ -135,6 +140,7 @@ export class ElectronFileChunkRepository {
     if (chunks.length === 0) {
       return [];
     }
+    assertTextContentsHaveNoNullBytes(chunks, (chunk) => chunk.content, 'File chunk content');
 
     await validateEmbeddingDimensions(this.db as unknown as Queryable, chunks);
 
@@ -217,6 +223,7 @@ export class ElectronFileChunkRepository {
     if (chunks.length === 0) {
       return [];
     }
+    assertTextContentsHaveNoNullBytes(chunks, (chunk) => chunk.content, 'File chunk content');
 
     await validateEmbeddingDimensions(tx as unknown as Queryable, chunks);
 
@@ -923,6 +930,7 @@ export class ElectronFileChunkRepository {
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
     if (chunk.content !== undefined) {
+      assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
       // content_tsvector is a STORED generated column; Postgres recomputes it
       // automatically when `content` changes, so we must not set it here.
       appendColumn(builder, 'content', chunk.content);

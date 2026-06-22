@@ -14,7 +14,7 @@ interface ResolvedDesktopDevRendererConfig {
 
 function warnInvalidDesktopDevRendererUrl(configuredUrl: string): void {
   logger.warn(
-    'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an absolute URL with an explicit port.',
+    'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an HTTP(S) URL with an explicit port.',
     {
       configuredUrl,
     }
@@ -33,7 +33,8 @@ function resolveDesktopDevRendererConfig(): ResolvedDesktopDevRendererConfig {
   try {
     const parsedUrl = new URL(configuredUrl);
     const parsedPort = Number.parseInt(parsedUrl.port, 10);
-    if (Number.isFinite(parsedPort) && parsedPort > 0) {
+    const isHttpRendererUrl = parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+    if (isHttpRendererUrl && Number.isFinite(parsedPort) && parsedPort > 0) {
       return {
         port: parsedPort,
         url: configuredUrl,

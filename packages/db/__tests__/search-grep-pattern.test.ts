@@ -48,6 +48,20 @@ describe('extractTrigramLiteral', () => {
     expect(extractTrigramLiteral('version\\d+')).toBe('version');
   });
 
+  it('does NOT leak encoding chars of \\x / \\u / octal / \\c escapes into the literal', () => {
+    // \x66 decodes to 'f' — the "66" must NOT become a fixed-string literal that a
+    // prefilter would search for (would silently miss a line matching "foo").
+    expect(extractTrigramLiteral('\\x66oo')).toBeNull(); // guaranteed run "oo" < 3
+    expect(extractTrigramLiteral('\\u0066oo')).toBeNull();
+    expect(extractTrigramLiteral('\\060oo')).toBeNull(); // octal
+    // A genuine guaranteed literal AFTER the escape is still extracted (sound: the
+    // escaped char prefixes it, so the literal is a substring of every match).
+    expect(extractTrigramLiteral('\\x66foobar')).toBe('foobar');
+    expect(extractTrigramLiteral('\\u0066foobar')).toBe('foobar');
+    expect(extractTrigramLiteral('\\u{66}foobar')).toBe('foobar');
+    expect(extractTrigramLiteral('\\cAfoobar')).toBe('foobar');
+  });
+
   it('returns null when no literal run reaches the minimum length', () => {
     expect(extractTrigramLiteral('\\d+\\.\\d+')).toBeNull();
     expect(extractTrigramLiteral('a.b.c')).toBeNull();

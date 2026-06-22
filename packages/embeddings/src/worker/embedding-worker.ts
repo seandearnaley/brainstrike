@@ -1,8 +1,9 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { SimpleEmbeddingService } from '../bge-m3-service';
+import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service';
 import type {
   EmbeddingProviderError,
   EmbeddingProviderType,
@@ -14,6 +15,8 @@ import type {
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStreamBatch,
+  EmbeddingStreamOptions,
+  EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
 } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
@@ -47,7 +50,6 @@ import {
   assertVectorEmbeddingColumn,
   resolveEmbeddingSetDimension,
   resolveIdType,
-  updateChunkEmbeddingBatch,
 } from './embedding-worker-db-io';
 import { classifyFailure, JobProcessingError } from './embedding-worker-failures';
 import {
@@ -78,6 +80,13 @@ const workerLogger = createLogger('EmbeddingWorker');
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
+export interface EmbeddingWorkerPipelineCapacity {
+  maxPendingCompletionBatches: number;
+  maxPendingCompletionBytes: number;
+  maxPendingCompletionChunks: number;
+  streamBatchSize: number;
+}
+
 export interface EmbeddingWorkerOptions {
   cacheDir?: string;
   claimBatchSize?: number;
@@ -94,15 +103,23 @@ export interface EmbeddingWorkerOptions {
   interBatchDelayMs?: number;
   leaseMs?: number;
   log?: (msg: string, meta?: unknown) => void;
+  maxPendingCompletionBatches?: number;
+  maxPendingCompletionBytes?: number;
+  maxPendingCompletionChunks?: number;
   metricsIntervalMs?: number;
   modelKey?: string | undefined;
   now?: () => number;
   onDownloadProgress?: (modelId: string, progress: number) => void;
   onFatalError?: (error: Error) => void;
+  onRuntimeMetadataChange?: (metadata: EmbeddingWorkerRuntimeMetadata) => void;
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string;
   reinitEveryN?: number;
   resolveClaimBatchSize?: () => number | null | Promise<number | null>;
+  resolvePipelineCapacity?: () =>
+    | EmbeddingWorkerPipelineCapacity
+    | null
+    | Promise<EmbeddingWorkerPipelineCapacity | null>;
   service?: EmbeddingService;
   statsRefreshCompletedChunkThreshold?: number;
   statsRefreshMinIntervalMs?: number;
@@ -112,6 +129,7 @@ export interface EmbeddingWorkerOptions {
    * This is intended for desktop hidden-host mode to avoid renderer churn.
    */
   stopOnFatalLocalError?: boolean;
+  streamBatchSize?: number;
   streamingWorkerUrl?: string;
   waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
   workerId?: string;
@@ -119,6 +137,18 @@ export interface EmbeddingWorkerOptions {
 
 export interface EmbeddingWorkerController {
   stop: () => Promise<void>;
+}
+
+function createSimpleEmbeddingServiceOptions(
+  options: Pick<EmbeddingWorkerOptions, 'streamBatchSize' | 'streamingWorkerUrl'>
+): SimpleEmbeddingServiceOptions | undefined {
+  if (!(options.streamingWorkerUrl || options.streamBatchSize)) {
+    return;
+  }
+  return {
+    ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
+    ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
+  };
 }
 
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
@@ -129,9 +159,21 @@ const WORKER_METRICS_INTERVAL_MS_ENV = 'WORKER_METRICS_INTERVAL_MS';
 type StreamingEmbeddingService = EmbeddingService & {
   generateEmbeddingsStream: (
     texts: string[],
-    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
-  ) => Promise<void>;
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
+    options?: EmbeddingStreamOptions
+  ) => Promise<unknown>;
 };
+
+class LocalEmbeddingStreamCallbackError extends Error {
+  readonly originalError: unknown;
+
+  constructor(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    super(message);
+    this.name = 'LocalEmbeddingStreamCallbackError';
+    this.originalError = error;
+  }
+}
 
 function readProcessEnvValue(name: string): string | undefined {
   return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
@@ -248,6 +290,15 @@ export async function startEmbeddingWorker(
     reportWorkerActivity(activeBatchCount > 0);
   };
 
+  const runWithWorkerActivity = async <T>(work: () => Promise<T>): Promise<T> => {
+    beginActiveBatch();
+    try {
+      return await work();
+    } finally {
+      endActiveBatch();
+    }
+  };
+
   // Check if worker is disabled BEFORE resolving model to avoid errors in tests
   if (!shouldStartWorker(options, log)) {
     workerLogger.info('startEmbeddingWorker: worker disabled, returning early');
@@ -269,6 +320,34 @@ export async function startEmbeddingWorker(
     DEFAULT_CLAIM_BATCH_SIZE,
     'claimBatchSize'
   );
+  const maxPendingCompletionBatches = resolvePositiveIntegerOption(
+    options.maxPendingCompletionBatches,
+    2,
+    'maxPendingCompletionBatches'
+  );
+  const maxPendingCompletionChunks = resolvePositiveIntegerOption(
+    options.maxPendingCompletionChunks,
+    claimBatchSize,
+    'maxPendingCompletionChunks'
+  );
+  const maxPendingCompletionBytes = resolvePositiveIntegerOption(
+    options.maxPendingCompletionBytes,
+    claimBatchSize * DEFAULT_EMBEDDING_DIMENSION * 4,
+    'maxPendingCompletionBytes'
+  );
+  const streamBatchSize = resolvePositiveIntegerOption(
+    options.streamBatchSize,
+    claimBatchSize,
+    'streamBatchSize'
+  );
+  const staticPipelineCapacity: EmbeddingWorkerPipelineCapacity = {
+    maxPendingCompletionBatches,
+    maxPendingCompletionBytes,
+    maxPendingCompletionChunks,
+    streamBatchSize,
+  };
+  const shouldOverrideStreamBatchSize =
+    options.streamBatchSize !== undefined || typeof options.resolvePipelineCapacity === 'function';
   const statsRefreshMinIntervalMs = resolvePositiveIntegerOption(
     options.statsRefreshMinIntervalMs,
     DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS,
@@ -311,17 +390,11 @@ export async function startEmbeddingWorker(
     message: string;
     modelId: string;
   } | null = null;
+  let latestRuntimeMetadata: EmbeddingWorkerRuntimeMetadata | null = null;
 
   if (isLocalProviderType(modelResolution.provider) && !initializeLocalModelOnStart) {
     service =
-      options.service ??
-      new SimpleEmbeddingService(
-        options.streamingWorkerUrl
-          ? {
-              streamingWorkerUrl: options.streamingWorkerUrl,
-            }
-          : undefined
-      );
+      options.service ?? new SimpleEmbeddingService(createSimpleEmbeddingServiceOptions(options));
     localServiceInitialized = service.getStatus() === 'ready';
     workerLogger.info('Deferring local embedding model initialization until first claimed job', {
       modelKey: activeCompositeKey,
@@ -383,6 +456,38 @@ export async function startEmbeddingWorker(
     }
   }
 
+  async function resolveEffectivePipelineCapacity(): Promise<EmbeddingWorkerPipelineCapacity> {
+    if (!options.resolvePipelineCapacity) {
+      return staticPipelineCapacity;
+    }
+    const resolved = await options.resolvePipelineCapacity();
+    if (resolved === null) {
+      return staticPipelineCapacity;
+    }
+    return {
+      maxPendingCompletionBatches: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionBatches,
+        staticPipelineCapacity.maxPendingCompletionBatches,
+        'resolvePipelineCapacity.maxPendingCompletionBatches'
+      ),
+      maxPendingCompletionBytes: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionBytes,
+        staticPipelineCapacity.maxPendingCompletionBytes,
+        'resolvePipelineCapacity.maxPendingCompletionBytes'
+      ),
+      maxPendingCompletionChunks: resolvePositiveIntegerOption(
+        resolved.maxPendingCompletionChunks,
+        staticPipelineCapacity.maxPendingCompletionChunks,
+        'resolvePipelineCapacity.maxPendingCompletionChunks'
+      ),
+      streamBatchSize: resolvePositiveIntegerOption(
+        resolved.streamBatchSize,
+        staticPipelineCapacity.streamBatchSize,
+        'resolvePipelineCapacity.streamBatchSize'
+      ),
+    };
+  }
+
   await assertVectorEmbeddingColumn(options.db);
 
   // Lightweight metrics for observability
@@ -428,6 +533,37 @@ export async function startEmbeddingWorker(
     nextIdlePollDelayMs = idlePollBackoff.initialMs;
   }
 
+  function reportRuntimeMetadata(metadata: EmbeddingWorkerRuntimeMetadata | undefined): void {
+    if (!metadata) {
+      return;
+    }
+    latestRuntimeMetadata = metadata;
+    try {
+      options.onRuntimeMetadataChange?.(metadata);
+    } catch (error) {
+      workerLogger.warn('Embedding runtime metadata callback failed', { error });
+    }
+  }
+
+  function parseRuntimeMetadata(value: unknown): EmbeddingWorkerRuntimeMetadata | undefined {
+    if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+      return;
+    }
+    const candidate = value as Partial<EmbeddingWorkerRuntimeMetadata>;
+    if (
+      (candidate.device === 'webgpu' || candidate.device === 'wasm') &&
+      typeof candidate.dtype === 'string' &&
+      typeof candidate.fallbackApplied === 'boolean'
+    ) {
+      return {
+        device: candidate.device,
+        dtype: candidate.dtype,
+        fallbackApplied: candidate.fallbackApplied,
+      };
+    }
+    return;
+  }
+
   function assertLocalModelSwitchAllowed(targetModelId: string): void {
     const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
     if (targetModelId === activeModelId || !isElectronMainProcess() || allowMainRuntime) {
@@ -442,11 +578,11 @@ export async function startEmbeddingWorker(
   }
 
   function logLocalModelInitialization(shouldReinitialize: boolean): void {
-    workerLogger.warn(
-      shouldReinitialize
-        ? 'Reinitializing embedding service; this blocks the main thread'
-        : 'Initializing deferred local embedding model for claimed work'
-    );
+    if (shouldReinitialize) {
+      workerLogger.warn('Reinitializing embedding service; this blocks the main thread');
+      return;
+    }
+    workerLogger.info('Initializing deferred local embedding model for claimed work');
   }
 
   async function resolveLocalModelConfig(
@@ -494,13 +630,7 @@ export async function startEmbeddingWorker(
       workerLogger.warn('Failed to dispose embedding service during reinitialization', { error });
     }
 
-    const nextService = new SimpleEmbeddingService(
-      options.streamingWorkerUrl
-        ? {
-            streamingWorkerUrl: options.streamingWorkerUrl,
-          }
-        : undefined
-    );
+    const nextService = new SimpleEmbeddingService(createSimpleEmbeddingServiceOptions(options));
     await nextService.initializeWithModel(cfg, undefined, options.device, options.cacheDir);
     return nextService;
   }
@@ -687,6 +817,7 @@ export async function startEmbeddingWorker(
         );
       }
     }
+    reportRuntimeMetadata(results.find((result) => result.runtime)?.runtime);
 
     return results;
   }
@@ -918,13 +1049,14 @@ export async function startEmbeddingWorker(
     }
 
     const completedJobIds = new Set<string>();
-    const updates: Array<{
-      id: string;
+    const jobCompletions: Array<{
+      chunkId: string;
       embedding: number[];
-      embeddingSetId: string;
       embeddingHash: string;
+      embeddingSetId: string;
+      id: string;
+      leaseToken: string;
     }> = [];
-    const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
 
     for (let index = 0; index < toProcess.length; index++) {
       const item = toProcess[index];
@@ -933,39 +1065,43 @@ export async function startEmbeddingWorker(
         throw new Error(`Missing item or embedding at index ${index} in batch.`);
       }
       const targetSetId = resolveTargetSetId(item.payload);
-      updates.push({
-        id: item.chunk.id,
+      jobCompletions.push({
+        chunkId: item.chunk.id,
         embedding,
-        embeddingSetId: targetSetId,
         embeddingHash: item.expectedHash,
+        embeddingSetId: targetSetId,
+        id: item.job.id,
+        leaseToken: item.job.lease_token,
       });
-      jobCompletions.push({ id: item.job.id, leaseToken: item.job.lease_token });
     }
 
-    if (updates.length > 0) {
-      await waitForBackgroundPermit('embedding completion');
-      await updateChunkEmbeddingBatch(options.db, updates, fileChunkIdType);
+    let completedJobs: Job[] = [];
+    if (jobCompletions.length > 0) {
+      completedJobs = await jq.completeEmbeddingChunkBatch(jobCompletions);
     }
-
-    const completedJobs = await jq.completeBatch(jobCompletions);
 
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
     onJobsCompleted?.(completedJobIds);
-    const completedEmbeddingSetIds = updates.map((update) => update.embeddingSetId);
+    const completedEmbeddingSetIds = completedJobs
+      .map((job) => job.embedding_set_id)
+      .filter((embeddingSetId): embeddingSetId is string => typeof embeddingSetId === 'string');
     const completedEmbeddingSetCount = new Set(completedEmbeddingSetIds).size;
     log('embedding_completion_batch', {
       completedJobCount: completedJobIds.size,
       embeddingSetCount: completedEmbeddingSetCount,
-      updateCount: updates.length,
+      updateCount: completedJobs.length,
     });
     try {
-      await statsRefreshController.recordCompletions(completedEmbeddingSetIds, updates.length);
+      await statsRefreshController.recordCompletions(
+        completedEmbeddingSetIds,
+        completedJobs.length
+      );
       await statsRefreshController.flushIfDue();
     } catch (error) {
       workerLogger.warn('Failed to update embedding completion stats', {
-        completedChunkCount: updates.length,
+        completedChunkCount: completedJobs.length,
         embeddingSetCount: completedEmbeddingSetCount,
         error,
       });
@@ -984,9 +1120,191 @@ export async function startEmbeddingWorker(
     for (const id of newlyCompleted) {
       completedJobIds.add(id);
     }
-    metrics.jobsProcessed += toProcess.length;
-    processedSinceInit += toProcess.length;
+    metrics.jobsProcessed += newlyCompleted.size;
+    processedSinceInit += newlyCompleted.size;
     consecutiveFailures = 0;
+  }
+
+  function estimateEmbeddingBytes(embeddings: readonly number[][]): number {
+    return embeddings.reduce((total, embedding) => total + embedding.length * 4, 0);
+  }
+
+  function createStreamingCompletionWriter(
+    capacity: EmbeddingWorkerPipelineCapacity,
+    completedJobIds: Set<string>,
+    onJobsCompleted?: (jobIds: Set<string>) => void
+  ): {
+    enqueue: (
+      toProcess: LoadedChunkItem[],
+      embeddings: number[][],
+      options?: {
+        afterComplete?: (
+          completedItems: LoadedChunkItem[],
+          completedEmbeddings: number[][]
+        ) => void;
+        inferenceMs?: number;
+      }
+    ) => Promise<void>;
+    flush: () => Promise<void>;
+  } {
+    let pendingBatches = 0;
+    let pendingBytes = 0;
+    let pendingChunks = 0;
+    let completionChain: Promise<void> = Promise.resolve();
+    let firstFailure: unknown = null;
+    const capacityWaiters = new Set<() => void>();
+
+    const notifyCapacity = () => {
+      for (const waiter of capacityWaiters) {
+        waiter();
+      }
+      capacityWaiters.clear();
+    };
+
+    const throwIfFailed = () => {
+      if (firstFailure) {
+        throw firstFailure;
+      }
+    };
+
+    const splitCompletionBatch = (
+      toProcess: LoadedChunkItem[],
+      embeddings: number[][]
+    ): Array<{ embeddings: number[][]; toProcess: LoadedChunkItem[] }> => {
+      const slices: Array<{ embeddings: number[][]; toProcess: LoadedChunkItem[] }> = [];
+      let sliceStart = 0;
+      let sliceBytes = 0;
+      let sliceChunks = 0;
+
+      for (let index = 0; index < embeddings.length; index += 1) {
+        const embedding = embeddings[index];
+        if (!embedding) {
+          throw new Error(`Invalid input: streamed completion batch missing embedding ${index}.`);
+        }
+        const embeddingBytes = embedding.length * 4;
+        if (embeddingBytes > capacity.maxPendingCompletionBytes) {
+          throw new Error(
+            `Invalid input: streamed completion item has ${embeddingBytes} byte(s), exceeding maxPendingCompletionBytes=${capacity.maxPendingCompletionBytes}.`
+          );
+        }
+        if (
+          sliceChunks > 0 &&
+          (sliceChunks + 1 > capacity.maxPendingCompletionChunks ||
+            sliceBytes + embeddingBytes > capacity.maxPendingCompletionBytes)
+        ) {
+          slices.push({
+            embeddings: embeddings.slice(sliceStart, index),
+            toProcess: toProcess.slice(sliceStart, index),
+          });
+          sliceStart = index;
+          sliceBytes = 0;
+          sliceChunks = 0;
+        }
+        sliceBytes += embeddingBytes;
+        sliceChunks += 1;
+      }
+
+      if (sliceChunks > 0) {
+        slices.push({
+          embeddings: embeddings.slice(sliceStart),
+          toProcess: toProcess.slice(sliceStart),
+        });
+      }
+
+      return slices;
+    };
+
+    const waitForCapacity = async (chunkCount: number, byteCount: number): Promise<void> => {
+      if (chunkCount > capacity.maxPendingCompletionChunks) {
+        throw new Error(
+          `Invalid input: streamed completion batch has ${chunkCount} chunk(s), exceeding maxPendingCompletionChunks=${capacity.maxPendingCompletionChunks}.`
+        );
+      }
+      if (byteCount > capacity.maxPendingCompletionBytes) {
+        throw new Error(
+          `Invalid input: streamed completion batch has ${byteCount} byte(s), exceeding maxPendingCompletionBytes=${capacity.maxPendingCompletionBytes}.`
+        );
+      }
+      while (
+        pendingBatches > 0 &&
+        (pendingBatches + 1 > capacity.maxPendingCompletionBatches ||
+          pendingChunks + chunkCount > capacity.maxPendingCompletionChunks ||
+          pendingBytes + byteCount > capacity.maxPendingCompletionBytes)
+      ) {
+        throwIfFailed();
+        await new Promise<void>((resolve) => {
+          capacityWaiters.add(resolve);
+        });
+      }
+      throwIfFailed();
+    };
+
+    return {
+      async enqueue(toProcess, embeddings, enqueueOptions): Promise<void> {
+        const completionSlices = splitCompletionBatch(toProcess, embeddings);
+        for (const slice of completionSlices) {
+          await enqueueSlice(slice.toProcess, slice.embeddings, enqueueOptions);
+        }
+      },
+      async flush(): Promise<void> {
+        await completionChain;
+        throwIfFailed();
+      },
+    };
+
+    async function enqueueSlice(
+      toProcess: LoadedChunkItem[],
+      embeddings: number[][],
+      enqueueOptions:
+        | {
+            afterComplete?: (
+              completedItems: LoadedChunkItem[],
+              completedEmbeddings: number[][]
+            ) => void;
+            inferenceMs?: number;
+          }
+        | undefined
+    ): Promise<void> {
+      const chunkCount = toProcess.length;
+      const byteCount = estimateEmbeddingBytes(embeddings);
+      await waitForCapacity(chunkCount, byteCount);
+
+      const acceptedAt = performance.now();
+      pendingBatches += 1;
+      pendingChunks += chunkCount;
+      pendingBytes += byteCount;
+
+      const run = completionChain.then(async () => {
+        const completionStartedAt = performance.now();
+        try {
+          await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
+          enqueueOptions?.afterComplete?.(toProcess, embeddings);
+        } catch (error) {
+          firstFailure ??= error;
+          throw error;
+        } finally {
+          const completionFinishedAt = performance.now();
+          pendingBatches = Math.max(0, pendingBatches - 1);
+          pendingChunks = Math.max(0, pendingChunks - chunkCount);
+          pendingBytes = Math.max(0, pendingBytes - byteCount);
+          log('embedding_pipeline_timing', {
+            completeJobsMs: Math.round(completionFinishedAt - completionStartedAt),
+            completionWaitMs: Math.round(completionStartedAt - acceptedAt),
+            device: latestRuntimeMetadata?.device ?? null,
+            dbWriteMs: Math.round(completionFinishedAt - completionStartedAt),
+            dtype: latestRuntimeMetadata?.dtype ?? null,
+            inferenceMs: Math.round(enqueueOptions?.inferenceMs ?? 0),
+            pendingCompletionBatches: pendingBatches,
+            pendingCompletionChunks: pendingChunks,
+            schedulerWaitMs: 0,
+            streamBatchSize: chunkCount,
+          });
+          notifyCapacity();
+        }
+      });
+      completionChain = run.catch(() => undefined);
+      run.catch(() => undefined);
+    }
   }
 
   async function processLocalGroupIncrementally(
@@ -998,6 +1316,13 @@ export async function startEmbeddingWorker(
     onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
+    const pipelineCapacity = await resolveEffectivePipelineCapacity();
+    const completionWriter = createStreamingCompletionWriter(
+      pipelineCapacity,
+      completedJobIds,
+      onJobsCompleted
+    );
+    let lastStreamBatchFinishedAt = performance.now();
     const cacheHits = await lookupCacheHits(
       options.embeddingCache,
       toProcess,
@@ -1014,15 +1339,11 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
       const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
-      await completeBatchAndTrack(
-        cacheHitItems,
-        cachedEmbeddings,
-        completedJobIds,
-        onJobsCompleted
-      );
+      await completionWriter.enqueue(cacheHitItems, cachedEmbeddings);
     }
 
     if (cacheMisses.length === 0) {
+      await completionWriter.flush();
       await maybeReinitialize();
       return;
     }
@@ -1032,44 +1353,73 @@ export async function startEmbeddingWorker(
     const streamingService = assertStreamingService(service);
 
     try {
-      await streamingService.generateEmbeddingsStream(
-        cacheMisses.map((item) => item.chunk.content),
-        async (batch) => {
-          if (checkLease()) {
-            throw new Error('Lease lost during processing');
-          }
-
-          const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
-          if (batchItems.length !== batch.results.length) {
-            throw new Error(
-              `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
-            );
-          }
-
-          const embeddings = batch.results.map((result, index) => {
-            if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
-              throw new Error(
-                `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+      const streamStartedAt = performance.now();
+      lastStreamBatchFinishedAt = streamStartedAt;
+      const runtimeMetadata = await runWithWorkerActivity(async () =>
+        streamingService.generateEmbeddingsStream(
+          cacheMisses.map((item) => item.chunk.content),
+          async (batch) => {
+            const batchFinishedAt = performance.now();
+            const inferenceMs = batchFinishedAt - lastStreamBatchFinishedAt;
+            lastStreamBatchFinishedAt = batchFinishedAt;
+            if (checkLease()) {
+              throw new LocalEmbeddingStreamCallbackError(
+                new Error('Lease lost during processing')
               );
             }
-            return result.embedding;
-          });
 
-          await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
-          storeToCacheAsync(
-            options.embeddingCache,
-            batchItems,
-            embeddings,
-            modelKey,
-            expectedDimension,
-            trackCacheWrite
-          );
-        }
+            const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+            if (batchItems.length !== batch.results.length) {
+              throw new Error(
+                `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
+              );
+            }
+            reportRuntimeMetadata(batch.results.find((result) => result.runtime)?.runtime);
+
+            const embeddings = batch.results.map((result, index) => {
+              if (
+                !Array.isArray(result.embedding) ||
+                result.embedding.length !== expectedDimension
+              ) {
+                throw new Error(
+                  `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+                );
+              }
+              return result.embedding;
+            });
+
+            try {
+              await completionWriter.enqueue(batchItems, embeddings, {
+                afterComplete: (completedItems, completedEmbeddings) => {
+                  storeToCacheAsync(
+                    options.embeddingCache,
+                    completedItems,
+                    completedEmbeddings,
+                    modelKey,
+                    expectedDimension,
+                    trackCacheWrite
+                  );
+                },
+                inferenceMs,
+              });
+            } catch (error) {
+              throw new LocalEmbeddingStreamCallbackError(error);
+            }
+          },
+          shouldOverrideStreamBatchSize
+            ? { streamBatchSize: pipelineCapacity.streamBatchSize }
+            : undefined
+        )
       );
+      reportRuntimeMetadata(parseRuntimeMetadata(runtimeMetadata));
     } catch (error) {
+      if (error instanceof LocalEmbeddingStreamCallbackError) {
+        throw error.originalError instanceof Error ? error.originalError : error;
+      }
       throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
     }
 
+    await completionWriter.flush();
     localModelExecutionFailure = null;
 
     await maybeReinitialize();
@@ -1180,7 +1530,9 @@ export async function startEmbeddingWorker(
           onJobsCompleted
         );
       } else {
-        const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+        const embeddings = await runWithWorkerActivity(async () =>
+          generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension)
+        );
 
         if (checkLease()) {
           throw new Error('Lease lost during processing');
@@ -1225,6 +1577,10 @@ export async function startEmbeddingWorker(
 
   async function maybeReinitialize() {
     if (reinitEveryN <= 0 || processedSinceInit < reinitEveryN || scheduledReinitPending) {
+      return;
+    }
+    if (latestRuntimeMetadata?.device === 'webgpu') {
+      processedSinceInit = 0;
       return;
     }
     // Reinitialize inline instead of deferring to idle. During large backfills
@@ -1445,12 +1801,7 @@ export async function startEmbeddingWorker(
       }
 
       resetIdleBackoff();
-      beginActiveBatch();
-      try {
-        await processClaimedJobs(jobs);
-      } finally {
-        endActiveBatch();
-      }
+      await processClaimedJobs(jobs);
 
       // Yield between batches to let V8/GC and the foreground renderer breathe
       // under sustained background embedding load.

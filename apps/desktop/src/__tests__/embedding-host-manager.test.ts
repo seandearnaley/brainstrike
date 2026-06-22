@@ -465,6 +465,41 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
   });
 
+  it('preserves embedding runtime metadata from status reports', () => {
+    const manager = new EmbeddingHostManager();
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+      active: false,
+      lastError: null,
+      embeddingRuntime: {
+        actualWorkerMetadata: {
+          device: 'webgpu',
+          dtype: 'fp16',
+          fallbackApplied: false,
+        },
+        backendMismatch: false,
+        selectedDevicePreference: 'webgpu',
+      },
+    });
+
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        embeddingRuntime: expect.objectContaining({
+          actualWorkerMetadata: expect.objectContaining({
+            device: 'webgpu',
+            dtype: 'fp16',
+            fallbackApplied: false,
+          }),
+          backendMismatch: false,
+          selectedDevicePreference: 'webgpu',
+        }),
+      })
+    );
+  });
+
   it('destroyAndRestart recreates the host window and waits for a fresh running status', async () => {
     const manager = new EmbeddingHostManager();
 

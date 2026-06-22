@@ -16,6 +16,20 @@ const baseInputs: WorkspaceIndexingQosInputs = {
   idleState: 'active',
   idleTimeMs: 0,
   manualPaused: false,
+  pipeline: {
+    accelerator: {
+      available: false,
+    },
+    memory: {
+      available: false,
+    },
+    progress: {
+      available: false,
+    },
+    queueDepth: {
+      available: false,
+    },
+  },
   powerSource: 'ac',
   providerRateLimited: false,
   recentUserInputMs: null,
@@ -87,9 +101,55 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       allowNewWork: true,
       allowPowerSaveBlocker: true,
       contentReadConcurrency: 4,
+      completionOverlapBatches: 3,
       importBatchSize: 48,
+      maxPendingCompletionChunks: 64,
       reason: 'idle-ac',
       state: 'idle-ac',
+      streamBatchSize: 16,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('keeps balanced capacity high enough to feed streaming inference and completion overlap', () => {
+    const policy = resolve({ windowVisible: false });
+
+    expect(policy).toMatchObject({
+      completionOverlapBatches: 2,
+      contentReadConcurrency: 4,
+      importBatchSize: 24,
+      maxPendingCompletionChunks: 32,
+      state: 'balanced',
+      streamBatchSize: 8,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('drops pipeline capacity under foreground pressure and restores it after pressure clears', () => {
+    const pressured = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      windowVisible: false,
+    });
+    const recovered = resolve({ windowVisible: false });
+
+    expect(pressured).toMatchObject({
+      allowNewWork: false,
+      completionOverlapBatches: 1,
+      maxPendingCompletionChunks: 1,
+      state: 'foreground-yielding',
+      streamBatchSize: 1,
+      workerClaimBatchSize: 0,
+    });
+    expect(recovered).toMatchObject({
+      allowNewWork: true,
+      completionOverlapBatches: 2,
+      maxPendingCompletionChunks: 32,
+      state: 'balanced',
+      streamBatchSize: 8,
       workerClaimBatchSize: 16,
     });
   });
@@ -111,6 +171,100 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
     });
   });
 
+  it('constrains work immediately under high memory pressure and recovers when memory clears', () => {
+    const pressured = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        memory: {
+          available: true,
+          pressure: 'high',
+          retainedHeapRatio: 0.82,
+        },
+      },
+    });
+    const recovered = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        memory: {
+          available: true,
+          pressure: 'normal',
+          retainedHeapRatio: 0.48,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(pressured).toMatchObject({
+      reason: 'memory-pressure',
+      state: 'system-constrained',
+      workerClaimBatchSize: 1,
+    });
+    expect(recovered).toMatchObject({
+      reason: 'balanced',
+      state: 'balanced',
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('boosts unpressured queued work when accelerator idle ratio is high', () => {
+    const policy = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        accelerator: {
+          available: true,
+          idleRatio: 0.5,
+        },
+        queueDepth: {
+          activeEmbeddingJobs: 256,
+          available: true,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(policy).toMatchObject({
+      importBatchSize: 48,
+      maxPendingCompletionChunks: 64,
+      reason: 'accelerator-idle',
+      state: 'balanced',
+      streamBatchSize: 16,
+      workerClaimBatchSize: 16,
+    });
+  });
+
+  it('constrains work when progress is stalled and recovers when progress resumes', () => {
+    const stalled = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        progress: {
+          available: true,
+          stalledForMs: 120_000,
+        },
+      },
+    });
+    const recovered = resolve({
+      pipeline: {
+        ...baseInputs.pipeline,
+        progress: {
+          available: true,
+          stalledForMs: 0,
+        },
+      },
+      windowVisible: false,
+    });
+
+    expect(stalled).toMatchObject({
+      reason: 'progress-stalled',
+      state: 'system-constrained',
+      workerClaimBatchSize: 1,
+    });
+    expect(recovered).toMatchObject({
+      reason: 'balanced',
+      state: 'balanced',
+      workerClaimBatchSize: 16,
+    });
+  });
+
   it('yields to foreground database pressure', () => {
     const policy = resolve({
       dbPressure: {
@@ -124,6 +278,44 @@ describe('resolveWorkspaceIndexingQosPolicy', () => {
       reason: 'foreground-db-pressure',
       state: 'foreground-yielding',
       workerClaimBatchSize: 0,
+    });
+  });
+
+  it('downgrades foreground database pressure to gentle constrained work under the starvation bypass', () => {
+    const policy = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      foregroundDbPressureStarvationBypass: true,
+    });
+
+    // A sync pass starved beyond the bound must make progress, but gently.
+    expect(policy).toMatchObject({
+      allowNewWork: true,
+      reason: 'foreground-db-pressure',
+      state: 'system-constrained',
+    });
+  });
+
+  it('still fully yields to an active foreground query even when the starvation bypass is set', () => {
+    const policy = resolve({
+      dbPressure: {
+        available: true,
+        foregroundPressure: true,
+        normalPressure: false,
+      },
+      foregroundDbPressureStarvationBypass: true,
+      foregroundQueryActive: true,
+    });
+
+    // The bypass only relaxes DB pressure; genuine foreground-query activity
+    // (the user is waiting on the assistant) must keep blocking new work.
+    expect(policy).toMatchObject({
+      allowNewWork: false,
+      reason: 'foreground-query',
+      state: 'foreground-yielding',
     });
   });
 
