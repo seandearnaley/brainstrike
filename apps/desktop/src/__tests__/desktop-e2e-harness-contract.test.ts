@@ -23,5 +23,6 @@ describe('desktop E2E harness contract', () => {
 
     expect(source).toContain('removeElectronUserDataDir');
     expect(source).toContain('await removeElectronUserDataDir(userDataDir)');
+    expect(source).toContain('Failed to remove Electron userData directory after fixture teardown');
   });
 });

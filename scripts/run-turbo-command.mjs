@@ -2,10 +2,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createSpawnInvocation } from './spawn-command.mjs';
 
 const DEFAULT_TURBO_CACHE_MAX_BYTES = 25 * 1024 * 1024 * 1024;
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function resolveTurboCacheDir({ env = process.env, platform = process.platform } = {}) {
   const configuredCacheDir = env['TURBO_CACHE_DIR'] || env['BRAINSTRIKE_TURBO_CACHE_DIR'];
@@ -74,8 +75,9 @@ function resolveTurboCacheMaxBytes(env = process.env) {
   return parsed;
 }
 
-function collectCacheFiles(cacheDir) {
-  if (!fs.existsSync(cacheDir)) {
+export function collectCacheFiles(cacheDir, options = {}) {
+  const fileSystem = options.fs ?? fs;
+  if (!fileSystem.existsSync(cacheDir)) {
     return [];
   }
 
@@ -84,11 +86,21 @@ function collectCacheFiles(cacheDir) {
 
   while (stack.length > 0) {
     const current = stack.pop();
-    const entries = fs.readdirSync(current, { withFileTypes: true });
+    let entries;
+    try {
+      entries = fileSystem.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
 
     for (const entry of entries) {
       const entryPath = path.join(current, entry.name);
-      const stats = fs.lstatSync(entryPath);
+      let stats;
+      try {
+        stats = fileSystem.lstatSync(entryPath);
+      } catch {
+        continue;
+      }
       if (stats.isDirectory()) {
         stack.push(entryPath);
         continue;
@@ -103,29 +115,46 @@ function collectCacheFiles(cacheDir) {
   return files;
 }
 
-function pruneTurboCache(cacheDir, env = process.env) {
-  const maxBytes = resolveTurboCacheMaxBytes(env);
-  const files = collectCacheFiles(cacheDir);
+export function pruneTurboCache(cacheDir, env = process.env, options = {}) {
+  const fileSystem = options.fs ?? fs;
+  const warn = options.warn ?? console.warn;
+  let maxBytes;
+  try {
+    maxBytes = resolveTurboCacheMaxBytes(env);
+  } catch (error) {
+    warn(`Skipped Turborepo cache pruning: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  const files = collectCacheFiles(cacheDir, { fs: fileSystem });
   for (const filePath of planTurboCachePrune(files, maxBytes)) {
-    fs.rmSync(filePath, { force: true });
+    try {
+      fileSystem.rmSync(filePath, { force: true });
+    } catch (error) {
+      warn(
+        `Skipped Turborepo cache entry prune for ${filePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 }
 
-function getCacheDirFromArgs(args, cwd) {
+export function getCacheDirFromArgs(args, rootDir = REPO_ROOT) {
   const cacheDirIndex = args.indexOf('--cache-dir');
   if (cacheDirIndex !== -1) {
     const cacheDir = args[cacheDirIndex + 1];
     if (!cacheDir) {
       throw new Error('--cache-dir requires a directory argument.');
     }
-    return path.resolve(cwd, cacheDir);
+    return path.resolve(rootDir, cacheDir);
   }
 
   const cacheDirArg = args.find((arg) => arg.startsWith('--cache-dir='));
   if (!cacheDirArg) {
     throw new Error('Internal error: Turborepo cache directory was not configured.');
   }
-  return path.resolve(cwd, cacheDirArg.slice('--cache-dir='.length));
+  return path.resolve(rootDir, cacheDirArg.slice('--cache-dir='.length));
 }
 
 export function runTurboCommand(argv = process.argv, platform = process.platform) {
@@ -173,7 +202,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
     return 1;
   }
 
-  const cacheDir = getCacheDirFromArgs(args, process.cwd());
+  const cacheDir = getCacheDirFromArgs(args);
   fs.mkdirSync(cacheDir, { recursive: true });
 
   const invocation = createSpawnInvocation('turbo', args, platform);
@@ -193,12 +222,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
     return status;
   }
 
-  try {
-    pruneTurboCache(cacheDir, process.env);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
-  }
+  pruneTurboCache(cacheDir, process.env);
 
   return 0;
 }

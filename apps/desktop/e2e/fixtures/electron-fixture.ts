@@ -323,5 +323,12 @@ async function removeElectronUserDataDir(userDataDir: string | undefined): Promi
     return;
   }
 
-  await rm(userDataDir, { force: true, recursive: true });
+  try {
+    await rm(userDataDir, { force: true, recursive: true });
+  } catch (error) {
+    console.warn('Failed to remove Electron userData directory after fixture teardown:', {
+      userDataDir,
+      error,
+    });
+  }
 }

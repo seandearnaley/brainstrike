@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import * as turboCommand from '../run-turbo-command.mjs';
 
@@ -57,6 +57,50 @@ describe('run turbo command helper', () => {
     );
 
     assert.deepEqual(deletions, ['/cache/b.tar.zst', '/cache/c.tar.zst']);
+  });
+
+  it('resolves relative cache directories from the repository root', () => {
+    assert.equal(typeof turboCommand.getCacheDirFromArgs, 'function');
+
+    assert.equal(
+      turboCommand.getCacheDirFromArgs(['run', 'build', '--cache-dir=.turbo'], '/repo'),
+      resolve('/repo/.turbo')
+    );
+    assert.equal(
+      turboCommand.getCacheDirFromArgs(['run', 'build', '--cache-dir', '.turbo'], '/repo'),
+      resolve('/repo/.turbo')
+    );
+  });
+
+  it('skips cache entries that disappear during pruning walks', () => {
+    assert.equal(typeof turboCommand.collectCacheFiles, 'function');
+    const gone = Object.assign(new Error('entry disappeared'), { code: 'ENOENT' });
+    const fakeFileSystem = {
+      existsSync: () => true,
+      readdirSync: () => [{ name: 'gone.tar.zst' }],
+      lstatSync: () => {
+        throw gone;
+      },
+    };
+
+    assert.deepEqual(turboCommand.collectCacheFiles('/cache', { fs: fakeFileSystem }), []);
+  });
+
+  it('treats cache pruning errors as non-fatal housekeeping warnings', () => {
+    assert.equal(typeof turboCommand.pruneTurboCache, 'function');
+    const warnings = [];
+
+    assert.doesNotThrow(() => {
+      turboCommand.pruneTurboCache(
+        '/cache',
+        { BRAINSTRIKE_TURBO_CACHE_MAX_BYTES: 'not-a-number' },
+        { warn: (message) => warnings.push(message) }
+      );
+    });
+
+    assert.deepEqual(warnings, [
+      'Skipped Turborepo cache pruning: BRAINSTRIKE_TURBO_CACHE_MAX_BYTES must be a positive integer byte count.',
+    ]);
   });
 });
 

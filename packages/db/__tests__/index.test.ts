@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as exports from '../src/index';
 import * as testDataDir from './test-data-dir';
@@ -47,5 +48,12 @@ describe('PGlite test data directory helper', () => {
     await cleanup?.();
 
     expect(existsSync(dataDir)).toBe(false);
+  });
+
+  it('does not register module-level cleanup for unrelated tests in importing files', () => {
+    const source = readFileSync(join(process.cwd(), '__tests__/test-data-dir.ts'), 'utf8');
+
+    expect(source).toContain('onTestFinished');
+    expect(source).not.toContain('afterEach');
   });
 });
