@@ -112,6 +112,28 @@ const db = new PGlite('my.db'); // use 'memory://' for ephemeral or 'idb://db' f
 await migrate(db);
 ```
 
+### Bootstrap Capability Probe
+
+The bootstrap capability probe is a migration-planning diagnostic for the
+current PGlite runtime. It opens an isolated store, runs the production
+migrations, and emits an explicit report for the database behaviors that a
+future Turso/libSQL runtime must preserve. The current PGlite implementation
+uses PostgreSQL-specific surfaces such as pgvector and pg_trgm, but a Turso
+runtime only needs equivalent application behavior: store open/close lifecycle,
+vector retrieval, grep prefiltering, transactions, reactive query updates,
+durable queue tables, assistant run-usage storage, and workspace indexing
+schema.
+
+```bash
+pnpm --filter @brainstrike/db bootstrap:capability-probe -- --format json --out /tmp/brainstrike-bootstrap-probe.json
+pnpm --filter @brainstrike/db bootstrap:capability-probe -- --format markdown --out /tmp/brainstrike-bootstrap-probe.md
+```
+
+The command exits non-zero when any required check fails. The Mastra memory
+schema check is intentionally reported as optional because those tables are
+initialized by the app-shell/agent memory runtime rather than the DB migration
+baseline.
+
 ## Domain Ownership
 
 `@brainstrike/db` is an infrastructure package. The root public API should stay

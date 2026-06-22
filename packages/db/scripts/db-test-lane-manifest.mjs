@@ -3,6 +3,7 @@ export const dbUnitLaneDefinitions = [
     name: 'schema-migration',
     matches: [
       /^architecture-/,
+      /^bootstrap-capability-probe\.test\.ts$/,
       /^brainstrike-db-client-contract\.test\.ts$/,
       /^bootstrap\.test\.ts$/,
       /^db-migration-authority\.test\.ts$/,

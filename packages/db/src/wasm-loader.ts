@@ -39,6 +39,10 @@ interface PendingBrowserWorkerStartup {
   readonly promise: Promise<BrowserPGliteWorkerClient>;
 }
 
+interface CloseCachedOptions {
+  readonly throwOnCloseError?: boolean;
+}
+
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
 let cachedTrgmPromise: Promise<TrgmExtension> | null = null;
@@ -342,9 +346,10 @@ class WasmLoader {
    * Closes and removes a cached PGlite instance.
    * Use this during cleanup to properly release resources.
    */
-  async closeCached(dataDir?: string): Promise<void> {
+  async closeCached(dataDir?: string, options: CloseCachedOptions = {}): Promise<void> {
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
     const cacheKey = normalizedDataDir || 'default';
+    let closeError: unknown = null;
 
     const db = this.dbCache.get(cacheKey);
     if (db) {
@@ -354,6 +359,7 @@ class WasmLoader {
         logger.info('Closed and removed cached PGlite instance', { cacheKey });
       } catch (err) {
         logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
+        closeError ??= err;
       }
     }
 
@@ -367,6 +373,7 @@ class WasmLoader {
         logger.info('Closed and removed cached PGlite worker client', { cacheKey });
       } catch (err) {
         logger.warn('Failed to close cached PGlite worker client', { cacheKey, error: err });
+        closeError ??= err;
       }
     } else if (pendingWorkerStartup) {
       this.workerClientStartups.delete(cacheKey);
@@ -383,8 +390,13 @@ class WasmLoader {
           logger.info('Disposed pending PGlite worker client startup', { cacheKey });
         } else {
           logger.warn('Failed to close pending PGlite worker client', { cacheKey, error: err });
+          closeError ??= err;
         }
       }
+    }
+
+    if (options.throwOnCloseError && closeError) {
+      throw closeError;
     }
   }
 
