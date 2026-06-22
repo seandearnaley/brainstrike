@@ -80,13 +80,22 @@ jobs:
       - name: Type check
         run: pnpm run type-check
 
-  unit:
-    name: Unit
+  unit-pr-db:
+    name: Unit DB ${{ matrix.db-lane }}
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Foundational PRs (e.g. changes to @brainstrike/utils) pull in ~30
-    # dependent packages via pnpm's `...[ref]` filter. 30 minutes was tight
-    # on those — bumped to 45 to leave headroom.
+    # Foundational PRs (e.g. changes to @brainstrike/db or @brainstrike/utils)
+    # pull in most of the repo via pnpm's `...[ref]` reverse dependency filter.
+    # Keep that coverage, but shard the selected testable packages so PR wall
+    # time is bounded by the slowest lane instead of one monolithic recursive
+    # run. DB has its own internal lane runner, so split it on those existing
+    # lanes instead of treating @brainstrike/db as one huge package task.
+    # The aggregate `unit` job below preserves the required `Unit` check.
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        db-lane: [repository, schema-migration, remaining]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -135,19 +144,124 @@ jobs:
       # `turbo run test --affected`. `!./` excludes the root workspace
       # (which would otherwise run its root-level `test` script that
       # delegates back to turbo over every workspace, defeating the scoping).
-      # --if-present skips packages that don't define a `test` script. Turbo
-      # silently skipped them via its task graph; pnpm errors without this
-      # flag. Per https://pnpm.io/cli/run:
-      # "Use the --if-present flag to avoid exiting with a non-zero exit
-      # code when the script is undefined."
+      # The helper first computes that exact affected set. DB lanes run only
+      # when @brainstrike/db is in that affected set; otherwise they exit green.
       - name: Pull request affected unit tests
-        if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        # --workspace-concurrency=4 explicitly matches pnpm's documented
-        # default for `pnpm -r` (https://pnpm.io/cli/recursive); making it
-        # explicit avoids surprises if the default changes.
-        run: pnpm --filter "...[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode db \
+            --db-lane "${{ matrix.db-lane }}"
+
+  unit-pr-packages:
+    name: Unit packages ${{ matrix.lane }}/4
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Runs the non-DB portion of the authoritative affected reverse-dependency
+    # set. @brainstrike/db is intentionally excluded here because the job above
+    # splits its existing DB test lanes directly.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # See the DB shard job above for the build-dependency rationale.
+      - name: Build workspace dependencies
+        run: pnpm turbo run build --concurrency=4
+
+      - name: Pull request affected unit tests
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode packages \
+            --lane "${{ matrix.lane }}" \
+            --total-lanes 4 \
+            --workspace-concurrency 2
+
+  unit:
+    name: Unit
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [unit-pr-db, unit-pr-packages]
+    steps:
+      - name: Check affected unit shards
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ "${{ needs.unit-pr-db.result }}" != "success" ]; then
+            echo "One or more affected DB unit shards failed or were cancelled."
+            exit 1
+          fi
+          if [ "${{ needs.unit-pr-packages.result }}" != "success" ]; then
+            echo "One or more affected unit shards failed or were cancelled."
+            exit 1
+          fi
+
+      - name: Checkout
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        if: github.event_name != 'pull_request'
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        if: github.event_name != 'pull_request'
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Cache Turbo artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        if: github.event_name != 'pull_request'
+        run: pnpm install --frozen-lockfile
+
+      # Push/manual still runs the full unit suite, so workspace deps must be
+      # built before tests.
+      - name: Build workspace dependencies
+        if: github.event_name != 'pull_request'
+        run: pnpm turbo run build --concurrency=4
 
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
