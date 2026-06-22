@@ -45,25 +45,69 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
       inputs.foregroundQueryActive ||
       (inputs.dbPressure.available && inputs.dbPressure.foregroundPressure);
     const interactive = inputs.dbPressure.available && inputs.dbPressure.normalPressure;
-    const constrained = inputs.powerSource === 'battery' || inputs.thermalState === 'serious';
+    const memoryConstrained =
+      inputs.pipeline.memory.available && inputs.pipeline.memory.pressure === 'high';
+    const progressConstrained =
+      inputs.pipeline.progress.available &&
+      typeof inputs.pipeline.progress.stalledForMs === 'number' &&
+      inputs.pipeline.progress.stalledForMs >= 120_000;
+    const constrained =
+      inputs.powerSource === 'battery' ||
+      inputs.thermalState === 'serious' ||
+      memoryConstrained ||
+      progressConstrained;
+    const acceleratorBoost =
+      inputs.pipeline.accelerator.available &&
+      inputs.pipeline.accelerator.idleRatio >= 0.35 &&
+      inputs.pipeline.queueDepth.available &&
+      inputs.pipeline.queueDepth.activeEmbeddingJobs >= 128 &&
+      !constrained &&
+      !foregroundYielding;
     return {
       allowNewWork: !foregroundYielding,
       allowPowerSaveBlocker: false,
       backfillQueueDepth: 0,
+      completionOverlapBatches: foregroundYielding
+        ? 1
+        : interactive || constrained
+          ? 1
+          : acceleratorBoost
+            ? 3
+            : 2,
       contentReadBatchSize: foregroundYielding ? 0 : 24,
       contentReadConcurrency: foregroundYielding ? 0 : 1,
-      importBatchSize: foregroundYielding ? 0 : 24,
+      importBatchSize: foregroundYielding ? 0 : acceleratorBoost ? 48 : 24,
       interBatchDelayMs: foregroundYielding ? 250 : 75,
+      maxPendingCompletionBytes: foregroundYielding
+        ? 3072
+        : interactive || constrained
+          ? 98_304
+          : acceleratorBoost
+            ? 1_572_864
+            : 786_432,
+      maxPendingCompletionChunks: foregroundYielding
+        ? 1
+        : interactive || constrained
+          ? 8
+          : acceleratorBoost
+            ? 64
+            : 32,
       progressThrottleMs: 500,
       reason: foregroundYielding
         ? 'foreground-db-pressure'
         : interactive
           ? 'normal-db-pressure'
           : constrained
-            ? inputs.powerSource === 'battery'
-              ? 'battery'
-              : 'thermal-serious'
-            : 'balanced',
+            ? memoryConstrained
+              ? 'memory-pressure'
+              : progressConstrained
+                ? 'progress-stalled'
+                : inputs.powerSource === 'battery'
+                  ? 'battery'
+                  : 'thermal-serious'
+            : acceleratorBoost
+              ? 'accelerator-idle'
+              : 'balanced',
       scanBatchSize: foregroundYielding ? 0 : 48,
       state: foregroundYielding
         ? 'foreground-yielding'
@@ -72,6 +116,13 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
           : constrained
             ? 'system-constrained'
             : 'balanced',
+      streamBatchSize: foregroundYielding
+        ? 1
+        : interactive || constrained
+          ? 2
+          : acceleratorBoost
+            ? 16
+            : 8,
       workerClaimBatchSize: foregroundYielding ? 0 : interactive || constrained ? 1 : 16,
     };
   };
@@ -104,6 +155,10 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
+    import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '';
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
 
@@ -118,9 +173,14 @@ describe('createEmbeddingWorkerConfig', () => {
       concurrency: 1,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
+      maxPendingCompletionBatches: 2,
+      maxPendingCompletionBytes: 786_432,
+      maxPendingCompletionChunks: 32,
+      streamBatchSize: 8,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
       resolveClaimBatchSize: expect.any(Function),
+      resolvePipelineCapacity: expect.any(Function),
       waitForBackgroundPermit: expect.any(Function),
     });
     expect(db.query).not.toHaveBeenCalled();
@@ -150,10 +210,96 @@ describe('createEmbeddingWorkerConfig', () => {
         foregroundQueryActive: false,
         idleState: 'active',
         manualPaused: false,
+        pipeline: expect.objectContaining({
+          accelerator: { available: false },
+          memory: { available: false },
+          progress: { available: true, stalledForMs: null },
+          queueDepth: { activeEmbeddingJobs: 0, available: true },
+        }),
         powerSource: 'unknown',
         providerRateLimited: false,
         thermalState: 'unknown',
         windowVisible: false,
+      })
+    );
+  });
+
+  it('passes measured embedding queue depth into desktop QoS resolution', async () => {
+    const { db, scheduledDb } = createScheduledTestDb();
+    db.query.mockResolvedValueOnce({ rows: [{ count: 256 }] });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pipeline: expect.objectContaining({
+          queueDepth: {
+            activeEmbeddingJobs: 256,
+            available: true,
+          },
+        }),
+      })
+    );
+  });
+
+  it('passes renderer memory pressure into desktop QoS resolution', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        jsHeapSizeLimit: 100,
+        usedJSHeapSize: 82,
+      },
+    });
+
+    try {
+      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pipeline: expect.objectContaining({
+            memory: {
+              available: true,
+              pressure: 'high',
+              retainedHeapRatio: 0.82,
+            },
+          }),
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(globalThis.performance, 'memory');
+    }
+  });
+
+  it('passes accelerator idle ratio and stalled-progress window into desktop QoS resolution', async () => {
+    const { db, scheduledDb } = createScheduledTestDb();
+    db.query.mockResolvedValue({ rows: [{ count: 256 }] });
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    config.log?.('embedding_pipeline_timing', {
+      completionWaitMs: 90,
+      inferenceMs: 10,
+    });
+
+    await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
+      maxPendingCompletionBatches: 2,
+      maxPendingCompletionChunks: 32,
+      streamBatchSize: 8,
+    });
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pipeline: expect.objectContaining({
+          accelerator: {
+            available: true,
+            idleRatio: 0.9,
+          },
+          progress: expect.objectContaining({
+            available: true,
+            stalledForMs: expect.any(Number),
+          }),
+        }),
       })
     );
   });
@@ -256,7 +402,9 @@ describe('createEmbeddingWorkerConfig', () => {
       },
     });
 
-    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+    const config = createEmbeddingWorkerConfig({
+      query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
+    } as never);
 
     await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
@@ -292,7 +440,9 @@ describe('createEmbeddingWorkerConfig', () => {
         },
       });
 
-      const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+      const config = createEmbeddingWorkerConfig({
+        query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
+      } as never);
 
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
       vi.setSystemTime(1011);
@@ -315,7 +465,9 @@ describe('createEmbeddingWorkerConfig', () => {
       },
     });
 
-    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+    const config = createEmbeddingWorkerConfig({
+      query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
+    } as never);
     const firstRead = config.resolveClaimBatchSize?.();
     const secondRead = config.resolveClaimBatchSize?.();
 
@@ -395,6 +547,45 @@ describe('createEmbeddingWorkerConfig', () => {
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
   });
 
+  it('drops and restores desktop pipeline capacity with foreground database pressure', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { priority: 'foreground', label: 'test foreground query' }
+    );
+
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
+      maxPendingCompletionBatches: 1,
+      maxPendingCompletionBytes: 3072,
+      maxPendingCompletionChunks: 1,
+      streamBatchSize: 1,
+    });
+
+    releaseForegroundWork();
+    await foregroundWork;
+
+    await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
+      maxPendingCompletionBatches: 2,
+      maxPendingCompletionBytes: 786_432,
+      maxPendingCompletionChunks: 32,
+      streamBatchSize: 8,
+    });
+  });
+
   it('shrinks desktop claims after recent high-latency normal database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
@@ -468,9 +659,13 @@ describe('createEmbeddingWorkerConfig', () => {
   it('uses configured env vars and forwards logs and download progress updates', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
+    import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '3';
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '123456';
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '9';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '5';
     const { scheduledDb } = createScheduledTestDb();
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
@@ -481,7 +676,11 @@ describe('createEmbeddingWorkerConfig', () => {
       concurrency: 3,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
+      maxPendingCompletionBatches: 3,
+      maxPendingCompletionBytes: 123_456,
+      maxPendingCompletionChunks: 9,
       modelKey: 'local:test-model',
+      streamBatchSize: 5,
       waitForBackgroundPermit: expect.any(Function),
     });
 
@@ -536,6 +735,22 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_LEASE_MS must be a positive integer, received "abc".'
+    );
+  });
+
+  it('fails fast when stream batch size is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '0';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_STREAM_BATCH_SIZE must be a positive integer, received "0".'
+    );
+  });
+
+  it('fails fast when pending completion limits are malformed', () => {
+    import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = 'abc';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS must be a positive integer, received "abc".'
     );
   });
 });

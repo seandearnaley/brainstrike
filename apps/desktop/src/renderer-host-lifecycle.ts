@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
+import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
@@ -98,7 +99,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   getStatus(): TStatus {
-    return this.options.createStatus(this.status);
+    return this.createStatusSnapshot(this.status);
   }
 
   isHostWindow(window: BrowserWindow): boolean {
@@ -263,7 +264,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           return;
         }
         cleanup();
-        resolve(this.options.createStatus(status));
+        resolve(this.createStatusSnapshot(status));
       };
 
       timeoutId = setTimeout(() => {
@@ -276,7 +277,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   setStatus(status: TStatus): void {
-    const nextStatus = this.options.createStatus(status);
+    const nextStatus = this.createStatusSnapshot(status);
     if (this.areStatusesEqual(this.status, nextStatus)) {
       return;
     }
@@ -321,6 +322,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.status = this.options.createStoppedStatus();
   }
 
+  private createStatusSnapshot(status: TStatus): TStatus {
+    return {
+      ...status,
+      ...this.options.createStatus(status),
+    };
+  }
+
   private buildWindow(): BrowserWindow {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     const enableSandbox = !isTestMode;
@@ -352,8 +360,21 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private async loadWindow(window: BrowserWindow, runtimeId: string): Promise<void> {
-    const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
-    if (app.isPackaged || isTestMode) {
+    // Resolve the renderer launch mode the SAME way the visible window does
+    // (create-window.ts → resolveDesktopRendererLaunchMode). The hidden hosts
+    // share the main process's argv, so they MUST agree with the visible window
+    // on where the renderer lives. Previously this branched on
+    // `app.isPackaged || --test-mode` and IGNORED
+    // `--brainstrike-desktop-launch-mode=built`, so `pnpm start` (unpackaged,
+    // built) pointed every hidden host at the dev server (localhost:38181) that
+    // isn't running → ERR_CONNECTION_REFUSED → background embedding/llm/chunking
+    // hosts dead while the visible window loaded the built file fine.
+    const launchMode = resolveDesktopRendererLaunchMode({
+      argv: process.argv,
+      isPackaged: app.isPackaged,
+      isTestMode: process.env['CI'] === 'true' || process.argv.includes('--test-mode'),
+    });
+    if (launchMode === 'built' || launchMode === 'test-built') {
       await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
         query: {
           mode: this.options.mode,
@@ -473,14 +494,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private areStatusesEqual(left: TStatus, right: TStatus): boolean {
-    // RendererHostStatusShape intentionally treats these four fields as the canonical broadcast
-    // contract. If a host status grows additional UI-significant fields, this comparison must be
-    // updated at the same time so we do not silently suppress meaningful broadcasts.
-    return (
-      left.state === right.state &&
-      left.active === right.active &&
-      left.lastError === right.lastError &&
-      left.runtimeId === right.runtimeId
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every(
+      (key) =>
+        JSON.stringify((left as Record<string, unknown>)[key]) ===
+        JSON.stringify((right as Record<string, unknown>)[key])
     );
   }
 }

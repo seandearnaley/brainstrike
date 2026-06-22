@@ -15,6 +15,9 @@ function createRepositoryStub(
     completeThreadRun: vi.fn(async () => {}),
     createThread: vi.fn(),
     createThreadRun: vi.fn(async (input) => ({ ...input, createdAt: 0, status: 'running' })),
+    getThreadCumulativeUsage: vi.fn(async () => null),
+    getCrossRootUsage: vi.fn(async () => []),
+    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
@@ -58,6 +61,7 @@ describe('useAssistantRequestLifecycle', () => {
     const { result } = renderHook(() =>
       useAssistantRequestLifecycle({
         assistantThreadRepository: repository,
+        focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: { maxOutputTokens: 512 },
         providerOptions: { openai: { reasoningEffort: 'medium' } },
@@ -105,6 +109,109 @@ describe('useAssistantRequestLifecycle', () => {
     expect(getAssistantForegroundActivitySnapshot()).toBe(false);
   });
 
+  it('snapshots the request-start model/provider/root so usage is attributed to the run that produced the tokens, not a later picker/focus change', async () => {
+    const repository = createRepositoryStub({
+      createThreadRun: vi.fn(async (input) => ({
+        ...input,
+        createdAt: 0,
+        id: 'run-attribution',
+        status: 'running',
+      })),
+    });
+
+    // First render: the picker has openai/gpt-5.2 and the focused root is root-a.
+    interface PickerProps {
+      focusedRootId: string;
+      model: string;
+      provider: 'anthropic' | 'openai';
+    }
+    const { result, rerender } = renderHook(
+      (props: PickerProps) =>
+        useAssistantRequestLifecycle({
+          assistantThreadRepository: repository,
+          focusedRootId: props.focusedRootId,
+          memoryResourceId: 'workspace-a',
+          modelSettings: undefined,
+          providerOptions: undefined,
+          requestData: baseRequestData,
+          resolvedModelName: props.model,
+          selectedMemoryThreadId: 'thread-a',
+          selectedProvider: props.provider,
+        }),
+      {
+        initialProps: {
+          provider: 'openai',
+          model: 'gpt-5.2',
+          focusedRootId: 'root-a',
+        } as PickerProps,
+      }
+    );
+
+    // No run in flight yet.
+    expect(result.current.getActiveRunUsageContext()).toBeNull();
+
+    // Start a request — snapshots openai/gpt-5.2 + root-a.
+    await act(async () => {
+      await result.current.prepareRequestData();
+    });
+
+    // The user switches BOTH the model picker AND the focused root MID-RUN
+    // (before usage fires).
+    rerender({ provider: 'anthropic', model: 'claude-opus-4-8', focusedRootId: 'root-b' });
+
+    // The active run's usage context must still reflect the REQUEST-START
+    // model AND root, not the new picker/focus selection.
+    expect(result.current.getActiveRunUsageContext()).toEqual({
+      runId: 'run-attribution',
+      provider: 'openai',
+      model: 'gpt-5.2',
+      rootId: 'root-a',
+    });
+
+    // After completion the snapshot is cleared.
+    const prepared = { memory: { runId: 'run-attribution' } };
+    await act(async () => {
+      await result.current.completePreparedRequest(prepared, 'completed');
+    });
+    expect(result.current.getActiveRunUsageContext()).toBeNull();
+  });
+
+  it('snapshots a null root when no root is focused (honest unattributed)', async () => {
+    const repository = createRepositoryStub({
+      createThreadRun: vi.fn(async (input) => ({
+        ...input,
+        createdAt: 0,
+        id: 'run-no-root',
+        status: 'running',
+      })),
+    });
+
+    const { result } = renderHook(() =>
+      useAssistantRequestLifecycle({
+        assistantThreadRepository: repository,
+        focusedRootId: null,
+        memoryResourceId: 'workspace-a',
+        modelSettings: undefined,
+        providerOptions: undefined,
+        requestData: baseRequestData,
+        resolvedModelName: 'gpt-5.2',
+        selectedMemoryThreadId: 'thread-a',
+        selectedProvider: 'openai',
+      })
+    );
+
+    await act(async () => {
+      await result.current.prepareRequestData();
+    });
+
+    expect(result.current.getActiveRunUsageContext()).toEqual({
+      runId: 'run-no-root',
+      provider: 'openai',
+      model: 'gpt-5.2',
+      rootId: null,
+    });
+  });
+
   it('releases any active foreground lease on unmount', async () => {
     const { result, unmount } = renderHook(() =>
       useAssistantRequestLifecycle({
@@ -116,6 +223,7 @@ describe('useAssistantRequestLifecycle', () => {
             status: 'running',
           })),
         }),
+        focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
         providerOptions: undefined,
@@ -138,6 +246,7 @@ describe('useAssistantRequestLifecycle', () => {
     const { result } = renderHook(() =>
       useAssistantRequestLifecycle({
         assistantThreadRepository: createRepositoryStub(),
+        focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
         providerOptions: undefined,
@@ -158,6 +267,7 @@ describe('useAssistantRequestLifecycle', () => {
     const { result } = renderHook(() =>
       useAssistantRequestLifecycle({
         assistantThreadRepository: null,
+        focusedRootId: 'root-a',
         memoryResourceId: 'workspace-a',
         modelSettings: undefined,
         providerOptions: undefined,

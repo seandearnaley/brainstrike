@@ -325,6 +325,33 @@ vi.mock('../../db-host-manager', () => ({
   getDbHostManager: getDbHostManagerMock,
 }));
 
+vi.mock('../../dimension-index-maintenance-capabilities', () => ({
+  probeDimensionIndexRuntimeCapabilities: vi.fn(async () => ({
+    concurrentIndexBuild: {
+      error: null,
+      foregroundProbeP95Ms: null,
+      supported: true,
+    },
+    hnswIndexBuild: {
+      error: null,
+      supported: true,
+    },
+    maintenanceSettings: {
+      initialMemoryBytes: null,
+      maintenanceWorkMem: null,
+      maxParallelMaintenanceWorkers: null,
+    },
+    progressReporting: {
+      error: null,
+      supported: false,
+    },
+  })),
+  selectDimensionIndexStrategy: vi.fn(() => ({
+    reason: 'concurrent-index-build-unmeasured',
+    strategy: 'regular',
+  })),
+}));
+
 vi.mock('../../desktop-factory-reset', () => ({
   resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));

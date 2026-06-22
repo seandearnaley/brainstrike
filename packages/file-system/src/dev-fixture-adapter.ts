@@ -346,8 +346,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   ): Promise<void> {
     if (fixtureState) {
       await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
+      const lookupPath = resolveFixtureLookupPath(fixtureState, handle.path);
       streamNodesInBatches(
-        cloneNodes(fixtureState.directories.get(handle.path) ?? []),
+        cloneNodes(fixtureState.directories.get(lookupPath) ?? []),
         onBatch,
         optionsArg
       );

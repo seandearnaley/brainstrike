@@ -56,6 +56,34 @@ function resolveVendorChunk(id: string): string | undefined {
   return 'vendor';
 }
 
+/**
+ * Co-locate the whole context-action / command system into ONE chunk.
+ *
+ * `defineContextAction` (packages/context-actions) and `defineCommand`
+ * (packages/commands) are pure identity helpers, but the feature
+ * `*​/context-actions` modules CALL them at MODULE-INIT to build their action
+ * arrays (e.g. `const actions = [defineContextAction({ id: 'file.copy-name' })]`).
+ * Rolldown's default chunking hoists the shared helper into its own chunk,
+ * separate from its eager callers; the caller chunk then runs `helper(...)` at
+ * init before the helper chunk has initialized → a circular chunk-init TDZ
+ * ("k is not a function") that leaves the BUILT renderer with an empty #root on
+ * startup. Dev is unaffected (Vite serves unbundled ESM, native init order); the
+ * DESKTOP renderer is unaffected (its bundle already co-locates them). Forcing a
+ * single chunk here removes the cross-chunk init-order hazard on web. Source
+ * aliasing alone (below) does NOT fix it — rolldown still splits the shared
+ * helper out for dedup. Do NOT remove without re-verifying the built web app
+ * mounts (apps/web/e2e @web-smoke).
+ */
+function isContextActionSystemModule(id: string): boolean {
+  if (id.includes('node_modules')) {
+    return false;
+  }
+  // Matches the core package (…/context-actions/src/…), every feature
+  // …/src/context-actions/… module that calls defineContextAction at init, and
+  // the commands registry that shares the same define-at-init pattern.
+  return /[\\/]context-actions[\\/]/.test(id) || /[\\/]packages[\\/]commands[\\/]/.test(id);
+}
+
 const WORKER_PROCESS_EXIT_CODE_BINDING = '__brainstrikeWorkerProcessExitCode';
 
 function browserWorkerProcessExitCodePlugin() {
@@ -162,6 +190,12 @@ export default defineConfig({
           groups: [
             {
               name(moduleId: string): string | null {
+                // Co-locate the context-action/command system first (prevents the
+                // circular chunk-init TDZ that blanks #root in the built renderer),
+                // then fall back to vendor chunking for node_modules.
+                if (isContextActionSystemModule(moduleId)) {
+                  return 'context-action-system';
+                }
                 return resolveVendorChunk(moduleId) ?? null;
               },
             },
@@ -226,6 +260,13 @@ export default defineConfig({
         '../../packages/file-explorer-hooks/src'
       ),
       '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
+      // Source-alias like every other @brainstrike package. Resolving these to
+      // their built `dist` lands `defineContextAction` in a separate chunk from
+      // the source feature `*/context-actions` that call it at module-init →
+      // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
+      // renderer on startup (dev is unaffected). See the vite-alias coverage test.
+      '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
+      '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings/runtime-config': path.resolve(

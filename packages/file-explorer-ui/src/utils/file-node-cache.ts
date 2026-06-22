@@ -6,6 +6,10 @@ const logger = createLogger('FileNodeCache');
 
 export type FileNodeCache = Map<string, Map<string, IFileNode>>;
 
+interface FileNodeCacheLookupOptions {
+  readonly warnOnMiss?: boolean;
+}
+
 export function buildFileNodeCache(tree: IFileNode[]): FileNodeCache {
   const cache: FileNodeCache = new Map();
 
@@ -29,7 +33,8 @@ export function getFileNodeFromCache(
   cache: FileNodeCache,
   tree: IFileNode[],
   folderId: string,
-  path: string
+  path: string,
+  options: FileNodeCacheLookupOptions = {}
 ): IFileNode | null {
   const cached = cache.get(folderId)?.get(path);
   if (cached) {
@@ -52,7 +57,7 @@ export function getFileNodeFromCache(
     // Both cache and fallback failed
     // Use debug level when tree is empty (expected during startup race condition)
     // Use warn level when tree exists but node not found (unexpected)
-    const logLevel = tree.length === 0 ? 'debug' : 'warn';
+    const logLevel = tree.length === 0 || options.warnOnMiss === false ? 'debug' : 'warn';
     logger[logLevel]('Node not found in cache or tree', {
       path,
       folderId,

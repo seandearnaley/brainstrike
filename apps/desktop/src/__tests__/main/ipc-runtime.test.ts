@@ -123,11 +123,13 @@ describe('ipc-runtime main-process probe bridge', () => {
     const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
 
     const result = await handler({} as IpcMainInvokeEvent, 'ollama', {
+      diagnosticLogLevel: 'debug',
       force: true,
       endpoint: { baseUrl: 'http://gpu.lan:11434' },
     });
 
     expect(probeRuntimeMock).toHaveBeenCalledWith('ollama', {
+      diagnosticLogLevel: 'debug',
       force: true,
       endpoint: { baseUrl: 'http://gpu.lan:11434' },
     });
@@ -146,10 +148,12 @@ describe('ipc-runtime main-process probe bridge', () => {
     const handler = getRegisteredHandler(RUNTIME_LIST_MODELS_CHANNEL);
 
     const result = await handler({} as IpcMainInvokeEvent, 'lmstudio', {
+      diagnosticLogLevel: 'debug',
       verifyEmbeddingDimensions: true,
     });
 
     expect(listRuntimeModelsMock).toHaveBeenCalledWith('lmstudio', {
+      diagnosticLogLevel: 'debug',
       verifyEmbeddingDimensions: true,
     });
     expect(result).toMatchObject({ state: 'loaded_non_empty' });
@@ -213,6 +217,7 @@ describe('ipc-runtime main-process probe bridge', () => {
     const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
 
     await handler({} as IpcMainInvokeEvent, 'ollama', {
+      diagnosticLogLevel: 'warn',
       force: true,
       endpoint: {
         baseUrl: 'http://safe.lan:11434',
@@ -226,6 +231,7 @@ describe('ipc-runtime main-process probe bridge', () => {
 
     const [, forwardedOptions] = probeRuntimeMock.mock.calls[0] ?? [];
     expect(forwardedOptions).toEqual({
+      diagnosticLogLevel: 'warn',
       force: true,
       endpoint: {
         baseUrl: 'http://safe.lan:11434',

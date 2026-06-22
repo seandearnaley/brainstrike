@@ -1,3 +1,4 @@
+import type { DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type ElectronStore from 'electron-store';
@@ -28,6 +29,7 @@ export { cleanupDesktopLiveSubscriptionsForShutdown, flushPendingLiveUpdates, se
 interface RegisterIpcHandlerOptions {
   readonly chunkingHostManager?: ChunkingHostManager;
   readonly embeddingHostManager?: EmbeddingHostManager;
+  readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -57,6 +59,9 @@ export function registerIpcHandlers(
     embeddingHostManager: options?.embeddingHostManager,
     flushPendingLiveUpdates,
     getDatabaseWorkScheduler: getDesktopDatabaseWorkScheduler,
+    ...(options?.getDimensionIndexMaintenanceStrategy
+      ? { getDimensionIndexMaintenanceStrategy: options.getDimensionIndexMaintenanceStrategy }
+      : {}),
     isBackgrounded: isDesktopDatabaseBackgrounded,
   });
 

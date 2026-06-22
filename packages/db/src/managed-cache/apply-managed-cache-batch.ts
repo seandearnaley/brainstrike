@@ -1,5 +1,6 @@
 import type { IDatabase } from '../repositories/interfaces.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
+import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
 interface ManagedCacheRecordBase {
   content: string;
@@ -71,9 +72,19 @@ interface QueryLike {
 }
 
 const POSTGRES_PARAMETER_LIMIT = 65_535;
+const MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY = 250;
+const MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY = 5000;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function chunkArray<T>(values: readonly T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 /**
@@ -275,10 +286,6 @@ const MAX_MANAGED_CACHE_IMPORTS_PER_BATCH = Math.floor(
 const MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH = Math.floor(
   POSTGRES_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length
 );
-const INVALIDATION_TARGET_PARAMETER_COUNT = 4;
-const MAX_MANAGED_CACHE_INVALIDATION_TARGETS = Math.floor(
-  (POSTGRES_PARAMETER_LIMIT - 1) / INVALIDATION_TARGET_PARAMETER_COUNT
-);
 const MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH =
   MAX_MANAGED_CACHE_IMPORTS_PER_BATCH + MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH;
 
@@ -290,17 +297,6 @@ function assertTotalBatchWithinLimit(count: number): void {
     'Managed cache batch exceeds the maximum supported total size. ' +
       `Received ${count} changes; maximum supported batch size is ` +
       `${MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH}.`
-  );
-}
-
-function assertInvalidationTargetsWithinParameterLimit(count: number): void {
-  if (count <= MAX_MANAGED_CACHE_INVALIDATION_TARGETS) {
-    return;
-  }
-  throw new Error(
-    'Managed cache invalidation exceeds the PostgreSQL parameter limit. ' +
-      `Received ${count} targets; maximum supported invalidation target count is ` +
-      `${MAX_MANAGED_CACHE_INVALIDATION_TARGETS}.`
   );
 }
 
@@ -325,6 +321,14 @@ function assertNoDuplicateMutationIds(changes: readonly ManagedCacheBatchMutatio
       throw new Error(`Managed cache batch contains duplicate file record id ${change.record.id}.`);
     }
     seenIds.add(change.record.id);
+  }
+}
+
+function assertNoNullBytesInManagedCacheContent(
+  changes: readonly ManagedCacheBatchMutation[]
+): void {
+  for (const change of changes) {
+    assertTextContentHasNoNullBytes(change.record.content, 'Managed cache content');
   }
 }
 
@@ -499,25 +503,29 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
   }
 
   const updatedAt = new Date().toISOString();
-  const result = await tx.query<{ count: string }>(
-    `WITH canceled AS (
-       UPDATE job_queue
-          SET state = 'canceled',
-              lease_token = NULL,
-              leased_until = NULL,
-              worker_id = NULL,
-              error = 'Managed-cache ${operation} deleted chunk ' || (payload->>'chunkId') || ' before embedding.',
-              updated_at = $1
-        WHERE job_type = 'embed_chunk'
-          AND state IN ('queued', 'running')
-          AND payload->>'chunkId' = ANY($2::text[])
-        RETURNING 1
-     )
-     SELECT COUNT(*)::text AS count
-       FROM canceled`,
-    [updatedAt, [...chunkIds]]
-  );
-  return Number(result.rows[0]?.count ?? 0);
+  let canceledCount = 0;
+  for (const chunkIdBatch of chunkArray(chunkIds, MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY)) {
+    const result = await tx.query<{ count: string }>(
+      `WITH canceled AS (
+         UPDATE job_queue
+            SET state = 'canceled',
+                lease_token = NULL,
+                leased_until = NULL,
+                worker_id = NULL,
+                error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
+                updated_at = $1
+          WHERE job_type = 'embed_chunk'
+            AND state IN ('queued', 'running')
+            AND chunk_id = ANY($2::text[])
+          RETURNING 1
+       )
+       SELECT COUNT(*)::text AS count
+         FROM canceled`,
+      [updatedAt, chunkIdBatch]
+    );
+    canceledCount += Number(result.rows[0]?.count ?? 0);
+  }
+  return canceledCount;
 }
 
 interface NormalizedManagedCacheInvalidationTarget {
@@ -663,7 +671,6 @@ export async function invalidateManagedCacheEntriesByIdentity(
   }
 
   const targets = normalizeInvalidationTargets(args.targets);
-  assertInvalidationTargetsWithinParameterLimit(targets.length);
   if (targets.length === 0) {
     return {
       canceledEmbeddingJobCount: 0,
@@ -673,24 +680,41 @@ export async function invalidateManagedCacheEntriesByIdentity(
   }
 
   return await db.transaction(async (tx) => {
-    const matches = await listInvalidationMatches(tx, args.embeddingSetId, targets);
-    const canceledEmbeddingJobCount = await cancelQueuedOrRunningEmbeddingJobsForChunks(
-      tx,
-      matches.chunkIds,
-      'invalidation'
-    );
+    const deletedChunkIds = new Set<string>();
+    const deletedFileRecordIds = new Set<string>();
+    let canceledEmbeddingJobCount = 0;
 
-    if (matches.fileRecordIds.length > 0) {
-      await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
+    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+      const matches = await listInvalidationMatches(tx, args.embeddingSetId, targetBatch);
+      canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
+        tx,
+        matches.chunkIds,
+        'invalidation'
+      );
+
+      for (const chunkId of matches.chunkIds) {
+        deletedChunkIds.add(chunkId);
+      }
+      for (const fileRecordId of matches.fileRecordIds) {
+        deletedFileRecordIds.add(fileRecordId);
+      }
+
+      for (const fileRecordIds of chunkArray(
         matches.fileRecordIds,
-      ]);
+        MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY
+      )) {
+        await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
+          fileRecordIds,
+        ]);
+      }
     }
+
     await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
 
     return {
       canceledEmbeddingJobCount,
-      deletedChunkIds: matches.chunkIds,
-      deletedFileRecordIds: matches.fileRecordIds,
+      deletedChunkIds: [...deletedChunkIds].sort(),
+      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
     };
   });
 }
@@ -707,6 +731,7 @@ export async function applyManagedCacheBatch(
   }
   assertTotalBatchWithinLimit(args.changes.length);
   assertNoDuplicateMutationIds(args.changes);
+  assertNoNullBytesInManagedCacheContent(args.changes);
 
   const imports = args.changes.flatMap((change) =>
     change.mode === 'import' ? [change.record] : []

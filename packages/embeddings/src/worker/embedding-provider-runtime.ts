@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
-import { SimpleEmbeddingService } from '../bge-m3-service';
+import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service';
 import { EmbeddingProviderFactory } from '../factory';
 import type {
   EmbeddingProviderConfig,
@@ -49,11 +49,24 @@ export interface EmbeddingServiceInitializationOptions {
   device?: 'webgpu' | 'wasm';
   onDownloadProgress?: (modelId: string, progress: number) => void;
   service?: EmbeddingService;
+  streamBatchSize?: number;
   streamingWorkerUrl?: string;
 }
 
 export interface EmbeddingProviderExecutionOptions {
   distance?: 'cosine' | 'l2' | 'ip';
+}
+
+function createSimpleEmbeddingServiceOptions(
+  options: Pick<EmbeddingServiceInitializationOptions, 'streamBatchSize' | 'streamingWorkerUrl'>
+): SimpleEmbeddingServiceOptions | undefined {
+  if (!(options.streamingWorkerUrl || options.streamBatchSize)) {
+    return;
+  }
+  return {
+    ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
+    ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
+  };
 }
 
 export function resolveWorkerModel(fromOptions?: string): WorkerModelResolution {
@@ -299,14 +312,7 @@ export async function initializeEmbeddingService(
   runtimeLogger.info('initializeEmbeddingService: START', { modelKey });
 
   const service =
-    options.service ??
-    new SimpleEmbeddingService(
-      options.streamingWorkerUrl
-        ? {
-            streamingWorkerUrl: options.streamingWorkerUrl,
-          }
-        : undefined
-    );
+    options.service ?? new SimpleEmbeddingService(createSimpleEmbeddingServiceOptions(options));
   const initializeLocalService = mode?.initializeLocalService ?? true;
 
   const parsedForRegistry = parseProviderModelKey(modelKey);

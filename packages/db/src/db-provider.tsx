@@ -1,3 +1,7 @@
+import type {
+  EmbeddingProviderType,
+  ProviderDimensionParameter,
+} from '@brainstrike/indexing-contract';
 import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
@@ -24,6 +28,7 @@ import {
 } from './database-work-scheduler.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
+import type { FileChunk } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
@@ -116,14 +121,35 @@ async function loadDrizzleViewFilterPresetsRepository() {
   return mod.DrizzleViewFilterPresetsRepository;
 }
 
+export interface DbInsertChunksAndEnqueueEmbeddingJobsOptions {
+  readonly dimensionParameter?: ProviderDimensionParameter | null;
+  readonly model?: string | null;
+  readonly provider?: EmbeddingProviderType | null;
+  readonly signal?: AbortSignal | null;
+  readonly targetDimension?: number | null;
+  readonly targetEmbeddingSetId?: string | null;
+}
+
 export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly FileChunk[],
+    fileRecordId: string,
+    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<void>;
   readonly raw?: unknown;
   readonly syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  insertChunksAndEnqueueEmbeddingJobs?: (
+    chunks: readonly FileChunk[],
+    fileRecordId: string,
+    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<void>;
   query: <T = unknown>(
     sql: string,
     params?: unknown[],
@@ -236,6 +262,23 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
       const forwarded = splitExposedDatabaseWorkOptions(params, options);
       return await executor.exec?.(sql, forwarded.params, forwarded.options);
+    };
+  }
+
+  if (typeof executor.insertChunksAndEnqueueEmbeddingJobs === 'function') {
+    handle.insertChunksAndEnqueueEmbeddingJobs = async (
+      chunks,
+      fileRecordId,
+      options,
+      workOptions
+    ) => {
+      const { signal: _signal, ...serializableOptions } = options;
+      await executor.insertChunksAndEnqueueEmbeddingJobs?.(
+        chunks,
+        fileRecordId,
+        serializableOptions,
+        workOptions
+      );
     };
   }
 

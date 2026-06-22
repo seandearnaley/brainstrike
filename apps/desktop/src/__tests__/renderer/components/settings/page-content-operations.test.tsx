@@ -62,6 +62,14 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   }),
 }));
 
+vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+  createCostTrackingSettingsCategory: () => ({
+    content: <div data-testid="cost-tracking-category" />,
+    id: 'cost-tracking',
+    title: 'Cost Tracking',
+  }),
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   useOptionalTokenCacheContext: () => ({
     countingMode: 'accurate',
@@ -118,6 +126,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
     content: <div data-testid="local-runtime-category" />,
     id: 'local-runtime',
     title: 'Local Runtime',
+  }),
+  createPermissionSettingsCategory: () => ({
+    content: <div data-testid="permissions-category" />,
+    id: 'permissions',
+    title: 'Permissions',
   }),
   createSearchIndexingSettingsCategory: () => ({
     content: <div data-testid="search-indexing-category" />,

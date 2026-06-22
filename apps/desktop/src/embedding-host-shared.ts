@@ -21,6 +21,7 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   command: 'command',
   enqueueBackfill: 'enqueue-backfill',
   getBackfillsInFlight: 'get-backfills-in-flight',
+  queryEmbedding: 'query-embedding',
   queryEmbeddingRequest: 'query-embedding-request',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
 });
@@ -43,6 +44,7 @@ export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
 export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
   EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
 export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
+export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
@@ -83,8 +85,20 @@ export interface EmbeddingHostQueryEmbeddingPayload {
 }
 
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;
-export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'>;
-export type EmbeddingHostStatusReport = BackgroundRuntimeStatus<'embedding-host'>;
+export interface EmbeddingHostWorkerRuntimeMetadata {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dtype: string;
+  readonly fallbackApplied: boolean;
+}
+export interface EmbeddingHostRuntimeMetadata {
+  readonly actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null;
+  readonly backendMismatch: boolean;
+  readonly selectedDevicePreference: 'webgpu' | 'wasm';
+}
+export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'> & {
+  readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
+};
+export type EmbeddingHostStatusReport = EmbeddingHostStatus;
 export type EmbeddingHostCommand = RuntimeRequestEnvelope<'control', EmbeddingHostCommandPayload>;
 export type EmbeddingHostQueryEmbeddingRequest = RuntimeRequestEnvelope<
   'query-embedding',
@@ -181,6 +195,72 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
   };
 }
 
+function assertEmbeddingWorkerRuntimeMetadata(value: unknown): EmbeddingHostWorkerRuntimeMetadata {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata must be an object.'
+    );
+  }
+  const candidate = value as Record<string, unknown>;
+  const device = candidate['device'];
+  if (device !== 'webgpu' && device !== 'wasm') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata.device must be "webgpu" or "wasm".'
+    );
+  }
+  const dtype = assertNonEmptyString(
+    candidate['dtype'],
+    'Embedding host status embeddingRuntime.actualWorkerMetadata.dtype must be a non-empty string.'
+  );
+  const fallbackApplied = candidate['fallbackApplied'];
+  if (typeof fallbackApplied !== 'boolean') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.actualWorkerMetadata.fallbackApplied must be a boolean.'
+    );
+  }
+  return { device, dtype, fallbackApplied };
+}
+
+function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntimeMetadata {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host status embeddingRuntime must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const selectedDevicePreference = candidate['selectedDevicePreference'];
+  if (selectedDevicePreference !== 'webgpu' && selectedDevicePreference !== 'wasm') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.selectedDevicePreference must be "webgpu" or "wasm".'
+    );
+  }
+  const backendMismatch = candidate['backendMismatch'];
+  if (typeof backendMismatch !== 'boolean') {
+    throw new Error('Embedding host status embeddingRuntime.backendMismatch must be a boolean.');
+  }
+  const actualWorkerMetadata = candidate['actualWorkerMetadata'];
+  return {
+    selectedDevicePreference,
+    backendMismatch,
+    actualWorkerMetadata:
+      actualWorkerMetadata === null
+        ? null
+        : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
+  };
+}
+
+export function assertEmbeddingHostStatus(value: unknown): EmbeddingHostStatusReport {
+  const baseStatus = EMBEDDING_HOST_STATUS_ADAPTER.assertStatus(value);
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return baseStatus;
+  }
+  const embeddingRuntime = (value as Record<string, unknown>)['embeddingRuntime'];
+  return {
+    ...baseStatus,
+    ...(embeddingRuntime === undefined
+      ? {}
+      : { embeddingRuntime: assertEmbeddingHostRuntimeMetadata(embeddingRuntime) }),
+  };
+}
+
 function assertNonEmptyString(value: unknown, message: string): string {
   if (!(typeof value === 'string' && value.trim().length > 0)) {
     throw new Error(message);
@@ -224,6 +304,33 @@ export function createEmbeddingHostQueryEmbeddingRequest(
   };
 }
 
+export function assertEmbeddingHostQueryEmbeddingPayload(
+  value: unknown
+): EmbeddingHostQueryEmbeddingPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host query embedding payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    modelKey: assertNonEmptyString(
+      payload['modelKey'],
+      'Embedding host query embedding payload.modelKey must be a non-empty string.'
+    ),
+    modelId: assertNonEmptyString(
+      payload['modelId'],
+      'Embedding host query embedding payload.modelId must be a non-empty string.'
+    ),
+    dimensions: assertPositiveInteger(
+      payload['dimensions'],
+      'Embedding host query embedding payload.dimensions must be a positive integer.'
+    ),
+    query: assertNonEmptyString(
+      payload['query'],
+      'Embedding host query embedding payload.query must be a non-empty string.'
+    ),
+  };
+}
+
 export function assertEmbeddingHostQueryEmbeddingRequest(
   value: unknown
 ): EmbeddingHostQueryEmbeddingRequest {
@@ -242,24 +349,7 @@ export function assertEmbeddingHostQueryEmbeddingRequest(
     channel: 'query-embedding',
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: {
-      modelKey: assertNonEmptyString(
-        payload['modelKey'],
-        'Embedding host query embedding payload.modelKey must be a non-empty string.'
-      ),
-      modelId: assertNonEmptyString(
-        payload['modelId'],
-        'Embedding host query embedding payload.modelId must be a non-empty string.'
-      ),
-      dimensions: assertPositiveInteger(
-        payload['dimensions'],
-        'Embedding host query embedding payload.dimensions must be a positive integer.'
-      ),
-      query: assertNonEmptyString(
-        payload['query'],
-        'Embedding host query embedding payload.query must be a non-empty string.'
-      ),
-    },
+    payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
   };
 }
 

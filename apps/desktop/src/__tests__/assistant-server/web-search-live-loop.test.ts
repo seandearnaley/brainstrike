@@ -1,0 +1,211 @@
+/**
+ * LIVE-loop coverage for the desktop `brainstrike.webSearch` tool.
+ *
+ * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
+ * desktop webSearch tool from `buildDesktopAssistantTools` — its real `execute`,
+ * the real token-budgeting and result normalization — but with the Tavily fetch
+ * and key resolver STUBBED via injected dependencies. No real network, no real
+ * keychain. Only the language model is scripted (provider 'local' with an
+ * injected LocalLlmHostClient, mirroring glob-workspace-live-loop.test.ts — no
+ * API key, no network).
+ *
+ * It proves a real Agent can call webSearch, that the stubbed Tavily results
+ * flow back through the loop token-budgeted, and that the secret key never
+ * leaks into anything the model sees.
+ */
+import type { RuntimeData } from '@brainstrike/agent';
+import type {
+  LocalLlmGenerationResult,
+  LocalLlmHostClient,
+  LocalLlmHostGenerateRequest,
+  LocalLlmHostRequestOptions,
+} from '@brainstrike/agent/local-llm';
+import { describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import type { WebSearchToolDependencies } from '../../assistant-server/web-search-tool';
+
+// Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
+// an empty generator). Everything else from the package keeps its real impl.
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return { ...actual };
+});
+
+const { streamMastraAgent } = await import('@brainstrike/agent');
+
+const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const SECRET_TAVILY_KEY = 'tvly-SECRET-live-loop';
+
+/**
+ * Scripted host client: the first generation requests the webSearch tool; once
+ * the prompt carries the tool response, it streams a short confirmation and
+ * returns the final answer. Mirrors the desktop llm-host contract.
+ */
+function createScriptedHostClient(
+  query: string
+): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
+  const requests: LocalLlmHostGenerateRequest[] = [];
+  return {
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
+    generate: (
+      request: LocalLlmHostGenerateRequest,
+      options: LocalLlmHostRequestOptions = {}
+    ): Promise<LocalLlmGenerationResult> => {
+      requests.push(request);
+      const hasToolResponse = request.messages.some(
+        (message) => message.role === 'tool' && message.toolResponses !== undefined
+      );
+      if (hasToolResponse) {
+        options.onProgress?.({ kind: 'text', text: 'Found ' });
+        options.onProgress?.({ kind: 'text', text: 'Found the docs.' });
+        return Promise.resolve({
+          text: 'Found the docs.',
+          finishReason: 'stop',
+          usage: USAGE,
+        });
+      }
+      return Promise.resolve({
+        text: '',
+        finishReason: 'tool_calls',
+        toolCalls: [
+          {
+            id: 'call-web-1',
+            type: 'function',
+            function: {
+              name: 'brainstrike_webSearch',
+              arguments: JSON.stringify({ query }),
+            },
+          },
+        ],
+        usage: USAGE,
+      });
+    },
+  };
+}
+
+describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tavily)', () => {
+  it('lets a real Agent web-search via stubbed Tavily and flows results back token-budgeted', async () => {
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            results: [
+              {
+                title: 'AbortController - MDN',
+                url: 'https://mdn.example/AbortController',
+                content: 'AbortController lets you abort fetch requests.',
+              },
+              {
+                title: 'fetch signal',
+                url: 'https://mdn.example/fetch',
+                content: 'Pass signal to fetch to make it cancellable.',
+              },
+            ],
+          }),
+      } as Response)
+    );
+    const resolveApiKey = vi.fn(() => Promise.resolve(SECRET_TAVILY_KEY));
+    const webSearchDeps: WebSearchToolDependencies = {
+      resolveApiKey,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    };
+
+    const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
+    const webSearchTool = tools['brainstrike.webSearch'];
+    expect(webSearchTool).toBeDefined();
+
+    const hostClient = createScriptedHostClient('how to cancel fetch');
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'u-web',
+          role: 'user',
+          parts: [{ type: 'text', text: 'how do I cancel a fetch?' }],
+        },
+      ],
+      {
+        runtime: {
+          provider: 'local',
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          localLlmHostClient: hostClient,
+          providerOptions: { local: { thinking: { enabled: false } } },
+        } as RuntimeData,
+        tools: { 'brainstrike.webSearch': webSearchTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    let finalText = '';
+    const toolEventResults: unknown[] = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      } else if (chunk.type === 'text-delta') {
+        finalText += chunk.value;
+      } else if (chunk.type === 'tool-event') {
+        toolEventResults.push(chunk);
+      }
+    }
+
+    // The real Mastra loop ran the tool to completion and streamed the answer.
+    expect(runEventKinds).toContain('tool.completed');
+    expect(finalText).toContain('Found the docs.');
+
+    // The stubbed Tavily fetch was actually invoked through the real tool execute.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(resolveApiKey).toHaveBeenCalledTimes(1);
+
+    // The normalized results flowed back through the loop to the tool event.
+    const serialized = JSON.stringify(toolEventResults);
+    expect(serialized).toContain('https://mdn.example/AbortController');
+    expect(serialized).toContain('https://mdn.example/fetch');
+    // The secret key never appears in anything the model loop produced.
+    expect(serialized).not.toContain(SECRET_TAVILY_KEY);
+    expect(finalText).not.toContain(SECRET_TAVILY_KEY);
+  });
+
+  it('flows a NON-FATAL "unavailable" result back when no key is configured (run still completes)', async () => {
+    const fetchImpl = vi.fn();
+    const webSearchDeps: WebSearchToolDependencies = {
+      resolveApiKey: () => Promise.resolve(undefined),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    };
+    const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
+    const webSearchTool = tools['brainstrike.webSearch'];
+
+    const hostClient = createScriptedHostClient('anything');
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-web-2', role: 'user', parts: [{ type: 'text', text: 'search please' }] }],
+      {
+        runtime: {
+          provider: 'local',
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          localLlmHostClient: hostClient,
+          providerOptions: { local: { thinking: { enabled: false } } },
+        } as RuntimeData,
+        tools: { 'brainstrike.webSearch': webSearchTool },
+      }
+    );
+
+    const runEventKinds: string[] = [];
+    const toolEventResults: unknown[] = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event') {
+        runEventKinds.push(chunk.event.kind);
+      } else if (chunk.type === 'tool-event') {
+        toolEventResults.push(chunk);
+      }
+    }
+
+    // The tool completed (non-fatal) and never hit the network.
+    expect(runEventKinds).toContain('tool.completed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(toolEventResults);
+    expect(serialized).toContain('Tavily API key');
+  });
+});

@@ -1,4 +1,4 @@
-import type { DatabaseWorkScheduler } from '@brainstrike/db';
+import type { DatabaseWorkScheduler, DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
 import { ipcMain } from 'electron';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
@@ -21,6 +21,7 @@ interface RegisterEmbeddingBackfillIpcHandlersOptions {
   readonly embeddingHostManager: EmbeddingHostManager | undefined;
   readonly flushPendingLiveUpdates: () => void;
   readonly getDatabaseWorkScheduler: () => DatabaseWorkScheduler;
+  readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly isBackgrounded: () => boolean;
 }
 
@@ -41,6 +42,7 @@ export function registerEmbeddingBackfillIpcHandlers({
   embeddingHostManager,
   flushPendingLiveUpdates,
   getDatabaseWorkScheduler,
+  getDimensionIndexMaintenanceStrategy,
   isBackgrounded,
 }: RegisterEmbeddingBackfillIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -71,6 +73,9 @@ export function registerEmbeddingBackfillIpcHandlers({
               databaseWorkScheduler: getDatabaseWorkScheduler(),
               event,
               flushPendingLiveUpdates,
+              ...(getDimensionIndexMaintenanceStrategy
+                ? { getDimensionIndexMaintenanceStrategy }
+                : {}),
               isBackgrounded,
               ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
             }),

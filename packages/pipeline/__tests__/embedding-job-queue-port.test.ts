@@ -7,6 +7,7 @@ import { createEmbeddingJobQueuePort } from '../src/index.js';
 
 interface RecordedQueue {
   enqueue: ReturnType<typeof vi.fn>;
+  enqueueBatch: ReturnType<typeof vi.fn>;
 }
 
 function createRecordedQueue(): RecordedQueue {
@@ -18,6 +19,15 @@ function createRecordedQueue(): RecordedQueue {
       state: 'queued',
       dedupeKey: (params as { dedupeKey: string }).dedupeKey,
     })),
+    enqueueBatch: vi.fn(async (params: unknown[]) =>
+      params.map((param, index) => ({
+        id: `job-${index + 1}`,
+        queue: (param as { queue: string }).queue,
+        jobType: (param as { jobType: string }).jobType,
+        state: 'queued',
+        dedupeKey: (param as { dedupeKey: string }).dedupeKey,
+      }))
+    ),
   };
 }
 
@@ -47,20 +57,24 @@ describe('createEmbeddingJobQueuePort', () => {
     );
 
     expect(createQueue).toHaveBeenCalledWith(db);
-    expect(queue.enqueue).toHaveBeenCalledWith({
-      queue: 'embeddings',
-      jobType: 'embed_chunk',
-      payload: {
-        chunkId: 'chunk-1',
-        fileRecordId: 'file-1',
-        embeddingSetId: 'target-set',
-        expectedDimension: 768,
-        modelKey: 'local::bge-m3',
-        provider: 'local',
-        dimensionParameter: 'dimensions',
+    expect(queue.enqueueBatch).toHaveBeenCalledOnce();
+    expect(queue.enqueueBatch).toHaveBeenCalledWith([
+      {
+        queue: 'embeddings',
+        jobType: 'embed_chunk',
+        payload: {
+          chunkId: 'chunk-1',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'target-set',
+          expectedDimension: 768,
+          modelKey: 'local::bge-m3',
+          provider: 'local',
+          dimensionParameter: 'dimensions',
+        },
+        dedupeKey: 'chunk-1:target-set:hash-1',
       },
-      dedupeKey: 'chunk-1:target-set:hash-1',
-    });
+    ]);
+    expect(queue.enqueue).not.toHaveBeenCalled();
   });
 
   it('uses the transaction executor when one is provided', async () => {

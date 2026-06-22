@@ -33,6 +33,7 @@ import {
   toolLineRangeToTapestryRange,
   type useWorkspaceContextCurationStore,
 } from '@brainstrike/file-explorer-ui/preview';
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import {
   getGoogleThinkingLevels,
   resolveTapestryColorHex,
@@ -197,6 +198,13 @@ export function buildAssistantRequestData(args: {
   memoryResourceId: string | undefined;
   memorySettings: RuntimeAssistantMemorySettings;
   modelSettings: RuntimeData['modelSettings'] | undefined;
+  /**
+   * Serializable permission snapshot from the permission-policy store, attached
+   * ONLY when the user has opted into enforcement. When absent (the default),
+   * the server receives no policy and the runtime tool map is unchanged
+   * (passthrough). The caller is responsible for gating this to `enforce:true`.
+   */
+  permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
   providerOptions: Record<string, unknown> | undefined;
   selectedMemoryThreadId: string | undefined;
   selectionData: {
@@ -277,6 +285,14 @@ export function buildAssistantRequestData(args: {
   }
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
+  }
+  // Permission enforcement is OPT-IN: the caller passes a snapshot ONLY when the
+  // user enabled `enforce`, so its mere presence here means "enforce". The
+  // server (`resolveRequestPermissionPolicy`) still re-checks `enforce` and adds
+  // server-owned tool risk classification. When absent, nothing is sent and the
+  // runtime keeps its passthrough default.
+  if (args.permissionPolicyRequest) {
+    data['permissionPolicyRequest'] = args.permissionPolicyRequest;
   }
   return data;
 }

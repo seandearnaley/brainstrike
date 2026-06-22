@@ -7,8 +7,10 @@ import {
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
+import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -19,19 +21,6 @@ import SettingsPageContent from './settings/page-content';
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
   return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
-}
-
-function useInitializeWebVectorDevicePreference(): void {
-  const devicePrefConfigured = useVectorPreferencesStore((state) => state.devicePrefConfigured);
-  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
-  const setDetectedDevicePref = useVectorPreferencesStore((state) => state.setDetectedDevicePref);
-
-  useEffect(() => {
-    if (devicePrefConfigured || devicePref === 'wasm') {
-      return;
-    }
-    setDetectedDevicePref('wasm');
-  }, [devicePref, devicePrefConfigured, setDetectedDevicePref]);
 }
 
 /**
@@ -54,16 +43,29 @@ function useInitializeWebVectorDevicePreference(): void {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
-  useInitializeWebVectorDevicePreference();
-
   const navigationConfig = navigationItems as NavigationItem[];
-  const loadEmbeddingQueue = useCallback(
-    () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
-    []
-  );
+  const loadEmbeddingQueue = useCallback(async () => getEmbeddingQueue(), []);
   const loadLocalLlmBackend = useCallback(async () => {
     const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
     return new LocalLlmBackend();
+  }, []);
+
+  useEffect(() => {
+    let errorTimer: ReturnType<typeof setTimeout> | null = null;
+    void Promise.all([
+      Promise.resolve(registerWebEmbeddingRuntimeConfig()),
+      ensureBackgroundIndexingPreferencesHydrated(),
+      ensureVectorPreferencesHydrated(),
+    ]).catch((error: unknown) => {
+      errorTimer = setTimeout(() => {
+        throw error;
+      }, 0);
+    });
+    return () => {
+      if (errorTimer) {
+        clearTimeout(errorTimer);
+      }
+    };
   }, []);
 
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through

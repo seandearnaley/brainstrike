@@ -42,6 +42,8 @@ export type FileRecordUpdate = Omit<Partial<FileRecord>, NullableFileRecordUpdat
 };
 
 export interface ManagedCacheEntryMetadata {
+  chunksCount?: number | null;
+  chunksProcessedAt?: string | null;
   contentHash: string;
   embeddingSetId: string;
   fileRecordId: string;

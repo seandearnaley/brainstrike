@@ -274,6 +274,74 @@ describe('embedding-worker error logging', () => {
     expect(readinessChecks).toHaveLength(0);
   });
 
+  it('logs deferred local model initialization at info level', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-deferred-log-level';
+    const fileId = 'file-deferred-log-level';
+    const chunkId = 'chunk-deferred-log-level';
+    const jobId = 'job-deferred-log-level';
+    const modelId = 'Xenova/all-MiniLM-L6-v2';
+    const modelKey = `local::${modelId}`;
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, modelKey, modelId, 384, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+      [fileId, 'deferred-log-level.ts', '/deferred-log-level.ts', 100, 'content', 'hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1, $2, 0, $3, $4, $5, 'text', 10, $6, $6)`,
+      [chunkId, fileId, 'content', 'hash-chunk', 10, now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+       VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+      [
+        jobId,
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey,
+          expectedDimension: 384,
+        }),
+        now,
+      ]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      initializeLocalModelOnStart: false,
+      leaseMs: 1000,
+      modelKey: modelId,
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ state: string }>(
+        `SELECT state FROM job_queue WHERE id = '${jobId}'`
+      );
+      return res.rows[0]?.state === 'succeeded';
+    });
+
+    await controller.stop();
+
+    expect(
+      loggerCalls.warn.some(
+        ([message]) => message === 'Initializing deferred local embedding model for claimed work'
+      )
+    ).toBe(false);
+    expect(
+      loggerCalls.info.some(
+        ([message]) => message === 'Initializing deferred local embedding model for claimed work'
+      )
+    ).toBe(true);
+  });
+
   it('reports the configured claim batch size when claim-size resolution fails', async () => {
     const metricLogs: Record<string, unknown>[] = [];
     let resolverCalls = 0;

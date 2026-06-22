@@ -15,6 +15,23 @@ function makeVector(dim: number, entries: [number, number][]): number[] {
   return vector;
 }
 
+function makeChunk(overrides: Partial<FileChunkInsert> = {}): FileChunkInsert {
+  const now = new Date().toISOString();
+  return {
+    id: overrides.id ?? 'chunk-test',
+    fileRecordId: overrides.fileRecordId ?? 'file1',
+    chunkIndex: overrides.chunkIndex ?? 0,
+    content: overrides.content ?? 'chunk content',
+    contentHash: overrides.contentHash ?? 'chunk-hash',
+    tokenCount: overrides.tokenCount ?? 3,
+    chunkType: overrides.chunkType ?? 'text',
+    chunkSize: overrides.chunkSize ?? 100,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    ...overrides,
+  };
+}
+
 describe('FileChunkRepository', () => {
   let db: PGlite;
   let repository: FileChunkRepository;
@@ -113,6 +130,17 @@ describe('FileChunkRepository', () => {
       expect(result).toBeDefined();
       expect(result?.embedding).toEqual(embedding);
     });
+
+    it('rejects null bytes in chunk content before insert reaches PGlite', async () => {
+      await expect(
+        repository.insert(
+          makeChunk({
+            id: 'chunk-null-insert',
+            content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          })
+        )
+      ).rejects.toThrow('File chunk content cannot contain null bytes.');
+    });
   });
 
   describe('insertMany', () => {
@@ -157,6 +185,19 @@ describe('FileChunkRepository', () => {
 
     it('should handle empty array', async () => {
       await expect(repository.insertMany([])).resolves.not.toThrow();
+    });
+
+    it('rejects null bytes in chunk content before batch insert reaches PGlite', async () => {
+      await expect(
+        repository.insertMany([
+          makeChunk({ id: 'chunk-clean', content: 'clean chunk' }),
+          makeChunk({
+            id: 'chunk-null-batch',
+            chunkIndex: 1,
+            content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          }),
+        ])
+      ).rejects.toThrow('File chunk content cannot contain null bytes.');
     });
   });
 

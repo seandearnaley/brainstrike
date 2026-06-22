@@ -193,7 +193,7 @@ describe('portable-chunking', () => {
         expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 17, 34]);
       });
 
-      it('resolves source ranges for markdown chunks emitted from CRLF content', async () => {
+      it('resolves source ranges for markdown chunks emitted from CRLF content without warning', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const text = '# Title\r\n\r\nAlpha sentence\r\ncontinues here.\r\n\r\nBeta sentence.';
         const result = await chunkContent(text, {
@@ -212,15 +212,7 @@ describe('portable-chunking', () => {
         expect(result.chunks.map((chunk) => chunk.endLine)).toEqual([1, 4, 6]);
         expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 11, 46]);
         expect(result.chunks.map((chunk) => chunk.endOffset)).toEqual([7, 42, 60]);
-        expect(warnSpy).toHaveBeenCalledWith(
-          '[portable-chunking] resolved source ranges with whitespace-normalized matching',
-          {
-            fileName: 'notes.md',
-            filePath: undefined,
-            fuzzyMatchedChunks: 1,
-            totalCandidateChunks: 3,
-          }
-        );
+        expect(warnSpy).not.toHaveBeenCalled();
         warnSpy.mockRestore();
       });
 
@@ -245,15 +237,7 @@ describe('portable-chunking', () => {
           startOffset: 0,
           endOffset: text.length,
         });
-        expect(warnSpy).toHaveBeenCalledWith(
-          '[portable-chunking] resolved source ranges with whitespace-normalized matching',
-          {
-            fileName: 'notes.md',
-            filePath: undefined,
-            fuzzyMatchedChunks: 1,
-            totalCandidateChunks: 1,
-          }
-        );
+        expect(warnSpy).not.toHaveBeenCalled();
         warnSpy.mockRestore();
       });
 
@@ -293,15 +277,7 @@ describe('portable-chunking', () => {
           startOffset,
           endOffset,
         });
-        expect(warnSpy).toHaveBeenCalledWith(
-          '[portable-chunking] resolved source ranges with whitespace-normalized matching',
-          {
-            fileName: 'large-repetitive.txt',
-            filePath: undefined,
-            fuzzyMatchedChunks: 1,
-            totalCandidateChunks: 1,
-          }
-        );
+        expect(warnSpy).not.toHaveBeenCalled();
         expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
           'Alpha target line\ncontinues with mixed newlines.'
         );
@@ -347,15 +323,7 @@ describe('portable-chunking', () => {
         expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
           'x\nNeedle anchor phrase spans after a normalized newline.'
         );
-        expect(warnSpy).toHaveBeenCalledWith(
-          '[portable-chunking] resolved source ranges with whitespace-normalized matching',
-          {
-            fileName: 'mixed-newline-anchor.txt',
-            filePath: undefined,
-            fuzzyMatchedChunks: 1,
-            totalCandidateChunks: 1,
-          }
-        );
+        expect(warnSpy).not.toHaveBeenCalled();
         warnSpy.mockRestore();
       });
 

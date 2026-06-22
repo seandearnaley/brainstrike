@@ -31,6 +31,7 @@ vi.mock('electron', async () => {
 import {
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
@@ -51,6 +52,7 @@ describe('embedding host IPC handlers', () => {
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn().mockResolvedValue({ state: 'running' }),
       getStatus: vi.fn().mockResolvedValue({ state: 'running' }),
+      queryEmbedding: vi.fn(),
       reset: vi.fn().mockResolvedValue({ state: 'running' }),
       stop: vi.fn().mockResolvedValue({ state: 'stopped' }),
     };
@@ -104,6 +106,7 @@ describe('embedding host IPC handlers', () => {
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
+      queryEmbedding: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
     };
@@ -136,6 +139,7 @@ describe('embedding host IPC handlers', () => {
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
+      queryEmbedding: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
     };
@@ -169,12 +173,50 @@ describe('embedding host IPC handlers', () => {
     });
   });
 
+  it('registers a visible-renderer query embedding invoke handler', async () => {
+    const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      queryEmbedding: vi.fn(async () => [0.125, 0.75]),
+      reset: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    registerEmbeddingHostIpcHandlers(manager as never);
+
+    const queryEmbeddingHandler = handlers.get(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL);
+    if (!queryEmbeddingHandler) {
+      throw new Error('Embedding host query embedding invoke handler not registered.');
+    }
+
+    await expect(
+      queryEmbeddingHandler(
+        { sender: { id: 17 } },
+        {
+          dimensions: 384,
+          modelId: 'embedding-model',
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          query: 'workspace index benchmark',
+        }
+      )
+    ).resolves.toEqual([0.125, 0.75]);
+    expect(manager.queryEmbedding).toHaveBeenCalledWith({
+      dimensions: 384,
+      modelId: 'embedding-model',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'workspace index benchmark',
+    });
+  });
+
   it('unregisters lifecycle channels on cleanup', () => {
     const manager = {
       acceptQueryEmbeddingResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
+      queryEmbedding: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
     };
@@ -186,6 +228,7 @@ describe('embedding host IPC handlers', () => {
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_STOP_CHANNEL);
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_RESET_CHANNEL);
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_GET_STATUS_CHANNEL);
+    expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL);
     expect(removeListener).toHaveBeenCalledWith(
       EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
       listeners.get(EMBEDDING_HOST_REPORT_STATUS_CHANNEL)

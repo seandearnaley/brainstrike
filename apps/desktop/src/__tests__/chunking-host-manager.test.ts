@@ -136,6 +136,46 @@ describe('ChunkingHostManager', () => {
     expect(manager.pendingRequests.size).toBe(0);
   });
 
+  it('treats chunking progress as request liveness and keeps the request alive', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const requestPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-progress-refresh',
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunk',
+      payload: {
+        chunksCreated: 0,
+        fileRecordId: 'file-1',
+      },
+      requestId: 'req-progress-refresh',
+      runtimeId: 'chunking-host-runtime',
+      type: 'progress',
+    });
+    await vi.advanceTimersByTimeAsync(29_999);
+
+    expect(manager.pendingRequests.has('req-progress-refresh')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunk-result',
+      payload: {
+        result: { chunks: [] },
+      },
+      requestId: 'req-progress-refresh',
+      runtimeId: 'chunking-host-runtime',
+      type: 'result',
+    });
+
+    await expect(requestPromise).resolves.toEqual({ chunks: [] });
+  });
+
   it('returns a defined error for unexpected response envelopes', async () => {
     const manager = new ChunkingHostManager() as TestableChunkingHostManager;
     const requestPromise = manager.chunkFile(11, {

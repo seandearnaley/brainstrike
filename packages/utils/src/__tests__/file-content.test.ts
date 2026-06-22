@@ -13,6 +13,11 @@ describe('fileContent', () => {
       expect(fileContent.isTextContent(binaryContent)).toBe(false);
     });
 
+    it('rejects null bytes beyond the initial text sample', () => {
+      const content = `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`;
+      expect(fileContent.isTextContent(content)).toBe(false);
+    });
+
     it('should handle empty content', () => {
       expect(fileContent.isTextContent('')).toBe(true);
     });

@@ -8,6 +8,7 @@ export type DesktopIpcDomain =
   | 'diagnostics'
   | 'embeddings'
   | 'files'
+  | 'git'
   | 'llm-host'
   | 'logging'
   | 'mcp'
@@ -15,6 +16,7 @@ export type DesktopIpcDomain =
   | 'runtime'
   | 'shell'
   | 'storage'
+  | 'terminal'
   | 'tools';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';

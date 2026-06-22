@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
@@ -17,6 +18,7 @@ import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron'
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { startAssistantServer } from './assistant-server';
+import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -30,6 +32,16 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import { markDesktopShuttingDown } from './desktop-shutdown-state';
+import {
+  type DimensionIndexStrategySelection,
+  probeDimensionIndexRuntimeCapabilities,
+  selectDimensionIndexStrategy,
+} from './dimension-index-maintenance-capabilities';
+import {
+  createDesktopDimensionIndexMaintenanceScheduler,
+  type DesktopDimensionIndexMaintenanceScheduler,
+} from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -37,6 +49,7 @@ import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
+import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
@@ -52,6 +65,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { registerTerminalIpc } from './ipc-terminal';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { LlmHostManager } from './llm-host-manager';
 import {
@@ -61,12 +75,14 @@ import {
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
+import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
@@ -594,6 +610,35 @@ async function openLogDestination(target: string | null): Promise<boolean> {
   }
 }
 
+async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
+  try {
+    const capabilities = await probeDimensionIndexRuntimeCapabilities({
+      db: await getDatabase(),
+      foregroundHealthProbe: async () => {
+        throw new Error('Startup capability probe must not run foreground health measurement.');
+      },
+      initialMemoryBytes: null,
+      now: () => new Date(),
+      scratchTableName: `brainstrike_hnsw_probe_${randomUUID().replaceAll('-', '_')}`,
+    });
+    desktopDimensionIndexStrategySelection = selectDimensionIndexStrategy({
+      concurrentIndexBuild: capabilities.concurrentIndexBuild,
+      foregroundHealthThresholdMs: 5000,
+    });
+    logger.info('Dimension index maintenance capability probe completed', {
+      concurrentIndexBuild: capabilities.concurrentIndexBuild,
+      hnswIndexBuild: capabilities.hnswIndexBuild,
+      maintenanceSettings: capabilities.maintenanceSettings,
+      progressReporting: capabilities.progressReporting,
+      strategyReason: desktopDimensionIndexStrategySelection.reason,
+      strategy: desktopDimensionIndexStrategySelection.strategy,
+    });
+  } catch (error) {
+    desktopDimensionIndexStrategySelection = null;
+    logger.error('Dimension index maintenance capability probe failed', { error });
+  }
+}
+
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
@@ -606,7 +651,12 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
+let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
+  null;
+let desktopDimensionIndexStrategySelection: DimensionIndexStrategySelection | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -665,6 +715,10 @@ function clearForcedProcessExitTimer(): void {
 }
 
 async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
+  // Mark shutdown before any host/DB teardown so background work torn down
+  // mid-flight (e.g. an in-flight embedding backfill) is logged as a benign
+  // stop, not a failure.
+  markDesktopShuttingDown();
   if (gracefulShutdownPromise) {
     await gracefulShutdownPromise;
     return;
@@ -675,6 +729,11 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
 
     if (stopAssistantServer) {
       const failure = await runShutdownStep('assistant-server', async () => {
+        // Reap any shell command the assistant left running FIRST so no orphaned
+        // subprocess (vitest/build) keeps eating CPU/battery after the app exits.
+        disposeLiveChildProcesses();
+        // Reap any live terminal pty so no interactive shell survives the app.
+        disposeAllTerminals();
         if (stopAssistantServer) {
           await stopAssistantServer();
           stopAssistantServer = null;
@@ -719,6 +778,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     }
 
     const databaseFailure = await runShutdownStep('database', async () => {
+      desktopDimensionIndexMaintenanceScheduler?.stop();
+      desktopDimensionIndexMaintenanceScheduler = null;
       desktopDatabaseMaintenanceScheduler?.stop();
       desktopDatabaseMaintenanceScheduler = null;
       await cleanupDesktopLiveSubscriptionsForShutdown();
@@ -790,6 +851,24 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
     { name: 'llm-host', stop: () => llmHostManager.stop() },
+    // Reap any shell command the assistant left running so a factory reset is a
+    // true fresh start with no orphaned subprocess surviving the wipe.
+    {
+      name: 'shell-children',
+      stop: () => {
+        disposeLiveChildProcesses();
+        return Promise.resolve();
+      },
+    },
+    // Reap any live terminal pty so a factory reset is a true fresh start with
+    // no orphaned interactive shell surviving the wipe.
+    {
+      name: 'terminals',
+      stop: () => {
+        disposeAllTerminals();
+        return Promise.resolve();
+      },
+    },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
   userDataPath: app.getPath('userData'),
@@ -798,6 +877,14 @@ const handleResetLocal = createDesktopFactoryResetHandler({
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
+  getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  logger,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
+desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
+  getDatabase,
+  getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
+  getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
@@ -826,6 +913,8 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   chunkingHostManager,
   embeddingHostManager,
+  getDimensionIndexMaintenanceStrategy: () =>
+    desktopDimensionIndexStrategySelection?.strategy ?? null,
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
@@ -848,6 +937,17 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
       const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
       return getDesktopEmbeddingBackfillsInFlight();
     },
+    getDimensionIndexMaintenanceSnapshot: async () => {
+      const { listDimensionIndexMaintenance, listDimensionIndexSuspensions } = await import(
+        '@brainstrike/db'
+      );
+      const db = await getDbHostManager().getDatabase();
+      const [maintenance, suspensions] = await Promise.all([
+        listDimensionIndexMaintenance(db),
+        listDimensionIndexSuspensions(db),
+      ]);
+      return { maintenance, suspensions };
+    },
   },
   llmHost: llmHostManager,
   logging: {
@@ -862,6 +962,8 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
+unregisterGitIpcHandlers = registerGitIpcHandlers();
+unregisterTerminalIpcHandlers = registerTerminalIpc();
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -991,8 +1093,11 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
+      await initializeDesktopDimensionIndexStrategy();
       desktopDatabaseMaintenanceScheduler?.start();
       logger.debug('Scheduled desktop database maintenance started');
+      desktopDimensionIndexMaintenanceScheduler?.start();
+      logger.debug('Scheduled desktop dimension index maintenance started');
 
       // Setup security before creating windows
       setupSecurity();
@@ -1023,6 +1128,40 @@ if (singleInstanceLockAcquired) {
         {
           label: 'View',
           submenu: [
+            {
+              label: 'Command Palette…',
+              accelerator: process.platform === 'darwin' ? 'Cmd+K' : 'Ctrl+K',
+              click: (_menuItem, browserWindow) => {
+                // Route to the FOCUSED window only, so the palette opens where
+                // the user is looking. Hidden host windows are never focused and
+                // never register the renderer listener, so this is a no-op there.
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  return;
+                }
+                targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.commandPalette.open);
+              },
+            },
+            {
+              label: 'Quick Open…',
+              accelerator: process.platform === 'darwin' ? 'Cmd+P' : 'Ctrl+P',
+              click: (_menuItem, browserWindow) => {
+                // Same focused-window routing as the command palette; a no-op on
+                // hidden host windows (never focused, never register the listener).
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  return;
+                }
+                targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.quickOpen.open);
+              },
+            },
+            { type: 'separator' },
             {
               label: 'Reload',
               accelerator: process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R',
@@ -1209,7 +1348,7 @@ if (singleInstanceLockAcquired) {
 
           // Always log — if entries stop appearing, the event loop is stuck.
           // NOTE: pino API requires (obj, msg) order to merge fields into the entry.
-          if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
+          if (isMainProcessHealthDegraded({ loopLagMaxMs: max, loopLagP99Ms: p99 })) {
             logger.warn(payload, 'main-process-health');
           } else {
             logger.debug(payload, 'main-process-health');
@@ -1411,6 +1550,15 @@ app.on('will-quit', () => {
   if (unregisterClipboardIpcHandlers) {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
+  }
+  if (unregisterGitIpcHandlers) {
+    unregisterGitIpcHandlers();
+    unregisterGitIpcHandlers = null;
+  }
+  if (unregisterTerminalIpcHandlers) {
+    // Disposer also reaps every live pty (no orphaned shell survives quit).
+    unregisterTerminalIpcHandlers();
+    unregisterTerminalIpcHandlers = null;
   }
   removeLogBufferListener();
 });

@@ -127,6 +127,17 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(lastCall?.[1]?.[12]).toBe('[0.5,0.8]');
   });
 
+  it('rejects null bytes in chunk content before insert IPC query', async () => {
+    await expect(
+      repo.insert({
+        ...baseChunk,
+        id: 'chunk-null-insert',
+        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+      })
+    ).rejects.toThrow('File chunk content cannot contain null bytes.');
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('supports insertMany transaction batching', async () => {
     const chunks: FileChunkInsert[] = [
       {
@@ -171,6 +182,31 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.id).toBe('chunk-1');
     expect(result[1]?.id).toBe('chunk-2');
+  });
+
+  it('rejects null bytes in chunk content before insertMany IPC transaction starts', async () => {
+    await expect(
+      repo.insertMany([
+        { ...baseChunk, id: 'chunk-clean', content: 'clean chunk' },
+        {
+          ...baseChunk,
+          id: 'chunk-null-batch',
+          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        },
+      ])
+    ).rejects.toThrow('File chunk content cannot contain null bytes.');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('rejects null bytes in chunk content before update IPC query', async () => {
+    await expect(
+      repo.update({
+        id: 'chunk-null-update',
+        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      })
+    ).rejects.toThrow('File chunk content cannot contain null bytes.');
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('returns aggregate stats', async () => {

@@ -13,6 +13,8 @@ const {
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
+  generateQueryEmbeddingMock,
+  initializeWithModelMock,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
@@ -39,6 +41,15 @@ const {
   createEmbeddingCacheRepositoryMock: vi.fn(),
   detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
+  generateQueryEmbeddingMock: vi.fn(async () => ({
+    embedding: [0.1, 0.2],
+    runtime: {
+      device: 'webgpu',
+      dtype: 'fp32',
+      fallbackApplied: false,
+    },
+  })),
+  initializeWithModelMock: vi.fn(async () => {}),
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
@@ -51,6 +62,7 @@ const {
     hasHydrated: false,
     devicePref: 'webgpu' as 'wasm' | 'webgpu',
     devicePrefConfigured: true,
+    reinitEveryN: 200,
     setDetectedDevicePref: vi.fn((devicePref: 'wasm' | 'webgpu') => {
       storeState.devicePref = devicePref;
       setDetectedDevicePrefMock(devicePref);
@@ -92,8 +104,8 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 
 vi.mock('@brainstrike/embeddings/service', () => ({
   SimpleEmbeddingService: class {
-    initializeWithModel = vi.fn(async () => {});
-    generateQueryEmbedding = vi.fn(async () => ({ embedding: [0.1, 0.2] }));
+    initializeWithModel = initializeWithModelMock;
+    generateQueryEmbedding = generateQueryEmbeddingMock;
     dispose = vi.fn(async () => {});
   },
 }));
@@ -120,6 +132,7 @@ describe('EmbeddingHostRuntime', () => {
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = true;
+    storeState.reinitEveryN = 200;
     setDetectedDevicePrefMock.mockClear();
     detectDeviceCapabilitiesMock.mockResolvedValue({
       recommendedDevice: 'webgpu',
@@ -205,7 +218,7 @@ describe('EmbeddingHostRuntime', () => {
     expect(getEmbeddingQueueMock).toHaveBeenCalledTimes(1);
   });
 
-  it('uses detected WASM when vector preference is not user-configured', async () => {
+  it('rejects automatic WASM detection when vector preference is not user-configured', async () => {
     storeState.hasHydrated = true;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = false;
@@ -224,13 +237,19 @@ describe('EmbeddingHostRuntime', () => {
     render(<EmbeddingHostRuntime />);
 
     await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect(reportStatusMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          device: 'wasm',
+          lastError: expect.stringContaining('WebGPU'),
+          state: 'error',
         })
       );
     });
-    expect(setDetectedDevicePrefMock).toHaveBeenCalledWith('wasm');
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        device: 'wasm',
+      })
+    );
+    expect(setDetectedDevicePrefMock).not.toHaveBeenCalledWith('wasm');
   });
 
   it('passes an embedding cache repository to the worker', async () => {
@@ -247,6 +266,55 @@ describe('EmbeddingHostRuntime', () => {
       );
     });
     expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
+  });
+
+  it('passes the hydrated reinit cadence to the background worker', async () => {
+    storeState.hasHydrated = true;
+    storeState.reinitEveryN = 37;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device: 'webgpu',
+          reinitEveryN: 37,
+        })
+      );
+    });
+  });
+
+  it('reports an error status when actual worker backend differs from the selected preference', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'wasm',
+        dtype: 'q8',
+        fallbackApplied: true,
+      });
+      return {
+        stop: stopMock,
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            actualWorkerMetadata: expect.objectContaining({
+              device: 'wasm',
+              fallbackApplied: true,
+            }),
+            backendMismatch: true,
+            selectedDevicePreference: 'webgpu',
+          }),
+          lastError: expect.stringContaining('backend'),
+          state: 'error',
+        })
+      );
+    });
   });
 
   it('resets the worker when it receives a strict reset command envelope', async () => {
@@ -277,6 +345,92 @@ describe('EmbeddingHostRuntime', () => {
         runtimeId: 'embedding-host:next-runtime',
         state: 'running',
       })
+    );
+  });
+
+  it('restarts the WebGPU background worker after a fatal device-loss execution error', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    const firstWorkerOptions = startEmbeddingWorkerMock.mock.calls[0]?.[0] as
+      | { device?: string; onFatalError?: (error: Error) => void }
+      | undefined;
+    if (!firstWorkerOptions?.onFatalError) {
+      throw new Error('Expected embedding worker start options to include onFatalError.');
+    }
+
+    firstWorkerOptions.onFatalError(
+      new Error(
+        "Local embedding execution failed for 'local::Xenova/all-MiniLM-L6-v2': Embedding worker runtime error: WebGPU device lost: device was lost"
+      )
+    );
+
+    await waitFor(() => {
+      expect(stopMock).toHaveBeenCalledTimes(1);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    });
+
+    const secondWorkerOptions = startEmbeddingWorkerMock.mock.calls[1]?.[0] as
+      | { device?: string }
+      | undefined;
+    expect(secondWorkerOptions?.device).toBe('webgpu');
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'wasm' })
+    );
+  });
+
+  it('stops automatic WebGPU device-loss restarts after repeated fatal errors', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    const triggerDeviceLoss = async (callIndex: number): Promise<void> => {
+      const workerOptions = startEmbeddingWorkerMock.mock.calls[callIndex]?.[0] as
+        | { onFatalError?: (error: Error) => void }
+        | undefined;
+      if (!workerOptions?.onFatalError) {
+        throw new Error(`Expected start call ${callIndex} to include onFatalError.`);
+      }
+      workerOptions.onFatalError(
+        new Error(
+          "Local embedding execution failed for 'local::Xenova/all-MiniLM-L6-v2': Embedding worker runtime error: WebGPU device lost: device was lost"
+        )
+      );
+      await waitFor(() => {
+        expect(stopMock).toHaveBeenCalledTimes(callIndex + 1);
+      });
+    };
+
+    await triggerDeviceLoss(0);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    });
+    await triggerDeviceLoss(1);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
+    });
+    await triggerDeviceLoss(2);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          lastError: expect.stringContaining('repeated WebGPU device loss'),
+          state: 'error',
+        })
+      );
+    });
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'wasm' })
     );
   });
 
@@ -467,5 +621,30 @@ describe('EmbeddingHostRuntime', () => {
       type?: string;
     };
     expect(lastCall?.type).not.toBe('error');
+    expect(initializeWithModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: 2,
+        id: 'Xenova/all-MiniLM-L6-v2',
+        name: 'MiniLM',
+        origin: 'local',
+        tags: ['local', 'embedding'],
+      }),
+      undefined,
+      'webgpu'
+    );
+    expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledWith({ forceReload: true });
+    expect(reportStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingRuntime: expect.objectContaining({
+          actualWorkerMetadata: {
+            device: 'webgpu',
+            dtype: 'fp32',
+            fallbackApplied: false,
+          },
+          backendMismatch: false,
+          selectedDevicePreference: 'webgpu',
+        }),
+      })
+    );
   });
 });

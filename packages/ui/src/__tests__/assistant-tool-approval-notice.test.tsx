@@ -81,6 +81,20 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText('workspace.writeFile')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.queryByText('README.md')).not.toBeInTheDocument();
+    // No risk reason without a riskCategory hint.
+    expect(screen.queryByText(/Requires approval/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the risk reason when the approval carries a riskCategory hint', () => {
+    const approvalWithRisk: AssistantToolApprovalRequest = {
+      ...baseApproval,
+      riskCategory: 'execute',
+      policyDecision: 'ask',
+    };
+    render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
+
+    expect(screen.getByText(/Requires approval/i)).toBeInTheDocument();
+    expect(screen.getByText(/runs a command/i)).toBeInTheDocument();
   });
 
   it('expands to show approval identifiers and arguments', async () => {

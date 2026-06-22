@@ -46,6 +46,14 @@ function getConfiguredMaxFileSize(): number {
   return configuredMaxFileSize;
 }
 
+function getCanonicalFileHandlePath(fileNode: IFileNode): string {
+  const handlePath = (fileNode.handle as unknown as { path?: unknown }).path;
+  if (typeof handlePath === 'string' && handlePath.length > 0) {
+    return handlePath;
+  }
+  return fileNode.path;
+}
+
 function createAbortError(): Error {
   const error = new Error('The file content read was aborted.');
   error.name = 'AbortError';
@@ -94,7 +102,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: fileNode.path,
+      path: getCanonicalFileHandlePath(fileNode),
       name: fileNode.name,
       kind: 'file',
       platform,
@@ -163,7 +171,7 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: fileNode.path,
+      path: getCanonicalFileHandlePath(fileNode),
       name: fileNode.name,
       kind: 'file',
       platform,

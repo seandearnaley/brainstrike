@@ -94,6 +94,8 @@ interface DimensionIndexDb {
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
 }
 
+const DIMENSION_INDEX_SUSPENSIONS_TABLE = 'embedding_dimension_index_suspensions';
+
 /**
  * Read HNSW tuning parameters from environment variables.
  * @returns HNSW index configuration parameters
@@ -246,6 +248,61 @@ export async function ensureDimensionIndexExists(
   await createDimensionIndex(db, dimension, params);
 }
 
+export async function suspendDimensionIndexBuilds(
+  db: Pick<DimensionIndexDb, 'query'>,
+  dimension: number,
+  reason: string,
+  suspendedAt: string
+): Promise<void> {
+  validateDimensionForSql(dimension, 'suspendDimensionIndexBuilds');
+  if (typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new Error('suspendDimensionIndexBuilds requires a non-empty reason.');
+  }
+  if (typeof suspendedAt !== 'string' || suspendedAt.trim().length === 0) {
+    throw new Error('suspendDimensionIndexBuilds requires a non-empty suspendedAt timestamp.');
+  }
+  await db.query(
+    `INSERT INTO ${DIMENSION_INDEX_SUSPENSIONS_TABLE} (dimension, reason, suspended_at)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (dimension) DO UPDATE
+       SET reason = EXCLUDED.reason,
+           suspended_at = EXCLUDED.suspended_at`,
+    [dimension, reason, suspendedAt]
+  );
+}
+
+export async function resumeDimensionIndexBuilds(
+  db: Pick<DimensionIndexDb, 'query'>,
+  dimension: number
+): Promise<void> {
+  validateDimensionForSql(dimension, 'resumeDimensionIndexBuilds');
+  await db.query(`DELETE FROM ${DIMENSION_INDEX_SUSPENSIONS_TABLE} WHERE dimension = $1`, [
+    dimension,
+  ]);
+}
+
+export async function isDimensionIndexBuildSuspended(
+  db: Pick<DimensionIndexDb, 'query'>,
+  dimension: number
+): Promise<boolean> {
+  validateDimensionForSql(dimension, 'isDimensionIndexBuildSuspended');
+  try {
+    const result = await db.query<{ count: number | string | null }>(
+      `SELECT COUNT(*)::int AS count
+         FROM ${DIMENSION_INDEX_SUSPENSIONS_TABLE}
+        WHERE dimension = $1`,
+      [dimension]
+    );
+    return Number(result.rows[0]?.count ?? 0) > 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes(DIMENSION_INDEX_SUSPENSIONS_TABLE)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export interface DeferredDimensionIndexBuilder {
   /**
    * Kick off a best-effort HNSW index build for `dimension` WITHOUT blocking the
@@ -326,6 +383,9 @@ export function createDeferredDimensionIndexBuilder(options: {
           // Yield the single connection to the scheduling flow's own follow-up
           // queries before dispatching the long CREATE INDEX.
           await delay(DIMENSION_INDEX_BUILD_START_DELAY_MS);
+          if (await isDimensionIndexBuildSuspended(options.getDb(), dimension)) {
+            return;
+          }
           await ensureDimensionIndexExists(options.getDb(), dimension);
           completed.add(dimension);
         } catch (error) {

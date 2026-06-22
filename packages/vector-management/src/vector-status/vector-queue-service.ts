@@ -147,7 +147,7 @@ async function getEmbeddingSetQueueCounts(
      FROM job_queue
      WHERE queue = $1
        AND job_type = 'embed_chunk'
-       AND payload->>'embeddingSetId' = $2`,
+       AND embedding_set_id = $2`,
     [EMBEDDINGS_QUEUE, embeddingSetId]
   );
   const row = result.rows[0];
@@ -414,7 +414,9 @@ export function createVectorQueueService(
       });
       if (total === 0) {
         const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
-        logger.warn('Backfill found no eligible chunks', {
+        // An already-current incremental pass legitimately has no candidates;
+        // diagnostics remain attached for investigation without surfacing a warning.
+        logger.info('Backfill found no eligible chunks', {
           embeddingSetId: activeSetId,
           diagnostics,
         });
@@ -616,7 +618,7 @@ async function loadBackfillCandidateDiagnostics(
          SELECT COUNT(*)::int
            FROM job_queue j
            JOIN backfill_candidate_diagnostics target
-             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+             ON j.embedding_set_id = target.embedding_set_id
           WHERE j.queue = $2
             AND j.state IN ('queued','running')
        ) AS "queuedOrRunningJobs",
@@ -624,7 +626,7 @@ async function loadBackfillCandidateDiagnostics(
          SELECT COUNT(*)::int
            FROM job_queue j
            JOIN backfill_candidate_diagnostics target
-             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+             ON j.embedding_set_id = target.embedding_set_id
           WHERE j.queue = $2
             AND j.state = 'failed'
        ) AS "failedJobs"`,

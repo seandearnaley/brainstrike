@@ -29,9 +29,10 @@ interface GPUSupportedLimits {
 
 interface GPUAdapter {
   features: Set<string>;
+  info?: Partial<GPUAdapterInfo>;
   isFallbackAdapter: boolean;
   limits: GPUSupportedLimits;
-  requestAdapterInfo: () => Promise<GPUAdapterInfo>;
+  requestAdapterInfo?: () => Promise<GPUAdapterInfo>;
 }
 
 interface Gpu {
@@ -165,14 +166,18 @@ async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
       };
     }
 
-    const info = await adapter.requestAdapterInfo();
+    const info =
+      adapter.info ??
+      (typeof adapter.requestAdapterInfo === 'function'
+        ? await adapter.requestAdapterInfo()
+        : undefined);
     const features: string[] = [...adapter.features];
     const limits = adapter.limits;
 
     const adapterInfo: WebGPUAdapterInfo = {
-      vendor: info.vendor || 'unknown',
-      architecture: info.architecture || 'unknown',
-      description: info.description || 'Unknown GPU',
+      vendor: info?.vendor || 'unknown',
+      architecture: info?.architecture || 'unknown',
+      description: info?.description || 'Unknown GPU',
       isFallbackAdapter: adapter.isFallbackAdapter ?? false,
       features,
       limits: {

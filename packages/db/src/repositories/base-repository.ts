@@ -6,6 +6,10 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record.js';
+import {
+  assertTextContentHasNoNullBytes,
+  assertTextContentsHaveNoNullBytes,
+} from '../text-content-invariants.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
 const logger = createLogger('DB:FileRecordRepository');
@@ -99,6 +103,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async createWithContent(record: FileRecord): Promise<void> {
+    assertTextContentHasNoNullBytes(record.content, 'File record content');
     const fields = [
       'id',
       'name',
@@ -244,7 +249,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   ): Promise<ManagedCacheEntryMetadata[]> {
     // Managed-cache dedup identity is root_id since the source_root_path
     // retirement; rows without a root_id are not part of the managed cache.
-    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
+    const sql = `SELECT id, embedding_set_id, root_id, path, content_hash, size, mtime_ms, chunks_count, chunks_processed_at, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id IS NOT NULL ORDER BY updated_at DESC`;
     const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
 
     if (!Array.isArray(result.rows)) {
@@ -280,6 +285,13 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
             contentHash: contentHash ?? '',
             ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
             mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
+            chunksCount: parseOptionalStatNumber(row['chunks_count']),
+            chunksProcessedAt:
+              row['chunks_processed_at'] instanceof Date
+                ? row['chunks_processed_at'].toISOString()
+                : typeof row['chunks_processed_at'] === 'string'
+                  ? row['chunks_processed_at']
+                  : null,
             updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
           } satisfies ManagedCacheEntryMetadata,
         ];
@@ -287,6 +299,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async update(id: string, updates: FileRecordUpdate): Promise<void> {
+    assertTextContentHasNoNullBytes(updates.content, 'File record content');
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
     );
@@ -338,6 +351,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     contentHash: string,
     tokenCount: number
   ): Promise<void> {
+    assertTextContentHasNoNullBytes(content, 'File record content');
     const now = new Date().toISOString();
     const sql = `UPDATE ${this.tableName} SET content = $1, content_hash = $2, token_count = $3, processed_at = $4, updated_at = $5 WHERE id = $6`;
     await this.db.query(sql, [content, contentHash, tokenCount, now, now, id]);
@@ -454,6 +468,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     total = 0
   ): Promise<FileImportResult[]> {
     const results: FileImportResult[] = [];
+    assertTextContentsHaveNoNullBytes(batch, (request) => request.content, 'File record content');
 
     // Step 1: Pre-compute all content hashes in parallel
     const hashPromises = batch.map(async (request, index) => ({

@@ -69,6 +69,13 @@ function createStatus(status: RendererHostStatusShape): RendererHostStatusShape 
   };
 }
 
+interface ExtendedStatus extends RendererHostStatusShape {
+  readonly runtimeMetadata?: {
+    readonly device: 'webgpu' | 'wasm';
+    readonly fallbackApplied: boolean;
+  };
+}
+
 function createFakeWindow(id: number): FakeWindow {
   const listeners: FakeListenerMap = {};
   const webContentsListeners: FakeListenerMap = {};
@@ -116,9 +123,68 @@ describe('RendererHostLifecycle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.argv = [...baseArgv];
+    // Default the suite to dev-server mode (how `pnpm dev` launches: the hidden
+    // hosts share the visible window's explicit launch flag). Built/packaged
+    // tests override argv. The host loads from the dev URL only in dev-server
+    // mode; built/test-built/packaged load the built renderer file.
+    process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=dev-server'];
     Reflect.deleteProperty(process.env, 'CI');
     app.isPackaged = false;
+  });
+
+  it('preserves typed status extension fields across status snapshots', () => {
+    const lifecycle = new RendererHostLifecycle<ExtendedStatus>({
+      createStatus: (status) => createStatus(status),
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    lifecycle.setStatus({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'webgpu',
+        fallbackApplied: false,
+      },
+    });
+
+    expect(lifecycle.getStatus()).toMatchObject({
+      state: 'running',
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'webgpu',
+        fallbackApplied: false,
+      },
+    });
+
+    lifecycle.setStatus({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:runtime',
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
+
+    expect(lifecycle.getStatus()).toMatchObject({
+      runtimeMetadata: {
+        device: 'wasm',
+        fallbackApplied: true,
+      },
+    });
   });
 
   it('assigns the host role before beginning renderer load', async () => {
@@ -301,7 +367,56 @@ describe('RendererHostLifecycle', () => {
   it('loads packaged host windows from the renderer file with strict query params', async () => {
     const hostWindow = createFakeWindow(142);
     hostWindow.loadFile.mockResolvedValue(undefined);
+    // No explicit launch flag → isPackaged resolves to 'built' (loads the file).
+    process.argv = [...baseArgv];
     app.isPackaged = true;
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(hostWindow.loadFile).toHaveBeenCalledWith(
+      path.join('/tmp/brainstrike/dist/renderer/index.html'),
+      expect.objectContaining({
+        query: expect.objectContaining({
+          mode: 'embedding-host',
+          runtimeId: expect.stringContaining('embedding-host:'),
+        }),
+      })
+    );
+    expect(hostWindow.loadURL).not.toHaveBeenCalled();
+  });
+
+  it('loads the built renderer file for hosts when --launch-mode=built is set unpackaged (pnpm start)', async () => {
+    // Regression: the host previously branched on `app.isPackaged || --test-mode`
+    // and IGNORED `--brainstrike-desktop-launch-mode=built`, so `pnpm start`
+    // (unpackaged, built) pointed every hidden host at the dev server
+    // (localhost:38181) that isn't running → ERR_CONNECTION_REFUSED → background
+    // embedding/llm/chunking hosts dead while the visible window loaded fine.
+    const hostWindow = createFakeWindow(143);
+    hostWindow.loadFile.mockResolvedValue(undefined);
+    process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=built'];
+    app.isPackaged = false;
 
     MockBrowserWindow.mockImplementation(function () {
       Object.assign(this, hostWindow);

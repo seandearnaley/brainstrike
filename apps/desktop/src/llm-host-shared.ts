@@ -75,6 +75,17 @@ export type LlmHostRequest = RuntimeRequestEnvelope<'llm', LlmHostRequestPayload
 
 export interface LlmHostErrorDetails {
   diagnostics?: Record<string, unknown>;
+  /**
+   * Set by the host renderer when a generation failed with a poisoning engine
+   * fault that it has already disposed locally. GPU-memory exhaustion (the
+   * common cause) wedges the WHOLE WebGPU device, not just the ORT session, and
+   * a tensor-disposal leak in transformers.js
+   * (huggingface/transformers.js#860) means `backend.dispose()` cannot free it
+   * — only recreating the host window (a fresh device) recovers. The
+   * main-process manager reads this flag to escalate to a debounced host-window
+   * reset so the next generation runs on a clean device.
+   */
+  engineReset?: boolean;
   stage?: string;
 }
 
