@@ -1,4 +1,4 @@
-import { rm, stat } from 'node:fs/promises';
+import { rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,7 @@ describe('Turso capability spike', () => {
       const dbPath = join(tmpdir(), `brainstrike-turso-capability-spike-${Date.now()}.db`);
 
       try {
+        await writeFile(dbPath, 'stale-db-content', 'utf8');
         const report = await runTursoCapabilitySpike({
           dbPath,
           generatedAt: () => '2026-06-22T00:00:00.000Z',

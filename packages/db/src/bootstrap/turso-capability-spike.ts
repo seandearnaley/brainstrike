@@ -133,6 +133,7 @@ export async function runTursoCapabilitySpike(
     checks = await checkPackage(checks, 'package.libsql-client', '@libsql/client', packageVersions);
     checks = await checkResolvable(checks, 'package.drizzle-libsql-adapter', 'drizzle-orm/libsql');
 
+    await resetTursoSpikeDatabase(options.dbPath);
     db = await connectTursoDatabase(options.dbPath);
     checks = setCheck(checks, 'store.open', 'passed');
 
@@ -278,6 +279,17 @@ async function connectTursoDatabase(dbPath: string): Promise<TursoDatabase> {
   return connect(dbPath, {
     experimental: ['index_method'],
   } as Parameters<typeof connect>[1]);
+}
+
+async function resetTursoSpikeDatabase(dbPath: string): Promise<void> {
+  await Promise.all([
+    rm(dbPath, { force: true }),
+    rm(`${dbPath}-log`, { force: true }),
+    rm(`${dbPath}-wal`, { force: true }),
+    rm(`${dbPath}.fts.db`, { force: true }),
+    rm(`${dbPath}.fts.db-log`, { force: true }),
+    rm(`${dbPath}.fts.db-wal`, { force: true }),
+  ]);
 }
 
 async function proveCrud(db: TursoDatabase | null): Promise<boolean> {
