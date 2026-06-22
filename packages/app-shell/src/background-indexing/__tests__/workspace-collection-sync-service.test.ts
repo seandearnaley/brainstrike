@@ -300,6 +300,7 @@ describe('WorkspaceCollectionSyncService', () => {
     // The resolver downgrades foreground-db-pressure to workable, constrained
     // work ONLY when the starvation bypass is requested — mirroring the real
     // resolveWorkspaceIndexingQosPolicy behaviour.
+    let starvationBypassRequested = false;
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
@@ -307,10 +308,13 @@ describe('WorkspaceCollectionSyncService', () => {
         })),
       },
       resolveQosPolicy: vi.fn(
-        async (options?: { foregroundDbPressureStarvationBypass?: boolean }) =>
-          options?.foregroundDbPressureStarvationBypass
-            ? BALANCED_QOS_POLICY
-            : foregroundYieldPolicy
+        async (options?: { foregroundDbPressureStarvationBypass?: boolean }) => {
+          if (options?.foregroundDbPressureStarvationBypass) {
+            starvationBypassRequested = true;
+            return BALANCED_QOS_POLICY;
+          }
+          return starvationBypassRequested ? BALANCED_QOS_POLICY : foregroundYieldPolicy;
+        }
       ),
       waitForBackgroundPermit: vi.fn(async () => undefined),
     });
