@@ -16,6 +16,14 @@ import {
   useState,
 } from 'react';
 import {
+  createProfileBootstrapReport,
+  failProfileBootstrapReport,
+  type ProfileBootstrapCheck,
+  type ProfileBootstrapPhase,
+  type ProfileBootstrapReport,
+  type ProfileBootstrapRuntime,
+} from './bootstrap/profile-bootstrap-report.js';
+import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
 } from './browser-pglite-storage.js';
@@ -178,6 +186,7 @@ interface DbContextValue {
   initializationStatus: DbInitializationStatus;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
   initializing: boolean; // Whether database initialization is in progress
+  profileBootstrapReport: ProfileBootstrapReport;
   ready: boolean;
   vectorEnabled: boolean; // Whether pgvector extension is available
   viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
@@ -223,6 +232,9 @@ function requireNodePath(): { join: (...parts: string[]) => string } {
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
+
+const ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE =
+  'Electron database IPC bridge is unavailable while useElectronIPC is enabled.';
 
 /** Clear active embedding set ID from localStorage to prevent stale collection references */
 function clearActiveEmbeddingSetIdFromStorage(): void {
@@ -324,6 +336,124 @@ function splitExposedDatabaseWorkOptions(
     return { params, options };
   }
   return { params: undefined, options: params };
+}
+
+function inferDbProviderBootstrapRuntime(
+  dataDir: string,
+  useElectronIPC: boolean | undefined
+): ProfileBootstrapRuntime {
+  return {
+    engine: 'pglite',
+    host: useElectronIPC ? 'desktop-ipc' : typeof window === 'undefined' ? 'node' : 'browser',
+    persistence: inferDbProviderBootstrapPersistence(dataDir, useElectronIPC),
+  };
+}
+
+function inferDbProviderBootstrapPersistence(
+  dataDir: string,
+  useElectronIPC: boolean | undefined
+): ProfileBootstrapRuntime['persistence'] {
+  if (useElectronIPC) {
+    return 'filesystem';
+  }
+  if (dataDir.startsWith('memory://')) {
+    return 'memory';
+  }
+  if (dataDir.startsWith('idb://')) {
+    return 'idb';
+  }
+  return 'filesystem';
+}
+
+function createDbProviderBootstrapChecks(input: {
+  readonly schemaMigrated: ProfileBootstrapCheck['status'];
+  readonly storeOpen: ProfileBootstrapCheck['status'];
+  readonly vectorExtension: ProfileBootstrapCheck['status'];
+}): readonly ProfileBootstrapCheck[] {
+  return [
+    {
+      id: 'store.open',
+      label: 'database store opened',
+      required: true,
+      status: input.storeOpen,
+    },
+    {
+      id: 'schema.migrated',
+      label: 'database schema migrated',
+      required: true,
+      status: input.schemaMigrated,
+    },
+    {
+      id: 'extension.pgvector',
+      label: 'pgvector extension available',
+      required: true,
+      status: input.vectorExtension,
+    },
+  ];
+}
+
+function createDbProviderBootstrapReport(input: {
+  readonly checks: readonly ProfileBootstrapCheck[];
+  readonly phase: ProfileBootstrapPhase;
+  readonly profileId: string;
+  readonly runtime: ProfileBootstrapRuntime;
+  readonly startedAt: string;
+  readonly updatedAt: string;
+}): ProfileBootstrapReport {
+  return createProfileBootstrapReport({
+    checks: input.checks,
+    phase: input.phase,
+    profileId: input.profileId,
+    runtime: input.runtime,
+    startedAt: input.startedAt,
+    updatedAt: input.updatedAt,
+  });
+}
+
+function createInitialDbProviderBootstrapReport(input: {
+  readonly profileId: string;
+  readonly runtime: ProfileBootstrapRuntime;
+  readonly timestamp: string;
+}): ProfileBootstrapReport {
+  return createDbProviderBootstrapReport({
+    checks: createDbProviderBootstrapChecks({
+      schemaMigrated: 'pending',
+      storeOpen: 'pending',
+      vectorExtension: 'pending',
+    }),
+    phase: 'uninitialized',
+    profileId: input.profileId,
+    runtime: input.runtime,
+    startedAt: input.timestamp,
+    updatedAt: input.timestamp,
+  });
+}
+
+function getElectronDatabaseBridge(): ElectronDatabaseAPI | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return window.electronAPI?.db ?? null;
+}
+
+function createMissingElectronBridgeBootstrapReportInput(): {
+  readonly checks: readonly ProfileBootstrapCheck[];
+  readonly phase: ProfileBootstrapPhase;
+} {
+  return {
+    checks: createDbProviderBootstrapChecks({
+      schemaMigrated: 'pending',
+      storeOpen: 'failed',
+      vectorExtension: 'pending',
+    }),
+    phase: 'opening-store',
+  };
+}
+
+function coerceFailureBootstrapPhase(
+  phase: ProfileBootstrapPhase
+): Exclude<ProfileBootstrapPhase, 'failed'> {
+  return phase === 'failed' ? 'opening-store' : phase;
 }
 
 function formatDesktopDatabaseInitError(
@@ -428,6 +558,18 @@ async function getElectronDiagnostics(
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
+  const bootstrapRuntime = useMemo(
+    () => inferDbProviderBootstrapRuntime(resolvedPath, useElectronIPC),
+    [resolvedPath, useElectronIPC]
+  );
+  const [profileBootstrapReport, setProfileBootstrapReport] = useState<ProfileBootstrapReport>(() =>
+    createInitialDbProviderBootstrapReport({
+      profileId: resolvedPath,
+      runtime: bootstrapRuntime,
+      timestamp: new Date().toISOString(),
+    })
+  );
+  const profileBootstrapReportRef = useRef(profileBootstrapReport);
   const [fileRecordRepository, setFileRecordRepository] = useState<
     DrizzleFileRecordRepository | ElectronFileRecordRepository | null
   >(null);
@@ -454,6 +596,30 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const resetPendingReloadRef = useRef<boolean>(false);
   const databaseWorkSchedulerRef = useRef(createDatabaseWorkScheduler());
 
+  const publishProfileBootstrapReport = useCallback((report: ProfileBootstrapReport) => {
+    profileBootstrapReportRef.current = report;
+    setProfileBootstrapReport(report);
+  }, []);
+
+  const publishDbProviderBootstrapReport = useCallback(
+    (input: {
+      readonly checks: readonly ProfileBootstrapCheck[];
+      readonly phase: ProfileBootstrapPhase;
+    }) => {
+      const report = createDbProviderBootstrapReport({
+        checks: input.checks,
+        phase: input.phase,
+        profileId: resolvedPath,
+        runtime: bootstrapRuntime,
+        startedAt: profileBootstrapReportRef.current.startedAt,
+        updatedAt: new Date().toISOString(),
+      });
+      publishProfileBootstrapReport(report);
+      return report;
+    },
+    [bootstrapRuntime, publishProfileBootstrapReport, resolvedPath]
+  );
+
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
     if (!electronDB.test) {
       return;
@@ -472,13 +638,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
-      if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
+      if (!useElectronIPC) {
         return false;
+      }
+
+      const electronDB = getElectronDatabaseBridge();
+      if (!electronDB) {
+        publishDbProviderBootstrapReport(createMissingElectronBridgeBootstrapReportInput());
+        throw new Error(ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE);
       }
 
       logger.debug('Using Electron IPC database connection');
 
-      const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
 
@@ -499,6 +670,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository(repositoryDb);
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'passed',
+          storeOpen: 'passed',
+          vectorExtension: 'pending',
+        }),
+        phase: 'probing-capabilities',
+      });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
@@ -514,6 +693,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         if (!diagnostics) {
           diagnostics = await getElectronDiagnostics(electronDB);
         }
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'failed',
+          }),
+          phase: 'probing-capabilities',
+        });
         logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
         throw new Error(
           formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
@@ -536,20 +723,44 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setEmbeddingSetsRepository(embeddingSetsRepo);
         setViewFilterPresetsRepository(viewFilterPresetsRepo);
         setVectorEnabled(hasVector);
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'passed',
+          }),
+          phase: 'ready',
+        });
         setError(null);
         setReady(true);
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection]
+    [useElectronIPC, testElectronConnection, publishDbProviderBootstrapReport]
   );
 
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
 
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'pending',
+          storeOpen: 'pending',
+          vectorExtension: 'pending',
+        }),
+        phase: 'opening-store',
+      });
       const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'pending',
+          storeOpen: 'passed',
+          vectorExtension: 'pending',
+        }),
+        phase: 'migrating-schema',
+      });
 
       const scheduledDb = createScheduledDbHandle(
         db as unknown as QueryExecutor & object,
@@ -558,6 +769,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       ) as unknown as PGlite & ScheduledDbHandle;
 
       await migrate(scheduledDb);
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'passed',
+          storeOpen: 'passed',
+          vectorExtension: 'pending',
+        }),
+        phase: 'probing-capabilities',
+      });
 
       // Check if pgvector extension is available
       let hasVector = false;
@@ -569,10 +788,26 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         logger.debug('Could not detect pgvector extension:', err);
       }
       if (!hasVector) {
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'failed',
+          }),
+          phase: 'probing-capabilities',
+        });
         throw new Error(
           'pgvector extension failed to initialize. Ensure @electric-sql/pglite-pgvector is bundled.'
         );
       }
+      publishDbProviderBootstrapReport({
+        checks: createDbProviderBootstrapChecks({
+          schemaMigrated: 'passed',
+          storeOpen: 'passed',
+          vectorExtension: 'passed',
+        }),
+        phase: 'probing-capabilities',
+      });
 
       // Create Drizzle instance and type-safe repositories
       // Dynamic imports via module-level helpers (avoids import() in component scope)
@@ -593,9 +828,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setError(null);
         setReady(true);
         setExposedDb(createDbHandle(scheduledDb as unknown as QueryExecutor));
+        publishDbProviderBootstrapReport({
+          checks: createDbProviderBootstrapChecks({
+            schemaMigrated: 'passed',
+            storeOpen: 'passed',
+            vectorExtension: 'passed',
+          }),
+          phase: 'ready',
+        });
       }
     },
-    [resolvedPath]
+    [resolvedPath, publishDbProviderBootstrapReport]
   );
 
   const initializeDatabase = useCallback(async () => {
@@ -629,6 +872,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setInitializationStatus('ready');
       } catch (err) {
         logDatabaseError('Failed to initialize database', err);
+        publishProfileBootstrapReport(
+          failProfileBootstrapReport(profileBootstrapReportRef.current, {
+            error: err,
+            failedAt: new Date().toISOString(),
+            phase: coerceFailureBootstrapPhase(profileBootstrapReportRef.current.phase),
+          })
+        );
         setFileRecordRepository(null);
         setChunkRepository(null);
         setEmbeddingSetsRepository(null);
@@ -645,7 +895,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     })();
 
     await initializingPromiseRef.current;
-  }, [lazyInitialized, useElectronIPC, initializeElectronIPC, initializeDirectPGlite]);
+  }, [
+    lazyInitialized,
+    useElectronIPC,
+    initializeElectronIPC,
+    initializeDirectPGlite,
+    publishProfileBootstrapReport,
+  ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount/unmount; initialization guarded internally
   useEffect(() => {
@@ -896,6 +1152,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setEmbeddingSetsRepository(null);
     setViewFilterPresetsRepository(null);
     setVectorEnabled(false);
+    publishProfileBootstrapReport(
+      createInitialDbProviderBootstrapReport({
+        profileId: resolvedPath,
+        runtime: bootstrapRuntime,
+        timestamp: new Date().toISOString(),
+      })
+    );
     setReady(false);
     setLazyInitialized(false);
     setInitializationStatus('idle');
@@ -905,7 +1168,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     clearActiveEmbeddingSetIdFromStorage();
 
     await cleanupAndWaitForReset();
-  }, [purgeAndClosePGlite, cleanupAndWaitForReset]);
+  }, [
+    purgeAndClosePGlite,
+    cleanupAndWaitForReset,
+    publishProfileBootstrapReport,
+    resolvedPath,
+    bootstrapRuntime,
+  ]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
@@ -961,6 +1230,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       ready,
       initializationStatus,
       initializing,
+      profileBootstrapReport,
       db: exposedDb,
       clearAllData,
       initializeDatabase,
@@ -1002,6 +1272,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       ready,
       initializationStatus,
       initializing,
+      profileBootstrapReport,
       clearAllData,
       initializeDatabase,
       vectorEnabled,
@@ -1049,6 +1320,14 @@ export function useDbInitializationStatus(): DbInitializationStatus {
     throw new Error('useDbInitializationStatus must be used within a DbProvider');
   }
   return ctx.initializationStatus;
+}
+
+export function useProfileBootstrapReport(): ProfileBootstrapReport {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    throw new Error('useProfileBootstrapReport must be used within a DbProvider');
+  }
+  return ctx.profileBootstrapReport;
 }
 
 export function useFileRecordRepository():

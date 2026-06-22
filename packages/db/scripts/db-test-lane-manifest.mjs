@@ -103,6 +103,7 @@ export const dbCoverageLaneDefinitions = {
     architecture: [
       'architecture-boundary.test.ts',
       'architecture-ownership.test.ts',
+      'architecture-profile-bootstrap-report.test.ts',
       'brainstrike-db-client-contract.test.ts',
       'runtime-import-extensions.test.ts',
     ],

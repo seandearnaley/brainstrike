@@ -6,6 +6,8 @@ import type {
 import {
   BRAINSTRIKE_DB_CLIENT_CAPABILITIES,
   BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES,
+  buildBrainstrikeDbClientCapabilityBootstrapChecks,
+  buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks,
   getMissingBrainstrikeDbClientCapabilities,
   getMissingBrainstrikeDbRuntimeHostCapabilities,
 } from '../src/architecture/brainstrike-db-client-contract.js';
@@ -101,6 +103,67 @@ describe('Brainstrike DB client contract', () => {
       'exec',
       'transaction',
       'live-query',
+    ]);
+  });
+
+  it('turns DB client capability gaps into required bootstrap checks', () => {
+    const partialClient = {
+      query: async () => ({ rows: [] }),
+      exec: async () => undefined,
+    };
+
+    expect(buildBrainstrikeDbClientCapabilityBootstrapChecks(partialClient)).toEqual([
+      {
+        id: 'db.client.query',
+        label: 'DB client query capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.client.exec',
+        label: 'DB client exec capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.client.transaction',
+        label: 'DB client transaction capability',
+        required: true,
+        status: 'failed',
+      },
+      {
+        id: 'db.client.live-query',
+        label: 'DB client live-query capability',
+        required: true,
+        status: 'failed',
+      },
+    ]);
+  });
+
+  it('turns runtime host capability gaps into required bootstrap checks', () => {
+    const partialHost = {
+      diagnostics: async () => ({ ok: true }),
+    };
+
+    expect(buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks(partialHost)).toEqual([
+      {
+        id: 'db.runtime-host.diagnostics',
+        label: 'DB runtime host diagnostics capability',
+        required: true,
+        status: 'passed',
+      },
+      {
+        id: 'db.runtime-host.reset',
+        label: 'DB runtime host reset capability',
+        required: true,
+        status: 'failed',
+      },
+      {
+        id: 'db.runtime-host.close',
+        label: 'DB runtime host close capability',
+        required: true,
+        status: 'failed',
+      },
     ]);
   });
 });

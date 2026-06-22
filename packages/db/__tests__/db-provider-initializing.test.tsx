@@ -9,7 +9,9 @@ import {
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
+  useProfileBootstrapReport,
 } from '../src/db-provider';
+import * as databaseModule from '../src/drizzle/database';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
@@ -47,6 +49,30 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
+function electronIpcWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <DbProvider dbPath="memory://" useElectronIPC={true}>
+      {children}
+    </DbProvider>
+  );
+}
+
+function setWindowElectronDbBridge(db: unknown): void {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: { db },
+    writable: true,
+  });
+}
+
+function clearWindowElectronDbBridge(): void {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+}
+
 describe('DbProvider initializing state', () => {
   beforeEach(() => {
     // Reset logger configuration to defaults
@@ -55,6 +81,7 @@ describe('DbProvider initializing state', () => {
   });
 
   afterEach(async () => {
+    clearWindowElectronDbBridge();
     vi.restoreAllMocks();
   });
 
@@ -129,6 +156,217 @@ describe('DbProvider initializing state', () => {
         expect(result.current.initializing).toBe(false);
       },
       { timeout: 10_000 }
+    );
+  });
+
+  it('reports direct PGlite bootstrap readiness after open, migration, and pgvector checks pass', async () => {
+    const mockDb = createMockDb();
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, report };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeTruthy();
+        expect(result.current.report).toMatchObject({
+          failure: null,
+          phase: 'ready',
+          profileId: 'memory://',
+          ready: true,
+          runtime: {
+            engine: 'pglite',
+            host: 'browser',
+            persistence: 'memory',
+          },
+        });
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'passed' }),
+      ])
+    );
+  });
+
+  it('marks pgvector as the failed required check when direct bootstrap cannot detect it', async () => {
+    const mockDb = createMockDb({
+      query: vi.fn(async (sql: string) => {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    });
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeNull();
+        expect(result.current.initializationStatus).toBe('error');
+        expect(result.current.report).toMatchObject({
+          phase: 'failed',
+          ready: false,
+          failure: {
+            message:
+              'pgvector extension failed to initialize. Ensure @electric-sql/pglite-pgvector is bundled.',
+            phase: 'probing-capabilities',
+          },
+        });
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'passed' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'failed' }),
+      ])
+    );
+  });
+
+  it('keeps direct bootstrap in capability probing until the usable DB handle is installed', async () => {
+    const mockDb = createMockDb();
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+    vi.spyOn(databaseModule, 'drizzle').mockImplementation(() => {
+      throw new Error('drizzle unavailable after vector probe');
+    });
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        message: 'drizzle unavailable after vector probe',
+        phase: 'probing-capabilities',
+      },
+    });
+  });
+
+  it('records Electron IPC pgvector failures during capability probing', async () => {
+    setWindowElectronDbBridge({
+      diagnostics: vi.fn(async () => null),
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async (sql: string) => {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        phase: 'probing-capabilities',
+      },
+    });
+  });
+
+  it('fails closed instead of falling back to direct PGlite when Electron IPC is required but missing', async () => {
+    const createPGliteSpy = vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockRejectedValue(new Error('direct fallback attempted'));
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(createPGliteSpy).not.toHaveBeenCalled();
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        message: 'Electron database IPC bridge is unavailable while useElectronIPC is enabled.',
+        phase: 'opening-store',
+      },
+      runtime: {
+        engine: 'pglite',
+        host: 'desktop-ipc',
+        persistence: 'filesystem',
+      },
+    });
+    expect(result.current.report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'store.open', required: true, status: 'failed' }),
+        expect.objectContaining({ id: 'schema.migrated', required: true, status: 'pending' }),
+        expect.objectContaining({ id: 'extension.pgvector', required: true, status: 'pending' }),
+      ])
     );
   });
 
