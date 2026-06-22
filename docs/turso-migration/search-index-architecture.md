@@ -4,6 +4,8 @@
 
 The Turso capability spike is ready for the next migration phase only if Brainstrike does not require Turso FTS custom indexes to live in the same MVCC-enabled database file as the primary writable store.
 
+This readiness is a capability and planning checkpoint. It does not mean production Turso search repositories are implemented yet; the next runtime/bootstrap slices must expose the selected search ownership mode before any search tool or UI path can rely on it.
+
 The verified capabilities are:
 
 - Turso filesystem store opens and closes from Node.

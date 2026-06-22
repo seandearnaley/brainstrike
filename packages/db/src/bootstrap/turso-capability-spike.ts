@@ -428,18 +428,7 @@ async function proveFts(dbPath: string): Promise<boolean> {
 async function proveFtsWithMvcc(db: TursoDatabase | null): Promise<boolean> {
   const database = requireOpenDatabase(db);
   await database.exec("PRAGMA journal_mode = 'mvcc'");
-  await database.exec(`
-    CREATE TABLE turso_fts_mvcc_probe (
-      id INTEGER PRIMARY KEY,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL
-    )
-  `);
-  await database.exec(`
-    CREATE INDEX turso_fts_mvcc_probe_idx
-    ON turso_fts_mvcc_probe USING fts (title, body)
-  `);
-  return true;
+  return await createAndQueryFtsIndex(database);
 }
 
 async function createAndQueryFtsIndex(database: TursoDatabase): Promise<boolean> {
@@ -644,3 +633,7 @@ function sanitizeSpikeCheckMessage(error: unknown): string {
     .replace(/(^|[\s([{:=])\/(?!\/)(?:[^/\s'"]+\/)+[^\s'"]+/g, '$1<path>')
     .replace(/[A-Za-z]:\\[^\s'"]+/g, '<path>');
 }
+
+export const __tursoCapabilitySpikeTestInternals = {
+  proveFtsWithMvcc,
+} as const;
