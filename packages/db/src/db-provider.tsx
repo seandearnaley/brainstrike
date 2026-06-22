@@ -119,6 +119,11 @@ async function loadElectronViewFilterPresetsRepository() {
   return mod.ElectronViewFilterPresetsRepository;
 }
 
+async function loadTursoViewFilterPresetsRepository() {
+  const mod = await import('./repositories/turso-view-filter-presets-repository.js');
+  return mod.TursoViewFilterPresetsRepository;
+}
+
 async function loadDrizzleEmbeddingSetsRepository() {
   const mod = await import('./repositories/drizzle/embedding-sets-repository.js');
   return mod.DrizzleEmbeddingSetsRepository;
@@ -556,6 +561,77 @@ async function getElectronDiagnostics(
   }
 }
 
+function getReadyElectronTursoBootstrapReport(
+  diagnostics: DatabaseDiagnosticsSnapshot | null
+): ProfileBootstrapReport | null {
+  const report = diagnostics?.profileBootstrapReport ?? null;
+  if (!report) {
+    return null;
+  }
+  if (report.runtime.engine !== 'turso') {
+    return null;
+  }
+  if (!report.ready) {
+    throw new Error('Desktop Turso database bootstrap report is not ready.');
+  }
+  return report as ProfileBootstrapReport;
+}
+
+async function createElectronTursoViewFilterPresetsRepository(
+  diagnostics: DatabaseDiagnosticsSnapshot | null,
+  repositoryDb: {
+    readonly exec: (
+      sql: string,
+      params?: readonly unknown[],
+      options?: DatabaseWorkOptions
+    ) => Promise<void>;
+    readonly query: <T = unknown>(
+      sql: string,
+      params?: readonly unknown[],
+      options?: DatabaseWorkOptions
+    ) => Promise<{ rows: T[] }>;
+  }
+): Promise<{
+  readonly report: ProfileBootstrapReport;
+  readonly repository: ViewFilterPresetsRepo;
+} | null> {
+  const report = getReadyElectronTursoBootstrapReport(diagnostics);
+  if (!report) {
+    return null;
+  }
+  const TursoViewFilterPresetsRepo = await loadTursoViewFilterPresetsRepository();
+  return {
+    report,
+    repository: new TursoViewFilterPresetsRepo(repositoryDb),
+  };
+}
+
+async function probeElectronPGliteVectorExtension(
+  electronDB: ElectronDatabaseAPI,
+  diagnostics: DatabaseDiagnosticsSnapshot | null
+): Promise<{
+  readonly diagnostics: DatabaseDiagnosticsSnapshot | null;
+  readonly hasVector: boolean;
+}> {
+  try {
+    const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    return {
+      diagnostics,
+      hasVector: Array.isArray(res.rows) && res.rows.length > 0,
+    };
+  } catch (error) {
+    const latestDiagnostics = await getElectronDiagnostics(electronDB);
+    logger.warn('Failed to detect pgvector extension over IPC', {
+      diagnostics: latestDiagnostics,
+      error,
+    });
+    return {
+      diagnostics: latestDiagnostics,
+      hasVector: false,
+    };
+  }
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const bootstrapRuntime = useMemo(
@@ -658,15 +734,40 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       const repositoryDb = {
-        query: electronDB.query,
-        exec: async (sql: string) => {
-          await electronExec(sql);
+        query: async <T = unknown>(
+          sql: string,
+          params?: readonly unknown[],
+          options?: DatabaseWorkOptions
+        ) => await electronDB.query<T>(sql, params ? [...params] : undefined, options),
+        exec: async (sql: string, params?: readonly unknown[], options?: DatabaseWorkOptions) => {
+          await electronExec(sql, params ? [...params] : undefined, options);
         },
         // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
         // in ONE main-process pglite.transaction() so a concurrent FTS query can't
         // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
         ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
       };
+
+      const diagnostics = await getElectronDiagnostics(electronDB);
+      const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
+        diagnostics,
+        repositoryDb
+      );
+      if (tursoViewFilterPresets) {
+        if (!cancelled.value) {
+          connectionRef.current = { kind: 'ipc', bridge: electronDB };
+          setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
+          setFileRecordRepository(null);
+          setChunkRepository(null);
+          setEmbeddingSetsRepository(null);
+          setViewFilterPresetsRepository(tursoViewFilterPresets.repository);
+          setVectorEnabled(false);
+          publishProfileBootstrapReport(tursoViewFilterPresets.report);
+          setError(null);
+          setReady(true);
+        }
+        return true;
+      }
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository(repositoryDb);
@@ -679,19 +780,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         phase: 'probing-capabilities',
       });
       // Detect pgvector extension availability over IPC
-      let hasVector = false;
-      let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
-      try {
-        const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
-        hasVector = Array.isArray(res.rows) && res.rows.length > 0;
-      } catch (error) {
-        diagnostics = await getElectronDiagnostics(electronDB);
-        hasVector = false;
-        logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
-      }
+      const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, diagnostics);
+      const hasVector = vectorProbe.hasVector;
+      let pgliteDiagnostics = vectorProbe.diagnostics;
       if (!hasVector) {
-        if (!diagnostics) {
-          diagnostics = await getElectronDiagnostics(electronDB);
+        if (!pgliteDiagnostics) {
+          pgliteDiagnostics = await getElectronDiagnostics(electronDB);
         }
         publishDbProviderBootstrapReport({
           checks: createDbProviderBootstrapChecks({
@@ -701,9 +795,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           }),
           phase: 'probing-capabilities',
         });
-        logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
+        logger.error('Desktop database initialization missing pgvector extension', {
+          diagnostics: pgliteDiagnostics,
+        });
         throw new Error(
-          formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
+          formatDesktopDatabaseInitError(
+            pgliteDiagnostics,
+            'Desktop database failed to initialize.'
+          )
         );
       }
       const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
@@ -736,7 +835,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection, publishDbProviderBootstrapReport]
+    [
+      useElectronIPC,
+      testElectronConnection,
+      publishDbProviderBootstrapReport,
+      publishProfileBootstrapReport,
+    ]
   );
 
   const initializeDirectPGlite = useCallback(

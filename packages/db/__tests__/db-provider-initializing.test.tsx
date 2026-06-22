@@ -10,6 +10,7 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
   useProfileBootstrapReport,
+  useViewFilterPresetsRepository,
 } from '../src/db-provider';
 import * as databaseModule from '../src/drizzle/database';
 import * as migrations from '../src/migrations/bootstrap';
@@ -321,6 +322,127 @@ describe('DbProvider initializing state', () => {
       failure: {
         phase: 'probing-capabilities',
       },
+    });
+  });
+
+  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose view presets', async () => {
+    let createdPresetId: string | null = null;
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run for Turso IPC runtime');
+      }
+      if (sql.includes('MAX(sort_order)')) {
+        return { rows: [{ max_sort: 7 }] };
+      }
+      if (sql.includes('WHERE id = ?') && createdPresetId) {
+        return {
+          rows: [
+            {
+              id: params?.[0] ?? createdPresetId,
+              name: 'Docs',
+              description: null,
+              icon: 'file-text',
+              includes: '["*.md"]',
+              excludes: '["node_modules"]',
+              use_regex: 0,
+              is_default: 0,
+              sort_order: 8,
+              created_at: '2026-06-22T19:00:00.000Z',
+              updated_at: '2026-06-22T19:00:00.000Z',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const exec = vi.fn(async (_sql: string, params?: unknown[]) => {
+      createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
+    });
+    setWindowElectronDbBridge({
+      diagnostics: vi.fn(async () => ({
+        appDataDir: '/mock/userData',
+        databaseLockHeld: false,
+        databaseLockPath: null,
+        databaseProfile: 'test',
+        dataDir: '/mock/userData/profiles/test/turso-primary.db',
+        hasDatabaseHandle: true,
+        initializationAttemptCount: 1,
+        initializationInFlight: false,
+        lastInitializationFailure: null,
+        lastInitializationStartedAt: '2026-06-22T19:00:00.000Z',
+        lastInitializationSucceededAt: '2026-06-22T19:00:01.000Z',
+        lastRuntimeCorruptionAt: null,
+        lastRuntimeCorruptionContext: null,
+        nodeEnv: 'test',
+        profileBootstrapReport: {
+          checks: [],
+          failure: null,
+          phase: 'ready',
+          profileId: 'test',
+          ready: true,
+          runtime: {
+            engine: 'turso',
+            host: 'electron-utility',
+            persistence: 'filesystem',
+          },
+          search: {
+            indexedSearch: 'available',
+            message: 'split search store required',
+            ownershipMode: 'split-search-index-store',
+          },
+          startedAt: '2026-06-22T19:00:00.000Z',
+          updatedAt: '2026-06-22T19:00:01.000Z',
+        },
+        runtimeCorruptionRecoveryCount: 0,
+      })),
+      exec,
+      query,
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const presetsRepository = useViewFilterPresetsRepository();
+        return { initializationStatus, presetsRepository, report };
+      },
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    expect(result.current.presetsRepository?.constructor.name).toBe(
+      'TursoViewFilterPresetsRepository'
+    );
+    if (!result.current.presetsRepository) {
+      throw new Error('Expected Turso view filter presets repository.');
+    }
+    await result.current.presetsRepository.create({
+      excludes: ['node_modules'],
+      icon: 'file-text',
+      includes: ['*.md'],
+      name: 'Docs',
+      useRegex: false,
+    });
+
+    const [sql, params] = exec.mock.calls[0] ?? [];
+    expect(sql).toContain('VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)');
+    expect(sql).not.toContain('::');
+    expect(sql).not.toContain('is_default = true');
+    expect(params).toEqual(
+      expect.arrayContaining(['Docs', 'file-text', '["*.md"]', '["node_modules"]', 0, 8])
+    );
+    expect(result.current.report).toMatchObject({
+      ready: true,
+      runtime: { engine: 'turso' },
+      search: { ownershipMode: 'split-search-index-store' },
     });
   });
 

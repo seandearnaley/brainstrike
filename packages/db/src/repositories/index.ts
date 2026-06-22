@@ -52,6 +52,6 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
-
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export { TursoViewFilterPresetsRepository } from './turso-view-filter-presets-repository.js';

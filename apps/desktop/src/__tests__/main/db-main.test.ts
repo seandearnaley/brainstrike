@@ -427,6 +427,12 @@ describe('initializeMainDatabase', () => {
     }
 
     expect(getDatabaseDiagnostics().initializationInFlight).toBe(false);
+    expect(getDatabaseDiagnostics().profileBootstrapReport).toMatchObject({
+      phase: 'ready',
+      ready: true,
+      runtime: { engine: 'turso' },
+      search: { ownershipMode: 'split-search-index-store' },
+    });
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
