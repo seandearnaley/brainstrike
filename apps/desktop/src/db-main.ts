@@ -1640,12 +1640,16 @@ export async function initializeMainDatabaseWithBootstrapReport(
     }
 
     if (runtimeSelection.engine === 'turso') {
-      logger.info('Turso profile bootstrap completed without opening a PGlite owner handle', {
+      const { createTursoOwnerClient } = await import('@brainstrike/db/turso/owner-client');
+      db = await createTursoOwnerClient({
+        dbPath: runtimeStorePath,
+      });
+      logger.info('Turso profile bootstrap completed and owner handle opened', {
         runtimeStorePath,
       });
       return {
         bootstrapReport: capabilityProbeReport.bootstrapReport,
-        initialized: false,
+        initialized: true,
       };
     }
 

@@ -42,6 +42,9 @@
       "@brainstrike/db/bootstrap/turso-profile-bootstrap": [
         "../../packages/db/dist/bootstrap/turso-profile-bootstrap.d.ts"
       ],
+      "@brainstrike/db/turso/owner-client": [
+        "../../packages/db/dist/turso/owner-client.d.ts"
+      ],
       "@brainstrike/embeddings/provider-core": [
         "../../packages/embeddings/dist/provider-core.d.ts"
       ],
