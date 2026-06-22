@@ -52,21 +52,6 @@ export async function createTursoOwnerClient(
     }
   };
 
-  const runWithoutLock: BrainstrikeDbTransactionClient = {
-    exec: async (sql, params) => {
-      assertOpen();
-      await execTursoSql(database, sql, params);
-    },
-    query: async <TRecord = unknown>(
-      sql: string,
-      params?: readonly unknown[],
-      _options?: BrainstrikeDbWorkOptions
-    ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
-      assertOpen();
-      return queryTursoSql(database, sql, params);
-    },
-  };
-
   const runExclusive = async <TResult>(work: () => Promise<TResult>): Promise<TResult> => {
     const previous = exclusiveTail;
     let releaseCurrent = (): void => {
@@ -119,13 +104,16 @@ export async function createTursoOwnerClient(
       return runExclusive(async () => {
         assertOpen();
         await database.exec('BEGIN');
+        const transactionClient = createTursoTransactionClient(database, assertOpen);
         try {
           const result = await transactionCallbackContext.run(ownerClientId, () =>
-            callback(runWithoutLock)
+            callback(transactionClient.client)
           );
+          transactionClient.deactivate();
           await database.exec('COMMIT');
           return result;
         } catch (error) {
+          transactionClient.deactivate();
           await rollbackIgnoringFailure(database);
           throw error;
         }
@@ -134,6 +122,43 @@ export async function createTursoOwnerClient(
   };
 
   return client;
+}
+
+function createTursoTransactionClient(
+  database: TursoDatabase,
+  assertOwnerOpen: () => void
+): {
+  readonly client: BrainstrikeDbTransactionClient;
+  readonly deactivate: () => void;
+} {
+  let active = true;
+
+  const assertTransactionActive = (): void => {
+    assertOwnerOpen();
+    if (!active) {
+      throw new Error('Turso transaction client is no longer active.');
+    }
+  };
+
+  return {
+    client: {
+      exec: async (sql, params) => {
+        assertTransactionActive();
+        await execTursoSql(database, sql, params);
+      },
+      query: async <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[],
+        _options?: BrainstrikeDbWorkOptions
+      ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
+        assertTransactionActive();
+        return queryTursoSql(database, sql, params);
+      },
+    },
+    deactivate: () => {
+      active = false;
+    },
+  };
 }
 
 async function queryTursoSql<TRecord>(

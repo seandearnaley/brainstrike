@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database as TursoDatabase } from '@tursodatabase/database';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrainstrikeDbTransactionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import { createTursoOwnerClient } from '../src/turso/owner-client.js';
 
 describe('Turso owner client', () => {
@@ -92,6 +93,37 @@ describe('Turso owner client', () => {
       );
 
       expect(result.rows).toEqual([{ count: 0 }]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('rejects transaction callback clients after the callback completes', async () => {
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'escaped-transaction.db'),
+    });
+    let escapedTransactionClient: BrainstrikeDbTransactionClient | null = null;
+
+    try {
+      await client.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
+      await client.transaction(async (tx) => {
+        escapedTransactionClient = tx;
+        await tx.exec('INSERT INTO notes (value) VALUES (?)', ['inside-transaction']);
+      });
+
+      expect(escapedTransactionClient).not.toBeNull();
+      if (!escapedTransactionClient) {
+        throw new Error('Expected transaction client to escape the callback.');
+      }
+      await expect(
+        escapedTransactionClient.exec('INSERT INTO notes (value) VALUES (?)', ['escaped'])
+      ).rejects.toThrow('Turso transaction client is no longer active.');
+
+      const result = await client.query<{ value: string }>(
+        'SELECT value FROM notes ORDER BY value'
+      );
+
+      expect(result.rows).toEqual([{ value: 'inside-transaction' }]);
     } finally {
       await client.close();
     }
