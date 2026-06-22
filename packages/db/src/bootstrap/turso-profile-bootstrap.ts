@@ -1,8 +1,14 @@
 import { connect, type Database as TursoDatabase } from '@tursodatabase/database';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbQueryResult,
+  BrainstrikeDbTransactionClient,
+} from '../architecture/brainstrike-db-client-contract.js';
 import {
   createTursoDatabaseConnectOptions,
   type TursoDatabaseConnectOptions,
 } from '../turso/connect-options.js';
+import { applyTursoSchemaBaseline } from '../turso/schema-baseline.js';
 import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
@@ -29,15 +35,19 @@ export interface TursoProfileBootstrapOptions {
   readonly openDatabase?: (
     dbPath: string,
     options: TursoDatabaseConnectOptions
-  ) => Promise<TursoProfileDatabase>;
+  ) => Promise<TursoProfileExecutionDatabase>;
   readonly profileId?: string;
   readonly runtime?: ProfileBootstrapRuntime;
 }
 
-type TursoProfileDatabase = Pick<TursoDatabase, 'close' | 'pragma'>;
+type TursoProfileExecutionDatabase = Pick<
+  TursoDatabase,
+  'all' | 'close' | 'exec' | 'pragma' | 'run'
+>;
 
 type TursoProfileBootstrapCheckId =
   | 'primary-store.mvcc'
+  | 'schema.baseline'
   | 'search.ownership'
   | 'store.close'
   | 'store.open';
@@ -53,6 +63,11 @@ const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: 'primary-store.mvcc',
     label: 'Primary Turso store enables MVCC concurrent-write mode',
+    required: true,
+  },
+  {
+    id: 'schema.baseline',
+    label: 'Turso greenfield schema baseline is applied',
     required: true,
   },
   {
@@ -86,7 +101,7 @@ export async function runTursoProfileBootstrap(
   const openDatabase = options.openDatabase ?? connectTursoProfileDatabase;
   let checks = createPendingChecks();
   let phase: Exclude<ProfileBootstrapPhase, 'failed'> = 'opening-store';
-  let db: TursoProfileDatabase | null = null;
+  let db: TursoProfileExecutionDatabase | null = null;
   let bootstrapReport: ProfileBootstrapReport;
 
   try {
@@ -97,6 +112,8 @@ export async function runTursoProfileBootstrap(
     const journalModeRows = await db.pragma("journal_mode = 'mvcc'", {});
     assertTursoMvccJournalMode(journalModeRows);
     checks = setCheck(checks, 'primary-store.mvcc', 'passed');
+    await applyTursoSchemaBaseline(createTursoProfileExecutionClient(db));
+    checks = setCheck(checks, 'schema.baseline', 'passed');
     checks = setCheck(checks, 'search.ownership', 'passed', TURSO_SPLIT_SEARCH_OWNERSHIP.message);
 
     bootstrapReport = createProfileBootstrapReport({
@@ -148,6 +165,82 @@ async function connectTursoProfileDatabase(
   options: TursoDatabaseConnectOptions
 ): Promise<TursoDatabase> {
   return connect(dbPath, options);
+}
+
+function createTursoProfileExecutionClient(
+  database: TursoProfileExecutionDatabase
+): BrainstrikeDbExecutionClient {
+  return {
+    exec: async (sql, params) => {
+      await execTursoProfileSql(database, sql, params);
+    },
+    query: async <TRecord = unknown>(
+      sql: string,
+      params?: readonly unknown[]
+    ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
+      const rows =
+        params && params.length > 0
+          ? await database.all(sql, [...params])
+          : await database.all(sql);
+      return { rows: rows as TRecord[] };
+    },
+    transaction: async <TResult>(
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    ): Promise<TResult> => {
+      await database.exec('BEGIN');
+      const tx = createTursoProfileTransactionClient(database);
+      try {
+        const result = await callback(tx);
+        await database.exec('COMMIT');
+        return result;
+      } catch (error) {
+        await rollbackProfileTransactionIgnoringFailure(database);
+        throw error;
+      }
+    },
+  };
+}
+
+function createTursoProfileTransactionClient(
+  database: TursoProfileExecutionDatabase
+): BrainstrikeDbTransactionClient {
+  return {
+    exec: async (sql, params) => {
+      await execTursoProfileSql(database, sql, params);
+    },
+    query: async <TRecord = unknown>(
+      sql: string,
+      params?: readonly unknown[]
+    ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
+      const rows =
+        params && params.length > 0
+          ? await database.all(sql, [...params])
+          : await database.all(sql);
+      return { rows: rows as TRecord[] };
+    },
+  };
+}
+
+async function execTursoProfileSql(
+  database: TursoProfileExecutionDatabase,
+  sql: string,
+  params?: readonly unknown[]
+): Promise<void> {
+  if (!params || params.length === 0) {
+    await database.exec(sql);
+    return;
+  }
+  await database.run(sql, [...params]);
+}
+
+async function rollbackProfileTransactionIgnoringFailure(
+  database: TursoProfileExecutionDatabase
+): Promise<void> {
+  try {
+    await database.exec('ROLLBACK');
+  } catch {
+    // Preserve the original bootstrap failure.
+  }
 }
 
 function createPendingChecks(): readonly ProfileBootstrapCheck[] {
@@ -212,13 +305,32 @@ function getFailureAttribution(
   readonly message: string;
 } {
   const message = sanitizeBootstrapFailureMessage(errorMessage(error));
-  const checkId: TursoProfileBootstrapCheckId =
-    phase === 'opening-store' ? 'store.open' : 'primary-store.mvcc';
+  const checkId = getFailureCheckId(checks, phase);
   return { checkId, checks, message };
 }
 
+function getFailureCheckId(
+  checks: readonly ProfileBootstrapCheck[],
+  phase: Exclude<ProfileBootstrapPhase, 'failed'>
+): TursoProfileBootstrapCheckId {
+  if (phase === 'opening-store') {
+    return 'store.open';
+  }
+  if (!checkPassed(checks, 'primary-store.mvcc')) {
+    return 'primary-store.mvcc';
+  }
+  return 'schema.baseline';
+}
+
+function checkPassed(
+  checks: readonly ProfileBootstrapCheck[],
+  id: TursoProfileBootstrapCheckId
+): boolean {
+  return checks.some((check) => check.id === id && check.status === 'passed');
+}
+
 async function closeDatabaseAndUpdateReport(
-  db: TursoProfileDatabase,
+  db: TursoProfileExecutionDatabase,
   report: ProfileBootstrapReport,
   now: () => string
 ): Promise<ProfileBootstrapReport> {
