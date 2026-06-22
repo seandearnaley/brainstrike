@@ -1,4 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { isIndexedDbPGliteDataDir } from '../browser-pglite-storage.js';
 import { type MigrationResult, runMigrations } from '../drizzle/migrate.js';
 import { wasmLoader } from '../wasm-loader.js';
 import {
@@ -98,6 +99,7 @@ export async function runPgliteBootstrapCapabilityProbe(
   const runtime = options.runtime ?? DEFAULT_RUNTIME;
   const dataDir =
     options.dataDir ?? `memory://brainstrike-bootstrap-capability-probe-${Date.now()}`;
+  const usesDefaultOpenDatabase = !options.openDatabase;
   const openDatabase =
     options.openDatabase ?? ((selectedDataDir) => wasmLoader.createPGlite(selectedDataDir));
   const migrateDatabase = options.runMigrations ?? runMigrations;
@@ -160,7 +162,13 @@ export async function runPgliteBootstrapCapabilityProbe(
   }
 
   if (db) {
-    bootstrapReport = await closeDatabaseAndUpdateReport(db, bootstrapReport, now);
+    bootstrapReport = await closeDatabaseAndUpdateReport(
+      db,
+      dataDir,
+      usesDefaultOpenDatabase,
+      bootstrapReport,
+      now
+    );
   }
 
   return createCapabilityProbeReport(bootstrapReport, now());
@@ -327,6 +335,8 @@ function createCapabilityProbeReport(
 
 async function closeDatabaseAndUpdateReport(
   db: ProbeDatabase,
+  dataDir: string,
+  usesDefaultOpenDatabase: boolean,
   report: ProfileBootstrapReport,
   now: () => string
 ): Promise<ProfileBootstrapReport> {
@@ -334,7 +344,7 @@ async function closeDatabaseAndUpdateReport(
   let phase = report.phase;
 
   try {
-    await db.close();
+    await closeProbeDatabase(db, dataDir, usesDefaultOpenDatabase);
     checks = setCheck(checks, 'store.close', 'passed');
   } catch {
     checks = setCheck(checks, 'store.close', 'failed', 'Failed to close selected PGlite store.');
@@ -355,6 +365,19 @@ async function closeDatabaseAndUpdateReport(
     startedAt: report.startedAt,
     updatedAt: now(),
   });
+}
+
+async function closeProbeDatabase(
+  db: ProbeDatabase,
+  dataDir: string,
+  usesDefaultOpenDatabase: boolean
+): Promise<void> {
+  if (usesDefaultOpenDatabase && isIndexedDbPGliteDataDir(dataDir)) {
+    await wasmLoader.closeCached(dataDir);
+    return;
+  }
+
+  await db.close();
 }
 
 function setCheck(
