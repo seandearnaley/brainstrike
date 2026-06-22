@@ -10,7 +10,12 @@ const DEFAULT_TOTAL_LANES = 4;
 const DEFAULT_WORKSPACE_CONCURRENCY = 2;
 const DEFAULT_TEST_WEIGHT_MS = 1000;
 const DB_PACKAGE_NAME = '@brainstrike/db';
-const DB_LANES = new Set(['repository', 'schema-migration', 'remaining']);
+const CI_DB_LANE_GROUPS = new Map([
+  ['repository', ['repository']],
+  ['schema-migration', ['schema-migration']],
+  ['remaining', ['queue', 'search', 'integration']],
+]);
+const DB_LANES = new Set(CI_DB_LANE_GROUPS.keys());
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
   ['@brainstrike/db', 395000],
   ['@brainstrike/desktop', 111000],
@@ -67,20 +72,21 @@ export function buildPackageLanePackageNames(packageNames, lane, totalLanes) {
 }
 
 export function createDbLaneCommands(dbLane) {
-  if (dbLane === 'repository') {
-    return [['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', 'test:db:repository']]];
+  const manifestLanes = CI_DB_LANE_GROUPS.get(dbLane);
+  if (!manifestLanes) {
+    throw new Error(`Unknown DB lane: ${dbLane}`);
   }
-  if (dbLane === 'schema-migration') {
-    return [['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', 'test:db:schema-migration']]];
-  }
-  if (dbLane === 'remaining') {
-    return [
-      ['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', 'test:db:queue']],
-      ['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', 'test:db:search']],
-      ['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', 'test:db:integration']],
-    ];
-  }
-  throw new Error(`Unknown DB lane: ${dbLane}`);
+  return manifestLanes.map((laneName) => [
+    'pnpm',
+    ['--filter', DB_PACKAGE_NAME, 'run', `test:db:${laneName}`],
+  ]);
+}
+
+export function listCiDbLaneGroups() {
+  return [...CI_DB_LANE_GROUPS.entries()].map(([groupName, manifestLanes]) => ({
+    groupName,
+    manifestLanes: [...manifestLanes],
+  }));
 }
 
 export function buildWeightedPackageLanes(packageNames, totalLanes) {
@@ -187,23 +193,29 @@ function runPnpmTestLane(packageNames, repoRoot, workspaceConcurrency, platform)
   return result.status ?? 1;
 }
 
-function runDbLane(dbLane, repoRoot, platform) {
-  for (const [command, args] of createDbLaneCommands(dbLane)) {
+export function runCommandSequence(commands, repoRoot, platform, run = spawnSync) {
+  let exitStatus = 0;
+  for (const [command, args] of commands) {
     const invocation = createSpawnInvocation(command, args, platform);
-    const result = spawnSync(invocation.command, invocation.args, {
+    const result = run(invocation.command, invocation.args, {
       cwd: repoRoot,
       shell: invocation.shell,
       stdio: 'inherit',
     });
     if (result.error) {
       console.error(result.error.message);
-      return 1;
+      exitStatus = exitStatus || 1;
+      continue;
     }
     if (result.status !== 0) {
-      return result.status ?? 1;
+      exitStatus = exitStatus || result.status || 1;
     }
   }
-  return 0;
+  return exitStatus;
+}
+
+function runDbLane(dbLane, repoRoot, platform) {
+  return runCommandSequence(createDbLaneCommands(dbLane), repoRoot, platform);
 }
 
 function parsePositiveInteger(value, optionName) {

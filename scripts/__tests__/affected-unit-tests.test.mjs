@@ -7,8 +7,11 @@ import {
   buildWeightedPackageLanes,
   createDbLaneCommands,
   filterTestablePackages,
+  listCiDbLaneGroups,
   parsePnpmListJson,
+  runCommandSequence,
 } from '../affected-unit-tests.mjs';
+import { dbUnitLaneDefinitions } from '../../packages/db/scripts/db-test-lane-manifest.mjs';
 
 test('parsePnpmListJson extracts named workspaces in stable order', () => {
   assert.deepEqual(
@@ -101,6 +104,35 @@ test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
     ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:search']],
     ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:integration']],
   ]);
+});
+
+test('CI DB lane groups cover every DB unit manifest lane exactly once', () => {
+  const manifestLaneNames = dbUnitLaneDefinitions.map((lane) => lane.name).sort();
+  const ciManifestLanes = listCiDbLaneGroups()
+    .flatMap((group) => group.manifestLanes)
+    .sort();
+
+  assert.deepEqual(ciManifestLanes, manifestLaneNames);
+  assert.equal(new Set(ciManifestLanes).size, ciManifestLanes.length);
+});
+
+test('runCommandSequence runs every DB sublane before returning failure', () => {
+  const calls = [];
+  const status = runCommandSequence(
+    createDbLaneCommands('remaining'),
+    '/repo',
+    'linux',
+    (command, args) => {
+      calls.push([command, args]);
+      return { status: calls.length === 1 ? 1 : 0 };
+    }
+  );
+
+  assert.equal(status, 1);
+  assert.deepEqual(
+    calls.map(([, args]) => args.at(-1)),
+    ['test:db:queue', 'test:db:search', 'test:db:integration']
+  );
 });
 
 test('buildLanePackageNames rejects invalid lanes', () => {
