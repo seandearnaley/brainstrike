@@ -2,12 +2,20 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbQueryResult,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import {
   applyTursoSchemaBaseline,
   TURSO_SCHEMA_BASELINE_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_DDL,
+  TURSO_SCHEMA_BASELINE_SEED_DML,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
+import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
 
 describe('Turso schema baseline', () => {
   let tempDir: string;
@@ -160,6 +168,25 @@ describe('Turso schema baseline', () => {
     );
   });
 
+  it('includes seed parameters in the baseline checksum', () => {
+    const sqlOnlyChecksum = computeTursoSchemaChecksum([
+      ...TURSO_SCHEMA_BASELINE_DDL,
+      ...TURSO_SCHEMA_BASELINE_SEED_DML.map((statement) => statement.sql),
+    ]);
+
+    expect(TURSO_SCHEMA_BASELINE_CHECKSUM).not.toBe(sqlOnlyChecksum);
+  });
+
+  it('enables foreign key enforcement before opening the baseline transaction', async () => {
+    const calls: string[] = [];
+    const fakeClient = createRecordingExecutionClient(calls);
+
+    await applyTursoSchemaBaseline(fakeClient);
+
+    expect(calls.slice(0, 2)).toEqual(['outer:PRAGMA foreign_keys = ON', 'transaction:begin']);
+    expect(calls).not.toContain('tx:PRAGMA foreign_keys = ON');
+  });
+
   it('fails closed when a Postgres or PGlite migration ledger is present', async () => {
     await client.exec('CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY)');
 
@@ -209,5 +236,38 @@ describe('Turso schema baseline', () => {
   async function currentModelIds(): Promise<readonly string[]> {
     const result = await client.query<{ id: string }>('SELECT id FROM models ORDER BY id');
     return result.rows.map((row) => row.id);
+  }
+
+  function createRecordingExecutionClient(calls: string[]): BrainstrikeDbExecutionClient {
+    const transactionClient: BrainstrikeDbTransactionClient = {
+      exec: async (sql) => {
+        calls.push(`tx:${normalizeSql(sql)}`);
+      },
+      query: async <TRecord>(sql: string): Promise<BrainstrikeDbQueryResult<TRecord>> => {
+        calls.push(`tx-query:${normalizeSql(sql)}`);
+        return { rows: [] };
+      },
+    };
+    return {
+      exec: async (sql) => {
+        calls.push(`outer:${normalizeSql(sql)}`);
+      },
+      query: async <TRecord>(sql: string): Promise<BrainstrikeDbQueryResult<TRecord>> => {
+        calls.push(`outer-query:${normalizeSql(sql)}`);
+        return { rows: [] };
+      },
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ): Promise<TResult> => {
+        calls.push('transaction:begin');
+        const result = await callback(transactionClient);
+        calls.push('transaction:commit');
+        return result;
+      },
+    };
+  }
+
+  function normalizeSql(sql: string): string {
+    return sql.replace(/\s+/g, ' ').trim();
   }
 });

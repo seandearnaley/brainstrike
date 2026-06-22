@@ -894,12 +894,13 @@ export const TURSO_SCHEMA_BASELINE_SEED_DML = [
 
 export const TURSO_SCHEMA_BASELINE_CHECKSUM = computeTursoSchemaChecksum([
   ...TURSO_SCHEMA_BASELINE_DDL,
-  ...TURSO_SCHEMA_BASELINE_SEED_DML.map((statement) => statement.sql),
+  ...TURSO_SCHEMA_BASELINE_SEED_DML,
 ]);
 
 export async function applyTursoSchemaBaseline(
   client: BrainstrikeDbExecutionClient
 ): Promise<void> {
+  await client.exec('PRAGMA foreign_keys = ON');
   await client.transaction(async (tx) => {
     await assertNoPostgresMigrationLedgers(tx);
     await ensureTursoSchemaLedger(tx);
@@ -915,7 +916,6 @@ export async function applyTursoSchemaBaseline(
       return;
     }
 
-    await tx.exec('PRAGMA foreign_keys = ON');
     for (const ddl of TURSO_SCHEMA_BASELINE_DDL) {
       await tx.exec(ddl);
     }

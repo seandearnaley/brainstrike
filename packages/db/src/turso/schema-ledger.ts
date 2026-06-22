@@ -84,8 +84,24 @@ export async function recordTursoSchemaLedgerEntry(
   ]);
 }
 
-export function computeTursoSchemaChecksum(parts: readonly string[]): string {
-  return createHash('sha256').update(parts.join('\n-- statement --\n')).digest('hex');
+export type TursoSchemaChecksumPart =
+  | string
+  | {
+      readonly params?: readonly unknown[];
+      readonly sql: string;
+    };
+
+export function computeTursoSchemaChecksum(parts: readonly TursoSchemaChecksumPart[]): string {
+  return createHash('sha256')
+    .update(parts.map(serializeTursoSchemaChecksumPart).join('\n-- statement --\n'))
+    .digest('hex');
+}
+
+function serializeTursoSchemaChecksumPart(part: TursoSchemaChecksumPart): string {
+  if (typeof part === 'string') {
+    return JSON.stringify({ kind: 'sql', sql: part });
+  }
+  return JSON.stringify({ kind: 'statement', params: part.params ?? [], sql: part.sql });
 }
 
 async function findForbiddenMigrationLedgerTables(
