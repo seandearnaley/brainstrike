@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
   applyManagedCacheBatch,
+  applyTursoManagedCacheBatch,
+  type BrainstrikeDbExecutionClient,
   escapePGliteLiveQueryFormatPercents,
   insertChunksAndEnqueueEmbeddingJobs,
+  insertTursoChunksAndEnqueueEmbeddingJobs,
   invalidateManagedCacheEntriesByIdentity,
+  invalidateTursoManagedCacheEntriesByIdentity,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
 import type {
@@ -29,13 +33,15 @@ import {
   parseManagedCacheInvalidationsArgs,
 } from './db-shared';
 
+type LegacyMutationDatabase = Parameters<typeof applyManagedCacheBatch>[0];
+
 interface ParentPortLike {
   readonly on: (event: 'message', listener: (message: unknown) => void) => void;
   readonly postMessage: (message: DbHostToMainMessage) => void;
 }
 
 interface QueryableDatabase {
-  readonly exec?: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  readonly exec?: (sql: string, params?: readonly unknown[]) => Promise<void>;
   readonly live?: {
     readonly incrementalQuery?: (payload: {
       readonly key: string;
@@ -55,6 +61,20 @@ interface QueryableDatabase {
     sql: string,
     params?: readonly unknown[]
   ) => Promise<DbHostQueryResult<TRecord>>;
+  readonly transaction: <TResult>(
+    callback: (tx: {
+      readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
+      readonly query: <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[]
+      ) => Promise<DbHostQueryResult<TRecord>>;
+    }) => Promise<TResult>
+  ) => Promise<TResult>;
+}
+
+interface QueryableDatabaseContext {
+  readonly db: QueryableDatabase;
+  readonly engine: 'pglite' | 'turso';
 }
 
 interface LiveQueryHandle {
@@ -324,11 +344,39 @@ function nextRunnableRequest(): DbHostRequestEnvelope | null {
 }
 
 async function getQueryableDatabase(): Promise<QueryableDatabase> {
+  return (await getQueryableDatabaseContext()).db;
+}
+
+async function getQueryableDatabaseContext(): Promise<QueryableDatabaseContext> {
   const initResult = await initializeMainDatabaseWithBootstrapReport();
   if (!initResult.initialized) {
     throw new Error(`DB host bootstrap blocked during ${initResult.bootstrapReport.phase}.`);
   }
-  return (await getDatabase()) as QueryableDatabase;
+  return {
+    db: (await getDatabase()) as QueryableDatabase,
+    engine: normalizeDbHostRuntimeEngine(initResult.bootstrapReport.runtime.engine),
+  };
+}
+
+function normalizeDbHostRuntimeEngine(engine: string): QueryableDatabaseContext['engine'] {
+  if (engine === 'pglite' || engine === 'turso') {
+    return engine;
+  }
+  throw new Error(`DB host cannot run data mutations for unsupported runtime engine: ${engine}`);
+}
+
+function requireDbHostExecutionClient(
+  db: QueryableDatabase,
+  engine: QueryableDatabaseContext['engine']
+): BrainstrikeDbExecutionClient {
+  if (typeof db.exec !== 'function' || typeof db.transaction !== 'function') {
+    throw new Error(`DB host ${engine} mutations require exec and transaction support.`);
+  }
+  return db as BrainstrikeDbExecutionClient;
+}
+
+function asLegacyMutationDatabase(db: BrainstrikeDbExecutionClient): LegacyMutationDatabase {
+  return db as unknown as LegacyMutationDatabase;
 }
 
 function requireParamsArray(params: unknown, context: string): readonly unknown[] | undefined {
@@ -408,6 +456,46 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
     initialResults: handle.initialResults,
   };
   return result;
+}
+
+async function handleManagedCacheApplyBatch(
+  request: Extract<DbHostRequest, { kind: 'managed-cache:apply-batch' }>
+): Promise<{ readonly applied: true }> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const args = parseManagedCacheBatchArgs(request.payload);
+  const executionDb = requireDbHostExecutionClient(db, engine);
+  if (engine === 'turso') {
+    await applyTursoManagedCacheBatch(executionDb, args);
+  } else {
+    await applyManagedCacheBatch(asLegacyMutationDatabase(executionDb), args);
+  }
+  return { applied: true };
+}
+
+async function handleManagedCacheInvalidateByIdentity(
+  request: Extract<DbHostRequest, { kind: 'managed-cache:invalidate-by-identity' }>
+) {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const args = parseManagedCacheInvalidationsArgs(request.payload);
+  const executionDb = requireDbHostExecutionClient(db, engine);
+  if (engine === 'turso') {
+    return await invalidateTursoManagedCacheEntriesByIdentity(executionDb, args);
+  }
+  return await invalidateManagedCacheEntriesByIdentity(asLegacyMutationDatabase(executionDb), args);
+}
+
+async function handleChunksInsertAndEnqueueEmbeddingJobs(
+  request: Extract<DbHostRequest, { kind: 'chunks:insert-and-enqueue-embedding-jobs' }>
+): Promise<{ readonly inserted: true }> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const args = parseInsertChunksAndEnqueueEmbeddingJobsArgs(request.payload);
+  const executionDb = requireDbHostExecutionClient(db, engine);
+  if (engine === 'turso') {
+    await insertTursoChunksAndEnqueueEmbeddingJobs(executionDb, args);
+  } else {
+    await insertChunksAndEnqueueEmbeddingJobs(asLegacyMutationDatabase(executionDb), args);
+  }
+  return { inserted: true };
 }
 
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
@@ -491,26 +579,12 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       }
       return { stopped: true };
     }
-    case 'managed-cache:apply-batch': {
-      const db = await getQueryableDatabase();
-      await applyManagedCacheBatch(db, parseManagedCacheBatchArgs(request.payload));
-      return { applied: true };
-    }
-    case 'managed-cache:invalidate-by-identity': {
-      const db = await getQueryableDatabase();
-      return await invalidateManagedCacheEntriesByIdentity(
-        db,
-        parseManagedCacheInvalidationsArgs(request.payload)
-      );
-    }
-    case 'chunks:insert-and-enqueue-embedding-jobs': {
-      const db = await getQueryableDatabase();
-      await insertChunksAndEnqueueEmbeddingJobs(
-        db,
-        parseInsertChunksAndEnqueueEmbeddingJobsArgs(request.payload)
-      );
-      return { inserted: true };
-    }
+    case 'managed-cache:apply-batch':
+      return await handleManagedCacheApplyBatch(request);
+    case 'managed-cache:invalidate-by-identity':
+      return await handleManagedCacheInvalidateByIdentity(request);
+    case 'chunks:insert-and-enqueue-embedding-jobs':
+      return await handleChunksInsertAndEnqueueEmbeddingJobs(request);
     case 'diagnostics':
       return getDatabaseDiagnostics();
     case 'reset':

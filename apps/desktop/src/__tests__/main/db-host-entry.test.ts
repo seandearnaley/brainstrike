@@ -18,17 +18,37 @@ vi.mock('../../db-main', () => dbMainMocks);
 
 const dbPackageMocks = vi.hoisted(() => ({
   insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+  insertTursoChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+  applyManagedCacheBatch: vi.fn(async () => undefined),
+  applyTursoManagedCacheBatch: vi.fn(async () => undefined),
+  invalidateManagedCacheEntriesByIdentity: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
+  invalidateTursoManagedCacheEntriesByIdentity: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
 }));
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/db')>();
   return {
     ...original,
+    applyManagedCacheBatch: dbPackageMocks.applyManagedCacheBatch,
+    applyTursoManagedCacheBatch: dbPackageMocks.applyTursoManagedCacheBatch,
     insertChunksAndEnqueueEmbeddingJobs: dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs,
+    insertTursoChunksAndEnqueueEmbeddingJobs:
+      dbPackageMocks.insertTursoChunksAndEnqueueEmbeddingJobs,
+    invalidateManagedCacheEntriesByIdentity: dbPackageMocks.invalidateManagedCacheEntriesByIdentity,
+    invalidateTursoManagedCacheEntriesByIdentity:
+      dbPackageMocks.invalidateTursoManagedCacheEntriesByIdentity,
   };
 });
 
-function createReadyBootstrapProbeReport() {
+function createReadyBootstrapProbeReport(engine: 'pglite' | 'turso' = 'pglite') {
   const checks = [
     'store.open',
     'schema.migrated',
@@ -58,7 +78,7 @@ function createReadyBootstrapProbeReport() {
       profileId: 'default',
       ready: true,
       runtime: {
-        engine: 'pglite',
+        engine,
         host: 'electron-utility',
         persistence: 'filesystem',
       },
@@ -116,6 +136,19 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
+function createMockExecutionDb() {
+  return {
+    exec: vi.fn(async () => undefined),
+    query: vi.fn(async () => ({ rows: [] })),
+    transaction: vi.fn(async (callback) =>
+      callback({
+        exec: vi.fn(async () => undefined),
+        query: vi.fn(async () => ({ rows: [] })),
+      })
+    ),
+  };
+}
+
 describe('db-host-entry', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -137,6 +170,11 @@ describe('db-host-entry', () => {
     });
     dbMainMocks.resetLocalDatabase.mockReset();
     dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs.mockClear();
+    dbPackageMocks.insertTursoChunksAndEnqueueEmbeddingJobs.mockClear();
+    dbPackageMocks.applyManagedCacheBatch.mockClear();
+    dbPackageMocks.applyTursoManagedCacheBatch.mockClear();
+    dbPackageMocks.invalidateManagedCacheEntriesByIdentity.mockClear();
+    dbPackageMocks.invalidateTursoManagedCacheEntriesByIdentity.mockClear();
   });
 
   afterEach(() => {
@@ -608,7 +646,7 @@ describe('db-host-entry', () => {
   });
 
   it('forwards parsed atomic chunk/job enqueue requests without reparsing the renderer envelope', async () => {
-    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const db = createMockExecutionDb();
     dbMainMocks.getDatabase.mockResolvedValue(db);
     const { listeners, parentPort } = installParentPortMock();
     await import('../../db-host-entry');
@@ -661,5 +699,119 @@ describe('db-host-entry', () => {
       ok: true,
       result: { inserted: true },
     });
+  });
+
+  it('uses Turso managed-cache apply and invalidation functions for Turso runtime', async () => {
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: createReadyBootstrapProbeReport('turso').bootstrapReport,
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+    const db = createMockExecutionDb();
+    dbMainMocks.getDatabase.mockResolvedValue(db);
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'managed-cache-apply',
+        kind: 'request',
+        request: {
+          kind: 'managed-cache:apply-batch',
+          payload: { changes: [], embeddingSetId: 'set-1' },
+        },
+      },
+    });
+    listeners[0]?.({
+      data: {
+        id: 'managed-cache-invalidate',
+        kind: 'request',
+        request: {
+          kind: 'managed-cache:invalidate-by-identity',
+          payload: { embeddingSetId: 'set-1', targets: [] },
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(dbPackageMocks.applyTursoManagedCacheBatch).toHaveBeenCalledWith(db, {
+      changes: [],
+      embeddingSetId: 'set-1',
+    });
+    expect(dbPackageMocks.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(dbPackageMocks.invalidateTursoManagedCacheEntriesByIdentity).toHaveBeenCalledWith(db, {
+      embeddingSetId: 'set-1',
+      targets: [],
+    });
+    expect(dbPackageMocks.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'managed-cache-apply',
+      kind: 'response',
+      ok: true,
+      result: { applied: true },
+    });
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'managed-cache-invalidate',
+      kind: 'response',
+      ok: true,
+      result: {
+        canceledEmbeddingJobCount: 0,
+        deletedChunkIds: [],
+        deletedFileRecordIds: [],
+      },
+    });
+  });
+
+  it('uses Turso atomic chunk/job enqueue function for Turso runtime', async () => {
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: createReadyBootstrapProbeReport('turso').bootstrapReport,
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+    const db = createMockExecutionDb();
+    dbMainMocks.getDatabase.mockResolvedValue(db);
+    const { listeners } = installParentPortMock();
+    await import('../../db-host-entry');
+    const now = new Date().toISOString();
+
+    listeners[0]?.({
+      data: {
+        id: 'atomic-turso-chunk-job',
+        kind: 'request',
+        request: {
+          kind: 'chunks:insert-and-enqueue-embedding-jobs',
+          payload: {
+            chunks: [
+              {
+                chunkIndex: 0,
+                chunkSize: 12,
+                chunkType: 'sentence',
+                content: 'hello world',
+                contentHash: 'chunk-hash',
+                createdAt: now,
+                fileRecordId: 'file-1',
+                id: 'chunk-1',
+                tokenCount: 2,
+                updatedAt: now,
+              },
+            ],
+            fileRecordId: 'file-1',
+            model: 'local::Xenova/all-MiniLM-L6-v2',
+            targetDimension: 384,
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(dbPackageMocks.insertTursoChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      })
+    );
+    expect(dbPackageMocks.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
   });
 });

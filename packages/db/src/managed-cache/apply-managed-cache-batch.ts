@@ -1,3 +1,7 @@
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../architecture/brainstrike-db-client-contract.js';
 import type { IDatabase } from '../repositories/interfaces.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
 import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
@@ -72,6 +76,7 @@ interface QueryLike {
 }
 
 const POSTGRES_PARAMETER_LIMIT = 65_535;
+const TURSO_PARAMETER_LIMIT = 900;
 const MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY = 250;
 const MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY = 5000;
 
@@ -344,6 +349,15 @@ function buildValuePlaceholders(rowCount: number, columnCount: number, startInde
   return rows.join(', ');
 }
 
+function buildQuestionMarkValuePlaceholders(rowCount: number, columnCount: number): string {
+  const rowPlaceholder = `(${Array.from({ length: columnCount }, () => '?').join(', ')})`;
+  return Array.from({ length: rowCount }, () => rowPlaceholder).join(', ');
+}
+
+function buildQuestionMarkList(count: number): string {
+  return Array.from({ length: count }, () => '?').join(', ');
+}
+
 function assertReturnedIds(
   resultRows: readonly { id?: unknown }[],
   expectedIds: readonly string[],
@@ -373,6 +387,52 @@ async function insertManagedCacheImports(
   }
 
   const placeholders = buildValuePlaceholders(imports.length, IMPORT_COLUMNS.length);
+  const values = imports.flatMap((record) => [
+    record.id,
+    record.name,
+    record.path,
+    record.size,
+    toBigIntMtime(record.mtimeMs),
+    record.createdAt,
+    record.updatedAt,
+    record.content,
+    record.contentHash,
+    record.tokenCount,
+    record.processedAt,
+    embeddingSetId,
+    rootId,
+  ]);
+
+  const result = await tx.query<{ id: string }>(
+    `INSERT INTO file_records (${IMPORT_COLUMNS.join(', ')})
+     VALUES ${placeholders}
+     RETURNING id`,
+    values
+  );
+
+  assertReturnedIds(
+    result.rows,
+    imports.map((record) => record.id),
+    'insert'
+  );
+}
+
+async function insertTursoManagedCacheImports(
+  tx: BrainstrikeDbTransactionClient,
+  embeddingSetId: string,
+  imports: readonly ManagedCacheImportRecord[],
+  rootId: string | null
+): Promise<void> {
+  if (imports.length === 0) {
+    return;
+  }
+  assertBatchWithinParameterLimit(
+    imports.length,
+    Math.floor(TURSO_PARAMETER_LIMIT / IMPORT_COLUMNS.length),
+    'import'
+  );
+
+  const placeholders = buildQuestionMarkValuePlaceholders(imports.length, IMPORT_COLUMNS.length);
   const values = imports.flatMap((record) => [
     record.id,
     record.name,
@@ -475,6 +535,61 @@ async function applyManagedCacheReplacements(
   assertReturnedIds(result.rows, replacementIds, 'update');
 }
 
+async function applyTursoManagedCacheReplacements(
+  tx: BrainstrikeDbTransactionClient,
+  embeddingSetId: string,
+  replacements: readonly ManagedCacheReplaceRecord[]
+): Promise<void> {
+  if (replacements.length === 0) {
+    return;
+  }
+  assertBatchWithinParameterLimit(
+    replacements.length,
+    Math.floor(TURSO_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length),
+    'replace'
+  );
+
+  const replacementIds = replacements.map((record) => record.id);
+  const chunkIdsToDelete = await listTursoChunkIdsForFileRecords(tx, replacementIds);
+  await cancelTursoQueuedOrRunningEmbeddingJobsForChunks(tx, chunkIdsToDelete, 'replacement');
+
+  for (const record of replacements) {
+    await tx.exec('DELETE FROM file_chunks WHERE file_record_id = ?', [record.id]);
+    const result = await tx.query<{ id: string }>(
+      `UPDATE file_records
+          SET name = ?,
+              path = ?,
+              size = ?,
+              mtime_ms = ?,
+              updated_at = ?,
+              content = ?,
+              content_hash = ?,
+              token_count = ?,
+              processed_at = ?,
+              embedding_set_id = ?,
+              chunks_count = 0,
+              chunks_processed_at = NULL,
+              chunking_strategy = NULL
+        WHERE id = ?
+        RETURNING id`,
+      [
+        record.name,
+        record.path,
+        record.size,
+        toBigIntMtime(record.mtimeMs),
+        record.updatedAt,
+        record.content,
+        record.contentHash,
+        record.tokenCount,
+        record.processedAt,
+        embeddingSetId,
+        record.id,
+      ]
+    );
+    assertReturnedIds(result.rows, [record.id], 'update');
+  }
+}
+
 async function listChunkIdsForFileRecords(
   tx: QueryLike,
   fileRecordIds: readonly string[]
@@ -491,6 +606,32 @@ async function listChunkIdsForFileRecords(
     [[...fileRecordIds]]
   );
   return result.rows.map((row) => row.id).filter(isNonEmptyString);
+}
+
+async function listTursoChunkIdsForFileRecords(
+  tx: BrainstrikeDbTransactionClient,
+  fileRecordIds: readonly string[]
+): Promise<string[]> {
+  if (fileRecordIds.length === 0) {
+    return [];
+  }
+
+  const chunkIds = new Set<string>();
+  for (const fileRecordIdBatch of chunkArray(fileRecordIds, TURSO_PARAMETER_LIMIT)) {
+    const result = await tx.query<{ id: string }>(
+      `SELECT id
+         FROM file_chunks
+        WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIdBatch.length)})
+        ORDER BY id`,
+      fileRecordIdBatch
+    );
+    for (const row of result.rows) {
+      if (isNonEmptyString(row.id)) {
+        chunkIds.add(row.id);
+      }
+    }
+  }
+  return [...chunkIds].sort();
 }
 
 async function cancelQueuedOrRunningEmbeddingJobsForChunks(
@@ -524,6 +665,37 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
       [updatedAt, chunkIdBatch]
     );
     canceledCount += Number(result.rows[0]?.count ?? 0);
+  }
+  return canceledCount;
+}
+
+async function cancelTursoQueuedOrRunningEmbeddingJobsForChunks(
+  tx: BrainstrikeDbTransactionClient,
+  chunkIds: readonly string[],
+  operation: 'invalidation' | 'replacement'
+): Promise<number> {
+  if (chunkIds.length === 0) {
+    return 0;
+  }
+
+  const updatedAt = new Date().toISOString();
+  let canceledCount = 0;
+  for (const chunkIdBatch of chunkArray(chunkIds, TURSO_PARAMETER_LIMIT - 1)) {
+    const result = await tx.query<{ id: string }>(
+      `UPDATE job_queue
+          SET state = 'canceled',
+              lease_token = NULL,
+              leased_until = NULL,
+              worker_id = NULL,
+              error = 'Managed-cache ${operation} deleted chunk ' || chunk_id || ' before embedding.',
+              updated_at = ?
+        WHERE job_type = 'embed_chunk'
+          AND state IN ('queued', 'running')
+          AND chunk_id IN (${buildQuestionMarkList(chunkIdBatch.length)})
+        RETURNING id`,
+      [updatedAt, ...chunkIdBatch]
+    );
+    canceledCount += result.rows.length;
   }
   return canceledCount;
 }
@@ -659,6 +831,69 @@ async function listInvalidationMatches(
   };
 }
 
+async function listTursoInvalidationMatches(
+  tx: BrainstrikeDbTransactionClient,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<{
+  chunkIds: string[];
+  fileRecordIds: string[];
+}> {
+  const fileRecordIds = new Set<string>();
+  const chunkIds = new Set<string>();
+
+  for (const target of targets) {
+    const result = await tx.query<{ chunk_id: string | null; file_record_id: string }>(
+      `SELECT DISTINCT
+              fr.id AS file_record_id,
+              fc.id AS chunk_id
+         FROM file_records fr
+         LEFT JOIN file_chunks fc
+           ON fc.file_record_id = fr.id
+        WHERE fr.embedding_set_id = ?
+          AND fr.root_id = ?
+          AND (
+            (
+              ? = 'exact'
+              AND fr.path = ?
+              AND (? IS NULL OR fr.id = ?)
+            )
+            OR (
+              ? = 'prefix'
+              AND (
+                fr.path = ?
+                OR substr(fr.path, 1, length(?) + 1) = ? || '/'
+              )
+            )
+          )
+        ORDER BY file_record_id, chunk_id`,
+      [
+        embeddingSetId,
+        target.rootId,
+        target.mode,
+        target.relativePath,
+        target.expectedFileRecordId,
+        target.expectedFileRecordId,
+        target.mode,
+        target.relativePath,
+        target.relativePath,
+        target.relativePath,
+      ]
+    );
+    for (const row of result.rows) {
+      fileRecordIds.add(row.file_record_id);
+      if (isNonEmptyString(row.chunk_id)) {
+        chunkIds.add(row.chunk_id);
+      }
+    }
+  }
+
+  return {
+    chunkIds: [...chunkIds].sort(),
+    fileRecordIds: [...fileRecordIds].sort(),
+  };
+}
+
 export async function invalidateManagedCacheEntriesByIdentity(
   db: IDatabase,
   args: ApplyManagedCacheInvalidationsArgs
@@ -719,6 +954,64 @@ export async function invalidateManagedCacheEntriesByIdentity(
   });
 }
 
+export async function invalidateTursoManagedCacheEntriesByIdentity(
+  db: BrainstrikeDbExecutionClient,
+  args: ApplyManagedCacheInvalidationsArgs
+): Promise<ManagedCacheInvalidationResult> {
+  if (!isNonEmptyString(args.embeddingSetId)) {
+    throw new Error('Managed cache invalidation requires a non-empty embeddingSetId.');
+  }
+
+  const targets = normalizeInvalidationTargets(args.targets);
+  if (targets.length === 0) {
+    return {
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    };
+  }
+
+  return await db.transaction(async (tx) => {
+    const deletedChunkIds = new Set<string>();
+    const deletedFileRecordIds = new Set<string>();
+    let canceledEmbeddingJobCount = 0;
+
+    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+      const matches = await listTursoInvalidationMatches(tx, args.embeddingSetId, targetBatch);
+      canceledEmbeddingJobCount += await cancelTursoQueuedOrRunningEmbeddingJobsForChunks(
+        tx,
+        matches.chunkIds,
+        'invalidation'
+      );
+
+      for (const chunkId of matches.chunkIds) {
+        deletedChunkIds.add(chunkId);
+      }
+      for (const fileRecordId of matches.fileRecordIds) {
+        deletedFileRecordIds.add(fileRecordId);
+      }
+
+      for (const fileRecordIds of chunkArray(matches.fileRecordIds, TURSO_PARAMETER_LIMIT)) {
+        if (fileRecordIds.length === 0) {
+          continue;
+        }
+        await tx.exec(
+          `DELETE FROM file_records WHERE id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+          fileRecordIds
+        );
+      }
+    }
+
+    await refreshTursoCollectionIndexingStats(tx, [args.embeddingSetId]);
+
+    return {
+      canceledEmbeddingJobCount,
+      deletedChunkIds: [...deletedChunkIds].sort(),
+      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
+    };
+  });
+}
+
 export async function applyManagedCacheBatch(
   db: IDatabase,
   args: ApplyManagedCacheBatchArgs
@@ -766,4 +1059,100 @@ export async function applyManagedCacheBatch(
     await insertManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
     await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
   });
+}
+
+export async function applyTursoManagedCacheBatch(
+  db: BrainstrikeDbExecutionClient,
+  args: ApplyManagedCacheBatchArgs
+): Promise<void> {
+  if (args.changes.length === 0) {
+    return;
+  }
+  assertTotalBatchWithinLimit(args.changes.length);
+  assertNoDuplicateMutationIds(args.changes);
+  assertNoNullBytesInManagedCacheContent(args.changes);
+
+  const imports = args.changes.flatMap((change) =>
+    change.mode === 'import' ? [change.record] : []
+  );
+  const replacements = args.changes.flatMap((change) =>
+    change.mode === 'replace' ? [change.record] : []
+  );
+  if (imports.length > 0 && (args.rootId === null || args.rootId === undefined)) {
+    throw new Error(
+      'Managed cache import requires a non-null rootId — an import with no root_id would have no cache identity.'
+    );
+  }
+
+  await db.transaction(async (tx) => {
+    await applyTursoManagedCacheReplacements(tx, args.embeddingSetId, replacements);
+    await insertTursoManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
+    await refreshTursoCollectionIndexingStats(tx, [args.embeddingSetId]);
+  });
+}
+
+async function refreshTursoCollectionIndexingStats(
+  tx: BrainstrikeDbTransactionClient,
+  embeddingSetIds: readonly string[]
+): Promise<void> {
+  const uniqueIds = [...new Set(embeddingSetIds)];
+  if (uniqueIds.length === 0) {
+    return;
+  }
+
+  const refreshedAt = new Date().toISOString();
+  for (const embeddingSetId of uniqueIds) {
+    const setResult = await tx.query<{ id: string }>('SELECT id FROM embedding_sets WHERE id = ?', [
+      embeddingSetId,
+    ]);
+    if (!setResult.rows[0]) {
+      continue;
+    }
+
+    const fileCountResult = await tx.query<{ count: number | string }>(
+      'SELECT COUNT(*) AS count FROM file_records WHERE embedding_set_id = ?',
+      [embeddingSetId]
+    );
+    const chunkCountResult = await tx.query<{
+      chunk_count: number | string;
+      embedded_chunk_count: number | string;
+      pending_chunk_count: number | string;
+    }>(
+      `SELECT
+          COUNT(*) AS chunk_count,
+          SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded_chunk_count,
+          SUM(CASE WHEN embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
+         FROM file_chunks
+        WHERE embedding_set_id = ?`,
+      [embeddingSetId]
+    );
+    const chunkCounts = chunkCountResult.rows[0];
+    await tx.exec(
+      `INSERT INTO collection_indexing_stats (
+         embedding_set_id,
+         file_count,
+         chunk_count,
+         embedded_chunk_count,
+         pending_chunk_count,
+         dirty,
+         last_refreshed_at
+       )
+       VALUES (?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT (embedding_set_id) DO UPDATE SET
+         file_count = excluded.file_count,
+         chunk_count = excluded.chunk_count,
+         embedded_chunk_count = excluded.embedded_chunk_count,
+         pending_chunk_count = excluded.pending_chunk_count,
+         dirty = 0,
+         last_refreshed_at = excluded.last_refreshed_at`,
+      [
+        embeddingSetId,
+        Number(fileCountResult.rows[0]?.count ?? 0),
+        Number(chunkCounts?.chunk_count ?? 0),
+        Number(chunkCounts?.embedded_chunk_count ?? 0),
+        Number(chunkCounts?.pending_chunk_count ?? 0),
+        refreshedAt,
+      ]
+    );
+  }
 }
