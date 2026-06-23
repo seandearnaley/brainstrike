@@ -189,6 +189,7 @@ interface QueryExecutor {
 
 // Forward declare for type reference (imported below)
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
+type FileRecordRepo = import('./repositories/interfaces.js').IFileRecordRepository;
 type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
 type TokenCacheStoreRepo = import('./repositories/turso-token-cache-store.js').TursoTokenCacheStore;
 
@@ -660,22 +661,20 @@ function createElectronTursoExecutionClient(
         exec: async (sql, params, options) => {
           if (options) {
             throw new Error(
-              'Desktop Turso token cache transaction adapter does not support per-statement work options.'
+              'Desktop Turso transaction adapter does not support per-statement work options.'
             );
           }
           statements.push({ sql, ...(params ? { params: [...params] } : {}) });
         },
         query: async () => {
-          throw new Error(
-            'Desktop Turso token cache transaction adapter only supports exec statements.'
-          );
+          throw new Error('Desktop Turso transaction adapter only supports exec statements.');
         },
       };
 
       const result = await callback(batchClient);
       if (statements.length > 0) {
         await runTransaction(statements, 0, {
-          label: 'file_token_cache.setBatch',
+          label: 'turso.transaction',
           priority: 'normal',
         });
       }
@@ -1549,10 +1548,7 @@ export function useOptionalProfileBootstrapReport(): ProfileBootstrapReport | nu
   return ctx?.profileBootstrapReport ?? null;
 }
 
-export function useFileRecordRepository():
-  | DrizzleFileRecordRepository
-  | ElectronFileRecordRepository
-  | null {
+export function useFileRecordRepository(): FileRecordRepo | null {
   const ctx = useContext(DbContext);
 
   // Destructure to get stable references for dependency array

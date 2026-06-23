@@ -472,11 +472,21 @@ describe('DbProvider initializing state', () => {
     const { result } = renderHook(
       () => {
         const db = usePGliteDatabase();
+        const fileRecordRepository = useFileRecordRepository();
+        const chunkRepository = useFileChunkRepository();
         const initializationStatus = useDbInitializationStatus();
         const report = useProfileBootstrapReport();
         const presetsRepository = useViewFilterPresetsRepository();
         const tokenCacheStore = useTokenCacheStore();
-        return { db, initializationStatus, presetsRepository, report, tokenCacheStore };
+        return {
+          db,
+          chunkRepository,
+          fileRecordRepository,
+          initializationStatus,
+          presetsRepository,
+          report,
+          tokenCacheStore,
+        };
       },
       { wrapper: electronIpcWrapper }
     );
@@ -494,7 +504,10 @@ describe('DbProvider initializing state', () => {
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
+    expect(result.current.fileRecordRepository).toBeNull();
+    expect(result.current.chunkRepository).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+
     if (!result.current.presetsRepository) {
       throw new Error('Expected Turso view filter presets repository.');
     }
@@ -552,9 +565,11 @@ describe('DbProvider initializing state', () => {
       },
     ]);
 
-    const [transactionStatements, transactionResultIndex] = runTransaction.mock.calls[0] ?? [];
+    const [transactionStatements, transactionResultIndex, transactionWorkOptions] =
+      runTransaction.mock.calls[0] ?? [];
     expect(exec).not.toHaveBeenCalled();
     expect(transactionResultIndex).toBe(0);
+    expect(transactionWorkOptions).toMatchObject({ label: 'turso.transaction' });
     expect(transactionStatements).toEqual([
       expect.objectContaining({
         sql: expect.stringContaining('INSERT INTO file_token_cache'),

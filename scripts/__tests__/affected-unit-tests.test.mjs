@@ -164,6 +164,17 @@ test('DB repository-only changes stay on dedicated DB unit lanes', () => {
   assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
 });
 
+test('tested DB provider changes still expand dependent package unit shards', () => {
+  const changedFiles = [
+    'packages/db/__tests__/db-provider-initializing.test.tsx',
+    'packages/db/src/db-provider.tsx',
+    'packages/db/src/repositories/turso-file-record-repository.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), true);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), true);
+});
+
 test('DB public API and migration changes still expand dependent unit packages', () => {
   assert.equal(dbChangeRequiresDependentUnitExpansion(['packages/db/src/db-provider.tsx']), true);
   assert.equal(
@@ -177,6 +188,21 @@ test('DB public API and migration changes still expand dependent unit packages',
   assert.equal(
     modeIncludesDependentPackages('packages', ['@brainstrike/db'], ['packages/db/src/index.ts']),
     true
+  );
+});
+
+test('Turso profile-bootstrap docs do not claim unavailable file-record provider coverage', () => {
+  const providerSource = readFileSync('packages/db/src/db-provider.tsx', 'utf8');
+  const profileBootstrapDoc = readFileSync('docs/turso-migration/profile-bootstrap.md', 'utf8');
+
+  assert.match(
+    providerSource,
+    /unavailableRepositories:\s*\[[^\]]*'file_records'[^\]]*\]/s
+  );
+  assert.doesNotMatch(profileBootstrapDoc, /^- `file_records`$/m);
+  assert.match(
+    profileBootstrapDoc,
+    /Turso file-record repository implementation is staged as repository-only\s+groundwork/
   );
 });
 
@@ -223,6 +249,16 @@ test('narrow DB provider changes select only the owning DB unit and coverage lan
 
 test('narrow DB repository test changes select only the repository DB unit and coverage lanes', () => {
   const changedFiles = ['packages/db/__tests__/turso-token-cache-store.test.ts'];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);
+});
+
+test('Turso repository implementation changes select repository DB lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-file-record-repository.test.ts',
+    'packages/db/src/repositories/turso-file-record-repository.ts',
+  ];
 
   assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository']);
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);

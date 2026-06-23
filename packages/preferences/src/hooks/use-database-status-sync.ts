@@ -1,7 +1,7 @@
 import {
   type DbInitializationStatus,
-  type DrizzleFileRecordRepository,
   ElectronFileRecordRepository,
+  type IFileRecordRepository,
   type ProfileBootstrapReport,
   useFileRecordRepository,
   useOptionalDbInitializationStatus,
@@ -10,7 +10,7 @@ import {
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store';
 
-function resolveLocation(repo: DrizzleFileRecordRepository | ElectronFileRecordRepository): {
+function resolveLocation(repo: IFileRecordRepository): {
   location: string;
   testResult: string;
 } {
@@ -37,7 +37,7 @@ function resolvePartialRuntimeStatus(
 
   return {
     location: 'Turso',
-    testResult: 'Connected (partial: view_filter_presets)',
+    testResult: 'Connected (partial: file_token_cache, view_filter_presets)',
   };
 }
 
@@ -56,7 +56,7 @@ export function useDatabaseStatusSync(): void {
     const partialRuntimeStatus = profileBootstrapReport
       ? resolvePartialRuntimeStatus(initializationStatus, profileBootstrapReport)
       : null;
-    const status = repositoryStatus ?? partialRuntimeStatus;
+    const status = partialRuntimeStatus ?? repositoryStatus;
 
     if (!status) {
       if (!store.loading) {

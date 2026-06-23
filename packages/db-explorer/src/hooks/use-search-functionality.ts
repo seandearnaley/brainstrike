@@ -1,10 +1,9 @@
 import type {
   ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
   FileChunk,
   FileChunkRepository,
   FileRecord,
-  FileRecordRepository,
+  IFileRecordRepository,
 } from '@brainstrike/db';
 import { useBrainstrikeDbClient } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
@@ -33,7 +32,7 @@ interface SearchEmbedder {
 
 export function useSearchFunctionality(
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
-  repository: FileRecordRepository | ElectronFileRecordRepository | null,
+  repository: IFileRecordRepository | null,
   toast: ReturnType<typeof useToast>['toast']
 ): SearchFunctionality {
   const [searchQuery, setSearchQuery] = useState('');

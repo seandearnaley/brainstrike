@@ -45,6 +45,11 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     unitLane: 'integration',
     coverageLane: 'architecture',
   },
+  {
+    pattern: /^packages\/db\/src\/repositories\/turso-[\w-]+\.ts$/,
+    unitLane: 'repository',
+    coverageLane: 'repositories',
+  },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
   ['@brainstrike/db', 395000],
@@ -275,11 +280,15 @@ export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
   if (dbChangedFiles.length === 0) {
     return true;
   }
-  return dbChangedFiles.some(
-    (filePath) =>
-      DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath) ||
-      !DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))
-  );
+  return dbChangedFiles.some((filePath) => {
+    if (DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath)) {
+      return true;
+    }
+    if (DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function modeIncludesDependentPackages(mode, directlyChangedPackages = [], changedFiles) {

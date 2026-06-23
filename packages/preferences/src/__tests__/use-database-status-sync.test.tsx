@@ -126,7 +126,39 @@ describe('useDatabaseStatusSync', () => {
     const state = useDatabaseStatusStore.getState();
     expect(state.loading).toBe(false);
     expect(state.location).toBe('Turso');
-    expect(state.testResult).toBe('Connected (partial: view_filter_presets)');
+    expect(state.testResult).toBe('Connected (partial: file_token_cache, view_filter_presets)');
+  });
+
+  it('uses the ready Turso bootstrap report even when a file-record repository is available', async () => {
+    mockUseOptionalDbInitializationStatus.mockReturnValue('ready');
+    mockUseFileRecordRepository.mockReturnValue({} as FileRecordRepository);
+    mockUseOptionalProfileBootstrapReport.mockReturnValue({
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'Indexed search is owned by a split search index store.',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-22T19:00:00.000Z',
+      updatedAt: '2026-06-22T19:00:01.000Z',
+    });
+
+    renderHook(() => useDatabaseStatusSync());
+
+    await waitFor(() => expect(useDatabaseStatusStore.getState().connected).toBe(true));
+
+    const state = useDatabaseStatusStore.getState();
+    expect(state.location).toBe('Turso');
+    expect(state.testResult).toBe('Connected (partial: file_token_cache, view_filter_presets)');
   });
 
   it('reverts to loading when repository disappears after being connected', async () => {
