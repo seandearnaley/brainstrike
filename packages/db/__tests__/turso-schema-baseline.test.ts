@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   BrainstrikeDbExecutionClient,
@@ -15,9 +16,13 @@ import {
   TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
   TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
   TURSO_SCHEMA_BASELINE_SEED_DML,
+  TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_V2_VERSION,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
 import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
+
+const DB_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('Turso schema baseline', () => {
   let tempDir: string;
@@ -72,6 +77,7 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('job_queue')).resolves.toEqual(
       expect.arrayContaining([
         'idx_job_queue_active_embed_chunk_id',
+        'idx_job_queue_dedupe_active',
         'idx_job_queue_embed_set_state',
         'idx_job_queue_state_run_at',
       ])
@@ -294,7 +300,11 @@ describe('Turso schema baseline', () => {
 
   it('upgrades an existing v1 Turso schema ledger to the current baseline without checksum drift', async () => {
     const previousBaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
-      (ddl) => !ddl.includes('idx_embedding_sets_workspace_index_system_role')
+      (ddl) =>
+        !(
+          ddl.includes('idx_embedding_sets_workspace_index_system_role') ||
+          ddl.includes('idx_job_queue_dedupe_active')
+        )
     );
     for (const ddl of previousBaselineDdl) {
       await client.exec(ddl);
@@ -323,6 +333,9 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('embedding_sets')).resolves.toEqual(
       expect.arrayContaining(['idx_embedding_sets_workspace_index_system_role'])
     );
+    await expect(listIndexes('job_queue')).resolves.toEqual(
+      expect.arrayContaining(['idx_job_queue_dedupe_active'])
+    );
     await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
     ).resolves.toEqual({
@@ -339,6 +352,53 @@ describe('Turso schema baseline', () => {
     });
   });
 
+  it('upgrades an existing v2 Turso schema ledger with the previous checksum to the current baseline', async () => {
+    const oldV2BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
+      (ddl) => !ddl.includes('idx_job_queue_dedupe_active')
+    );
+    for (const ddl of oldV2BaselineDdl) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_V2_VERSION,
+        TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
+        '2026-06-22T12:00:00.000Z',
+      ]
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('job_queue')).resolves.toEqual(
+      expect.arrayContaining(['idx_job_queue_dedupe_active'])
+    );
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_V2_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,
@@ -346,6 +406,22 @@ describe('Turso schema baseline', () => {
     ]);
 
     expect(TURSO_SCHEMA_BASELINE_CHECKSUM).not.toBe(sqlOnlyChecksum);
+  });
+
+  it('pins the historical v2 checksum instead of deriving it from mutable baseline declarations', async () => {
+    expect(TURSO_SCHEMA_BASELINE_V2_CHECKSUM).toBe(
+      '9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a'
+    );
+
+    const source = await readFile(join(DB_PACKAGE_ROOT, 'src/turso/schema-baseline.ts'), 'utf8');
+    const v2ChecksumDeclaration = source.match(
+      /TURSO_SCHEMA_BASELINE_V2_CHECKSUM\s*=[\s\S]*?;\n/
+    )?.[0];
+
+    expect(v2ChecksumDeclaration).toContain(
+      "'9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a'"
+    );
+    expect(v2ChecksumDeclaration).not.toContain('computeTursoSchemaChecksum');
   });
 
   it('enables foreign key enforcement before opening the baseline transaction', async () => {

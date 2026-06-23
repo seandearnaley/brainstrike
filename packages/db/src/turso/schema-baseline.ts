@@ -9,13 +9,16 @@ import {
 } from './schema-ledger.js';
 
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION = 1;
-export const TURSO_SCHEMA_BASELINE_VERSION = 2;
+export const TURSO_SCHEMA_BASELINE_V2_VERSION = 2;
+export const TURSO_SCHEMA_BASELINE_VERSION = 3;
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM =
   '8e9f598868dda50fb9f763c010bf74215cd51b305bfda68719dd6a12cf8587c7';
 
 const nowSql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 const workspaceIndexSystemRoleIndexDdl =
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_embedding_sets_workspace_index_system_role ON embedding_sets (system_role) WHERE system_role = 'workspace-index'";
+const jobQueueActiveDedupeIndexDdl =
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_dedupe_active ON job_queue (dedupe_key) WHERE dedupe_key IS NOT NULL AND state IN ('queued','running')";
 
 export const TURSO_SCHEMA_BASELINE_DDL = [
   `
@@ -150,6 +153,7 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
   `,
   'CREATE INDEX IF NOT EXISTS idx_job_queue_state_run_at ON job_queue (state, run_at)',
   'CREATE INDEX IF NOT EXISTS idx_job_queue_dedupe_key ON job_queue (dedupe_key)',
+  jobQueueActiveDedupeIndexDdl,
   'CREATE INDEX IF NOT EXISTS idx_job_queue_leased_until ON job_queue (leased_until)',
   "CREATE INDEX IF NOT EXISTS idx_job_queue_active_embed_chunk_id ON job_queue (chunk_id) WHERE job_type = 'embed_chunk' AND chunk_id IS NOT NULL AND state IN ('queued','running')",
   "CREATE INDEX IF NOT EXISTS idx_job_queue_embed_set_state ON job_queue (queue, job_type, embedding_set_id, state, updated_at) WHERE job_type = 'embed_chunk' AND embedding_set_id IS NOT NULL",
@@ -927,8 +931,20 @@ export const TURSO_SCHEMA_BASELINE_CHECKSUM = computeTursoSchemaChecksum([
   ...TURSO_SCHEMA_BASELINE_SEED_DML,
 ]);
 
-const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION = {
-  [TURSO_SCHEMA_BASELINE_VERSION]: [workspaceIndexSystemRoleIndexDdl],
+export const TURSO_SCHEMA_BASELINE_V2_CHECKSUM =
+  '9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a';
+
+const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: [
+    workspaceIndexSystemRoleIndexDdl,
+    jobQueueActiveDedupeIndexDdl,
+  ],
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: [jobQueueActiveDedupeIndexDdl],
+} as const;
+
+const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
 } as const;
 
 export async function applyTursoSchemaBaseline(
@@ -940,6 +956,7 @@ export async function applyTursoSchemaBaseline(
     await ensureTursoSchemaLedger(tx);
     await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [
       TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+      TURSO_SCHEMA_BASELINE_V2_VERSION,
       TURSO_SCHEMA_BASELINE_VERSION,
     ]);
 
@@ -953,19 +970,22 @@ export async function applyTursoSchemaBaseline(
       return;
     }
 
-    const previousEntry = await readTursoSchemaLedgerEntry(
-      tx,
-      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION
-    );
-    if (previousEntry) {
-      if (previousEntry.checksum !== TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM) {
+    const upgradeVersions = [
+      TURSO_SCHEMA_BASELINE_V2_VERSION,
+      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+    ] as const;
+    for (const upgradeVersion of upgradeVersions) {
+      const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
+      if (!previousEntry) {
+        continue;
+      }
+      const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[upgradeVersion];
+      if (previousEntry.checksum !== expectedChecksum) {
         throw new Error(
-          `Turso schema baseline ${TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION} checksum mismatch: expected ${TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM}, found ${previousEntry.checksum}.`
+          `Turso schema baseline ${upgradeVersion} checksum mismatch: expected ${expectedChecksum}, found ${previousEntry.checksum}.`
         );
       }
-      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION[
-        TURSO_SCHEMA_BASELINE_VERSION
-      ]) {
+      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
         await tx.exec(ddl);
       }
       await recordTursoSchemaLedgerEntry(tx, {

@@ -84,15 +84,26 @@ carry the non-null `FileChunk` identity/type fields (`contentHash`,
 violate that contract, repository reads fail loudly instead of coalescing
 malformed data.
 
+The first Turso-native chunk/job orchestration seam is also staged:
+`insertTursoChunksAndEnqueueEmbeddingJobs()` inserts chunks through the Turso
+chunk repository and queues `embed_chunk` jobs in the same owner-client
+transaction. It uses SQLite-compatible statements and active-job dedupe instead
+of the Postgres `JobQueue` batch SQL. This is only the import write-side
+primitive; it does not port job claiming, heartbeats, completion, retries,
+managed-cache invalidation, or search indexing.
+
 The provider still does not expose a generic `db` handle, `file_records`, or
 `file_chunks` in Turso mode. Those remain explicit migration work rather than
 silent PGlite compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is coherent provider exposure for the generic
+The next low-vector-risk slice is a Turso-native managed-cache batch and import
+port that can call the staged chunk/job write primitive without relying on
+Postgres-only `JobQueue` SQL. Coherent provider exposure for the generic
 execution handle plus the staged `file_records` and non-search `file_chunks`
-repositories. Search remains split-owned until
+repositories should wait until imports can write file records, chunks, and
+embedding jobs atomically in Turso mode. Search remains split-owned until
 `docs/turso-migration/search-index-architecture.md` is implemented, and
 quick-open name search must not be treated as complete until the Turso
 search-index owner is designed.
