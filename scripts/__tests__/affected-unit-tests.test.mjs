@@ -264,6 +264,27 @@ test('Turso repository implementation changes select repository DB lanes', () =>
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);
 });
 
+test('Turso schema baseline internals select only the owning DB lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-schema-baseline.test.ts',
+    'packages/db/src/turso/schema-baseline.ts',
+    'packages/db/src/turso/schema-ledger.ts',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'remaining']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories', 'search']);
+});
+
+test('Turso schema baseline internals do not expand dependent package unit shards', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-schema-baseline.test.ts',
+    'packages/db/src/turso/schema-baseline.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), false);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
+});
+
 test('shared DB repository implementation changes keep the full DB unit and coverage surfaces', () => {
   const changedFiles = ['packages/db/src/repositories/file-chunk-repository.ts'];
 
