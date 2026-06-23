@@ -440,6 +440,28 @@ test('runCommandSequence returns failure for a selected DB lane command', () => 
   );
 });
 
+test('runCommandSequence runs every command before returning failure', () => {
+  const calls = [];
+  const status = runCommandSequence(
+    [
+      ['first-command', ['first-arg']],
+      ['second-command', ['second-arg']],
+    ],
+    '/repo',
+    'linux',
+    (command, args) => {
+      calls.push([command, args]);
+      return { status: calls.length === 1 ? 1 : 0 };
+    }
+  );
+
+  assert.equal(status, 1);
+  assert.deepEqual(calls, [
+    ['first-command', ['first-arg']],
+    ['second-command', ['second-arg']],
+  ]);
+});
+
 test('buildLanePackageNames rejects invalid lanes', () => {
   assert.throws(() => buildLanePackageNames(['@brainstrike/db'], 0, 4), /lane must be between 1 and 4/);
   assert.throws(() => buildLanePackageNames(['@brainstrike/db'], 5, 4), /lane must be between 1 and 4/);
