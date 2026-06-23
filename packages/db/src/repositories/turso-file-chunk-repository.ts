@@ -163,9 +163,16 @@ export class TursoFileChunkRepository {
         'embedding_updated_at',
         normalizeDateValue(chunk.embeddingUpdatedAt ?? chunk.updatedAt, 'embeddingUpdatedAt')
       );
-      appendColumn(assignments, params, 'embedding_set_id', chunk.embeddingSetId);
-      appendColumn(assignments, params, 'embedding_hash', chunk.embeddingHash);
+    } else if (chunk.embeddingUpdatedAt !== undefined) {
+      appendColumn(
+        assignments,
+        params,
+        'embedding_updated_at',
+        normalizeDateValue(chunk.embeddingUpdatedAt, 'embeddingUpdatedAt')
+      );
     }
+    appendColumn(assignments, params, 'embedding_set_id', chunk.embeddingSetId);
+    appendColumn(assignments, params, 'embedding_hash', chunk.embeddingHash);
 
     appendColumn(
       assignments,

@@ -192,6 +192,39 @@ describe('TursoFileChunkRepository', () => {
     });
   });
 
+  it('updates embedding set metadata without requiring a new vector payload', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
+    );
+    await repository.insert(createChunk({ id: 'chunk-1' }));
+    await repository.update({
+      embedding: [0.1, 0.2, 0.3],
+      id: 'chunk-1',
+      updatedAt: '2026-06-23T08:45:00.000Z',
+    });
+
+    await expect(
+      repository.update({
+        embeddingHash: 'metadata-hash',
+        embeddingSetId: embeddingSet.id,
+        embeddingUpdatedAt: '2026-06-23T08:46:00.000Z',
+        id: 'chunk-1',
+        updatedAt: '2026-06-23T08:46:00.000Z',
+      })
+    ).resolves.toMatchObject({
+      embedding: [0.1, 0.2, 0.3],
+      embeddingHash: 'metadata-hash',
+      embeddingSetId: embeddingSet.id,
+      embeddingUpdatedAt: '2026-06-23T08:46:00.000Z',
+    });
+  });
+
   it('does not fetch the existing chunk for non-embedding updates', async () => {
     const queryCalls: string[] = [];
     const fakeDb: BrainstrikeDbExecutionClient = {
