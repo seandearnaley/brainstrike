@@ -36,7 +36,9 @@ const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositori
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
   ['schema-migration', ['schema-migration']],
-  ['remaining', ['queue', 'search', 'integration']],
+  ['queue', ['queue']],
+  ['search', ['search']],
+  ['integration', ['integration']],
 ]);
 const DB_LANES = new Set(CI_DB_LANE_GROUPS.keys());
 const CI_DB_COVERAGE_LANES = [...dbCoverageLaneDefinitions.laneOrder];

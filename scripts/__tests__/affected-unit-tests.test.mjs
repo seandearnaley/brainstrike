@@ -235,11 +235,9 @@ test('Turso profile-bootstrap docs track Turso provider repository coverage', ()
 test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
   assert.deepEqual(createDbLaneCommands('repository'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:repository']]]);
   assert.deepEqual(createDbLaneCommands('schema-migration'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:schema-migration']]]);
-  assert.deepEqual(createDbLaneCommands('remaining'), [
-    ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:queue']],
-    ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:search']],
-    ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:integration']],
-  ]);
+  assert.deepEqual(createDbLaneCommands('queue'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:queue']]]);
+  assert.deepEqual(createDbLaneCommands('search'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:search']]]);
+  assert.deepEqual(createDbLaneCommands('integration'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:integration']]]);
 });
 
 test('createDbCoverageLaneCommands maps DB coverage lanes to existing package scripts', () => {
@@ -258,6 +256,28 @@ test('CI DB lane groups cover every DB unit manifest lane exactly once', () => {
   assert.equal(new Set(ciManifestLanes).size, ciManifestLanes.length);
 });
 
+test('CI DB unit lanes run each manifest lane as its own shard', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+  const unitDbJob = extractWorkflowJob(workflow, 'unit-pr-db');
+
+  assert.deepEqual(
+    listCiDbLaneGroups().map((group) => [group.groupName, group.manifestLanes]),
+    [
+      ['repository', ['repository']],
+      ['schema-migration', ['schema-migration']],
+      ['queue', ['queue']],
+      ['search', ['search']],
+      ['integration', ['integration']],
+    ]
+  );
+  assert.throws(() => createDbLaneCommands('remaining'), /Unknown DB lane: remaining/);
+  assert.match(
+    unitDbJob,
+    /db-lane: \[repository, schema-migration, queue, search, integration\]/
+  );
+  assert.doesNotMatch(unitDbJob, /db-lane: \[repository, schema-migration, remaining\]/);
+});
+
 test('CI DB coverage lanes mirror the DB coverage manifest order', () => {
   assert.deepEqual(listCiDbCoverageLanes(), dbCoverageLaneDefinitions.laneOrder);
 });
@@ -269,7 +289,7 @@ test('narrow DB provider changes select only the owning DB unit and coverage lan
     'packages/db/src/db-provider.tsx',
   ];
 
-  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['remaining']);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['integration']);
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture']);
 });
 
@@ -297,7 +317,7 @@ test('Turso schema baseline internals select only the owning DB lanes', () => {
     'packages/db/src/turso/schema-ledger.ts',
   ];
 
-  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'remaining']);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'search']);
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories', 'search']);
 });
 
@@ -334,7 +354,7 @@ test('chunk embedding job batch private implementation selects only queue-owned 
     'packages/db/src/queue/chunk-embedding-job-batch-impl.ts',
   ];
 
-  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['remaining']);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['queue']);
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['queue']);
 });
 
@@ -398,13 +418,35 @@ test('narrow DB lane selections preserve workflow matrix order', () => {
     'packages/db/__tests__/turso-token-cache-store.test.ts',
   ];
 
-  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'remaining']);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'integration']);
 });
 
-test('runCommandSequence runs every DB sublane before returning failure', () => {
+test('runCommandSequence returns failure for a selected DB lane command', () => {
   const calls = [];
   const status = runCommandSequence(
-    createDbLaneCommands('remaining'),
+    createDbLaneCommands('queue'),
+    '/repo',
+    'linux',
+    (command, args) => {
+      calls.push([command, args]);
+      return { status: 1 };
+    }
+  );
+
+  assert.equal(status, 1);
+  assert.deepEqual(
+    calls.map(([, args]) => args.at(-1)),
+    ['test:db:queue']
+  );
+});
+
+test('runCommandSequence runs every command before returning failure', () => {
+  const calls = [];
+  const status = runCommandSequence(
+    [
+      ['first-command', ['first-arg']],
+      ['second-command', ['second-arg']],
+    ],
     '/repo',
     'linux',
     (command, args) => {
@@ -414,10 +456,10 @@ test('runCommandSequence runs every DB sublane before returning failure', () => 
   );
 
   assert.equal(status, 1);
-  assert.deepEqual(
-    calls.map(([, args]) => args.at(-1)),
-    ['test:db:queue', 'test:db:search', 'test:db:integration']
-  );
+  assert.deepEqual(calls, [
+    ['first-command', ['first-arg']],
+    ['second-command', ['second-arg']],
+  ]);
 });
 
 test('buildLanePackageNames rejects invalid lanes', () => {
