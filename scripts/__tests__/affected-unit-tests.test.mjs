@@ -164,15 +164,15 @@ test('DB repository-only changes stay on dedicated DB unit lanes', () => {
   assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
 });
 
-test('tested DB provider changes do not expand dependent package unit shards', () => {
+test('tested DB provider changes still expand dependent package unit shards', () => {
   const changedFiles = [
     'packages/db/__tests__/db-provider-initializing.test.tsx',
     'packages/db/src/db-provider.tsx',
     'packages/db/src/repositories/turso-file-record-repository.ts',
   ];
 
-  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), false);
-  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), true);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), true);
 });
 
 test('DB public API and migration changes still expand dependent unit packages', () => {

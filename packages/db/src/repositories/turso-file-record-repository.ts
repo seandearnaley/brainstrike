@@ -34,6 +34,12 @@ const ALLOWED_UPDATE_COLUMNS = new Map<keyof FileRecord, string>([
   ['chunksCount', 'chunks_count'],
   ['chunkingStrategy', 'chunking_strategy'],
 ]);
+const DATE_FIELDS = new Set<keyof FileRecord>([
+  'createdAt',
+  'updatedAt',
+  'processedAt',
+  'chunksProcessedAt',
+]);
 
 interface TursoFileRecordRow {
   readonly chunking_strategy: NonNullable<FileRecord['chunkingStrategy']> | null;
@@ -80,8 +86,8 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
         record.name,
         record.path,
         record.size,
-        record.createdAt,
-        record.updatedAt,
+        normalizeDateValue(record.createdAt, 'createdAt'),
+        normalizeDateValue(record.updatedAt, 'updatedAt'),
         record.tokenCount ?? null,
         record.embeddingSetId ?? null,
         record.chunksCount ?? null,
@@ -103,12 +109,12 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
         record.name,
         record.path,
         record.size,
-        record.createdAt,
-        record.updatedAt,
+        normalizeDateValue(record.createdAt, 'createdAt'),
+        normalizeDateValue(record.updatedAt, 'updatedAt'),
         record.content ?? null,
         record.contentHash ?? null,
         record.tokenCount ?? 0,
-        record.processedAt ?? null,
+        normalizeNullableDateValue(record.processedAt, 'processedAt'),
         record.embeddingSetId ?? null,
       ]
     );
@@ -256,7 +262,7 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
         continue;
       }
       assignments.push(`${column} = ?`);
-      params.push(value);
+      params.push(normalizeUpdateValue(field, value));
     }
 
     if (assignments.length === 0) {
@@ -328,8 +334,9 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
   }
 
   async clearAll(): Promise<number> {
-    const result = await this.db.query<{ id: string }>('DELETE FROM file_records RETURNING id');
-    return result.rows.length;
+    const deletedCount = await this.count();
+    await this.db.exec('DELETE FROM file_records');
+    return deletedCount;
   }
 
   private async processImportBatch(
@@ -436,12 +443,12 @@ async function insertFileRecordWithContent(
       record.name,
       record.path,
       record.size,
-      record.createdAt,
-      record.updatedAt,
+      normalizeDateValue(record.createdAt, 'createdAt'),
+      normalizeDateValue(record.updatedAt, 'updatedAt'),
       record.content ?? null,
       record.contentHash ?? null,
       record.tokenCount ?? 0,
-      record.processedAt ?? null,
+      normalizeNullableDateValue(record.processedAt, 'processedAt'),
       record.embeddingSetId ?? null,
     ]
   );
@@ -449,12 +456,12 @@ async function insertFileRecordWithContent(
 
 function rowToFileRecord(row: TursoFileRecordRow): FileRecord {
   const record: FileRecord = {
-    createdAt: normalizeDateString(row.created_at),
+    createdAt: normalizeDateValue(row.created_at, 'createdAt'),
     id: row.id,
     name: row.name,
     path: row.path,
     size: Number(row.size),
-    updatedAt: normalizeDateString(row.updated_at),
+    updatedAt: normalizeDateValue(row.updated_at, 'updatedAt'),
   };
   if (row.content !== null) {
     record.content = row.content;
@@ -466,13 +473,13 @@ function rowToFileRecord(row: TursoFileRecordRow): FileRecord {
     record.tokenCount = Number(row.token_count);
   }
   if (row.processed_at !== null) {
-    record.processedAt = normalizeDateString(row.processed_at);
+    record.processedAt = normalizeDateValue(row.processed_at, 'processedAt');
   }
   if (row.embedding_set_id !== null) {
     record.embeddingSetId = row.embedding_set_id;
   }
   if (row.chunks_processed_at !== null) {
-    record.chunksProcessedAt = normalizeDateString(row.chunks_processed_at);
+    record.chunksProcessedAt = normalizeDateValue(row.chunks_processed_at, 'chunksProcessedAt');
   }
   if (row.chunks_count !== null) {
     record.chunksCount = Number(row.chunks_count);
@@ -494,7 +501,7 @@ function rowToManagedCacheMetadata(row: ManagedCacheMetadataRow): ManagedCacheEn
   const metadata: ManagedCacheEntryMetadata = {
     chunksCount: row.chunks_count === null ? null : Number(row.chunks_count),
     chunksProcessedAt: row.chunks_processed_at
-      ? normalizeDateString(row.chunks_processed_at)
+      ? normalizeDateValue(row.chunks_processed_at, 'chunksProcessedAt')
       : null,
     contentHash: row.content_hash ?? '',
     embeddingSetId: row.embedding_set_id,
@@ -502,7 +509,7 @@ function rowToManagedCacheMetadata(row: ManagedCacheMetadataRow): ManagedCacheEn
     mtimeMs: row.mtime_ms === null ? null : Number(row.mtime_ms),
     relativePath: row.path,
     rootId: row.root_id,
-    updatedAt: normalizeDateString(row.updated_at),
+    updatedAt: normalizeDateValue(row.updated_at, 'updatedAt'),
   };
   if (row.size !== null) {
     metadata.size = Number(row.size);
@@ -510,8 +517,31 @@ function rowToManagedCacheMetadata(row: ManagedCacheMetadataRow): ManagedCacheEn
   return [metadata];
 }
 
-function normalizeDateString(value: string): string {
-  return new Date(value).toISOString();
+function normalizeUpdateValue(field: keyof FileRecordUpdate, value: unknown): unknown {
+  if (value === null) {
+    return null;
+  }
+  return DATE_FIELDS.has(field as keyof FileRecord)
+    ? normalizeDateValue(value, field as keyof FileRecord)
+    : value;
+}
+
+function normalizeNullableDateValue(
+  value: string | null | undefined,
+  field: keyof FileRecord
+): string | null {
+  return value === null || value === undefined ? null : normalizeDateValue(value, field);
+}
+
+function normalizeDateValue(value: unknown, field: keyof FileRecord): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid file record ${String(field)} date: ${String(value)}`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid file record ${String(field)} date: ${value}`);
+  }
+  return date.toISOString();
 }
 
 function assertNoFileRecordEmbedding(value: unknown): void {

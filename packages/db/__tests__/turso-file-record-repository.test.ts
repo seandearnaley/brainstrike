@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
@@ -77,6 +78,22 @@ describe('TursoFileRecordRepository', () => {
     });
   });
 
+  it('rejects invalid update dates before Turso can store unreadable rows', async () => {
+    const record = createRecord({ id: 'invalid-date-record' });
+    await repository.createWithContent(record);
+
+    await expect(
+      repository.update(record.id, {
+        updatedAt: 'not-a-date',
+      })
+    ).rejects.toThrow('Invalid file record updatedAt date: not-a-date');
+
+    await expect(repository.findById(record.id)).resolves.toMatchObject({
+      id: record.id,
+      updatedAt: record.updatedAt,
+    });
+  });
+
   it('lists and stamps managed-cache metadata by root identity', async () => {
     await seedRoot('root-a', 'Root A');
     const record = createRecord({
@@ -149,6 +166,28 @@ describe('TursoFileRecordRepository', () => {
     await expect(repository.findById('delete-me')).resolves.toBeNull();
     await expect(repository.clearAll()).resolves.toBe(1);
     await expect(repository.count()).resolves.toBe(0);
+  });
+
+  it('clears records without materializing deleted row ids', async () => {
+    const sqlCalls: string[] = [];
+    const fakeDb: BrainstrikeDbExecutionClient = {
+      exec: vi.fn(async (sql: string) => {
+        sqlCalls.push(sql);
+      }),
+      query: vi.fn(async (sql: string) => {
+        sqlCalls.push(sql);
+        return { rows: [{ count: 2 }] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('clearAll should not need a transaction.');
+      }),
+    };
+    const fakeRepository = new TursoFileRecordRepository(fakeDb);
+
+    await expect(fakeRepository.clearAll()).resolves.toBe(2);
+
+    expect(fakeDb.exec).toHaveBeenCalledWith('DELETE FROM file_records');
+    expect(sqlCalls.join('\n')).not.toContain('RETURNING');
   });
 
   async function seedRoot(id: string, displayName: string): Promise<void> {

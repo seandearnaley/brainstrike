@@ -473,12 +473,14 @@ describe('DbProvider initializing state', () => {
       () => {
         const db = usePGliteDatabase();
         const fileRecordRepository = useFileRecordRepository();
+        const chunkRepository = useFileChunkRepository();
         const initializationStatus = useDbInitializationStatus();
         const report = useProfileBootstrapReport();
         const presetsRepository = useViewFilterPresetsRepository();
         const tokenCacheStore = useTokenCacheStore();
         return {
           db,
+          chunkRepository,
           fileRecordRepository,
           initializationStatus,
           presetsRepository,
@@ -502,32 +504,9 @@ describe('DbProvider initializing state', () => {
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
-    expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
+    expect(result.current.fileRecordRepository).toBeNull();
+    expect(result.current.chunkRepository).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
-    if (!result.current.fileRecordRepository) {
-      throw new Error('Expected Turso file record repository.');
-    }
-    await result.current.fileRecordRepository.createWithContent({
-      content: 'hello',
-      contentHash: 'hash-file-1',
-      createdAt: '2026-06-22T19:00:00.000Z',
-      id: 'file-1',
-      name: 'readme.md',
-      path: 'src/readme.md',
-      processedAt: '2026-06-22T19:00:00.000Z',
-      size: 5,
-      tokenCount: 2,
-      updatedAt: '2026-06-22T19:00:00.000Z',
-    });
-    const [fileSql, fileParams] = exec.mock.calls[0] ?? [];
-    expect(fileSql).toContain('INSERT INTO file_records');
-    expect(fileSql).toContain('VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    expect(fileSql).not.toContain('$1');
-    expect(fileSql).not.toContain('::');
-    expect(fileParams).toEqual(
-      expect.arrayContaining(['file-1', 'readme.md', 'src/readme.md', 'hello', 'hash-file-1'])
-    );
-    exec.mockClear();
 
     if (!result.current.presetsRepository) {
       throw new Error('Expected Turso view filter presets repository.');
@@ -586,9 +565,11 @@ describe('DbProvider initializing state', () => {
       },
     ]);
 
-    const [transactionStatements, transactionResultIndex] = runTransaction.mock.calls[0] ?? [];
+    const [transactionStatements, transactionResultIndex, transactionWorkOptions] =
+      runTransaction.mock.calls[0] ?? [];
     expect(exec).not.toHaveBeenCalled();
     expect(transactionResultIndex).toBe(0);
+    expect(transactionWorkOptions).toMatchObject({ label: 'turso.transaction' });
     expect(transactionStatements).toEqual([
       expect.objectContaining({
         sql: expect.stringContaining('INSERT INTO file_token_cache'),
