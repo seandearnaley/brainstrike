@@ -59,11 +59,13 @@ export class TursoJobQueue {
       );
     }
 
-    const jobs = await this.db.transaction(async (tx) =>
-      enqueueJobs(tx, params, this.defaults.maxAttempts)
+    const result = await withTursoWriteRetry('enqueueBatch', async () =>
+      this.db.transaction(async (tx) => enqueueJobs(tx, params, this.defaults.maxAttempts))
     );
+    const { jobs } = result;
     if (jobs.length > 0) {
       logger.debug('Turso jobs enqueued in batch', { count: jobs.length });
+      emitEnqueueTelemetry(jobs, result.insertedJobIds);
     }
     return jobs;
   }
@@ -620,10 +622,11 @@ async function enqueueJobs(
   tx: BrainstrikeDbTransactionClient,
   params: EnqueueParams[],
   defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS
-): Promise<Job[]> {
+): Promise<EnqueueJobsResult> {
   const now = new Date().toISOString();
   const processedParams = processBatchParams(params, now);
   const jobs: Job[] = [];
+  const insertedJobIds = new Set<string>();
 
   for (const param of processedParams) {
     const runAt = param.runAt ?? now;
@@ -700,21 +703,16 @@ async function enqueueJobs(
     if (inserted.rows[0]) {
       const job = fromRow(inserted.rows[0]);
       jobs.push(job);
-      emitQueueTelemetry({
-        timestamp: Date.now(),
-        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
-        event: 'enqueue',
-        taskId: job.id,
-        metadata: {
-          queue: job.queue,
-          jobType: job.jobType,
-          dedupeKey: job.dedupe_key ?? undefined,
-        },
-      });
+      insertedJobIds.add(job.id);
     }
   }
 
-  return jobs;
+  return { insertedJobIds, jobs };
+}
+
+interface EnqueueJobsResult {
+  readonly insertedJobIds: ReadonlySet<string>;
+  readonly jobs: Job[];
 }
 
 function processBatchParams(params: EnqueueParams[], now: string): EnqueueParams[] {
@@ -830,6 +828,25 @@ function earlierIso(left: string, right: string): string {
 
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
+}
+
+function emitEnqueueTelemetry(jobs: readonly Job[], insertedJobIds: ReadonlySet<string>): void {
+  for (const job of jobs) {
+    if (!insertedJobIds.has(job.id)) {
+      continue;
+    }
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+      event: 'enqueue',
+      taskId: job.id,
+      metadata: {
+        queue: job.queue,
+        jobType: job.jobType,
+        dedupeKey: job.dedupe_key ?? undefined,
+      },
+    });
+  }
 }
 
 function emitCompleteTelemetry(jobs: Job[], updatedAt: string): void {

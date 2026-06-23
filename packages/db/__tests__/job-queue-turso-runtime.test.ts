@@ -379,6 +379,56 @@ describe('TursoJobQueue runtime operations', () => {
     }
   });
 
+  it('deduplicates concurrent same-key enqueue calls across owner clients without false telemetry', async () => {
+    const producerCount = 5;
+    const events: QueueTelemetryEvent[] = [];
+    const unsubscribe = addQueueTelemetryListener((event) => {
+      events.push(event);
+    });
+    const producerClients = await Promise.all(
+      Array.from({ length: producerCount }, () => createTursoOwnerClient({ dbPath }))
+    );
+
+    try {
+      const results = await Promise.allSettled(
+        producerClients.map((producerClient) =>
+          new TursoJobQueue(producerClient).enqueue({
+            queue: 'race',
+            jobType: 'embed_chunk',
+            payload: { chunkId: 'chunk-1', embeddingSetId },
+            dedupeKey: `chunk-1:${embeddingSetId}:hash`,
+          })
+        )
+      );
+
+      expect(results.map((result) => result.status)).toEqual(
+        Array.from({ length: producerCount }, () => 'fulfilled')
+      );
+      const jobs = results.map((result) => {
+        if (result.status !== 'fulfilled') {
+          throw new Error(`Expected enqueue to fulfill, got ${String(result.reason)}`);
+        }
+        return result.value;
+      });
+      expect(new Set(jobs.map((job) => job.id)).size).toBe(1);
+
+      await expect(queue.getCountsByState('race')).resolves.toEqual([
+        { queue: 'race', state: 'queued', count: 1 },
+      ]);
+      expect(events.filter((event) => event.event === 'enqueue')).toEqual([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            dedupeKey: `chunk-1:${embeddingSetId}:hash`,
+          }),
+          taskId: jobs[0]?.id,
+        }),
+      ]);
+    } finally {
+      unsubscribe();
+      await Promise.all(producerClients.map((producerClient) => producerClient.close()));
+    }
+  });
+
   it('clears selected Turso job states without touching other queues', async () => {
     await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
     await queue.enqueue({ queue: 'other', jobType: 'embed_chunk', payload: {} });
