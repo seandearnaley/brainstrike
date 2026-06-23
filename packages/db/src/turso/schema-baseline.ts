@@ -9,7 +9,8 @@ import {
 } from './schema-ledger.js';
 
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION = 1;
-export const TURSO_SCHEMA_BASELINE_VERSION = 2;
+export const TURSO_SCHEMA_BASELINE_V2_VERSION = 2;
+export const TURSO_SCHEMA_BASELINE_VERSION = 3;
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM =
   '8e9f598868dda50fb9f763c010bf74215cd51b305bfda68719dd6a12cf8587c7';
 
@@ -930,8 +931,26 @@ export const TURSO_SCHEMA_BASELINE_CHECKSUM = computeTursoSchemaChecksum([
   ...TURSO_SCHEMA_BASELINE_SEED_DML,
 ]);
 
-const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION = {
-  [TURSO_SCHEMA_BASELINE_VERSION]: [workspaceIndexSystemRoleIndexDdl, jobQueueActiveDedupeIndexDdl],
+const TURSO_SCHEMA_BASELINE_V2_DDL = TURSO_SCHEMA_BASELINE_DDL.filter(
+  (ddl) => ddl !== jobQueueActiveDedupeIndexDdl
+);
+
+export const TURSO_SCHEMA_BASELINE_V2_CHECKSUM = computeTursoSchemaChecksum([
+  ...TURSO_SCHEMA_BASELINE_V2_DDL,
+  ...TURSO_SCHEMA_BASELINE_SEED_DML,
+]);
+
+const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: [
+    workspaceIndexSystemRoleIndexDdl,
+    jobQueueActiveDedupeIndexDdl,
+  ],
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: [jobQueueActiveDedupeIndexDdl],
+} as const;
+
+const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
 } as const;
 
 export async function applyTursoSchemaBaseline(
@@ -943,6 +962,7 @@ export async function applyTursoSchemaBaseline(
     await ensureTursoSchemaLedger(tx);
     await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [
       TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+      TURSO_SCHEMA_BASELINE_V2_VERSION,
       TURSO_SCHEMA_BASELINE_VERSION,
     ]);
 
@@ -956,19 +976,22 @@ export async function applyTursoSchemaBaseline(
       return;
     }
 
-    const previousEntry = await readTursoSchemaLedgerEntry(
-      tx,
-      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION
-    );
-    if (previousEntry) {
-      if (previousEntry.checksum !== TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM) {
+    const upgradeVersions = [
+      TURSO_SCHEMA_BASELINE_V2_VERSION,
+      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+    ] as const;
+    for (const upgradeVersion of upgradeVersions) {
+      const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
+      if (!previousEntry) {
+        continue;
+      }
+      const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[upgradeVersion];
+      if (previousEntry.checksum !== expectedChecksum) {
         throw new Error(
-          `Turso schema baseline ${TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION} checksum mismatch: expected ${TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM}, found ${previousEntry.checksum}.`
+          `Turso schema baseline ${upgradeVersion} checksum mismatch: expected ${expectedChecksum}, found ${previousEntry.checksum}.`
         );
       }
-      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION[
-        TURSO_SCHEMA_BASELINE_VERSION
-      ]) {
+      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
         await tx.exec(ddl);
       }
       await recordTursoSchemaLedgerEntry(tx, {

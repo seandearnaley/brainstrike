@@ -347,6 +347,53 @@ describe('Turso schema baseline', () => {
     });
   });
 
+  it('upgrades an existing v2 Turso schema ledger with the previous checksum to the current baseline', async () => {
+    const oldV2BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
+      (ddl) => !ddl.includes('idx_job_queue_dedupe_active')
+    );
+    const oldV2Checksum = computeTursoSchemaChecksum([
+      ...oldV2BaselineDdl,
+      ...TURSO_SCHEMA_BASELINE_SEED_DML,
+    ]);
+    for (const ddl of oldV2BaselineDdl) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [2, oldV2Checksum, '2026-06-22T12:00:00.000Z']
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('job_queue')).resolves.toEqual(
+      expect.arrayContaining(['idx_job_queue_dedupe_active'])
+    );
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: oldV2Checksum,
+          version: 2,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,
