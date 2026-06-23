@@ -1,4 +1,6 @@
 import {
+  type DrizzleFileChunkRepository,
+  type ElectronFileChunkRepository,
   type EmbeddingSet,
   refreshCollectionIndexingStats,
   useBrainstrikeDbClient,
@@ -74,7 +76,6 @@ import {
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
-import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 
 interface DatabaseDemoPanelProps {
@@ -142,6 +143,21 @@ declare global {
 
 const logger = createLogger('DatabaseDemoPanel');
 
+function isTursoFileChunkRepository(
+  repository: ReturnType<typeof useFileChunkRepository>
+): boolean {
+  return repository?.constructor.name === 'TursoFileChunkRepository';
+}
+
+function toSemanticSearchChunkRepository(
+  repository: ReturnType<typeof useFileChunkRepository>
+): DrizzleFileChunkRepository | ElectronFileChunkRepository | null {
+  if (!repository || isTursoFileChunkRepository(repository)) {
+    return null;
+  }
+  return repository as DrizzleFileChunkRepository | ElectronFileChunkRepository;
+}
+
 function DatabaseDemoSemanticSearchTestHookBridge() {
   const { error, hasSearched, isSearching, searchResults } = useSemanticSearch();
 
@@ -173,6 +189,9 @@ function DatabaseDemoSemanticSearchTestHookBridge() {
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbChunkRepository = useFileChunkRepository();
+  const semanticSearchChunkRepository = useMemo<
+    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
+  >(() => toSemanticSearchChunkRepository(dbChunkRepository), [dbChunkRepository]);
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();
@@ -213,7 +232,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       (activeCollection?.systemRole === 'workspace-index' ||
         activeCollectionId === managedCollectionId)
   );
-  const manualImportStorageUnavailable = !(dbContext && repository && dbChunkRepository);
+  const tursoChunkRepository = isTursoFileChunkRepository(dbChunkRepository);
+  const supportsPGliteCollectionQueries = !tursoChunkRepository;
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -243,8 +263,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
-  const [chunkRepository, setChunkRepository] =
-    useState<UseImportFlowResult['chunkRepository']>(null);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
@@ -253,7 +271,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const data = useDatabaseDemoData({
     repository,
-    chunkRepository,
+    chunkRepository: dbChunkRepository,
     toast,
     database: dbContext,
     activeCollectionId,
@@ -261,6 +279,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     isEmbeddingActive,
     recordPage,
     recordPageSize,
+    supportsPGliteCollectionQueries,
   });
   const {
     collectionCounts,
@@ -301,7 +320,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Use dbChunkRepository (from hook) which is always available when DB is ready,
   // rather than chunkRepository (from import flow) which requires import to be triggered
   const semanticSearchExecutor = useSemanticSearchExecutor({
-    chunkRepository: dbChunkRepository,
+    chunkRepository: semanticSearchChunkRepository,
     fileRepository: repository,
   });
 
@@ -356,10 +375,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     importSettings: importFlowSettings,
     toast,
     onImportComplete: handleImportComplete,
-    onChunkRepositoryChange: setChunkRepository,
     embeddingQueue,
     resolveActiveCollectionId,
   });
+  const manualImportStorageUnavailable = !(
+    dbContext &&
+    repository &&
+    importFlow.chunkRepository &&
+    !tursoChunkRepository
+  );
 
   // Sync import state to Zustand store to pause live queries during bulk operations
   // This prevents O(n²) performance degradation from live queries firing on every DB mutation

@@ -1,9 +1,6 @@
-import type {
-  ChunkingStrategy,
-  DrizzleFileChunkRepository,
-  ElectronFileChunkRepository,
-} from '@brainstrike/db';
+import type { ChunkingStrategy } from '@brainstrike/db';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
+import type { FileImportChunkRepository } from '@brainstrike/file-import';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,16 +19,14 @@ export interface UseImportFlowOptions {
     tokenTrueSizing: boolean;
     chunkTokenLimit: number;
   };
-  onChunkRepositoryChange?: (
-    repository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null
-  ) => void;
+  onChunkRepositoryChange?: (repository: FileImportChunkRepository | null) => void;
   onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   resolveActiveCollectionId?: () => string | null;
   toast: ReturnType<typeof useToast>['toast'];
 }
 
 export interface UseImportFlowResult {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: FileImportChunkRepository | null;
   handleCancelImport: () => void;
   handleImportClick: () => void;
   isCancelling: boolean;

@@ -71,6 +71,13 @@ const mockChunkRepository = {
   searchSimilar: vi.fn(),
 };
 
+class TursoFileChunkRepository {
+  findAll = vi.fn();
+  findByFileRecordId = vi.fn();
+  findById = vi.fn();
+  searchSimilar = vi.fn();
+}
+
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
@@ -794,6 +801,19 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when database or chunk storage is unavailable', async () => {
       mockDatabaseClient = null;
       mockCurrentChunkRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import for Turso chunk storage until the import path is migrated', async () => {
+      mockCurrentChunkRepository =
+        new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
 
       renderWithProviders(<DatabaseDemoPanel />);
 

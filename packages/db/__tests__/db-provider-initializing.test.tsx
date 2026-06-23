@@ -389,7 +389,27 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories', async () => {
+  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose the execution surface plus migrated repositories', async () => {
+    let createdChunk: {
+      chunk_index: number;
+      chunk_size: number | null;
+      chunk_type: string | null;
+      content: string;
+      content_hash: string | null;
+      created_at: string;
+      embedding: null;
+      embedding_hash: null;
+      embedding_set_id: null;
+      embedding_updated_at: null;
+      end_line: number | null;
+      end_offset: number | null;
+      file_record_id: string;
+      id: string;
+      start_line: number | null;
+      start_offset: number | null;
+      token_count: number | null;
+      updated_at: string;
+    } | null = null;
     let createdPresetId: string | null = null;
     let createdEmbeddingSetId: string | null = null;
     let createdFileRecord: {
@@ -404,7 +424,10 @@ describe('DbProvider initializing state', () => {
       token_count: number | null;
       updated_at: string;
     } | null = null;
-    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    const query = vi.fn(async (sql: string, params?: unknown[], _options?: unknown) => {
+      if (sql === 'SELECT 1 AS ok') {
+        return { rows: [{ ok: 1 }] };
+      }
       if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         throw new Error('pgvector probe should not run for Turso IPC runtime');
       }
@@ -420,6 +443,32 @@ describe('DbProvider initializing state', () => {
             },
           ],
         };
+      }
+      if (sql.includes('INSERT INTO file_chunks')) {
+        createdChunk = {
+          chunk_index: Number(params?.[2]),
+          chunk_size: typeof params?.[7] === 'number' ? params[7] : null,
+          chunk_type: typeof params?.[6] === 'string' ? params[6] : null,
+          content: String(params?.[3]),
+          content_hash: typeof params?.[4] === 'string' ? params[4] : null,
+          created_at: String(params?.[16]),
+          embedding: null,
+          embedding_hash: null,
+          embedding_set_id: null,
+          embedding_updated_at: null,
+          end_line: typeof params?.[9] === 'number' ? params[9] : null,
+          end_offset: typeof params?.[11] === 'number' ? params[11] : null,
+          file_record_id: String(params?.[1]),
+          id: String(params?.[0]),
+          start_line: typeof params?.[8] === 'number' ? params[8] : null,
+          start_offset: typeof params?.[10] === 'number' ? params[10] : null,
+          token_count: typeof params?.[5] === 'number' ? params[5] : null,
+          updated_at: String(params?.[17]),
+        };
+        return { rows: [createdChunk] };
+      }
+      if (sql.includes('FROM file_chunks') && sql.includes('WHERE id = ?') && createdChunk) {
+        return { rows: [createdChunk] };
       }
       if (sql.includes('MAX(sort_order)')) {
         return { rows: [{ max_sort: 7 }] };
@@ -471,7 +520,7 @@ describe('DbProvider initializing state', () => {
       }
       return { rows: [] };
     });
-    const exec = vi.fn(async (sql: string, params?: unknown[]) => {
+    const exec = vi.fn(async (sql: string, params?: unknown[], _options?: unknown) => {
       if (sql.includes('view_filter_presets')) {
         createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
       }
@@ -503,6 +552,14 @@ describe('DbProvider initializing state', () => {
         }
         return { rows: [] };
       }
+    );
+    const transaction = vi.fn(
+      async (
+        callback: (tx: {
+          exec: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+          query: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+        }) => Promise<unknown>
+      ) => await callback({ exec, query })
     );
     const profileBootstrapReport = {
       checks: [],
@@ -546,6 +603,7 @@ describe('DbProvider initializing state', () => {
       exec,
       query,
       runTransaction,
+      transaction,
       test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
     });
 
@@ -582,7 +640,7 @@ describe('DbProvider initializing state', () => {
 
     expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
     expect(diagnostics).not.toHaveBeenCalled();
-    expect(result.current.db).toBeNull();
+    expect(result.current.db).toBeTruthy();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
@@ -590,8 +648,67 @@ describe('DbProvider initializing state', () => {
       'TursoEmbeddingSetsRepository'
     );
     expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
-    expect(result.current.chunkRepository).toBeNull();
+    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+
+    if (!result.current.db) {
+      throw new Error('Expected Turso execution database handle.');
+    }
+    await result.current.db.query('SELECT 1 AS ok', [], { label: 'provider test' });
+    expect(query).toHaveBeenLastCalledWith('SELECT 1 AS ok', [], { label: 'provider test' });
+    await result.current.db.exec?.('DELETE FROM scratch WHERE id = ?', ['scratch-1'], {
+      label: 'provider exec',
+    });
+    expect(exec).toHaveBeenLastCalledWith('DELETE FROM scratch WHERE id = ?', ['scratch-1'], {
+      label: 'provider exec',
+    });
+    expect(result.current.db.transaction).toBeUndefined();
+    expect(runTransaction).not.toHaveBeenCalled();
+    query.mockClear();
+    exec.mockClear();
+    runTransaction.mockClear();
+    transaction.mockClear();
+
+    if (!result.current.chunkRepository) {
+      throw new Error('Expected Turso file chunk repository.');
+    }
+    await expect(
+      result.current.chunkRepository.insertMany([
+        {
+          chunkIndex: 0,
+          chunkSize: 11,
+          chunkType: 'text',
+          content: 'hello turso',
+          contentHash: 'chunk-hash-1',
+          createdAt: '2026-06-22T19:00:00.000Z',
+          fileRecordId: 'file-1',
+          id: 'chunk-1',
+          tokenCount: 2,
+          updatedAt: '2026-06-22T19:00:00.000Z',
+        },
+      ])
+    ).resolves.toEqual([
+      expect.objectContaining({
+        chunkIndex: 0,
+        content: 'hello turso',
+        contentHash: 'chunk-hash-1',
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+      }),
+    ]);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[0]).toContain('INSERT INTO file_chunks');
+    expect(query.mock.calls[0]?.[0]).not.toContain('::');
+    await expect(result.current.chunkRepository.findById('chunk-1')).resolves.toMatchObject({
+      content: 'hello turso',
+      contentHash: 'chunk-hash-1',
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+    });
+    await expect(result.current.chunkRepository.searchSimilar([0.1, 0.2, 0.3])).rejects.toThrow(
+      'TursoFileChunkRepository.searchSimilar requires the Turso vector search slice.'
+    );
+    query.mockClear();
 
     if (!result.current.fileRecordRepository) {
       throw new Error('Expected Turso file record repository.');
@@ -729,6 +846,126 @@ describe('DbProvider initializing state', () => {
       runtime: { engine: 'turso' },
       search: { ownershipMode: 'split-search-index-store' },
     });
+  });
+
+  it('does not expose the Turso file chunk repository without callback transaction support', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === 'SELECT 1 AS ok') {
+        return { rows: [{ ok: 1 }] };
+      }
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run for Turso IPC runtime');
+      }
+      return { rows: [] };
+    });
+    const profileBootstrapReport = {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'split search store required',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-22T19:00:00.000Z',
+      updatedAt: '2026-06-22T19:00:01.000Z',
+    } as const;
+    setWindowElectronDbBridge({
+      exec: vi.fn(async () => {}),
+      query,
+      runTransaction: vi.fn(async () => ({ rows: [] })),
+      test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        chunkRepository: useFileChunkRepository(),
+        db: usePGliteDatabase(),
+        initializationStatus: useDbInitializationStatus(),
+        tokenCacheStore: useTokenCacheStore(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.db).toBeTruthy();
+    expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+    expect(result.current.chunkRepository).toBeNull();
+  });
+
+  it('does not expose the Turso file chunk repository when callback transaction lacks exec support', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === 'SELECT 1 AS ok') {
+        return { rows: [{ ok: 1 }] };
+      }
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run for Turso IPC runtime');
+      }
+      return { rows: [] };
+    });
+    const profileBootstrapReport = {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'split search store required',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-22T19:00:00.000Z',
+      updatedAt: '2026-06-22T19:00:01.000Z',
+    } as const;
+    const transaction = vi.fn(
+      async (callback: (tx: { query: typeof query }) => Promise<unknown>) =>
+        await callback({ query })
+    );
+    setWindowElectronDbBridge({
+      exec: vi.fn(async () => {}),
+      query,
+      runTransaction: vi.fn(async () => ({ rows: [] })),
+      test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
+      transaction,
+    });
+
+    const { result } = renderHook(
+      () => ({
+        chunkRepository: useFileChunkRepository(),
+        initializationStatus: useDbInitializationStatus(),
+        tokenCacheStore: useTokenCacheStore(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(transaction).toHaveBeenCalled();
+    expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+    expect(result.current.chunkRepository).toBeNull();
   });
 
   it('fails closed instead of falling back to direct PGlite when Electron IPC is required but missing', async () => {

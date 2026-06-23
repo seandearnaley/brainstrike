@@ -52,6 +52,7 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
+import type { TursoFileChunkRepository } from './repositories/turso-file-chunk-repository.js';
 import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
@@ -144,6 +145,11 @@ async function loadTursoFileRecordRepository() {
   return mod.TursoFileRecordRepository;
 }
 
+async function loadTursoFileChunkRepository() {
+  const mod = await import('./repositories/turso-file-chunk-repository.js');
+  return mod.TursoFileChunkRepository;
+}
+
 async function loadTursoTokenCacheStore() {
   const mod = await import('./repositories/turso-token-cache-store.js');
   return mod.TursoTokenCacheStore;
@@ -206,7 +212,11 @@ type TokenCacheStoreRepo = import('./repositories/turso-token-cache-store.js').T
 export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
 
 interface DbContextValue {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository:
+    | DrizzleFileChunkRepository
+    | ElectronFileChunkRepository
+    | TursoFileChunkRepository
+    | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
   db: DbHandle | null;
@@ -358,7 +368,15 @@ function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
     return false;
   }
   const priority = (value as { readonly priority?: unknown }).priority;
-  return priority === 'foreground' || priority === 'normal' || priority === 'background';
+  const label = (value as { readonly label?: unknown }).label;
+  return (
+    (priority === undefined ||
+      priority === 'foreground' ||
+      priority === 'normal' ||
+      priority === 'background') &&
+    (label === undefined || typeof label === 'string') &&
+    (priority !== undefined || label !== undefined)
+  );
 }
 
 function splitExposedDatabaseWorkOptions(
@@ -467,6 +485,20 @@ function getElectronDatabaseBridge(): ElectronDatabaseAPI | null {
     return null;
   }
   return window.electronAPI?.db ?? null;
+}
+
+function getRequiredElectronDatabaseBridge(
+  publishDbProviderBootstrapReport: (input: {
+    readonly checks: readonly ProfileBootstrapCheck[];
+    readonly phase: ProfileBootstrapPhase;
+  }) => void
+): ElectronDatabaseAPI {
+  const electronDB = getElectronDatabaseBridge();
+  if (!electronDB) {
+    publishDbProviderBootstrapReport(createMissingElectronBridgeBootstrapReportInput());
+    throw new Error(ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE);
+  }
+  return electronDB;
 }
 
 function createMissingElectronBridgeBootstrapReportInput(): {
@@ -633,12 +665,25 @@ async function createElectronTursoViewFilterPresetsRepository(
   };
 }
 
+interface ElectronTursoRuntimeRepositories {
+  readonly embeddingSetsRepository: EmbeddingSetsRepo;
+  readonly fileChunkRepository: TursoFileChunkRepository | null;
+  readonly fileRecordRepository: FileRecordRepo;
+  readonly report: ProfileBootstrapReport;
+  readonly tokenCacheStore: TokenCacheStoreRepo;
+  readonly viewFilterPresetsRepository: ViewFilterPresetsRepo;
+}
+
 interface ElectronTursoRepositoryDb {
+  readonly callbackTransaction?: <T>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<T>
+  ) => Promise<T>;
   readonly exec: (
     sql: string,
     params?: readonly unknown[],
     options?: DatabaseWorkOptions
   ) => Promise<void>;
+  readonly hasCallbackTransactionCapability?: boolean;
   readonly query: <T = unknown>(
     sql: string,
     params?: readonly unknown[],
@@ -649,6 +694,101 @@ interface ElectronTursoRepositoryDb {
     resultIndex: number,
     options?: DatabaseWorkOptions
   ) => Promise<{ rows: unknown[] }>;
+  readonly transaction?: (
+    statements: { params?: unknown[]; sql: string }[],
+    resultIndex: number
+  ) => Promise<{ rows: unknown[] }>;
+}
+
+interface ElectronTursoCallbackTransactionClient {
+  readonly exec?: (
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
+  readonly query: <TRecord = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: TRecord[] }>;
+}
+
+type ElectronTursoCallbackTransaction = <T>(
+  callback: (tx: ElectronTursoCallbackTransactionClient) => Promise<T>
+) => Promise<T>;
+
+function createElectronTursoRepositoryDb(
+  electronDB: ElectronDatabaseAPI,
+  electronExec: NonNullable<ElectronDatabaseAPI['exec']>,
+  electronRunTransaction: ElectronDatabaseAPI['runTransaction'],
+  electronTransaction: ElectronTursoCallbackTransaction | undefined
+): ElectronTursoRepositoryDb {
+  return {
+    ...(electronTransaction
+      ? {
+          callbackTransaction: async <T,>(
+            callback: (tx: BrainstrikeDbTransactionClient) => Promise<T>
+          ): Promise<T> =>
+            await electronTransaction(async (tx) => {
+              const transactionExec = tx.exec;
+              if (typeof transactionExec !== 'function') {
+                throw new Error('Desktop Turso callback transaction exec is unavailable.');
+              }
+              return callback({
+                exec: async (sql, params, options) => {
+                  await transactionExec(sql, params ? [...params] : undefined, options);
+                },
+                query: async (sql, params, options) =>
+                  await tx.query(sql, params ? [...params] : undefined, options),
+              });
+            }),
+        }
+      : {}),
+    exec: async (sql, params, options) => {
+      await electronExec(sql, params ? [...params] : undefined, options);
+    },
+    query: async (sql, params, options) =>
+      await electronDB.query(sql, params ? [...params] : undefined, options),
+    ...(electronRunTransaction
+      ? {
+          runTransaction: electronRunTransaction,
+          transaction: (statements: { params?: unknown[]; sql: string }[], resultIndex: number) =>
+            electronRunTransaction(statements, resultIndex),
+        }
+      : {}),
+  };
+}
+
+async function probeElectronTursoCallbackTransaction(
+  repositoryDb: ElectronTursoRepositoryDb
+): Promise<ElectronTursoRepositoryDb> {
+  const callbackTransaction = repositoryDb.callbackTransaction;
+  if (!callbackTransaction) {
+    return repositoryDb;
+  }
+
+  let hasCallbackTransactionCapability = false;
+  try {
+    hasCallbackTransactionCapability = await callbackTransaction(async (tx) => {
+      if (typeof tx.query !== 'function' || typeof tx.exec !== 'function') {
+        return false;
+      }
+      const result = await tx.query<{ ok: number | string }>('SELECT 1 AS ok');
+      return result.rows[0]?.ok === 1 || result.rows[0]?.ok === '1';
+    });
+  } catch {
+    hasCallbackTransactionCapability = false;
+  }
+  if (!hasCallbackTransactionCapability) {
+    return {
+      ...repositoryDb,
+      hasCallbackTransactionCapability: false,
+    };
+  }
+  return {
+    ...repositoryDb,
+    hasCallbackTransactionCapability,
+  };
 }
 
 function createElectronTursoExecutionClient(
@@ -693,6 +833,70 @@ function createElectronTursoExecutionClient(
   };
 }
 
+function hasElectronTursoCallbackTransaction(
+  repositoryDb: ElectronTursoRepositoryDb
+): repositoryDb is ElectronTursoRepositoryDb & {
+  readonly callbackTransaction: <T>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<T>
+  ) => Promise<T>;
+} {
+  return (
+    repositoryDb.hasCallbackTransactionCapability === true &&
+    typeof repositoryDb.callbackTransaction === 'function'
+  );
+}
+
+function createElectronTursoCallbackExecutionClient(
+  repositoryDb: ElectronTursoRepositoryDb & {
+    readonly callbackTransaction: <T>(
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<T>
+    ) => Promise<T>;
+  }
+): BrainstrikeDbExecutionClient {
+  return {
+    exec: repositoryDb.exec,
+    query: repositoryDb.query,
+    transaction: repositoryDb.callbackTransaction,
+  };
+}
+
+async function createElectronTursoRuntimeRepositories(
+  bootstrapReport: DatabaseProfileBootstrapReportSnapshot | null | undefined,
+  repositoryDb: ElectronTursoRepositoryDb
+): Promise<ElectronTursoRuntimeRepositories | null> {
+  const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
+    bootstrapReport,
+    repositoryDb
+  );
+  if (!tursoViewFilterPresets) {
+    return null;
+  }
+
+  const [TursoEmbeddingSetsRepo, TursoFileRecordRepo, TursoFileChunkRepo, TursoTokenCacheStore] =
+    await Promise.all([
+      loadTursoEmbeddingSetsRepository(),
+      loadTursoFileRecordRepository(),
+      hasElectronTursoCallbackTransaction(repositoryDb)
+        ? loadTursoFileChunkRepository()
+        : Promise.resolve(null),
+      loadTursoTokenCacheStore(),
+    ]);
+  const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
+  const fileChunkRepository =
+    TursoFileChunkRepo && hasElectronTursoCallbackTransaction(repositoryDb)
+      ? new TursoFileChunkRepo(createElectronTursoCallbackExecutionClient(repositoryDb))
+      : null;
+
+  return {
+    embeddingSetsRepository: new TursoEmbeddingSetsRepo(tursoExecutionClient),
+    fileChunkRepository,
+    fileRecordRepository: new TursoFileRecordRepo(tursoExecutionClient),
+    report: tursoViewFilterPresets.report,
+    tokenCacheStore: new TursoTokenCacheStore(tursoExecutionClient),
+    viewFilterPresetsRepository: tursoViewFilterPresets.repository,
+  };
+}
+
 async function probeElectronPGliteVectorExtension(
   electronDB: ElectronDatabaseAPI,
   diagnostics: DatabaseDiagnosticsSnapshot | null
@@ -719,6 +923,35 @@ async function probeElectronPGliteVectorExtension(
   }
 }
 
+async function assertElectronPGliteVectorAvailable(
+  electronDB: ElectronDatabaseAPI,
+  publishDbProviderBootstrapReport: (input: {
+    readonly checks: readonly ProfileBootstrapCheck[];
+    readonly phase: ProfileBootstrapPhase;
+  }) => void
+): Promise<true> {
+  const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, null);
+  if (vectorProbe.hasVector) {
+    return true;
+  }
+
+  const pgliteDiagnostics = vectorProbe.diagnostics ?? (await getElectronDiagnostics(electronDB));
+  publishDbProviderBootstrapReport({
+    checks: createDbProviderBootstrapChecks({
+      schemaMigrated: 'passed',
+      storeOpen: 'passed',
+      vectorExtension: 'failed',
+    }),
+    phase: 'probing-capabilities',
+  });
+  logger.error('Desktop database initialization missing pgvector extension', {
+    diagnostics: pgliteDiagnostics,
+  });
+  throw new Error(
+    formatDesktopDatabaseInitError(pgliteDiagnostics, 'Desktop database failed to initialize.')
+  );
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const bootstrapRuntime = useMemo(
@@ -735,7 +968,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const profileBootstrapReportRef = useRef(profileBootstrapReport);
   const [fileRecordRepository, setFileRecordRepository] = useState<FileRecordRepo | null>(null);
   const [chunkRepository, setChunkRepository] = useState<
-    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
+    DrizzleFileChunkRepository | ElectronFileChunkRepository | TursoFileChunkRepository | null
   >(null);
   const [embeddingSetsRepository, setEmbeddingSetsRepository] = useState<EmbeddingSetsRepo | null>(
     null
@@ -808,80 +1041,73 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         return false;
       }
 
-      const electronDB = getElectronDatabaseBridge();
-      if (!electronDB) {
-        publishDbProviderBootstrapReport(createMissingElectronBridgeBootstrapReportInput());
-        throw new Error(ELECTRON_IPC_BRIDGE_UNAVAILABLE_MESSAGE);
-      }
+      const electronDB = getRequiredElectronDatabaseBridge(publishDbProviderBootstrapReport);
 
       logger.debug('Using Electron IPC database connection');
 
       const testResult = await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
       const electronRunTransaction = electronDB.runTransaction;
+      const electronTransaction = (
+        electronDB as ElectronDatabaseAPI & {
+          readonly transaction?: ElectronTursoCallbackTransaction;
+        }
+      ).transaction;
 
       if (!electronExec) {
         throw new Error('Electron database exec operation is unavailable over IPC');
       }
 
-      const repositoryDb = {
-        query: async <T = unknown>(
-          sql: string,
-          params?: readonly unknown[],
-          options?: DatabaseWorkOptions
-        ) => await electronDB.query<T>(sql, params ? [...params] : undefined, options),
-        exec: async (sql: string, params?: readonly unknown[], options?: DatabaseWorkOptions) => {
-          await electronExec(sql, params ? [...params] : undefined, options);
-        },
-        // Atomic transaction primitive (#1141): existing Electron repositories
-        // consume `transaction`; Turso token-cache consumes `runTransaction`.
-        ...(electronRunTransaction
-          ? {
-              runTransaction: electronRunTransaction,
-              transaction: (
-                statements: { params?: unknown[]; sql: string }[],
-                resultIndex: number
-              ) => electronRunTransaction(statements, resultIndex),
-            }
-          : {}),
-      };
+      const repositoryDb = await probeElectronTursoCallbackTransaction(
+        createElectronTursoRepositoryDb(
+          electronDB,
+          electronExec,
+          electronRunTransaction,
+          electronTransaction
+        )
+      );
 
-      const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
+      const tursoRepositories = await createElectronTursoRuntimeRepositories(
         testResult?.profileBootstrapReport,
         repositoryDb
       );
-      if (tursoViewFilterPresets) {
+      if (tursoRepositories) {
         if (!cancelled.value) {
-          const [TursoEmbeddingSetsRepo, TursoFileRecordRepo, TursoTokenCacheStore] =
-            await Promise.all([
-              loadTursoEmbeddingSetsRepository(),
-              loadTursoFileRecordRepository(),
-              loadTursoTokenCacheStore(),
-            ]);
-          const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
-          const tursoEmbeddingSetsRepository = new TursoEmbeddingSetsRepo(tursoExecutionClient);
-          const tursoFileRecordRepository = new TursoFileRecordRepo(tursoExecutionClient);
-          logger.warn(
-            'Desktop Turso DB provider initialized with remaining partial repository coverage',
-            {
-              migratedRepositories: [
-                'embedding_sets',
-                'file_records',
-                'file_token_cache',
-                'view_filter_presets',
-              ],
-              unavailableRepositories: ['file_chunks'],
-            }
-          );
+          logger.info('Desktop Turso DB provider initialized with migrated repository coverage', {
+            migratedRepositories: [
+              'embedding_sets',
+              ...(tursoRepositories.fileChunkRepository ? ['file_chunks'] : []),
+              'file_records',
+              'file_token_cache',
+              'view_filter_presets',
+            ],
+            unavailableRepositories: tursoRepositories.fileChunkRepository ? [] : ['file_chunks'],
+          });
           connectionRef.current = { kind: 'ipc', bridge: electronDB };
-          setExposedDb(null);
-          setFileRecordRepository(tursoFileRecordRepository);
-          setChunkRepository(null);
-          setEmbeddingSetsRepository(tursoEmbeddingSetsRepository);
-          setViewFilterPresetsRepository(tursoViewFilterPresets.repository);
-          setTokenCacheStore(new TursoTokenCacheStore(tursoExecutionClient));
+          setExposedDb(
+            createDbHandle({
+              exec: async (sql, params, options) => {
+                await repositoryDb.exec(
+                  sql,
+                  params,
+                  isDatabaseWorkOptions(options) ? options : undefined
+                );
+              },
+              query: async (sql, params, options) =>
+                await repositoryDb.query(
+                  sql,
+                  params,
+                  isDatabaseWorkOptions(options) ? options : undefined
+                ),
+            })
+          );
+          setFileRecordRepository(tursoRepositories.fileRecordRepository);
+          setChunkRepository(tursoRepositories.fileChunkRepository);
+          setEmbeddingSetsRepository(tursoRepositories.embeddingSetsRepository);
+          setViewFilterPresetsRepository(tursoRepositories.viewFilterPresetsRepository);
+          setTokenCacheStore(tursoRepositories.tokenCacheStore);
           setVectorEnabled(false);
-          publishProfileBootstrapReport(tursoViewFilterPresets.report);
+          publishProfileBootstrapReport(tursoRepositories.report);
           setError(null);
           setReady(true);
         }
@@ -898,32 +1124,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         }),
         phase: 'probing-capabilities',
       });
-      // Detect pgvector extension availability over IPC
-      const vectorProbe = await probeElectronPGliteVectorExtension(electronDB, null);
-      const hasVector = vectorProbe.hasVector;
-      let pgliteDiagnostics = vectorProbe.diagnostics;
-      if (!hasVector) {
-        if (!pgliteDiagnostics) {
-          pgliteDiagnostics = await getElectronDiagnostics(electronDB);
-        }
-        publishDbProviderBootstrapReport({
-          checks: createDbProviderBootstrapChecks({
-            schemaMigrated: 'passed',
-            storeOpen: 'passed',
-            vectorExtension: 'failed',
-          }),
-          phase: 'probing-capabilities',
-        });
-        logger.error('Desktop database initialization missing pgvector extension', {
-          diagnostics: pgliteDiagnostics,
-        });
-        throw new Error(
-          formatDesktopDatabaseInitError(
-            pgliteDiagnostics,
-            'Desktop database failed to initialize.'
-          )
-        );
-      }
+      const hasVector = await assertElectronPGliteVectorAvailable(
+        electronDB,
+        publishDbProviderBootstrapReport
+      );
       const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
 
       // Dynamic import via module-level helpers (avoids import() in component scope)
@@ -1703,6 +1907,7 @@ export function useDbProviderError(): Error | null {
 export function useFileChunkRepository():
   | DrizzleFileChunkRepository
   | ElectronFileChunkRepository
+  | TursoFileChunkRepository
   | null {
   const ctx = useContext(DbContext);
 

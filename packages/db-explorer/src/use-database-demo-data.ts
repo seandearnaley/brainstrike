@@ -1,8 +1,6 @@
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DbHandle,
-  type DrizzleFileChunkRepository,
-  type ElectronFileChunkRepository,
   type FileChunk,
   type FileRecord,
   type IFileRecordRepository,
@@ -64,9 +62,14 @@ export interface DatabaseInfo {
   testResult: string;
 }
 
+interface DatabaseDemoChunkRepository {
+  readonly findByFileRecordId?: (fileRecordId: string) => Promise<FileChunk[]>;
+  readonly findById?: (chunkId: string) => Promise<FileChunk | null>;
+}
+
 export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
-  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository?: DatabaseDemoChunkRepository | null;
   database?: DbHandle | null;
   /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;
@@ -77,6 +80,8 @@ export interface UseDatabaseDemoDataOptions {
   /** Bounded page size for the active collection file list. */
   recordPageSize?: number;
   repository: IFileRecordRepository | null;
+  /** False when the current DB surface cannot execute the PGlite/Postgres collection-browser SQL. */
+  supportsPGliteCollectionQueries?: boolean;
   toast: ReturnType<typeof useToast>['toast'];
 }
 
@@ -282,6 +287,7 @@ export function useDatabaseDemoData({
   isImporting = false,
   recordPage = 0,
   recordPageSize = 50,
+  supportsPGliteCollectionQueries = true,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
@@ -420,7 +426,9 @@ export function useDatabaseDemoData({
   // Pause live queries only during the foreground import path. Background embedding keeps
   // collection pages and counts live, but the queries above are intentionally page-scoped
   // and single-scan so embedding updates do not rematerialize the full collection page.
-  const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
+  const liveQueryEnabled = Boolean(
+    supportsPGliteCollectionQueries && database && schemaReady && activeCollectionId && !isImporting
+  );
 
   const {
     rows: recordRows,
@@ -603,7 +611,15 @@ export function useDatabaseDemoData({
       includeRecords: boolean;
       includeTotalRecords: boolean;
     }) => {
-      if (!(database && schemaReady && activeCollectionId && recordPageCacheKey)) {
+      if (
+        !(
+          supportsPGliteCollectionQueries &&
+          database &&
+          schemaReady &&
+          activeCollectionId &&
+          recordPageCacheKey
+        )
+      ) {
         return;
       }
       if (typeof (database as { query?: unknown }).query !== 'function') {
@@ -657,6 +673,7 @@ export function useDatabaseDemoData({
       recordPageCacheKey,
       recordQueryParams,
       schemaReady,
+      supportsPGliteCollectionQueries,
     ]
   );
 
@@ -666,6 +683,9 @@ export function useDatabaseDemoData({
       return;
     }
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
     if (fallbackLoading) {
@@ -719,6 +739,7 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     recordPageCacheKey,
     schemaReady,
+    supportsPGliteCollectionQueries,
   ]);
 
   const resolvedRecords =
@@ -750,6 +771,9 @@ export function useDatabaseDemoData({
       }
       if (!(database && schemaReady)) {
         throw new Error('Chunk summary requests require an initialized database.');
+      }
+      if (!supportsPGliteCollectionQueries) {
+        throw new Error('Chunk summary requests require PGlite-compatible collection queries.');
       }
       if (typeof (database as { query?: unknown }).query !== 'function') {
         throw new Error('Chunk summary requests require database query support.');
@@ -797,11 +821,15 @@ export function useDatabaseDemoData({
       recordPageCacheKey,
       schemaReady,
       setGlobalCachedFileData,
+      supportsPGliteCollectionQueries,
     ]
   );
 
   const loadRecords = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
 
@@ -840,6 +868,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
+    supportsPGliteCollectionQueries,
     toast,
   ]);
 
@@ -899,6 +928,9 @@ export function useDatabaseDemoData({
     if (!(database && typeof (database as { query?: unknown }).query === 'function')) {
       throw new Error('Collection export requires database query support.');
     }
+    if (!supportsPGliteCollectionQueries) {
+      throw new Error('Collection export requires PGlite-compatible collection queries.');
+    }
     if (!_chunkRepository) {
       throw new Error('Chunk export repository is unavailable.');
     }
@@ -911,6 +943,7 @@ export function useDatabaseDemoData({
     ) {
       throw new Error('Chunk export repository does not support findByFileRecordId.');
     }
+    const findChunksByFileRecordId = _chunkRepository.findByFileRecordId;
 
     const recordIdsResult = await (
       database as {
@@ -935,17 +968,20 @@ export function useDatabaseDemoData({
     });
 
     const chunkGroups = await mapInBatches(settledRecords, (record) =>
-      _chunkRepository.findByFileRecordId(record.id)
+      findChunksByFileRecordId(record.id)
     );
 
     return {
       records: settledRecords,
       chunks: chunkGroups.flat(),
     };
-  }, [_chunkRepository, activeCollectionId, database, repository]);
+  }, [_chunkRepository, activeCollectionId, database, repository, supportsPGliteCollectionQueries]);
 
   const refreshVisibleData = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
 
@@ -971,6 +1007,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
+    supportsPGliteCollectionQueries,
   ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
