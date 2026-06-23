@@ -17,6 +17,12 @@ const UNIT_DEPENDENT_EXPANSION_TRIGGERS = new Set([
   '@brainstrike/types',
   '@brainstrike/utils',
 ]);
+const DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES = [
+  'packages/db/__tests__/',
+  'packages/db/scripts/',
+  'packages/db/src/repositories/',
+];
+const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
   ['schema-migration', ['schema-migration']],
@@ -178,8 +184,30 @@ export function buildAffectedPackageFilter(baseRef, { includeDependents = false 
   return includeDependents ? `...[origin/${baseRef}]` : `[origin/${baseRef}]`;
 }
 
-export function modeIncludesDependentPackages(mode, directlyChangedPackages = []) {
+export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
+  const dbChangedFiles = changedFiles.filter((filePath) => filePath.startsWith('packages/db/'));
+  if (dbChangedFiles.length === 0) {
+    return true;
+  }
+  return dbChangedFiles.some(
+    (filePath) =>
+      DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath) ||
+      !DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))
+  );
+}
+
+export function modeIncludesDependentPackages(mode, directlyChangedPackages = [], changedFiles) {
   if (mode === 'packages' || mode === 'db') {
+    if (
+      directlyChangedPackages.includes(DB_PACKAGE_NAME) &&
+      Array.isArray(changedFiles) &&
+      !dbChangeRequiresDependentUnitExpansion(changedFiles)
+    ) {
+      return directlyChangedPackages.some(
+        (packageName) =>
+          packageName !== DB_PACKAGE_NAME && UNIT_DEPENDENT_EXPANSION_TRIGGERS.has(packageName)
+      );
+    }
     return directlyChangedPackages.some((packageName) =>
       UNIT_DEPENDENT_EXPANSION_TRIGGERS.has(packageName)
     );
@@ -210,6 +238,30 @@ function collectAffectedPackages(baseRef, repoRoot, platform, { includeDependent
     throw new Error(result.stderr || result.stdout || `pnpm list failed with status ${result.status}`);
   }
   return parsePnpmListJson(result.stdout);
+}
+
+function collectChangedFiles(baseRef, repoRoot, platform) {
+  const invocation = createSpawnInvocation(
+    'git',
+    ['diff', '--name-only', `origin/${baseRef}...HEAD`],
+    platform
+  );
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    shell: invocation.shell,
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `git diff failed with status ${result.status}`);
+  }
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function runPnpmTestLane(packageNames, repoRoot, workspaceConcurrency, platform) {
@@ -417,7 +469,12 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
   try {
     options = parseArgs(args);
     const directlyChangedPackages = collectAffectedPackages(options.baseRef, options.repoRoot, platform);
-    const includeDependents = modeIncludesDependentPackages(options.mode, directlyChangedPackages);
+    const changedFiles = collectChangedFiles(options.baseRef, options.repoRoot, platform);
+    const includeDependents = modeIncludesDependentPackages(
+      options.mode,
+      directlyChangedPackages,
+      changedFiles
+    );
     const affectedPackages = includeDependents
       ? collectAffectedPackages(options.baseRef, options.repoRoot, platform, { includeDependents: true })
       : directlyChangedPackages;

@@ -87,9 +87,10 @@ jobs:
     # PR Unit normally runs directly changed testable packages only. A small
     # allowlist of foundational packages still expands to dependents because
     # their runtime regressions often surface outside the changed package's own
-    # tests. Static, Type check, and Build continue covering downstream
-    # compile/bundle failures, and push/manual runs still execute the full unit
-    # suite.
+    # tests. DB repository/test-lane-only edits stay on the dedicated DB lanes
+    # below; public DB runtime/schema changes still expand to dependents. Static,
+    # Type check, and Build continue covering downstream compile/bundle failures,
+    # and push/manual runs still execute the full unit suite.
     # The aggregate `unit` job below preserves the required `Unit` check.
     timeout-minutes: 45
     strategy:
