@@ -65,6 +65,7 @@ import {
   createMainLlmHostClient,
 } from './assistant-server/local-llm-host-client';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import type { ManagedCacheBatchApplier } from './assistant-server/reindex-edited-file';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
 import { getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
@@ -142,6 +143,7 @@ export interface AssistantServerOptions {
   host?: string;
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
@@ -243,6 +245,7 @@ async function handleAssistantPost(
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
         llmHostManager: options.llmHostManager,
+        managedCacheBatchApplier: options.managedCacheBatchApplier,
       },
     });
   } catch (error) {
@@ -304,6 +307,7 @@ async function streamAssistantPostResponse({
   readonly toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+    readonly managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
   };
 }): Promise<void> {
   const mcpConfig = (await loadMcpConfig()).config;
@@ -1061,6 +1065,7 @@ async function initializeAgentStream(
   toolDependencies: {
     readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+    readonly managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
   }
 ): Promise<AgentStreamResult> {
   // Multi-root: resolve the active workspace roots from the DB `roots` table so

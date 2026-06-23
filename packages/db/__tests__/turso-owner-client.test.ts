@@ -61,6 +61,37 @@ describe('Turso owner client', () => {
     }
   });
 
+  it('enables foreign-key cascades on every owner connection', async () => {
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'foreign-keys.db'),
+    });
+
+    try {
+      await client.exec(`
+        CREATE TABLE parent_records (
+          id TEXT PRIMARY KEY
+        );
+        CREATE TABLE child_records (
+          id TEXT PRIMARY KEY,
+          parent_id TEXT NOT NULL REFERENCES parent_records(id) ON DELETE CASCADE
+        )
+      `);
+      await client.exec('INSERT INTO parent_records (id) VALUES (?)', ['parent-1']);
+      await client.exec('INSERT INTO child_records (id, parent_id) VALUES (?, ?)', [
+        'child-1',
+        'parent-1',
+      ]);
+
+      await client.exec('DELETE FROM parent_records WHERE id = ?', ['parent-1']);
+
+      await expect(
+        client.query<{ count: number }>('SELECT COUNT(*) AS count FROM child_records')
+      ).resolves.toEqual({ rows: [{ count: 0 }] });
+    } finally {
+      await client.close();
+    }
+  });
+
   it('rejects parameterized exec calls that contain more than one SQL statement', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'single-statement.db'),
@@ -221,7 +252,9 @@ function createMockTursoDatabase(): TursoDatabase {
     all: vi.fn(async () => []),
     close: vi.fn(async () => undefined),
     exec: vi.fn(async () => undefined),
-    pragma: vi.fn(async () => [{ journal_mode: 'mvcc' }]),
+    pragma: vi.fn(async (statement: string) =>
+      statement === 'foreign_keys' ? [{ foreign_keys: 1 }] : [{ journal_mode: 'mvcc' }]
+    ),
     run: vi.fn(async () => undefined),
   } as unknown as TursoDatabase;
 }

@@ -64,7 +64,12 @@ import { EXECUTE_COMMAND_TOOL_ID, runExecuteCommand } from './execute-command-to
 import { findSymbolMatches } from './find-workspace-symbol';
 import { GLOB_WORKSPACE_TOOL_ID, runGlobWorkspace } from './glob-workspace-tool';
 import { GREP_SEARCH_TOOL_ID, runGrepSearch } from './grep-search-tool';
-import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
+import {
+  type ManagedCacheBatchApplier,
+  type ReindexDatabaseHandle,
+  reindexEditedFile,
+  statMtimeMs,
+} from './reindex-edited-file';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import {
   runWebSearch,
@@ -85,6 +90,7 @@ type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 export interface DesktopAssistantToolDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
   /**
    * Optional override for the webSearch tool's network/key resolution. Used by
    * tests to inject a stubbed Tavily fetch and key resolver so the loop runs
@@ -553,6 +559,7 @@ function toFileRecordRelativePath(workspacePath: string): string {
  */
 async function triggerEditedFileReindex(args: {
   runtimeData: RuntimeData | undefined;
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
   rootId: string;
   workspacePath: string;
   absolutePath: string;
@@ -574,15 +581,19 @@ async function triggerEditedFileReindex(args: {
 
   try {
     const relativePath = toFileRecordRelativePath(args.workspacePath);
-    await reindexEditedFile(db, {
-      rootId: args.rootId,
-      relativePath,
-      name: path.basename(relativePath) || relativePath,
-      content: args.content,
-      size: args.size,
-      mtimeMs: await statMtimeMs(args.absolutePath),
-      workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
-    });
+    await reindexEditedFile(
+      db,
+      {
+        rootId: args.rootId,
+        relativePath,
+        name: path.basename(relativePath) || relativePath,
+        content: args.content,
+        size: args.size,
+        mtimeMs: await statMtimeMs(args.absolutePath),
+        workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
+      },
+      args.managedCacheBatchApplier ?? undefined
+    );
   } catch (error) {
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
@@ -595,7 +606,8 @@ async function triggerEditedFileReindex(args: {
 
 async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: DesktopAssistantToolDependencies
 ): Promise<{
   rootName: string;
   path: string;
@@ -629,6 +641,7 @@ async function runWriteWorkspaceFile(
     });
     await triggerEditedFileReindex({
       runtimeData,
+      managedCacheBatchApplier: dependencies.managedCacheBatchApplier,
       rootId: root.rootId,
       workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
@@ -648,7 +661,8 @@ async function runWriteWorkspaceFile(
 
 async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: DesktopAssistantToolDependencies
 ): Promise<{
   rootName: string;
   path: string;
@@ -703,6 +717,7 @@ async function runStringReplaceWorkspaceFile(
     // extends the lock's failure surface.
     await triggerEditedFileReindex({
       runtimeData,
+      managedCacheBatchApplier: dependencies.managedCacheBatchApplier,
       rootId: root.rootId,
       workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
@@ -1997,7 +2012,7 @@ export function buildDesktopAssistantTools(
       execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
         try {
-          return await runWriteWorkspaceFile(resolvedInput, runtimeData);
+          return await runWriteWorkspaceFile(resolvedInput, runtimeData, dependencies);
         } catch (error) {
           logger.error('writeWorkspaceFile failed', {
             error,
@@ -2015,7 +2030,7 @@ export function buildDesktopAssistantTools(
       execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
         try {
-          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
+          return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData, dependencies);
         } catch (error) {
           logger.error('stringReplaceWorkspaceFile failed', {
             error,

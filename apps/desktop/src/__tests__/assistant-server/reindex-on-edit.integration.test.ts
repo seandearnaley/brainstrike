@@ -240,6 +240,40 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     const onDisk = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
     expect(onDisk).toBe(newContent);
   });
+
+  it('routes re-index managed-cache mutations through the injected DB-host applier', async () => {
+    await fsPromises.mkdir(path.join(rootPath, 'src'), { recursive: true });
+    await fsPromises.writeFile(path.join(rootPath, 'src', 'indexed.ts'), 'old', 'utf8');
+    await seedIndexedFile('export const value = 1;\n');
+
+    const dbHostManagedCacheApplier = vi.fn(async () => undefined);
+    const tools = buildDesktopAssistantTools(runtime(), {
+      managedCacheBatchApplier: { applyManagedCacheBatch: dbHostManagedCacheApplier },
+    } as never);
+    const writeTool = tools['brainstrike.writeWorkspaceFile'];
+
+    const newContent = 'export const value = 321;\n';
+    const result = (await writeTool?.execute?.({
+      path: `/${INDEXED_REL_PATH}`,
+      content: newContent,
+    })) as { bytesWritten: number } | undefined;
+
+    expect(result?.bytesWritten).toBe(Buffer.byteLength(newContent, 'utf8'));
+    expect(dbHostManagedCacheApplier).toHaveBeenCalledTimes(1);
+    expect(dbHostManagedCacheApplier).toHaveBeenCalledWith({
+      embeddingSetId: EMBEDDING_SET_ID,
+      changes: [
+        expect.objectContaining({
+          mode: 'replace',
+          record: expect.objectContaining({
+            id: FILE_RECORD_ID,
+            content: newContent,
+            path: INDEXED_REL_PATH,
+          }),
+        }),
+      ],
+    });
+  });
 });
 
 describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
