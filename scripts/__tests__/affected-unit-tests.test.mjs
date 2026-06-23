@@ -191,6 +191,21 @@ test('DB public API and migration changes still expand dependent unit packages',
   );
 });
 
+test('Turso profile-bootstrap docs do not claim unavailable file-record provider coverage', () => {
+  const providerSource = readFileSync('packages/db/src/db-provider.tsx', 'utf8');
+  const profileBootstrapDoc = readFileSync('docs/turso-migration/profile-bootstrap.md', 'utf8');
+
+  assert.match(
+    providerSource,
+    /unavailableRepositories:\s*\[[^\]]*'file_records'[^\]]*\]/s
+  );
+  assert.doesNotMatch(profileBootstrapDoc, /^- `file_records`$/m);
+  assert.match(
+    profileBootstrapDoc,
+    /Turso file-record repository implementation is staged as repository-only\s+groundwork/
+  );
+});
+
 test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
   assert.deepEqual(createDbLaneCommands('repository'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:repository']]]);
   assert.deepEqual(createDbLaneCommands('schema-migration'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:schema-migration']]]);

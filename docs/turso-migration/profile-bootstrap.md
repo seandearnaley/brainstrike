@@ -63,16 +63,17 @@ Current desktop Turso provider coverage:
 
 - `view_filter_presets`
 - `file_token_cache`
-- `file_records`
 
-`file_records` is Turso-backed for CRUD, content import, managed-cache metadata,
-stat stamping, and bulk import. It intentionally does not support the legacy
-single-row `file_records.embedding` pgvector column; callers must use chunk or
-embedding-cache storage for vector data.
+Turso file-record repository implementation is staged as repository-only
+groundwork for CRUD, content import, managed-cache metadata, stat stamping, and
+bulk import. The desktop provider intentionally does not expose it through
+`useFileRecordRepository()` yet, because default imports require file-record and
+chunk storage to become available together. Exposing file records first would
+allow partial failed imports with no chunks or searchable content.
 
-The provider still does not expose a generic `db` handle, `file_chunks`, or
-`embedding_sets` in Turso mode. Those remain explicit migration work rather than
-silent PGlite compatibility.
+The provider still does not expose a generic `db` handle, `file_records`,
+`file_chunks`, or `embedding_sets` in Turso mode. Those remain explicit
+migration work rather than silent PGlite compatibility.
 
 ## Next Touchpoint
 
