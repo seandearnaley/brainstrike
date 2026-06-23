@@ -72,13 +72,23 @@ bulk import. The desktop provider intentionally does not expose it through
 chunk storage to become available together. Exposing file records first would
 allow partial failed imports with no chunks or searchable content.
 
+Turso file-chunk repository implementation is now staged as repository-only
+groundwork for non-search persistence: ordered reads, single and batched upserts,
+transaction-scoped batch inserts, content/position/embedding metadata updates,
+delete/clear operations, coverage counts, stats, and explicit embedding-clearing
+stats refresh. Search methods (`searchSimilar`, `fullTextSearch`, and
+`findGrepCandidates`) fail loudly until the split search-index owner is wired;
+they do not fall back to unindexed scans.
+
 The provider still does not expose a generic `db` handle, `file_records`, or
 `file_chunks` in Turso mode. Those remain explicit migration work rather than
 silent PGlite compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is non-search `file_chunks` writes. Search remains
-split-owned until `docs/turso-migration/search-index-architecture.md` is
-implemented, and quick-open name search must not be treated as complete until the
-Turso search-index owner is designed.
+The next low-vector-risk slice is coherent provider exposure for the generic
+execution handle plus the staged `file_records` and non-search `file_chunks`
+repositories. Search remains split-owned until
+`docs/turso-migration/search-index-architecture.md` is implemented, and
+quick-open name search must not be treated as complete until the Turso
+search-index owner is designed.
