@@ -285,6 +285,53 @@ test('Turso schema baseline internals do not expand dependent package unit shard
   assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
 });
 
+test('chunk embedding job batch public wrapper keeps full DB unit and coverage surfaces', () => {
+  const changedFiles = ['packages/db/src/chunk-embedding-job-batch.ts'];
+
+  assert.deepEqual(
+    selectDbUnitCiLanes(changedFiles),
+    listCiDbLaneGroups().map((group) => group.groupName)
+  );
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('chunk embedding job batch public wrapper expands dependent package unit shards', () => {
+  const changedFiles = ['packages/db/src/chunk-embedding-job-batch.ts'];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), true);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), true);
+});
+
+test('chunk embedding job batch private implementation selects only queue-owned DB lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/job-queue-turso-transactional-enqueue.test.ts',
+    'packages/db/src/queue/chunk-embedding-job-batch-impl.ts',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['remaining']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['queue']);
+});
+
+test('chunk embedding job batch private implementation does not expand dependent package unit shards', () => {
+  const changedFiles = [
+    'packages/db/__tests__/job-queue-turso-transactional-enqueue.test.ts',
+    'packages/db/src/queue/chunk-embedding-job-batch-impl.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), false);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
+});
+
+test('chunk embedding job batch plus public DB exports still expands dependent unit shards', () => {
+  const changedFiles = [
+    'packages/db/src/queue/chunk-embedding-job-batch-impl.ts',
+    'packages/db/src/index.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), true);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), true);
+});
+
 test('shared DB repository implementation changes keep the full DB unit and coverage surfaces', () => {
   const changedFiles = ['packages/db/src/repositories/file-chunk-repository.ts'];
 

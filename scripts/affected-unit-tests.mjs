@@ -30,6 +30,8 @@ const TURSO_SCHEMA_INTERNAL_SOURCE_PATHS = [
   'packages/db/src/turso/schema-ledger.ts',
 ];
 const TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET = new Set(TURSO_SCHEMA_INTERNAL_SOURCE_PATHS);
+const DB_QUEUE_INTERNAL_SOURCE_PATHS = ['packages/db/src/queue/chunk-embedding-job-batch-impl.ts'];
+const DB_QUEUE_INTERNAL_SOURCE_PATH_SET = new Set(DB_QUEUE_INTERNAL_SOURCE_PATHS);
 const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
@@ -59,6 +61,11 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     files: TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET,
     unitLanes: ['repository', 'search'],
     coverageLanes: ['repositories', 'search'],
+  },
+  {
+    files: DB_QUEUE_INTERNAL_SOURCE_PATH_SET,
+    unitLane: 'queue',
+    coverageLane: 'queue',
   },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
@@ -303,6 +310,9 @@ export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
       return true;
     }
     if (TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET.has(filePath)) {
+      return false;
+    }
+    if (DB_QUEUE_INTERNAL_SOURCE_PATH_SET.has(filePath)) {
       return false;
     }
     if (DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))) {
