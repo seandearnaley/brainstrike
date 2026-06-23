@@ -43,6 +43,7 @@ import {
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
+import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import type { FileChunk } from './models/file-chunk.js';
@@ -1081,10 +1082,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
             phase: coerceFailureBootstrapPhase(profileBootstrapReportRef.current.phase),
           })
         );
-        setFileRecordRepository(null);
-        setChunkRepository(null);
-        setEmbeddingSetsRepository(null);
-        setViewFilterPresetsRepository(null);
+        clearDbProviderRepositoryStateForError({
+          setFileRecordRepository,
+          setChunkRepository,
+          setEmbeddingSetsRepository,
+          setViewFilterPresetsRepository,
+          setTokenCacheStore,
+        });
         setError(err as Error);
         setReady(true);
         setLazyInitialized(false);

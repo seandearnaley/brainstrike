@@ -13,6 +13,7 @@ import {
   useTokenCacheStore,
   useViewFilterPresetsRepository,
 } from '../src/db-provider';
+import { clearDbProviderRepositoryStateForError } from '../src/db-provider-state-reset';
 import * as databaseModule from '../src/drizzle/database';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
@@ -86,6 +87,24 @@ describe('DbProvider initializing state', () => {
     clearWindowElectronDbBridge();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it('clears every repository state slot when initialization enters the error state', () => {
+    const resetters = {
+      setFileRecordRepository: vi.fn(),
+      setChunkRepository: vi.fn(),
+      setEmbeddingSetsRepository: vi.fn(),
+      setViewFilterPresetsRepository: vi.fn(),
+      setTokenCacheStore: vi.fn(),
+    };
+
+    clearDbProviderRepositoryStateForError(resetters);
+
+    expect(resetters.setFileRecordRepository).toHaveBeenCalledWith(null);
+    expect(resetters.setChunkRepository).toHaveBeenCalledWith(null);
+    expect(resetters.setEmbeddingSetsRepository).toHaveBeenCalledWith(null);
+    expect(resetters.setViewFilterPresetsRepository).toHaveBeenCalledWith(null);
+    expect(resetters.setTokenCacheStore).toHaveBeenCalledWith(null);
   });
 
   it('useDbInitializing returns true during initialization', async () => {
