@@ -213,6 +213,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       (activeCollection?.systemRole === 'workspace-index' ||
         activeCollectionId === managedCollectionId)
   );
+  const manualImportStorageUnavailable = !(dbContext && repository && dbChunkRepository);
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -695,7 +696,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                         importFlow.isImporting ||
                         !activeCollectionId ||
                         importFlow.selectedFileCount === 0 ||
-                        isManagedCollection
+                        isManagedCollection ||
+                        manualImportStorageUnavailable
                       }
                       onClick={importFlow.handleImportClick}
                       size="sm"
@@ -712,9 +714,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                       ? 'Select files to import first'
                       : isManagedCollection
                         ? 'Background indexing manages imports for this collection'
-                        : activeCollectionId
-                          ? `Import ${importFlow.selectedFileCount} files to collection`
-                          : 'Select a collection first'}
+                        : manualImportStorageUnavailable
+                          ? 'Manual import requires database and chunk storage'
+                          : activeCollectionId
+                            ? `Import ${importFlow.selectedFileCount} files to collection`
+                            : 'Select a collection first'}
                   </TooltipContent>
                 </Tooltip>
 
