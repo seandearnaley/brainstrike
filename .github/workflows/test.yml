@@ -270,11 +270,82 @@ jobs:
           TURBO_TEST_MODE: unit
         run: pnpm run test:fast
 
-  coverage:
-    name: Coverage
+  coverage-pr-db:
+    name: Coverage DB ${{ matrix.db-coverage-lane }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        db-coverage-lane:
+          [architecture, chunking, migrations, queue, repositories, search, runtime]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Cache Turbo artifacts
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-test-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-test-${{ github.job }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Clear coverage directories
+        run: |
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
+
+      # See the Unit job for the rationale. Coverage instrumentation runs
+      # tests so it has the same build-dependency requirement.
+      - name: Build workspace dependencies
+        run: pnpm turbo run build --concurrency=4
+
+      - name: Run affected DB coverage shard
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode coverage-db \
+            --db-coverage-lane "${{ matrix.db-coverage-lane }}"
+
+      - name: Upload coverage shard
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-shard-db-${{ matrix.db-coverage-lane }}
+          path: |
+            packages/db/coverage-db-*/**
+          retention-days: 1
+          if-no-files-found: ignore
+
+  coverage-pr-packages:
+    name: Coverage packages ${{ matrix.lane }}/4
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -313,18 +384,72 @@ jobs:
 
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
-      # packages — dependents add no patch-coverage signal. `!./` excludes
-      # the root workspace's `test:coverage` script (which delegates to
-      # `turbo run test:coverage` over every workspace).
-      - name: Run affected-only coverage
+      # packages — dependents add no patch-coverage signal.
+      - name: Run affected package coverage shard
         env:
           COVERAGE: "true"
           NODE_ENV: test
           BASE_REF: ${{ github.base_ref }}
-        # --if-present skips packages that don't define `test:coverage`.
-        # See the Unit step comment above for the rationale.
-        # Explicit --workspace-concurrency=4; same rationale as Unit.
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode coverage-packages \
+            --lane "${{ matrix.lane }}" \
+            --total-lanes 4 \
+            --workspace-concurrency 2
+
+      - name: Upload coverage shard
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-shard-packages-${{ matrix.lane }}
+          path: |
+            packages/*/coverage/**
+            apps/*/coverage/**
+          retention-days: 1
+          if-no-files-found: ignore
+
+  coverage:
+    name: Coverage
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [coverage-pr-db, coverage-pr-packages]
+    steps:
+      - name: Check coverage shards
+        run: |
+          if [ "${{ needs.coverage-pr-db.result }}" != "success" ]; then
+            echo "One or more affected DB coverage shards failed or were cancelled."
+            exit 1
+          fi
+          if [ "${{ needs.coverage-pr-packages.result }}" != "success" ]; then
+            echo "One or more affected package coverage shards failed or were cancelled."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download coverage shards
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
 
       - name: Prepare coverage workspace
         id: coverage

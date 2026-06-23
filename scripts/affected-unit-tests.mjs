@@ -5,17 +5,21 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createSpawnInvocation } from './spawn-command.mjs';
+import { dbCoverageLaneDefinitions } from '../packages/db/scripts/db-test-lane-manifest.mjs';
 
 const DEFAULT_TOTAL_LANES = 4;
 const DEFAULT_WORKSPACE_CONCURRENCY = 2;
 const DEFAULT_TEST_WEIGHT_MS = 1000;
 const DB_PACKAGE_NAME = '@brainstrike/db';
+const COVERAGE_SCRIPT_NAME = 'test:coverage';
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
   ['schema-migration', ['schema-migration']],
   ['remaining', ['queue', 'search', 'integration']],
 ]);
 const DB_LANES = new Set(CI_DB_LANE_GROUPS.keys());
+const CI_DB_COVERAGE_LANES = [...dbCoverageLaneDefinitions.laneOrder];
+const DB_COVERAGE_LANES = new Set(CI_DB_COVERAGE_LANES);
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
   ['@brainstrike/db', 395000],
   ['@brainstrike/desktop', 111000],
@@ -52,6 +56,16 @@ export function filterTestablePackages(packageNames, manifestsByName) {
   });
 }
 
+export function filterCoveragePackages(packageNames, manifestsByName) {
+  return packageNames.filter((name) => {
+    const manifest = manifestsByName.get(name);
+    return (
+      typeof manifest?.scripts?.[COVERAGE_SCRIPT_NAME] === 'string' &&
+      manifest.scripts[COVERAGE_SCRIPT_NAME].length > 0
+    );
+  });
+}
+
 export function buildLanePackageNames(packageNames, lane, totalLanes) {
   if (!Number.isInteger(totalLanes) || totalLanes < 1) {
     throw new Error('total lanes must be a positive integer.');
@@ -82,11 +96,24 @@ export function createDbLaneCommands(dbLane) {
   ]);
 }
 
+export function createDbCoverageLaneCommands(dbCoverageLane) {
+  if (!DB_COVERAGE_LANES.has(dbCoverageLane)) {
+    throw new Error(`Unknown DB coverage lane: ${dbCoverageLane}`);
+  }
+  return [
+    ['pnpm', ['--filter', DB_PACKAGE_NAME, 'run', `test:coverage:db:${dbCoverageLane}`]],
+  ];
+}
+
 export function listCiDbLaneGroups() {
   return [...CI_DB_LANE_GROUPS.entries()].map(([groupName, manifestLanes]) => ({
     groupName,
     manifestLanes: [...manifestLanes],
   }));
+}
+
+export function listCiDbCoverageLanes() {
+  return [...CI_DB_COVERAGE_LANES];
 }
 
 export function buildWeightedPackageLanes(packageNames, totalLanes) {
@@ -142,10 +169,11 @@ export function readWorkspaceManifests(repoRoot = process.cwd()) {
   return manifestsByName;
 }
 
-function collectAffectedPackages(baseRef, repoRoot, platform) {
+function collectAffectedPackages(baseRef, repoRoot, platform, { includeDependents = true } = {}) {
+  const affectedFilter = includeDependents ? `...[origin/${baseRef}]` : `[origin/${baseRef}]`;
   const invocation = createSpawnInvocation(
     'pnpm',
-    ['--filter', `...[origin/${baseRef}]`, '--filter', '!./', 'list', '--depth', '-1', '--json'],
+    ['--filter', affectedFilter, '--filter', '!./', 'list', '--depth', '-1', '--json'],
     platform
   );
   const result = spawnSync(invocation.command, invocation.args, {
@@ -193,6 +221,36 @@ function runPnpmTestLane(packageNames, repoRoot, workspaceConcurrency, platform)
   return result.status ?? 1;
 }
 
+function runPnpmCoverageLane(packageNames, repoRoot, workspaceConcurrency, platform) {
+  if (packageNames.length === 0) {
+    console.log('No directly affected packages assigned to this coverage lane.');
+    return 0;
+  }
+
+  const filterArgs = packageNames.flatMap((packageName) => ['--filter', packageName]);
+  const invocation = createSpawnInvocation(
+    'pnpm',
+    [
+      ...filterArgs,
+      `--workspace-concurrency=${workspaceConcurrency}`,
+      'run',
+      '--if-present',
+      COVERAGE_SCRIPT_NAME,
+    ],
+    platform
+  );
+  const result = spawnSync(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    shell: invocation.shell,
+    stdio: 'inherit',
+  });
+  if (result.error) {
+    console.error(result.error.message);
+    return 1;
+  }
+  return result.status ?? 1;
+}
+
 export function runCommandSequence(commands, repoRoot, platform, run = spawnSync) {
   let exitStatus = 0;
   for (const [command, args] of commands) {
@@ -218,6 +276,10 @@ function runDbLane(dbLane, repoRoot, platform) {
   return runCommandSequence(createDbLaneCommands(dbLane), repoRoot, platform);
 }
 
+function runDbCoverageLane(dbCoverageLane, repoRoot, platform) {
+  return runCommandSequence(createDbCoverageLaneCommands(dbCoverageLane), repoRoot, platform);
+}
+
 function parsePositiveInteger(value, optionName) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1 || `${parsed}` !== value) {
@@ -228,6 +290,7 @@ function parsePositiveInteger(value, optionName) {
 
 export function parseArgs(args) {
   const options = {
+    dbCoverageLane: undefined,
     dbLane: undefined,
     dryRun: false,
     lane: undefined,
@@ -260,6 +323,10 @@ export function parseArgs(args) {
       options.dbLane = next();
       continue;
     }
+    if (arg === '--db-coverage-lane') {
+      options.dbCoverageLane = next();
+      continue;
+    }
     if (arg === '--lane') {
       options.lane = parsePositiveInteger(next(), '--lane');
       continue;
@@ -286,7 +353,7 @@ export function parseArgs(args) {
   if (!options.baseRef) {
     throw new Error('Missing required --base-ref.');
   }
-  if (options.mode === 'packages') {
+  if (options.mode === 'packages' || options.mode === 'coverage-packages') {
     if (!options.lane) {
       throw new Error('Missing required --lane.');
     }
@@ -298,6 +365,13 @@ export function parseArgs(args) {
     if (!DB_LANES.has(options.dbLane)) {
       throw new Error(`Unknown DB lane: ${options.dbLane}`);
     }
+  } else if (options.mode === 'coverage-db') {
+    if (!options.dbCoverageLane) {
+      throw new Error('Missing required --db-coverage-lane.');
+    }
+    if (!DB_COVERAGE_LANES.has(options.dbCoverageLane)) {
+      throw new Error(`Unknown DB coverage lane: ${options.dbCoverageLane}`);
+    }
   } else {
     throw new Error(`Unknown mode: ${options.mode}`);
   }
@@ -308,11 +382,12 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
   let options;
   try {
     options = parseArgs(args);
-    const affectedPackages = collectAffectedPackages(options.baseRef, options.repoRoot, platform);
-    const testablePackages = filterTestablePackages(
-      affectedPackages,
-      readWorkspaceManifests(options.repoRoot)
-    );
+    const affectedPackages = collectAffectedPackages(options.baseRef, options.repoRoot, platform, {
+      includeDependents: options.mode === 'packages' || options.mode === 'db',
+    });
+    const manifestsByName = readWorkspaceManifests(options.repoRoot);
+    const testablePackages = filterTestablePackages(affectedPackages, manifestsByName);
+    const coveragePackages = filterCoveragePackages(affectedPackages, manifestsByName);
     if (options.mode === 'db') {
       if (!testablePackages.includes(DB_PACKAGE_NAME)) {
         console.log('No affected DB package selected for this unit run.');
@@ -326,6 +401,44 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         return 0;
       }
       return runDbLane(options.dbLane, options.repoRoot, platform);
+    }
+    if (options.mode === 'coverage-db') {
+      if (!coveragePackages.includes(DB_PACKAGE_NAME)) {
+        console.log('No directly affected DB package selected for this coverage run.');
+        return 0;
+      }
+      console.log(`Affected DB package selected; DB coverage lane: ${options.dbCoverageLane}`);
+      for (const [command, commandArgs] of createDbCoverageLaneCommands(options.dbCoverageLane)) {
+        console.log(`- ${[command, ...commandArgs].join(' ')}`);
+      }
+      if (options.dryRun) {
+        return 0;
+      }
+      return runDbCoverageLane(options.dbCoverageLane, options.repoRoot, platform);
+    }
+
+    if (options.mode === 'coverage-packages') {
+      const lanePackages = buildPackageLanePackageNames(
+        coveragePackages,
+        options.lane,
+        options.totalLanes
+      );
+
+      console.log(
+        `Directly affected coverage packages: ${coveragePackages.length}; package coverage lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
+      );
+      for (const packageName of lanePackages) {
+        console.log(`- ${packageName}`);
+      }
+      if (options.dryRun) {
+        return 0;
+      }
+      return runPnpmCoverageLane(
+        lanePackages,
+        options.repoRoot,
+        options.workspaceConcurrency,
+        platform
+      );
     }
 
     const lanePackages = buildPackageLanePackageNames(

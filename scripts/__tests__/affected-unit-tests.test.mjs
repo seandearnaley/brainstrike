@@ -5,13 +5,19 @@ import {
   buildLanePackageNames,
   buildPackageLanePackageNames,
   buildWeightedPackageLanes,
+  createDbCoverageLaneCommands,
   createDbLaneCommands,
+  filterCoveragePackages,
   filterTestablePackages,
+  listCiDbCoverageLanes,
   listCiDbLaneGroups,
   parsePnpmListJson,
   runCommandSequence,
 } from '../affected-unit-tests.mjs';
-import { dbUnitLaneDefinitions } from '../../packages/db/scripts/db-test-lane-manifest.mjs';
+import {
+  dbCoverageLaneDefinitions,
+  dbUnitLaneDefinitions,
+} from '../../packages/db/scripts/db-test-lane-manifest.mjs';
 
 test('parsePnpmListJson extracts named workspaces in stable order', () => {
   assert.deepEqual(
@@ -37,6 +43,20 @@ test('filterTestablePackages keeps only packages with a test script', () => {
       ])
     ),
     ['@brainstrike/app-shell', '@brainstrike/db']
+  );
+});
+
+test('filterCoveragePackages keeps only packages with a coverage script', () => {
+  assert.deepEqual(
+    filterCoveragePackages(
+      ['@brainstrike/app-shell', '@brainstrike/build-utils', '@brainstrike/db'],
+      new Map([
+        ['@brainstrike/app-shell', { scripts: { 'test:coverage': 'vitest run --coverage' } }],
+        ['@brainstrike/build-utils', { scripts: { build: 'tsup' } }],
+        ['@brainstrike/db', { scripts: { test: 'node scripts/test-lanes.mjs run all' } }],
+      ])
+    ),
+    ['@brainstrike/app-shell']
   );
 });
 
@@ -106,6 +126,12 @@ test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
   ]);
 });
 
+test('createDbCoverageLaneCommands maps DB coverage lanes to existing package scripts', () => {
+  assert.deepEqual(createDbCoverageLaneCommands('runtime'), [
+    ['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:coverage:db:runtime']],
+  ]);
+});
+
 test('CI DB lane groups cover every DB unit manifest lane exactly once', () => {
   const manifestLaneNames = dbUnitLaneDefinitions.map((lane) => lane.name).sort();
   const ciManifestLanes = listCiDbLaneGroups()
@@ -114,6 +140,10 @@ test('CI DB lane groups cover every DB unit manifest lane exactly once', () => {
 
   assert.deepEqual(ciManifestLanes, manifestLaneNames);
   assert.equal(new Set(ciManifestLanes).size, ciManifestLanes.length);
+});
+
+test('CI DB coverage lanes mirror the DB coverage manifest order', () => {
+  assert.deepEqual(listCiDbCoverageLanes(), dbCoverageLaneDefinitions.laneOrder);
 });
 
 test('runCommandSequence runs every DB sublane before returning failure', () => {
@@ -146,4 +176,15 @@ test('unit aggregate job runs even when an affected shard fails', () => {
   assert.match(workflow, /^  unit:\n    name: Unit\n    if: .*\balways\(\)/m);
   assert.match(workflow, /- name: Check affected unit shards\n        if: github\.event_name == 'pull_request'/);
   assert.match(workflow, /- name: Push and manual unit tests\n        if: github\.event_name != 'pull_request'/);
+});
+
+test('coverage aggregate job preserves the required Coverage check over shards', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+
+  assert.match(workflow, /^  coverage-pr-db:\n    name: Coverage DB /m);
+  assert.match(workflow, /^  coverage-pr-packages:\n    name: Coverage packages /m);
+  assert.match(workflow, /^  coverage:\n    name: Coverage\n    if: .*\balways\(\)/m);
+  assert.match(workflow, /needs: \[coverage-pr-db, coverage-pr-packages\]/);
+  assert.match(workflow, /pattern: coverage-shard-\*/);
+  assert.match(workflow, /merge-multiple: true/);
 });
