@@ -9,10 +9,9 @@
 import type {
   ChunkSearchResult,
   DrizzleFileChunkRepository,
-  DrizzleFileRecordRepository,
   ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
   HybridSearchResult,
+  IFileRecordRepository,
 } from '@brainstrike/db';
 import {
   createHybridSearchService,
@@ -73,7 +72,7 @@ type EmbedderError =
 
 interface UseSemanticSearchExecutorOptions {
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
-  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  fileRepository: IFileRecordRepository | null;
 }
 
 function parseStrictEmbeddingDimensions(value: unknown): number {
@@ -265,7 +264,7 @@ function transformToSearchResults(
  */
 async function buildFileRecordsMap(
   fileIds: string[],
-  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+  fileRepository: IFileRecordRepository
 ): Promise<Map<string, SearchFileInfo>> {
   const uniqueFileIds = Array.from(new Set(fileIds));
   const results = await Promise.allSettled(
@@ -370,7 +369,7 @@ async function executeHybridSearch(
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
-  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+  fileRepository: IFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
@@ -438,7 +437,7 @@ async function executeVectorSearch(
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
-  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+  fileRepository: IFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   const searchResults = await chunkRepository.searchSimilar(embedding, {
     limit: config.resultLimit,

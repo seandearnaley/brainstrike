@@ -57,11 +57,27 @@ JSON-like values use validated JSON text and booleans use integer `0`/`1`.
 Embedding columns are stored as Turso-compatible `BLOB` placeholders until the
 repository/search slices bind them to Turso vector APIs.
 
+## Repository Coverage
+
+Current desktop Turso provider coverage:
+
+- `view_filter_presets`
+- `file_token_cache`
+- `file_records`
+
+`file_records` is Turso-backed for CRUD, content import, managed-cache metadata,
+stat stamping, and bulk import. It intentionally does not support the legacy
+single-row `file_records.embedding` pgvector column; callers must use chunk or
+embedding-cache storage for vector data.
+
+The provider still does not expose a generic `db` handle, `file_chunks`, or
+`embedding_sets` in Turso mode. Those remain explicit migration work rather than
+silent PGlite compatibility.
+
 ## Next Touchpoint
 
-The next slice should wire the runtime/provider boundary so Turso initialization
-does not re-probe PGlite `pgvector`, then move one real repository lane onto
-Turso SQL behind this owner client. Start with `view_filter_presets`, which does
-not require pgvector, `pg_trgm`, live queries, `SKIP LOCKED`, or data-modifying
-CTEs. Search remains split-owned until
-`docs/turso-migration/search-index-architecture.md` is implemented.
+The next low-vector-risk slice is `embedding_sets`, followed by non-search
+`file_chunks` writes. Search remains split-owned until
+`docs/turso-migration/search-index-architecture.md` is implemented, and quick-open
+name search must not be treated as complete until the Turso search-index owner is
+designed.

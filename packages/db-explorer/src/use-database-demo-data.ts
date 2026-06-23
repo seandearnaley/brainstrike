@@ -2,11 +2,10 @@ import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DbHandle,
   type DrizzleFileChunkRepository,
-  type DrizzleFileRecordRepository,
   type ElectronFileChunkRepository,
-  type ElectronFileRecordRepository,
   type FileChunk,
   type FileRecord,
+  type IFileRecordRepository,
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
@@ -47,9 +46,7 @@ const logger = createLogger('DatabaseDemoData');
  * - "Main Process" → displays as "IPC" in status bar
  * - "PGlite WASM" → displays as "PGlite WASM" in status bar
  */
-function resolveStorageLocation(
-  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null
-): string {
+function resolveStorageLocation(repository: IFileRecordRepository | null): string {
   if (!repository) {
     return 'Unknown';
   }
@@ -79,7 +76,7 @@ export interface UseDatabaseDemoDataOptions {
   recordPage?: number;
   /** Bounded page size for the active collection file list. */
   recordPageSize?: number;
-  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  repository: IFileRecordRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
 }
 
@@ -1132,6 +1129,9 @@ export function useDatabaseDemoData({
     }
 
     try {
+      if (typeof repository.count !== 'function') {
+        throw new Error('File record repository does not support count().');
+      }
       const count = await repository.count();
       setDbInfo({
         location,

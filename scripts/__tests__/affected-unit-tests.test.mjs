@@ -164,6 +164,17 @@ test('DB repository-only changes stay on dedicated DB unit lanes', () => {
   assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
 });
 
+test('tested DB provider changes do not expand dependent package unit shards', () => {
+  const changedFiles = [
+    'packages/db/__tests__/db-provider-initializing.test.tsx',
+    'packages/db/src/db-provider.tsx',
+    'packages/db/src/repositories/turso-file-record-repository.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), false);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
+});
+
 test('DB public API and migration changes still expand dependent unit packages', () => {
   assert.equal(dbChangeRequiresDependentUnitExpansion(['packages/db/src/db-provider.tsx']), true);
   assert.equal(
@@ -223,6 +234,16 @@ test('narrow DB provider changes select only the owning DB unit and coverage lan
 
 test('narrow DB repository test changes select only the repository DB unit and coverage lanes', () => {
   const changedFiles = ['packages/db/__tests__/turso-token-cache-store.test.ts'];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);
+});
+
+test('Turso repository implementation changes select repository DB lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-file-record-repository.test.ts',
+    'packages/db/src/repositories/turso-file-record-repository.ts',
+  ];
 
   assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository']);
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);

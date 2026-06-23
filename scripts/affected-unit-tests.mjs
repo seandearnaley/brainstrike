@@ -26,6 +26,8 @@ const DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES = [
   'packages/db/src/repositories/',
 ];
 const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
+const DB_PROVIDER_SOURCE_PATTERN = /^packages\/db\/src\/db-provider(?:-[\w-]+)?\.(?:ts|tsx)$/;
+const DB_PROVIDER_TEST_PATTERN = /^packages\/db\/__tests__\/db-provider-[\w-]+\.test\.(?:ts|tsx)$/;
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
   ['schema-migration', ['schema-migration']],
@@ -44,6 +46,11 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     pattern: /^packages\/db\/src\/db-provider(?:-[\w-]+)?\.(?:ts|tsx)$/,
     unitLane: 'integration',
     coverageLane: 'architecture',
+  },
+  {
+    pattern: /^packages\/db\/src\/repositories\/turso-[\w-]+\.ts$/,
+    unitLane: 'repository',
+    coverageLane: 'repositories',
   },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
@@ -275,11 +282,21 @@ export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
   if (dbChangedFiles.length === 0) {
     return true;
   }
-  return dbChangedFiles.some(
-    (filePath) =>
-      DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath) ||
-      !DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))
+  const hasDbProviderTest = dbChangedFiles.some((filePath) =>
+    DB_PROVIDER_TEST_PATTERN.test(filePath)
   );
+  return dbChangedFiles.some((filePath) => {
+    if (DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath)) {
+      return true;
+    }
+    if (DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))) {
+      return false;
+    }
+    if (DB_PROVIDER_SOURCE_PATTERN.test(filePath) && hasDbProviderTest) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function modeIncludesDependentPackages(mode, directlyChangedPackages = [], changedFiles) {
