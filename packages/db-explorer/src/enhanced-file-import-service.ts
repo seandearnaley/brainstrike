@@ -77,6 +77,30 @@ interface EnhancedFileImportServiceReturn {
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
 type ChunkingWorkerPort = import('@brainstrike/file-import').ChunkingWorkerPort;
+type BrainstrikeDbClient = ReturnType<typeof useBrainstrikeDbClient>;
+type FileRecordRepository = ReturnType<typeof useFileRecordRepository>;
+type FileChunkRepository = ReturnType<typeof useFileChunkRepository>;
+
+function getManualImportCapabilityError({
+  db,
+  repository,
+  chunkRepository,
+}: {
+  chunkRepository: FileChunkRepository;
+  db: BrainstrikeDbClient;
+  repository: FileRecordRepository;
+}): Error | null {
+  if (!db) {
+    return new Error('Manual imports require an initialized database.');
+  }
+  if (!repository) {
+    return new Error('Manual imports require file record storage.');
+  }
+  if (!chunkRepository) {
+    return new Error('Manual imports require chunk storage.');
+  }
+  return null;
+}
 
 function createEmbeddingConfig(
   chunkRepository: ReturnType<typeof useFileChunkRepository>,
@@ -520,6 +544,15 @@ export function useEnhancedFileImportService(
       fileContents: Record<string, string>,
       abortSignal?: AbortSignal
     ) => {
+      const capabilityError = getManualImportCapabilityError({ db, repository, chunkRepository });
+      if (capabilityError) {
+        logger.error('Manual import blocked because required storage is unavailable', {
+          error: capabilityError.message,
+        });
+        options.onError?.(capabilityError);
+        return;
+      }
+
       // Create internal abort controller if none provided
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -584,6 +617,7 @@ export function useEnhancedFileImportService(
       baseImportRunner,
       chunkRepository,
       chunkingWorkerPort,
+      db,
       ensureChunkingWorkerStarted,
       options,
       queuePort,

@@ -7,10 +7,23 @@ const {
   ensureStartedMock,
   runEnhancedImportMock,
   mockUseBrainstrikeDbClient,
+  mockUseFileChunkRepository,
+  mockUseFileRecordRepository,
   createBulkOperationContextMock,
   bulkOperationState,
 } = vi.hoisted(() => {
   const state = { active: false };
+  const mockDb = {
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+  };
+  const mockFileRecordRepository = {
+    findById: vi.fn(),
+    update: vi.fn(),
+  };
+  const mockFileChunkRepository = {
+    insertMany: vi.fn(),
+    update: vi.fn(),
+  };
   return {
     ensureStartedMock: vi.fn(async () => ({
       transportKind: 'local-worker' as const,
@@ -20,7 +33,9 @@ const {
       terminate: vi.fn(),
     })),
     runEnhancedImportMock: vi.fn(),
-    mockUseBrainstrikeDbClient: vi.fn(() => null),
+    mockUseBrainstrikeDbClient: vi.fn(() => mockDb),
+    mockUseFileRecordRepository: vi.fn(() => mockFileRecordRepository),
+    mockUseFileChunkRepository: vi.fn(() => mockFileChunkRepository),
     bulkOperationState: state,
     createBulkOperationContextMock: vi.fn(() => ({
       enter: vi.fn(() => {
@@ -56,14 +71,8 @@ vi.mock('@brainstrike/db', () => ({
     description: 'General-purpose defaults that auto-detect the best splitter for most files.',
     isDefault: true,
   })),
-  useFileRecordRepository: () => ({
-    findById: vi.fn(),
-    update: vi.fn(),
-  }),
-  useFileChunkRepository: () => ({
-    insertMany: vi.fn(),
-    update: vi.fn(),
-  }),
+  useFileRecordRepository: mockUseFileRecordRepository,
+  useFileChunkRepository: mockUseFileChunkRepository,
   useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
@@ -135,7 +144,11 @@ describe('useEnhancedFileImportService', () => {
     createBulkOperationContextMock.mockClear();
     bulkOperationState.active = false;
     mockUseBrainstrikeDbClient.mockReset();
-    mockUseBrainstrikeDbClient.mockReturnValue(null);
+    mockUseBrainstrikeDbClient.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [] }) });
+    mockUseFileRecordRepository.mockClear();
+    mockUseFileRecordRepository.mockReturnValue({ findById: vi.fn(), update: vi.fn() });
+    mockUseFileChunkRepository.mockClear();
+    mockUseFileChunkRepository.mockReturnValue({ insertMany: vi.fn(), update: vi.fn() });
     ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
@@ -282,6 +295,74 @@ describe('useEnhancedFileImportService', () => {
           chunksCreated: 0,
         }),
       ]);
+    });
+
+    it('rejects before the enhanced import runner when manual import storage is incomplete', async () => {
+      const onError = vi.fn();
+      const mockBaseImport = vi.fn();
+
+      const baseService = await import('../base-file-import-service');
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
+        isImporting: false,
+        progress: null,
+      });
+      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onError,
+          enableChunking: false,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(mockBaseImport).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Manual imports require an initialized database.',
+        })
+      );
+    });
+
+    it('rejects before the enhanced import runner when chunk storage is unavailable', async () => {
+      const onError = vi.fn();
+      const mockBaseImport = vi.fn();
+
+      const baseService = await import('../base-file-import-service');
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
+        isImporting: false,
+        progress: null,
+      });
+      mockUseFileChunkRepository.mockReturnValue(null as never);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onError,
+          enableChunking: false,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(mockBaseImport).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Manual imports require chunk storage.',
+        })
+      );
     });
 
     it('should handle chunking enabled', async () => {

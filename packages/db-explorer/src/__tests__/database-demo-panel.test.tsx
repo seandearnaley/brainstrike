@@ -153,6 +153,8 @@ const mockCollectionLiveQueryResult = {
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
+let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
+let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
@@ -178,8 +180,8 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     ...actual,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
-    useBrainstrikeDbClient: () => mockDatabase,
-    useFileChunkRepository: () => mockChunkRepository,
+    useBrainstrikeDbClient: () => mockDatabaseClient,
+    useFileChunkRepository: () => mockCurrentChunkRepository,
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
     useDbProviderError: () => null,
     useFactoryReset: () => null,
@@ -440,6 +442,8 @@ describe('DatabaseDemoPanel', () => {
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
+    mockDatabaseClient = mockDatabase;
+    mockCurrentChunkRepository = mockChunkRepository;
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
@@ -785,6 +789,19 @@ describe('DatabaseDemoPanel', () => {
 
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
       expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+    });
+
+    it('disables manual import when database or chunk storage is unavailable', async () => {
+      mockDatabaseClient = null;
+      mockCurrentChunkRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
 
     it('attempts to call import function when import button is clicked', async () => {

@@ -392,9 +392,34 @@ describe('DbProvider initializing state', () => {
   it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories', async () => {
     let createdPresetId: string | null = null;
     let createdEmbeddingSetId: string | null = null;
+    let createdFileRecord: {
+      content: string | null;
+      content_hash: string | null;
+      created_at: string;
+      id: string;
+      name: string;
+      path: string;
+      processed_at: string | null;
+      size: number;
+      token_count: number | null;
+      updated_at: string;
+    } | null = null;
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         throw new Error('pgvector probe should not run for Turso IPC runtime');
+      }
+      if (sql.includes('FROM file_records') && sql.includes('WHERE id = ?') && createdFileRecord) {
+        return {
+          rows: [
+            {
+              ...createdFileRecord,
+              chunking_strategy: null,
+              chunks_count: null,
+              chunks_processed_at: null,
+              embedding_set_id: null,
+            },
+          ],
+        };
       }
       if (sql.includes('MAX(sort_order)')) {
         return { rows: [{ max_sort: 7 }] };
@@ -452,6 +477,20 @@ describe('DbProvider initializing state', () => {
       }
       if (sql.includes('INSERT INTO embedding_sets')) {
         createdEmbeddingSetId = typeof params?.[0] === 'string' ? params[0] : null;
+      }
+      if (sql.includes('INSERT INTO file_records')) {
+        createdFileRecord = {
+          content: typeof params?.[6] === 'string' ? params[6] : null,
+          content_hash: typeof params?.[7] === 'string' ? params[7] : null,
+          created_at: String(params?.[4]),
+          id: String(params?.[0]),
+          name: String(params?.[1]),
+          path: String(params?.[2]),
+          processed_at: typeof params?.[9] === 'string' ? params[9] : null,
+          size: Number(params?.[3]),
+          token_count: typeof params?.[8] === 'number' ? params[8] : null,
+          updated_at: String(params?.[5]),
+        };
       }
     });
     const runTransaction = vi.fn(
@@ -550,9 +589,37 @@ describe('DbProvider initializing state', () => {
     expect(result.current.embeddingSetsRepository?.constructor.name).toBe(
       'TursoEmbeddingSetsRepository'
     );
-    expect(result.current.fileRecordRepository).toBeNull();
+    expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
     expect(result.current.chunkRepository).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+
+    if (!result.current.fileRecordRepository) {
+      throw new Error('Expected Turso file record repository.');
+    }
+    exec.mockClear();
+    await result.current.fileRecordRepository.createWithContent({
+      content: 'hello turso',
+      contentHash: 'content-hash-1',
+      createdAt: '2026-06-22T19:00:00.000Z',
+      id: 'file-1',
+      name: 'readme.md',
+      path: 'src/readme.md',
+      processedAt: '2026-06-22T19:00:00.000Z',
+      size: 11,
+      tokenCount: 3,
+      updatedAt: '2026-06-22T19:00:00.000Z',
+    });
+
+    expect(exec.mock.calls[0]?.[0]).toContain('INSERT INTO file_records');
+    expect(exec.mock.calls[0]?.[0]).not.toContain('::');
+    await expect(result.current.fileRecordRepository.findById('file-1')).resolves.toMatchObject({
+      content: 'hello turso',
+      contentHash: 'content-hash-1',
+      id: 'file-1',
+      name: 'readme.md',
+      path: 'src/readme.md',
+    });
+    exec.mockClear();
 
     if (!result.current.presetsRepository) {
       throw new Error('Expected Turso view filter presets repository.');
