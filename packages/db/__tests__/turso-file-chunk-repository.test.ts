@@ -34,6 +34,9 @@ describe('TursoFileChunkRepository', () => {
 
   it('inserts, upserts, and reads chunks through the Turso schema shape', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-2', path: 'src/two.ts' })
+    );
 
     await expect(repository.insert(createChunk({ id: 'chunk-1' }))).resolves.toMatchObject({
       chunkIndex: 0,
@@ -45,10 +48,11 @@ describe('TursoFileChunkRepository', () => {
 
     await repository.insert(
       createChunk({
-        chunkIndex: 0,
+        chunkIndex: 9,
         chunkSize: 24,
         content: 'const answer = 43;',
         contentHash: 'hash-chunk-1-updated',
+        fileRecordId: 'file-2',
         id: 'chunk-1',
         tokenCount: 5,
         updatedAt: '2026-06-23T08:30:00.000Z',
@@ -57,9 +61,11 @@ describe('TursoFileChunkRepository', () => {
     await repository.insert(createChunk({ chunkIndex: 1, id: 'chunk-2' }));
 
     await expect(repository.findById('chunk-1')).resolves.toMatchObject({
+      chunkIndex: 0,
       chunkSize: 24,
       content: 'const answer = 43;',
       contentHash: 'hash-chunk-1-updated',
+      fileRecordId: 'file-1',
       tokenCount: 5,
       updatedAt: '2026-06-23T08:30:00.000Z',
     });

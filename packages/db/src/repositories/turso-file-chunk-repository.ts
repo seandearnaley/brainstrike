@@ -375,8 +375,6 @@ export class TursoFileChunkRepository {
         `INSERT INTO file_chunks (${FILE_CHUNK_COLUMNS})
          VALUES ${values}
          ON CONFLICT (id) DO UPDATE SET
-           file_record_id = excluded.file_record_id,
-           chunk_index = excluded.chunk_index,
            content = excluded.content,
            content_hash = excluded.content_hash,
            token_count = excluded.token_count,
