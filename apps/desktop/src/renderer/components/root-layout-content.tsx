@@ -13,7 +13,11 @@ import {
 // startup check does not defeat the lazy code-split in terminal-page-content.tsx.
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import {
+  useBrainstrikeDbClient,
+  useOptionalProfileBootstrapReport,
+  useTokenCacheStore,
+} from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/utils/logger';
 import { GitBranch, SquareTerminal } from 'lucide-react';
@@ -50,7 +54,18 @@ interface RendererMemoryPerformance extends Performance {
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = useBrainstrikeDbClient();
-  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+  const tokenCacheStore = useTokenCacheStore();
+  const bootstrapReport = useOptionalProfileBootstrapReport();
+  if (bootstrapReport?.ready && bootstrapReport.runtime.engine === 'turso' && !tokenCacheStore) {
+    throw new Error(
+      'Desktop Turso token cache store is unavailable while the database client is not exposed.'
+    );
+  }
+  return (
+    <TokenCacheProvider db={db} persistentStore={tokenCacheStore}>
+      {children}
+    </TokenCacheProvider>
+  );
 }
 
 /**

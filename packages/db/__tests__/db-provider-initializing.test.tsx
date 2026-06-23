@@ -10,6 +10,7 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
   useProfileBootstrapReport,
+  useTokenCacheStore,
   useViewFilterPresetsRepository,
 } from '../src/db-provider';
 import * as databaseModule from '../src/drizzle/database';
@@ -398,9 +399,12 @@ describe('DbProvider initializing state', () => {
       }
       return { rows: [] };
     });
-    const exec = vi.fn(async (_sql: string, params?: unknown[]) => {
-      createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
+    const exec = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('view_filter_presets')) {
+        createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
+      }
     });
+    const runTransaction = vi.fn(async () => ({ rows: [] }));
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -442,6 +446,7 @@ describe('DbProvider initializing state', () => {
       diagnostics,
       exec,
       query,
+      runTransaction,
       test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
     });
 
@@ -451,7 +456,8 @@ describe('DbProvider initializing state', () => {
         const initializationStatus = useDbInitializationStatus();
         const report = useProfileBootstrapReport();
         const presetsRepository = useViewFilterPresetsRepository();
-        return { db, initializationStatus, presetsRepository, report };
+        const tokenCacheStore = useTokenCacheStore();
+        return { db, initializationStatus, presetsRepository, report, tokenCacheStore };
       },
       { wrapper: electronIpcWrapper }
     );
@@ -469,6 +475,7 @@ describe('DbProvider initializing state', () => {
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
+    expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     if (!result.current.presetsRepository) {
       throw new Error('Expected Turso view filter presets repository.');
     }
@@ -487,6 +494,62 @@ describe('DbProvider initializing state', () => {
     expect(params).toEqual(
       expect.arrayContaining(['Docs', 'file-text', '["*.md"]', '["node_modules"]', 0, 8])
     );
+
+    if (!result.current.tokenCacheStore) {
+      throw new Error('Expected Turso token cache store.');
+    }
+    exec.mockClear();
+    await result.current.tokenCacheStore.set({
+      contentHash: 'hash-1',
+      countingMode: 'heuristic',
+      filePath: 'src/readme.md',
+      fileSize: 128,
+      folderId: 'root-1',
+      modelEncoding: null,
+      mtimeMs: 10,
+      tokenCount: 12,
+      updatedAt: '2026-06-22T19:00:00.000Z',
+    });
+
+    const [tokenSql, tokenParams] = exec.mock.calls[0] ?? [];
+    expect(tokenSql).toContain('INSERT INTO file_token_cache');
+    expect(tokenSql).toContain('ON CONFLICT(folder_id, file_path) DO UPDATE');
+    expect(tokenSql).not.toContain('::');
+    expect(tokenParams).toEqual(
+      expect.arrayContaining(['root-1', 'src/readme.md', 'hash-1', 128, 10, 12, 'heuristic'])
+    );
+
+    exec.mockClear();
+    await result.current.tokenCacheStore.setBatch([
+      {
+        contentHash: 'hash-2',
+        countingMode: 'heuristic',
+        filePath: 'src/guide.md',
+        fileSize: 256,
+        folderId: 'root-1',
+        modelEncoding: null,
+        mtimeMs: 20,
+        tokenCount: 24,
+      },
+    ]);
+
+    const [transactionStatements, transactionResultIndex] = runTransaction.mock.calls[0] ?? [];
+    expect(exec).not.toHaveBeenCalled();
+    expect(transactionResultIndex).toBe(0);
+    expect(transactionStatements).toEqual([
+      expect.objectContaining({
+        sql: expect.stringContaining('INSERT INTO file_token_cache'),
+        params: expect.arrayContaining([
+          'root-1',
+          'src/guide.md',
+          'hash-2',
+          256,
+          20,
+          24,
+          'heuristic',
+        ]),
+      }),
+    ]);
     expect(result.current.report).toMatchObject({
       ready: true,
       runtime: { engine: 'turso' },

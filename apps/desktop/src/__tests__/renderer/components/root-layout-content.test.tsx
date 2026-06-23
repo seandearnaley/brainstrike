@@ -10,6 +10,10 @@ const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerWarnMock: vi.fn(),
 }));
 
+const { tokenCacheProviderProps } = vi.hoisted(() => ({
+  tokenCacheProviderProps: [] as Array<{ db: unknown; persistentStore: unknown }>,
+}));
+
 const createQueueStub = (): QueueAdapter => {
   const result = {
     type: 'result',
@@ -59,16 +63,31 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 // Mock the indexing barrel to prevent token worker startup in unit tests.
 vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
-  TokenCacheProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="token-cache-provider">{children}</div>
-  ),
+  TokenCacheProvider: ({
+    children,
+    db,
+    persistentStore,
+  }: {
+    children: React.ReactNode;
+    db: unknown;
+    persistentStore?: unknown;
+  }) => {
+    tokenCacheProviderProps.push({ db, persistentStore });
+    return <div data-testid="token-cache-provider">{children}</div>;
+  },
 }));
 
 let currentDb: unknown = null;
+let currentTokenCacheStore: unknown = null;
+let currentProfileBootstrapReport: unknown = null;
 const useBrainstrikeDbClientMock = vi.fn(() => currentDb);
+const useTokenCacheStoreMock = vi.fn(() => currentTokenCacheStore);
+const useOptionalProfileBootstrapReportMock = vi.fn(() => currentProfileBootstrapReport);
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeDbClient: () => useBrainstrikeDbClientMock(),
+  useOptionalProfileBootstrapReport: () => useOptionalProfileBootstrapReportMock(),
+  useTokenCacheStore: () => useTokenCacheStoreMock(),
 }));
 
 // Mock UI provider to avoid asynchronous provider effects in unit tests
@@ -223,6 +242,9 @@ describe('RootLayoutContent', () => {
 
   beforeEach(() => {
     currentDb = null;
+    currentTokenCacheStore = null;
+    currentProfileBootstrapReport = null;
+    tokenCacheProviderProps.length = 0;
     homeMountCount = 0;
     vi.clearAllMocks();
     // Default: Git + Terminal bridges unavailable (web-safe). clearAllMocks wiped
@@ -246,6 +268,33 @@ describe('RootLayoutContent', () => {
   it('should render without crashing', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('file-explorer-provider')).toBeInTheDocument();
+  });
+
+  it('passes the runtime-selected token cache store to the token cache provider', () => {
+    currentTokenCacheStore = { kind: 'turso-token-cache-store' };
+
+    render(<RootLayoutContent />);
+
+    expect(tokenCacheProviderProps.at(-1)).toMatchObject({
+      db: null,
+      persistentStore: currentTokenCacheStore,
+    });
+  });
+
+  it('fails closed instead of silently entering memory token-cache mode for Turso partial DB', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    currentDb = null;
+    currentTokenCacheStore = null;
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'turso' },
+    };
+
+    expect(() => render(<RootLayoutContent />)).toThrow(
+      'Desktop Turso token cache store is unavailable while the database client is not exposed.'
+    );
+
+    consoleErrorSpy.mockRestore();
   });
 
   it('should render AppLayout component', () => {
