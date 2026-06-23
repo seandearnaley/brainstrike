@@ -24,6 +24,7 @@ import {
 } from '@brainstrike/preferences/stores/token-preferences-store';
 import type {
   TokenCacheEntry,
+  TokenCacheRuntimeStore,
   TokenCountingMode,
   TokenCountRequest,
   TokenCountResult,
@@ -202,6 +203,29 @@ function buildTokenCacheWarmupError(attempts: number, lastError: Error | null): 
   );
 }
 
+export interface TokenCacheProviderStore extends TokenCacheRuntimeStore {
+  clearAll: () => Promise<number>;
+  clearFolder: (folderId: string) => Promise<number>;
+  delete: (folderId: string, filePath: string) => Promise<boolean>;
+  findByCountingMode: (
+    folderId: string,
+    mode: TokenCountingMode,
+    limit?: number
+  ) => Promise<TokenCacheEntry[]>;
+  getBatch: (
+    folderId: string,
+    filePaths: readonly string[]
+  ) => Promise<Map<string, TokenCacheEntry>>;
+  getStats: (folderId?: string) => Promise<{
+    accurateCount: number;
+    entryCount: number;
+    heuristicCount: number;
+    totalTokens: number;
+  }>;
+  setBatch: (entries: readonly TokenCacheEntry[]) => Promise<void>;
+  vacuum: () => Promise<void>;
+}
+
 class InMemoryTokenCacheStore {
   private readonly entries = new Map<string, TokenCacheEntry>();
 
@@ -213,7 +237,10 @@ class InMemoryTokenCacheStore {
     return this.entries.get(InMemoryTokenCacheStore.createKey(folderId, filePath)) ?? null;
   }
 
-  async getBatch(folderId: string, filePaths: string[]): Promise<Map<string, TokenCacheEntry>> {
+  async getBatch(
+    folderId: string,
+    filePaths: readonly string[]
+  ): Promise<Map<string, TokenCacheEntry>> {
     const result = new Map<string, TokenCacheEntry>();
     for (const filePath of filePaths) {
       const entry = await this.get(folderId, filePath);
@@ -238,7 +265,7 @@ class InMemoryTokenCacheStore {
     this.entries.set(InMemoryTokenCacheStore.createKey(entry.folderId, entry.filePath), entry);
   }
 
-  async setBatch(entries: TokenCacheEntry[]): Promise<void> {
+  async setBatch(entries: readonly TokenCacheEntry[]): Promise<void> {
     for (const entry of entries) {
       await this.set(entry);
     }
@@ -265,7 +292,7 @@ class InMemoryTokenCacheStore {
     return removed;
   }
 
-  async getTotalTokens(folderId: string, filePaths: string[]): Promise<number> {
+  async getTotalTokens(folderId: string, filePaths: readonly string[]): Promise<number> {
     let total = 0;
     for (const filePath of filePaths) {
       const entry = await this.get(folderId, filePath);
@@ -325,7 +352,7 @@ class InMemoryTokenCacheStore {
   }
 }
 
-type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
+type TokenCacheStoreLike = TokenCacheProviderStore;
 
 /**
  * Persistence mode for the token cache
@@ -385,6 +412,8 @@ interface TokenCacheProviderProps {
   lazyWorkerInit?: boolean;
   /** Callback when token count is resolved */
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
+  /** Runtime-selected persistent store for non-PGlite database providers. */
+  persistentStore?: TokenCacheProviderStore | null;
   /** Worker URL for the token cache worker */
   workerUrl?: string;
 }
@@ -431,6 +460,7 @@ export function TokenCacheProvider({
   lazyWorkerInit = false,
   workerUrl,
   onTokenResolved,
+  persistentStore = null,
   children,
 }: TokenCacheProviderProps) {
   const [inMemoryStore] = useState(() => new InMemoryTokenCacheStore());
@@ -461,9 +491,13 @@ export function TokenCacheProvider({
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const countingMode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
 
-  // Derive store directly from db - avoids setState-in-effect cascade.
-  // When db is null (startup/teardown), keep writes in-memory; once db is available, use persistent store.
+  // Derive the store without a setState-in-effect cascade. An explicit
+  // persistentStore covers non-PGlite runtimes; otherwise db controls PGlite persistence.
   const storeState = useMemo<{ store: TokenCacheStoreLike; hasPersistentStore: boolean }>(() => {
+    if (persistentStore) {
+      return { store: persistentStore, hasPersistentStore: true };
+    }
+
     if (!db) {
       return { store: inMemoryStore, hasPersistentStore: false };
     }
@@ -476,18 +510,18 @@ export function TokenCacheProvider({
       };
     }
 
-    const persistentStore = new TokenCacheStore(
+    const pglitePersistentStore = new TokenCacheStore(
       db as unknown as ConstructorParameters<typeof TokenCacheStore>[0]
     );
     persistentStoreRef.current = {
       query: db.query,
-      store: persistentStore,
+      store: pglitePersistentStore,
     };
     return {
-      store: persistentStore,
+      store: pglitePersistentStore,
       hasPersistentStore: true,
     };
-  }, [db, inMemoryStore]);
+  }, [db, inMemoryStore, persistentStore]);
   const store = storeState.store;
   const hasPersistentStore = storeState.hasPersistentStore;
 
@@ -661,7 +695,7 @@ export function TokenCacheProvider({
   // Use the token cache hook with initialized infrastructure
   // WorkerPool interface is compatible with WorkerPoolLike from useTokenCache
   const tokenCache = useTokenCache({
-    store: store as TokenCacheStore,
+    store,
     hasher,
     workerPool: workerPoolProxy,
     countingMode,
@@ -673,7 +707,7 @@ export function TokenCacheProvider({
   // - isPersisted: Operational + DB available (full persistence)
   // A lazily configured provider is still non-operational until the worker has actually warmed.
   const isOperational = hasherReady && workerReady;
-  const isPersisted = isOperational && Boolean(db) && hasPersistentStore;
+  const isPersisted = isOperational && hasPersistentStore;
 
   // Backwards compatibility: isReady = isPersisted
   const isReady = isPersisted;

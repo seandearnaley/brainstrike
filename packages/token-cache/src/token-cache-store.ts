@@ -215,7 +215,10 @@ export class TokenCacheStore {
    * Get multiple cached entries in a single query.
    * Returns a Map keyed by file path for efficient lookup.
    */
-  async getBatch(folderId: string, filePaths: string[]): Promise<Map<string, TokenCacheEntry>> {
+  async getBatch(
+    folderId: string,
+    filePaths: readonly string[]
+  ): Promise<Map<string, TokenCacheEntry>> {
     if (filePaths.length === 0) {
       return new Map();
     }
@@ -260,7 +263,7 @@ export class TokenCacheStore {
   /**
    * Batch upsert multiple entries efficiently.
    */
-  async setBatch(entries: TokenCacheEntry[]): Promise<void> {
+  async setBatch(entries: readonly TokenCacheEntry[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
@@ -357,7 +360,7 @@ export class TokenCacheStore {
    * Get total token count for selected files.
    * Uses SQL SUM for efficiency with large selections.
    */
-  async getTotalTokens(folderId: string, filePaths: string[]): Promise<number> {
+  async getTotalTokens(folderId: string, filePaths: readonly string[]): Promise<number> {
     if (filePaths.length === 0) {
       return 0;
     }

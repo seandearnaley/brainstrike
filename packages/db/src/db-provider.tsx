@@ -20,6 +20,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from './architecture/brainstrike-db-client-contract.js';
 import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
@@ -129,6 +133,11 @@ async function loadTursoViewFilterPresetsRepository() {
   return mod.TursoViewFilterPresetsRepository;
 }
 
+async function loadTursoTokenCacheStore() {
+  const mod = await import('./repositories/turso-token-cache-store.js');
+  return mod.TursoTokenCacheStore;
+}
+
 async function loadDrizzleEmbeddingSetsRepository() {
   const mod = await import('./repositories/drizzle/embedding-sets-repository.js');
   return mod.DrizzleEmbeddingSetsRepository;
@@ -180,6 +189,7 @@ interface QueryExecutor {
 // Forward declare for type reference (imported below)
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
+type TokenCacheStoreRepo = import('./repositories/turso-token-cache-store.js').TursoTokenCacheStore;
 
 export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
 
@@ -198,6 +208,7 @@ interface DbContextValue {
   initializing: boolean; // Whether database initialization is in progress
   profileBootstrapReport: ProfileBootstrapReport;
   ready: boolean;
+  tokenCacheStore: TokenCacheStoreRepo | null;
   vectorEnabled: boolean; // Whether pgvector extension is available
   viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
 }
@@ -610,6 +621,68 @@ async function createElectronTursoViewFilterPresetsRepository(
   };
 }
 
+interface ElectronTursoRepositoryDb {
+  readonly exec: (
+    sql: string,
+    params?: readonly unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<void>;
+  readonly query: <T = unknown>(
+    sql: string,
+    params?: readonly unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: T[] }>;
+  readonly runTransaction?: (
+    statements: { params?: unknown[]; sql: string }[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
+}
+
+function createElectronTursoExecutionClient(
+  repositoryDb: ElectronTursoRepositoryDb
+): BrainstrikeDbExecutionClient {
+  if (!repositoryDb.runTransaction) {
+    throw new Error('Desktop Turso token cache store requires db:transaction IPC support.');
+  }
+  const runTransaction = repositoryDb.runTransaction;
+
+  const transactionClient: BrainstrikeDbTransactionClient = {
+    exec: repositoryDb.exec,
+    query: repositoryDb.query,
+  };
+  return {
+    ...transactionClient,
+    transaction: async (callback) => {
+      const statements: { params?: unknown[]; sql: string }[] = [];
+      const batchClient: BrainstrikeDbTransactionClient = {
+        exec: async (sql, params, options) => {
+          if (options) {
+            throw new Error(
+              'Desktop Turso token cache transaction adapter does not support per-statement work options.'
+            );
+          }
+          statements.push({ sql, ...(params ? { params: [...params] } : {}) });
+        },
+        query: async () => {
+          throw new Error(
+            'Desktop Turso token cache transaction adapter only supports exec statements.'
+          );
+        },
+      };
+
+      const result = await callback(batchClient);
+      if (statements.length > 0) {
+        await runTransaction(statements, 0, {
+          label: 'file_token_cache.setBatch',
+          priority: 'normal',
+        });
+      }
+      return result;
+    },
+  };
+}
+
 async function probeElectronPGliteVectorExtension(
   electronDB: ElectronDatabaseAPI,
   diagnostics: DatabaseDiagnosticsSnapshot | null
@@ -661,6 +734,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   );
   const [viewFilterPresetsRepository, setViewFilterPresetsRepository] =
     useState<ViewFilterPresetsRepo | null>(null);
+  const [tokenCacheStore, setTokenCacheStore] = useState<TokenCacheStoreRepo | null>(null);
   const [drizzleDb, setDrizzleDb] = useState<DrizzleDb | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
@@ -736,6 +810,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       const testResult = await testElectronConnection(electronDB);
       const electronExec = electronDB.exec;
+      const electronRunTransaction = electronDB.runTransaction;
 
       if (!electronExec) {
         throw new Error('Electron database exec operation is unavailable over IPC');
@@ -750,10 +825,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         exec: async (sql: string, params?: readonly unknown[], options?: DatabaseWorkOptions) => {
           await electronExec(sql, params ? [...params] : undefined, options);
         },
-        // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
-        // in ONE main-process pglite.transaction() so a concurrent FTS query can't
-        // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
-        ...(electronDB.runTransaction ? { transaction: electronDB.runTransaction } : {}),
+        // Atomic transaction primitive (#1141): existing Electron repositories
+        // consume `transaction`; Turso token-cache consumes `runTransaction`.
+        ...(electronRunTransaction
+          ? {
+              runTransaction: electronRunTransaction,
+              transaction: (
+                statements: { params?: unknown[]; sql: string }[],
+                resultIndex: number
+              ) => electronRunTransaction(statements, resultIndex),
+            }
+          : {}),
       };
 
       const tursoViewFilterPresets = await createElectronTursoViewFilterPresetsRepository(
@@ -762,8 +844,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       );
       if (tursoViewFilterPresets) {
         if (!cancelled.value) {
+          const TursoTokenCacheStore = await loadTursoTokenCacheStore();
+          const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
           logger.warn('Desktop Turso DB provider initialized with partial repository coverage', {
-            migratedRepositories: ['view_filter_presets'],
+            migratedRepositories: ['file_token_cache', 'view_filter_presets'],
             unavailableRepositories: ['file_records', 'file_chunks', 'embedding_sets'],
           });
           connectionRef.current = { kind: 'ipc', bridge: electronDB };
@@ -772,6 +856,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           setChunkRepository(null);
           setEmbeddingSetsRepository(null);
           setViewFilterPresetsRepository(tursoViewFilterPresets.repository);
+          setTokenCacheStore(new TursoTokenCacheStore(tursoExecutionClient));
           setVectorEnabled(false);
           publishProfileBootstrapReport(tursoViewFilterPresets.report);
           setError(null);
@@ -832,6 +917,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setChunkRepository(chunkRepo);
         setEmbeddingSetsRepository(embeddingSetsRepo);
         setViewFilterPresetsRepository(viewFilterPresetsRepo);
+        setTokenCacheStore(null);
         setVectorEnabled(hasVector);
         publishDbProviderBootstrapReport({
           checks: createDbProviderBootstrapChecks({
@@ -1267,6 +1353,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setChunkRepository(null);
     setEmbeddingSetsRepository(null);
     setViewFilterPresetsRepository(null);
+    setTokenCacheStore(null);
     setVectorEnabled(false);
     publishProfileBootstrapReport(
       createInitialDbProviderBootstrapReport({
@@ -1341,6 +1428,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       embeddingSetsRepository,
       viewFilterPresetsRepository,
+      tokenCacheStore,
       drizzleDb,
       error,
       ready,
@@ -1383,6 +1471,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       embeddingSetsRepository,
       viewFilterPresetsRepository,
+      tokenCacheStore,
       drizzleDb,
       error,
       ready,
@@ -1551,6 +1640,33 @@ export function useOptionalBrainstrikeDatabase(): DbHandle | null {
 
 export function useOptionalBrainstrikeDbClient(): DbHandle | null {
   return useOptionalPGliteDatabase();
+}
+
+export function useTokenCacheStore(): TokenCacheStoreRepo | null {
+  const ctx = useContext(DbContext);
+  const tokenCacheStore = ctx?.tokenCacheStore;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (
+      !(tokenCacheStore || error || initializing || initializationStatus === 'ready') &&
+      initializeDatabase
+    ) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [tokenCacheStore, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx) {
+    logger.warn('useTokenCacheStore must be used within a DbProvider');
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? ctx.tokenCacheStore : null;
 }
 
 export function useDbProviderError(): Error | null {

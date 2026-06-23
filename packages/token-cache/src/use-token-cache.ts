@@ -18,7 +18,6 @@ const logger = createLogger('TokenCache');
 const VERSION_DEBOUNCE_MS = 50;
 
 import type { FileHasher } from './file-hasher';
-import type { TokenCacheStore } from './token-cache-store';
 import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from './types';
 
 /**
@@ -40,9 +39,16 @@ export interface UseTokenCacheOptions {
   /** Callback when token count is resolved */
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
   /** Token cache store instance */
-  store: TokenCacheStore;
+  store: TokenCacheRuntimeStore;
   /** Worker instance (minimal interface provided by the cache runtime) */
   workerPool: WorkerPoolLike;
+}
+
+export interface TokenCacheRuntimeStore {
+  get: (folderId: string, filePath: string) => Promise<TokenCacheEntry | null>;
+  getAllForFolder: (folderId: string) => Promise<TokenCacheEntry[]>;
+  getTotalTokens: (folderId: string, filePaths: readonly string[]) => Promise<number>;
+  set: (entry: TokenCacheEntry) => Promise<void>;
 }
 
 /**

@@ -302,6 +302,43 @@ describe('TokenCacheContext', () => {
     expect(result.current.store).toBe(initialStore);
   });
 
+  it('uses an explicit persistent store when no PGlite db handle is available', async () => {
+    const store = {
+      clearAll: vi.fn().mockResolvedValue(0),
+      clearFolder: vi.fn().mockResolvedValue(0),
+      delete: vi.fn().mockResolvedValue(false),
+      findByCountingMode: vi.fn().mockResolvedValue([]),
+      get: vi.fn().mockResolvedValue(null),
+      getAllForFolder: vi.fn().mockResolvedValue([]),
+      getBatch: vi.fn().mockResolvedValue(new Map()),
+      getStats: vi.fn().mockResolvedValue({
+        accurateCount: 0,
+        entryCount: 0,
+        heuristicCount: 0,
+        totalTokens: 0,
+      }),
+      getTotalTokens: vi.fn().mockResolvedValue(0),
+      set: vi.fn().mockResolvedValue(undefined),
+      setBatch: vi.fn().mockResolvedValue(undefined),
+      vacuum: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { result } = renderHook(() => useTokenCacheContext(), {
+      wrapper: ({ children }) => (
+        <TokenCacheProvider db={null} persistentStore={store}>
+          {children}
+        </TokenCacheProvider>
+      ),
+    });
+
+    await waitFor(() => expect(result.current.isPersisted).toBe(true));
+
+    expect(result.current.store).toBe(store);
+    expect(result.current.persistenceMode).toBe('persistent');
+    expect(tokenCacheStoreInstances).toHaveLength(0);
+    expect(store.clearAll).toHaveBeenCalledTimes(1);
+  });
+
   describe('two-tier readiness semantics (BST-150)', () => {
     it('is operational but not persisted when db is null', async () => {
       const { result } = renderHook(() => useTokenCacheContext(), {

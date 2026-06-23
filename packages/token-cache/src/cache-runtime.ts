@@ -18,7 +18,11 @@ export type {
   TokenWorkerResponse,
   TokenWorkerResponseError,
 } from './types';
-export type { UseTokenCacheOptions, UseTokenCacheReturn } from './use-token-cache';
+export type {
+  TokenCacheRuntimeStore,
+  UseTokenCacheOptions,
+  UseTokenCacheReturn,
+} from './use-token-cache';
 export { useTokenCache } from './use-token-cache';
 
 const UNSUPPORTED_OPTION_KEYS = ['forkArgs', 'forkOpts', 'maxQueueSize', 'onCreateWorker'] as const;
