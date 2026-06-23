@@ -5,7 +5,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createSpawnInvocation } from './spawn-command.mjs';
-import { dbCoverageLaneDefinitions } from '../packages/db/scripts/db-test-lane-manifest.mjs';
+import {
+  dbCoverageLaneDefinitions,
+  dbUnitLaneDefinitions,
+} from '../packages/db/scripts/db-test-lane-manifest.mjs';
 
 const DEFAULT_TOTAL_LANES = 4;
 const DEFAULT_WORKSPACE_CONCURRENCY = 2;
@@ -31,6 +34,18 @@ const CI_DB_LANE_GROUPS = new Map([
 const DB_LANES = new Set(CI_DB_LANE_GROUPS.keys());
 const CI_DB_COVERAGE_LANES = [...dbCoverageLaneDefinitions.laneOrder];
 const DB_COVERAGE_LANES = new Set(CI_DB_COVERAGE_LANES);
+const CI_DB_GROUP_BY_MANIFEST_LANE = new Map(
+  [...CI_DB_LANE_GROUPS.entries()].flatMap(([groupName, manifestLanes]) =>
+    manifestLanes.map((manifestLane) => [manifestLane, groupName])
+  )
+);
+const KNOWN_DB_SOURCE_LANE_RULES = [
+  {
+    pattern: /^packages\/db\/src\/db-provider(?:-[\w-]+)?\.(?:ts|tsx)$/,
+    unitLane: 'integration',
+    coverageLane: 'architecture',
+  },
+];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
   ['@brainstrike/db', 395000],
   ['@brainstrike/desktop', 111000],
@@ -125,6 +140,77 @@ export function listCiDbLaneGroups() {
 
 export function listCiDbCoverageLanes() {
   return [...CI_DB_COVERAGE_LANES];
+}
+
+function matchDbUnitLaneForTestFile(testFile) {
+  const matchedLanes = dbUnitLaneDefinitions.filter((lane) =>
+    lane.matches.some((pattern) => pattern.test(testFile))
+  );
+  return matchedLanes.length === 1 ? matchedLanes[0].name : null;
+}
+
+function matchDbCoverageLaneForTestFile(testFile) {
+  const overrideLane = Object.entries(
+    dbCoverageLaneDefinitions.coverageOverridesByLane ?? {}
+  ).find(([, files]) => files.includes(testFile))?.[0];
+  if (overrideLane) {
+    return overrideLane;
+  }
+  const unitLane = matchDbUnitLaneForTestFile(testFile);
+  return unitLane ? dbCoverageLaneDefinitions.coverageDefaultsByUnitLane?.[unitLane] : null;
+}
+
+function getKnownDbLaneSelection(filePath) {
+  const testPrefix = 'packages/db/__tests__/';
+  if (filePath.startsWith(testPrefix)) {
+    const testFile = filePath.slice(testPrefix.length);
+    const unitLane = matchDbUnitLaneForTestFile(testFile);
+    const coverageLane = matchDbCoverageLaneForTestFile(testFile);
+    return unitLane && coverageLane ? { unitLane, coverageLane } : null;
+  }
+
+  return (
+    KNOWN_DB_SOURCE_LANE_RULES.find((rule) => rule.pattern.test(filePath)) ?? null
+  );
+}
+
+function selectKnownDbLaneSelections(changedFiles = []) {
+  const dbFiles = changedFiles.filter((filePath) => filePath.startsWith('packages/db/'));
+  if (dbFiles.length === 0) {
+    return null;
+  }
+
+  const selections = [];
+  for (const filePath of dbFiles) {
+    const selection = getKnownDbLaneSelection(filePath);
+    if (!selection) {
+      return null;
+    }
+    selections.push(selection);
+  }
+  return selections;
+}
+
+export function selectDbUnitCiLanes(changedFiles = []) {
+  const selections = selectKnownDbLaneSelections(changedFiles);
+  if (!selections) {
+    return [...DB_LANES];
+  }
+
+  const selectedGroups = new Set(
+    selections.map((selection) => CI_DB_GROUP_BY_MANIFEST_LANE.get(selection.unitLane))
+  );
+  return [...CI_DB_LANE_GROUPS.keys()].filter((groupName) => selectedGroups.has(groupName));
+}
+
+export function selectDbCoverageCiLanes(changedFiles = []) {
+  const selections = selectKnownDbLaneSelections(changedFiles);
+  if (!selections) {
+    return listCiDbCoverageLanes();
+  }
+
+  const selectedCoverageLanes = new Set(selections.map((selection) => selection.coverageLane));
+  return CI_DB_COVERAGE_LANES.filter((coverageLane) => selectedCoverageLanes.has(coverageLane));
 }
 
 export function buildWeightedPackageLanes(packageNames, totalLanes) {
@@ -487,6 +573,14 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }
+      const selectedDbLanes = selectDbUnitCiLanes(changedFiles);
+      if (!selectedDbLanes.includes(options.dbLane)) {
+        console.log(
+          `Affected DB package selected, but DB unit lane ${options.dbLane} is not in the selected lane set: ${selectedDbLanes.join(', ')}`
+        );
+        writeGithubOutput(options.githubOutput, { has_work: 'false' });
+        return 0;
+      }
       writeGithubOutput(options.githubOutput, { has_work: 'true' });
       console.log(`Affected DB package selected; DB unit lane: ${options.dbLane}`);
       for (const [command, commandArgs] of createDbLaneCommands(options.dbLane)) {
@@ -500,6 +594,14 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     if (options.mode === 'coverage-db') {
       if (!coveragePackages.includes(DB_PACKAGE_NAME)) {
         console.log('No directly affected DB package selected for this coverage run.');
+        writeGithubOutput(options.githubOutput, { has_work: 'false' });
+        return 0;
+      }
+      const selectedDbCoverageLanes = selectDbCoverageCiLanes(changedFiles);
+      if (!selectedDbCoverageLanes.includes(options.dbCoverageLane)) {
+        console.log(
+          `Affected DB package selected, but DB coverage lane ${options.dbCoverageLane} is not in the selected lane set: ${selectedDbCoverageLanes.join(', ')}`
+        );
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }

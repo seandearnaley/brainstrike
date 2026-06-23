@@ -16,6 +16,8 @@ import {
   modeIncludesDependentPackages,
   parsePnpmListJson,
   runCommandSequence,
+  selectDbCoverageCiLanes,
+  selectDbUnitCiLanes,
 } from '../affected-unit-tests.mjs';
 import {
   dbCoverageLaneDefinitions,
@@ -206,6 +208,67 @@ test('CI DB lane groups cover every DB unit manifest lane exactly once', () => {
 
 test('CI DB coverage lanes mirror the DB coverage manifest order', () => {
   assert.deepEqual(listCiDbCoverageLanes(), dbCoverageLaneDefinitions.laneOrder);
+});
+
+test('narrow DB provider changes select only the owning DB unit and coverage lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/db-provider-initializing.test.tsx',
+    'packages/db/src/db-provider-state-reset.ts',
+    'packages/db/src/db-provider.tsx',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['remaining']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture']);
+});
+
+test('narrow DB repository test changes select only the repository DB unit and coverage lanes', () => {
+  const changedFiles = ['packages/db/__tests__/turso-token-cache-store.test.ts'];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['repositories']);
+});
+
+test('shared DB repository implementation changes keep the full DB unit and coverage surfaces', () => {
+  const changedFiles = ['packages/db/src/repositories/file-chunk-repository.ts'];
+
+  assert.deepEqual(
+    selectDbUnitCiLanes(changedFiles),
+    listCiDbLaneGroups().map((group) => group.groupName)
+  );
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('unknown DB source changes keep the full DB unit and coverage surfaces', () => {
+  const changedFiles = ['packages/db/src/new-public-runtime.ts'];
+
+  assert.deepEqual(
+    selectDbUnitCiLanes(changedFiles),
+    listCiDbLaneGroups().map((group) => group.groupName)
+  );
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('mixed narrow and unknown DB changes keep the full DB unit and coverage surfaces', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-token-cache-store.test.ts',
+    'packages/db/src/repositories/turso-token-cache-store.ts',
+    'packages/db/scripts/db-test-lane-manifest.mjs',
+  ];
+
+  assert.deepEqual(
+    selectDbUnitCiLanes(changedFiles),
+    listCiDbLaneGroups().map((group) => group.groupName)
+  );
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('narrow DB lane selections preserve workflow matrix order', () => {
+  const changedFiles = [
+    'packages/db/__tests__/db-provider-initializing.test.tsx',
+    'packages/db/__tests__/turso-token-cache-store.test.ts',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'remaining']);
 });
 
 test('runCommandSequence runs every DB sublane before returning failure', () => {
