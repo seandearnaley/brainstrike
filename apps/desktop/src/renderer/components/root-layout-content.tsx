@@ -13,7 +13,7 @@ import {
 // startup check does not defeat the lazy code-split in terminal-page-content.tsx.
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/utils/logger';
 import { GitBranch, SquareTerminal } from 'lucide-react';
@@ -49,7 +49,7 @@ interface RendererMemoryPerformance extends Performance {
  * The token worker must be ready eagerly so background indexing starts immediately.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
 }
 
@@ -73,7 +73,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
   );

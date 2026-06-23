@@ -1,5 +1,6 @@
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
+  type DbHandle,
   type DrizzleFileChunkRepository,
   type DrizzleFileRecordRepository,
   type ElectronFileChunkRepository,
@@ -7,8 +8,7 @@ import {
   type FileChunk,
   type FileRecord,
   makeLiveQueryKey,
-  type usePGliteDatabase,
-  usePGliteLiveQuery,
+  useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
 import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
@@ -70,7 +70,7 @@ export interface DatabaseInfo {
 export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
   chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
-  database?: ReturnType<typeof usePGliteDatabase>;
+  database?: DbHandle | null;
   /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
@@ -430,7 +430,7 @@ export function useDatabaseDemoData({
     loading: recordsLoading,
     error: recordsError,
     refresh: refreshRecordsQuery,
-  } = usePGliteLiveQuery<FileRecordRow>({
+  } = useBrainstrikeLiveQuery<FileRecordRow>({
     cacheKey: makeLiveQueryKey(
       'file-records',
       activeCollectionId,
@@ -448,7 +448,7 @@ export function useDatabaseDemoData({
     rows: totalRecordRows,
     loading: totalRecordsLoading,
     refresh: refreshTotalRecordsQuery,
-  } = usePGliteLiveQuery<FileRecordsTotalRow>({
+  } = useBrainstrikeLiveQuery<FileRecordsTotalRow>({
     cacheKey: makeLiveQueryKey('file-records-total', activeCollectionId),
     query: FILE_RECORDS_TOTAL_QUERY,
     ...(recordTotalQueryParams ? { params: recordTotalQueryParams } : {}),
@@ -458,7 +458,7 @@ export function useDatabaseDemoData({
     rows: collectionCountRows,
     loading: collectionCountsLoading,
     refresh: refreshCollectionCountsQuery,
-  } = usePGliteLiveQuery<CollectionCountsRow>({
+  } = useBrainstrikeLiveQuery<CollectionCountsRow>({
     cacheKey: makeLiveQueryKey('file-record-collection-counts', activeCollectionId),
     query: COLLECTION_COUNTS_QUERY,
     ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),

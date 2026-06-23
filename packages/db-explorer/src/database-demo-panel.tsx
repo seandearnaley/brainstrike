@@ -1,12 +1,12 @@
 import {
   type EmbeddingSet,
   refreshCollectionIndexingStats,
+  useBrainstrikeDbClient,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
-  usePGliteDatabase,
 } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
@@ -175,7 +175,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const dbChunkRepository = useFileChunkRepository();
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
-  const dbContext = usePGliteDatabase();
+  const dbContext = useBrainstrikeDbClient();
 
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({

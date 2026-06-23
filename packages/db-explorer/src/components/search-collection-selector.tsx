@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db';
 import {
   CollectionPicker,
   type CollectionPickerCollection,
@@ -17,7 +17,7 @@ interface SearchCollectionSelectorProps {
   /**
    * The database instance for querying collections
    */
-  db: ReturnType<typeof usePGliteDatabase>;
+  db: DbHandle | null;
 
   /**
    * Callback when collection selection changes

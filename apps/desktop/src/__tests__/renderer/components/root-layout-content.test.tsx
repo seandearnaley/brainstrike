@@ -65,10 +65,10 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 }));
 
 let currentDb: unknown = null;
-const usePGliteDatabaseMock = vi.fn(() => currentDb);
+const useBrainstrikeDbClientMock = vi.fn(() => currentDb);
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: () => usePGliteDatabaseMock(),
+  useBrainstrikeDbClient: () => useBrainstrikeDbClientMock(),
 }));
 
 // Mock UI provider to avoid asynchronous provider effects in unit tests

@@ -179,7 +179,6 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     useBrainstrikeDbClient: () => mockDatabase,
-    usePGliteDatabase: () => mockDatabase,
     useFileChunkRepository: () => mockChunkRepository,
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
     useDbProviderError: () => null,
@@ -195,7 +194,6 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     },
     migrations: [],
     useBrainstrikeLiveQuery: useLiveQueryMock,
-    usePGliteLiveQuery: useLiveQueryMock,
   };
 });
 

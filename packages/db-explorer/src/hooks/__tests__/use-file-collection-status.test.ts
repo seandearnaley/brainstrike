@@ -19,13 +19,13 @@ const mockLiveQueryState = {
   refresh: vi.fn(),
 };
 
-const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
   () => mockLiveQueryState
 );
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+  useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
 }));
 
 describe('useFileCollectionStatus', () => {
@@ -34,7 +34,7 @@ describe('useFileCollectionStatus', () => {
     mockLiveQueryState.rows = [];
     mockLiveQueryState.error = null;
     mockLiveQueryState.refresh = vi.fn();
-    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
+    useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
   describe('getFileStatus', () => {
@@ -199,7 +199,7 @@ describe('useFileCollectionStatus', () => {
     it('configures live query for the active collection id', () => {
       renderHook(() => useFileCollectionStatus('collection-1'));
 
-      expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+      expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           params: ['collection-1'],
           query: expect.stringContaining('SELECT'),

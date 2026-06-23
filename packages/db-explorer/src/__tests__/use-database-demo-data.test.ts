@@ -3,9 +3,9 @@ import type {
   DrizzleFileRecordRepository,
   FileChunk,
   FileRecord,
-  UsePGliteLiveQueryOptions,
+  UseBrainstrikeLiveQueryOptions,
 } from '@brainstrike/db';
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useBrainstrikeLiveQuery } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
@@ -68,11 +68,11 @@ vi.mock('@brainstrike/db', async () => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     MigrationRunner: MockMigrationRunner,
     migrations: [],
-    usePGliteLiveQuery: vi.fn(),
+    useBrainstrikeLiveQuery: vi.fn(),
   };
 });
 
-const mockedUsePGliteLiveQuery = vi.mocked(usePGliteLiveQuery);
+const mockedUseBrainstrikeLiveQuery = vi.mocked(useBrainstrikeLiveQuery);
 
 function getRepeatedParameterIndexes(query: string): string[] {
   const seen = new Set<string>();
@@ -167,26 +167,26 @@ const setupLiveQueries = (
     refresh: vi.fn().mockResolvedValue(undefined),
   };
 
-  mockedUsePGliteLiveQuery.mockImplementation(
-    (queryOptions: UsePGliteLiveQueryOptions<unknown>) => {
+  mockedUseBrainstrikeLiveQuery.mockImplementation(
+    (queryOptions: UseBrainstrikeLiveQueryOptions<unknown>) => {
       // If disabled, return empty result
       if (queryOptions.enabled === false) {
-        return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+        return disabledResult as ReturnType<typeof mockedUseBrainstrikeLiveQuery>;
       }
 
       if (queryOptions.query.includes('AS "totalRecords"')) {
-        return totalRecordsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+        return totalRecordsResult as ReturnType<typeof mockedUseBrainstrikeLiveQuery>;
       }
       if (queryOptions.query.includes('AS "recordsCount"')) {
-        return collectionCountsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+        return collectionCountsResult as ReturnType<typeof mockedUseBrainstrikeLiveQuery>;
       }
       if (
         queryOptions.query.includes('FROM file_records fr') &&
         queryOptions.query.includes('LIMIT $2')
       ) {
-        return recordResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+        return recordResult as ReturnType<typeof mockedUseBrainstrikeLiveQuery>;
       }
-      return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+      return disabledResult as ReturnType<typeof mockedUseBrainstrikeLiveQuery>;
     }
   );
 
@@ -241,7 +241,7 @@ const createMockDatabase = (options?: {
   }) as never;
 
 beforeEach(() => {
-  mockedUsePGliteLiveQuery.mockReset();
+  mockedUseBrainstrikeLiveQuery.mockReset();
   // Reset mock store state between tests
   mockVectorStatusUIStore.schemaVerified = true;
   mockVectorStatusUIStore.cachedFileData = null;
@@ -355,19 +355,19 @@ describe('useDatabaseDemoData', () => {
       embeddings: 1,
     });
     expect(
-      mockedUsePGliteLiveQuery.mock.calls.some(
+      mockedUseBrainstrikeLiveQuery.mock.calls.some(
         ([queryOptions]) =>
           queryOptions.query.includes('FROM file_records fr') && queryOptions.enabled === true
       )
     ).toBe(true);
     expect(
-      mockedUsePGliteLiveQuery.mock.calls.some(
+      mockedUseBrainstrikeLiveQuery.mock.calls.some(
         ([queryOptions]) =>
           queryOptions.query.includes('AS "totalRecords"') && queryOptions.enabled === true
       )
     ).toBe(true);
     expect(
-      mockedUsePGliteLiveQuery.mock.calls.some(
+      mockedUseBrainstrikeLiveQuery.mock.calls.some(
         ([queryOptions]) =>
           queryOptions.query.includes('AS "recordsCount"') && queryOptions.enabled === true
       )
@@ -387,7 +387,7 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    const liveQuerySql = mockedUsePGliteLiveQuery.mock.calls.map(([queryOptions]) => ({
+    const liveQuerySql = mockedUseBrainstrikeLiveQuery.mock.calls.map(([queryOptions]) => ({
       query: queryOptions.query,
       repeatedParameters: getRepeatedParameterIndexes(queryOptions.query),
     }));
@@ -410,7 +410,7 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    const recordQuery = mockedUsePGliteLiveQuery.mock.calls
+    const recordQuery = mockedUseBrainstrikeLiveQuery.mock.calls
       .map(([queryOptions]) => queryOptions.query)
       .find((query) => query.includes('FROM file_records fr') && query.includes('LIMIT $2'));
 
@@ -432,13 +432,13 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    const recordPageCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+    const recordPageCall = mockedUseBrainstrikeLiveQuery.mock.calls.find(([queryOptions]) =>
       queryOptions.query.includes('FROM file_records fr')
     );
-    const totalAggregateCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+    const totalAggregateCall = mockedUseBrainstrikeLiveQuery.mock.calls.find(([queryOptions]) =>
       queryOptions.query.includes('AS "totalRecords"')
     );
-    const collectionStatsCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+    const collectionStatsCall = mockedUseBrainstrikeLiveQuery.mock.calls.find(([queryOptions]) =>
       queryOptions.query.includes('AS "recordsCount"')
     );
 
@@ -757,7 +757,7 @@ describe('useDatabaseDemoData', () => {
     );
 
     await waitFor(() => {
-      const countQueryCall = mockedUsePGliteLiveQuery.mock.calls.find(
+      const countQueryCall = mockedUseBrainstrikeLiveQuery.mock.calls.find(
         ([queryOptions]) =>
           typeof queryOptions.query === 'string' && queryOptions.query.includes('AS "recordsCount"')
       );
@@ -932,7 +932,9 @@ describe('useDatabaseDemoData', () => {
       expect.objectContaining({ hasEmbedding: true, embeddingDimensions: 384 })
     );
 
-    const liveQueryCalls = mockedUsePGliteLiveQuery.mock.calls.map(([options]) => options.query);
+    const liveQueryCalls = mockedUseBrainstrikeLiveQuery.mock.calls.map(
+      ([options]) => options.query
+    );
     expect(
       liveQueryCalls.some((query) => query.includes('SELECT') && query.includes('content,'))
     ).toBe(false);
@@ -1426,7 +1428,7 @@ describe('useDatabaseDemoData', () => {
       await waitFor(
         () => {
           expect(
-            mockedUsePGliteLiveQuery.mock.calls.some(([queryOptions]) => queryOptions.enabled)
+            mockedUseBrainstrikeLiveQuery.mock.calls.some(([queryOptions]) => queryOptions.enabled)
           ).toBe(true);
         },
         { timeout: 3000 }

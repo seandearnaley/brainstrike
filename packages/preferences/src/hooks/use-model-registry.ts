@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect } from 'react';
 import { useModelRegistryStore } from '../stores/model-registry-store';
@@ -12,7 +12,7 @@ export interface UseEnsureModelRegistryOptions {
 }
 
 export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = {}): string | null {
-  const contextDb = usePGliteDatabase();
+  const contextDb = useBrainstrikeDbClient();
   const db = options.db ?? contextDb;
   const enabled = options.enabled ?? true;
   const ensureRegistry = useModelRegistryStore((state) => state.ensureRegistry);

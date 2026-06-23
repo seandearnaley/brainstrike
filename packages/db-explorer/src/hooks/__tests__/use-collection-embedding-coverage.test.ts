@@ -19,13 +19,13 @@ const mockLiveQueryState = {
   error: null as Error | null,
 };
 
-const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
   () => mockLiveQueryState
 );
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+  useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
 }));
 
 describe('collection embedding coverage status', () => {
@@ -34,7 +34,7 @@ describe('collection embedding coverage status', () => {
     mockLiveQueryState.rows = [];
     mockLiveQueryState.loading = false;
     mockLiveQueryState.error = null;
-    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
+    useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
   it('reports idle when the collection has no files', () => {

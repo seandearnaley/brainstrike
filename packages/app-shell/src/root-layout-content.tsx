@@ -1,5 +1,5 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db';
+import { type DbHandle, useBrainstrikeDbClient } from '@brainstrike/db';
 import {
   FileExplorerPanel,
   RootDataDeletionProvider,
@@ -100,7 +100,7 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const rootId = rootDirectoryHandle
     ? (rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path))
     : undefined;
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
   // app-shell injects the deletion. Migration 039: file_records.root_id →
   // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw

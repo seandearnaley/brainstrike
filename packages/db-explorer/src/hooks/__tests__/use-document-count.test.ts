@@ -13,7 +13,7 @@ const mockLiveQueryState = {
   refresh: vi.fn(),
 };
 
-const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
   () => mockLiveQueryState
 );
 
@@ -24,7 +24,7 @@ const mockVectorStatusUiStore = {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+  useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
@@ -41,14 +41,14 @@ describe('useIndexedChunkCount', () => {
     mockLiveQueryState.refresh = vi.fn();
     mockVectorStatusUiStore.isImporting = false;
     mockVectorStatusUiStore.isEmbeddingActive = false;
-    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
+    useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
   it('returns undefined when no active collection', () => {
     const { result } = renderHook(() => useIndexedChunkCount(null));
 
     expect(result.current).toBeUndefined();
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false })
     );
   });
@@ -59,7 +59,7 @@ describe('useIndexedChunkCount', () => {
     const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
     expect(result.current).toBe(42);
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         query: expect.stringContaining('FROM collection_indexing_stats'),
         params: ['collection-1'],
@@ -127,7 +127,9 @@ describe('useIndexedChunkCount', () => {
     const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
     expect(result.current).toBe(7);
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true })
+    );
   });
 
   it('refreshes the active collection count when the embeddings queue drains', async () => {

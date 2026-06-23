@@ -20,7 +20,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   return {
     ...mod,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteDatabase: () => mockDb,
+    useBrainstrikeDbClient: () => mockDb,
   };
 });
 

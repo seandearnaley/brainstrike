@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
@@ -115,7 +115,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     [activeCollectionId]
   );
 
-  const { rows, error } = usePGliteLiveQuery<FileStatusRow>({
+  const { rows, error } = useBrainstrikeLiveQuery<FileStatusRow>({
     cacheKey: makeLiveQueryKey('file-collection-status', activeCollectionId),
     query: FILE_STATUS_QUERY,
     ...(params ? { params } : {}),

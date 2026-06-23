@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const SETTINGS_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+const PREFERENCES_SRC_DIR = dirname(SETTINGS_DIR);
 const OLD_PGLITE_UI_ALIASES = [
   'usePGliteDatabase',
   'usePGliteLiveQuery',
@@ -33,11 +34,11 @@ async function listSourceFiles(dir: string): Promise<string[]> {
 describe('settings database hook imports', () => {
   it('uses generic DB client and live query aliases in UI consumers', async () => {
     const matches: string[] = [];
-    for (const file of await listSourceFiles(SETTINGS_DIR)) {
+    for (const file of await listSourceFiles(PREFERENCES_SRC_DIR)) {
       const source = await readFile(file, 'utf8');
       for (const alias of OLD_PGLITE_UI_ALIASES) {
         if (source.includes(alias)) {
-          matches.push(`${file.replace(`${SETTINGS_DIR}/`, '')}: ${alias}`);
+          matches.push(`${file.replace(`${PREFERENCES_SRC_DIR}/`, '')}: ${alias}`);
         }
       }
     }
