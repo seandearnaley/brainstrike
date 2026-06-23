@@ -107,7 +107,7 @@ export type {
   JobType,
 } from './queue/index.js';
 // Queue
-export { JobQueue } from './queue/index.js';
+export { JobQueue, TursoJobQueue } from './queue/index.js';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports

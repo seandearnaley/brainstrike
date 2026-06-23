@@ -136,8 +136,22 @@ export class TursoFileChunkRepository {
   }
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
+    return this.updateWithClient(this.db, chunk);
+  }
+
+  async updateWithTx(
+    tx: BrainstrikeDbTransactionClient,
+    chunk: FileChunkUpdate
+  ): Promise<FileChunk | null> {
+    return this.updateWithClient(tx, chunk);
+  }
+
+  private async updateWithClient(
+    db: BrainstrikeDbTransactionClient,
+    chunk: FileChunkUpdate
+  ): Promise<FileChunk | null> {
     assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
-    const existing = await this.resolveExistingChunkForUpdate(chunk);
+    const existing = await this.resolveExistingChunkForUpdate(db, chunk);
     const assignments: string[] = [];
     const params: unknown[] = [];
 
@@ -153,7 +167,7 @@ export class TursoFileChunkRepository {
 
     if (chunk.embedding !== undefined) {
       const validationSetId = chunk.embeddingSetId ?? existing?.embeddingSetId ?? null;
-      await validateEmbeddings(this.db, [
+      await validateEmbeddings(db, [
         { embedding: chunk.embedding, embeddingSetId: validationSetId },
       ]);
       appendColumn(assignments, params, 'embedding', encodeEmbeddingBlob(chunk.embedding));
@@ -176,7 +190,7 @@ export class TursoFileChunkRepository {
         return null;
       }
       await validateEmbeddingSetMetadataUpdate(
-        this.db,
+        db,
         existing.embedding === undefined
           ? { embeddingSetId: chunk.embeddingSetId }
           : { embedding: existing.embedding, embeddingSetId: chunk.embeddingSetId }
@@ -193,7 +207,7 @@ export class TursoFileChunkRepository {
     );
 
     params.push(chunk.id);
-    const result = await this.db.query<TursoFileChunkRow>(
+    const result = await db.query<TursoFileChunkRow>(
       `UPDATE file_chunks
           SET ${assignments.join(', ')}
         WHERE id = ?
@@ -361,14 +375,31 @@ export class TursoFileChunkRepository {
     return count;
   }
 
-  private async resolveExistingChunkForUpdate(chunk: FileChunkUpdate): Promise<FileChunk | null> {
+  private async resolveExistingChunkForUpdate(
+    db: BrainstrikeDbTransactionClient,
+    chunk: FileChunkUpdate
+  ): Promise<FileChunk | null> {
     if (chunk.embedding !== undefined && !chunk.embeddingSetId) {
-      return this.findById(chunk.id);
+      return this.findByIdWithClient(db, chunk.id);
     }
     if (chunk.embedding === undefined && chunk.embeddingSetId !== undefined) {
-      return this.findById(chunk.id);
+      return this.findByIdWithClient(db, chunk.id);
     }
     return null;
+  }
+
+  private async findByIdWithClient(
+    db: BrainstrikeDbTransactionClient,
+    id: string
+  ): Promise<FileChunk | null> {
+    const result = await db.query<TursoFileChunkRow>(
+      `SELECT ${FILE_CHUNK_COLUMNS}
+         FROM file_chunks
+        WHERE id = ?`,
+      [id]
+    );
+    const row = result.rows[0];
+    return row ? mapRowToChunk(row) : null;
   }
 
   private async insertManyWithClient(

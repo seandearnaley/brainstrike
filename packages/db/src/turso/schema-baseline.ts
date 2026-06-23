@@ -1,4 +1,7 @@
-import type { BrainstrikeDbExecutionClient } from '../architecture/brainstrike-db-client-contract.js';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../architecture/brainstrike-db-client-contract.js';
 import {
   assertNoPostgresMigrationLedgers,
   assertTursoSchemaLedgerHasNoUnknownVersions,
@@ -951,7 +954,7 @@ export async function applyTursoSchemaBaseline(
   client: BrainstrikeDbExecutionClient
 ): Promise<void> {
   await client.exec('PRAGMA foreign_keys = ON');
-  await client.transaction(async (tx) => {
+  await runTursoSchemaTransaction(client, async (tx) => {
     await assertNoPostgresMigrationLedgers(tx);
     await ensureTursoSchemaLedger(tx);
     await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [
@@ -1006,4 +1009,18 @@ export async function applyTursoSchemaBaseline(
       version: TURSO_SCHEMA_BASELINE_VERSION,
     });
   });
+}
+
+function runTursoSchemaTransaction<TResult>(
+  client: BrainstrikeDbExecutionClient,
+  callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+): Promise<TResult> {
+  if ('exclusiveTransaction' in client) {
+    const exclusiveTransaction = client.exclusiveTransaction;
+    if (typeof exclusiveTransaction !== 'function') {
+      throw new Error('Turso schema client exposes a non-callable exclusiveTransaction member.');
+    }
+    return exclusiveTransaction(callback);
+  }
+  return client.transaction(callback);
 }
