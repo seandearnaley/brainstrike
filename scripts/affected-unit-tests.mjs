@@ -302,6 +302,9 @@ export function buildAffectedPackageFilter(baseRef, { includeDependents = false 
 }
 
 export function buildTurboBuildFilterOutput(packageNames) {
+  if (packageNames.length === 0) {
+    throw new Error('Cannot build a Turbo filter list for an empty package lane.');
+  }
   return packageNames
     .map((packageName) => {
       if (!SAFE_TURBO_PACKAGE_FILTER.test(packageName)) {
@@ -685,7 +688,9 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         `Directly affected coverage packages: ${coveragePackages.length}; package coverage lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
       );
       writeGithubOutput(options.githubOutput, {
-        build_filters: buildTurboBuildFilterOutput(lanePackages),
+        ...(lanePackages.length > 0
+          ? { build_filters: buildTurboBuildFilterOutput(lanePackages) }
+          : {}),
         has_work: lanePackages.length > 0 ? 'true' : 'false',
       });
       for (const packageName of lanePackages) {
@@ -712,7 +717,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
       `Affected testable packages: ${testablePackages.length}; package unit lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
     );
     writeGithubOutput(options.githubOutput, {
-      build_filters: buildTurboBuildFilterOutput(lanePackages),
+      ...(lanePackages.length > 0 ? { build_filters: buildTurboBuildFilterOutput(lanePackages) } : {}),
       has_work: lanePackages.length > 0 ? 'true' : 'false',
     });
     for (const packageName of lanePackages) {

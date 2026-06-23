@@ -153,6 +153,10 @@ test('buildTurboBuildFilterOutput emits safe Turbo package filters for lane buil
     () => buildTurboBuildFilterOutput(['@brainstrike/db; echo nope']),
     /Unsafe package name for Turbo filter/
   );
+  assert.throws(
+    () => buildTurboBuildFilterOutput([]),
+    /Cannot build a Turbo filter list for an empty package lane/
+  );
 });
 
 test('PR unit modes expand dependents only for foundational package changes', () => {
