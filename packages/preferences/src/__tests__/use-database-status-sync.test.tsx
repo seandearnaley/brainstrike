@@ -126,7 +126,9 @@ describe('useDatabaseStatusSync', () => {
     const state = useDatabaseStatusStore.getState();
     expect(state.loading).toBe(false);
     expect(state.location).toBe('Turso');
-    expect(state.testResult).toBe('Connected (partial: file_token_cache, view_filter_presets)');
+    expect(state.testResult).toBe(
+      'Connected (partial: embedding_sets, file_token_cache, view_filter_presets)'
+    );
   });
 
   it('uses the ready Turso bootstrap report even when a file-record repository is available', async () => {
@@ -158,7 +160,9 @@ describe('useDatabaseStatusSync', () => {
 
     const state = useDatabaseStatusStore.getState();
     expect(state.location).toBe('Turso');
-    expect(state.testResult).toBe('Connected (partial: file_token_cache, view_filter_presets)');
+    expect(state.testResult).toBe(
+      'Connected (partial: embedding_sets, file_token_cache, view_filter_presets)'
+    );
   });
 
   it('reverts to loading when repository disappears after being connected', async () => {

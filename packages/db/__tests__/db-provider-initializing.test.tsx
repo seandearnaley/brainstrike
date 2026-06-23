@@ -6,6 +6,7 @@ import {
   DbProvider,
   useDbInitializationStatus,
   useDbInitializing,
+  useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
@@ -388,8 +389,9 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose view presets', async () => {
+  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories', async () => {
     let createdPresetId: string | null = null;
+    let createdEmbeddingSetId: string | null = null;
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         throw new Error('pgvector probe should not run for Turso IPC runtime');
@@ -397,7 +399,11 @@ describe('DbProvider initializing state', () => {
       if (sql.includes('MAX(sort_order)')) {
         return { rows: [{ max_sort: 7 }] };
       }
-      if (sql.includes('WHERE id = ?') && createdPresetId) {
+      if (
+        sql.includes('FROM view_filter_presets') &&
+        sql.includes('WHERE id = ?') &&
+        createdPresetId
+      ) {
         return {
           rows: [
             {
@@ -416,14 +422,49 @@ describe('DbProvider initializing state', () => {
           ],
         };
       }
+      if (sql.includes('FROM models')) {
+        return { rows: [] };
+      }
+      if (sql.includes('FROM embedding_sets WHERE id = ?') && createdEmbeddingSetId) {
+        return {
+          rows: [
+            {
+              id: params?.[0] ?? createdEmbeddingSetId,
+              model_key: 'openai::text-embedding-3-small',
+              model_id: 'text-embedding-3-small',
+              dimensions: 1536,
+              distance: 'cosine',
+              created_at: '2026-06-22T19:00:00.000Z',
+              name: 'Docs Embeddings',
+              description: null,
+              tags: null,
+              category: null,
+              system_role: null,
+            },
+          ],
+        };
+      }
       return { rows: [] };
     });
     const exec = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes('view_filter_presets')) {
         createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
       }
+      if (sql.includes('INSERT INTO embedding_sets')) {
+        createdEmbeddingSetId = typeof params?.[0] === 'string' ? params[0] : null;
+      }
     });
-    const runTransaction = vi.fn(async () => ({ rows: [] }));
+    const runTransaction = vi.fn(
+      async (statements: readonly { params?: unknown[]; sql: string }[]) => {
+        for (const statement of statements) {
+          if (statement.sql.includes('INSERT INTO embedding_sets')) {
+            createdEmbeddingSetId =
+              typeof statement.params?.[0] === 'string' ? statement.params[0] : null;
+          }
+        }
+        return { rows: [] };
+      }
+    );
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -475,12 +516,14 @@ describe('DbProvider initializing state', () => {
         const fileRecordRepository = useFileRecordRepository();
         const chunkRepository = useFileChunkRepository();
         const initializationStatus = useDbInitializationStatus();
+        const embeddingSetsRepository = useEmbeddingSetsRepository();
         const report = useProfileBootstrapReport();
         const presetsRepository = useViewFilterPresetsRepository();
         const tokenCacheStore = useTokenCacheStore();
         return {
           db,
           chunkRepository,
+          embeddingSetsRepository,
           fileRecordRepository,
           initializationStatus,
           presetsRepository,
@@ -503,6 +546,9 @@ describe('DbProvider initializing state', () => {
     expect(result.current.db).toBeNull();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
+    );
+    expect(result.current.embeddingSetsRepository?.constructor.name).toBe(
+      'TursoEmbeddingSetsRepository'
     );
     expect(result.current.fileRecordRepository).toBeNull();
     expect(result.current.chunkRepository).toBeNull();
@@ -550,6 +596,33 @@ describe('DbProvider initializing state', () => {
     expect(tokenParams).toEqual(
       expect.arrayContaining(['root-1', 'src/readme.md', 'hash-1', 128, 10, 12, 'heuristic'])
     );
+
+    if (!result.current.embeddingSetsRepository) {
+      throw new Error('Expected Turso embedding sets repository.');
+    }
+    exec.mockClear();
+    await expect(
+      result.current.embeddingSetsRepository.getOrCreateSet(
+        'openai:text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine',
+        { name: 'Docs Embeddings' }
+      )
+    ).resolves.toMatchObject({
+      modelKey: 'openai::text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
+      dimensions: 1536,
+      name: 'Docs Embeddings',
+    });
+    const [embeddingSetStatements, , embeddingSetWorkOptions] = runTransaction.mock.calls[0] ?? [];
+    expect(exec).not.toHaveBeenCalled();
+    expect(embeddingSetWorkOptions).toMatchObject({ label: 'turso.transaction' });
+    expect(embeddingSetStatements?.map(({ sql }) => sql)).toEqual([
+      expect.stringContaining('INSERT INTO embedding_sets'),
+      expect.stringContaining('INSERT OR IGNORE INTO collection_indexing_stats'),
+    ]);
+    runTransaction.mockClear();
 
     exec.mockClear();
     await result.current.tokenCacheStore.setBatch([

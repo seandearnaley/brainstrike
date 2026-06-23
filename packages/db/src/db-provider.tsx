@@ -134,6 +134,11 @@ async function loadTursoViewFilterPresetsRepository() {
   return mod.TursoViewFilterPresetsRepository;
 }
 
+async function loadTursoEmbeddingSetsRepository() {
+  const mod = await import('./repositories/turso-embedding-sets-repository.js');
+  return mod.TursoEmbeddingSetsRepository;
+}
+
 async function loadTursoTokenCacheStore() {
   const mod = await import('./repositories/turso-token-cache-store.js');
   return mod.TursoTokenCacheStore;
@@ -844,17 +849,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       );
       if (tursoViewFilterPresets) {
         if (!cancelled.value) {
+          const TursoEmbeddingSetsRepo = await loadTursoEmbeddingSetsRepository();
           const TursoTokenCacheStore = await loadTursoTokenCacheStore();
           const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
+          const tursoEmbeddingSetsRepository = new TursoEmbeddingSetsRepo(tursoExecutionClient);
           logger.warn('Desktop Turso DB provider initialized with partial repository coverage', {
-            migratedRepositories: ['file_token_cache', 'view_filter_presets'],
-            unavailableRepositories: ['file_records', 'file_chunks', 'embedding_sets'],
+            migratedRepositories: ['embedding_sets', 'file_token_cache', 'view_filter_presets'],
+            unavailableRepositories: ['file_records', 'file_chunks'],
           });
           connectionRef.current = { kind: 'ipc', bridge: electronDB };
           setExposedDb(null);
           setFileRecordRepository(null);
           setChunkRepository(null);
-          setEmbeddingSetsRepository(null);
+          setEmbeddingSetsRepository(tursoEmbeddingSetsRepository);
           setViewFilterPresetsRepository(tursoViewFilterPresets.repository);
           setTokenCacheStore(new TursoTokenCacheStore(tursoExecutionClient));
           setVectorEnabled(false);
