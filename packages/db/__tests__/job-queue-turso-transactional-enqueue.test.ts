@@ -105,6 +105,18 @@ describe('Turso JobQueue transactional enqueue', () => {
     await expect(countRows('job_queue', "job_type = 'embed_chunk'")).resolves.toBe(1);
   });
 
+  it('enforces active Turso dedupe keys at the database boundary', async () => {
+    await insertRawJob('job-1', 'queued', 'dedupe-1');
+
+    await expect(insertRawJob('job-2', 'queued', 'dedupe-1')).rejects.toThrow();
+    await insertRawJob('job-3', 'succeeded', 'dedupe-1');
+    await insertRawJob('job-4', 'queued', null);
+    await insertRawJob('job-5', 'queued', null);
+
+    await expect(countRows('job_queue', "dedupe_key = 'dedupe-1'")).resolves.toBe(2);
+    await expect(countRows('job_queue', 'dedupe_key IS NULL')).resolves.toBe(2);
+  });
+
   function createArgs(
     overrides: Partial<InsertChunksAndEnqueueEmbeddingJobsArgs> = {}
   ): InsertChunksAndEnqueueEmbeddingJobsArgs {
@@ -125,6 +137,34 @@ describe('Turso JobQueue transactional enqueue', () => {
       `SELECT COUNT(*) AS count FROM ${tableName} WHERE ${where}`
     );
     return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async function insertRawJob(
+    id: string,
+    state: 'queued' | 'running' | 'succeeded',
+    dedupeKey: string | null
+  ): Promise<void> {
+    await client.exec(
+      `INSERT INTO job_queue (
+         id,
+         queue,
+         job_type,
+         payload,
+         state,
+         dedupe_key,
+         created_at,
+         updated_at
+       )
+       VALUES (?, 'embeddings', 'embed_chunk', ?, ?, ?, ?, ?)`,
+      [
+        id,
+        JSON.stringify({ chunkId: `chunk-${id}` }),
+        state,
+        dedupeKey,
+        '2026-06-23T08:20:00.000Z',
+        '2026-06-23T08:20:00.000Z',
+      ]
+    );
   }
 });
 

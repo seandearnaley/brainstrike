@@ -139,9 +139,6 @@ async function enqueueTursoEmbeddingJobs(
     const chunkId = extractTursoEmbedChunkId(param);
     const embeddingSetId = extractTursoEmbedEmbeddingSetId(param);
     const payload = JSON.stringify(param.payload);
-    if (payload === undefined) {
-      throw new Error('Cannot enqueue Turso embedding job with an undefined payload.');
-    }
 
     if (dedupeKey) {
       const existing = await tx.query<TursoActiveJobRow>(

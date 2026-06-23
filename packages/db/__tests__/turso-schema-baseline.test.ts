@@ -72,6 +72,7 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('job_queue')).resolves.toEqual(
       expect.arrayContaining([
         'idx_job_queue_active_embed_chunk_id',
+        'idx_job_queue_dedupe_active',
         'idx_job_queue_embed_set_state',
         'idx_job_queue_state_run_at',
       ])

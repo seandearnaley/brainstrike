@@ -150,6 +150,7 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
   `,
   'CREATE INDEX IF NOT EXISTS idx_job_queue_state_run_at ON job_queue (state, run_at)',
   'CREATE INDEX IF NOT EXISTS idx_job_queue_dedupe_key ON job_queue (dedupe_key)',
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_dedupe_active ON job_queue (dedupe_key) WHERE dedupe_key IS NOT NULL AND state IN ('queued','running')",
   'CREATE INDEX IF NOT EXISTS idx_job_queue_leased_until ON job_queue (leased_until)',
   "CREATE INDEX IF NOT EXISTS idx_job_queue_active_embed_chunk_id ON job_queue (chunk_id) WHERE job_type = 'embed_chunk' AND chunk_id IS NOT NULL AND state IN ('queued','running')",
   "CREATE INDEX IF NOT EXISTS idx_job_queue_embed_set_state ON job_queue (queue, job_type, embedding_set_id, state, updated_at) WHERE job_type = 'embed_chunk' AND embedding_set_id IS NOT NULL",
