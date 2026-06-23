@@ -12,6 +12,8 @@ import {
   applyTursoSchemaBaseline,
   TURSO_SCHEMA_BASELINE_CHECKSUM,
   TURSO_SCHEMA_BASELINE_DDL,
+  TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
   TURSO_SCHEMA_BASELINE_SEED_DML,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
@@ -239,6 +241,104 @@ describe('Turso schema baseline', () => {
     ).rejects.toThrow();
   });
 
+  it('enforces one protected workspace index embedding set', async () => {
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('embedding_sets')).resolves.toEqual(
+      expect.arrayContaining(['idx_embedding_sets_workspace_index_system_role'])
+    );
+
+    await client.exec(`
+      INSERT INTO embedding_sets (
+        id,
+        model_key,
+        model_id,
+        dimensions,
+        distance,
+        name,
+        system_role
+      )
+      VALUES (
+        'workspace-index-set-1',
+        'local::Xenova/all-MiniLM-L6-v2',
+        'Xenova/all-MiniLM-L6-v2',
+        384,
+        'cosine',
+        'Workspace Index',
+        'workspace-index'
+      )
+    `);
+    await expect(
+      client.exec(`
+        INSERT INTO embedding_sets (
+          id,
+          model_key,
+          model_id,
+          dimensions,
+          distance,
+          name,
+          system_role
+        )
+        VALUES (
+          'workspace-index-set-2',
+          'local::Xenova/all-MiniLM-L6-v2',
+          'Xenova/all-MiniLM-L6-v2',
+          384,
+          'cosine',
+          'Duplicate Workspace Index',
+          'workspace-index'
+        )
+      `)
+    ).rejects.toThrow();
+  });
+
+  it('upgrades an existing v1 Turso schema ledger to the current baseline without checksum drift', async () => {
+    const previousBaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
+      (ddl) => !ddl.includes('idx_embedding_sets_workspace_index_system_role')
+    );
+    for (const ddl of previousBaselineDdl) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+        TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
+        '2026-06-22T00:00:00.000Z',
+      ]
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('embedding_sets')).resolves.toEqual(
+      expect.arrayContaining(['idx_embedding_sets_workspace_index_system_role'])
+    );
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,
@@ -281,6 +381,24 @@ describe('Turso schema baseline', () => {
 
     await expect(applyTursoSchemaBaseline(client)).rejects.toThrow(
       `Turso schema baseline ${TURSO_SCHEMA_BASELINE_VERSION} checksum mismatch`
+    );
+  });
+
+  it('fails closed when a previous baseline checksum drifts', async () => {
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION, 'bad-checksum', '2026-06-22T00:00:00.000Z']
+    );
+
+    await expect(applyTursoSchemaBaseline(client)).rejects.toThrow(
+      `Turso schema baseline ${TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION} checksum mismatch`
     );
   });
 

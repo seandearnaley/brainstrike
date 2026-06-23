@@ -61,6 +61,7 @@ repository/search slices bind them to Turso vector APIs.
 
 Current desktop Turso provider coverage:
 
+- `embedding_sets`
 - `view_filter_presets`
 - `file_token_cache`
 
@@ -71,14 +72,13 @@ bulk import. The desktop provider intentionally does not expose it through
 chunk storage to become available together. Exposing file records first would
 allow partial failed imports with no chunks or searchable content.
 
-The provider still does not expose a generic `db` handle, `file_records`,
-`file_chunks`, or `embedding_sets` in Turso mode. Those remain explicit
-migration work rather than silent PGlite compatibility.
+The provider still does not expose a generic `db` handle, `file_records`, or
+`file_chunks` in Turso mode. Those remain explicit migration work rather than
+silent PGlite compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is `embedding_sets`, followed by non-search
-`file_chunks` writes. Search remains split-owned until
-`docs/turso-migration/search-index-architecture.md` is implemented, and quick-open
-name search must not be treated as complete until the Turso search-index owner is
-designed.
+The next low-vector-risk slice is non-search `file_chunks` writes. Search remains
+split-owned until `docs/turso-migration/search-index-architecture.md` is
+implemented, and quick-open name search must not be treated as complete until the
+Turso search-index owner is designed.

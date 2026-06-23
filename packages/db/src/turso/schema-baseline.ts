@@ -8,9 +8,14 @@ import {
   recordTursoSchemaLedgerEntry,
 } from './schema-ledger.js';
 
-export const TURSO_SCHEMA_BASELINE_VERSION = 1;
+export const TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION = 1;
+export const TURSO_SCHEMA_BASELINE_VERSION = 2;
+export const TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM =
+  '8e9f598868dda50fb9f763c010bf74215cd51b305bfda68719dd6a12cf8587c7';
 
 const nowSql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+const workspaceIndexSystemRoleIndexDdl =
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_embedding_sets_workspace_index_system_role ON embedding_sets (system_role) WHERE system_role = 'workspace-index'";
 
 export const TURSO_SCHEMA_BASELINE_DDL = [
   `
@@ -108,6 +113,7 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
       allow_duplicates INTEGER DEFAULT 0 NOT NULL CHECK (allow_duplicates IN (0, 1))
     )
   `,
+  workspaceIndexSystemRoleIndexDdl,
   `
     CREATE TABLE IF NOT EXISTS collection_indexing_stats (
       embedding_set_id TEXT PRIMARY KEY,
@@ -921,6 +927,10 @@ export const TURSO_SCHEMA_BASELINE_CHECKSUM = computeTursoSchemaChecksum([
   ...TURSO_SCHEMA_BASELINE_SEED_DML,
 ]);
 
+const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION = {
+  [TURSO_SCHEMA_BASELINE_VERSION]: [workspaceIndexSystemRoleIndexDdl],
+} as const;
+
 export async function applyTursoSchemaBaseline(
   client: BrainstrikeDbExecutionClient
 ): Promise<void> {
@@ -928,7 +938,10 @@ export async function applyTursoSchemaBaseline(
   await client.transaction(async (tx) => {
     await assertNoPostgresMigrationLedgers(tx);
     await ensureTursoSchemaLedger(tx);
-    await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [TURSO_SCHEMA_BASELINE_VERSION]);
+    await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [
+      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+      TURSO_SCHEMA_BASELINE_VERSION,
+    ]);
 
     const existingEntry = await readTursoSchemaLedgerEntry(tx, TURSO_SCHEMA_BASELINE_VERSION);
     if (existingEntry) {
@@ -937,6 +950,28 @@ export async function applyTursoSchemaBaseline(
           `Turso schema baseline ${TURSO_SCHEMA_BASELINE_VERSION} checksum mismatch: expected ${TURSO_SCHEMA_BASELINE_CHECKSUM}, found ${existingEntry.checksum}.`
         );
       }
+      return;
+    }
+
+    const previousEntry = await readTursoSchemaLedgerEntry(
+      tx,
+      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION
+    );
+    if (previousEntry) {
+      if (previousEntry.checksum !== TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM) {
+        throw new Error(
+          `Turso schema baseline ${TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION} checksum mismatch: expected ${TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM}, found ${previousEntry.checksum}.`
+        );
+      }
+      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_VERSION[
+        TURSO_SCHEMA_BASELINE_VERSION
+      ]) {
+        await tx.exec(ddl);
+      }
+      await recordTursoSchemaLedgerEntry(tx, {
+        checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+        version: TURSO_SCHEMA_BASELINE_VERSION,
+      });
       return;
     }
 

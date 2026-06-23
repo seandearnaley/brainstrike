@@ -37,7 +37,7 @@ function resolvePartialRuntimeStatus(
 
   return {
     location: 'Turso',
-    testResult: 'Connected (partial: file_token_cache, view_filter_presets)',
+    testResult: 'Connected (partial: embedding_sets, file_token_cache, view_filter_presets)',
   };
 }
 
