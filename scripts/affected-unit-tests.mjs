@@ -85,6 +85,7 @@ const PACKAGE_TEST_WEIGHTS_MS = new Map([
   ['@brainstrike/utils', 5000],
   ['@brainstrike/file-import', 6000],
 ]);
+const SAFE_TURBO_PACKAGE_FILTER = /^@brainstrike\/[a-z0-9-]+$/;
 
 export function parsePnpmListJson(output) {
   const parsed = JSON.parse(output);
@@ -298,6 +299,17 @@ export function readWorkspaceManifests(repoRoot = process.cwd()) {
 
 export function buildAffectedPackageFilter(baseRef, { includeDependents = false } = {}) {
   return includeDependents ? `...[origin/${baseRef}]` : `[origin/${baseRef}]`;
+}
+
+export function buildTurboBuildFilterOutput(packageNames) {
+  return packageNames
+    .map((packageName) => {
+      if (!SAFE_TURBO_PACKAGE_FILTER.test(packageName)) {
+        throw new Error(`Unsafe package name for Turbo filter: ${packageName}`);
+      }
+      return `--filter=${packageName}`;
+    })
+    .join(' ');
 }
 
 export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
@@ -621,7 +633,10 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }
-      writeGithubOutput(options.githubOutput, { has_work: 'true' });
+      writeGithubOutput(options.githubOutput, {
+        build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
+        has_work: 'true',
+      });
       console.log(`Affected DB package selected; DB unit lane: ${options.dbLane}`);
       for (const [command, commandArgs] of createDbLaneCommands(options.dbLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
@@ -645,7 +660,10 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }
-      writeGithubOutput(options.githubOutput, { has_work: 'true' });
+      writeGithubOutput(options.githubOutput, {
+        build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
+        has_work: 'true',
+      });
       console.log(`Affected DB package selected; DB coverage lane: ${options.dbCoverageLane}`);
       for (const [command, commandArgs] of createDbCoverageLaneCommands(options.dbCoverageLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
@@ -667,6 +685,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         `Directly affected coverage packages: ${coveragePackages.length}; package coverage lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
       );
       writeGithubOutput(options.githubOutput, {
+        build_filters: buildTurboBuildFilterOutput(lanePackages),
         has_work: lanePackages.length > 0 ? 'true' : 'false',
       });
       for (const packageName of lanePackages) {
@@ -693,6 +712,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
       `Affected testable packages: ${testablePackages.length}; package unit lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
     );
     writeGithubOutput(options.githubOutput, {
+      build_filters: buildTurboBuildFilterOutput(lanePackages),
       has_work: lanePackages.length > 0 ? 'true' : 'false',
     });
     for (const packageName of lanePackages) {

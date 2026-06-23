@@ -5,6 +5,7 @@ import {
   buildAffectedPackageFilter,
   buildLanePackageNames,
   buildPackageLanePackageNames,
+  buildTurboBuildFilterOutput,
   buildWeightedPackageLanes,
   createDbCoverageLaneCommands,
   createDbLaneCommands,
@@ -139,6 +140,18 @@ test('buildAffectedPackageFilter can scope PR units to directly changed packages
   assert.equal(
     buildAffectedPackageFilter('feature/turso-migration', { includeDependents: true }),
     '...[origin/feature/turso-migration]'
+  );
+});
+
+test('buildTurboBuildFilterOutput emits safe Turbo package filters for lane builds', () => {
+  assert.equal(buildTurboBuildFilterOutput(['@brainstrike/db']), '--filter=@brainstrike/db');
+  assert.equal(
+    buildTurboBuildFilterOutput(['@brainstrike/app-shell', '@brainstrike/vector-management']),
+    '--filter=@brainstrike/app-shell --filter=@brainstrike/vector-management'
+  );
+  assert.throws(
+    () => buildTurboBuildFilterOutput(['@brainstrike/db; echo nope']),
+    /Unsafe package name for Turbo filter/
   );
 });
 
@@ -451,4 +464,33 @@ test('unit and coverage shards skip idle build work', () => {
   assert.match(workflow, /coverage-shard\/marker-packages-/);
   assert.doesNotMatch(workflow, /coverage-shard\/\.marker-/);
   assert.doesNotMatch(workflow, /continue-on-error: true/);
+});
+
+test('unit and coverage shards build only planned lane package dependency graphs', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+  const unitDbJob = extractWorkflowJob(workflow, 'unit-pr-db');
+  const unitPackagesJob = extractWorkflowJob(workflow, 'unit-pr-packages');
+  const coverageDbJob = extractWorkflowJob(workflow, 'coverage-pr-db');
+  const coveragePackagesJob = extractWorkflowJob(workflow, 'coverage-pr-packages');
+
+  assert.match(
+    unitDbJob,
+    /pnpm turbo run build \$\{\{ steps\.unit-plan\.outputs\.build_filters \}\} --concurrency=4/
+  );
+  assert.match(
+    unitPackagesJob,
+    /pnpm turbo run build \$\{\{ steps\.unit-plan\.outputs\.build_filters \}\} --concurrency=4/
+  );
+  assert.match(
+    coverageDbJob,
+    /pnpm turbo run build \$\{\{ steps\.coverage-plan\.outputs\.build_filters \}\} --concurrency=4/
+  );
+  assert.match(
+    coveragePackagesJob,
+    /pnpm turbo run build \$\{\{ steps\.coverage-plan\.outputs\.build_filters \}\} --concurrency=4/
+  );
+  assert.doesNotMatch(unitDbJob, /pnpm turbo run build --concurrency=4/);
+  assert.doesNotMatch(unitPackagesJob, /pnpm turbo run build --concurrency=4/);
+  assert.doesNotMatch(coverageDbJob, /pnpm turbo run build --concurrency=4/);
+  assert.doesNotMatch(coveragePackagesJob, /pnpm turbo run build --concurrency=4/);
 });

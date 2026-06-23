@@ -146,7 +146,7 @@ jobs:
       # and manual runs keep their full-suite build in the aggregate Unit job.
       - name: Build workspace dependencies
         if: steps.unit-plan.outputs.has_work == 'true'
-        run: pnpm turbo run build --concurrency=4
+        run: pnpm turbo run build ${{ steps.unit-plan.outputs.build_filters }} --concurrency=4
 
       # PR-changed unit tests via pnpm's documented filter syntax.
       # https://pnpm.io/filtering — pattern: `pnpm --filter "[origin/master]" test`
@@ -223,7 +223,7 @@ jobs:
       # See the DB shard job above for the build-dependency rationale.
       - name: Build workspace dependencies
         if: steps.unit-plan.outputs.has_work == 'true'
-        run: pnpm turbo run build --concurrency=4
+        run: pnpm turbo run build ${{ steps.unit-plan.outputs.build_filters }} --concurrency=4
 
       - name: Pull request affected unit tests
         if: steps.unit-plan.outputs.has_work == 'true'
@@ -359,7 +359,7 @@ jobs:
       # tests so it has the same build-dependency requirement.
       - name: Build workspace dependencies
         if: steps.coverage-plan.outputs.has_work == 'true'
-        run: pnpm turbo run build --concurrency=4
+        run: pnpm turbo run build ${{ steps.coverage-plan.outputs.build_filters }} --concurrency=4
 
       - name: Run affected DB coverage shard
         if: steps.coverage-plan.outputs.has_work == 'true'
@@ -455,7 +455,7 @@ jobs:
       # tests so it has the same build-dependency requirement.
       - name: Build workspace dependencies
         if: steps.coverage-plan.outputs.has_work == 'true'
-        run: pnpm turbo run build --concurrency=4
+        run: pnpm turbo run build ${{ steps.coverage-plan.outputs.build_filters }} --concurrency=4
 
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
