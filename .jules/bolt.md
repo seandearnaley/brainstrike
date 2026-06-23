@@ -98,3 +98,7 @@
 ## 2026-06-21 - Workspace sync watcher paths avoid split/filter arrays
 **Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
 **Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
+
+## 2026-06-23 - Expanded-path restoration ancestors avoid slice/join rebuilds
+**Learning:** `packages/file-explorer-ui/src/use-expanded-path-restoration.ts` derives every parent directory for restored selected files. The old `extractPathSegments()` plus `segments.slice(0, index).join('/')` rebuilt prefixes from scratch for every ancestor and measured 1546.27ms over 100k representative paths x 30 on Node 24.16.0; direct slash scanning with incremental prefix append measured 1103.11ms with identical checksums.
+**Action:** Keep restored-selection parent directory derivation on direct scanning and incremental ancestor appends; do not reintroduce per-ancestor segment slicing/joining in restoration hot paths.
