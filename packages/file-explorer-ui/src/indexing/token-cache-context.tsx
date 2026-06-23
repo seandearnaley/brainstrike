@@ -467,10 +467,6 @@ export function TokenCacheProvider({
   const [hasher] = useState(() => new FileHasher());
   const [noopWorkerPool] = useState(createNoopWorkerPool);
   const [hasherReady, setHasherReady] = useState(false);
-  const persistentStoreRef = useRef<{
-    query: PGliteDB['query'];
-    store: TokenCacheStore;
-  } | null>(null);
   const [workerState, dispatchWorker] = useReducer(workerReducer, {
     pool: noopWorkerPool,
     ready: false,
@@ -491,37 +487,31 @@ export function TokenCacheProvider({
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const countingMode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
 
-  // Derive the store without a setState-in-effect cascade. An explicit
-  // persistentStore covers non-PGlite runtimes; otherwise db controls PGlite persistence.
+  const dbQuery = db?.query ?? null;
+  const pglitePersistentStore = useMemo<TokenCacheStore | null>(() => {
+    if (!dbQuery) {
+      return null;
+    }
+    const queryOnlyDb: PGliteDB = { query: dbQuery };
+    return new TokenCacheStore(
+      queryOnlyDb as unknown as ConstructorParameters<typeof TokenCacheStore>[0]
+    );
+  }, [dbQuery]);
+
+  // Derive the store without a setState-in-effect cascade or render-time ref
+  // access. An explicit persistentStore covers non-PGlite runtimes; otherwise
+  // the stable db.query function controls PGlite persistence.
   const storeState = useMemo<{ store: TokenCacheStoreLike; hasPersistentStore: boolean }>(() => {
     if (persistentStore) {
       return { store: persistentStore, hasPersistentStore: true };
     }
 
-    if (!db) {
-      return { store: inMemoryStore, hasPersistentStore: false };
+    if (pglitePersistentStore) {
+      return { store: pglitePersistentStore, hasPersistentStore: true };
     }
 
-    const cachedPersistentStore = persistentStoreRef.current;
-    if (cachedPersistentStore?.query === db.query) {
-      return {
-        store: cachedPersistentStore.store,
-        hasPersistentStore: true,
-      };
-    }
-
-    const pglitePersistentStore = new TokenCacheStore(
-      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0]
-    );
-    persistentStoreRef.current = {
-      query: db.query,
-      store: pglitePersistentStore,
-    };
-    return {
-      store: pglitePersistentStore,
-      hasPersistentStore: true,
-    };
-  }, [db, inMemoryStore, persistentStore]);
+    return { store: inMemoryStore, hasPersistentStore: false };
+  }, [inMemoryStore, persistentStore, pglitePersistentStore]);
   const store = storeState.store;
   const hasPersistentStore = storeState.hasPersistentStore;
 
