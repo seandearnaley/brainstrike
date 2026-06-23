@@ -37,6 +37,7 @@ export async function createTursoOwnerClient(
   const ownerClientId = Symbol('turso-owner-client');
 
   await applyTursoMvccJournalMode(database);
+  await applyTursoForeignKeys(database);
 
   const assertOpen = (): void => {
     if (closed) {
@@ -295,6 +296,15 @@ async function applyTursoMvccJournalMode(database: TursoDatabase): Promise<void>
   }
 }
 
+async function applyTursoForeignKeys(database: TursoDatabase): Promise<void> {
+  await database.pragma('foreign_keys = ON', {});
+  const rows = await database.pragma('foreign_keys', {});
+  const enabled = readForeignKeys(rows);
+  if (enabled !== 1) {
+    throw new Error(`Turso owner client failed to enable foreign keys: ${enabled}.`);
+  }
+}
+
 function readJournalMode(rows: readonly unknown[]): string {
   const first = rows[0];
   if (!first || typeof first !== 'object') {
@@ -303,6 +313,16 @@ function readJournalMode(rows: readonly unknown[]): string {
 
   const value = (first as Record<string, unknown>)['journal_mode'];
   return typeof value === 'string' ? value.trim().toLowerCase() : 'unknown';
+}
+
+function readForeignKeys(rows: readonly unknown[]): number | 'unknown' {
+  const first = rows[0];
+  if (!first || typeof first !== 'object') {
+    return 'unknown';
+  }
+
+  const value = (first as Record<string, unknown>)['foreign_keys'];
+  return typeof value === 'number' ? value : 'unknown';
 }
 
 async function rollbackIgnoringFailure(database: TursoDatabase): Promise<void> {

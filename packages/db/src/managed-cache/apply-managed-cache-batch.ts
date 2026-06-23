@@ -272,6 +272,10 @@ const IMPORT_COLUMNS = [
   'root_id',
 ] as const;
 
+const TURSO_MANAGED_CACHE_IMPORTS_PER_STATEMENT = Math.floor(
+  TURSO_PARAMETER_LIMIT / IMPORT_COLUMNS.length
+);
+
 const REPLACE_VALUE_COLUMNS = [
   'id',
   'name',
@@ -426,41 +430,41 @@ async function insertTursoManagedCacheImports(
   if (imports.length === 0) {
     return;
   }
-  assertBatchWithinParameterLimit(
-    imports.length,
-    Math.floor(TURSO_PARAMETER_LIMIT / IMPORT_COLUMNS.length),
-    'import'
-  );
 
-  const placeholders = buildQuestionMarkValuePlaceholders(imports.length, IMPORT_COLUMNS.length);
-  const values = imports.flatMap((record) => [
-    record.id,
-    record.name,
-    record.path,
-    record.size,
-    toBigIntMtime(record.mtimeMs),
-    record.createdAt,
-    record.updatedAt,
-    record.content,
-    record.contentHash,
-    record.tokenCount,
-    record.processedAt,
-    embeddingSetId,
-    rootId,
-  ]);
+  for (const importBatch of chunkArray(imports, TURSO_MANAGED_CACHE_IMPORTS_PER_STATEMENT)) {
+    const placeholders = buildQuestionMarkValuePlaceholders(
+      importBatch.length,
+      IMPORT_COLUMNS.length
+    );
+    const values = importBatch.flatMap((record) => [
+      record.id,
+      record.name,
+      record.path,
+      record.size,
+      toBigIntMtime(record.mtimeMs),
+      record.createdAt,
+      record.updatedAt,
+      record.content,
+      record.contentHash,
+      record.tokenCount,
+      record.processedAt,
+      embeddingSetId,
+      rootId,
+    ]);
 
-  const result = await tx.query<{ id: string }>(
-    `INSERT INTO file_records (${IMPORT_COLUMNS.join(', ')})
-     VALUES ${placeholders}
-     RETURNING id`,
-    values
-  );
+    const result = await tx.query<{ id: string }>(
+      `INSERT INTO file_records (${IMPORT_COLUMNS.join(', ')})
+       VALUES ${placeholders}
+       RETURNING id`,
+      values
+    );
 
-  assertReturnedIds(
-    result.rows,
-    imports.map((record) => record.id),
-    'insert'
-  );
+    assertReturnedIds(
+      result.rows,
+      importBatch.map((record) => record.id),
+      'insert'
+    );
+  }
 }
 
 async function applyManagedCacheReplacements(
@@ -543,11 +547,6 @@ async function applyTursoManagedCacheReplacements(
   if (replacements.length === 0) {
     return;
   }
-  assertBatchWithinParameterLimit(
-    replacements.length,
-    Math.floor(TURSO_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length),
-    'replace'
-  );
 
   const replacementIds = replacements.map((record) => record.id);
   const chunkIdsToDelete = await listTursoChunkIdsForFileRecords(tx, replacementIds);

@@ -65,6 +65,25 @@ describe('Turso managed-cache batch', () => {
     });
   });
 
+  it('chunks large import batches instead of rejecting them at the SQLite parameter limit', async () => {
+    const importCount = 70;
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: Array.from({ length: importCount }, (_, index) => ({
+        mode: 'import' as const,
+        record: createImportRecord({
+          id: `file-${index}`,
+          path: `src/import-${index}.ts`,
+        }),
+      })),
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(countFileRecords()).resolves.toBe(importCount);
+    await expect(readStats()).resolves.toMatchObject({ file_count: importCount });
+  });
+
   it('replaces records, clears stale chunks and cancels active embedding jobs atomically', async () => {
     await applyTursoManagedCacheBatch(client, {
       changes: [
@@ -126,6 +145,42 @@ describe('Turso managed-cache batch', () => {
     await expect(readJob('job-1')).resolves.toMatchObject({
       error: 'Managed-cache replacement deleted chunk chunk-1 before embedding.',
       state: 'canceled',
+    });
+  });
+
+  it('allows large replacement batches because Turso replacements update one row at a time', async () => {
+    const replacementCount = 91;
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: Array.from({ length: replacementCount }, (_, index) => ({
+        mode: 'import' as const,
+        record: createImportRecord({
+          id: `file-${index}`,
+          path: `src/replace-${index}.ts`,
+        }),
+      })),
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: Array.from({ length: replacementCount }, (_, index) => ({
+        mode: 'replace' as const,
+        record: createReplaceRecord({
+          content: `export const value = ${index};`,
+          contentHash: `hash-replaced-${index}`,
+          id: `file-${index}`,
+          path: `src/replace-${index}.ts`,
+        }),
+      })),
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(countFileRecords()).resolves.toBe(replacementCount);
+    await expect(readFileRecord('file-90')).resolves.toMatchObject({
+      content: 'export const value = 90;',
+      content_hash: 'hash-replaced-90',
     });
   });
 
@@ -243,6 +298,13 @@ describe('Turso managed-cache batch', () => {
       [embeddingSetId]
     );
     return result.rows[0];
+  }
+
+  async function countFileRecords(): Promise<number> {
+    const result = await client.query<{ count: number | string }>(
+      'SELECT COUNT(*) AS count FROM file_records'
+    );
+    return Number(result.rows[0]?.count ?? 0);
   }
 
   async function readJob(id: string): Promise<Record<string, unknown> | undefined> {
