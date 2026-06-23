@@ -78,7 +78,10 @@ transaction-scoped batch inserts, content/position/embedding metadata updates,
 delete/clear operations, coverage counts, stats, and explicit embedding-clearing
 stats refresh. Search methods (`searchSimilar`, `fullTextSearch`, and
 `findGrepCandidates`) fail loudly until the split search-index owner is wired;
-they do not fall back to unindexed scans.
+they do not fall back to unindexed scans. Repository-authored chunks must also
+carry the non-null `FileChunk` model fields (`contentHash`, `chunkType`, token
+metadata); if another raw Turso path writes nullable baseline rows that violate
+that contract, repository reads fail loudly instead of coalescing malformed data.
 
 The provider still does not expose a generic `db` handle, `file_records`, or
 `file_chunks` in Turso mode. Those remain explicit migration work rather than

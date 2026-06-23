@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
@@ -183,6 +184,59 @@ describe('TursoFileChunkRepository', () => {
       embedding: [0.1, 0.2, 0.3],
       updatedAt: '2026-06-23T08:45:00.000Z',
     });
+  });
+
+  it('does not fetch the existing chunk for non-embedding updates', async () => {
+    const queryCalls: string[] = [];
+    const fakeDb: BrainstrikeDbExecutionClient = {
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        queryCalls.push(sql);
+        if (sql.includes('SELECT') && sql.includes('FROM file_chunks')) {
+          throw new Error('non-embedding update should not read the existing chunk');
+        }
+        return {
+          rows: [
+            {
+              chunk_index: 0,
+              chunk_size: 19,
+              chunk_type: 'code',
+              content: 'const updated = true;',
+              content_hash: 'hash-updated',
+              created_at: '2026-06-23T08:10:00.000Z',
+              embedding: null,
+              embedding_hash: null,
+              embedding_set_id: null,
+              embedding_updated_at: null,
+              end_line: null,
+              end_offset: null,
+              file_record_id: 'file-1',
+              id: 'chunk-1',
+              start_line: null,
+              start_offset: null,
+              token_count: 6,
+              updated_at: '2026-06-23T08:45:00.000Z',
+            },
+          ],
+        };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('update should not open a transaction');
+      }),
+    };
+    const fakeRepository = new TursoFileChunkRepository(fakeDb);
+
+    await expect(
+      fakeRepository.update({
+        content: 'const updated = true;',
+        contentHash: 'hash-updated',
+        id: 'chunk-1',
+        tokenCount: 6,
+        updatedAt: '2026-06-23T08:45:00.000Z',
+      })
+    ).resolves.toMatchObject({ content: 'const updated = true;', id: 'chunk-1' });
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0]).toContain('UPDATE file_chunks');
   });
 
   it('reports stats, coverage, and clears embeddings for a set', async () => {

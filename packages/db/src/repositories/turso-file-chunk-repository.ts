@@ -137,7 +137,7 @@ export class TursoFileChunkRepository {
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
     assertTextContentHasNoNullBytes(chunk.content, 'File chunk content');
-    const existing = await this.findById(chunk.id);
+    const existing = await this.resolveExistingChunkForUpdate(chunk);
     const assignments: string[] = [];
     const params: unknown[] = [];
 
@@ -173,9 +173,6 @@ export class TursoFileChunkRepository {
       'updated_at',
       normalizeDateValue(chunk.updatedAt, 'updatedAt')
     );
-    if (assignments.length === 0) {
-      return existing;
-    }
 
     params.push(chunk.id);
     const result = await this.db.query<TursoFileChunkRow>(
@@ -344,6 +341,13 @@ export class TursoFileChunkRepository {
     const count = await this.countRows('SELECT COUNT(*) AS count FROM file_chunks');
     await this.db.exec('DELETE FROM file_chunks');
     return count;
+  }
+
+  private async resolveExistingChunkForUpdate(chunk: FileChunkUpdate): Promise<FileChunk | null> {
+    if (chunk.embedding !== undefined && !chunk.embeddingSetId) {
+      return this.findById(chunk.id);
+    }
+    return null;
   }
 
   private async insertManyWithClient(
@@ -573,6 +577,9 @@ async function refreshCollectionIndexingStatsForSet(
 }
 
 function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
+  // The greenfield baseline permits nullable content_hash/chunk_type for raw
+  // compatibility probes, but repository-authored FileChunk rows must carry the
+  // non-null model contract. Do not coalesce malformed rows into searchable data.
   const contentHash = readRequiredText(row.content_hash, `file chunk ${row.id} content_hash`);
   const tokenCount = readNullableNonNegativeInteger(
     row.token_count,
