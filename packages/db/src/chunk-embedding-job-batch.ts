@@ -2,10 +2,16 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
+import { generateUUID } from '@brainstrike/utils';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from './architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from './models/file-chunk.js';
 import { type EnqueueParams, JobQueue } from './queue/job-queue.js';
 import { FileChunkRepository } from './repositories/file-chunk-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
+import { TursoFileChunkRepository } from './repositories/turso-file-chunk-repository.js';
 
 export interface InsertChunksAndEnqueueEmbeddingJobsArgs {
   readonly chunks: readonly FileChunkInsert[];
@@ -79,6 +85,13 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
   });
 }
 
+interface TursoActiveJobRow {
+  readonly id: string;
+  readonly run_at: string;
+}
+
+const TURSO_DEFAULT_MAX_ATTEMPTS = 5;
+
 export async function insertChunksAndEnqueueEmbeddingJobs(
   db: IDatabase,
   args: InsertChunksAndEnqueueEmbeddingJobsArgs
@@ -96,4 +109,144 @@ export async function insertChunksAndEnqueueEmbeddingJobs(
     const queue = new JobQueue(tx);
     await queue.enqueueBatch(buildEmbeddingJobParams(args));
   });
+}
+
+export async function insertTursoChunksAndEnqueueEmbeddingJobs(
+  db: BrainstrikeDbExecutionClient,
+  args: InsertChunksAndEnqueueEmbeddingJobsArgs
+): Promise<void> {
+  if (args.chunks.length === 0) {
+    return;
+  }
+
+  const chunkRepository = new TursoFileChunkRepository(db);
+  await db.transaction(async (tx) => {
+    await chunkRepository.insertManyWithTx(tx, [...args.chunks]);
+    await enqueueTursoEmbeddingJobs(tx, buildEmbeddingJobParams(args));
+  });
+}
+
+async function enqueueTursoEmbeddingJobs(
+  tx: BrainstrikeDbTransactionClient,
+  params: EnqueueParams[]
+): Promise<void> {
+  const now = new Date().toISOString();
+  const processedParams = processTursoBatchParams(params, now);
+
+  for (const param of processedParams) {
+    const runAt = param.runAt ?? now;
+    const dedupeKey = param.dedupeKey ?? null;
+    const chunkId = extractTursoEmbedChunkId(param);
+    const embeddingSetId = extractTursoEmbedEmbeddingSetId(param);
+    const payload = JSON.stringify(param.payload);
+    if (payload === undefined) {
+      throw new Error('Cannot enqueue Turso embedding job with an undefined payload.');
+    }
+
+    if (dedupeKey) {
+      const existing = await tx.query<TursoActiveJobRow>(
+        `SELECT id, run_at
+           FROM job_queue
+          WHERE dedupe_key = ?
+            AND state IN ('queued', 'running')
+          ORDER BY created_at ASC
+          LIMIT 1`,
+        [dedupeKey]
+      );
+      const activeJob = existing.rows[0];
+      if (activeJob) {
+        await tx.exec(
+          `UPDATE job_queue
+              SET run_at = ?,
+                  chunk_id = COALESCE(chunk_id, ?),
+                  embedding_set_id = COALESCE(embedding_set_id, ?),
+                  updated_at = ?
+            WHERE id = ?`,
+          [earlierIso(activeJob.run_at, runAt), chunkId, embeddingSetId, now, activeJob.id]
+        );
+        continue;
+      }
+    }
+
+    await tx.exec(
+      `INSERT INTO job_queue (
+         id,
+         queue,
+         job_type,
+         payload,
+         chunk_id,
+         embedding_set_id,
+         state,
+         run_at,
+         attempts,
+         max_attempts,
+         backoff_ms,
+         lease_token,
+         leased_until,
+         worker_id,
+         dedupe_key,
+         error,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?, 0, NULL, NULL, NULL, ?, NULL, ?, ?)`,
+      [
+        generateUUID(),
+        param.queue,
+        param.jobType,
+        payload,
+        chunkId,
+        embeddingSetId,
+        runAt,
+        param.maxAttempts ?? TURSO_DEFAULT_MAX_ATTEMPTS,
+        dedupeKey,
+        now,
+        now,
+      ]
+    );
+  }
+}
+
+function processTursoBatchParams(params: EnqueueParams[], now: string): EnqueueParams[] {
+  const processedParams: EnqueueParams[] = [];
+  const seenDedupeKeys = new Map<string, EnqueueParams>();
+
+  for (const param of params) {
+    const withRunAt = { ...param, runAt: param.runAt ?? now };
+    if (!param.dedupeKey) {
+      processedParams.push(withRunAt);
+      continue;
+    }
+
+    const existing = seenDedupeKeys.get(param.dedupeKey);
+    if (!existing) {
+      seenDedupeKeys.set(param.dedupeKey, withRunAt);
+      processedParams.push(withRunAt);
+      continue;
+    }
+
+    existing.runAt = earlierIso(existing.runAt ?? now, withRunAt.runAt);
+  }
+
+  return processedParams;
+}
+
+function earlierIso(left: string, right: string): string {
+  return left <= right ? left : right;
+}
+
+function extractTursoEmbedChunkId(param: EnqueueParams): string | null {
+  if (param.jobType !== 'embed_chunk' || !(param.payload && typeof param.payload === 'object')) {
+    return null;
+  }
+  const chunkId = (param.payload as { chunkId?: unknown }).chunkId;
+  return typeof chunkId === 'string' && chunkId.length > 0 ? chunkId : null;
+}
+
+function extractTursoEmbedEmbeddingSetId(param: EnqueueParams): string | null {
+  if (param.jobType !== 'embed_chunk' || !(param.payload && typeof param.payload === 'object')) {
+    return null;
+  }
+  const embeddingSetId = (param.payload as { embeddingSetId?: unknown }).embeddingSetId;
+  return typeof embeddingSetId === 'string' && embeddingSetId.length > 0 ? embeddingSetId : null;
 }

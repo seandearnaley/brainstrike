@@ -22,6 +22,7 @@ export * from './browser-pglite-storage-benchmark.js';
 export {
   type InsertChunksAndEnqueueEmbeddingJobsArgs,
   insertChunksAndEnqueueEmbeddingJobs,
+  insertTursoChunksAndEnqueueEmbeddingJobs,
 } from './chunk-embedding-job-batch.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
