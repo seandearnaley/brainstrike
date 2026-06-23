@@ -295,7 +295,11 @@ describe('Turso schema baseline', () => {
 
   it('upgrades an existing v1 Turso schema ledger to the current baseline without checksum drift', async () => {
     const previousBaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
-      (ddl) => !ddl.includes('idx_embedding_sets_workspace_index_system_role')
+      (ddl) =>
+        !(
+          ddl.includes('idx_embedding_sets_workspace_index_system_role') ||
+          ddl.includes('idx_job_queue_dedupe_active')
+        )
     );
     for (const ddl of previousBaselineDdl) {
       await client.exec(ddl);
@@ -323,6 +327,9 @@ describe('Turso schema baseline', () => {
 
     await expect(listIndexes('embedding_sets')).resolves.toEqual(
       expect.arrayContaining(['idx_embedding_sets_workspace_index_system_role'])
+    );
+    await expect(listIndexes('job_queue')).resolves.toEqual(
+      expect.arrayContaining(['idx_job_queue_dedupe_active'])
     );
     await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
