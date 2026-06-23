@@ -2,12 +2,12 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionResolver } from '../use-selection-resolver';
 
-const useOptionalPGliteDatabaseMock = vi.fn();
+const useOptionalBrainstrikeDbClientMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
 const loadQuerySelectionSnapshotMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
+  useOptionalBrainstrikeDbClient: () => useOptionalBrainstrikeDbClientMock(),
 }));
 
 vi.mock('../shell/file-explorer-provider', () => ({
@@ -24,7 +24,7 @@ vi.mock('../utils/query-selection-snapshot', () => ({
 
 describe('useSelectionResolver', () => {
   beforeEach(() => {
-    useOptionalPGliteDatabaseMock.mockReset();
+    useOptionalBrainstrikeDbClientMock.mockReset();
     useFileExplorerStoreContextMock.mockReset();
     loadQuerySelectionSnapshotMock.mockReset();
   });
@@ -72,7 +72,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     renderHook(() => useSelectionResolver());
@@ -114,7 +114,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result } = renderHook(() => useSelectionResolver());
@@ -160,7 +160,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result } = renderHook(() => useSelectionResolver());
@@ -205,7 +205,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -262,7 +262,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -316,7 +316,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockResolvedValue(['/src/utils.ts', '/src/index.ts']);
 
@@ -363,7 +363,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -415,7 +415,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockRejectedValue(new Error('snapshot broken'));
 
@@ -466,7 +466,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockImplementation((_: unknown, snapshotId: string) => {
       if (snapshotId === 'snapshot-1') {
@@ -551,7 +551,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockImplementation(
       () =>

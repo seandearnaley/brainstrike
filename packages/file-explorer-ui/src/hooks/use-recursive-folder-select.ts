@@ -1,4 +1,4 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useOptionalBrainstrikeDbClient } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
@@ -191,7 +191,7 @@ export function useRecursiveFolderSelect(
     options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const db = useOptionalPGliteDatabase();
+  const db = useOptionalBrainstrikeDbClient();
   const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
