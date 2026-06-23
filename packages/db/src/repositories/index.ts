@@ -55,4 +55,6 @@ export type {
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
 export { TursoEmbeddingSetsRepository } from './turso-embedding-sets-repository.js';
+export { TursoFileChunkRepository } from './turso-file-chunk-repository.js';
+export { TursoFileRecordRepository } from './turso-file-record-repository.js';
 export { TursoViewFilterPresetsRepository } from './turso-view-filter-presets-repository.js';
