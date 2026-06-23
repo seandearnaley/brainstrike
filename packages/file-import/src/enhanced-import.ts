@@ -1011,6 +1011,18 @@ function createCompleteProgress(
   };
 }
 
+function assertChunkingStorageAvailable(chunking: ChunkingConfiguration): void {
+  if (!chunking.enabled) {
+    return;
+  }
+  if (!chunking.deps.repository) {
+    throw new Error('Chunking is enabled but file record storage is unavailable.');
+  }
+  if (!chunking.deps.chunkRepository) {
+    throw new Error('Chunking is enabled but chunk storage is unavailable.');
+  }
+}
+
 export async function runEnhancedImport<TFileNode = unknown>({
   abortSignal,
   request,
@@ -1036,6 +1048,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
   try {
     throwIfAborted(abortSignal);
+    assertChunkingStorageAvailable(chunking);
     const baseResults = await baseImportRunner({
       selectedFilePaths,
       fileTree,

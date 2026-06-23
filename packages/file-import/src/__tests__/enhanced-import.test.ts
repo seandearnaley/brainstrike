@@ -107,6 +107,40 @@ describe('runEnhancedImport', () => {
     );
   });
 
+  it('rejects before base import when chunking cannot write chunks', async () => {
+    const baseImportRunner = vi.fn().mockResolvedValue([
+      {
+        id: '1',
+        imported: true,
+        existed: false,
+      },
+    ]);
+    const chunkingImpl = vi.fn();
+
+    await expect(
+      runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner,
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: null },
+          chunkingWorkerPort: {} as never,
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+        processChunkingImpl: chunkingImpl,
+      })
+    ).rejects.toThrow('Chunking is enabled but chunk storage is unavailable.');
+
+    expect(baseImportRunner).not.toHaveBeenCalled();
+    expect(chunkingImpl).not.toHaveBeenCalled();
+  });
+
   it('does not throw error when embeddings disabled (chunks still get embedding_set_id)', async () => {
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
