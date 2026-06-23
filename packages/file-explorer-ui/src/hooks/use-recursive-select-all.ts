@@ -1,4 +1,4 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useOptionalBrainstrikeDbClient } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
@@ -69,7 +69,7 @@ function computeSelectAllScanCap(
 
 /** Commit a full select-all result as a top-level query-mode selection. */
 async function commitSelectAllQuerySelection(args: {
-  db: ReturnType<typeof useOptionalPGliteDatabase>;
+  db: ReturnType<typeof useOptionalBrainstrikeDbClient>;
   excludeFilters: string[];
   filePaths: string[];
   folderId: string;
@@ -127,7 +127,7 @@ async function commitSelectAllResult(args: {
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked | undefined;
   currentFolderId: string | null;
-  db: ReturnType<typeof useOptionalPGliteDatabase>;
+  db: ReturnType<typeof useOptionalBrainstrikeDbClient>;
   excludeFilters: string[];
   folderId: string;
   getCurrentTree: () => IFileNode[];
@@ -366,7 +366,7 @@ export function useRecursiveSelectAll(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const db = useOptionalPGliteDatabase();
+  const db = useOptionalBrainstrikeDbClient();
   const { storageAdapter } = useAdapters();
   const { showToast } = useToastManager();
   // The EFFECTIVE workspace filters (global lists minus disabled toggles) —
