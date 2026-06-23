@@ -84,12 +84,12 @@ jobs:
     name: Unit DB ${{ matrix.db-lane }}
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Foundational PRs (e.g. changes to @brainstrike/db or @brainstrike/utils)
-    # pull in most of the repo via pnpm's `...[ref]` reverse dependency filter.
-    # Keep that coverage, but shard the selected testable packages so PR wall
-    # time is bounded by the slowest lane instead of one monolithic recursive
-    # run. DB has its own internal lane runner, so split it on those existing
-    # lanes instead of treating @brainstrike/db as one huge package task.
+    # PR Unit normally runs directly changed testable packages only. A small
+    # allowlist of foundational packages still expands to dependents because
+    # their runtime regressions often surface outside the changed package's own
+    # tests. Static, Type check, and Build continue covering downstream
+    # compile/bundle failures, and push/manual runs still execute the full unit
+    # suite.
     # The aggregate `unit` job below preserves the required `Unit` check.
     timeout-minutes: 45
     strategy:
@@ -111,7 +111,20 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      - name: Plan affected DB unit shard
+        id: unit-plan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode db \
+            --db-lane "${{ matrix.db-lane }}" \
+            --dry-run \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Cache Turbo artifacts
+        if: steps.unit-plan.outputs.has_work == 'true'
         uses: actions/cache@v5
         with:
           path: .turbo
@@ -120,6 +133,7 @@ jobs:
             ${{ runner.os }}-turbo-test-${{ github.job }}-
 
       - name: Install dependencies
+        if: steps.unit-plan.outputs.has_work == 'true'
         run: pnpm install --frozen-lockfile
 
       # Build workspace deps first, for BOTH test paths below. The previous
@@ -127,26 +141,23 @@ jobs:
       # `dependsOn: ["^build"]`, but pnpm's filter doesn't traverse that graph
       # — workspace deps with exports maps pointing at `dist/` would otherwise
       # fail to resolve at test time.
-      # MUST stay unconditional (no `if: pull_request`): the
-      # `Push and manual unit tests` step runs the full suite on push/main and
-      # workflow_dispatch, and hits the same unbuilt-`dist` resolution failure
-      # (e.g. @brainstrike/indexing-contract importing @brainstrike/types).
-      # A PR-only guard here left push-to-main Unit red for ~3 weeks invisibly.
-      # Use turbo for build (cache makes this fast); use pnpm for affected
-      # test selection (turbo's --affected over-selects on merge commits).
+      # The PR shard pre-plan gates this step when there is no unit work. Push
+      # and manual runs keep their full-suite build in the aggregate Unit job.
       - name: Build workspace dependencies
+        if: steps.unit-plan.outputs.has_work == 'true'
         run: pnpm turbo run build --concurrency=4
 
-      # PR-affected unit tests via pnpm's documented filter syntax.
-      # https://pnpm.io/filtering — pattern: `pnpm --filter "...[origin/master]" test`
+      # PR-changed unit tests via pnpm's documented filter syntax.
+      # https://pnpm.io/filtering — pattern: `pnpm --filter "[origin/master]" test`
       #
-      # `...[ref]` = changed packages + their dependents — same semantic as
-      # `turbo run test --affected`. `!./` excludes the root workspace
+      # `[ref]` = directly changed packages. The helper may intentionally
+      # re-expand to `...[ref]` for foundational package changes. `!./` excludes the root workspace
       # (which would otherwise run its root-level `test` script that
       # delegates back to turbo over every workspace, defeating the scoping).
-      # The helper first computes that exact affected set. DB lanes run only
-      # when @brainstrike/db is in that affected set; otherwise they exit green.
+      # DB lanes run only when @brainstrike/db is in the selected set;
+      # otherwise they exit green.
       - name: Pull request affected unit tests
+        if: steps.unit-plan.outputs.has_work == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -159,8 +170,8 @@ jobs:
     name: Unit packages ${{ matrix.lane }}/4
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Runs the non-DB portion of the authoritative affected reverse-dependency
-    # set. @brainstrike/db is intentionally excluded here because the job above
+    # Runs the non-DB portion of the directly changed unit-test set.
+    # @brainstrike/db is intentionally excluded here because the job above
     # splits its existing DB test lanes directly.
     timeout-minutes: 45
     strategy:
@@ -182,7 +193,21 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      - name: Plan affected package unit shard
+        id: unit-plan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode packages \
+            --lane "${{ matrix.lane }}" \
+            --total-lanes 4 \
+            --dry-run \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Cache Turbo artifacts
+        if: steps.unit-plan.outputs.has_work == 'true'
         uses: actions/cache@v5
         with:
           path: .turbo
@@ -191,13 +216,16 @@ jobs:
             ${{ runner.os }}-turbo-test-${{ github.job }}-
 
       - name: Install dependencies
+        if: steps.unit-plan.outputs.has_work == 'true'
         run: pnpm install --frozen-lockfile
 
       # See the DB shard job above for the build-dependency rationale.
       - name: Build workspace dependencies
+        if: steps.unit-plan.outputs.has_work == 'true'
         run: pnpm turbo run build --concurrency=4
 
       - name: Pull request affected unit tests
+        if: steps.unit-plan.outputs.has_work == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
