@@ -168,10 +168,12 @@ describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => 
       'Command exited non-zero',
       expect.objectContaining({
         command: { redacted: true },
+        cwd: { redacted: true },
         exitCode: 7,
       })
     );
     expect(JSON.stringify(loggerInfoMock.mock.calls)).not.toContain('sk-sensitive');
+    expect(JSON.stringify(loggerInfoMock.mock.calls)).not.toContain(root);
   });
 
   it('captures stderr for a failing command', async () => {
@@ -216,10 +218,12 @@ describe('runExecuteCommand — timeout + no orphan (CRITICAL)', () => {
       'Command timed out and its process tree was killed',
       expect.objectContaining({
         command: { redacted: true },
+        cwd: { redacted: true },
         timeoutMs: 500,
       })
     );
     expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('sk-sensitive');
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(root);
   });
 });
 

@@ -172,6 +172,8 @@ function redactToolInputForLog(input: object): { fields: string[]; redacted: tru
   return { fields: Object.keys(input), redacted: true };
 }
 
+const REDACTED_PATH_LOG_VALUE = { redacted: true } as const;
+
 function redactToolErrorForLog(error: unknown): {
   code?: string | number;
   name: string;
@@ -593,8 +595,8 @@ async function triggerEditedFileReindex(args: {
     // DB unavailable (no DB initialized). Non-fatal and expected outside a
     // running app — log at debug so it is traceable without alarming.
     logger.debug('Skipped re-index: database unavailable', {
-      error,
-      path: args.workspacePath,
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
     });
     return;
   }
@@ -614,8 +616,8 @@ async function triggerEditedFileReindex(args: {
     // A resolvable DB that then fails to re-index is a genuine problem — surface
     // it (no silent swallow) but never fail the already-successful edit.
     logger.error('Failed to re-index edited file; RAG index may be stale until next sync', {
-      error,
-      path: args.workspacePath,
+      error: redactToolErrorForLog(error),
+      path: REDACTED_PATH_LOG_VALUE,
     });
   }
 }
