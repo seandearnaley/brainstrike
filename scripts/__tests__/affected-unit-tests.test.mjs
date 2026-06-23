@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
+  buildAffectedPackageFilter,
   buildLanePackageNames,
   buildPackageLanePackageNames,
   buildWeightedPackageLanes,
@@ -11,6 +12,7 @@ import {
   filterTestablePackages,
   listCiDbCoverageLanes,
   listCiDbLaneGroups,
+  modeIncludesDependentPackages,
   parsePnpmListJson,
   runCommandSequence,
 } from '../affected-unit-tests.mjs';
@@ -126,6 +128,27 @@ test('buildPackageLanePackageNames excludes the dedicated DB package lane', () =
   );
 });
 
+test('buildAffectedPackageFilter can scope PR units to directly changed packages', () => {
+  assert.equal(
+    buildAffectedPackageFilter('feature/turso-migration', { includeDependents: false }),
+    '[origin/feature/turso-migration]'
+  );
+  assert.equal(
+    buildAffectedPackageFilter('feature/turso-migration', { includeDependents: true }),
+    '...[origin/feature/turso-migration]'
+  );
+});
+
+test('PR unit modes expand dependents only for foundational package changes', () => {
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/file-explorer-ui']), false);
+  assert.equal(modeIncludesDependentPackages('db', ['@brainstrike/file-explorer-ui']), false);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db']), true);
+  assert.equal(modeIncludesDependentPackages('db', ['@brainstrike/utils']), true);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/types']), true);
+  assert.equal(modeIncludesDependentPackages('coverage-packages', ['@brainstrike/db']), false);
+  assert.equal(modeIncludesDependentPackages('coverage-db', ['@brainstrike/db']), false);
+});
+
 test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
   assert.deepEqual(createDbLaneCommands('repository'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:repository']]]);
   assert.deepEqual(createDbLaneCommands('schema-migration'), [['pnpm', ['--filter', '@brainstrike/db', 'run', 'test:db:schema-migration']]]);
@@ -199,15 +222,19 @@ test('coverage aggregate job preserves the required Coverage check over shards',
   assert.match(workflow, /merge-multiple: true/);
 });
 
-test('coverage shards preserve repo-relative artifact paths and skip idle build work', () => {
+test('unit and coverage shards skip idle build work', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
   const unitDbJob = extractWorkflowJob(workflow, 'unit-pr-db');
   const unitPackagesJob = extractWorkflowJob(workflow, 'unit-pr-packages');
   const coverageDbJob = extractWorkflowJob(workflow, 'coverage-pr-db');
   const coveragePackagesJob = extractWorkflowJob(workflow, 'coverage-pr-packages');
 
-  assert.doesNotMatch(unitDbJob, /coverage-plan/);
-  assert.doesNotMatch(unitPackagesJob, /coverage-plan/);
+  assert.match(unitDbJob, /id: unit-plan/);
+  assert.match(unitPackagesJob, /id: unit-plan/);
+  assert.match(unitDbJob, /--github-output "\$GITHUB_OUTPUT"/);
+  assert.match(unitPackagesJob, /--github-output "\$GITHUB_OUTPUT"/);
+  assert.match(unitDbJob, /if: steps\.unit-plan\.outputs\.has_work == 'true'/);
+  assert.match(unitPackagesJob, /if: steps\.unit-plan\.outputs\.has_work == 'true'/);
   assert.match(coverageDbJob, /--github-output "\$GITHUB_OUTPUT"/);
   assert.match(coveragePackagesJob, /--github-output "\$GITHUB_OUTPUT"/);
   assert.match(coverageDbJob, /if: steps\.coverage-plan\.outputs\.has_work == 'true'/);

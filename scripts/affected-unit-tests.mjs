@@ -12,6 +12,11 @@ const DEFAULT_WORKSPACE_CONCURRENCY = 2;
 const DEFAULT_TEST_WEIGHT_MS = 1000;
 const DB_PACKAGE_NAME = '@brainstrike/db';
 const COVERAGE_SCRIPT_NAME = 'test:coverage';
+const UNIT_DEPENDENT_EXPANSION_TRIGGERS = new Set([
+  '@brainstrike/db',
+  '@brainstrike/types',
+  '@brainstrike/utils',
+]);
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
   ['schema-migration', ['schema-migration']],
@@ -169,8 +174,24 @@ export function readWorkspaceManifests(repoRoot = process.cwd()) {
   return manifestsByName;
 }
 
-function collectAffectedPackages(baseRef, repoRoot, platform, { includeDependents = true } = {}) {
-  const affectedFilter = includeDependents ? `...[origin/${baseRef}]` : `[origin/${baseRef}]`;
+export function buildAffectedPackageFilter(baseRef, { includeDependents = false } = {}) {
+  return includeDependents ? `...[origin/${baseRef}]` : `[origin/${baseRef}]`;
+}
+
+export function modeIncludesDependentPackages(mode, directlyChangedPackages = []) {
+  if (mode === 'packages' || mode === 'db') {
+    return directlyChangedPackages.some((packageName) =>
+      UNIT_DEPENDENT_EXPANSION_TRIGGERS.has(packageName)
+    );
+  }
+  if (mode === 'coverage-packages' || mode === 'coverage-db') {
+    return false;
+  }
+  throw new Error(`Unknown mode: ${mode}`);
+}
+
+function collectAffectedPackages(baseRef, repoRoot, platform, { includeDependents = false } = {}) {
+  const affectedFilter = buildAffectedPackageFilter(baseRef, { includeDependents });
   const invocation = createSpawnInvocation(
     'pnpm',
     ['--filter', affectedFilter, '--filter', '!./', 'list', '--depth', '-1', '--json'],
@@ -395,9 +416,11 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
   let options;
   try {
     options = parseArgs(args);
-    const affectedPackages = collectAffectedPackages(options.baseRef, options.repoRoot, platform, {
-      includeDependents: options.mode === 'packages' || options.mode === 'db',
-    });
+    const directlyChangedPackages = collectAffectedPackages(options.baseRef, options.repoRoot, platform);
+    const includeDependents = modeIncludesDependentPackages(options.mode, directlyChangedPackages);
+    const affectedPackages = includeDependents
+      ? collectAffectedPackages(options.baseRef, options.repoRoot, platform, { includeDependents: true })
+      : directlyChangedPackages;
     const manifestsByName = readWorkspaceManifests(options.repoRoot);
     const testablePackages = filterTestablePackages(affectedPackages, manifestsByName);
     const coveragePackages = filterCoveragePackages(affectedPackages, manifestsByName);
