@@ -347,7 +347,7 @@ jobs:
       - name: Stage coverage shard
         run: |
           mkdir -p coverage-shard
-          printf '%s\n' "${{ matrix.db-coverage-lane }}" > "coverage-shard/.marker-db-${{ matrix.db-coverage-lane }}"
+          printf '%s\n' "${{ matrix.db-coverage-lane }}" > "coverage-shard/marker-db-${{ matrix.db-coverage-lane }}"
           if [ "${{ steps.coverage-plan.outputs.has_work }}" = "true" ]; then
             find packages/db -type f -path "*/coverage-db-*/coverage-final.json" -exec cp --parents {} coverage-shard/ \;
             if ! find coverage-shard -type f -name "coverage-final.json" | grep -q .; then
@@ -448,7 +448,7 @@ jobs:
       - name: Stage coverage shard
         run: |
           mkdir -p coverage-shard
-          printf '%s\n' "${{ matrix.lane }}" > "coverage-shard/.marker-packages-${{ matrix.lane }}"
+          printf '%s\n' "${{ matrix.lane }}" > "coverage-shard/marker-packages-${{ matrix.lane }}"
           if [ "${{ steps.coverage-plan.outputs.has_work }}" = "true" ]; then
             find packages apps -type f -path "*/coverage/coverage-final.json" -exec cp --parents {} coverage-shard/ \;
             if ! find coverage-shard -type f -name "coverage-final.json" | grep -q .; then

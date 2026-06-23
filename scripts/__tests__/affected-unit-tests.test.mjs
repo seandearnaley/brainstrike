@@ -215,5 +215,8 @@ test('coverage shards preserve repo-relative artifact paths and skip idle build 
   assert.match(coverageDbJob, /find packages\/db .*coverage-db-\*.*cp --parents/s);
   assert.match(coveragePackagesJob, /find packages apps .*\/coverage\/coverage-final\.json.*cp --parents/s);
   assert.match(workflow, /path: coverage-shard\//);
+  assert.match(workflow, /coverage-shard\/marker-db-/);
+  assert.match(workflow, /coverage-shard\/marker-packages-/);
+  assert.doesNotMatch(workflow, /coverage-shard\/\.marker-/);
   assert.doesNotMatch(workflow, /continue-on-error: true/);
 });
