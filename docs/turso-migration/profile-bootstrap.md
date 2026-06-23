@@ -62,15 +62,15 @@ repository/search slices bind them to Turso vector APIs.
 Current desktop Turso provider coverage:
 
 - `embedding_sets`
+- `file_records`
 - `view_filter_presets`
 - `file_token_cache`
 
-Turso file-record repository implementation is staged as repository-only
-groundwork for CRUD, content import, managed-cache metadata, stat stamping, and
-bulk import. The desktop provider intentionally does not expose it through
-`useFileRecordRepository()` yet, because default imports require file-record and
-chunk storage to become available together. Exposing file records first would
-allow partial failed imports with no chunks or searchable content.
+Turso file-record repository is exposed through the desktop Turso provider for
+CRUD, content import, managed-cache metadata, stat stamping, and bulk import.
+This is repository coverage, not full import parity: default imports still need
+Turso chunk storage plus embedding-job enqueue support before file records,
+chunks, and jobs are committed atomically in Turso mode.
 
 Turso file-chunk repository implementation is now staged as repository-only
 groundwork for non-search persistence: ordered reads, single and batched upserts,
@@ -92,18 +92,18 @@ of the Postgres `JobQueue` batch SQL. This is only the import write-side
 primitive; it does not port job claiming, heartbeats, completion, retries,
 managed-cache invalidation, or search indexing.
 
-The provider still does not expose a generic `db` handle, `file_records`, or
-`file_chunks` in Turso mode. Those remain explicit migration work rather than
-silent PGlite compatibility.
+The provider still does not expose a generic `db` handle or `file_chunks` in
+Turso mode. Those remain explicit migration work rather than silent PGlite
+compatibility.
 
 ## Next Touchpoint
 
 The next low-vector-risk slice is a Turso-native managed-cache batch and import
 port that can call the staged chunk/job write primitive without relying on
 Postgres-only `JobQueue` SQL. Coherent provider exposure for the generic
-execution handle plus the staged `file_records` and non-search `file_chunks`
-repositories should wait until imports can write file records, chunks, and
-embedding jobs atomically in Turso mode. Search remains split-owned until
+execution handle plus the non-search `file_chunks` repository should wait until
+imports can write file records, chunks, and embedding jobs atomically in Turso
+mode. Search remains split-owned until
 `docs/turso-migration/search-index-architecture.md` is implemented, and
 quick-open name search must not be treated as complete until the Turso
 search-index owner is designed.
