@@ -171,6 +171,17 @@ export class TursoFileChunkRepository {
         normalizeDateValue(chunk.embeddingUpdatedAt, 'embeddingUpdatedAt')
       );
     }
+    if (chunk.embedding === undefined && chunk.embeddingSetId !== undefined) {
+      if (!existing) {
+        return null;
+      }
+      await validateEmbeddingSetMetadataUpdate(
+        this.db,
+        existing.embedding === undefined
+          ? { embeddingSetId: chunk.embeddingSetId }
+          : { embedding: existing.embedding, embeddingSetId: chunk.embeddingSetId }
+      );
+    }
     appendColumn(assignments, params, 'embedding_set_id', chunk.embeddingSetId);
     appendColumn(assignments, params, 'embedding_hash', chunk.embeddingHash);
 
@@ -354,6 +365,9 @@ export class TursoFileChunkRepository {
     if (chunk.embedding !== undefined && !chunk.embeddingSetId) {
       return this.findById(chunk.id);
     }
+    if (chunk.embedding === undefined && chunk.embeddingSetId !== undefined) {
+      return this.findById(chunk.id);
+    }
     return null;
   }
 
@@ -500,6 +514,25 @@ async function validateEmbeddings(
         `Embedding dimension mismatch: received ${input.embedding.length}, expected ${expectedDimension}.`
       );
     }
+  }
+}
+
+async function validateEmbeddingSetMetadataUpdate(
+  db: BrainstrikeDbTransactionClient,
+  input: { readonly embedding?: readonly number[]; readonly embeddingSetId: string }
+): Promise<void> {
+  const dimensionsBySet = await readEmbeddingSetDimensions(db, [input.embeddingSetId]);
+  const targetDimension = dimensionsBySet.get(input.embeddingSetId);
+  if (targetDimension === undefined) {
+    throw new Error(`Embedding set ${input.embeddingSetId} is missing or has invalid dimensions.`);
+  }
+  if (input.embedding === undefined) {
+    return;
+  }
+  if (input.embedding.length !== targetDimension) {
+    throw new Error(
+      `Embedding dimension mismatch: received ${input.embedding.length}, expected ${targetDimension}.`
+    );
   }
 }
 

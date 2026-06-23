@@ -199,6 +199,12 @@ describe('TursoFileChunkRepository', () => {
       3,
       'cosine'
     );
+    const wrongDimensionSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:larger',
+      'larger',
+      4,
+      'cosine'
+    );
     await fileRecordsRepository.createWithContent(
       createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
     );
@@ -222,6 +228,24 @@ describe('TursoFileChunkRepository', () => {
       embeddingHash: 'metadata-hash',
       embeddingSetId: embeddingSet.id,
       embeddingUpdatedAt: '2026-06-23T08:46:00.000Z',
+    });
+
+    await expect(
+      repository.update({
+        embeddingSetId: wrongDimensionSet.id,
+        id: 'chunk-1',
+        updatedAt: '2026-06-23T08:47:00.000Z',
+      })
+    ).rejects.toThrow('Embedding dimension mismatch: received 3, expected 4.');
+    await expect(
+      repository.update({
+        embeddingSetId: 'missing-set',
+        id: 'chunk-1',
+        updatedAt: '2026-06-23T08:48:00.000Z',
+      })
+    ).rejects.toThrow('Embedding set missing-set is missing or has invalid dimensions.');
+    await expect(repository.findById('chunk-1')).resolves.toMatchObject({
+      embeddingSetId: embeddingSet.id,
     });
   });
 
