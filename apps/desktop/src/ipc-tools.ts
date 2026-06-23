@@ -10,6 +10,7 @@ import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import type { ManagedCacheBatchApplier } from './assistant-server/reindex-edited-file';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
@@ -426,6 +427,7 @@ type ToolExecutionResult<T = unknown> =
 
 interface ToolsIpcDependencies {
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | null | undefined;
 }
 
 function buildDuration(startTime: number): number {
@@ -470,6 +472,7 @@ async function tryExecuteAssistantRuntimeTool(
 ): Promise<ToolExecutionResult | null> {
   const assistantTool = buildDesktopAssistantTools(runtimeData, {
     embeddingHostManager: dependencies.embeddingHostManager,
+    managedCacheBatchApplier: dependencies.managedCacheBatchApplier,
   })[toolId];
   if (!assistantTool?.execute) {
     return null;

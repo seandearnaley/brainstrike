@@ -960,6 +960,14 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
     getRuntimeMetrics: collectBackgroundRuntimeMetrics,
   },
 });
+
+const managedCacheBatchApplier = {
+  applyManagedCacheBatch: async (
+    payload: Parameters<ReturnType<typeof getDbHostManager>['applyManagedCacheBatch']>[0]
+  ) => {
+    await getDbHostManager().applyManagedCacheBatch(payload);
+  },
+};
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
 unregisterGitIpcHandlers = registerGitIpcHandlers();
@@ -1090,7 +1098,7 @@ if (singleInstanceLockAcquired) {
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
       unregisterMcpIpcHandlers = registerMcpIpcHandlers();
-      registerToolsIpcHandlers({ embeddingHostManager });
+      registerToolsIpcHandlers({ embeddingHostManager, managedCacheBatchApplier });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
       await initializeDesktopDimensionIndexStrategy();
@@ -1243,6 +1251,7 @@ if (singleInstanceLockAcquired) {
         const { url, stop } = await startAssistantServer(undefined, {
           embeddingHostManager,
           llmHostManager,
+          managedCacheBatchApplier,
         });
         assistantUrl = url;
         stopAssistantServer = stop;

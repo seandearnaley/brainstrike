@@ -27,6 +27,10 @@ export interface ReindexDatabaseHandle {
   transaction?: <TResult>(fn: (tx: unknown) => Promise<TResult>) => Promise<TResult>;
 }
 
+export interface ManagedCacheBatchApplier {
+  applyManagedCacheBatch(args: ApplyManagedCacheBatchArgs): Promise<void>;
+}
+
 export interface ReindexEditedFileArgs {
   /** The exact bytes just written (UTF-8 decoded content the model produced). */
   readonly content: string;
@@ -93,8 +97,14 @@ async function findIndexedFileRecordId(
  */
 async function applyManagedCacheReplace(
   db: ReindexDatabaseHandle,
-  args: ApplyManagedCacheBatchArgs
+  args: ApplyManagedCacheBatchArgs,
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | undefined
 ): Promise<void> {
+  if (managedCacheBatchApplier) {
+    await managedCacheBatchApplier.applyManagedCacheBatch(args);
+    return;
+  }
+
   if (typeof db.transaction !== 'function') {
     throw new Error('Re-index requires a database handle with transaction support.');
   }
@@ -122,7 +132,8 @@ async function applyManagedCacheReplace(
  */
 export async function reindexEditedFile(
   db: ReindexDatabaseHandle,
-  args: ReindexEditedFileArgs
+  args: ReindexEditedFileArgs,
+  managedCacheBatchApplier?: ManagedCacheBatchApplier | undefined
 ): Promise<boolean> {
   const embeddingSetId = args.workspaceIndexEmbeddingSetId?.trim();
   if (!embeddingSetId) {
@@ -163,7 +174,11 @@ export async function reindexEditedFile(
     },
   };
 
-  await applyManagedCacheReplace(db, { embeddingSetId, changes: [replace] });
+  await applyManagedCacheReplace(
+    db,
+    { embeddingSetId, changes: [replace] },
+    managedCacheBatchApplier
+  );
   logger.debug('Re-indexed edited file (chunks cleared, re-chunk pending)', {
     embeddingSetId,
     fileRecordId,
