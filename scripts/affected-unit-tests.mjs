@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -293,6 +293,7 @@ export function parseArgs(args) {
     dbCoverageLane: undefined,
     dbLane: undefined,
     dryRun: false,
+    githubOutput: undefined,
     lane: undefined,
     mode: 'packages',
     repoRoot: process.cwd(),
@@ -343,6 +344,10 @@ export function parseArgs(args) {
       options.repoRoot = path.resolve(next());
       continue;
     }
+    if (arg === '--github-output') {
+      options.githubOutput = path.resolve(next());
+      continue;
+    }
     if (arg === '--dry-run') {
       options.dryRun = true;
       continue;
@@ -378,6 +383,14 @@ export function parseArgs(args) {
   return options;
 }
 
+function writeGithubOutput(outputPath, values) {
+  if (!outputPath) {
+    return;
+  }
+  const lines = Object.entries(values).map(([key, value]) => `${key}=${value}`);
+  appendFileSync(outputPath, `${lines.join('\n')}\n`);
+}
+
 export function main(args = process.argv.slice(2), platform = process.platform) {
   let options;
   try {
@@ -391,8 +404,10 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     if (options.mode === 'db') {
       if (!testablePackages.includes(DB_PACKAGE_NAME)) {
         console.log('No affected DB package selected for this unit run.');
+        writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }
+      writeGithubOutput(options.githubOutput, { has_work: 'true' });
       console.log(`Affected DB package selected; DB unit lane: ${options.dbLane}`);
       for (const [command, commandArgs] of createDbLaneCommands(options.dbLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
@@ -405,8 +420,10 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     if (options.mode === 'coverage-db') {
       if (!coveragePackages.includes(DB_PACKAGE_NAME)) {
         console.log('No directly affected DB package selected for this coverage run.');
+        writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
       }
+      writeGithubOutput(options.githubOutput, { has_work: 'true' });
       console.log(`Affected DB package selected; DB coverage lane: ${options.dbCoverageLane}`);
       for (const [command, commandArgs] of createDbCoverageLaneCommands(options.dbCoverageLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
@@ -427,6 +444,9 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
       console.log(
         `Directly affected coverage packages: ${coveragePackages.length}; package coverage lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
       );
+      writeGithubOutput(options.githubOutput, {
+        has_work: lanePackages.length > 0 ? 'true' : 'false',
+      });
       for (const packageName of lanePackages) {
         console.log(`- ${packageName}`);
       }
@@ -450,6 +470,9 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     console.log(
       `Affected testable packages: ${testablePackages.length}; package unit lane ${options.lane}/${options.totalLanes}: ${lanePackages.length}`
     );
+    writeGithubOutput(options.githubOutput, {
+      has_work: lanePackages.length > 0 ? 'true' : 'false',
+    });
     for (const packageName of lanePackages) {
       console.log(`- ${packageName}`);
     }

@@ -295,7 +295,20 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      - name: Plan affected DB coverage shard
+        id: coverage-plan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode coverage-db \
+            --db-coverage-lane "${{ matrix.db-coverage-lane }}" \
+            --dry-run \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Cache Turbo artifacts
+        if: steps.coverage-plan.outputs.has_work == 'true'
         uses: actions/cache@v5
         with:
           path: .turbo
@@ -304,9 +317,11 @@ jobs:
             ${{ runner.os }}-turbo-test-${{ github.job }}-
 
       - name: Install dependencies
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Clear coverage directories
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
@@ -314,9 +329,11 @@ jobs:
       # See the Unit job for the rationale. Coverage instrumentation runs
       # tests so it has the same build-dependency requirement.
       - name: Build workspace dependencies
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: pnpm turbo run build --concurrency=4
 
       - name: Run affected DB coverage shard
+        if: steps.coverage-plan.outputs.has_work == 'true'
         env:
           COVERAGE: "true"
           NODE_ENV: test
@@ -327,15 +344,27 @@ jobs:
             --mode coverage-db \
             --db-coverage-lane "${{ matrix.db-coverage-lane }}"
 
+      - name: Stage coverage shard
+        run: |
+          mkdir -p coverage-shard
+          printf '%s\n' "${{ matrix.db-coverage-lane }}" > "coverage-shard/.marker-db-${{ matrix.db-coverage-lane }}"
+          if [ "${{ steps.coverage-plan.outputs.has_work }}" = "true" ]; then
+            find packages/db -type f -path "*/coverage-db-*/coverage-final.json" -exec cp --parents {} coverage-shard/ \;
+            if ! find coverage-shard -type f -name "coverage-final.json" | grep -q .; then
+              echo "::error::DB coverage shard produced no coverage-final.json files."
+              exit 1
+            fi
+          else
+            echo "No directly affected DB package for this coverage shard."
+          fi
+
       - name: Upload coverage shard
-        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-db-${{ matrix.db-coverage-lane }}
-          path: |
-            packages/db/coverage-db-*/**
+          path: coverage-shard/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   coverage-pr-packages:
     name: Coverage packages ${{ matrix.lane }}/4
@@ -361,7 +390,21 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      - name: Plan affected package coverage shard
+        id: coverage-plan
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          node scripts/affected-unit-tests.mjs \
+            --base-ref "$BASE_REF" \
+            --mode coverage-packages \
+            --lane "${{ matrix.lane }}" \
+            --total-lanes 4 \
+            --dry-run \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Cache Turbo artifacts
+        if: steps.coverage-plan.outputs.has_work == 'true'
         uses: actions/cache@v5
         with:
           path: .turbo
@@ -370,9 +413,11 @@ jobs:
             ${{ runner.os }}-turbo-test-${{ github.job }}-
 
       - name: Install dependencies
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Clear coverage directories
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
@@ -380,12 +425,14 @@ jobs:
       # See the Unit job for the rationale. Coverage instrumentation runs
       # tests so it has the same build-dependency requirement.
       - name: Build workspace dependencies
+        if: steps.coverage-plan.outputs.has_work == 'true'
         run: pnpm turbo run build --concurrency=4
 
       # `[ref]` (no dots) = directly-changed packages only. Codecov's patch
       # gate is on changed lines, which only live in directly-changed
       # packages — dependents add no patch-coverage signal.
       - name: Run affected package coverage shard
+        if: steps.coverage-plan.outputs.has_work == 'true'
         env:
           COVERAGE: "true"
           NODE_ENV: test
@@ -398,16 +445,27 @@ jobs:
             --total-lanes 4 \
             --workspace-concurrency 2
 
+      - name: Stage coverage shard
+        run: |
+          mkdir -p coverage-shard
+          printf '%s\n' "${{ matrix.lane }}" > "coverage-shard/.marker-packages-${{ matrix.lane }}"
+          if [ "${{ steps.coverage-plan.outputs.has_work }}" = "true" ]; then
+            find packages apps -type f -path "*/coverage/coverage-final.json" -exec cp --parents {} coverage-shard/ \;
+            if ! find coverage-shard -type f -name "coverage-final.json" | grep -q .; then
+              echo "::error::Package coverage shard produced no coverage-final.json files."
+              exit 1
+            fi
+          else
+            echo "No directly affected packages assigned to this coverage shard."
+          fi
+
       - name: Upload coverage shard
-        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-packages-${{ matrix.lane }}
-          path: |
-            packages/*/coverage/**
-            apps/*/coverage/**
+          path: coverage-shard/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   coverage:
     name: Coverage
@@ -446,7 +504,6 @@ jobs:
 
       - name: Download coverage shards
         uses: actions/download-artifact@v8
-        continue-on-error: true
         with:
           pattern: coverage-shard-*
           merge-multiple: true

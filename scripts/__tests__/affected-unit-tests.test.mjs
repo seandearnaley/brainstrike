@@ -19,6 +19,16 @@ import {
   dbUnitLaneDefinitions,
 } from '../../packages/db/scripts/db-test-lane-manifest.mjs';
 
+function extractWorkflowJob(workflow, jobName) {
+  const start = workflow.indexOf(`  ${jobName}:\n`);
+  assert.notEqual(start, -1, `Missing workflow job ${jobName}`);
+  const nextJob = workflow.slice(start + 1).search(/\n  [a-zA-Z0-9_-]+:\n/);
+  if (nextJob === -1) {
+    return workflow.slice(start);
+  }
+  return workflow.slice(start, start + 1 + nextJob);
+}
+
 test('parsePnpmListJson extracts named workspaces in stable order', () => {
   assert.deepEqual(
     parsePnpmListJson(
@@ -187,4 +197,23 @@ test('coverage aggregate job preserves the required Coverage check over shards',
   assert.match(workflow, /needs: \[coverage-pr-db, coverage-pr-packages\]/);
   assert.match(workflow, /pattern: coverage-shard-\*/);
   assert.match(workflow, /merge-multiple: true/);
+});
+
+test('coverage shards preserve repo-relative artifact paths and skip idle build work', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+  const unitDbJob = extractWorkflowJob(workflow, 'unit-pr-db');
+  const unitPackagesJob = extractWorkflowJob(workflow, 'unit-pr-packages');
+  const coverageDbJob = extractWorkflowJob(workflow, 'coverage-pr-db');
+  const coveragePackagesJob = extractWorkflowJob(workflow, 'coverage-pr-packages');
+
+  assert.doesNotMatch(unitDbJob, /coverage-plan/);
+  assert.doesNotMatch(unitPackagesJob, /coverage-plan/);
+  assert.match(coverageDbJob, /--github-output "\$GITHUB_OUTPUT"/);
+  assert.match(coveragePackagesJob, /--github-output "\$GITHUB_OUTPUT"/);
+  assert.match(coverageDbJob, /if: steps\.coverage-plan\.outputs\.has_work == 'true'/);
+  assert.match(coveragePackagesJob, /if: steps\.coverage-plan\.outputs\.has_work == 'true'/);
+  assert.match(coverageDbJob, /find packages\/db .*coverage-db-\*.*cp --parents/s);
+  assert.match(coveragePackagesJob, /find packages apps .*\/coverage\/coverage-final\.json.*cp --parents/s);
+  assert.match(workflow, /path: coverage-shard\//);
+  assert.doesNotMatch(workflow, /continue-on-error: true/);
 });
