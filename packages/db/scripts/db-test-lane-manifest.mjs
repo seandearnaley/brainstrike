@@ -39,6 +39,7 @@ export const dbUnitLaneDefinitions = [
       /^file-record-model\.test\.ts$/,
       /^managed-cache-batch\.test\.ts$/,
       /^repository-/,
+      /^turso-token-cache-store\.test\.ts$/,
     ],
   },
   {

@@ -9,40 +9,16 @@ import { validateRelativeFilePath } from '@brainstrike/utils';
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { fileTokenCache, textTimestampNow } from '../../schema/index.js';
+import type {
+  TokenCacheEntry,
+  TokenCacheStats,
+  TokenCountingMode,
+} from '../token-cache-store-types.js';
 
 type DrizzleDb = PgliteDatabase;
 const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
 
-/**
- * Token counting mode
- */
-export type TokenCountingMode = 'accurate' | 'heuristic';
-
-/**
- * Token cache entry type (matches the original TokenCacheStore types)
- */
-export interface TokenCacheEntry {
-  contentHash: string;
-  countingMode: TokenCountingMode;
-  createdAt: string;
-  filePath: string;
-  fileSize: number;
-  folderId: string;
-  modelEncoding: string | null;
-  mtimeMs: number | null;
-  tokenCount: number;
-  updatedAt: string;
-}
-
-/**
- * Token cache statistics
- */
-export interface TokenCacheStats {
-  accurateCount: number;
-  entryCount: number;
-  heuristicCount: number;
-  totalTokens: number;
-}
+export type { TokenCacheEntry, TokenCacheStats, TokenCountingMode };
 
 /**
  * DrizzleTokenCacheStore provides persistent storage for token counts using Drizzle ORM.

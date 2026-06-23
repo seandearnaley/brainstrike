@@ -8,6 +8,7 @@ import {
   buildWeightedPackageLanes,
   createDbCoverageLaneCommands,
   createDbLaneCommands,
+  dbChangeRequiresDependentUnitExpansion,
   filterCoveragePackages,
   filterTestablePackages,
   listCiDbCoverageLanes,
@@ -147,6 +148,34 @@ test('PR unit modes expand dependents only for foundational package changes', ()
   assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/types']), true);
   assert.equal(modeIncludesDependentPackages('coverage-packages', ['@brainstrike/db']), false);
   assert.equal(modeIncludesDependentPackages('coverage-db', ['@brainstrike/db']), false);
+});
+
+test('DB repository-only changes stay on dedicated DB unit lanes', () => {
+  const changedFiles = [
+    'packages/db/__tests__/turso-token-cache-store.test.ts',
+    'packages/db/scripts/db-test-lane-manifest.mjs',
+    'packages/db/src/repositories/turso-token-cache-store.ts',
+    'packages/db/src/repositories/token-cache-store-types.ts',
+  ];
+
+  assert.equal(dbChangeRequiresDependentUnitExpansion(changedFiles), false);
+  assert.equal(modeIncludesDependentPackages('packages', ['@brainstrike/db'], changedFiles), false);
+});
+
+test('DB public API and migration changes still expand dependent unit packages', () => {
+  assert.equal(dbChangeRequiresDependentUnitExpansion(['packages/db/src/db-provider.tsx']), true);
+  assert.equal(
+    dbChangeRequiresDependentUnitExpansion(['packages/db/src/repositories/index.ts']),
+    true
+  );
+  assert.equal(
+    dbChangeRequiresDependentUnitExpansion(['packages/db/src/migrations/049_public_change.ts']),
+    true
+  );
+  assert.equal(
+    modeIncludesDependentPackages('packages', ['@brainstrike/db'], ['packages/db/src/index.ts']),
+    true
+  );
 });
 
 test('createDbLaneCommands maps DB lanes to existing package scripts', () => {
