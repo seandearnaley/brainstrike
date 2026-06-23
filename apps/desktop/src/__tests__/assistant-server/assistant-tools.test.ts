@@ -1308,6 +1308,28 @@ describe('assistant-tools', () => {
     );
   });
 
+  it('redacts native tool input values from failure logs', async () => {
+    const tools = buildDesktopAssistantTools(undefined);
+    const tool = tools['brainstrike.findWorkspaceSymbol'];
+
+    await expect(
+      tool.execute({
+        path: '/private/customer-secret.ts',
+        query: 'OPENAI_API_KEY=sk-sensitive',
+      })
+    ).rejects.toThrow('No folder is open in the workspace');
+
+    expect(loggerErrorMock).toHaveBeenCalledWith('findWorkspaceSymbol failed', {
+      error: expect.any(Error),
+      input: {
+        fields: ['path', 'query'],
+        redacted: true,
+      },
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('customer-secret');
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('sk-sensitive');
+  });
+
   it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     await fsPromises.writeFile(

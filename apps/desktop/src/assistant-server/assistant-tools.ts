@@ -168,6 +168,14 @@ function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<
   return schema.parse(resolveToolExecuteInputCandidate(schema, input));
 }
 
+function redactToolInputForLog(input: object): { fields: string[]; redacted: true } {
+  return { fields: Object.keys(input), redacted: true };
+}
+
+function logToolFailure(message: string, error: unknown, input: object): void {
+  logger.error(message, { error, input: redactToolInputForLog(input) });
+}
+
 function escapeSelectionBoundaryTags(content: string): string {
   return content
     .replaceAll('</selection>', '&lt;/selection&gt;')
@@ -1922,7 +1930,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('findWorkspaceSymbol failed', { error, input: resolvedInput });
+          logToolFailure('findWorkspaceSymbol failed', error, resolvedInput);
           throw error;
         }
       },
@@ -1937,7 +1945,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runGrepSearch(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('grepSearch failed', { error, input: resolvedInput });
+          logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
         }
       },
@@ -1952,7 +1960,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runGlobWorkspace(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('globWorkspace failed', { error, input: resolvedInput });
+          logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;
         }
       },
@@ -1984,7 +1992,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceFile failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
@@ -1999,10 +2007,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runWriteWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('writeWorkspaceFile failed', {
-            error,
-            input: { ...resolvedInput, content: undefined },
-          });
+          logToolFailure('writeWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2017,10 +2022,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runStringReplaceWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('stringReplaceWorkspaceFile failed', {
-            error,
-            input: { ...resolvedInput, oldStr: undefined, newStr: undefined },
-          });
+          logToolFailure('stringReplaceWorkspaceFile failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2035,7 +2037,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceDirectory failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceDirectory failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2050,7 +2052,7 @@ export function buildDesktopAssistantTools(
         try {
           return runListWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('listWorkspaceContext failed', { error, input: resolvedInput });
+          logToolFailure('listWorkspaceContext failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2065,7 +2067,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('readWorkspaceContext failed', { error, input: resolvedInput });
+          logToolFailure('readWorkspaceContext failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2083,7 +2085,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runUpdateWorkspaceContextSelection(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('updateWorkspaceContextSelection failed', { error, input: resolvedInput });
+          logToolFailure('updateWorkspaceContextSelection failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2101,7 +2103,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runUpdateWorkspaceTapestrySelections(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('updateWorkspaceTapestrySelections failed', { error, input: resolvedInput });
+          logToolFailure('updateWorkspaceTapestrySelections failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2116,7 +2118,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runListEmbeddingSpaces(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('listEmbeddingSpaces failed', { error, input: resolvedInput });
+          logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2133,7 +2135,7 @@ export function buildDesktopAssistantTools(
             embeddingHostManager: dependencies.embeddingHostManager,
           });
         } catch (error) {
-          logger.error('queryEmbeddingSpace failed', { error, input: resolvedInput });
+          logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
           throw error;
         }
       },
@@ -2163,7 +2165,7 @@ export function buildDesktopAssistantTools(
           signal: options?.abortSignal,
         });
       } catch (error) {
-        logger.error('executeCommand failed', { error, input: resolvedInput });
+        logToolFailure('executeCommand failed', error, resolvedInput);
         throw error;
       }
     },
