@@ -172,8 +172,27 @@ function redactToolInputForLog(input: object): { fields: string[]; redacted: tru
   return { fields: Object.keys(input), redacted: true };
 }
 
+function redactToolErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
+
 function logToolFailure(message: string, error: unknown, input: object): void {
-  logger.error(message, { error, input: redactToolInputForLog(input) });
+  logger.error(message, {
+    error: redactToolErrorForLog(error),
+    input: redactToolInputForLog(input),
+  });
 }
 
 function escapeSelectionBoundaryTags(content: string): string {

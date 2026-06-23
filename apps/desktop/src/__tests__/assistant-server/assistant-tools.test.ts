@@ -1308,26 +1308,30 @@ describe('assistant-tools', () => {
     );
   });
 
-  it('redacts native tool input values from failure logs', async () => {
-    const tools = buildDesktopAssistantTools(undefined);
-    const tool = tools['brainstrike.findWorkspaceSymbol'];
+  it('redacts native tool input and error values from failure logs', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceFile'];
 
     await expect(
       tool.execute({
         path: '/private/customer-secret.ts',
-        query: 'OPENAI_API_KEY=sk-sensitive',
       })
-    ).rejects.toThrow('No folder is open in the workspace');
+    ).rejects.toThrow();
 
-    expect(loggerErrorMock).toHaveBeenCalledWith('findWorkspaceSymbol failed', {
-      error: expect.any(Error),
+    expect(loggerErrorMock).toHaveBeenCalledWith('readWorkspaceFile failed', {
+      error: expect.objectContaining({
+        code: 'ENOENT',
+        name: 'Error',
+        redacted: true,
+      }),
       input: {
-        fields: ['path', 'query'],
+        fields: ['path'],
         redacted: true,
       },
     });
     expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('customer-secret');
-    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('sk-sensitive');
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(workspaceRootPath);
   });
 
   it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {

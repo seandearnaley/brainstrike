@@ -12,12 +12,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RuntimeData } from '@brainstrike/agent';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeLiveChildProcesses,
   resolveShellInvocation,
   runExecuteCommand,
 } from '../../assistant-server/execute-command-tool';
+
+const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
+  loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+}));
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
@@ -26,8 +31,8 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
     createLogger: () => ({
       debug: vi.fn(),
       error: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
+      info: loggerInfoMock,
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -69,6 +74,11 @@ async function waitForPidDead(pid: number, timeoutMs = 4000): Promise<boolean> {
   }
   return !(await pidIsAlive(pid));
 }
+
+beforeEach(() => {
+  loggerInfoMock.mockReset();
+  loggerWarnMock.mockReset();
+});
 
 afterEach(async () => {
   disposeLiveChildProcesses();
@@ -147,6 +157,23 @@ describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => 
     expect(result.timedOut).toBe(false);
   });
 
+  it('redacts non-zero command text from logs', async () => {
+    const root = await makeWorkspace();
+    await runExecuteCommand(
+      { command: 'echo OPENAI_API_KEY=sk-sensitive >&2; exit 7' },
+      singleRoot(root)
+    );
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      'Command exited non-zero',
+      expect.objectContaining({
+        command: { redacted: true },
+        exitCode: 7,
+      })
+    );
+    expect(JSON.stringify(loggerInfoMock.mock.calls)).not.toContain('sk-sensitive');
+  });
+
   it('captures stderr for a failing command', async () => {
     const root = await makeWorkspace();
     const result = await runExecuteCommand({ command: 'echo oops 1>&2; exit 1' }, singleRoot(root));
@@ -175,6 +202,24 @@ describe('runExecuteCommand — timeout + no orphan (CRITICAL)', () => {
     expect(Number.isInteger(shellPid)).toBe(true);
     // The shell pid must be gone — the timeout killed the whole tree.
     expect(await waitForPidDead(shellPid)).toBe(true);
+  });
+
+  it('redacts timed-out command text from logs', async () => {
+    const root = await makeWorkspace();
+
+    await runExecuteCommand(
+      { command: 'echo OPENAI_API_KEY=sk-sensitive; sleep 30', timeoutMs: 500 },
+      singleRoot(root)
+    );
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Command timed out and its process tree was killed',
+      expect.objectContaining({
+        command: { redacted: true },
+        timeoutMs: 500,
+      })
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('sk-sensitive');
   });
 });
 
