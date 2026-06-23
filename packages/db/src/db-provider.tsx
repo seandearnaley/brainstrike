@@ -852,9 +852,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       );
       if (tursoViewFilterPresets) {
         if (!cancelled.value) {
-          const TursoEmbeddingSetsRepo = await loadTursoEmbeddingSetsRepository();
-          const TursoFileRecordRepo = await loadTursoFileRecordRepository();
-          const TursoTokenCacheStore = await loadTursoTokenCacheStore();
+          const [TursoEmbeddingSetsRepo, TursoFileRecordRepo, TursoTokenCacheStore] =
+            await Promise.all([
+              loadTursoEmbeddingSetsRepository(),
+              loadTursoFileRecordRepository(),
+              loadTursoTokenCacheStore(),
+            ]);
           const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
           const tursoEmbeddingSetsRepository = new TursoEmbeddingSetsRepo(tursoExecutionClient);
           const tursoFileRecordRepository = new TursoFileRecordRepo(tursoExecutionClient);
