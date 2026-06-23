@@ -1,5 +1,5 @@
 import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/queue';
-import { generateUUID } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
@@ -22,6 +22,9 @@ import type {
 const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'job-queue';
 const DEFAULT_MAX_ATTEMPTS = 5;
 const MAX_BATCH_SIZE = 9000;
+const MAX_TURSO_WRITE_RETRIES = 6;
+const TURSO_WRITE_RETRY_BASE_DELAY_MS = 5;
+const logger = createLogger('TursoJobQueue');
 
 export class TursoJobQueue {
   constructor(
@@ -56,7 +59,13 @@ export class TursoJobQueue {
       );
     }
 
-    return this.db.transaction(async (tx) => enqueueJobs(tx, params, this.defaults.maxAttempts));
+    const jobs = await this.db.transaction(async (tx) =>
+      enqueueJobs(tx, params, this.defaults.maxAttempts)
+    );
+    if (jobs.length > 0) {
+      logger.debug('Turso jobs enqueued in batch', { count: jobs.length });
+    }
+    return jobs;
   }
 
   async claim(params: ClaimParams): Promise<Job | null> {
@@ -70,46 +79,56 @@ export class TursoJobQueue {
     const leasedUntil = addMs(now, params.leaseMs);
     const limit = Math.max(1, params.limit ?? 1);
 
-    const jobs = await this.db.transaction(async (tx) => {
-      const candidates = await tx.query<JobRow>(
-        `SELECT *
-           FROM job_queue
-          WHERE queue = ?
-            AND attempts < max_attempts
-            AND (
-                  (state = 'queued' AND run_at <= ?)
-               OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
-                )
-          ORDER BY run_at ASC, id ASC
-          LIMIT ?`,
-        [params.queue, now, now, limit]
-      );
-
-      const claimed: Job[] = [];
-      for (const row of candidates.rows) {
-        const result = await tx.query<JobRow>(
-          `UPDATE job_queue
-              SET state = 'running',
-                  attempts = attempts + 1,
-                  lease_token = ?,
-                  leased_until = ?,
-                  worker_id = ?,
-                  updated_at = ?
-            WHERE id = ?
+    const jobs = await withTursoWriteRetry('claimMany', async () =>
+      this.db.transaction(async (tx) => {
+        const candidates = await tx.query<JobRow>(
+          `SELECT *
+             FROM job_queue
+            WHERE queue = ?
               AND attempts < max_attempts
               AND (
                     (state = 'queued' AND run_at <= ?)
                  OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
                   )
-          RETURNING *`,
-          [leaseToken, leasedUntil, params.workerId ?? null, now, row.id, now, now]
+            ORDER BY run_at ASC, id ASC
+            LIMIT ?`,
+          [params.queue, now, now, limit]
         );
-        if (result.rows[0]) {
-          claimed.push(fromRow(result.rows[0]));
+
+        const claimed: Job[] = [];
+        for (const row of candidates.rows) {
+          const result = await tx.query<JobRow>(
+            `UPDATE job_queue
+                SET state = 'running',
+                    attempts = attempts + 1,
+                    lease_token = ?,
+                    leased_until = ?,
+                    worker_id = ?,
+                    updated_at = ?
+              WHERE id = ?
+                AND attempts < max_attempts
+                AND (
+                      (state = 'queued' AND run_at <= ?)
+                   OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
+                    )
+            RETURNING *`,
+            [leaseToken, leasedUntil, params.workerId ?? null, now, row.id, now, now]
+          );
+          if (result.rows[0]) {
+            claimed.push(fromRow(result.rows[0]));
+          }
         }
-      }
-      return claimed;
-    });
+        return claimed;
+      })
+    );
+
+    if (jobs.length > 0) {
+      logger.trace('Turso jobs claimed', {
+        count: jobs.length,
+        queue: params.queue,
+        workerId: params.workerId ?? null,
+      });
+    }
 
     for (const job of jobs) {
       emitQueueTelemetry({
@@ -166,6 +185,9 @@ export class TursoJobQueue {
         updated.push(fromRow(result.rows[0]));
       }
     }
+    if (updated.length > 0) {
+      logger.debug('Turso jobs heartbeated in batch', { count: updated.length });
+    }
     return updated;
   }
 
@@ -196,6 +218,9 @@ export class TursoJobQueue {
         completed.push(fromRow(result.rows[0]));
       }
     }
+    if (completed.length > 0) {
+      logger.trace('Turso jobs completed in batch', { count: completed.length });
+    }
     emitCompleteTelemetry(completed, updatedAt);
     return completed;
   }
@@ -206,7 +231,7 @@ export class TursoJobQueue {
     }
     const updatedAt = new Date().toISOString();
     const completed = await this.db.transaction(async (tx) => {
-      const completedJobs: Job[] = [];
+      const ownedJobs: CompleteEmbeddingChunkParams[] = [];
       const chunkRepository = new TursoFileChunkRepository(this.db);
 
       for (const job of jobs) {
@@ -222,7 +247,12 @@ export class TursoJobQueue {
         if (!owned.rows[0]) {
           continue;
         }
+        ownedJobs.push(job);
+      }
 
+      const chunkWinners = selectFirstJobByChunkId(ownedJobs);
+      const updatedChunkIds = new Set<string>();
+      for (const job of chunkWinners) {
         const updatedChunk = await chunkRepository.updateWithTx(tx, {
           id: job.chunkId,
           embedding: job.embedding,
@@ -231,7 +261,14 @@ export class TursoJobQueue {
           embeddingUpdatedAt: updatedAt,
           updatedAt,
         });
-        if (!updatedChunk) {
+        if (updatedChunk) {
+          updatedChunkIds.add(job.chunkId);
+        }
+      }
+
+      const completedJobs: Job[] = [];
+      for (const job of ownedJobs) {
+        if (!updatedChunkIds.has(job.chunkId)) {
           continue;
         }
 
@@ -255,6 +292,9 @@ export class TursoJobQueue {
 
       return completedJobs;
     });
+    if (completed.length > 0) {
+      logger.trace('Turso embedding chunks completed in batch', { count: completed.length });
+    }
     emitCompleteTelemetry(completed, updatedAt);
     return completed;
   }
@@ -313,7 +353,14 @@ export class TursoJobQueue {
           [attempts, params.error, updatedAt, job.id, job.leaseToken]
         );
         if (result.rows[0]) {
-          failed.push(fromRow(result.rows[0]));
+          const failedJob = fromRow(result.rows[0]);
+          failed.push(failedJob);
+          logger.error('Turso job failed permanently', {
+            jobId: failedJob.id,
+            queue: failedJob.queue,
+            error: params.error,
+          });
+          emitFailTelemetry([failedJob], params.error, true);
         }
         continue;
       }
@@ -337,11 +384,21 @@ export class TursoJobQueue {
         [attempts, backoff, runAt, params.error, updatedAt, job.id, job.leaseToken]
       );
       if (result.rows[0]) {
-        failed.push(fromRow(result.rows[0]));
+        const retriedJob = fromRow(result.rows[0]);
+        failed.push(retriedJob);
+        logger.warn('Turso job failed; retry scheduled', {
+          jobId: retriedJob.id,
+          queue: retriedJob.queue,
+          attempts,
+          retryAt: runAt,
+        });
+        emitFailTelemetry([retriedJob], params.error, false);
       }
     }
 
-    emitFailTelemetry(failed, params.error);
+    if (failed.length > 0) {
+      logger.debug('Turso jobs failed in batch', { count: failed.length });
+    }
     return failed;
   }
 
@@ -370,7 +427,16 @@ export class TursoJobQueue {
           [updatedAt, params.id]
         );
     const row = result.rows[0];
-    return row ? fromRow(row) : null;
+    const job = row ? fromRow(row) : null;
+    if (job) {
+      logger.info('Turso job canceled', {
+        jobId: job.id,
+        queue: job.queue,
+        jobType: job.jobType,
+        reason: params.reason,
+      });
+    }
+    return job;
   }
 
   async cancelMany(queue: string, _reason?: string): Promise<number> {
@@ -385,7 +451,11 @@ export class TursoJobQueue {
       RETURNING id`,
       [updatedAt, queue]
     );
-    return result.rows.length;
+    const count = result.rows.length;
+    if (count > 0) {
+      logger.info('Turso jobs canceled in bulk', { count, queue, reason: _reason });
+    }
+    return count;
   }
 
   async expireLeases(nowIso?: string): Promise<number> {
@@ -402,7 +472,11 @@ export class TursoJobQueue {
       RETURNING id`,
       [now, now]
     );
-    return result.rows.length;
+    const released = result.rows.length;
+    if (released > 0) {
+      logger.warn('Expired Turso job leases', { count: released });
+    }
+    return released;
   }
 
   async prune(states: JobState[], olderThanIso: string): Promise<number> {
@@ -419,7 +493,11 @@ export class TursoJobQueue {
       RETURNING id`,
       [olderThanIso, ...states]
     );
-    return result.rows.length;
+    const removed = result.rows.length;
+    if (removed > 0) {
+      logger.info('Pruned Turso historical jobs', { count: removed, states, olderThanIso });
+    }
+    return removed;
   }
 
   async getCountsByState(
@@ -504,7 +582,15 @@ export class TursoJobQueue {
       `DELETE FROM job_queue ${where} RETURNING id`,
       params
     );
-    return result.rows.length;
+    const removed = result.rows.length;
+    if (removed > 0) {
+      logger.info('Cleared Turso job queue entries', {
+        count: removed,
+        queue: queue ?? 'all',
+        states,
+      });
+    }
+    return removed;
   }
 
   async requeueFailed(
@@ -658,7 +744,7 @@ function fromRow(row: JobRow): Job {
     id: row.id,
     queue: row.queue,
     jobType: row.job_type as Job['jobType'],
-    payload: parsePayload(row.payload),
+    payload: parsePayload(row.id, row.payload),
     state: row.state,
     runAt: row.run_at,
     attempts: Number(row.attempts),
@@ -676,14 +762,44 @@ function fromRow(row: JobRow): Job {
   };
 }
 
-function parsePayload(payload: unknown): unknown | null {
+function parsePayload(jobId: string, payload: unknown): unknown {
   if (payload === null || payload === undefined) {
     return null;
   }
   if (typeof payload !== 'string') {
     return payload;
   }
-  return JSON.parse(payload);
+  try {
+    return JSON.parse(payload);
+  } catch (error) {
+    throw new Error(
+      `Invalid Turso job payload JSON for job ${jobId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+function computeElapsedMs(startIso: string, endIso: string): number | null {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isFinite(start) && Number.isFinite(end)) {
+    return Math.max(0, end - start);
+  }
+  return null;
+}
+
+function selectFirstJobByChunkId(
+  jobs: readonly CompleteEmbeddingChunkParams[]
+): CompleteEmbeddingChunkParams[] {
+  const winners = new Map<string, CompleteEmbeddingChunkParams>();
+  for (const job of jobs) {
+    const existing = winners.get(job.chunkId);
+    if (!existing || job.id < existing.id) {
+      winners.set(job.chunkId, job);
+    }
+  }
+  return [...winners.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function extractEmbedChunkId(param: EnqueueParams): string | null {
@@ -718,11 +834,13 @@ function placeholders(count: number): string {
 
 function emitCompleteTelemetry(jobs: Job[], updatedAt: string): void {
   for (const job of jobs) {
+    const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
     emitQueueTelemetry({
       timestamp: Date.now(),
       adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
       event: 'complete',
       taskId: job.id,
+      ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
       metadata: {
         queue: job.queue,
         jobType: job.jobType,
@@ -732,7 +850,7 @@ function emitCompleteTelemetry(jobs: Job[], updatedAt: string): void {
   }
 }
 
-function emitFailTelemetry(jobs: Job[], error: string): void {
+function emitFailTelemetry(jobs: Job[], error: string, terminal: boolean): void {
   for (const job of jobs) {
     emitQueueTelemetry({
       timestamp: Date.now(),
@@ -744,9 +862,57 @@ function emitFailTelemetry(jobs: Job[], error: string): void {
         queue: job.queue,
         jobType: job.jobType,
         attempts: job.attempts,
+        ...(terminal ? { terminal: true } : { retryAt: job.runAt }),
       },
     });
   }
+}
+
+async function withTursoWriteRetry<TResult>(
+  operation: string,
+  callback: () => Promise<TResult>
+): Promise<TResult> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_TURSO_WRITE_RETRIES; attempt += 1) {
+    try {
+      return await callback();
+    } catch (error) {
+      lastError = error;
+      if (!isTursoWriteContentionError(error) || attempt >= MAX_TURSO_WRITE_RETRIES) {
+        throw error;
+      }
+      const delayMs = computeTursoWriteRetryDelayMs(attempt);
+      logger.warn('Retrying Turso queue write after transient contention', {
+        operation,
+        attempt: attempt + 1,
+        delayMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function isTursoWriteContentionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('database is locked') ||
+    normalized.includes('busy') ||
+    normalized.includes('conflict') ||
+    normalized.includes('sqlite_busy')
+  );
+}
+
+function computeTursoWriteRetryDelayMs(attempt: number): number {
+  const exponential = TURSO_WRITE_RETRY_BASE_DELAY_MS * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * TURSO_WRITE_RETRY_BASE_DELAY_MS);
+  return exponential + jitter;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function resetJobsForRetry(

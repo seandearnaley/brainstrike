@@ -22,6 +22,9 @@ export interface TursoOwnerClientOptions {
 
 export interface TursoOwnerClient extends BrainstrikeDbTransactionClient {
   readonly close: () => Promise<void>;
+  readonly exclusiveTransaction: <TResult>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+  ) => Promise<TResult>;
   readonly transaction: <TResult>(
     callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
   ) => Promise<TResult>;
@@ -98,31 +101,62 @@ export async function createTursoOwnerClient(
         return queryTursoSql(database, sql, params);
       });
     },
+    exclusiveTransaction: async <TResult>(
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    ): Promise<TResult> =>
+      runTransaction({
+        assertOpen,
+        assertOuterClientAvailable,
+        beginSql: 'BEGIN',
+        callback,
+        database,
+        ownerClientId,
+        runExclusive,
+      }),
     transaction: async <TResult>(
       callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-    ): Promise<TResult> => {
-      assertOuterClientAvailable();
-      return runExclusive(async () => {
-        assertOpen();
-        await database.exec('BEGIN');
-        const transactionClient = createTursoTransactionClient(database, assertOpen);
-        try {
-          const result = await transactionCallbackContext.run(ownerClientId, () =>
-            callback(transactionClient.client)
-          );
-          transactionClient.deactivate();
-          await database.exec('COMMIT');
-          return result;
-        } catch (error) {
-          transactionClient.deactivate();
-          await rollbackIgnoringFailure(database);
-          throw error;
-        }
-      });
-    },
+    ): Promise<TResult> =>
+      runTransaction({
+        assertOpen,
+        assertOuterClientAvailable,
+        beginSql: 'BEGIN CONCURRENT',
+        callback,
+        database,
+        ownerClientId,
+        runExclusive,
+      }),
   };
 
   return client;
+}
+
+async function runTransaction<TResult>(params: {
+  readonly assertOpen: () => void;
+  readonly assertOuterClientAvailable: () => void;
+  readonly beginSql: 'BEGIN' | 'BEGIN CONCURRENT';
+  readonly callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>;
+  readonly database: TursoDatabase;
+  readonly ownerClientId: symbol;
+  readonly runExclusive: <TValue>(work: () => Promise<TValue>) => Promise<TValue>;
+}): Promise<TResult> {
+  params.assertOuterClientAvailable();
+  return params.runExclusive(async () => {
+    params.assertOpen();
+    await params.database.exec(params.beginSql);
+    const transactionClient = createTursoTransactionClient(params.database, params.assertOpen);
+    try {
+      const result = await transactionCallbackContext.run(params.ownerClientId, () =>
+        params.callback(transactionClient.client)
+      );
+      transactionClient.deactivate();
+      await params.database.exec('COMMIT');
+      return result;
+    } catch (error) {
+      transactionClient.deactivate();
+      await rollbackIgnoringFailure(params.database);
+      throw error;
+    }
+  });
 }
 
 function createTursoTransactionClient(

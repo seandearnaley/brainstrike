@@ -61,6 +61,38 @@ describe('Turso owner client', () => {
     }
   });
 
+  it('starts callback transactions with BEGIN CONCURRENT for concurrent writes', async () => {
+    const database = createMockTursoDatabase();
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'concurrent-transactions.db'),
+      openDatabase: async () => database,
+    });
+
+    try {
+      await client.transaction(async () => undefined);
+
+      expect(database.exec).toHaveBeenCalledWith('BEGIN CONCURRENT');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('starts explicit exclusive transactions with BEGIN for schema work', async () => {
+    const database = createMockTursoDatabase();
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'exclusive-transactions.db'),
+      openDatabase: async () => database,
+    });
+
+    try {
+      await client.exclusiveTransaction(async () => undefined);
+
+      expect(database.exec).toHaveBeenCalledWith('BEGIN');
+    } finally {
+      await client.close();
+    }
+  });
+
   it('enables foreign-key cascades on every owner connection', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'foreign-keys.db'),

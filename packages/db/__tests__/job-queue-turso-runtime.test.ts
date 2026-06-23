@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { addQueueTelemetryListener, type QueueTelemetryEvent } from '@brainstrike/queue';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
@@ -16,11 +17,13 @@ describe('TursoJobQueue runtime operations', () => {
   let client: TursoOwnerClient;
   let embeddingSetId: string;
   let queue: TursoJobQueue;
+  let dbPath: string;
   let tempDir: string;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-job-queue-runtime-'));
-    client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+    dbPath = join(tempDir, 'profile.db');
+    client = await createTursoOwnerClient({ dbPath });
     await applyTursoSchemaBaseline(client);
     const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
     const fileRecordsRepository = new TursoFileRecordRepository(client);
@@ -43,6 +46,10 @@ describe('TursoJobQueue runtime operations', () => {
   });
 
   it('claims queued jobs, heartbeats leases, retries failures, and reports queue stats', async () => {
+    const events: QueueTelemetryEvent[] = [];
+    const unsubscribe = addQueueTelemetryListener((event) => {
+      events.push(event);
+    });
     const job = await queue.enqueue({
       queue: 'embeddings',
       jobType: 'embed_chunk',
@@ -84,8 +91,21 @@ describe('TursoJobQueue runtime operations', () => {
       error: 'model unavailable',
       backoffMs: 50,
     });
+    unsubscribe();
     expect(failed).toMatchObject({ id: job.id, state: 'queued', attempts: 1 });
     expect(failed?.lease_token).toBeNull();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'error',
+          taskId: job.id,
+          errorMessage: 'model unavailable',
+          metadata: expect.objectContaining({
+            retryAt: failed?.runAt,
+          }),
+        }),
+      ])
+    );
 
     const stats = await queue.getQueueStats('embeddings');
     expect(stats).toEqual([
@@ -100,6 +120,10 @@ describe('TursoJobQueue runtime operations', () => {
   });
 
   it('writes chunk embeddings and completes jobs only for owned leases', async () => {
+    const events: QueueTelemetryEvent[] = [];
+    const unsubscribe = addQueueTelemetryListener((event) => {
+      events.push(event);
+    });
     const owned = await queue.enqueue({
       queue: 'embeddings',
       jobType: 'embed_chunk',
@@ -140,8 +164,18 @@ describe('TursoJobQueue runtime operations', () => {
         embeddingSetId,
       },
     ]);
+    unsubscribe();
 
     expect(completed.map((job) => job.id)).toEqual([owned.id]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elapsedMs: expect.any(Number),
+          event: 'complete',
+          taskId: owned.id,
+        }),
+      ])
+    );
     await expect(chunkRepository.findById('chunk-1')).resolves.toMatchObject({
       embedding: [0.1, 0.2, 0.3],
       embeddingHash: 'embedding-hash-owned',
@@ -155,6 +189,194 @@ describe('TursoJobQueue runtime operations', () => {
         { id: stale.id, state: 'running' },
       ])
     );
+  });
+
+  it('writes a duplicate chunk embedding once while completing every owned duplicate job', async () => {
+    const first = await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-1', embeddingSetId },
+      runAt: '2026-06-23T08:00:00.000Z',
+    });
+    const second = await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-1', embeddingSetId },
+      runAt: '2026-06-23T08:00:00.000Z',
+    });
+    const claimed = await queue.claimMany({
+      queue: 'embeddings',
+      workerId: 'worker-a',
+      leaseMs: 10_000,
+      limit: 2,
+      now: '2026-06-23T09:00:00.000Z',
+    });
+    const leaseById = new Map(claimed.map((job) => [job.id, job.lease_token ?? '']));
+    const embeddingByJobId = new Map([
+      [first.id, [0.1, 0.2, 0.3] as const],
+      [second.id, [0.9, 0.8, 0.7] as const],
+    ]);
+    const expectedWinnerId = [first.id, second.id].sort()[0] ?? first.id;
+
+    const completed = await queue.completeEmbeddingChunkBatch([
+      {
+        id: second.id,
+        leaseToken: leaseById.get(second.id) ?? '',
+        chunkId: 'chunk-1',
+        embedding: [...(embeddingByJobId.get(second.id) ?? [])],
+        embeddingHash: `embedding-hash-${second.id}`,
+        embeddingSetId,
+      },
+      {
+        id: first.id,
+        leaseToken: leaseById.get(first.id) ?? '',
+        chunkId: 'chunk-1',
+        embedding: [...(embeddingByJobId.get(first.id) ?? [])],
+        embeddingHash: `embedding-hash-${first.id}`,
+        embeddingSetId,
+      },
+    ]);
+
+    expect(completed.map((job) => job.id).sort()).toEqual([first.id, second.id].sort());
+    await expect(chunkRepository.findById('chunk-1')).resolves.toMatchObject({
+      embedding: embeddingByJobId.get(expectedWinnerId),
+      embeddingHash: `embedding-hash-${expectedWinnerId}`,
+      embeddingSetId,
+    });
+  });
+
+  it('reports terminal failure telemetry with explicit terminal metadata', async () => {
+    const events: QueueTelemetryEvent[] = [];
+    const unsubscribe = addQueueTelemetryListener((event) => {
+      events.push(event);
+    });
+    const job = await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-1', embeddingSetId },
+    });
+    const claimed = await queue.claim({
+      queue: 'embeddings',
+      workerId: 'worker-a',
+      leaseMs: 1000,
+    });
+    if (!claimed) {
+      throw new Error('Expected job to be claimed.');
+    }
+
+    await queue.fail({
+      id: job.id,
+      leaseToken: claimed.lease_token ?? '',
+      error: 'permanent failure',
+      terminal: true,
+    });
+    unsubscribe();
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'error',
+          taskId: job.id,
+          errorMessage: 'permanent failure',
+          metadata: expect.objectContaining({
+            terminal: true,
+          }),
+        }),
+      ])
+    );
+  });
+
+  it('throws a row-scoped diagnostic for malformed job payload JSON', async () => {
+    await client.exec('PRAGMA ignore_check_constraints = ON');
+    await client.exec(
+      `INSERT INTO job_queue (
+         id,
+         queue,
+         job_type,
+         payload,
+         state,
+         run_at,
+         attempts,
+         max_attempts,
+         backoff_ms,
+         created_at,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'bad-json-job',
+        'embeddings',
+        'embed_chunk',
+        '{',
+        'queued',
+        '2026-06-23T08:00:00.000Z',
+        0,
+        5,
+        0,
+        '2026-06-23T08:00:00.000Z',
+        '2026-06-23T08:00:00.000Z',
+      ]
+    );
+    await client.exec('PRAGMA ignore_check_constraints = OFF');
+
+    await expect(
+      queue.claim({
+        queue: 'embeddings',
+        leaseMs: 1000,
+        now: '2026-06-23T09:00:00.000Z',
+      })
+    ).rejects.toThrow('Invalid Turso job payload JSON for job bad-json-job');
+  });
+
+  it('claims and completes jobs across concurrent owner clients without leaking lock errors', async () => {
+    const jobCount = 50;
+    const workerCount = 5;
+    for (let index = 0; index < jobCount; index += 1) {
+      await queue.enqueue({
+        queue: 'concurrent',
+        jobType: 'embed_chunk',
+        payload: { chunkId: `chunk-${index}`, embeddingSetId },
+      });
+    }
+    const workerClients = await Promise.all(
+      Array.from({ length: workerCount }, () => createTursoOwnerClient({ dbPath }))
+    );
+
+    try {
+      const completed = new Set<string>();
+      const workers = workerClients.map(async (workerClient, workerIndex) => {
+        const workerQueue = new TursoJobQueue(workerClient);
+        for (let attempt = 0; attempt < jobCount * 3; attempt += 1) {
+          if (completed.size >= jobCount) {
+            return;
+          }
+          const job = await workerQueue.claim({
+            queue: 'concurrent',
+            workerId: `worker-${workerIndex}`,
+            leaseMs: 10_000,
+          });
+          if (!job) {
+            await delay(1);
+            continue;
+          }
+          const done = await workerQueue.complete({
+            id: job.id,
+            leaseToken: job.lease_token ?? '',
+          });
+          if (done) {
+            completed.add(done.id);
+          }
+        }
+      });
+
+      await Promise.all(workers);
+
+      expect(completed.size).toBe(jobCount);
+      await expect(queue.getCountsByState('concurrent')).resolves.toEqual([
+        { queue: 'concurrent', state: 'succeeded', count: jobCount },
+      ]);
+    } finally {
+      await Promise.all(workerClients.map((workerClient) => workerClient.close()));
+    }
   });
 
   it('clears selected Turso job states without touching other queues', async () => {
@@ -174,6 +396,10 @@ describe('TursoJobQueue runtime operations', () => {
     return result.rows;
   }
 });
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function createRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   return {
