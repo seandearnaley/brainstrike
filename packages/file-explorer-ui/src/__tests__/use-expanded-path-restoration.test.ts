@@ -2,6 +2,7 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __getAllAncestorDirectories,
   __resetRestorationLock,
   useExpandedPathRestoration,
   useExpandSelectedFileParentDirectories,
@@ -111,6 +112,25 @@ describe('useExpandedPathRestoration', () => {
 });
 
 describe('useExpandSelectedFileParentDirectories', () => {
+  it('derives parent directory chains without materializing segment joins per ancestor', () => {
+    const splitSpy = vi.spyOn(String.prototype, 'split');
+
+    expect(__getAllAncestorDirectories('/workspace/src/components/Button.tsx')).toEqual([
+      '/workspace',
+      '/workspace/src',
+      '/workspace/src/components',
+    ]);
+    expect(__getAllAncestorDirectories('src//components/Button.tsx')).toEqual([
+      'src',
+      'src/components',
+    ]);
+    expect(__getAllAncestorDirectories('Button.tsx')).toEqual([]);
+    expect(__getAllAncestorDirectories('/')).toEqual([]);
+
+    expect(splitSpy).not.toHaveBeenCalled();
+    splitSpy.mockRestore();
+  });
+
   it('expands parent directories for selected files after restoration settles', async () => {
     const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
     const setExpandedPaths = vi.fn();
