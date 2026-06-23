@@ -25,6 +25,11 @@ const DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES = [
   'packages/db/scripts/',
   'packages/db/src/repositories/',
 ];
+const TURSO_SCHEMA_INTERNAL_SOURCE_PATHS = [
+  'packages/db/src/turso/schema-baseline.ts',
+  'packages/db/src/turso/schema-ledger.ts',
+];
+const TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET = new Set(TURSO_SCHEMA_INTERNAL_SOURCE_PATHS);
 const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
@@ -49,6 +54,11 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     pattern: /^packages\/db\/src\/repositories\/turso-[\w-]+\.ts$/,
     unitLane: 'repository',
     coverageLane: 'repositories',
+  },
+  {
+    files: TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET,
+    unitLanes: ['repository', 'search'],
+    coverageLanes: ['repositories', 'search'],
   },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
@@ -171,11 +181,13 @@ function getKnownDbLaneSelection(filePath) {
     const testFile = filePath.slice(testPrefix.length);
     const unitLane = matchDbUnitLaneForTestFile(testFile);
     const coverageLane = matchDbCoverageLaneForTestFile(testFile);
-    return unitLane && coverageLane ? { unitLane, coverageLane } : null;
+    return unitLane && coverageLane ? { unitLanes: [unitLane], coverageLanes: [coverageLane] } : null;
   }
 
   return (
-    KNOWN_DB_SOURCE_LANE_RULES.find((rule) => rule.pattern.test(filePath)) ?? null
+    KNOWN_DB_SOURCE_LANE_RULES.find(
+      (rule) => rule.pattern?.test(filePath) || rule.files?.has(filePath)
+    ) ?? null
   );
 }
 
@@ -203,7 +215,11 @@ export function selectDbUnitCiLanes(changedFiles = []) {
   }
 
   const selectedGroups = new Set(
-    selections.map((selection) => CI_DB_GROUP_BY_MANIFEST_LANE.get(selection.unitLane))
+    selections.flatMap((selection) =>
+      (selection.unitLanes ?? [selection.unitLane]).map((unitLane) =>
+        CI_DB_GROUP_BY_MANIFEST_LANE.get(unitLane)
+      )
+    )
   );
   return [...CI_DB_LANE_GROUPS.keys()].filter((groupName) => selectedGroups.has(groupName));
 }
@@ -214,7 +230,9 @@ export function selectDbCoverageCiLanes(changedFiles = []) {
     return listCiDbCoverageLanes();
   }
 
-  const selectedCoverageLanes = new Set(selections.map((selection) => selection.coverageLane));
+  const selectedCoverageLanes = new Set(
+    selections.flatMap((selection) => selection.coverageLanes ?? [selection.coverageLane])
+  );
   return CI_DB_COVERAGE_LANES.filter((coverageLane) => selectedCoverageLanes.has(coverageLane));
 }
 
@@ -283,6 +301,9 @@ export function dbChangeRequiresDependentUnitExpansion(changedFiles = []) {
   return dbChangedFiles.some((filePath) => {
     if (DB_DEPENDENT_EXPANSION_PUBLIC_PATHS.has(filePath)) {
       return true;
+    }
+    if (TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET.has(filePath)) {
+      return false;
     }
     if (DB_DEPENDENT_EXPANSION_SAFE_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix))) {
       return false;
