@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DbProvider,
   useBrainstrikeDatabase,
+  useBrainstrikeDbClient,
   useFileRecordRepository,
   useOptionalBrainstrikeDatabase,
+  useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
 } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
@@ -83,7 +85,9 @@ describe('DbProvider', () => {
 
     const { result } = renderHook(
       () => ({
+        client: useBrainstrikeDbClient(),
         db: useBrainstrikeDatabase(),
+        optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
         pgliteDb: usePGliteDatabase(),
       }),
@@ -92,14 +96,20 @@ describe('DbProvider', () => {
 
     await waitFor(() => {
       expect(result.current.db).toBeTruthy();
+      expect(result.current.client).toBe(result.current.db);
+      expect(result.current.optionalClient).toBe(result.current.db);
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);
     });
   });
 
   it('returns null from the optional runtime-neutral database hook outside provider', () => {
-    const { result } = renderHook(() => useOptionalBrainstrikeDatabase());
-    expect(result.current).toBeNull();
+    const { result } = renderHook(() => ({
+      client: useOptionalBrainstrikeDbClient(),
+      db: useOptionalBrainstrikeDatabase(),
+    }));
+    expect(result.current.client).toBeNull();
+    expect(result.current.db).toBeNull();
   });
 
   it('runs migrations on mount and closes db on unmount in production', async () => {

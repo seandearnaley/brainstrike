@@ -18,7 +18,7 @@ vi.mock('../use-queue-health-metrics', () => ({
 vi.mock('@brainstrike/db', () => ({
   JobQueue: vi.fn(),
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(() => null),
+  useBrainstrikeDbClient: vi.fn(() => null),
 }));
 
 vi.mock('../embedding-queue-provider', () => ({

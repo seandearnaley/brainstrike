@@ -6,7 +6,7 @@ import type {
   FileRecord,
   FileRecordRepository,
 } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
@@ -41,7 +41,7 @@ export function useSearchFunctionality(
   const [searching, setSearching] = useState(false);
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   // Selector-scoped: only `models` is consumed; a bare store call would
   // re-render the host on every registry update (e.g. download progress).
   const models = useModelRegistryStore((state) => state.models);

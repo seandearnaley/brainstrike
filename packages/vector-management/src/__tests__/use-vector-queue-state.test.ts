@@ -1,5 +1,5 @@
-import type { UsePGliteLiveQueryOptions } from '@brainstrike/db';
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import type { UseBrainstrikeLiveQueryOptions } from '@brainstrike/db';
+import { useBrainstrikeLiveQuery } from '@brainstrike/db';
 import type { ElectronAPI } from '@brainstrike/types';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -79,68 +79,64 @@ const liveQueryState: Record<
   },
 };
 
-vi.mock('@brainstrike/db', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
-  return {
-    ...actual,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteLiveQuery: vi.fn((options: UsePGliteLiveQueryOptions<unknown>) => {
-      if (!options.enabled) {
-        return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
-      }
-      const query = options.query;
-      if (query.includes('chunksWithEmbeddingsForSet')) {
-        return {
-          rows: liveQueryState.coverage.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.coverage,
-        };
-      }
-      if (query.includes('embedding_set_id')) {
-        return {
-          rows: liveQueryState.activeSetQueueCounts.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.activeSetQueueCounts,
-        };
-      }
-      if (query.includes("FILTER (WHERE state = 'queued'")) {
-        return {
-          rows: liveQueryState.queueCounts.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.queueCounts,
-        };
-      }
-      if (query.includes("INTERVAL '60 seconds'")) {
-        return {
-          rows: liveQueryState.throughput.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.throughput,
-        };
-      }
-      if (query.includes("state = 'failed'")) {
-        return {
-          rows: liveQueryState.lastError.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.lastError,
-        };
-      }
-      if (query.includes("INTERVAL '5 minutes'")) {
-        return {
-          rows: liveQueryState.latency.rows,
-          loading: false,
-          error: null,
-          refresh: liveQueryRefresh.latency,
-        };
-      }
+vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useBrainstrikeLiveQuery: vi.fn((options: UseBrainstrikeLiveQueryOptions<unknown>) => {
+    if (!options.enabled) {
       return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
-    }),
-  };
-});
+    }
+    const query = options.query;
+    if (query.includes('chunksWithEmbeddingsForSet')) {
+      return {
+        rows: liveQueryState.coverage.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.coverage,
+      };
+    }
+    if (query.includes('embedding_set_id')) {
+      return {
+        rows: liveQueryState.activeSetQueueCounts.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.activeSetQueueCounts,
+      };
+    }
+    if (query.includes("FILTER (WHERE state = 'queued'")) {
+      return {
+        rows: liveQueryState.queueCounts.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.queueCounts,
+      };
+    }
+    if (query.includes("INTERVAL '60 seconds'")) {
+      return {
+        rows: liveQueryState.throughput.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.throughput,
+      };
+    }
+    if (query.includes("state = 'failed'")) {
+      return {
+        rows: liveQueryState.lastError.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.lastError,
+      };
+    }
+    if (query.includes("INTERVAL '5 minutes'")) {
+      return {
+        rows: liveQueryState.latency.rows,
+        loading: false,
+        error: null,
+        refresh: liveQueryRefresh.latency,
+      };
+    }
+    return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
+  }),
+}));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
   const useVectorStatusUIStore = vi.fn(
@@ -423,7 +419,9 @@ describe('useVectorQueueState', () => {
       })
     );
 
-    const liveQueryCalls = vi.mocked(usePGliteLiveQuery).mock.calls.map(([options]) => options);
+    const liveQueryCalls = vi
+      .mocked(useBrainstrikeLiveQuery)
+      .mock.calls.map(([options]) => options);
     const queueCountsCall = liveQueryCalls.find((options) =>
       options.query.includes("FILTER (WHERE state = 'queued'")
     );

@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import { useMemo } from 'react';
 
 export type CollectionEmbeddingCoverageStatus =
@@ -101,7 +101,7 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
     [activeCollectionId]
   );
 
-  const { rows, error, loading } = usePGliteLiveQuery<CollectionCoverageRow>({
+  const { rows, error, loading } = useBrainstrikeLiveQuery<CollectionCoverageRow>({
     cacheKey: makeLiveQueryKey('collection-embedding-coverage', activeCollectionId),
     query: COLLECTION_EMBEDDING_COVERAGE_QUERY,
     ...(params ? { params } : {}),

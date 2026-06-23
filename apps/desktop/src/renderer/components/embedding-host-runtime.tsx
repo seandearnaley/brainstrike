@@ -1,4 +1,4 @@
-import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, useBrainstrikeDbClient } from '@brainstrike/db';
 import {
   type DeviceCapabilities,
   detectDeviceCapabilities,
@@ -345,7 +345,7 @@ function assertEmbeddingResultDimensions(
 }
 
 async function loadQueryEmbeddingModelConfig(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>,
   request: EmbeddingHostQueryEmbeddingRequest
 ): Promise<ModelConfig> {
   const result = await db.query<DbModelRow>(
@@ -413,7 +413,7 @@ async function disposeQueryEmbeddingService(
 }
 
 async function getQueryEmbeddingService(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>,
   request: EmbeddingHostQueryEmbeddingRequest,
   runtimeIdRef: MutableRefObject<string>,
   serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>
@@ -438,7 +438,7 @@ async function getQueryEmbeddingService(
 
 async function handleQueryEmbeddingRequest(options: {
   readonly activeRef: MutableRefObject<boolean>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
@@ -549,7 +549,7 @@ function resolveEmbeddingHostRuntimeId(): string {
 interface StartEmbeddingHostWorkerOptions {
   readonly activeRef: MutableRefObject<boolean>;
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
@@ -649,7 +649,7 @@ async function startEmbeddingHostWorkerRuntime({
 }
 
 export function EmbeddingHostRuntime(): null {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);

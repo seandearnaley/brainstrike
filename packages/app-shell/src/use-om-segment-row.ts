@@ -3,7 +3,7 @@
  * (OM) row.
  *
  * Drives the OM informational stats in the context meter. Reactive via
- * `usePGliteLiveQuery` (auto subscribe/unsubscribe on unmount). Reads RAW
+ * `useBrainstrikeLiveQuery` (auto subscribe/unsubscribe on unmount). Reads RAW
  * @mastra/memory columns off `mastra_observational_memory` — the exact column
  * set is locked by the projection drift guard in
  * packages/db/__tests__/mastra-om-schema-projection.test.ts.
@@ -16,8 +16,8 @@
  *
  * Capability split (the bots flagged this on 5.2): the query is DISABLED on web
  * (no durable assistant usage capability) and when no key can be built, so web
- * never issues a PGlite query — the meter renders chat-only instead. Gate on
- * `hasDurableAssistantUsageCapability()`, NOT raw PGlite presence.
+ * never issues a database query — the meter renders chat-only instead. Gate on
+ * `hasDurableAssistantUsageCapability()`, NOT raw database presence.
  *
  * Staleness (the bots flagged this on 5.3): `clearOnDisable: true` drops the
  * previous rows the moment the query is disabled (e.g. the last thread is closed)
@@ -25,7 +25,7 @@
  */
 
 import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
 
 /**
  * Build the OM lookup key the store writes under. Mirrors the memory store's
@@ -91,7 +91,7 @@ export function useObservationalMemoryRow(
   });
   const enabled = input.hasDurableCapability && lookupKey !== null;
 
-  const result = usePGliteLiveQuery<ObservationalMemoryRowQueryResult>({
+  const result = useBrainstrikeLiveQuery<ObservationalMemoryRowQueryResult>({
     cacheKey: makeLiveQueryKey('om-row', lookupKey ?? ''),
     query: OM_ROW_QUERY,
     params: [lookupKey ?? ''],

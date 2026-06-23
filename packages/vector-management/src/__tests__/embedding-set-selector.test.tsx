@@ -40,7 +40,7 @@ const mockLiveQueryResult = {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
 
 // Mock preferences store for useEmbeddingSetSelection tests
@@ -157,7 +157,7 @@ vi.mock('@brainstrike/ui', async () => {
   };
 });
 
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useBrainstrikeLiveQuery } from '@brainstrike/db';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,
@@ -169,7 +169,7 @@ describe('EmbeddingSetSelector', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(usePGliteLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
     mockStoreState.activeEmbeddingSetId = null;
     mockStoreState.cachedCollections = [];
     mockStoreState.schemaVerified = true;
@@ -191,7 +191,7 @@ describe('EmbeddingSetSelector', () => {
   });
 
   it('renders with loading state when db is not available', () => {
-    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
       ...mockLiveQueryResult,
       loading: true,
     });
@@ -256,7 +256,7 @@ describe('EmbeddingSetSelector', () => {
   });
 
   it('shows empty state when no collections exist', () => {
-    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
       rows: [],
       loading: false,
       error: null,
@@ -288,7 +288,7 @@ describe('EmbeddingSetSelector', () => {
   });
 
   it('formats file count with singular form', () => {
-    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
       rows: [
         {
           ...mockCollections[0],
@@ -313,7 +313,7 @@ describe('EmbeddingSetSelector', () => {
   });
 
   it('formats large file counts with locale separator', () => {
-    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+    vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
       rows: [
         {
           ...mockCollections[0],

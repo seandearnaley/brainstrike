@@ -3,7 +3,7 @@ import {
   QUICK_OPEN_MAX_LIMIT,
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
-  usePGliteLiveQuery,
+  useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
@@ -16,7 +16,7 @@ const WORKSPACE_FALLBACK_LABEL = 'Workspace';
 
 /**
  * Debounce window for the search query. Each distinct query spins up a new
- * PGlite live subscription, so we wait for typing to settle before resubscribing
+ * database live subscription, so we wait for typing to settle before resubscribing
  * — intermediate keystrokes (`r`,`re`,`rea`,…) never each spawn one.
  */
 const QUICK_OPEN_DEBOUNCE_MS = 150;
@@ -64,7 +64,7 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
 
-  const { rows, loading } = usePGliteLiveQuery<QuickOpenFileRow>({
+  const { rows, loading } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('quick-open', debounced),
     query: QUICK_OPEN_NAME_SEARCH_SQL,
     params: [debounced, QUICK_OPEN_MAX_LIMIT],

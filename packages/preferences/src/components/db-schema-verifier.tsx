@@ -17,7 +17,7 @@
  * ```
  */
 
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import type React from 'react';
 import { useEffect } from 'react';
 import { useVectorStatusUIStore } from '../stores/vector-status-ui-store';
@@ -27,7 +27,7 @@ export interface DbSchemaVerifierProps {
 }
 
 export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.ReactElement {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
 
   useEffect(() => {

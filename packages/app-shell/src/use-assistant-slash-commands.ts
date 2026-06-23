@@ -1,5 +1,5 @@
 import type { Command, CommandContext } from '@brainstrike/commands';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import { useToast } from '@brainstrike/ui';
 import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -34,7 +34,7 @@ const logger = createLogger('AssistantSlashCommands');
  * appear.
  */
 export function useAssistantSlashCommands(): readonly SlashCommand[] {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const { toast } = useToast();
   const handlers = useGlobalCommandHandlers(db);
 

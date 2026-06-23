@@ -30,8 +30,8 @@ const {
   createPriorityDbHandleMock,
   getDatabaseWorkSchedulerMock,
   makeLiveQueryKeyMock,
-  usePGliteDatabaseMock,
-  usePGliteLiveQueryMock,
+  useBrainstrikeDbClientMock,
+  useBrainstrikeLiveQueryMock,
   useSharedEmbeddingRuntimeMock,
 } = vi.hoisted(() => {
   const databaseWorkSchedulerState = {
@@ -45,8 +45,8 @@ const {
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
-    usePGliteDatabaseMock: vi.fn((): unknown => null),
-    usePGliteLiveQueryMock: vi.fn(),
+    useBrainstrikeDbClientMock: vi.fn((): unknown => null),
+    useBrainstrikeLiveQueryMock: vi.fn(),
     useSharedEmbeddingRuntimeMock: vi.fn(),
   };
 });
@@ -133,8 +133,8 @@ vi.mock('@brainstrike/db', () => ({
   createPriorityDbHandle: createPriorityDbHandleMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
-  usePGliteDatabase: usePGliteDatabaseMock,
-  usePGliteLiveQuery: usePGliteLiveQueryMock,
+  useBrainstrikeDbClient: useBrainstrikeDbClientMock,
+  useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
 vi.mock('../embedding-runtime-provider', () => ({
@@ -207,8 +207,8 @@ describe('IndexingActivityCoordinator', () => {
     liveQueryState.loading = false;
     liveQueryState.error = null;
     databaseWorkSchedulerState.current = null;
-    usePGliteDatabaseMock.mockReturnValue(null);
-    usePGliteLiveQueryMock.mockImplementation(() => ({
+    useBrainstrikeDbClientMock.mockReturnValue(null);
+    useBrainstrikeLiveQueryMock.mockImplementation(() => ({
       rows: liveQueryState.rows,
       loading: liveQueryState.loading,
       error: liveQueryState.error,
@@ -236,7 +236,7 @@ describe('IndexingActivityCoordinator', () => {
         },
       ],
     }));
-    usePGliteDatabaseMock.mockReturnValue({ query });
+    useBrainstrikeDbClientMock.mockReturnValue({ query });
 
     render(<IndexingActivityCoordinator />);
 
@@ -256,7 +256,7 @@ describe('IndexingActivityCoordinator', () => {
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM job_queue'), ['embeddings']);
     expect(createPriorityDbHandleMock).toHaveBeenCalledWith({ query }, 'background');
-    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
+    expect(useBrainstrikeLiveQueryMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       queued: 7,
       running: 1,
@@ -375,7 +375,7 @@ describe('IndexingActivityCoordinator', () => {
         };
       }),
     };
-    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
 
     render(<IndexingActivityCoordinator />);
 

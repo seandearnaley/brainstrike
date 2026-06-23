@@ -6,9 +6,9 @@ import type {
 } from '@brainstrike/db';
 import {
   JobQueue,
+  useBrainstrikeDbClient,
   useFileChunkRepository,
   useFileRecordRepository,
-  usePGliteDatabase,
 } from '@brainstrike/db';
 import type {
   BaseImportRunner,
@@ -273,7 +273,7 @@ export function useEnhancedFileImportService(
 
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders

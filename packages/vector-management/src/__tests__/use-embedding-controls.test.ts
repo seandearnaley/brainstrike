@@ -107,7 +107,7 @@ vi.mock('@brainstrike/db', () => {
   return {
     JobQueue: MockJobQueue,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteDatabase: vi.fn(() => ({})),
+    useBrainstrikeDbClient: vi.fn(() => ({})),
     useVectorEnabled: vi.fn(() => true),
   };
 });
@@ -170,7 +170,7 @@ vi.mock('../embedding-runtime-provider', () => ({
 }));
 
 // Import mocked modules for manipulation
-import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
+import { useBrainstrikeDbClient, useVectorEnabled } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
@@ -195,7 +195,9 @@ describe('useEmbeddingControls', () => {
     Reflect.deleteProperty(testWindow, 'electronAPI');
 
     // Reset mocks to defaults
-    vi.mocked(usePGliteDatabase).mockReturnValue({} as ReturnType<typeof usePGliteDatabase>);
+    vi.mocked(useBrainstrikeDbClient).mockReturnValue(
+      {} as ReturnType<typeof useBrainstrikeDbClient>
+    );
     vi.mocked(useVectorEnabled).mockReturnValue(true);
 
     vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
@@ -248,7 +250,9 @@ describe('useEmbeddingControls', () => {
     });
 
     it('returns hasDb as true when database is available', () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue({} as ReturnType<typeof usePGliteDatabase>);
+      vi.mocked(useBrainstrikeDbClient).mockReturnValue(
+        {} as ReturnType<typeof useBrainstrikeDbClient>
+      );
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
@@ -256,7 +260,7 @@ describe('useEmbeddingControls', () => {
     });
 
     it('returns hasDb as false when database is not available', () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+      vi.mocked(useBrainstrikeDbClient).mockReturnValue(null);
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 

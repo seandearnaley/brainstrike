@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeDbClient } from '@brainstrike/db';
 import { CommandPalette, useCommandPaletteHotkey } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useMemo } from 'react';
 import {
@@ -43,7 +43,7 @@ function resolveCommandPaletteBridge(): CommandPaletteBridge | null {
  * reusing the SAME capabilities/services the context-action registry exposes.
  */
 export function CommandPaletteHost(): ReactElement | null {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const openTarget = useCommandPaletteStore((state) => state.openTarget);
   const open = useCommandPaletteStore((state) => state.open);

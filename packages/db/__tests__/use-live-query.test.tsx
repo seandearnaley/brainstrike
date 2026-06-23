@@ -4,6 +4,7 @@ import {
   deepEqual,
   escapePGliteLiveQueryFormatPercents,
   makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
   usePGliteLiveQuery,
 } from '../src/use-live-query.js';
 
@@ -93,10 +94,29 @@ describe('usePGliteLiveQuery Performance', () => {
       })
     );
   });
+
+  it('exposes the live query hook through the runtime-neutral alias', () => {
+    render(<BrainstrikeLiveQueryComponent params={[1]} query="SELECT * FROM test WHERE id = $1" />);
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: [1],
+        query: 'SELECT * FROM test WHERE id = $1',
+      })
+    );
+  });
 });
 
 function PercentQueryComponent({ params, query }: { params?: unknown[]; query: string }) {
   usePGliteLiveQuery({
+    query,
+    params,
+  });
+  return null;
+}
+
+function BrainstrikeLiveQueryComponent({ params, query }: { params?: unknown[]; query: string }) {
+  useBrainstrikeLiveQuery({
     query,
     params,
   });

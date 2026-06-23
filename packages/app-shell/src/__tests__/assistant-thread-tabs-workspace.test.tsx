@@ -31,7 +31,7 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
   useDbProviderError: () => dbMocks.providerError,
-  usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  useBrainstrikeDbClient: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -220,7 +220,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 
     expect(screen.getByText('Loading')).toBeInTheDocument();
-    expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+    expect(screen.getByText('Loading assistant memory database.')).toBeInTheDocument();
     expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
@@ -233,7 +233,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
 
     expect(screen.getByText('Loading')).toBeInTheDocument();
-    expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+    expect(screen.getByText('Loading assistant memory database.')).toBeInTheDocument();
     expect(screen.queryByText('Assistant threads failed to load')).not.toBeInTheDocument();
     expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
   });
@@ -252,7 +252,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       });
 
       expect(screen.getByText('Loading')).toBeInTheDocument();
-      expect(screen.getByText('Loading PGlite-backed threads.')).toBeInTheDocument();
+      expect(screen.getByText('Loading assistant memory database.')).toBeInTheDocument();
       expect(screen.queryByText('Memory database unavailable')).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -273,7 +273,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       'data-variant',
       'error'
     );
-    expect(screen.queryByText('Loading PGlite-backed threads.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading assistant memory database.')).not.toBeInTheDocument();
   });
 
   it('shows the database provider error after initialization fails', () => {

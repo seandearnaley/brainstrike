@@ -1,4 +1,4 @@
-import type { EmbeddingSet } from '@brainstrike/db';
+import type { DbHandle, EmbeddingSet } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Button,
@@ -11,12 +11,11 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
 interface DeleteEmbeddingSetDialogProps {
-  db: PGlite | null;
+  db: DbHandle | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onOpenChange: (open: boolean) => void;
   onSetDeleted?: (setId: string) => void;

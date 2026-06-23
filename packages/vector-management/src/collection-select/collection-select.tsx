@@ -1,5 +1,5 @@
-import type { EmbeddingSetSystemRole, usePGliteDatabase } from '@brainstrike/db';
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import type { EmbeddingSetSystemRole, useBrainstrikeDbClient } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
@@ -128,7 +128,7 @@ export interface CollectionSelectProps {
    * Required if collections/loading/error are not provided (will fetch internally).
    * Ignored if collections are provided externally.
    */
-  db?: ReturnType<typeof usePGliteDatabase>;
+  db?: ReturnType<typeof useBrainstrikeDbClient>;
 
   /**
    * Custom empty state to render when no collections exist
@@ -205,7 +205,7 @@ function useErrorReporting(error: Error | null | undefined, onError?: (error: Er
  * Hook to resolve collection data from either external props or internal fetch
  */
 function useResolvedCollectionData(
-  db: ReturnType<typeof usePGliteDatabase> | undefined,
+  db: ReturnType<typeof useBrainstrikeDbClient> | undefined,
   externalCollections?: CollectionWithDocCount[],
   externalLoading?: boolean,
   externalError?: Error | null
@@ -354,7 +354,7 @@ function areCollectionsEqual(
   return true;
 }
 
-export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
+export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
@@ -406,7 +406,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     loading,
     error,
     refresh,
-  } = usePGliteLiveQuery<CollectionRow>({
+  } = useBrainstrikeLiveQuery<CollectionRow>({
     cacheKey: makeLiveQueryKey('collections'),
     query: COLLECTIONS_QUERY,
     mode: 'incremental',
@@ -443,7 +443,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   }, [db, schemaVerified, setCachedCollections]);
 
   // Listen for embedding set update events (create/delete/rename) and refresh live query
-  // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
+  // This ensures UI updates on Electron where the live query bridge may not auto-detect changes
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;

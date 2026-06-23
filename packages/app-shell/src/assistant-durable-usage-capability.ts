@@ -2,7 +2,7 @@
  * Single capability probe for "durable assistant usage is recorded here".
  *
  * brainstrike is local-first, so the WEB app ALSO runs under a PGlite
- * `DbProvider` — `usePGliteDatabase()` is NON-NULL on web. The presence of a
+ * `DbProvider` — `useBrainstrikeDbClient()` is NON-NULL on web. The presence of a
  * PGlite handle therefore does NOT mean durable assistant usage exists: web
  * assistant turns use the in-renderer LocalRuntimeChat (session-only) and never
  * call `recordRunUsage`. Durable usage rows are written only on DESKTOP, where

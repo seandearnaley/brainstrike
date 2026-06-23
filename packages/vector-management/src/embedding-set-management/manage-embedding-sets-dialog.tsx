@@ -1,4 +1,4 @@
-import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
+import type { DbHandle, EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   parseEmbeddingProviderModelKey,
@@ -17,7 +17,6 @@ import {
   type ModelPickerProvider,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { CreateEmbeddingSetDialog } from './create-embedding-set-dialog';
@@ -33,7 +32,7 @@ type EmbeddingSetWithStats = EmbeddingSet & {
 };
 
 interface ManageEmbeddingSetsDialogProps {
-  db: PGlite | null;
+  db: DbHandle | null;
   onOpenChange: (open: boolean) => void;
   onSetSelected?: (setId: string) => void;
   open: boolean;

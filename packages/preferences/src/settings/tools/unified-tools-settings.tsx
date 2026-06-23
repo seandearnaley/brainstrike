@@ -7,7 +7,7 @@
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
-import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db';
+import { type UseBrainstrikeLiveQueryOptions, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import {
   Accordion,
   Button,
@@ -197,7 +197,7 @@ function toolsUiReducer(state: ToolsUiState, action: ToolsUiAction): ToolsUiStat
 interface UseToolsDataManagerParams {
   dispatch: (action: ToolsDataAction) => void;
   lastMcpErrorRef: { current: string | null };
-  liveQuery: ReturnType<typeof usePGliteLiveQuery<ToolDisplayMetadata>>;
+  liveQuery: ReturnType<typeof useBrainstrikeLiveQuery<ToolDisplayMetadata>>;
   liveQueryEnabled: boolean;
   mcpAvailable: boolean;
   operations: UnifiedToolsSettingsProps['operations'];
@@ -320,7 +320,7 @@ export function UnifiedToolsSettings({
   const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
   const liveQueryEnabled = Boolean(liveQueryConfig);
-  const liveQueryOptions: UsePGliteLiveQueryOptions<ToolDisplayMetadata> = {
+  const liveQueryOptions: UseBrainstrikeLiveQueryOptions<ToolDisplayMetadata> = {
     query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
     ...(liveQueryConfig?.params === undefined ? {} : { params: liveQueryConfig.params }),
     ...(liveQueryConfig?.select === undefined ? {} : { select: liveQueryConfig.select }),
@@ -329,7 +329,7 @@ export function UnifiedToolsSettings({
       ? { mode: 'incremental' as const, key: liveQueryConfig.key }
       : {}),
   };
-  const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
+  const liveQuery = useBrainstrikeLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
   const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
   const error = dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);

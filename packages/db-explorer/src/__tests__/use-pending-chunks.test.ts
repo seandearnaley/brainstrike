@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { useBrainstrikeDbClient } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePendingChunks } from '../use-pending-chunks';
@@ -12,7 +12,7 @@ describe('usePendingChunks', () => {
     const query = vi.fn().mockResolvedValue({
       rows: [{ dedupeKey: 'chunk-1:set-a:hash' }, { dedupeKey: 'chunk-2:set-b:hash' }],
     });
-    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
+    const database = { query } as unknown as ReturnType<typeof useBrainstrikeDbClient>;
     const { result } = renderHook(() =>
       usePendingChunks({
         database,
@@ -30,7 +30,7 @@ describe('usePendingChunks', () => {
 
   it('clears pending chunk ids when no active set is available', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
+    const database = { query } as unknown as ReturnType<typeof useBrainstrikeDbClient>;
 
     const { result, rerender } = renderHook(
       ({ resolver }: { resolver: () => string | null }) =>
@@ -57,7 +57,7 @@ describe('usePendingChunks', () => {
 
   it('schedules polling when interval is provided', () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
+    const database = { query } as unknown as ReturnType<typeof useBrainstrikeDbClient>;
     const intervalSpy = vi.spyOn(window, 'setInterval');
     const clearSpy = vi.spyOn(window, 'clearInterval');
 

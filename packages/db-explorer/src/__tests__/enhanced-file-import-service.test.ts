@@ -6,7 +6,7 @@ import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 const {
   ensureStartedMock,
   runEnhancedImportMock,
-  mockUsePGliteDatabase,
+  mockUseBrainstrikeDbClient,
   createBulkOperationContextMock,
   bulkOperationState,
 } = vi.hoisted(() => {
@@ -20,7 +20,7 @@ const {
       terminate: vi.fn(),
     })),
     runEnhancedImportMock: vi.fn(),
-    mockUsePGliteDatabase: vi.fn(() => null),
+    mockUseBrainstrikeDbClient: vi.fn(() => null),
     bulkOperationState: state,
     createBulkOperationContextMock: vi.fn(() => ({
       enter: vi.fn(() => {
@@ -64,7 +64,7 @@ vi.mock('@brainstrike/db', () => ({
     insertMany: vi.fn(),
     update: vi.fn(),
   }),
-  usePGliteDatabase: mockUsePGliteDatabase,
+  useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,
@@ -75,7 +75,7 @@ vi.mock('@brainstrike/db', () => ({
   },
   useDbProviderError: () => null,
   useFactoryReset: () => null,
-  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
+  useBrainstrikeLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -134,8 +134,8 @@ describe('useEnhancedFileImportService', () => {
     runEnhancedImportMock.mockReset();
     createBulkOperationContextMock.mockClear();
     bulkOperationState.active = false;
-    mockUsePGliteDatabase.mockReset();
-    mockUsePGliteDatabase.mockReturnValue(null);
+    mockUseBrainstrikeDbClient.mockReset();
+    mockUseBrainstrikeDbClient.mockReturnValue(null);
     ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
@@ -361,7 +361,7 @@ describe('useEnhancedFileImportService', () => {
 
     it('backfills records missing embedding_set_id after import', async () => {
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
-      mockUsePGliteDatabase.mockReturnValue({ query: dbQuery } as never);
+      mockUseBrainstrikeDbClient.mockReturnValue({ query: dbQuery } as never);
       runEnhancedImportMock.mockResolvedValueOnce([
         { id: 'file-assign', imported: true, existed: false, chunksCreated: 2 },
       ]);
@@ -472,7 +472,7 @@ describe('useEnhancedFileImportService', () => {
     it('skips backfill and completion when cancelled after enhanced import resolves', async () => {
       const externalAbort = new AbortController();
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
-      mockUsePGliteDatabase.mockReturnValue({ query: dbQuery } as never);
+      mockUseBrainstrikeDbClient.mockReturnValue({ query: dbQuery } as never);
       const onComplete = vi.fn();
       runEnhancedImportMock.mockImplementationOnce(async () => {
         externalAbort.abort();

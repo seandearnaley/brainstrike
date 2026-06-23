@@ -1,4 +1,4 @@
-import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
+import { DEFAULT_EMBEDDING_DIMENSION, useBrainstrikeDbClient } from '@brainstrike/db';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -57,8 +57,8 @@ function updateProgress(
 }
 
 function applySelectedCacheDirectory(args: {
-  db: ReturnType<typeof usePGliteDatabase>;
-  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  db: ReturnType<typeof useBrainstrikeDbClient>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>) => Promise<void>;
   selectedPath: string;
   setModelCacheDir: (dir: string) => void;
   toast: ToastFn;
@@ -76,8 +76,8 @@ function applySelectedCacheDirectory(args: {
 }
 
 function applyCacheDirectorySelectionTestOverride(args: {
-  db: ReturnType<typeof usePGliteDatabase>;
-  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  db: ReturnType<typeof useBrainstrikeDbClient>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>>) => Promise<void>;
   setModelCacheDir: (dir: string) => void;
   toast: ToastFn;
 }): boolean {
@@ -228,7 +228,7 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
 }
 
 export function ModelSelectionPage() {
-  const db = usePGliteDatabase();
+  const db = useBrainstrikeDbClient();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()

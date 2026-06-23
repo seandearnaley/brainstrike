@@ -1,4 +1,4 @@
-import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, useBrainstrikeDbClient, useBrainstrikeLiveQuery } from '@brainstrike/db';
 import { useMemo } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 import {
@@ -66,7 +66,7 @@ function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
  * and the strict no-fabrication contract can never drift between the two paths.
  */
 export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootCostState {
-  const database = usePGliteDatabase();
+  const database = useBrainstrikeDbClient();
   // Gate on the SAME capability that gates the durable WRITE (the desktop
   // assistant backend), not the raw PGlite handle — web has a handle but never
   // writes these rows. Requiring the handle too keeps the query strictly off
@@ -75,7 +75,7 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
   const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
   const params = useMemo(() => [resourceId], [resourceId]);
 
-  const liveQuery = usePGliteLiveQuery<Record<string, unknown>>({
+  const liveQuery = useBrainstrikeLiveQuery<Record<string, unknown>>({
     cacheKey: makeLiveQueryKey('cross-root-usage', resourceId),
     query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
     params,

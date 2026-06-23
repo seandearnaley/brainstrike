@@ -1,10 +1,10 @@
 import { renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const usePGliteLiveQueryMock = vi.fn();
+const useBrainstrikeLiveQueryMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+  useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
 }));
 
@@ -21,7 +21,7 @@ interface CapturedOptions {
 }
 
 function captureLastOptions(): CapturedOptions {
-  const lastCall = usePGliteLiveQueryMock.mock.calls.at(-1);
+  const lastCall = useBrainstrikeLiveQueryMock.mock.calls.at(-1);
   return lastCall?.[0] as CapturedOptions;
 }
 
@@ -54,11 +54,11 @@ describe('buildObservationalMemoryLookupKey', () => {
 
 describe('useObservationalMemoryRow', () => {
   afterEach(() => {
-    usePGliteLiveQueryMock.mockReset();
+    useBrainstrikeLiveQueryMock.mockReset();
   });
 
   it('enables + keys by thread:<id> for thread scope, with clearOnDisable', () => {
-    usePGliteLiveQueryMock.mockReturnValue({
+    useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [{ observationTokenCount: 1 }],
       loading: false,
       error: null,
@@ -81,7 +81,7 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('FIX 3: Workspace (resource) scope queries resource:<resourceId>, not the thread key', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+    useBrainstrikeLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
@@ -95,8 +95,8 @@ describe('useObservationalMemoryRow', () => {
     expect(options.params).toEqual(['resource:res-1']);
   });
 
-  it('DISABLES the query on web (no durable capability) — never queries PGlite', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+  it('DISABLES the query on web (no durable capability) — never queries the database', () => {
+    useBrainstrikeLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: false,
@@ -109,7 +109,7 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('DISABLES the query when the scope-required id is absent', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+    useBrainstrikeLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
@@ -122,7 +122,7 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('returns the first (latest-generation) row, or null when none', () => {
-    usePGliteLiveQueryMock.mockReturnValue({
+    useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [{ observationTokenCount: 42 }],
       loading: false,
       error: null,
@@ -139,9 +139,9 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('FIX 4: a disabled query yields NO stale row even if the live layer still holds prior rows', () => {
-    // Simulate usePGliteLiveQuery keeping the prior thread's rows when disabled
+    // Simulate useBrainstrikeLiveQuery keeping the prior thread's rows when disabled
     // (clearOnDisable is async); the hook must still return null when disabled.
-    usePGliteLiveQueryMock.mockReturnValue({
+    useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [{ observationTokenCount: 7777 }],
       loading: false,
       error: null,
@@ -159,7 +159,7 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('only reports loading while the query is enabled', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: true, error: null });
+    useBrainstrikeLiveQueryMock.mockReturnValue({ rows: [], loading: true, error: null });
     const { result: disabled } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: false,
@@ -184,7 +184,7 @@ describe('useObservationalMemoryRow', () => {
 
   it('surfaces the live-query error (never swallowed)', () => {
     const error = new Error('live query failed');
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error });
+    useBrainstrikeLiveQueryMock.mockReturnValue({ rows: [], loading: false, error });
     const { result } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,

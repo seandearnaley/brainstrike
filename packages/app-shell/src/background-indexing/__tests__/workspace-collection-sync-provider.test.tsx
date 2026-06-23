@@ -352,7 +352,7 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
-  usePGliteDatabase: () => dbState.current,
+  useBrainstrikeDbClient: () => dbState.current,
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({

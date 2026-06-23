@@ -1,8 +1,8 @@
 import {
+  useBrainstrikeDbClient,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
-  usePGliteDatabase,
 } from '@brainstrike/db';
 import { Button } from '@brainstrike/ui';
 import {
@@ -936,7 +936,7 @@ function ThreadsPanelContent({
 }
 
 export function ThreadsPanel(): ReactElement {
-  const database = usePGliteDatabase();
+  const database = useBrainstrikeDbClient();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();

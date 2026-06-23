@@ -1,4 +1,4 @@
-import type { usePGliteDatabase } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db';
 import { isAppActive } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,7 +18,7 @@ function derivePendingChunkIds(rows: PendingRow[], activeSetId: string): Set<str
 }
 
 export interface UsePendingChunksOptions {
-  database: ReturnType<typeof usePGliteDatabase>;
+  database: DbHandle | null;
   intervalMs?: number;
   resolveActiveSetId?: () => string | null | undefined;
 }
