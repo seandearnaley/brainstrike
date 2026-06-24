@@ -619,7 +619,10 @@ export function useDatabaseDemoData({
       } else if (supportsRepositoryCollectionSnapshots) {
         const snapshotRepository = repository as DatabaseDemoRecordRepository;
         const snapshotChunkRepository = _chunkRepository as Required<
-          Pick<DatabaseDemoChunkRepository, 'findByFileRecordId' | 'getCoverageForSet'>
+          Pick<
+            DatabaseDemoChunkRepository,
+            'countEmbeddedByFileRecordIds' | 'findByFileRecordId' | 'getCoverageForSet'
+          >
         >;
         await cacheRepositoryCollectionSnapshot({
           activeCollectionId,
@@ -761,7 +764,7 @@ export function useDatabaseDemoData({
         throw new Error('Chunk summary requests require an initialized database.');
       }
       if (!supportsCollectionSnapshots) {
-        throw new Error('Chunk summary requests require PGlite-compatible collection queries.');
+        throw new Error('Chunk summary requests require collection snapshot support.');
       }
       const summaries = supportsPGliteCollectionQueries
         ? await loadPGliteChunkSummaries({
@@ -913,7 +916,7 @@ export function useDatabaseDemoData({
       throw new Error('File export repository is unavailable.');
     }
     if (!supportsCollectionSnapshots) {
-      throw new Error('Collection export requires PGlite-compatible collection queries.');
+      throw new Error('Collection export requires collection snapshot support.');
     }
     if (!_chunkRepository) {
       throw new Error('Chunk export repository is unavailable.');

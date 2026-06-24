@@ -17,6 +17,10 @@ interface DatabaseQuerySurface {
 }
 
 export interface DatabaseDemoChunkRepository {
+  readonly countEmbeddedByFileRecordIds?: (
+    fileRecordIds: readonly string[],
+    embeddingSetId: string
+  ) => Promise<Map<string, number>>;
   readonly findByFileRecordId?: (fileRecordId: string) => Promise<FileChunk[]>;
   readonly findById?: (chunkId: string) => Promise<FileChunk | null>;
   readonly getCoverageForSet?: (embeddingSetId: string) => Promise<{
@@ -157,6 +161,7 @@ export function hasRepositorySnapshotSupport(
       typeof (repository as DatabaseDemoRecordRepository).listByEmbeddingSet === 'function' &&
       typeof (repository as DatabaseDemoRecordRepository).listByEmbeddingSetPage === 'function' &&
       chunkRepository &&
+      typeof chunkRepository.countEmbeddedByFileRecordIds === 'function' &&
       typeof chunkRepository.findByFileRecordId === 'function' &&
       typeof chunkRepository.getCoverageForSet === 'function'
   );
@@ -203,12 +208,6 @@ function fileChunkToSummary(chunk: FileChunk): DatabaseFileChunkSummary {
     tokenCount: chunk.tokenCount,
     updatedAt: chunk.updatedAt,
   };
-}
-
-function countEmbeddedChunks(chunks: readonly FileChunk[]): number {
-  return chunks.filter((chunk) =>
-    Boolean(chunk.embedding || chunk.embeddingDimensions || chunk.embeddingHash)
-  ).length;
 }
 
 export async function loadPGliteChunkSummaries({
@@ -340,7 +339,10 @@ export async function cacheRepositoryCollectionSnapshot({
   activeCollectionId: string;
   cache: SnapshotCacheState;
   chunkRepository: Required<
-    Pick<DatabaseDemoChunkRepository, 'findByFileRecordId' | 'getCoverageForSet'>
+    Pick<
+      DatabaseDemoChunkRepository,
+      'countEmbeddedByFileRecordIds' | 'findByFileRecordId' | 'getCoverageForSet'
+    >
   >;
   normalizedRecordPageSize: number;
   options: SnapshotLoadOptions;
@@ -358,13 +360,14 @@ export async function cacheRepositoryCollectionSnapshot({
       limit: normalizedRecordPageSize,
       offset: recordOffset,
     });
-    const chunkGroups = await mapInBatches(pageRecords, (record) =>
-      chunkRepository.findByFileRecordId(record.id)
+    const embeddedCountByFileRecordId = await chunkRepository.countEmbeddedByFileRecordIds(
+      pageRecords.map((record) => record.id),
+      activeCollectionId
     );
     cache.cachedRecords.set(
       recordPageCacheKey,
-      pageRecords.map((record, index) =>
-        fileRecordToSummary(record, countEmbeddedChunks(chunkGroups[index] ?? []))
+      pageRecords.map((record) =>
+        fileRecordToSummary(record, embeddedCountByFileRecordId.get(record.id) ?? 0)
       )
     );
     cache.loadedRecordPages.add(recordPageCacheKey);

@@ -471,10 +471,10 @@ describe('useDatabaseDemoData', () => {
 
     await result.current.loadRecords();
     await expect(result.current.loadFileChunkSummaries('record-1')).rejects.toThrow(
-      'Chunk summary requests require PGlite-compatible collection queries.'
+      'Chunk summary requests require collection snapshot support.'
     );
     await expect(result.current.loadCollectionExportData()).rejects.toThrow(
-      'Collection export requires PGlite-compatible collection queries.'
+      'Collection export requires collection snapshot support.'
     );
 
     expect(
@@ -547,6 +547,7 @@ describe('useDatabaseDemoData', () => {
       updatedAt: now,
     };
     const listByEmbeddingSetPage = vi.fn().mockResolvedValue([record]);
+    const countEmbeddedByFileRecordIds = vi.fn().mockResolvedValue(new Map([[record.id, 1]]));
     const repository = {
       count: vi.fn().mockResolvedValue(1),
       countByEmbeddingSet: vi.fn().mockResolvedValue(1),
@@ -554,8 +555,10 @@ describe('useDatabaseDemoData', () => {
       listByEmbeddingSet: vi.fn().mockResolvedValue([record]),
       listByEmbeddingSetPage,
     } as unknown as DrizzleFileRecordRepository;
+    const findByFileRecordId = vi.fn().mockResolvedValue([chunk]);
     const chunkRepository = {
-      findByFileRecordId: vi.fn().mockResolvedValue([chunk]),
+      countEmbeddedByFileRecordIds,
+      findByFileRecordId,
       findById: vi.fn(async (id: string) => (id === chunk.id ? chunk : null)),
       getCoverageForSet: vi
         .fn()
@@ -596,7 +599,9 @@ describe('useDatabaseDemoData', () => {
       limit: 50,
       offset: 0,
     });
+    expect(countEmbeddedByFileRecordIds).toHaveBeenCalledWith(['record-turso'], 'set-turso');
     expect(chunkRepository.getCoverageForSet).toHaveBeenCalledWith('set-turso');
+    expect(findByFileRecordId).not.toHaveBeenCalled();
 
     await act(async () => {
       await expect(result.current.loadFileChunkSummaries('record-turso')).resolves.toEqual([
