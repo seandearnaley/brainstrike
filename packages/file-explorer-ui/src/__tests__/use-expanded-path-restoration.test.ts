@@ -113,22 +113,24 @@ describe('useExpandedPathRestoration', () => {
 
 describe('useExpandSelectedFileParentDirectories', () => {
   it('derives parent directory chains without materializing segment joins per ancestor', () => {
-    const splitSpy = vi.spyOn(String.prototype, 'split');
+    const joinSpy = vi.spyOn(Array.prototype, 'join');
 
-    expect(__getAllAncestorDirectories('/workspace/src/components/Button.tsx')).toEqual([
+    const absoluteAncestors = __getAllAncestorDirectories('/workspace/src/components/Button.tsx');
+    const repeatedSeparatorAncestors = __getAllAncestorDirectories('src//components/Button.tsx');
+    const fileOnlyAncestors = __getAllAncestorDirectories('Button.tsx');
+    const rootAncestors = __getAllAncestorDirectories('/');
+
+    expect(joinSpy).not.toHaveBeenCalled();
+    joinSpy.mockRestore();
+
+    expect(absoluteAncestors).toEqual([
       '/workspace',
       '/workspace/src',
       '/workspace/src/components',
     ]);
-    expect(__getAllAncestorDirectories('src//components/Button.tsx')).toEqual([
-      'src',
-      'src/components',
-    ]);
-    expect(__getAllAncestorDirectories('Button.tsx')).toEqual([]);
-    expect(__getAllAncestorDirectories('/')).toEqual([]);
-
-    expect(splitSpy).not.toHaveBeenCalled();
-    splitSpy.mockRestore();
+    expect(repeatedSeparatorAncestors).toEqual(['src', 'src/components']);
+    expect(fileOnlyAncestors).toEqual([]);
+    expect(rootAncestors).toEqual([]);
   });
 
   it('expands parent directories for selected files after restoration settles', async () => {

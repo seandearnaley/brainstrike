@@ -75,6 +75,13 @@ function countNonEmptyPathSegments(filePath: string): number {
   return segmentCount;
 }
 
+function appendAncestorSegment(currentPath: string, segment: string, isAbsolute: boolean): string {
+  if (currentPath !== '') {
+    return `${currentPath}/${segment}`;
+  }
+  return `${isAbsolute ? '/' : ''}${segment}`;
+}
+
 export function __getAllAncestorDirectories(filePath: string): string[] {
   const isAbsolute = filePath.startsWith('/');
   const ancestorCount = countNonEmptyPathSegments(filePath) - 1;
@@ -99,13 +106,13 @@ export function __getAllAncestorDirectories(filePath: string): string[] {
     }
 
     emittedSegments += 1;
-    if (emittedSegments <= ancestorCount) {
-      const segment = filePath.slice(segmentStart, index);
-      // Restoration runs for every persisted/selected path; append one segment at
-      // a time instead of rebuilding each ancestor from sliced segment arrays.
-      currentPath =
-        currentPath === '' ? `${isAbsolute ? '/' : ''}${segment}` : `${currentPath}/${segment}`;
-      ancestors.push(currentPath);
+    const segment = filePath.slice(segmentStart, index);
+    // Restoration runs for every persisted/selected path; append one segment at
+    // a time instead of rebuilding each ancestor from sliced segment arrays.
+    currentPath = appendAncestorSegment(currentPath, segment, isAbsolute);
+    ancestors.push(currentPath);
+    if (emittedSegments === ancestorCount) {
+      break;
     }
     segmentStart = -1;
   }
