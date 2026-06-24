@@ -142,7 +142,6 @@ Known production touchpoints:
 
 - `packages/db-explorer/src/database-demo-panel.tsx`
 - `packages/db-explorer/src/use-database-demo-data.ts`
-- `packages/db-explorer/src/hooks/use-collection-embedding-coverage.ts`
 - `packages/preferences/src/settings/tools/unified-tools-settings.tsx`
 - `packages/app-shell/src/use-quick-open-files.ts`
 - `packages/app-shell/src/use-file-mentions.ts`
@@ -150,10 +149,10 @@ Known production touchpoints:
 - `packages/app-shell/src/use-om-segment-row.ts`
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
-chunk count, and requested file status lookups. Preferred next slice: migrate
-`use-collection-embedding-coverage.ts` to a repository coverage contract that
-reports total files, total chunks, pending reindex files, and source-range
-coverage without PGlite live SQL. Keep live refresh separate.
+chunk count, requested file status lookups, and collection embedding coverage
+banner snapshots. Preferred next slice: move a non-DB-Explorer live-query
+consumer, such as `packages/app-shell/src/use-quick-open-files.ts`, onto a
+repository snapshot path with explicit refresh/invalidation.
 
 ### 3. Background Indexing And Embedding Host
 

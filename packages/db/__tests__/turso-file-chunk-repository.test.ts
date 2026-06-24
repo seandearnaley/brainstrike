@@ -366,6 +366,100 @@ describe('TursoFileChunkRepository', () => {
     });
   });
 
+  it('reports collection embedding coverage without selecting embedding payloads', async () => {
+    const queryCalls: string[] = [];
+    const originalQuery = client.query.bind(client);
+    vi.spyOn(client, 'query').mockImplementation(
+      async (sql: string, params?: readonly unknown[]) => {
+        queryCalls.push(sql);
+        return originalQuery(sql, params);
+      }
+    );
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
+    );
+    const otherEmbeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:other',
+      'other',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.create(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-1',
+      })
+    );
+    await fileRecordsRepository.create(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-2',
+        path: 'src/two.ts',
+      })
+    );
+    await fileRecordsRepository.create(
+      createRecord({
+        embeddingSetId: otherEmbeddingSet.id,
+        id: 'file-other',
+        path: 'src/other.ts',
+      })
+    );
+    await fileRecordsRepository.update('file-1', {
+      chunksProcessedAt: '2026-06-23T08:15:00.000Z',
+    });
+    await fileRecordsRepository.update('file-other', {
+      chunksProcessedAt: '2026-06-23T08:15:00.000Z',
+    });
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: embeddingSet.id,
+        endLine: 3,
+        endOffset: 30,
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        startLine: 1,
+        startOffset: 0,
+      }),
+      createChunk({
+        chunkIndex: 1,
+        embedding: [0.4, 0.5, 0.6],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-1',
+        id: 'chunk-missing-ranges',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        fileRecordId: 'file-2',
+        id: 'chunk-pending',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.7, 0.8, 0.9],
+        embeddingSetId: otherEmbeddingSet.id,
+        fileRecordId: 'file-other',
+        id: 'chunk-other',
+      }),
+    ]);
+
+    await expect(repository.getCollectionEmbeddingCoverage(embeddingSet.id)).resolves.toEqual({
+      chunksMissingSourceRange: 2,
+      pendingReindexFileCount: 1,
+      totalChunks: 3,
+      totalFiles: 2,
+    });
+    const coverageQuery = queryCalls.at(-1) ?? '';
+    expect(coverageQuery).toContain('FROM file_records fr');
+    expect(coverageQuery).not.toMatch(/\bembedding\b\s*(?:,|FROM)/i);
+    expect(coverageQuery).not.toContain('::');
+    expect(coverageQuery).not.toContain('FILTER');
+    expect(coverageQuery).not.toContain('ANY(');
+  });
+
   it('counts embedded chunks by file record without selecting embedding payloads', async () => {
     const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
       'test:small',
