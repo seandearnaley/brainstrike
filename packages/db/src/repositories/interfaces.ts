@@ -66,6 +66,10 @@ export interface IFileRecordRepository {
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null>;
+  getFileCollectionStatuses?(
+    activeCollectionId: string,
+    fileIds: readonly string[]
+  ): Promise<readonly FileCollectionStatusSnapshot[]>;
   listByEmbeddingSet?(embeddingSetId: string): Promise<FileRecord[]>;
   listByEmbeddingSetPage?(
     embeddingSetId: string,
@@ -84,6 +88,17 @@ export interface IFileRecordRepository {
   updateStatMetadata(
     entries: ReadonlyArray<{ fileRecordId: string; mtimeMs: number; size: number }>
   ): Promise<void>;
+}
+
+export interface FileCollectionStatusSnapshot {
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  lastIndexedAt?: string;
+  otherCollectionsCount: number;
+  searchableChunksCount: number;
+  searchableInActive: boolean;
+  totalChunksCount: number;
 }
 
 /**

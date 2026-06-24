@@ -1,4 +1,9 @@
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
+  useFileRecordRepository,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
@@ -110,6 +115,15 @@ const FILE_STATUS_QUERY = `
 `.trim();
 
 export function useFileCollectionStatus(activeCollectionId: string | null) {
+  const pgliteDb = useOptionalPGliteDatabase();
+  const repository = useFileRecordRepository();
+  const repositoryStatusLoader = useMemo(() => {
+    if (pgliteDb || !repository || typeof repository.getFileCollectionStatuses !== 'function') {
+      return null;
+    }
+    return repository.getFileCollectionStatuses.bind(repository);
+  }, [pgliteDb, repository]);
+  const liveQueryEnabled = Boolean(activeCollectionId && pgliteDb);
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
@@ -121,7 +135,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     ...(params ? { params } : {}),
     mode: 'incremental',
     key: 'file_id',
-    enabled: Boolean(activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const statusMap = useMemo(() => {
@@ -146,11 +160,20 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
         return [];
       }
 
+      if (!liveQueryEnabled) {
+        if (!repositoryStatusLoader) {
+          throw new Error(
+            'File collection status requires PGlite live query support or repository status snapshots.'
+          );
+        }
+        return [...(await repositoryStatusLoader(activeCollectionId, fileIds))];
+      }
+
       return fileIds
         .map((id) => statusMap.get(id))
         .filter((status): status is FileCollectionStatus => Boolean(status));
     },
-    [activeCollectionId, statusMap]
+    [activeCollectionId, liveQueryEnabled, repositoryStatusLoader, statusMap]
   );
 
   return { getFileStatus, error };

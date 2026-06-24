@@ -44,6 +44,8 @@ as the implementation backlog.
 - #1336 `Add Turso job queue runtime`
 - #1339 `Gate Turso provider execution surfaces`
 - #1340 `Expose Turso file chunks in DB provider`
+- #1341 `Add Turso collection snapshots to DB Explorer`
+- Current slice: repository-backed DB Explorer count/status hooks for Turso
 
 ## Turso Docs Guardrail
 
@@ -95,6 +97,8 @@ Current Turso repository/runtime coverage:
 - chunk insert plus embedding job enqueue
 - job queue claim, lease, completion, failure, retry, pending-count, and delete
 - selected model/embedding-set read paths exposed through provider-safe hooks
+- DB Explorer selected-collection browsing snapshots, indexed chunk count, and
+  requested file status lookups through repository-backed Turso paths
 
 ## Non-Negotiable Migration Rules
 
@@ -138,8 +142,6 @@ Known production touchpoints:
 
 - `packages/db-explorer/src/database-demo-panel.tsx`
 - `packages/db-explorer/src/use-database-demo-data.ts`
-- `packages/db-explorer/src/hooks/use-document-count.ts`
-- `packages/db-explorer/src/hooks/use-file-collection-status.ts`
 - `packages/db-explorer/src/hooks/use-collection-embedding-coverage.ts`
 - `packages/preferences/src/settings/tools/unified-tools-settings.tsx`
 - `packages/app-shell/src/use-quick-open-files.ts`
@@ -147,9 +149,11 @@ Known production touchpoints:
 - `packages/app-shell/src/cost-tracking/use-cross-root-cost.ts`
 - `packages/app-shell/src/use-om-segment-row.ts`
 
-Preferred next slice: make selected collection browsing use Turso repository
-snapshots for page records, counts, chunk summaries, and export. Keep live
-refresh separate.
+Completed UI snapshot slices now cover selected collection browsing, indexed
+chunk count, and requested file status lookups. Preferred next slice: migrate
+`use-collection-embedding-coverage.ts` to a repository coverage contract that
+reports total files, total chunks, pending reindex files, and source-range
+coverage without PGlite live SQL. Keep live refresh separate.
 
 ### 3. Background Indexing And Embedding Host
 

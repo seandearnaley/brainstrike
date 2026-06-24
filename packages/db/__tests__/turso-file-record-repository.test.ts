@@ -229,12 +229,169 @@ describe('TursoFileRecordRepository', () => {
     expect(sqlCalls.join('\n')).not.toContain('RETURNING');
   });
 
+  it('returns requested file collection statuses in requested order without cross-set leakage', async () => {
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-first',
+        name: 'first.ts',
+        path: 'src/first.ts',
+      })
+    );
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-second',
+        name: 'second.ts',
+        path: 'src/second.ts',
+      })
+    );
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-b',
+        id: 'file-other-set',
+        name: 'other.ts',
+        path: 'src/other.ts',
+      })
+    );
+    await seedChunk({
+      embedding: '[1,2,3]',
+      embeddingSetId: 'set-a',
+      fileRecordId: 'file-first',
+      id: 'chunk-active',
+      updatedAt: '2026-06-23T08:00:00.000Z',
+    });
+    await seedChunk({
+      embedding: null,
+      embeddingSetId: 'set-a',
+      fileRecordId: 'file-first',
+      id: 'chunk-unembedded',
+    });
+    await seedChunk({
+      embedding: '[4,5,6]',
+      embeddingSetId: 'set-other',
+      fileRecordId: 'file-first',
+      id: 'chunk-other-collection',
+      updatedAt: '2026-06-23T09:00:00.000Z',
+    });
+    await seedChunk({
+      embedding: '[7,8,9]',
+      embeddingSetId: null,
+      fileRecordId: 'file-second',
+      id: 'chunk-null-set',
+      updatedAt: '2026-06-23T10:00:00.000Z',
+    });
+    await seedChunk({
+      embedding: '[10,11,12]',
+      embeddingSetId: 'set-b',
+      fileRecordId: 'file-other-set',
+      id: 'chunk-other-set',
+    });
+
+    await expect(
+      repository.getFileCollectionStatuses('set-a', [
+        'file-second',
+        'missing-file',
+        'file-other-set',
+        'file-first',
+      ])
+    ).resolves.toEqual([
+      {
+        fileId: 'file-second',
+        fileName: 'second.ts',
+        filePath: 'src/second.ts',
+        lastIndexedAt: '2026-06-23T10:00:00.000Z',
+        otherCollectionsCount: 0,
+        searchableChunksCount: 1,
+        searchableInActive: true,
+        totalChunksCount: 1,
+      },
+      {
+        fileId: 'file-first',
+        fileName: 'first.ts',
+        filePath: 'src/first.ts',
+        lastIndexedAt: '2026-06-23T09:00:00.000Z',
+        otherCollectionsCount: 1,
+        searchableChunksCount: 1,
+        searchableInActive: true,
+        totalChunksCount: 3,
+      },
+    ]);
+  });
+
+  it('queries Turso file collection statuses with SQLite-compatible SQL only', async () => {
+    const sqlCalls: string[] = [];
+    const fakeDb: BrainstrikeDbExecutionClient = {
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        sqlCalls.push(sql);
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('getFileCollectionStatuses should not need a transaction.');
+      }),
+    };
+    const fakeRepository = new TursoFileRecordRepository(fakeDb);
+
+    await fakeRepository.getFileCollectionStatuses('set-a', ['file-a']);
+
+    const sql = sqlCalls.join('\n');
+    expect(sql).toContain('VALUES (?, ?)');
+    expect(sql).not.toContain('::');
+    expect(sql).not.toContain('FILTER');
+    expect(sql).not.toContain('ANY(');
+    expect(sql).not.toMatch(/\bc\.embedding\s+AS\b/i);
+  });
+
   async function seedRoot(id: string, displayName: string): Promise<void> {
     await client.exec('INSERT INTO roots (id, kind, display_name) VALUES (?, ?, ?)', [
       id,
       'path',
       displayName,
     ]);
+  }
+
+  async function seedChunk({
+    embedding,
+    embeddingSetId,
+    fileRecordId,
+    id,
+    updatedAt = '2026-06-23T07:00:00.000Z',
+  }: {
+    embedding: string | null;
+    embeddingSetId: string | null;
+    fileRecordId: string;
+    id: string;
+    updatedAt?: string;
+  }): Promise<void> {
+    await client.exec(
+      `INSERT INTO file_chunks (
+        id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type,
+        start_line, end_line, start_offset, end_offset, chunk_size, created_at, updated_at,
+        embedding, embedding_set_id, embedding_hash, embedding_updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        fileRecordId,
+        0,
+        `content-${id}`,
+        `hash-${id}`,
+        4,
+        'text',
+        1,
+        1,
+        0,
+        12,
+        12,
+        '2026-06-23T07:00:00.000Z',
+        updatedAt,
+        embedding,
+        embeddingSetId,
+        embedding ? `embedding-hash-${id}` : null,
+        embedding ? updatedAt : null,
+      ]
+    );
   }
 });
 

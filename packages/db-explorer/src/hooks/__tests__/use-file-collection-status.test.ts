@@ -22,10 +22,14 @@ const mockLiveQueryState = {
 const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
   () => mockLiveQueryState
 );
+const useFileRecordRepositoryMock = vi.fn();
+const useOptionalPGliteDatabaseMock = vi.fn<() => unknown>(() => ({}));
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useFileRecordRepository: () => useFileRecordRepositoryMock(),
+  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
 
 describe('useFileCollectionStatus', () => {
@@ -35,6 +39,8 @@ describe('useFileCollectionStatus', () => {
     mockLiveQueryState.error = null;
     mockLiveQueryState.refresh = vi.fn();
     useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
+    useFileRecordRepositoryMock.mockReturnValue(null);
+    useOptionalPGliteDatabaseMock.mockReturnValue({});
   });
 
   describe('getFileStatus', () => {
@@ -205,6 +211,44 @@ describe('useFileCollectionStatus', () => {
           query: expect.stringContaining('SELECT'),
         })
       );
+    });
+
+    it('loads requested file statuses from repository snapshots when PGlite live queries are unavailable', async () => {
+      const getFileCollectionStatuses = vi.fn().mockResolvedValue([
+        {
+          fileId: 'file-2',
+          fileName: 'repo.ts',
+          filePath: '/repo.ts',
+          lastIndexedAt: '2026-06-23T10:00:00.000Z',
+          otherCollectionsCount: 1,
+          searchableChunksCount: 2,
+          searchableInActive: true,
+          totalChunksCount: 3,
+        },
+      ]);
+      useOptionalPGliteDatabaseMock.mockReturnValue(null);
+      useFileRecordRepositoryMock.mockReturnValue({ getFileCollectionStatuses });
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      const statuses = await result.current.getFileStatus(['file-2', 'missing']);
+
+      expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: false })
+      );
+      expect(getFileCollectionStatuses).toHaveBeenCalledWith('collection-1', ['file-2', 'missing']);
+      expect(statuses).toEqual([
+        {
+          fileId: 'file-2',
+          fileName: 'repo.ts',
+          filePath: '/repo.ts',
+          lastIndexedAt: '2026-06-23T10:00:00.000Z',
+          otherCollectionsCount: 1,
+          searchableChunksCount: 2,
+          searchableInActive: true,
+          totalChunksCount: 3,
+        },
+      ]);
     });
   });
 

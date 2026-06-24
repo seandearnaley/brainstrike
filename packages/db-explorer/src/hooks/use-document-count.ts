@@ -1,6 +1,11 @@
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
+  useFileChunkRepository,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('useIndexedChunkCount');
 export const indexedChunkCountLogger = logger;
@@ -35,11 +40,24 @@ const INDEXED_CHUNK_COUNT_QUERY = `
 `.trim();
 
 export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
-  const liveQueryEnabled = Boolean(activeCollectionId);
+  const pgliteDb = useOptionalPGliteDatabase();
+  const chunkRepository = useFileChunkRepository();
+  const liveQueryEnabled = Boolean(activeCollectionId && pgliteDb);
+  const repositoryCoverageLoader = useMemo(() => {
+    if (pgliteDb || !chunkRepository || typeof chunkRepository.getCoverageForSet !== 'function') {
+      return null;
+    }
+    return chunkRepository.getCoverageForSet.bind(chunkRepository);
+  }, [chunkRepository, pgliteDb]);
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
   );
+  const [repositorySnapshot, setRepositorySnapshot] = useState<{
+    collectionId: string;
+    count: number | undefined;
+  } | null>(null);
+  const [repositoryRefreshVersion, setRepositoryRefreshVersion] = useState(0);
 
   const { rows, error, refresh } = useBrainstrikeLiveQuery<{ count: number }>({
     cacheKey: makeLiveQueryKey('indexed-chunk-count', activeCollectionId),
@@ -47,6 +65,43 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
     ...(params ? { params } : {}),
     enabled: liveQueryEnabled,
   });
+
+  useEffect(() => {
+    if (!(activeCollectionId && repositoryCoverageLoader && !liveQueryEnabled)) {
+      return;
+    }
+    let cancelled = false;
+    setRepositorySnapshot((current) =>
+      current?.collectionId === activeCollectionId
+        ? current
+        : { collectionId: activeCollectionId, count: undefined }
+    );
+    repositoryCoverageLoader(activeCollectionId)
+      .then((coverage) => {
+        if (cancelled) {
+          return;
+        }
+        setRepositorySnapshot({
+          collectionId: activeCollectionId,
+          count: coverage.chunksWithEmbeddingsForSet,
+        });
+      })
+      .catch((loadError) => {
+        if (cancelled) {
+          return;
+        }
+        logger.error('Failed to fetch indexed chunk count from repository', { error: loadError });
+        setRepositorySnapshot({ collectionId: activeCollectionId, count: undefined });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCollectionId, liveQueryEnabled, repositoryCoverageLoader, repositoryRefreshVersion]);
+
+  const repositoryCount =
+    activeCollectionId && repositorySnapshot?.collectionId === activeCollectionId
+      ? repositorySnapshot.count
+      : undefined;
 
   const computed = useMemo(() => {
     if (!(liveQueryEnabled && activeCollectionId)) {
@@ -66,6 +121,8 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
   const snapshotRef = useRef<number | undefined>(undefined);
   if (liveQueryEnabled) {
     snapshotRef.current = computed;
+  } else if (activeCollectionId && repositoryCoverageLoader) {
+    snapshotRef.current = repositoryCount;
   }
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
@@ -89,16 +146,25 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
       if (detail?.embeddingSetId && detail.embeddingSetId !== activeCollectionId) {
         return;
       }
-      void refresh();
+      if (liveQueryEnabled) {
+        void refresh();
+        return;
+      }
+      if (repositoryCoverageLoader) {
+        setRepositoryRefreshVersion((version) => version + 1);
+      }
     };
 
     window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
     return () => {
       window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
     };
-  }, [activeCollectionId, refresh]);
+  }, [activeCollectionId, liveQueryEnabled, refresh, repositoryCoverageLoader]);
 
-  return liveQueryEnabled ? computed : snapshotRef.current;
+  if (!activeCollectionId) {
+    return snapshotRef.current;
+  }
+  return liveQueryEnabled ? computed : repositoryCount;
 }
 
 /**

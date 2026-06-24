@@ -14,9 +14,10 @@ import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
 } from '../text-content-invariants.js';
-import type { IFileRecordRepository } from './interfaces.js';
+import type { FileCollectionStatusSnapshot, IFileRecordRepository } from './interfaces.js';
 
 const MAX_SQLITE_IN_LIST_PARAMS = 900;
+const MAX_STATUS_IDS_PER_QUERY = Math.floor((MAX_SQLITE_IN_LIST_PARAMS - 1) / 2);
 const BULK_IMPORT_BATCH_SIZE = 100;
 
 const ALLOWED_UPDATE_COLUMNS = new Map<keyof FileRecord, string>([
@@ -69,6 +70,16 @@ interface ManagedCacheMetadataRow {
   readonly root_id: string | null;
   readonly size: number | null;
   readonly updated_at: string;
+}
+
+interface TursoFileCollectionStatusRow {
+  readonly fileId: string;
+  readonly fileName: string;
+  readonly filePath: string;
+  readonly lastIndexedAt: string | null;
+  readonly otherCollectionsCount: number | string | null;
+  readonly searchableChunksCount: number | string | null;
+  readonly totalChunksCount: number | string | null;
 }
 
 export class TursoFileRecordRepository implements IFileRecordRepository {
@@ -150,6 +161,55 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
       records.push(...result.rows.map((row) => rowToFileRecord(row)));
     }
     return records;
+  }
+
+  async getFileCollectionStatuses(
+    activeCollectionId: string,
+    fileIds: readonly string[]
+  ): Promise<readonly FileCollectionStatusSnapshot[]> {
+    assertEmbeddingSetId(activeCollectionId);
+    if (fileIds.length === 0) {
+      return [];
+    }
+
+    const statuses: FileCollectionStatusSnapshot[] = [];
+    for (const idChunk of chunkArray(fileIds, MAX_STATUS_IDS_PER_QUERY)) {
+      const requestedRows = idChunk.map(() => '(?, ?)').join(', ');
+      const requestedParams = idChunk.flatMap((id, index) => [id, index]);
+      const result = await this.db.query<TursoFileCollectionStatusRow>(
+        `WITH target(embedding_set_id) AS (VALUES (?)),
+          requested(file_id, ordinal) AS (VALUES ${requestedRows})
+         SELECT
+           fr.id AS fileId,
+           fr.name AS fileName,
+           fr.path AS filePath,
+           COALESCE(SUM(CASE
+             WHEN (
+               (fc.embedding_set_id = target.embedding_set_id
+                OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id))
+               AND fc.embedding IS NOT NULL
+             )
+             THEN 1
+             ELSE 0
+           END), 0) AS searchableChunksCount,
+           COUNT(fc.id) AS totalChunksCount,
+           COUNT(DISTINCT CASE
+             WHEN fc.embedding_set_id IS NOT NULL
+              AND fc.embedding_set_id != target.embedding_set_id
+             THEN fc.embedding_set_id
+           END) AS otherCollectionsCount,
+           MAX(fc.embedding_updated_at) AS lastIndexedAt
+         FROM requested
+         JOIN file_records fr ON fr.id = requested.file_id
+         JOIN target ON fr.embedding_set_id = target.embedding_set_id
+         LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+         GROUP BY requested.ordinal, fr.id, fr.name, fr.path
+         ORDER BY requested.ordinal`,
+        [activeCollectionId, ...requestedParams]
+      );
+      statuses.push(...result.rows.map(rowToFileCollectionStatus));
+    }
+    return statuses;
   }
 
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
@@ -559,6 +619,34 @@ function rowToManagedCacheMetadata(row: ManagedCacheMetadataRow): ManagedCacheEn
   return [metadata];
 }
 
+function rowToFileCollectionStatus(
+  row: TursoFileCollectionStatusRow
+): FileCollectionStatusSnapshot {
+  const searchableChunksCount = readNullableNonNegativeInteger(
+    row.searchableChunksCount,
+    `file ${row.fileId} searchable chunk count`
+  );
+  const status: FileCollectionStatusSnapshot = {
+    fileId: row.fileId,
+    fileName: row.fileName,
+    filePath: row.filePath,
+    otherCollectionsCount: readNullableNonNegativeInteger(
+      row.otherCollectionsCount,
+      `file ${row.fileId} other collection count`
+    ),
+    searchableChunksCount,
+    searchableInActive: searchableChunksCount > 0,
+    totalChunksCount: readNullableNonNegativeInteger(
+      row.totalChunksCount,
+      `file ${row.fileId} total chunk count`
+    ),
+  };
+  if (row.lastIndexedAt) {
+    status.lastIndexedAt = normalizeDateValue(row.lastIndexedAt, 'updatedAt');
+  }
+  return status;
+}
+
 function normalizeUpdateValue(field: keyof FileRecordUpdate, value: unknown): unknown {
   if (value === null) {
     return null;
@@ -613,6 +701,20 @@ function readBoundedPageValue(
 
 function createPlaceholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
+}
+
+function readNullableNonNegativeInteger(
+  value: number | string | null | undefined,
+  fieldName: string
+): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!(Number.isInteger(parsed) && parsed >= 0)) {
+    throw new Error(`Invalid ${fieldName}: ${String(value)}`);
+  }
+  return parsed;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
