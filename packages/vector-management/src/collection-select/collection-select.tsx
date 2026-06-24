@@ -451,12 +451,14 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   const refreshCollectionsSnapshot = useCallback(async () => {
     const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
     const canListFromRepository = Boolean(embeddingSetsRepository?.listEmbeddingSpaces);
-    if (!(schemaVerified && (canQuery || canListFromRepository))) {
+    const canUseSqlSnapshot = schemaVerified && canQuery;
+    const canUseRepositorySnapshot = !(canQuery || pgliteDb) && canListFromRepository;
+    if (!(canUseSqlSnapshot || canUseRepositorySnapshot)) {
       return;
     }
     try {
       let rows: CollectionRow[];
-      if (canQuery) {
+      if (canUseSqlSnapshot) {
         rows = (
           await (db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }).query(
             COLLECTIONS_QUERY
@@ -488,7 +490,7 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
       dispatchFetch({ type: 'error', error: normalized });
       throw normalized;
     }
-  }, [db, embeddingSetsRepository, schemaVerified, setCachedCollections]);
+  }, [db, embeddingSetsRepository, pgliteDb, schemaVerified, setCachedCollections]);
 
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where the live query bridge may not auto-detect changes
@@ -610,9 +612,10 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   useEffect(() => {
     const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
     const canListFromRepository = Boolean(embeddingSetsRepository?.listEmbeddingSpaces);
+    const canUseSqlSnapshot = schemaVerified && canQuery;
+    const canUseRepositorySnapshot = !(canQuery || pgliteDb) && canListFromRepository;
     const shouldFetch =
-      schemaVerified && // Wait for schema to be ready (tables exist)
-      (canQuery || canListFromRepository) &&
+      (canUseSqlSnapshot || canUseRepositorySnapshot) &&
       !fetchState.loading &&
       !initialFetchedRef.current;
     if (!shouldFetch) {
@@ -643,7 +646,14 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
     return () => {
       cancelled = true;
     };
-  }, [db, embeddingSetsRepository, fetchState.loading, refreshCollectionsSnapshot, schemaVerified]);
+  }, [
+    db,
+    embeddingSetsRepository,
+    fetchState.loading,
+    pgliteDb,
+    refreshCollectionsSnapshot,
+    schemaVerified,
+  ]);
 
   // Reset initial fetch flag when db or repository changes (e.g., reconnection/runtime swap)
   useEffect(() => {

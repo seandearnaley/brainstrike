@@ -237,6 +237,52 @@ describe('useCollections', () => {
       });
     });
 
+    it('loads a repository snapshot before PGlite schema verification when only the repository is available', async () => {
+      mockStoreState.schemaVerified = false;
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
+        {
+          category: 'search',
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          id: 'turso-set-2',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Turso Startup Collection',
+          stats: {
+            averageTokensPerChunk: 5,
+            embeddedChunks: 6,
+            fileCount: 2,
+            tokenizedChunkCount: 6,
+            totalChunks: 6,
+            totalTokens: 30,
+          },
+          systemRole: null,
+          tags: null,
+        },
+      ]);
+
+      const { result } = renderHook(() => useCollections(null));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(mockEmbeddingSetsRepository.listEmbeddingSpaces).toHaveBeenCalledWith({
+        includeStats: true,
+      });
+      expect(result.current.collections[0]).toMatchObject({
+        id: 'turso-set-2',
+        fileCount: 2,
+        chunkCount: 6,
+        embeddingCount: 6,
+      });
+    });
+
     it('should disable live query and use snapshot data when no PGlite live source is available', async () => {
       vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
       mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
