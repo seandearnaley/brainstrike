@@ -13,6 +13,7 @@ import {
 import {
   createVectorQueueServiceForRuntime,
   type VectorQueueService,
+  type VectorQueueServiceUnavailableReason,
 } from './vector-status/vector-queue-service';
 
 interface EmbeddingCoverageRepository {
@@ -25,6 +26,7 @@ interface EmbeddingCoverageRepository {
 interface EmbeddingRuntimeContextValue {
   controller: EmbeddingRuntimeController;
   service: VectorQueueService | null;
+  serviceUnavailableReason: VectorQueueServiceUnavailableReason | null;
 }
 
 const EmbeddingRuntimeContext = createContext<EmbeddingRuntimeContextValue | null>(null);
@@ -41,6 +43,7 @@ function toEmbeddingCoverageRepository(
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
   const db = useModelRegistryDbClient();
   const bootstrapReport = useOptionalProfileBootstrapReport();
+  const runtimeEngine = bootstrapReport?.runtime.engine ?? 'unknown';
   const chunkRepository = useFileChunkRepository();
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const reinitEveryN = useVectorPreferencesStore((state) => state.reinitEveryN);
@@ -50,19 +53,22 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     [chunkRepository]
   );
 
-  const service = useMemo(
+  const serviceResolution = useMemo(
     () =>
       createVectorQueueServiceForRuntime({
         db,
         chunkRepository: coverageRepository,
         createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
-        runtimeEngine: bootstrapReport?.runtime.engine ?? 'unknown',
-      }).service,
-    [bootstrapReport?.runtime.engine, coverageRepository, db]
+        runtimeEngine,
+      }),
+    [coverageRepository, db, runtimeEngine]
   );
+  const service = serviceResolution.service;
+  const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
+  const controllerDb = runtimeEngine === 'pglite' ? db : null;
 
   const controller = useEmbeddingRuntimeController({
-    db,
+    db: controllerDb,
     devicePreference,
     reinitEveryN,
     service,
@@ -72,8 +78,9 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     () => ({
       controller,
       service,
+      serviceUnavailableReason,
     }),
-    [controller, service]
+    [controller, service, serviceUnavailableReason]
   );
 
   return (

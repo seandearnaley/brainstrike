@@ -185,11 +185,12 @@ describe('EmbeddingRuntimeProvider', () => {
     expect(JobQueueMock).not.toHaveBeenCalled();
     expect(createVectorQueueServiceMock).not.toHaveBeenCalled();
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
-      db: { dialect: 'turso' },
+      db: null,
       devicePreference: 'webgpu',
       reinitEveryN: 250,
       service: null,
     });
     expect(result.current.service).toBeNull();
+    expect(result.current.serviceUnavailableReason).toBe('turso-vector-backfill-not-migrated');
   });
 });

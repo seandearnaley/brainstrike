@@ -99,6 +99,21 @@ export interface VectorQueueServiceRuntimeDependencies {
   runtimeEngine: VectorQueueRuntimeEngine;
 }
 
+export function formatVectorQueueServiceUnavailableReason(
+  reason: VectorQueueServiceUnavailableReason | null
+): string {
+  if (reason === 'missing-db-or-coverage-repository') {
+    return 'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.';
+  }
+  if (reason === 'turso-vector-backfill-not-migrated') {
+    return 'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.';
+  }
+  if (reason === 'unsupported-db-runtime') {
+    return 'Embedding queue actions are unavailable for the selected database runtime.';
+  }
+  return 'Embedding queue actions are unavailable.';
+}
+
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
 export interface BackfillOptions {

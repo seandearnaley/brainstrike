@@ -23,8 +23,6 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('VectorStatus');
-const VECTOR_QUEUE_UNAVAILABLE_REASON =
-  'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.';
 
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
@@ -35,6 +33,7 @@ import {
 } from './vector-status/embedding-set-selector';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
+import { formatVectorQueueServiceUnavailableReason } from './vector-status/vector-queue-service';
 
 type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
 type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
@@ -641,8 +640,14 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
-  const { controller: runtimeController, service } = useSharedEmbeddingRuntime();
+  const {
+    controller: runtimeController,
+    service,
+    serviceUnavailableReason,
+  } = useSharedEmbeddingRuntime();
   const hasQueueService = Boolean(service);
+  const queueUnavailableReasonText =
+    formatVectorQueueServiceUnavailableReason(serviceUnavailableReason);
 
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
@@ -701,7 +706,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
       });
       toast({
         title: 'Vector Queue Unavailable',
-        description: VECTOR_QUEUE_UNAVAILABLE_REASON,
+        description: queueUnavailableReasonText,
         variant: 'destructive',
       });
       return;
@@ -735,7 +740,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
     // Proceed with backfill
     await backfillRef.current();
-  }, [toast, isWebPlatform, workerControls, service, db, activeId]);
+  }, [toast, isWebPlatform, workerControls, service, db, activeId, queueUnavailableReasonText]);
 
   const throughputTrend = useMemo(
     () => queueState.telemetryTrend.map((point) => point.throughput),
@@ -883,7 +888,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             onBackfill={invokeBackfillWithWorkerStart}
             queueCounts={queueState.queueCounts}
             startingWorker={workerControls.startingWorker}
-            unavailableReason={VECTOR_QUEUE_UNAVAILABLE_REASON}
+            unavailableReason={queueUnavailableReasonText}
             willAutoStartWorker={needsWorkerStart}
           />
           <QueueControls
