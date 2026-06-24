@@ -5,6 +5,7 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import {
+  isTursoFileChunkRepository,
   JobQueue,
   useBrainstrikeDbClient,
   useFileChunkRepository,
@@ -89,7 +90,7 @@ function toManualImportChunkRepository(
   if (!repository) {
     return null;
   }
-  if (repository.constructor.name === 'TursoFileChunkRepository') {
+  if (isTursoFileChunkRepository(repository)) {
     return null;
   }
   return repository as FileImportChunkRepository;
@@ -113,7 +114,7 @@ function getManualImportCapabilityError({
     return new Error('Manual imports require file record storage.');
   }
   if (!chunkRepository) {
-    if (rawChunkRepository?.constructor.name === 'TursoFileChunkRepository') {
+    if (isTursoFileChunkRepository(rawChunkRepository)) {
       return new Error('Manual imports require a Turso-compatible import path.');
     }
     return new Error('Manual imports require chunk storage.');

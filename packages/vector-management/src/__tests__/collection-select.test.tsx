@@ -16,6 +16,7 @@ vi.mock('@brainstrike/db', () => ({
     refresh: vi.fn(),
     rows: [],
   })),
+  useEmbeddingSetsRepository: vi.fn(() => null),
   useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 

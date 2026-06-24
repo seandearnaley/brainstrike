@@ -53,7 +53,15 @@ export function DeleteEmbeddingSetDialog({
     try {
       const deleted = await repository.delete(collectionId);
       if (!deleted) {
-        throw new Error(`Collection not found: ${collectionId}`);
+        const message = `Collection not found: ${collectionId}`;
+        setDeleting(false);
+        logger.error('Failed to delete embedding set', { error: message });
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
       }
 
       // Immediately update the Zustand cache to remove the deleted collection

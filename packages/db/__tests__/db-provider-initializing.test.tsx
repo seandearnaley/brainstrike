@@ -10,6 +10,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
   useProfileBootstrapReport,
   useTokenCacheStore,
@@ -390,7 +391,7 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose the execution surface plus migrated repositories', async () => {
+  it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories without generic DB handles', async () => {
     let createdChunk: {
       chunk_index: number;
       chunk_size: number | null;
@@ -602,6 +603,7 @@ describe('DbProvider initializing state', () => {
     const { result } = renderHook(
       () => {
         const db = useBrainstrikeDbClient();
+        const optionalDb = useOptionalBrainstrikeDbClient();
         const pgliteDb = usePGliteDatabase();
         const fileRecordRepository = useFileRecordRepository();
         const chunkRepository = useFileChunkRepository();
@@ -612,6 +614,7 @@ describe('DbProvider initializing state', () => {
         const tokenCacheStore = useTokenCacheStore();
         return {
           db,
+          optionalDb,
           pgliteDb,
           chunkRepository,
           embeddingSetsRepository,
@@ -634,7 +637,8 @@ describe('DbProvider initializing state', () => {
 
     expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
     expect(diagnostics).not.toHaveBeenCalled();
-    expect(result.current.db).toBeTruthy();
+    expect(result.current.db).toBeNull();
+    expect(result.current.optionalDb).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
@@ -646,18 +650,6 @@ describe('DbProvider initializing state', () => {
     expect(result.current.chunkRepository).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
 
-    if (!result.current.db) {
-      throw new Error('Expected Turso execution database handle.');
-    }
-    await result.current.db.query('SELECT 1 AS ok', [], { label: 'provider test' });
-    expect(query).toHaveBeenLastCalledWith('SELECT 1 AS ok', [], { label: 'provider test' });
-    await result.current.db.exec?.('DELETE FROM scratch WHERE id = ?', ['scratch-1'], {
-      label: 'provider exec',
-    });
-    expect(exec).toHaveBeenLastCalledWith('DELETE FROM scratch WHERE id = ?', ['scratch-1'], {
-      label: 'provider exec',
-    });
-    expect(result.current.db.transaction).toBeUndefined();
     expect(runTransaction).not.toHaveBeenCalled();
     query.mockClear();
     exec.mockClear();
@@ -855,10 +847,54 @@ describe('DbProvider initializing state', () => {
       { timeout: 10_000 }
     );
 
-    expect(result.current.db).toBeTruthy();
+    expect(result.current.db).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     expect(result.current.chunkRepository).toBeNull();
+  });
+
+  it('fails closed when Electron IPC test fails before runtime classification', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run when IPC runtime classification fails');
+      }
+      return { rows: [] };
+    });
+    const createPGliteSpy = vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite');
+    setWindowElectronDbBridge({
+      exec: vi.fn(async () => {}),
+      query,
+      runTransaction: vi.fn(async () => ({ rows: [] })),
+      test: vi.fn(async () => ({ success: false, message: 'classification unavailable' })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        db: useBrainstrikeDbClient(),
+        initializationStatus: useDbInitializationStatus(),
+        report: useProfileBootstrapReport(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    expect(createPGliteSpy).not.toHaveBeenCalled();
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        message: 'Database test failed: classification unavailable',
+        phase: 'uninitialized',
+      },
+    });
   });
 
   it('does not expose the Turso file chunk repository from an unsupported callback transaction property', async () => {

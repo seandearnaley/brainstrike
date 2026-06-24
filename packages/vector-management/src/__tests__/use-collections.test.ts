@@ -1,6 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
+
+import type { EmbeddingSpaceListing } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +31,10 @@ const mockLiveQueryResult = {
   loading: false,
   error: null,
   refresh: vi.fn(),
+};
+
+const mockEmbeddingSetsRepository = {
+  listEmbeddingSpaces: vi.fn<() => Promise<EmbeddingSpaceListing[]>>(async () => []),
 };
 
 // Mock store state with proper typing
@@ -80,6 +86,7 @@ const mockStoreState = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepository),
   useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
@@ -94,7 +101,11 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
   };
 });
 
-import { useBrainstrikeLiveQuery, useOptionalPGliteDatabase } from '@brainstrike/db';
+import {
+  useBrainstrikeLiveQuery,
+  useEmbeddingSetsRepository,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
@@ -110,7 +121,9 @@ describe('useCollections', () => {
     mockStoreState.schemaVerified = true;
     mockStoreState.cachedCollections = [];
     mockDb.query.mockImplementation(() => new Promise(() => {}));
+    mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([]);
     vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useEmbeddingSetsRepository).mockReturnValue(mockEmbeddingSetsRepository as never);
     vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   });
 
@@ -178,6 +191,50 @@ describe('useCollections', () => {
           enabled: false,
         })
       );
+    });
+
+    it('loads a repository snapshot when Turso intentionally withholds the generic db handle', async () => {
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
+        {
+          category: 'search',
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          id: 'turso-set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Turso Collection',
+          stats: {
+            averageTokensPerChunk: 5,
+            embeddedChunks: 7,
+            fileCount: 3,
+            tokenizedChunkCount: 8,
+            totalChunks: 9,
+            totalTokens: 45,
+          },
+          systemRole: null,
+          tags: 'docs',
+        },
+      ]);
+
+      const { result } = renderHook(() => useCollections(null));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(result.current.collections[0]).toMatchObject({
+        id: 'turso-set-1',
+        fileCount: 3,
+        chunkCount: 9,
+        embeddingCount: 7,
+        category: 'search',
+        tags: 'docs',
+      });
     });
 
     it('should disable live query and use snapshot data when no PGlite live source is available', async () => {

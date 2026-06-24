@@ -71,7 +71,11 @@ const mockChunkRepository = {
   searchSimilar: vi.fn(),
 };
 
+const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
+
 class TursoFileChunkRepository {
+  readonly brainstrikeRepositoryKind = TURSO_FILE_CHUNK_REPOSITORY_MARKER;
+
   findAll = vi.fn();
   findByFileRecordId = vi.fn();
   findById = vi.fn();
@@ -188,6 +192,13 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
   return {
     ...actual,
+    isTursoFileChunkRepository: vi.fn(
+      (repository: unknown) =>
+        typeof repository === 'object' &&
+        repository !== null &&
+        (repository as { readonly brainstrikeRepositoryKind?: unknown })
+          .brainstrikeRepositoryKind === TURSO_FILE_CHUNK_REPOSITORY_MARKER
+    ),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
@@ -834,6 +845,24 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import for Turso chunk storage until the import path is migrated', async () => {
       mockCurrentChunkRepository =
         new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import for marked Turso chunk storage when class names are mangled', async () => {
+      mockCurrentChunkRepository = {
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        findAll: vi.fn(),
+        findByFileRecordId: vi.fn(),
+        findById: vi.fn(),
+        searchSimilar: vi.fn(),
+      } as unknown as typeof mockChunkRepository;
 
       renderWithProviders(<DatabaseDemoPanel />);
 

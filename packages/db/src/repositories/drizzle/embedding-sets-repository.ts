@@ -259,8 +259,10 @@ export class DrizzleEmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    await this.db.delete(fileChunks).where(eq(fileChunks.embeddingSetId, id));
-    const result = await this.db.delete(embeddingSets).where(eq(embeddingSets.id, id)).returning();
+    const result = await this.db.transaction(async (tx) => {
+      await tx.delete(fileChunks).where(eq(fileChunks.embeddingSetId, id));
+      return await tx.delete(embeddingSets).where(eq(embeddingSets.id, id)).returning();
+    });
 
     return result.length > 0;
   }

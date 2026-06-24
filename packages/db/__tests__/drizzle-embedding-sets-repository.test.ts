@@ -400,9 +400,11 @@ describe('DrizzleEmbeddingSetsRepository', () => {
          VALUES ('chunk-1', 'file-1', 0, 'hello', $1)`,
         [created.id]
       );
+      const transaction = vi.spyOn(db, 'transaction');
 
       await expect(repository.delete(created.id)).resolves.toBe(true);
 
+      expect(transaction).toHaveBeenCalledTimes(1);
       const chunkRows = await client.query<{ id: string }>(
         'SELECT id FROM file_chunks WHERE id = $1',
         ['chunk-1']

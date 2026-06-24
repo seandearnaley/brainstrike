@@ -901,25 +901,24 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [bootstrapRuntime, publishProfileBootstrapReport, resolvedPath]
   );
 
-  const testElectronConnection: (
-    electronDB: ElectronDatabaseAPI
-  ) => Promise<DatabaseTestResult | null> = useCallback(async (electronDB) => {
-    if (!electronDB.test) {
-      return null;
-    }
-
-    try {
-      const testResult = await electronDB.test();
-      if (!testResult.success) {
-        throw new Error(`Database test failed: ${testResult.message}`);
+  const testElectronConnection: (electronDB: ElectronDatabaseAPI) => Promise<DatabaseTestResult> =
+    useCallback(async (electronDB) => {
+      if (!electronDB.test) {
+        throw new Error('Electron database test operation is unavailable over IPC.');
       }
-      logger.debug('Database test passed', { message: testResult.message });
-      return testResult;
-    } catch (error) {
-      logger.warn('Database test not available or failed:', error);
-      return null;
-    }
-  }, []);
+
+      try {
+        const testResult = await electronDB.test();
+        if (!testResult.success) {
+          throw new Error(`Database test failed: ${testResult.message}`);
+        }
+        logger.debug('Database test passed', { message: testResult.message });
+        return testResult;
+      } catch (error) {
+        logger.warn('Database test failed:', error);
+        throw error;
+      }
+    }, []);
 
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
@@ -1740,7 +1739,9 @@ export function useBrainstrikeDbClient(): DbHandle | null {
     return null;
   }
 
-  return ctx.ready && !ctx.error ? ctx.db : null;
+  return ctx.ready && !ctx.error && ctx.profileBootstrapReport.runtime.engine === 'pglite'
+    ? ctx.db
+    : null;
 }
 
 export function useOptionalPGliteDatabase(): DbHandle | null {
@@ -1784,7 +1785,9 @@ export function useOptionalBrainstrikeDbClient(): DbHandle | null {
     }
   }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
-  return ctx?.ready && !ctx.error ? ctx.db : null;
+  return ctx?.ready && !ctx.error && ctx.profileBootstrapReport.runtime.engine === 'pglite'
+    ? ctx.db
+    : null;
 }
 
 export function useTokenCacheStore(): TokenCacheStoreRepo | null {

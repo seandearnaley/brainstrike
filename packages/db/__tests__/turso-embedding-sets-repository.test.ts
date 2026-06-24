@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import { applyTursoSchemaBaseline } from '../src/turso/schema-baseline.js';
@@ -264,9 +264,11 @@ describe('TursoEmbeddingSetsRepository', () => {
        VALUES (?, ?, ?, ?, ?)`,
       ['chunk-1', 'file-1', 0, 'hello', created.id]
     );
+    const transaction = vi.spyOn(client, 'transaction');
 
     await expect(repository.delete(created.id)).resolves.toBe(true);
 
+    expect(transaction).toHaveBeenCalledTimes(1);
     await expect(
       client.query<{ id: string }>('SELECT id FROM file_chunks WHERE id = ?', ['chunk-1'])
     ).resolves.toEqual({ rows: [] });

@@ -1,3 +1,4 @@
+import type { TransactionStatement } from '../atomic-transaction.js';
 import type { ElectronDbAPI } from './electron-file-record-repository.js';
 import { EmbeddingSetsRepository } from './embedding-sets-repository.js';
 
@@ -27,6 +28,12 @@ class ElectronEmbeddingSetsDbAdapter {
         : await this.electronDb.query(sql);
     return { rows: result.rows as T[] };
   }
+
+  async transaction<T>(): Promise<T> {
+    throw new Error(
+      'ElectronEmbeddingSetsDbAdapter does not support callback transactions. Use ElectronEmbeddingSetsRepository methods backed by the atomic IPC transaction primitive.'
+    );
+  }
 }
 
 /**
@@ -34,7 +41,22 @@ class ElectronEmbeddingSetsDbAdapter {
  * Used in Electron renderer process to communicate with main process database
  */
 export class ElectronEmbeddingSetsRepository extends EmbeddingSetsRepository {
-  constructor(db: ElectronDbAPI) {
-    super(new ElectronEmbeddingSetsDbAdapter(db));
+  constructor(private readonly electronDb: ElectronDbAPI) {
+    super(new ElectronEmbeddingSetsDbAdapter(electronDb));
+  }
+
+  override async delete(id: string): Promise<boolean> {
+    if (!this.electronDb.transaction) {
+      throw new Error(
+        'Electron embedding set deletion requires the atomic database transaction IPC channel.'
+      );
+    }
+
+    const statements: TransactionStatement[] = [
+      { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: [id] },
+      { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: [id] },
+    ];
+    const result = await this.electronDb.transaction(statements, 1);
+    return result.rows.length > 0;
   }
 }

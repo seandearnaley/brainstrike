@@ -37,6 +37,7 @@ interface TursoEmbeddingSetRow {
 
 interface TursoEmbeddingSpaceListingRow {
   readonly averageTokensPerChunk?: number | string | null;
+  readonly category: string | null;
   readonly createdAt: string;
   readonly description: string | null;
   readonly dimensions: number | string;
@@ -47,6 +48,8 @@ interface TursoEmbeddingSpaceListingRow {
   readonly modelId: string;
   readonly modelKey: string;
   readonly name: string | null;
+  readonly systemRole?: string | null;
+  readonly tags: string | null;
   readonly tokenizedChunkCount?: number | string | null;
   readonly totalChunks?: number | string | null;
   readonly totalTokens?: number | string | null;
@@ -275,6 +278,9 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
                es.dimensions,
                es.distance,
                es.created_at AS createdAt,
+               es.tags,
+               es.category,
+               es.system_role AS systemRole,
                COALESCE(fs.fileCount, 0) AS fileCount,
                COALESCE(cs.totalChunks, 0) AS totalChunks,
                COALESCE(cs.embeddedChunks, 0) AS embeddedChunks,
@@ -295,7 +301,10 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
                model_id AS modelId,
                dimensions,
                distance,
-               created_at AS createdAt
+               created_at AS createdAt,
+               tags,
+               category,
+               system_role AS systemRole
              FROM embedding_sets
              ORDER BY created_at DESC`
           );
@@ -304,12 +313,16 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    await this.db.exec('DELETE FROM file_chunks WHERE embedding_set_id = ?', [id]);
-    const result = await this.db.query<{ id: string }>(
-      'DELETE FROM embedding_sets WHERE id = ? RETURNING id',
-      [id]
-    );
-    return result.rows.length > 0;
+    const existing = await this.getRowById(id);
+    if (!existing) {
+      return false;
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx.exec('DELETE FROM file_chunks WHERE embedding_set_id = ?', [id]);
+      await tx.exec('DELETE FROM embedding_sets WHERE id = ?', [id]);
+    });
+    return true;
   }
 
   private async findWorkspaceIndexSetRow(): Promise<TursoEmbeddingSetRow | null> {
@@ -368,6 +381,9 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
       modelId: row.modelId,
       modelKey: row.modelKey,
       name: row.name,
+      tags: row.tags,
+      category: row.category,
+      systemRole: row.systemRole ?? null,
     };
     if (options.includeStats !== true) {
       return listing;

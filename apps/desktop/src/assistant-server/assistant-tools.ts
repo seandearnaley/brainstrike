@@ -1880,6 +1880,9 @@ async function runListEmbeddingSpaces(
       dimensions: listing.dimensions,
       distance: listing.distance,
       createdAt: listing.createdAt,
+      tags: listing.tags,
+      category: listing.category,
+      systemRole: listing.systemRole ?? null,
       isWorkspaceIndex,
       recommendedForWorkspaceSearch: isWorkspaceIndex,
     };

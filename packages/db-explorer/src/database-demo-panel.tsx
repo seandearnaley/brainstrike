@@ -2,6 +2,7 @@ import {
   type DrizzleFileChunkRepository,
   type ElectronFileChunkRepository,
   type EmbeddingSet,
+  isTursoFileChunkRepository,
   refreshCollectionIndexingStats,
   useBrainstrikeDbClient,
   useClearAllData,
@@ -143,12 +144,6 @@ declare global {
 }
 
 const logger = createLogger('DatabaseDemoPanel');
-
-function isTursoFileChunkRepository(
-  repository: ReturnType<typeof useFileChunkRepository>
-): boolean {
-  return repository?.constructor.name === 'TursoFileChunkRepository';
-}
 
 function toSemanticSearchChunkRepository(
   repository: ReturnType<typeof useFileChunkRepository>

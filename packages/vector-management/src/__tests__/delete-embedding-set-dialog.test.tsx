@@ -58,4 +58,42 @@ describe('DeleteEmbeddingSetDialog', () => {
     });
     expect(mockOnSetDeleted).toHaveBeenCalledWith('set-1');
   });
+
+  it('does not emit deleted side effects when the repository reports a missing collection', async () => {
+    const user = userEvent.setup();
+    const missingRepository = {
+      delete: vi.fn().mockResolvedValue(false),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <DeleteEmbeddingSetDialog
+          embeddingSet={{
+            id: 'missing-set',
+            modelKey: 'openai::text-embedding-3-small',
+            modelId: 'text-embedding-3-small',
+            dimensions: 1536,
+            distance: 'cosine',
+            createdAt: '2024-01-01T00:00:00Z',
+            name: 'Missing Docs',
+            chunkCount: 0,
+          }}
+          onOpenChange={mockOnOpenChange}
+          onSetDeleted={mockOnSetDeleted}
+          open={true}
+          repository={missingRepository}
+        />
+      </>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Delete Collection' }));
+
+    await waitFor(() => {
+      expect(missingRepository.delete).toHaveBeenCalledWith('missing-set');
+    });
+    expect(dispatchEmbeddingSetUpdated).not.toHaveBeenCalled();
+    expect(mockOnSetDeleted).not.toHaveBeenCalled();
+    expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
+  });
 });
