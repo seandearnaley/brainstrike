@@ -1,6 +1,5 @@
 import {
   extractDbExecutionClient,
-  type IDatabase,
   JobQueue,
   TursoJobQueue,
   useModelRegistryDbClient,
@@ -24,7 +23,7 @@ export function useEmbeddingJobQueue(): EmbeddingJobQueue | null {
       return null;
     }
     if (engine === 'pglite') {
-      return new JobQueue(db as IDatabase);
+      return new JobQueue(db);
     }
     if (engine === 'turso') {
       const executionClient = extractDbExecutionClient(db);
