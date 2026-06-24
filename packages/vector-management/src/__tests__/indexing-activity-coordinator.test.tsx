@@ -30,7 +30,7 @@ const {
   createPriorityDbHandleMock,
   getDatabaseWorkSchedulerMock,
   makeLiveQueryKeyMock,
-  useBrainstrikeDbClientMock,
+  usePGliteDatabaseMock,
   useBrainstrikeLiveQueryMock,
   useSharedEmbeddingRuntimeMock,
 } = vi.hoisted(() => {
@@ -45,7 +45,7 @@ const {
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClientMock: vi.fn((): unknown => null),
+    usePGliteDatabaseMock: vi.fn((): unknown => null),
     useBrainstrikeLiveQueryMock: vi.fn(),
     useSharedEmbeddingRuntimeMock: vi.fn(),
   };
@@ -133,7 +133,7 @@ vi.mock('@brainstrike/db', () => ({
   createPriorityDbHandle: createPriorityDbHandleMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
-  useBrainstrikeDbClient: useBrainstrikeDbClientMock,
+  usePGliteDatabase: usePGliteDatabaseMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
@@ -207,7 +207,7 @@ describe('IndexingActivityCoordinator', () => {
     liveQueryState.loading = false;
     liveQueryState.error = null;
     databaseWorkSchedulerState.current = null;
-    useBrainstrikeDbClientMock.mockReturnValue(null);
+    usePGliteDatabaseMock.mockReturnValue(null);
     useBrainstrikeLiveQueryMock.mockImplementation(() => ({
       rows: liveQueryState.rows,
       loading: liveQueryState.loading,
@@ -236,7 +236,7 @@ describe('IndexingActivityCoordinator', () => {
         },
       ],
     }));
-    useBrainstrikeDbClientMock.mockReturnValue({ query });
+    usePGliteDatabaseMock.mockReturnValue({ query });
 
     render(<IndexingActivityCoordinator />);
 
@@ -375,7 +375,7 @@ describe('IndexingActivityCoordinator', () => {
         };
       }),
     };
-    useBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
 
     render(<IndexingActivityCoordinator />);
 

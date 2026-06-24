@@ -7,6 +7,7 @@ const {
   ensureStartedMock,
   runEnhancedImportMock,
   mockUseBrainstrikeDbClient,
+  mockUsePGliteDatabase,
   mockUseFileChunkRepository,
   mockUseFileRecordRepository,
   createBulkOperationContextMock,
@@ -34,6 +35,7 @@ const {
     })),
     runEnhancedImportMock: vi.fn(),
     mockUseBrainstrikeDbClient: vi.fn(() => mockDb),
+    mockUsePGliteDatabase: vi.fn(() => mockDb),
     mockUseFileRecordRepository: vi.fn(() => mockFileRecordRepository),
     mockUseFileChunkRepository: vi.fn(() => mockFileChunkRepository),
     bulkOperationState: state,
@@ -74,6 +76,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: mockUseFileRecordRepository,
   useFileChunkRepository: mockUseFileChunkRepository,
   useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
+  usePGliteDatabase: mockUsePGliteDatabase,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,

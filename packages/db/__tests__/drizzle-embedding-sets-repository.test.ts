@@ -383,6 +383,38 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(found).toBeNull();
     });
 
+    it('deletes chunks associated with the set while leaving file records', async () => {
+      const created = await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await client.query(
+        `INSERT INTO file_records (id, name, path, size, embedding_set_id)
+         VALUES ('file-1', 'file.md', '/file.md', 12, $1)`,
+        [created.id]
+      );
+      await client.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
+         VALUES ('chunk-1', 'file-1', 0, 'hello', $1)`,
+        [created.id]
+      );
+
+      await expect(repository.delete(created.id)).resolves.toBe(true);
+
+      const chunkRows = await client.query<{ id: string }>(
+        'SELECT id FROM file_chunks WHERE id = $1',
+        ['chunk-1']
+      );
+      expect(chunkRows.rows).toEqual([]);
+      const fileRows = await client.query<{ id: string }>(
+        'SELECT id FROM file_records WHERE id = $1',
+        ['file-1']
+      );
+      expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
+    });
+
     it('should return false for non-existent id', async () => {
       const deleted = await repository.delete('00000000-0000-0000-0000-000000000000');
 

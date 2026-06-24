@@ -310,10 +310,10 @@ export interface ElectronDatabaseAPI {
   /**
    * Atomic transaction over IPC (#1141): run `statements` in order inside ONE
    * `pglite.transaction()` in the main process and return the rows of
-   * `statements[resultIndex]`. Distinct from `transaction` above because a callback
-   * can't cross the IPC boundary — the statements are shipped as data. PGlite's
-   * transaction lock serializes a concurrent `query()` (e.g. the FTS half of a hybrid
-   * search) so it can't interleave.
+   * `statements[resultIndex]`. A callback transaction cannot cross the IPC
+   * boundary; statements are shipped as data. PGlite's transaction lock
+   * serializes a concurrent `query()` (e.g. the FTS half of a hybrid search)
+   * so it can't interleave.
    */
   runTransaction?: (
     statements: { sql: string; params?: unknown[] }[],
@@ -330,11 +330,6 @@ export interface ElectronDatabaseAPI {
    * Test database connection health
    */
   test?: () => Promise<DatabaseTestResult>;
-
-  /**
-   * Execute multiple statements within a transaction
-   */
-  transaction?: <T>(fn: (tx: ElectronDatabaseAPI) => Promise<T>) => Promise<T>;
 }
 
 /**

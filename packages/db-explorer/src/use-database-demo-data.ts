@@ -43,8 +43,15 @@ const logger = createLogger('DatabaseDemoData');
  * This must match the expected values in database-status-item.tsx for proper status bar display.
  * - "Main Process" → displays as "IPC" in status bar
  * - "PGlite WASM" → displays as "PGlite WASM" in status bar
+ * - "Turso" → displays as "Turso" in status bar
  */
-function resolveStorageLocation(repository: IFileRecordRepository | null): string {
+function resolveStorageLocation(
+  repository: IFileRecordRepository | null,
+  databaseRuntimeEngine?: string | null
+): string {
+  if (databaseRuntimeEngine === 'turso') {
+    return 'Turso';
+  }
   if (!repository) {
     return 'Unknown';
   }
@@ -71,6 +78,8 @@ export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
   chunkRepository?: DatabaseDemoChunkRepository | null;
   database?: DbHandle | null;
+  /** Selected database engine, used for diagnostics labels and engine-specific probes. */
+  databaseRuntimeEngine?: string | null;
   /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
@@ -288,6 +297,7 @@ export function useDatabaseDemoData({
   recordPage = 0,
   recordPageSize = 50,
   supportsPGliteCollectionQueries = true,
+  databaseRuntimeEngine = null,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
@@ -1155,7 +1165,7 @@ export function useDatabaseDemoData({
   }, [fallbackError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
-    const location = resolveStorageLocation(repository);
+    const location = resolveStorageLocation(repository, databaseRuntimeEngine);
     if (!repository) {
       setDbInfo({
         location,
@@ -1182,13 +1192,14 @@ export function useDatabaseDemoData({
         connected: false,
       });
     }
-  }, [repository]);
+  }, [databaseRuntimeEngine, repository]);
 
   const databasePingHandlers = useMemo(() => {
     const handlers: Array<() => Promise<void>> = [];
     if (typeof window === 'undefined') {
       return handlers;
     }
+    const location = databaseRuntimeEngine === 'turso' ? 'Turso' : 'Main Process';
     const w = window as unknown as {
       electronAPI?: {
         db?: {
@@ -1204,7 +1215,7 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.ping?.();
           if (res?.success) {
             setDbInfo({
-              location: 'Main Process',
+              location,
               testResult: 'connected',
               connected: true,
             });
@@ -1222,7 +1233,7 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.test?.();
           if (res?.success) {
             setDbInfo({
-              location: 'Main Process',
+              location,
               testResult: 'Connected (IPC)',
               connected: true,
             });
@@ -1235,7 +1246,7 @@ export function useDatabaseDemoData({
     }
 
     return handlers;
-  }, []);
+  }, [databaseRuntimeEngine]);
 
   useEffect(() => {
     if (!repository) {
@@ -1270,6 +1281,9 @@ export function useDatabaseDemoData({
     if (!database) {
       return;
     }
+    if (databaseRuntimeEngine === 'turso') {
+      return;
+    }
     let canceled = false;
     const fetchInfo = async () => {
       try {
@@ -1296,7 +1310,7 @@ export function useDatabaseDemoData({
     return () => {
       canceled = true;
     };
-  }, [database]);
+  }, [database, databaseRuntimeEngine]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
 

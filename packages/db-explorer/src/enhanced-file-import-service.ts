@@ -9,6 +9,7 @@ import {
   useBrainstrikeDbClient,
   useFileChunkRepository,
   useFileRecordRepository,
+  usePGliteDatabase,
 } from '@brainstrike/db';
 import type {
   BaseImportRunner,
@@ -320,6 +321,7 @@ export function useEnhancedFileImportService(
     [dbChunkRepository]
   );
   const db = useBrainstrikeDbClient();
+  const pgliteDb = usePGliteDatabase();
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders
@@ -500,16 +502,16 @@ export function useEnhancedFileImportService(
     if (browserQueuePort) {
       return null;
     }
-    if (!(embedQueueEnabled && db)) {
+    if (!(embedQueueEnabled && pgliteDb)) {
       return null;
     }
 
     return createEmbeddingJobQueuePort({
-      db,
+      db: pgliteDb,
       createQueue: (executor) => new JobQueue(executor),
       defaultExpectedDimension: DEFAULT_EMBEDDING_DIMENSION,
     });
-  }, [browserQueuePort, db, embedQueueEnabled]);
+  }, [browserQueuePort, embedQueueEnabled, pgliteDb]);
 
   const queuePort = browserQueuePort ?? jobQueuePort;
 

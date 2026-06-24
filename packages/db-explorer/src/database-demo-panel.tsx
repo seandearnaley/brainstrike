@@ -9,6 +9,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
@@ -195,6 +196,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
 
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
@@ -233,7 +235,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         activeCollectionId === managedCollectionId)
   );
   const tursoChunkRepository = isTursoFileChunkRepository(dbChunkRepository);
-  const supportsPGliteCollectionQueries = !tursoChunkRepository;
+  const supportsPGliteCollectionQueries = Boolean(dbChunkRepository && !tursoChunkRepository);
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -280,6 +282,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     recordPage,
     recordPageSize,
     supportsPGliteCollectionQueries,
+    databaseRuntimeEngine: profileBootstrapReport?.runtime.engine ?? null,
   });
   const {
     collectionCounts,
@@ -857,7 +860,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Delete Collection Dialog */}
       {collectionDialogs.deleteDialogOpen && collectionDialogs.selectedCollection && (
         <DeleteEmbeddingSetDialog
-          db={dbContext as never}
           embeddingSet={{
             id: collectionDialogs.selectedCollection.id,
             modelKey: collectionDialogs.selectedCollection.modelKey,
@@ -892,6 +894,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             }
           }}
           open={collectionDialogs.deleteDialogOpen}
+          repository={embeddingSetsRepository}
         />
       )}
     </div>

@@ -80,6 +80,7 @@ const mockStoreState = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
@@ -93,7 +94,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
   };
 });
 
-import { useBrainstrikeLiveQuery } from '@brainstrike/db';
+import { useBrainstrikeLiveQuery, useOptionalPGliteDatabase } from '@brainstrike/db';
 import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
@@ -110,6 +111,7 @@ describe('useCollections', () => {
     mockStoreState.cachedCollections = [];
     mockDb.query.mockImplementation(() => new Promise(() => {}));
     vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   });
 
   describe('Live Query Enabling', () => {
@@ -176,6 +178,22 @@ describe('useCollections', () => {
           enabled: false,
         })
       );
+    });
+
+    it('should disable live query and use snapshot data when no PGlite live source is available', async () => {
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(result.current.collections.at(0)?.id).toBe('set-1');
     });
 
     it('keeps the collection live query attached during embedding generation', () => {

@@ -304,6 +304,7 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
+    await this.db.exec('DELETE FROM file_chunks WHERE embedding_set_id = ?', [id]);
     const result = await this.db.query<{ id: string }>(
       'DELETE FROM embedding_sets WHERE id = ? RETURNING id',
       [id]

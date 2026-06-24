@@ -76,6 +76,8 @@ const ERROR_MESSAGES = {
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
+  tursoUnavailable:
+    'brainstrike.queryEmbeddingSpace is unavailable while the desktop database runtime is Turso; Turso vector retrieval is not migrated yet.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
 
@@ -93,6 +95,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.embeddingDimensionMismatch,
   ERROR_MESSAGES.embeddingFailed,
   ERROR_MESSAGES.missingSourceRange,
+  ERROR_MESSAGES.tursoUnavailable,
 ]);
 
 interface EmbeddingSetRow {
@@ -142,6 +145,13 @@ interface ContextChunkConversionResult {
 
 export interface RetrievalToolDependencies {
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
+}
+
+function assertPGliteRetrievalDatabase(db: unknown): asserts db is PGlite {
+  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
+  if (capabilities?.liveQuery === false) {
+    throw new Error(ERROR_MESSAGES.tursoUnavailable);
+  }
 }
 
 interface ToolContext<TInput> {
@@ -716,7 +726,8 @@ async function runRetrieval(
     throw new Error(ERROR_MESSAGES.missingEmbeddingSet);
   }
 
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
+  assertPGliteRetrievalDatabase(db);
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
   const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);

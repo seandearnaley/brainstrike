@@ -5,9 +5,19 @@ import { describe, expect, it } from 'vitest';
 const DB_EXPLORER_SRC_DIR = resolve(import.meta.dirname, '..');
 const OLD_PGLITE_UI_ALIASES = [
   'usePGliteDatabase',
+  'useOptionalPGliteDatabase',
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ] as const;
+const PGLITE_ONLY_CONSUMERS = new Set([
+  '__tests__/enhanced-file-import-service.test.ts',
+  'enhanced-file-import-service.ts',
+]);
+const PGLITE_CAPABILITY_CONSUMERS = new Set([
+  '__tests__/database-demo-panel.test.tsx',
+  'hooks/__tests__/use-collection-embedding-coverage.test.ts',
+  'hooks/use-collection-embedding-coverage.ts',
+]);
 
 async function listSourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -33,10 +43,17 @@ describe('db explorer database hook imports', () => {
       if (file === resolve(import.meta.filename)) {
         continue;
       }
+      const relativeFile = file.replace(`${DB_EXPLORER_SRC_DIR}/`, '');
       const source = await readFile(file, 'utf8');
       for (const alias of OLD_PGLITE_UI_ALIASES) {
         if (source.includes(alias)) {
-          matches.push(`${file.replace(`${DB_EXPLORER_SRC_DIR}/`, '')}: ${alias}`);
+          if (
+            (alias === 'usePGliteDatabase' && PGLITE_ONLY_CONSUMERS.has(relativeFile)) ||
+            (alias === 'useOptionalPGliteDatabase' && PGLITE_CAPABILITY_CONSUMERS.has(relativeFile))
+          ) {
+            continue;
+          }
+          matches.push(`${relativeFile}: ${alias}`);
         }
       }
     }

@@ -76,17 +76,18 @@
 export function getBackfillDisabledState(params: {
   activeId: string | null;
   hasDb: boolean;
+  unavailableReason?: string | undefined;
   backfilling: boolean;
   coverage: { total: number; withSet: number };
   queueCounts: { queued: number; running: number };
 }): { disabled: boolean; title: string } {
-  const { activeId, hasDb, backfilling, coverage, queueCounts } = params;
+  const { activeId, hasDb, unavailableReason, backfilling, coverage, queueCounts } = params;
   // Evaluate reasons in priority order and early-return to keep complexity low
   if (!activeId) {
     return { disabled: true, title: 'Select an active embedding set' };
   }
   if (!hasDb) {
-    return { disabled: true, title: 'Database not ready yet' };
+    return { disabled: true, title: unavailableReason ?? 'Database not ready yet' };
   }
   if (backfilling) {
     return { disabled: true, title: 'Backfilling in progress' };

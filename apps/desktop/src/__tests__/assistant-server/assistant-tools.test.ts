@@ -96,6 +96,7 @@ describe('assistant-tools', () => {
   }
 
   beforeEach(() => {
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
     for (const id of trackedWindowIds) {
       clearWindowRoleByWebContentsId(id);
@@ -303,6 +304,19 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updateWorkspaceTapestrySelections']).toBeDefined();
     expect(tools['brainstrike.selectRootTreeFiles']).toBeUndefined();
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
+  });
+
+  it('omits PGlite-only search tools when Turso runtime is selected', () => {
+    vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
+
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+    } as RuntimeData);
+
+    expect(tools['brainstrike.grepSearch']).toBeUndefined();
+    expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
+    expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
+    expect(tools['brainstrike.readWorkspaceFile']).toBeDefined();
   });
 
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {

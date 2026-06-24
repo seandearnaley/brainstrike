@@ -1,5 +1,9 @@
 import type { EmbeddingSetSystemRole, useBrainstrikeDbClient } from '@brainstrike/db';
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
@@ -355,6 +359,7 @@ function areCollectionsEqual(
 }
 
 export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | null | undefined) {
+  const pgliteDb = useOptionalPGliteDatabase();
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
@@ -366,13 +371,13 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   const pendingMutationsRef = useRef(new Map<string, PendingCollectionMutationReason>());
   cachedCollectionsRef.current = cachedCollections;
   // Only enable live queries when:
-  // 1. Database is available
+  // 1. Generic database and PGlite live-query source are both available
   // 2. Schema has been verified (migrations completed, tables exist)
   // 3. Not currently importing files
   //
   // Background embedding must not detach foreground collection updates: the
   // collection selector is the user's navigation surface while indexing runs.
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
+  const liveQueryEnabled = Boolean(db) && Boolean(pgliteDb) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;

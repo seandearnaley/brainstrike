@@ -1,4 +1,4 @@
-import { JobQueue, useBrainstrikeDbClient } from '@brainstrike/db';
+import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import { isAppActive } from '@brainstrike/hooks';
 import type { QueueStatsSnapshot } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
@@ -22,7 +22,7 @@ export interface EmbeddingJobQueueTrackerProps {
 export function EmbeddingJobQueueTracker({
   intervalMs = JOB_QUEUE_POLL_MS,
 }: EmbeddingJobQueueTrackerProps): null {
-  const db = useBrainstrikeDbClient();
+  const db = usePGliteDatabase();
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
   const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
   const setDurableQueueStats = useVectorStatusUIStore((s) => s.setDurableQueueStats);

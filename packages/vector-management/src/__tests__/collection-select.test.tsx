@@ -16,6 +16,7 @@ vi.mock('@brainstrike/db', () => ({
     refresh: vi.fn(),
     rows: [],
   })),
+  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
 const workspaceIndexCollection: CollectionWithDocCount = {

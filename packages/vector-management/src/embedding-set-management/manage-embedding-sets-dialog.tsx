@@ -461,7 +461,6 @@ export function ManageEmbeddingSetsDialog({
       />
 
       <DeleteEmbeddingSetDialog
-        db={db}
         embeddingSet={selectedSet}
         onOpenChange={(open) => {
           if (!open) {
@@ -470,6 +469,7 @@ export function ManageEmbeddingSetsDialog({
         }}
         onSetDeleted={handleSetAction}
         open={deleteDialogOpen}
+        repository={repository}
       />
     </>
   );

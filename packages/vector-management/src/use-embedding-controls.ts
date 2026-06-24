@@ -1,4 +1,4 @@
-import { useBrainstrikeDbClient, useVectorEnabled } from '@brainstrike/db';
+import { useVectorEnabled } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
@@ -9,6 +9,9 @@ import type { EmbeddingStatusBarProps } from './embedding-status-bar';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
+
+const VECTOR_QUEUE_UNAVAILABLE_REASON =
+  'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.';
 
 export interface UseEmbeddingControlsOptions {
   /** Chunk repository with coverage methods */
@@ -95,7 +98,6 @@ function getWorkerStatus(
 export function useEmbeddingControls({
   toast,
 }: UseEmbeddingControlsOptions): UseEmbeddingControlsResult {
-  const db = useBrainstrikeDbClient();
   const vectorEnabled = useVectorEnabled();
 
   // Get active collection from shared store
@@ -141,6 +143,7 @@ export function useEmbeddingControls({
     isImporting,
     isEmbeddingActive,
   });
+  const hasQueueService = Boolean(service);
 
   // Update refs
   backfillRef.current = queueState.backfillActiveSet;
@@ -150,7 +153,10 @@ export function useEmbeddingControls({
   const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
   const isDesktopPlatform = typeof window !== 'undefined' && isElectronRenderer();
   const needsWorkerStart =
-    isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
+    hasQueueService &&
+    isWebPlatform &&
+    !workerControls.workerLocalRunning &&
+    !workerControls.startingWorker;
   const dropdownStartingWorker =
     !(queueState.backfilling || isDesktopPlatform) && workerControls.startingWorker;
 
@@ -158,9 +164,8 @@ export function useEmbeddingControls({
   const handleBackfillWithWorkerStart = useCallback(async () => {
     if (!service) {
       toast({
-        title: 'Database Not Ready',
-        description:
-          'The vector queue service is not available. Try switching tabs or restarting the app.',
+        title: 'Vector Queue Unavailable',
+        description: VECTOR_QUEUE_UNAVAILABLE_REASON,
         variant: 'destructive',
       });
       return;
@@ -215,7 +220,8 @@ export function useEmbeddingControls({
   // Get disabled state for backfill button
   const { disabled: backfillDisabled, title: disabledReason } = getBackfillDisabledState({
     activeId,
-    hasDb: Boolean(db),
+    hasDb: hasQueueService,
+    unavailableReason: VECTOR_QUEUE_UNAVAILABLE_REASON,
     backfilling: queueState.activeSetBackfilling,
     coverage: queueState.coverage,
     queueCounts: queueState.activeSetQueueCounts,
@@ -230,8 +236,6 @@ export function useEmbeddingControls({
     queueState.throughput
   );
 
-  const hasDb = Boolean(db);
-
   // Props for the actions dropdown
   const dropdownProps: EmbeddingActionsDropdownProps = {
     backfilling: queueState.activeSetBackfilling,
@@ -240,7 +244,7 @@ export function useEmbeddingControls({
     disabled: backfillDisabled,
     disabledReason,
     failedCount: queueState.queueCounts.failed,
-    hasDb,
+    hasDb: hasQueueService,
     onBackfill: handleBackfillWithWorkerStart,
     onClearQueue: queueState.clearQueue,
     onRetryFailed: queueState.retryFailed,
@@ -263,6 +267,6 @@ export function useEmbeddingControls({
   return {
     dropdownProps,
     statusBarProps,
-    hasDb,
+    hasDb: hasQueueService,
   };
 }

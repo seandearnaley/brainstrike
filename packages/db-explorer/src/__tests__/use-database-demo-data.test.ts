@@ -1621,6 +1621,35 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.dbInfo?.location).toBe('PGlite WASM');
   });
 
+  it('resolves storage location as Turso without running the PGlite info query', async () => {
+    const repository = createRepository([], 3);
+    const chunkRepository = createChunkRepository([]);
+    const databaseQuery = vi.fn(async () => ({ rows: [] }));
+    const database = { query: databaseQuery };
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database,
+        activeCollectionId: 'set-1',
+        databaseRuntimeEngine: 'turso',
+        supportsPGliteCollectionQueries: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    expect(result.current.dbInfo?.location).toBe('Turso');
+    expect(databaseQuery).not.toHaveBeenCalledWith('SELECT \'PGlite WASM\' AS "location"');
+  });
+
   it('resolves storage location as Main Process for Electron repository', async () => {
     // Create a mock repository with constructor name matching ElectronFileRecordRepository
     const electronRepository = {

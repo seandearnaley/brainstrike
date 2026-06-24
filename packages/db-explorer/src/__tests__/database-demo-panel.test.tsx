@@ -162,6 +162,9 @@ const mockDatabase = {
 };
 let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
+let mockProfileBootstrapReport: { runtime: { engine: string } } | null = {
+  runtime: { engine: 'pglite' },
+};
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
@@ -188,7 +191,10 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
+    useOptionalPGliteDatabase: () =>
+      mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
+    useOptionalProfileBootstrapReport: () => mockProfileBootstrapReport,
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
     useDbProviderError: () => null,
     useFactoryReset: () => null,
@@ -451,6 +457,7 @@ describe('DatabaseDemoPanel', () => {
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
     mockCurrentChunkRepository = mockChunkRepository;
+    mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
@@ -800,6 +807,19 @@ describe('DatabaseDemoPanel', () => {
 
     it('disables manual import when database or chunk storage is unavailable', async () => {
       mockDatabaseClient = null;
+      mockCurrentChunkRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import when Turso has no chunk repository bridge', async () => {
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
       mockCurrentChunkRepository = null;
 
       renderWithProviders(<DatabaseDemoPanel />);

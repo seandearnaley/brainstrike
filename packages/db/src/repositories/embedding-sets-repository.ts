@@ -421,6 +421,7 @@ export class EmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
+    await this.db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [id]);
     const result = await this.db.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [
       id,
     ]);

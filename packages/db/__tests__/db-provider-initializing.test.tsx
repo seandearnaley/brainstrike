@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vite
 import { createPriorityDbHandle } from '../src/database-work-scheduler';
 import {
   DbProvider,
+  useBrainstrikeDbClient,
   useDbInitializationStatus,
   useDbInitializing,
   useEmbeddingSetsRepository,
@@ -553,14 +554,6 @@ describe('DbProvider initializing state', () => {
         return { rows: [] };
       }
     );
-    const transaction = vi.fn(
-      async (
-        callback: (tx: {
-          exec: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-          query: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-        }) => Promise<unknown>
-      ) => await callback({ exec, query })
-    );
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -603,13 +596,13 @@ describe('DbProvider initializing state', () => {
       exec,
       query,
       runTransaction,
-      transaction,
       test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
     });
 
     const { result } = renderHook(
       () => {
-        const db = usePGliteDatabase();
+        const db = useBrainstrikeDbClient();
+        const pgliteDb = usePGliteDatabase();
         const fileRecordRepository = useFileRecordRepository();
         const chunkRepository = useFileChunkRepository();
         const initializationStatus = useDbInitializationStatus();
@@ -619,6 +612,7 @@ describe('DbProvider initializing state', () => {
         const tokenCacheStore = useTokenCacheStore();
         return {
           db,
+          pgliteDb,
           chunkRepository,
           embeddingSetsRepository,
           fileRecordRepository,
@@ -641,6 +635,7 @@ describe('DbProvider initializing state', () => {
     expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
     expect(diagnostics).not.toHaveBeenCalled();
     expect(result.current.db).toBeTruthy();
+    expect(result.current.pgliteDb).toBeNull();
     expect(result.current.presetsRepository?.constructor.name).toBe(
       'TursoViewFilterPresetsRepository'
     );
@@ -648,7 +643,7 @@ describe('DbProvider initializing state', () => {
       'TursoEmbeddingSetsRepository'
     );
     expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
-    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
+    expect(result.current.chunkRepository).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
 
     if (!result.current.db) {
@@ -667,48 +662,6 @@ describe('DbProvider initializing state', () => {
     query.mockClear();
     exec.mockClear();
     runTransaction.mockClear();
-    transaction.mockClear();
-
-    if (!result.current.chunkRepository) {
-      throw new Error('Expected Turso file chunk repository.');
-    }
-    await expect(
-      result.current.chunkRepository.insertMany([
-        {
-          chunkIndex: 0,
-          chunkSize: 11,
-          chunkType: 'text',
-          content: 'hello turso',
-          contentHash: 'chunk-hash-1',
-          createdAt: '2026-06-22T19:00:00.000Z',
-          fileRecordId: 'file-1',
-          id: 'chunk-1',
-          tokenCount: 2,
-          updatedAt: '2026-06-22T19:00:00.000Z',
-        },
-      ])
-    ).resolves.toEqual([
-      expect.objectContaining({
-        chunkIndex: 0,
-        content: 'hello turso',
-        contentHash: 'chunk-hash-1',
-        fileRecordId: 'file-1',
-        id: 'chunk-1',
-      }),
-    ]);
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[0]).toContain('INSERT INTO file_chunks');
-    expect(query.mock.calls[0]?.[0]).not.toContain('::');
-    await expect(result.current.chunkRepository.findById('chunk-1')).resolves.toMatchObject({
-      content: 'hello turso',
-      contentHash: 'chunk-hash-1',
-      fileRecordId: 'file-1',
-      id: 'chunk-1',
-    });
-    await expect(result.current.chunkRepository.searchSimilar([0.1, 0.2, 0.3])).rejects.toThrow(
-      'TursoFileChunkRepository.searchSimilar requires the Turso vector search slice.'
-    );
-    query.mockClear();
 
     if (!result.current.fileRecordRepository) {
       throw new Error('Expected Turso file record repository.');
@@ -887,8 +840,9 @@ describe('DbProvider initializing state', () => {
     const { result } = renderHook(
       () => ({
         chunkRepository: useFileChunkRepository(),
-        db: usePGliteDatabase(),
+        db: useBrainstrikeDbClient(),
         initializationStatus: useDbInitializationStatus(),
+        pgliteDb: usePGliteDatabase(),
         tokenCacheStore: useTokenCacheStore(),
       }),
       { wrapper: electronIpcWrapper }
@@ -902,11 +856,12 @@ describe('DbProvider initializing state', () => {
     );
 
     expect(result.current.db).toBeTruthy();
+    expect(result.current.pgliteDb).toBeNull();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     expect(result.current.chunkRepository).toBeNull();
   });
 
-  it('does not expose the Turso file chunk repository when callback transaction lacks exec support', async () => {
+  it('does not expose the Turso file chunk repository from an unsupported callback transaction property', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql === 'SELECT 1 AS ok') {
         return { rows: [{ ok: 1 }] };
@@ -963,7 +918,7 @@ describe('DbProvider initializing state', () => {
       { timeout: 10_000 }
     );
 
-    expect(transaction).toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     expect(result.current.chunkRepository).toBeNull();
   });
