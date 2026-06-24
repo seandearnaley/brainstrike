@@ -1,5 +1,6 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createProfileBootstrapReport } from '../src/bootstrap/profile-bootstrap-report.js';
 import {
   deepEqual,
   escapePGliteLiveQueryFormatPercents,
@@ -10,10 +11,16 @@ import {
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
+  useOptionalDbInitializationStatus: vi.fn(() => 'ready'),
+  useOptionalProfileBootstrapReport: vi.fn(() => null),
   usePGliteDatabase: vi.fn(),
 }));
 
-import { usePGliteDatabase } from '../src/db-provider.js';
+import {
+  useOptionalDbInitializationStatus,
+  useOptionalProfileBootstrapReport,
+  usePGliteDatabase,
+} from '../src/db-provider.js';
 
 describe('usePGliteLiveQuery Performance', () => {
   let mockSubscribe: ReturnType<typeof vi.fn>;
@@ -221,6 +228,58 @@ describe('Electron Live Query', () => {
     await vi.waitFor(() => {
       expect(mockUnsubscribe).toHaveBeenCalled();
       expect(mockBridge.stop).toHaveBeenCalledWith(123);
+    });
+  });
+});
+
+describe('Brainstrike live query runtime availability', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    vi.mocked(useOptionalDbInitializationStatus).mockReturnValue('ready');
+    vi.mocked(useOptionalProfileBootstrapReport).mockReturnValue(
+      createProfileBootstrapReport({
+        checks: [],
+        phase: 'ready',
+        profileId: 'test-profile',
+        runtime: { engine: 'turso', host: 'electron-main', persistence: 'filesystem' },
+        search: {
+          indexedSearch: 'available',
+          message: 'Turso stores metadata; vector and FTS indexes stay in dedicated search tables.',
+          ownershipMode: 'split-search-index-store',
+        },
+        startedAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('surfaces an explicit unsupported error when an enabled query has no live-query source', async () => {
+    const states: ReturnType<typeof useBrainstrikeLiveQuery<Record<string, unknown>>>[] = [];
+
+    function TestComponent() {
+      const result = useBrainstrikeLiveQuery<Record<string, unknown>>({
+        query: 'SELECT * FROM file_records',
+        enabled: true,
+      });
+      states.push(result);
+      return null;
+    }
+
+    render(<TestComponent />);
+
+    await vi.waitFor(() => {
+      expect(states.at(-1)?.error?.message).toContain(
+        'Brainstrike live queries are unavailable for the current database runtime'
+      );
+    });
+    expect(states.at(-1)).toMatchObject({
+      loading: false,
+      rows: [],
     });
   });
 });

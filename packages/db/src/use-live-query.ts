@@ -6,12 +6,27 @@ import type {
   PGliteWithLive,
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePGliteDatabase } from './db-provider.js';
+import {
+  useOptionalDbInitializationStatus,
+  useOptionalProfileBootstrapReport,
+  usePGliteDatabase,
+} from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
 const logger = createLogger('UsePGliteLiveQuery');
+
+function buildLiveQueryUnavailableError(
+  report: ReturnType<typeof useOptionalProfileBootstrapReport>
+): Error {
+  const runtime = report
+    ? `${report.runtime.engine}/${report.runtime.host}/${report.runtime.persistence}`
+    : 'unknown runtime';
+  return new Error(
+    `Brainstrike live queries are unavailable for the current database runtime (${runtime}). Gate this feature on live-query capability or use a repository/query snapshot path.`
+  );
+}
 
 interface BaseLiveQueryOptions {
   /**
@@ -403,6 +418,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   options: UsePGliteLiveQueryOptions<T>
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
+  const initializationStatus = useOptionalDbInitializationStatus();
+  const bootstrapReport = useOptionalProfileBootstrapReport();
   const source = useMemo(() => resolveLiveSource(db), [db]);
   const [leaderRevision, setLeaderRevision] = useState(0);
   const hasCacheKey = options.cacheKey !== undefined;
@@ -432,7 +449,15 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const mode: 'query' | 'incremental' = options.mode ?? 'query';
   const requiresKey = mode === 'incremental';
   const hasKey = !requiresKey || typeof options.key === 'string';
-  const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
+  const requested = Boolean(options.enabled ?? true) && (!requiresKey || hasKey);
+  const enabled = requested && Boolean(source);
+  const unavailableError = useMemo(
+    () =>
+      requested && !source && initializationStatus === 'ready'
+        ? buildLiveQueryUnavailableError(bootstrapReport)
+        : null,
+    [bootstrapReport, initializationStatus, requested, source]
+  );
   const select = options.select;
 
   useEffect(() => {
@@ -467,7 +492,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       if (options.clearOnDisable) {
         setRawRows([]);
       }
-      setError(null);
+      setError(unavailableError);
       setLoading(false);
       refreshRef.current = noopAsync;
       return () => {
@@ -532,6 +557,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     options.key,
     options.limit,
     options.offset,
+    unavailableError,
     leaderRevision,
     paramsDep,
     options.query,
