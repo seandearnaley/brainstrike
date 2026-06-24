@@ -1,4 +1,4 @@
-import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
+import type { FileChunkRepository, JobQueue, ProfileBootstrapRuntime } from '@brainstrike/db';
 import {
   type ApiKeyValidationUnavailableReason,
   checkApiKeyAvailability,
@@ -71,6 +71,32 @@ export interface VectorQueueServiceDependencies {
     JobQueue,
     'clear' | 'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
   >;
+}
+
+type VectorQueueRuntimeEngine = ProfileBootstrapRuntime['engine'];
+
+export type VectorQueueServiceUnavailableReason =
+  | 'missing-db-or-coverage-repository'
+  | 'turso-vector-backfill-not-migrated'
+  | 'unsupported-db-runtime';
+
+export type VectorQueueServiceRuntimeResolution =
+  | {
+      available: true;
+      reason: null;
+      service: VectorQueueService;
+    }
+  | {
+      available: false;
+      reason: VectorQueueServiceUnavailableReason;
+      service: null;
+    };
+
+export interface VectorQueueServiceRuntimeDependencies {
+  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'> | null;
+  createPGliteJobQueue: (db: VectorQueueDatabase) => VectorQueueServiceDependencies['jobQueue'];
+  db: VectorQueueDatabase | null;
+  runtimeEngine: VectorQueueRuntimeEngine;
 }
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
@@ -524,6 +550,45 @@ export function createVectorQueueService(
 
       return { clearedCount, queueCounts };
     },
+  };
+}
+
+export function createVectorQueueServiceForRuntime(
+  dependencies: VectorQueueServiceRuntimeDependencies
+): VectorQueueServiceRuntimeResolution {
+  const { chunkRepository, createPGliteJobQueue, db, runtimeEngine } = dependencies;
+  if (!(db && chunkRepository)) {
+    return {
+      available: false,
+      reason: 'missing-db-or-coverage-repository',
+      service: null,
+    };
+  }
+
+  if (runtimeEngine === 'pglite') {
+    return {
+      available: true,
+      reason: null,
+      service: createVectorQueueService({
+        db,
+        jobQueue: createPGliteJobQueue(db),
+        chunkRepository,
+      }),
+    };
+  }
+
+  if (runtimeEngine === 'turso') {
+    return {
+      available: false,
+      reason: 'turso-vector-backfill-not-migrated',
+      service: null,
+    };
+  }
+
+  return {
+    available: false,
+    reason: 'unsupported-db-runtime',
+    service: null,
   };
 }
 

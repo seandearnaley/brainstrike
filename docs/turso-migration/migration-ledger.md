@@ -48,7 +48,8 @@ as the implementation backlog.
 - #1342 `Use Turso collection status snapshots in DB Explorer`
 - #1343 `Use Turso snapshots for collection coverage banner`
 - #1344 `Gate quick open on indexed repository snapshots`
-- Current slice: Turso indexed filename search for quick-open
+- #1346 `Use Turso vector queue stats and retry controls`
+- Current slice: runtime-keyed vector queue service gate for embedding runtime
 
 ## Turso Docs Guardrail
 
@@ -107,6 +108,11 @@ Current Turso repository/runtime coverage:
 - vector-management durable queue stats and retry/repair controls through a
   runtime-keyed queue hook that constructs `TursoJobQueue` only for ready Turso
   profiles
+- embedding runtime queue service construction now keys off the bootstrap
+  runtime. PGlite still constructs the legacy Postgres-shaped
+  `VectorQueueService`; Turso returns an explicit
+  `turso-vector-backfill-not-migrated` unavailable result so old PGlite SQL does
+  not run under Turso.
 
 ## Non-Negotiable Migration Rules
 
@@ -183,15 +189,21 @@ Known production touchpoints:
 - `packages/vector-management/src/vector-status/use-vector-queue-state.ts`
 - `packages/vector-management/src/vector-status/vector-status.tsx`
 
-Completed low-risk queue UI slice: `EmbeddingJobQueueTracker` and `QueueHud`
-now use a runtime-keyed queue hook. Ready Turso profiles can poll
-`TursoJobQueue.getQueueStats()` and run failed-job retry/repair controls without
-opening a PGlite handle.
+Completed low-risk queue UI slices:
 
-Remaining slice: introduce a background-indexing/vector queue service factory
-keyed by runtime. Use PGlite/Electron repositories today, and Turso file-record,
-file-chunk, embedding-set, and job-queue repositories for Turso. Preserve the
-hidden-renderer worker boundary. Do not route Turso backfill through
+- `EmbeddingJobQueueTracker` and `QueueHud` use a runtime-keyed queue hook.
+  Ready Turso profiles can poll `TursoJobQueue.getQueueStats()` and run
+  failed-job retry/repair controls without opening a PGlite handle.
+- `EmbeddingRuntimeProvider` no longer calls the PGlite-only database hook to
+  construct its vector queue service. It uses the generic ready DB client and
+  the bootstrap runtime, constructs `JobQueue` only for PGlite, and keeps Turso
+  service-null with an explicit unavailable reason.
+
+Remaining slice: introduce a Turso-capable backfill/repository port for
+candidate discovery, diagnostics, queue counts, and enqueue/drain operations.
+Use PGlite/Electron repositories today, and Turso file-record, file-chunk,
+embedding-set, and job-queue repositories for Turso. Preserve the
+hidden-renderer worker boundary. Do not enable Turso backfill through
 `vector-queue-service.ts` until its Postgres-shaped candidate-selection SQL and
 transaction query requirements are replaced with SQLite-compatible repository
 operations.
