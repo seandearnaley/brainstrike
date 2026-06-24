@@ -1349,7 +1349,7 @@ export function AssistantUiPanelWrapper({
   // panel never mounts the "@" feature. The app-shell owns the query state and
   // loads matches from the file index via `useFileMentions` (async-via-state).
   const [fileMentionQuery, setFileMentionQuery] = useState('');
-  const { fileMentions } = useFileMentions(fileMentionQuery);
+  const { error: fileMentionError, fileMentions } = useFileMentions(fileMentionQuery);
 
   return (
     <AssistantUiPanel
@@ -1369,7 +1369,11 @@ export function AssistantUiPanelWrapper({
       requestData={requestData}
       slashCommands={slashCommands}
       {...(desktopAssistantBackendAvailable
-        ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+        ? {
+            ...(fileMentionError ? { fileMentionError: fileMentionError.message } : {}),
+            fileMentions,
+            onFileMentionQueryChange: setFileMentionQuery,
+          }
         : {})}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}

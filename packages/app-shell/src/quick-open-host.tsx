@@ -56,7 +56,7 @@ export function QuickOpenHost(): ReactElement {
   const { openFileInTab } = useIdeFileEditor();
 
   const [query, setQuery] = useState('');
-  const { files, loading } = useQuickOpenFiles(query);
+  const { error, files, loading } = useQuickOpenFiles(query);
 
   // Global ⌘P / Ctrl+P on web AND desktop.
   useQuickOpenHotkey({ onOpen: open });
@@ -104,6 +104,7 @@ export function QuickOpenHost(): ReactElement {
 
   return (
     <QuickOpenPalette
+      error={error?.message}
       files={files}
       loading={loading}
       onOpenChange={handleOpenChange}

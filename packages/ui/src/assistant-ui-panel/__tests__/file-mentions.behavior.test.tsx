@@ -42,11 +42,13 @@ const FILE_MENTIONS: FileMention[] = [
 ];
 
 function renderPanel(props: {
+  fileMentionError?: string;
   fileMentions?: readonly FileMention[];
   onFileMentionQueryChange?: (query: string) => void;
 }) {
   return render(
     <AssistantUiPanel
+      {...(props.fileMentionError ? { fileMentionError: props.fileMentionError } : {})}
       pickerModels={[]}
       pickerProviders={[]}
       {...(props.fileMentions ? { fileMentions: props.fileMentions } : {})}
@@ -126,6 +128,18 @@ describe('composer @file mentions', () => {
     const popover = await screen.findByRole('listbox', { name: 'File mentions' });
     expect(within(popover).getByText('src/app.ts')).toBeInTheDocument();
     expect(within(popover).getAllByText('workspace').length).toBeGreaterThan(0);
+  });
+
+  it('surfaces file-mention query errors near the composer', async () => {
+    renderPanel({
+      fileMentionError: 'Live queries are unavailable for Turso runtime.',
+      fileMentions: [],
+      onFileMentionQueryChange: vi.fn(),
+    });
+
+    expect(
+      await screen.findByText('Live queries are unavailable for Turso runtime.')
+    ).toBeInTheDocument();
   });
 
   // Mirrors the REAL app: the panel starts with NO fileMentions; typing "@" relays

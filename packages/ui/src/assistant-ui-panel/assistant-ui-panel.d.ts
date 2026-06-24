@@ -46,6 +46,7 @@ export interface AssistantUiPanelProps {
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
   effectiveInputBudget?: number | undefined;
+  fileMentionError?: string | undefined;
   onModelChange?: (model: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderChange?: (provider: string) => void;
