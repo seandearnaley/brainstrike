@@ -155,7 +155,7 @@ describe('collection embedding coverage status', () => {
       );
     });
 
-    await expect.poll(() => getCollectionEmbeddingCoverage).toHaveBeenCalledTimes(2);
+    await expect.poll(() => getCollectionEmbeddingCoverage.mock.calls.length).toBe(2);
     await expect
       .poll(() => result.current.snapshot)
       .toEqual({
