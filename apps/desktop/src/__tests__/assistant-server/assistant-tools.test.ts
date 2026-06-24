@@ -1135,6 +1135,56 @@ describe('assistant-tools', () => {
     });
   });
 
+  it('executes listEmbeddingSpaces with Turso-compatible stats SQL when Turso runtime is selected', async () => {
+    vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
+    const queryMock = vi.fn(async (sql: string) => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              id: 'set-1',
+              name: 'Main',
+              description: null,
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 1536,
+              distance: 'cosine',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              embeddedChunks: 3,
+              fileCount: 2,
+              tokenizedChunkCount: 4,
+              totalChunks: 5,
+              totalTokens: 40,
+              averageTokensPerChunk: 10,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    getDatabaseMock.mockResolvedValue({ query: queryMock });
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.listEmbeddingSpaces'].execute({
+      context: { includeStats: true },
+    });
+
+    const sql = queryMock.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain('SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END)');
+    expect(sql).not.toContain('COUNT(*) FILTER');
+    expect(sql).not.toContain('::text');
+    expect(result.spaces[0]?.coverage).toMatchObject({
+      embeddedChunks: 3,
+      fileCount: 2,
+      totalChunks: 5,
+    });
+  });
+
   it('preserves nullable embedding space names in tool output', async () => {
     getDatabaseMock.mockResolvedValue({
       query: vi.fn(async (sql: string) => {

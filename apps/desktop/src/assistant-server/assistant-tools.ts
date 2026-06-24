@@ -46,6 +46,7 @@ import {
   EmbeddingSetsRepository,
   type EmbeddingSpaceListing,
   type EmbeddingSpaceStats,
+  TursoEmbeddingSetsRepository,
 } from '@brainstrike/db';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
@@ -1865,7 +1866,9 @@ async function runListEmbeddingSpaces(
 }> {
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
-  const embeddingSetsRepository = new EmbeddingSetsRepository(db);
+  const embeddingSetsRepository = isTursoRuntimeSelected()
+    ? new TursoEmbeddingSetsRepository(db)
+    : new EmbeddingSetsRepository(db);
   const listings = await embeddingSetsRepository.listEmbeddingSpaces({
     includeStats: input.includeStats === true,
   });

@@ -1,4 +1,4 @@
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import { useModelRegistryDbClient } from '@brainstrike/db';
 import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
@@ -11,7 +11,7 @@ const logger = createLogger('ModelRegistrySettingsSection');
 
 export function ModelRegistrySettingsSection() {
   const { toast } = useToast();
-  const db = useBrainstrikeDbClient();
+  const db = useModelRegistryDbClient();
   const {
     providers,
     models,
