@@ -568,16 +568,21 @@ describe('useDatabaseDemoData', () => {
     const database = createMockDatabase();
     const query = (database as unknown as { query: ReturnType<typeof vi.fn> }).query;
 
-    const { result } = renderHook(() =>
-      useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast: vi.fn(),
-        database,
-        activeCollectionId: 'set-turso',
-        databaseRuntimeEngine: 'turso',
-        supportsPGliteCollectionQueries: false,
-      })
+    const { rerender, result } = renderHook(
+      ({ recordPage }: { recordPage: number }) =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast: vi.fn(),
+          database,
+          activeCollectionId: 'set-turso',
+          databaseRuntimeEngine: 'turso',
+          recordPage,
+          supportsPGliteCollectionQueries: false,
+        }),
+      {
+        initialProps: { recordPage: 0 },
+      }
     );
 
     await waitFor(() => {
@@ -589,6 +594,9 @@ describe('useDatabaseDemoData', () => {
           id: 'record-turso',
         }),
       ]);
+    });
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(false);
     });
 
     expect(result.current.collectionBrowserUnavailableReason).toBeUndefined();
@@ -622,6 +630,14 @@ describe('useDatabaseDemoData', () => {
         ([queryOptions]) => queryOptions.enabled === false
       )
     ).toBe(true);
+
+    rerender({ recordPage: 1 });
+    await waitFor(() => {
+      expect(listByEmbeddingSetPage).toHaveBeenCalledWith('set-turso', {
+        limit: 50,
+        offset: 50,
+      });
+    });
   });
 
   it('uses active collection cache while replacement live queries are loading', async () => {

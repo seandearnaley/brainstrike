@@ -661,6 +661,8 @@ export function useDatabaseDemoData({
       supportsRepositoryCollectionSnapshots,
     ]
   );
+  const fetchSnapshotRef = useRef(fetchSnapshot);
+  fetchSnapshotRef.current = fetchSnapshot;
 
   // biome-ignore lint/plugin: Fallback snapshot hydration is an intentional effect when live queries are paused.
   useEffect(() => {
@@ -671,9 +673,6 @@ export function useDatabaseDemoData({
       return;
     }
     if (!supportsCollectionSnapshots) {
-      return;
-    }
-    if (fallbackLoading) {
       return;
     }
     const needsRecords = recordPageCacheKey
@@ -692,7 +691,7 @@ export function useDatabaseDemoData({
 
     const runFallback = async () => {
       try {
-        await fetchSnapshot({
+        await fetchSnapshotRef.current({
           includeRecords: needsRecords,
           includeTotalRecords: needsTotalRecords,
           includeCollectionCounts: needsCollectionCounts,
@@ -719,8 +718,6 @@ export function useDatabaseDemoData({
   }, [
     activeCollectionId,
     database,
-    fallbackLoading,
-    fetchSnapshot,
     liveQueryEnabled,
     recordPageCacheKey,
     schemaReady,
