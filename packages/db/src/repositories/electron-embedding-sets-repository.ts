@@ -53,10 +53,12 @@ export class ElectronEmbeddingSetsRepository extends EmbeddingSetsRepository {
     }
 
     const statements: TransactionStatement[] = [
+      { sql: 'DELETE FROM job_queue WHERE embedding_set_id = $1', params: [id] },
+      { sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', params: [id] },
       { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: [id] },
       { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: [id] },
     ];
-    const result = await this.electronDb.transaction(statements, 1);
+    const result = await this.electronDb.transaction(statements, 3);
     return result.rows.length > 0;
   }
 }

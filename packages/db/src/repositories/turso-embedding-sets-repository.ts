@@ -319,6 +319,8 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
     }
 
     await this.db.transaction(async (tx) => {
+      await tx.exec('DELETE FROM job_queue WHERE embedding_set_id = ?', [id]);
+      await tx.exec('DELETE FROM collection_indexing_stats WHERE embedding_set_id = ?', [id]);
       await tx.exec('DELETE FROM file_chunks WHERE embedding_set_id = ?', [id]);
       await tx.exec('DELETE FROM embedding_sets WHERE id = ?', [id]);
     });

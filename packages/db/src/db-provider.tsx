@@ -1744,6 +1744,31 @@ export function useBrainstrikeDbClient(): DbHandle | null {
     : null;
 }
 
+export function useModelRegistryDbClient(): DbHandle | null {
+  const ctx = useContext(DbContext);
+
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx) {
+    logger.warn('useModelRegistryDbClient must be used within a DbProvider');
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
 export function useOptionalPGliteDatabase(): DbHandle | null {
   const ctx = useContext(DbContext);
   const db = ctx?.db;

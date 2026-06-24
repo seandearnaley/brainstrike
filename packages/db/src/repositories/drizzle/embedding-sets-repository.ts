@@ -18,7 +18,12 @@ import {
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
   WORKSPACE_INDEX_SYSTEM_ROLE,
 } from '../../models/embedding-set.js';
-import { collectionIndexingStats, embeddingSets, fileChunks } from '../../schema/index.js';
+import {
+  collectionIndexingStats,
+  embeddingSets,
+  fileChunks,
+  jobQueue,
+} from '../../schema/index.js';
 import {
   normalizeEmbeddingSetInputMetadata,
   repairPersistedEmbeddingSetMetadata,
@@ -260,6 +265,10 @@ export class DrizzleEmbeddingSetsRepository {
 
   async delete(id: string): Promise<boolean> {
     const result = await this.db.transaction(async (tx) => {
+      await tx.delete(jobQueue).where(eq(jobQueue.embeddingSetId, id));
+      await tx
+        .delete(collectionIndexingStats)
+        .where(eq(collectionIndexingStats.embeddingSetId, id));
       await tx.delete(fileChunks).where(eq(fileChunks.embeddingSetId, id));
       return await tx.delete(embeddingSets).where(eq(embeddingSets.id, id)).returning();
     });

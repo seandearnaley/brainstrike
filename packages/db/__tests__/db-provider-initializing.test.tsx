@@ -10,6 +10,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useModelRegistryDbClient,
   useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
   useProfileBootstrapReport,
@@ -834,6 +835,7 @@ describe('DbProvider initializing state', () => {
         chunkRepository: useFileChunkRepository(),
         db: useBrainstrikeDbClient(),
         initializationStatus: useDbInitializationStatus(),
+        modelRegistryDb: useModelRegistryDbClient(),
         pgliteDb: usePGliteDatabase(),
         tokenCacheStore: useTokenCacheStore(),
       }),
@@ -849,6 +851,10 @@ describe('DbProvider initializing state', () => {
 
     expect(result.current.db).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
+    expect(result.current.modelRegistryDb).not.toBeNull();
+    await expect(result.current.modelRegistryDb?.query('SELECT 1 AS ok')).resolves.toEqual({
+      rows: [{ ok: 1 }],
+    });
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     expect(result.current.chunkRepository).toBeNull();
   });

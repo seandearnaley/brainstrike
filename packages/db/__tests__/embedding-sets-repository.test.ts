@@ -415,6 +415,11 @@ describe('EmbeddingSetsRepository', () => {
        VALUES ($1, $2, $3, $4, $5)`,
       ['chunk-1', 'file-1', 0, 'hello', created.id]
     );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
+       VALUES ($1, $2, $3, $4::jsonb, $5)`,
+      ['job-1', 'embedding', 'embed_chunk', '{}', created.id]
+    );
     const transaction = vi.spyOn(db, 'transaction');
 
     await expect(repo.delete(created.id)).resolves.toBe(true);
@@ -428,6 +433,15 @@ describe('EmbeddingSetsRepository', () => {
       'file-1',
     ]);
     expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
+    const jobRows = await db.query<{ id: string }>('SELECT id FROM job_queue WHERE id = $1', [
+      'job-1',
+    ]);
+    expect(jobRows.rows).toEqual([]);
+    const statsRows = await db.query<{ embedding_set_id: string }>(
+      'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      [created.id]
+    );
+    expect(statsRows.rows).toEqual([]);
   });
 
   it('enforces a single workspace index system role at the database level', async () => {
@@ -629,10 +643,15 @@ describe('ElectronEmbeddingSetsRepository', () => {
 
     expect(transaction).toHaveBeenCalledWith(
       [
+        { sql: 'DELETE FROM job_queue WHERE embedding_set_id = $1', params: ['set-1'] },
+        {
+          sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1',
+          params: ['set-1'],
+        },
         { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: ['set-1'] },
         { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: ['set-1'] },
       ],
-      1
+      3
     );
   });
 

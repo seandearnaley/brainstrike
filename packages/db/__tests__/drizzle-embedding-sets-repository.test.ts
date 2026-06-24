@@ -400,6 +400,11 @@ describe('DrizzleEmbeddingSetsRepository', () => {
          VALUES ('chunk-1', 'file-1', 0, 'hello', $1)`,
         [created.id]
       );
+      await client.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
+         VALUES ('job-1', 'embedding', 'embed_chunk', '{}'::jsonb, $1)`,
+        [created.id]
+      );
       const transaction = vi.spyOn(db, 'transaction');
 
       await expect(repository.delete(created.id)).resolves.toBe(true);
@@ -415,6 +420,15 @@ describe('DrizzleEmbeddingSetsRepository', () => {
         ['file-1']
       );
       expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
+      const jobRows = await client.query<{ id: string }>('SELECT id FROM job_queue WHERE id = $1', [
+        'job-1',
+      ]);
+      expect(jobRows.rows).toEqual([]);
+      const statsRows = await client.query<{ embedding_set_id: string }>(
+        'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+        [created.id]
+      );
+      expect(statsRows.rows).toEqual([]);
     });
 
     it('should return false for non-existent id', async () => {

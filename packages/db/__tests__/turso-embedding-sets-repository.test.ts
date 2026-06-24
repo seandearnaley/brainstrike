@@ -264,6 +264,11 @@ describe('TursoEmbeddingSetsRepository', () => {
        VALUES (?, ?, ?, ?, ?)`,
       ['chunk-1', 'file-1', 0, 'hello', created.id]
     );
+    await client.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      ['job-1', 'embedding', 'embed_chunk', '{}', created.id]
+    );
     const transaction = vi.spyOn(client, 'transaction');
 
     await expect(repository.delete(created.id)).resolves.toBe(true);
@@ -275,5 +280,14 @@ describe('TursoEmbeddingSetsRepository', () => {
     await expect(
       client.query<{ id: string }>('SELECT id FROM file_records WHERE id = ?', ['file-1'])
     ).resolves.toEqual({ rows: [{ id: 'file-1' }] });
+    await expect(
+      client.query<{ id: string }>('SELECT id FROM job_queue WHERE id = ?', ['job-1'])
+    ).resolves.toEqual({ rows: [] });
+    await expect(
+      client.query<{ embedding_set_id: string }>(
+        'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = ?',
+        [created.id]
+      )
+    ).resolves.toEqual({ rows: [] });
   });
 });

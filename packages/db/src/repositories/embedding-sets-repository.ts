@@ -438,6 +438,8 @@ export class EmbeddingSetsRepository {
 
   async delete(id: string): Promise<boolean> {
     const result = await this.db.transaction(async (tx) => {
+      await tx.query('DELETE FROM job_queue WHERE embedding_set_id = $1', [id]);
+      await tx.query('DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', [id]);
       await tx.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [id]);
       return await tx.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [id]);
     });
