@@ -115,7 +115,8 @@ runtime: claim, lease renewal, completion, failure/retry, pending-count, and
 delete behavior without Postgres-only `JobQueue` SQL. After that is coherent
 provider exposure for the generic execution handle plus the non-search
 `file_chunks` repository, because imports can now write file records, chunks,
-and embedding jobs atomically in Turso mode. Search remains split-owned until
-`docs/turso-migration/search-index-architecture.md` is implemented, and
-quick-open name search must not be treated as complete until the Turso
-search-index owner is designed.
+and embedding jobs atomically in Turso mode. Quick-open filename lookup has a
+primary-store indexed name-gram candidate table because it only needs bounded
+filename substring search. Broader grep, FTS snippets, and hybrid retrieval
+remain split-owned until `docs/turso-migration/search-index-architecture.md` is
+implemented.

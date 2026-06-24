@@ -11,6 +11,7 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
+import type { QuickOpenFileRow } from '../search/quick-open-query.js';
 import type {
   EmbeddingSpaceListing,
   ListEmbeddingSpacesOptions,
@@ -66,6 +67,7 @@ export interface IFileRecordRepository {
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null>;
+  findByNameSubstring?(query: string, limit: number): Promise<QuickOpenFileRow[]>;
   getFileCollectionStatuses?(
     activeCollectionId: string,
     fileIds: readonly string[]

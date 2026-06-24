@@ -2,6 +2,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
+import { backfillQuickOpenNameGrams } from '../search/quick-open-name-grams.js';
 import {
   assertNoPostgresMigrationLedgers,
   assertTursoSchemaLedgerHasNoUnknownVersions,
@@ -13,7 +14,8 @@ import {
 
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION = 1;
 export const TURSO_SCHEMA_BASELINE_V2_VERSION = 2;
-export const TURSO_SCHEMA_BASELINE_VERSION = 3;
+export const TURSO_SCHEMA_BASELINE_V3_VERSION = 3;
+export const TURSO_SCHEMA_BASELINE_VERSION = 4;
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM =
   '8e9f598868dda50fb9f763c010bf74215cd51b305bfda68719dd6a12cf8587c7';
 
@@ -22,6 +24,21 @@ const workspaceIndexSystemRoleIndexDdl =
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_embedding_sets_workspace_index_system_role ON embedding_sets (system_role) WHERE system_role = 'workspace-index'";
 const jobQueueActiveDedupeIndexDdl =
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_dedupe_active ON job_queue (dedupe_key) WHERE dedupe_key IS NOT NULL AND state IN ('queued','running')";
+const fileRecordNameIndexTableDdl = `
+    CREATE TABLE IF NOT EXISTS file_record_name_index (
+      file_record_id TEXT NOT NULL PRIMARY KEY REFERENCES file_records(id) ON DELETE CASCADE,
+      normalized_name TEXT NOT NULL
+    )
+  `;
+const fileRecordNameGramsTableDdl = `
+    CREATE TABLE IF NOT EXISTS file_record_name_grams (
+      file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,
+      gram TEXT NOT NULL,
+      PRIMARY KEY (file_record_id, gram)
+    )
+  `;
+const fileRecordNameGramsIndexDdl =
+  'CREATE INDEX IF NOT EXISTS idx_file_record_name_grams_gram_record ON file_record_name_grams (gram, file_record_id)';
 
 export const TURSO_SCHEMA_BASELINE_DDL = [
   `
@@ -61,6 +78,9 @@ export const TURSO_SCHEMA_BASELINE_DDL = [
   'CREATE INDEX IF NOT EXISTS idx_file_records_embedding_set_id ON file_records (embedding_set_id)',
   'CREATE INDEX IF NOT EXISTS idx_file_records_root_id ON file_records (root_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_file_records_root_identity ON file_records (embedding_set_id, root_id, path) WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL',
+  fileRecordNameIndexTableDdl,
+  fileRecordNameGramsTableDdl,
+  fileRecordNameGramsIndexDdl,
   `
     CREATE TABLE IF NOT EXISTS file_chunks (
       id TEXT PRIMARY KEY,
@@ -936,18 +956,34 @@ export const TURSO_SCHEMA_BASELINE_CHECKSUM = computeTursoSchemaChecksum([
 
 export const TURSO_SCHEMA_BASELINE_V2_CHECKSUM =
   '9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a';
+export const TURSO_SCHEMA_BASELINE_V3_CHECKSUM =
+  'ac49c1b4765e2947d3d8fc880de384f61f46e0ef697b5be95ceb8996da9088d7';
 
 const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION = {
   [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: [
     workspaceIndexSystemRoleIndexDdl,
     jobQueueActiveDedupeIndexDdl,
+    fileRecordNameIndexTableDdl,
+    fileRecordNameGramsTableDdl,
+    fileRecordNameGramsIndexDdl,
   ],
-  [TURSO_SCHEMA_BASELINE_V2_VERSION]: [jobQueueActiveDedupeIndexDdl],
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: [
+    jobQueueActiveDedupeIndexDdl,
+    fileRecordNameIndexTableDdl,
+    fileRecordNameGramsTableDdl,
+    fileRecordNameGramsIndexDdl,
+  ],
+  [TURSO_SCHEMA_BASELINE_V3_VERSION]: [
+    fileRecordNameIndexTableDdl,
+    fileRecordNameGramsTableDdl,
+    fileRecordNameGramsIndexDdl,
+  ],
 } as const;
 
 const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
   [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM,
   [TURSO_SCHEMA_BASELINE_V2_VERSION]: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
+  [TURSO_SCHEMA_BASELINE_V3_VERSION]: TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
 } as const;
 
 export async function applyTursoSchemaBaseline(
@@ -960,6 +996,7 @@ export async function applyTursoSchemaBaseline(
     await assertTursoSchemaLedgerHasNoUnknownVersions(tx, [
       TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
       TURSO_SCHEMA_BASELINE_V2_VERSION,
+      TURSO_SCHEMA_BASELINE_V3_VERSION,
       TURSO_SCHEMA_BASELINE_VERSION,
     ]);
 
@@ -974,6 +1011,7 @@ export async function applyTursoSchemaBaseline(
     }
 
     const upgradeVersions = [
+      TURSO_SCHEMA_BASELINE_V3_VERSION,
       TURSO_SCHEMA_BASELINE_V2_VERSION,
       TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
     ] as const;
@@ -991,6 +1029,7 @@ export async function applyTursoSchemaBaseline(
       for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
         await tx.exec(ddl);
       }
+      await backfillQuickOpenNameGrams(tx);
       await recordTursoSchemaLedgerEntry(tx, {
         checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
         version: TURSO_SCHEMA_BASELINE_VERSION,
