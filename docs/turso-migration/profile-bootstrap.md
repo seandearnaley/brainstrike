@@ -92,6 +92,15 @@ of the Postgres `JobQueue` batch SQL. This is only the import write-side
 primitive; it does not port job claiming, heartbeats, completion, retries, or
 search indexing.
 
+Vector-management queue status and retry controls now resolve their durable
+queue adapter through a runtime-keyed hook. PGlite profiles still construct the
+existing `JobQueue`; ready Turso profiles construct `TursoJobQueue` for queue
+stats, failed-job retry, and unclaimable queued-job repair. This only covers
+the read/repair surfaces used by the queue HUD and durable queue tracker. The
+embedding runtime provider and vector backfill service still remain PGlite-only
+because their candidate-selection SQL and batch enqueue transaction semantics
+have not been converted to Turso-compatible repository calls.
+
 Turso managed-cache apply/invalidation is now staged for the desktop DB host.
 `applyTursoManagedCacheBatch()` writes imported file records, replaces stale
 file chunks, cancels active embedding jobs for replaced chunks, calls the
@@ -110,13 +119,11 @@ compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is the remaining Turso embedding-job queue
-runtime: claim, lease renewal, completion, failure/retry, pending-count, and
-delete behavior without Postgres-only `JobQueue` SQL. After that is coherent
-provider exposure for the generic execution handle plus the non-search
-`file_chunks` repository, because imports can now write file records, chunks,
-and embedding jobs atomically in Turso mode. Quick-open filename lookup has a
-primary-store indexed name-gram candidate table because it only needs bounded
-filename substring search. Broader grep, FTS snippets, and hybrid retrieval
-remain split-owned until `docs/turso-migration/search-index-architecture.md` is
-implemented.
+The next low-vector-risk slice is a runtime-keyed vector backfill service:
+replace the remaining Postgres-shaped candidate-selection SQL and transaction
+query usage in `packages/vector-management/src/vector-status/vector-queue-service.ts`
+before enabling backfill/enqueue from Turso profiles. Quick-open filename lookup
+has a primary-store indexed name-gram candidate table because it only needs
+bounded filename substring search. Broader grep, FTS snippets, and hybrid
+retrieval remain split-owned until
+`docs/turso-migration/search-index-architecture.md` is implemented.

@@ -104,6 +104,9 @@ Current Turso repository/runtime coverage:
   requested file status lookups through repository-backed Turso paths
 - quick-open filename lookup through an indexed Turso name-gram table maintained
   by Turso file-record and managed-cache writes
+- vector-management durable queue stats and retry/repair controls through a
+  runtime-keyed queue hook that constructs `TursoJobQueue` only for ready Turso
+  profiles
 
 ## Non-Negotiable Migration Rules
 
@@ -180,10 +183,18 @@ Known production touchpoints:
 - `packages/vector-management/src/vector-status/use-vector-queue-state.ts`
 - `packages/vector-management/src/vector-status/vector-status.tsx`
 
-Next slice: introduce a background-indexing/vector queue service factory keyed
-by runtime. Use PGlite/Electron repositories today, and Turso file-record,
+Completed low-risk queue UI slice: `EmbeddingJobQueueTracker` and `QueueHud`
+now use a runtime-keyed queue hook. Ready Turso profiles can poll
+`TursoJobQueue.getQueueStats()` and run failed-job retry/repair controls without
+opening a PGlite handle.
+
+Remaining slice: introduce a background-indexing/vector queue service factory
+keyed by runtime. Use PGlite/Electron repositories today, and Turso file-record,
 file-chunk, embedding-set, and job-queue repositories for Turso. Preserve the
-hidden-renderer worker boundary.
+hidden-renderer worker boundary. Do not route Turso backfill through
+`vector-queue-service.ts` until its Postgres-shaped candidate-selection SQL and
+transaction query requirements are replaced with SQLite-compatible repository
+operations.
 
 ### 4. Assistant Search And Retrieval
 

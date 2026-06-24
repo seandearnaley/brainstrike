@@ -912,6 +912,13 @@ describe('DbProvider initializing state', () => {
     expect(result.current.db).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.modelRegistryDb).not.toBeNull();
+    expect(databaseModule.extractDbExecutionClient(result.current.modelRegistryDb)).toEqual(
+      expect.objectContaining({
+        exec: expect.any(Function),
+        query: expect.any(Function),
+        transaction: expect.any(Function),
+      })
+    );
     await expect(result.current.modelRegistryDb?.query('SELECT 1 AS ok')).resolves.toEqual({
       rows: [{ ok: 1 }],
     });
