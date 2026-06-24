@@ -142,4 +142,27 @@ describe('CollectionSelect', () => {
     expect(screen.getByRole('combobox')).not.toBeDisabled();
     expect(screen.getByRole('combobox')).not.toHaveTextContent('Loading...');
   });
+
+  it('shows the empty state after an empty Turso repository snapshot when db is null', async () => {
+    mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([]);
+
+    render(
+      <CollectionSelect
+        db={null}
+        emptyState={<div>No embedding sets yet</div>}
+        onSelectionChange={vi.fn()}
+        placeholder="Select collection"
+        selectedId={null}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockEmbeddingSetsRepository.listEmbeddingSpaces).toHaveBeenCalledWith({
+        includeStats: true,
+      });
+    });
+
+    expect(screen.getByText('No embedding sets yet')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
 });

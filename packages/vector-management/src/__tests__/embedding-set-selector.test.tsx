@@ -192,7 +192,7 @@ describe('EmbeddingSetSelector', () => {
     expect(screen.getByText('Select collection...')).toBeInTheDocument();
   });
 
-  it('renders with loading state when db is not available', () => {
+  it('renders the empty state when db is not available and no repository source exists', () => {
     vi.mocked(useBrainstrikeLiveQuery).mockReturnValue({
       ...mockLiveQueryResult,
       loading: true,
@@ -206,7 +206,8 @@ describe('EmbeddingSetSelector', () => {
       />
     );
 
-    expect(screen.getByTestId('select')).toHaveAttribute('data-disabled', 'true');
+    expect(screen.getByText('No embedding sets yet')).toBeInTheDocument();
+    expect(screen.queryByTestId('select')).not.toBeInTheDocument();
   });
 
   it('displays selected collection with file count', () => {
