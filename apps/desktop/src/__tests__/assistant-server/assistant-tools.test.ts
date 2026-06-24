@@ -630,9 +630,15 @@ describe('assistant-tools', () => {
       expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
       expect(loggerWarnMock).toHaveBeenCalledWith('Skipped workspace context file read', {
         code: 'EACCES',
-        error: readError,
-        path: '/src/main.ts',
+        error: {
+          code: 'EACCES',
+          name: 'Error',
+          redacted: true,
+        },
+        path: { redacted: true },
       });
+      expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('/src/main.ts');
+      expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(workspaceRootPath);
     } finally {
       readFileSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });

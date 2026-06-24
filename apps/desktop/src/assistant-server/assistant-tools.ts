@@ -1271,7 +1271,11 @@ function classifyReadContextError(
   if (code === 'ENOENT') {
     return { path: workspacePath, reason: 'missing' };
   }
-  logger.warn('Skipped workspace context file read', { path: workspacePath, code, error });
+  logger.warn('Skipped workspace context file read', {
+    code,
+    error: redactToolErrorForLog(error),
+    path: REDACTED_PATH_LOG_VALUE,
+  });
   return { path: workspacePath, reason: 'readError' };
 }
 
