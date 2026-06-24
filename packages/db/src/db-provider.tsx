@@ -670,6 +670,7 @@ async function createElectronTursoViewFilterPresetsRepository(
 
 interface ElectronTursoRuntimeRepositories {
   readonly embeddingSetsRepository: EmbeddingSetsRepo;
+  readonly executionClient: BrainstrikeDbExecutionClient;
   readonly fileChunkRepository: TursoFileChunkRepository | null;
   readonly fileRecordRepository: FileRecordRepo;
   readonly report: ProfileBootstrapReport;
@@ -815,6 +816,7 @@ async function createElectronTursoRuntimeRepositories(
 
   return {
     embeddingSetsRepository: new TursoEmbeddingSetsRepo(tursoExecutionClient),
+    executionClient: tursoExecutionClient,
     fileChunkRepository: createElectronProviderTursoFileChunkRepository(
       TursoFileChunkRepo,
       tursoExecutionClient
@@ -1005,21 +1007,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           });
           connectionRef.current = { kind: 'ipc', bridge: electronDB };
           setExposedDb(
-            createDbHandle({
-              exec: async (sql, params, options) => {
-                await repositoryDb.exec(
-                  sql,
-                  params,
-                  isDatabaseWorkOptions(options) ? options : undefined
-                );
-              },
-              query: async (sql, params, options) =>
-                await repositoryDb.query(
-                  sql,
-                  params,
-                  isDatabaseWorkOptions(options) ? options : undefined
-                ),
-            })
+            createDbHandle(tursoRepositories.executionClient as unknown as QueryExecutor)
           );
           setFileRecordRepository(tursoRepositories.fileRecordRepository);
           setChunkRepository(tursoRepositories.fileChunkRepository);
