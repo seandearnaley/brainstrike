@@ -1,4 +1,3 @@
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Badge,
@@ -14,7 +13,8 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { RotateCw } from 'lucide-react';
-import { type ReactElement, useCallback, useMemo, useState } from 'react';
+import { type ReactElement, useCallback, useState } from 'react';
+import { type EmbeddingJobQueue, useEmbeddingJobQueue } from './use-embedding-job-queue';
 
 type QueueHudVariant = 'card' | 'status-bar';
 
@@ -69,7 +69,7 @@ function getRetryLabel(failed: number): string {
 }
 
 function useQueueRetry(
-  jobQueue: JobQueue | null,
+  jobQueue: EmbeddingJobQueue | null,
   toast: ToastFn
 ): { busy: boolean; handleRetry: () => Promise<void> } {
   const [busy, setBusy] = useState(false);
@@ -261,10 +261,9 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
   // Compute flag without hooks to avoid initializing DB when disabled
   const enabled = isQueueEnabled();
 
-  const db = usePGliteDatabase();
   const { toast } = useToast();
 
-  const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
+  const jobQueue = useEmbeddingJobQueue();
 
   // BST-359: Read stats from the shared store (written by EmbeddingJobQueueTracker)
   const durableStats = useVectorStatusUIStore((s) => s.durableQueueStats);

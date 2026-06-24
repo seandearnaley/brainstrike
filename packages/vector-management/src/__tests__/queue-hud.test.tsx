@@ -1,4 +1,3 @@
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
@@ -8,11 +7,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueHud } from '../queue-hud';
+import { useEmbeddingJobQueue } from '../use-embedding-job-queue';
 
-vi.mock('@brainstrike/db', () => ({
-  JobQueue: vi.fn(),
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(),
+vi.mock('../use-embedding-job-queue', () => ({
+  useEmbeddingJobQueue: vi.fn(),
 }));
 
 describe('QueueHud', () => {
@@ -41,11 +39,7 @@ describe('QueueHud', () => {
     mockRepairUnclaimableQueued.mockResolvedValue(0);
     mockRequeueFailed.mockResolvedValue(0);
 
-    (JobQueue as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
-      this: Record<string, unknown>
-    ) {
-      Object.assign(this, mockJobQueue);
-    });
+    vi.mocked(useEmbeddingJobQueue).mockReturnValue(mockJobQueue as never);
   });
 
   const setStoreStats = (stats: {
@@ -71,7 +65,7 @@ describe('QueueHud', () => {
     );
 
   it('renders when queue is enabled in browser', () => {
-    vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    vi.mocked(useEmbeddingJobQueue).mockReturnValue(null);
 
     const { container } = render(<QueueHud />);
     expect(container.firstChild).not.toBeNull();
@@ -79,9 +73,6 @@ describe('QueueHud', () => {
   });
 
   it('renders queue stats from store', () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
     setStoreStats({
       queued: 5,
       running: 2,
@@ -106,9 +97,6 @@ describe('QueueHud', () => {
   });
 
   it('displays zero counts when store has no stats', () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
     // No store stats set — defaults to null → zeros
     render(<QueueHud />);
 
@@ -118,8 +106,6 @@ describe('QueueHud', () => {
 
   it('handles retry failed jobs button click', async () => {
     const user = userEvent.setup();
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
 
@@ -137,9 +123,6 @@ describe('QueueHud', () => {
   });
 
   it('disables retry button when no failed jobs', () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
     setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 5 });
 
     render(<QueueHud />);
@@ -149,7 +132,7 @@ describe('QueueHud', () => {
   });
 
   it('disables retry button when jobQueue is null', () => {
-    vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    vi.mocked(useEmbeddingJobQueue).mockReturnValue(null);
 
     render(<QueueHud />);
 
@@ -159,8 +142,6 @@ describe('QueueHud', () => {
 
   it('disables button during retry and optimistically zeroes failed count', async () => {
     const user = userEvent.setup();
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
 
@@ -193,9 +174,6 @@ describe('QueueHud', () => {
   });
 
   it('does not display nextRunnableAt when not provided', () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
     setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 0 });
 
     render(<QueueHud />);
@@ -204,9 +182,6 @@ describe('QueueHud', () => {
   });
 
   it('renders status-bar summary with queue counts', () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
     setStoreStats({ queued: 2, running: 1, failed: 3, succeeded: 4 });
 
     renderStatusBar();
@@ -227,8 +202,6 @@ describe('QueueHud', () => {
 
   it('shows tooltip details for status-bar variant', async () => {
     const user = userEvent.setup();
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({
       queued: 2,
@@ -256,8 +229,6 @@ describe('QueueHud', () => {
 
   it('handles retry action in status-bar variant', async () => {
     const user = userEvent.setup();
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({ queued: 0, running: 0, failed: 2, succeeded: 0 });
 
