@@ -3,9 +3,12 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useBrainstrikeLiveQueryMock = vi.fn();
+const useFileRecordRepositoryMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useFileRecordRepository: () => useFileRecordRepositoryMock(),
+  useOptionalPGliteDatabase: vi.fn(() => ({})),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
   QUICK_OPEN_MAX_LIMIT: 50,
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
@@ -32,6 +35,7 @@ vi.mock('../roots/root-identity-context', () => ({
   }),
 }));
 
+import { useOptionalPGliteDatabase } from '@brainstrike/db';
 import { useQuickOpenFiles } from '../use-quick-open-files';
 
 interface DbRow {
@@ -80,6 +84,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   useBrainstrikeLiveQueryMock.mockReset();
+  useFileRecordRepositoryMock.mockReset();
+  vi.mocked(useOptionalPGliteDatabase).mockReset();
+  vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   adapterByDbRootId = new Map();
   setRoots([], {});
 });
@@ -234,6 +241,82 @@ describe('useQuickOpenFiles', () => {
     expect(options.params).toEqual(['read', 50]);
     expect(options.mode).toBe('incremental');
     expect(options.key).toBe('id');
+  });
+
+  it('uses repository snapshots when PGlite live queries are unavailable', async () => {
+    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    adapterByDbRootId = new Map([['D', 'A']]);
+    const findByNameSubstring = vi.fn().mockResolvedValue([
+      {
+        display_name: 'Old Alpha',
+        id: 'a',
+        name: 'alpha.ts',
+        path: 'src/alpha.ts',
+        root_id: 'D',
+      },
+    ]);
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    useFileRecordRepositoryMock.mockReturnValue({ findByNameSubstring });
+    mockRows([]);
+
+    const { result } = renderSettled('alpha');
+
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false })
+    );
+    await expect.poll(() => findByNameSubstring.mock.calls.length).toBe(1);
+    expect(findByNameSubstring).toHaveBeenCalledWith('alpha', 50);
+    await expect
+      .poll(() => result.current.files)
+      .toEqual([
+        {
+          compositeKey: 'A|@|src/alpha.ts',
+          id: 'a',
+          name: 'alpha.ts',
+          path: 'src/alpha.ts',
+          rootLabel: 'Alpha',
+        },
+      ]);
+  });
+
+  it('reports loading while the repository snapshot for the current query is unresolved', async () => {
+    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    adapterByDbRootId = new Map([['D', 'A']]);
+    const findByNameSubstring = vi.fn(
+      () => new Promise<DbRow[]>((resolve) => setTimeout(() => resolve([]), 1000))
+    );
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    useFileRecordRepositoryMock.mockReturnValue({ findByNameSubstring });
+    mockRows([]);
+
+    const { result } = renderSettled('alpha');
+
+    await expect.poll(() => findByNameSubstring.mock.calls.length).toBe(1);
+    expect(result.current.files).toEqual([]);
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('does not expose disabled live-query rows when repository search is unavailable', async () => {
+    setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
+    adapterByDbRootId = new Map([['D', 'A']]);
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    useFileRecordRepositoryMock.mockReturnValue({});
+    mockRows([
+      {
+        display_name: 'Old Alpha',
+        id: 'stale',
+        name: 'stale.ts',
+        path: 'src/stale.ts',
+        root_id: 'D',
+      },
+    ]);
+
+    const { result } = renderSettled('alpha');
+
+    await expect
+      .poll(() => result.current.error?.message)
+      .toBe('Quick-open repository search is unavailable.');
+    expect(result.current.files).toEqual([]);
   });
 
   it('prefers the live root display name, falling back to the DB name then "Workspace"', () => {

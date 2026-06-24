@@ -150,9 +150,11 @@ Known production touchpoints:
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
 chunk count, requested file status lookups, and collection embedding coverage
-banner snapshots. Preferred next slice: move a non-DB-Explorer live-query
-consumer, such as `packages/app-shell/src/use-quick-open-files.ts`, onto a
-repository snapshot path with explicit refresh/invalidation.
+banner snapshots. Quick-open now has a repository-snapshot hook seam for runtimes
+that expose an indexed `findByNameSubstring` repository capability, but Turso
+does not expose that method yet: an unindexed leading-wildcard SQLite scan is
+not an acceptable replacement for the PGlite trigram path. Preferred next slice:
+add a Turso-owned indexed filename search source, then enable quick-open.
 
 ### 3. Background Indexing And Embedding Host
 

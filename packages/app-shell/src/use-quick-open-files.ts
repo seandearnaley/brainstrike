@@ -4,6 +4,8 @@ import {
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
   useBrainstrikeLiveQuery,
+  useFileRecordRepository,
+  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
@@ -25,6 +27,10 @@ export interface UseQuickOpenFilesResult {
   readonly error: Error | null;
   readonly files: readonly QuickOpenFileItem[];
   readonly loading: boolean;
+}
+
+interface QuickOpenRepository {
+  findByNameSubstring(query: string, limit: number): Promise<readonly QuickOpenFileRow[]>;
 }
 
 /**
@@ -57,6 +63,8 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const rootIdentity = useOptionalRootIdentity();
+  const pgliteDb = useOptionalPGliteDatabase();
+  const fileRecordRepository = useFileRecordRepository();
 
   const trimmed = query.trim();
   const debounced = useDebouncedQuery(trimmed, QUICK_OPEN_DEBOUNCE_MS);
@@ -64,6 +72,22 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   // up to the debounced one the subscription is keyed on.
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
+  const liveQueryEnabled = enabled && Boolean(pgliteDb);
+
+  const repositorySearch = useMemo(() => {
+    if (pgliteDb || !hasQuickOpenRepositorySearch(fileRecordRepository)) {
+      return null;
+    }
+    return fileRecordRepository.findByNameSubstring.bind(fileRecordRepository);
+  }, [fileRecordRepository, pgliteDb]);
+
+  const [repositorySnapshot, setRepositorySnapshot] = useState<{
+    readonly query: string;
+    readonly rows: readonly QuickOpenFileRow[];
+  } | null>(null);
+  const [repositoryError, setRepositoryError] = useState<Error | null>(null);
+  const [repositoryLoading, setRepositoryLoading] = useState(false);
+  const [repositoryRefreshVersion, setRepositoryRefreshVersion] = useState(0);
 
   const { rows, loading, error } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('quick-open', debounced),
@@ -71,13 +95,79 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
     params: [debounced, QUICK_OPEN_MAX_LIMIT],
     mode: 'incremental',
     key: 'id',
-    enabled,
+    enabled: liveQueryEnabled,
   });
+
+  useEffect(() => {
+    if (!enabled || liveQueryEnabled) {
+      setRepositorySnapshot(null);
+      setRepositoryError(null);
+      setRepositoryLoading(false);
+      return;
+    }
+
+    if (!repositorySearch) {
+      setRepositorySnapshot(null);
+      setRepositoryError(new Error('Quick-open repository search is unavailable.'));
+      setRepositoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRepositoryError(null);
+    setRepositoryLoading(true);
+    repositorySearch(debounced, QUICK_OPEN_MAX_LIMIT)
+      .then((nextRows) => {
+        if (cancelled) {
+          return;
+        }
+        setRepositorySnapshot({ query: debounced, rows: nextRows });
+        setRepositoryLoading(false);
+      })
+      .catch((nextError: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setRepositorySnapshot(null);
+        setRepositoryError(
+          nextError instanceof Error ? nextError : new Error('Quick-open repository search failed.')
+        );
+        setRepositoryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced, enabled, liveQueryEnabled, repositorySearch, repositoryRefreshVersion]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !enabled || liveQueryEnabled || !repositorySearch) {
+      return;
+    }
+
+    const refreshSnapshot = () => {
+      setRepositoryRefreshVersion((version) => version + 1);
+    };
+    window.addEventListener('brainstrike:queue-drained', refreshSnapshot);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', refreshSnapshot);
+    };
+  }, [enabled, liveQueryEnabled, repositorySearch]);
+
+  const sourceRows = liveQueryEnabled
+    ? rows
+    : repositorySnapshot?.query === debounced
+      ? repositorySnapshot.rows
+      : [];
+  const sourceLoading = liveQueryEnabled
+    ? loading
+    : repositoryLoading || (Boolean(repositorySearch) && repositorySnapshot?.query !== debounced);
+  const sourceError = liveQueryEnabled ? error : repositoryError;
 
   // While typing is still settling OR the current query's results have not yet
   // arrived, the `rows` belong to a PRIOR query — never expose them as
   // actionable (Enter must not open a stale file).
-  const rowsAreStale = debouncePending || loading;
+  const rowsAreStale = debouncePending || sourceLoading;
 
   const files = useMemo<readonly QuickOpenFileItem[]>(() => {
     if (!enabled || rowsAreStale) {
@@ -85,7 +175,7 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
     }
     const activeRootIdSet = new Set(activeRootIds);
     const items: QuickOpenFileItem[] = [];
-    for (const row of rows) {
+    for (const row of sourceRows) {
       if (row.root_id === null) {
         continue;
       }
@@ -107,11 +197,20 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
       });
     }
     return items;
-  }, [enabled, rowsAreStale, rows, activeRootIds, rootDescriptors, rootIdentity]);
+  }, [enabled, rowsAreStale, sourceRows, activeRootIds, rootDescriptors, rootIdentity]);
 
   // Report loading while a query is in flight OR a debounce is pending, so the
   // palette shows "Searching…" instead of a misleading "No files found.".
-  return { error, files, loading: trimmed.length > 0 && (rowsAreStale || loading) };
+  return { error: sourceError, files, loading: trimmed.length > 0 && rowsAreStale };
+}
+
+function hasQuickOpenRepositorySearch(value: unknown): value is QuickOpenRepository {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'findByNameSubstring' in value &&
+    typeof value.findByNameSubstring === 'function'
+  );
 }
 
 /**
