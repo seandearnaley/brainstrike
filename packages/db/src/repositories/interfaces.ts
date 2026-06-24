@@ -51,6 +51,7 @@ export interface IFileRecordRepository {
   ): Promise<FileImportResult[]>;
   clearAll?(): Promise<number>;
   count?(): Promise<number>;
+  countByEmbeddingSet?(embeddingSetId: string): Promise<number>;
   countWithContent?(): Promise<number>;
   create(record: FileRecord): Promise<void>;
   createWithContent(record: FileRecord): Promise<void>;
@@ -65,6 +66,11 @@ export interface IFileRecordRepository {
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null>;
+  listByEmbeddingSet?(embeddingSetId: string): Promise<FileRecord[]>;
+  listByEmbeddingSetPage?(
+    embeddingSetId: string,
+    options: { limit: number; offset: number }
+  ): Promise<FileRecord[]>;
   listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]>;
   listManagedCacheEntryMetadata(embeddingSetId: string): Promise<ManagedCacheEntryMetadata[]>;
   update(id: string, updates: FileRecordUpdate): Promise<void>;

@@ -217,6 +217,39 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
     return result.rows.map((row) => rowToFileRecord(row));
   }
 
+  async listByEmbeddingSet(embeddingSetId: string): Promise<FileRecord[]> {
+    assertEmbeddingSetId(embeddingSetId);
+    const result = await this.db.query<TursoFileRecordRow>(
+      `SELECT id, name, path, size, created_at, updated_at, content, content_hash, token_count, processed_at,
+        embedding_set_id, chunks_processed_at, chunks_count, chunking_strategy
+       FROM file_records
+       WHERE embedding_set_id = ?
+       ORDER BY updated_at DESC, id DESC`,
+      [embeddingSetId]
+    );
+    return result.rows.map((row) => rowToFileRecord(row));
+  }
+
+  async listByEmbeddingSetPage(
+    embeddingSetId: string,
+    options: { limit: number; offset: number }
+  ): Promise<FileRecord[]> {
+    assertEmbeddingSetId(embeddingSetId);
+    const limit = readBoundedPageValue(options.limit, 'limit', { min: 1 });
+    const offset = readBoundedPageValue(options.offset, 'offset', { min: 0 });
+    const result = await this.db.query<TursoFileRecordRow>(
+      `SELECT id, name, path, size, created_at, updated_at, content, content_hash, token_count, processed_at,
+        embedding_set_id, chunks_processed_at, chunks_count, chunking_strategy
+       FROM file_records
+       WHERE embedding_set_id = ?
+       ORDER BY updated_at DESC, id DESC
+       LIMIT ?
+       OFFSET ?`,
+      [embeddingSetId, limit, offset]
+    );
+    return result.rows.map((row) => rowToFileRecord(row));
+  }
+
   async listManagedCacheEntryMetadata(
     embeddingSetId: string
   ): Promise<ManagedCacheEntryMetadata[]> {
@@ -296,6 +329,15 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
   async count(): Promise<number> {
     const result = await this.db.query<{ count: number }>(
       'SELECT COUNT(*) AS count FROM file_records'
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async countByEmbeddingSet(embeddingSetId: string): Promise<number> {
+    assertEmbeddingSetId(embeddingSetId);
+    const result = await this.db.query<{ count: number | string | null }>(
+      'SELECT COUNT(*) AS count FROM file_records WHERE embedding_set_id = ?',
+      [embeddingSetId]
     );
     return Number(result.rows[0]?.count ?? 0);
   }
@@ -550,6 +592,23 @@ function assertNoFileRecordEmbedding(value: unknown): void {
       'Turso file_records does not support the legacy pgvector embedding column; use file_chunks or embedding_cache instead.'
     );
   }
+}
+
+function assertEmbeddingSetId(embeddingSetId: string): void {
+  if (!embeddingSetId.trim()) {
+    throw new Error('embeddingSetId is required');
+  }
+}
+
+function readBoundedPageValue(
+  value: number,
+  field: 'limit' | 'offset',
+  options: { min: number }
+): number {
+  if (!(Number.isFinite(value) && Number.isInteger(value)) || value < options.min) {
+    throw new Error(`Invalid file record page ${field}: ${String(value)}`);
+  }
+  return value;
 }
 
 function createPlaceholders(count: number): string {

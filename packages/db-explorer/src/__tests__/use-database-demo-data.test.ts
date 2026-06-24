@@ -471,10 +471,10 @@ describe('useDatabaseDemoData', () => {
 
     await result.current.loadRecords();
     await expect(result.current.loadFileChunkSummaries('record-1')).rejects.toThrow(
-      'Chunk summary requests require PGlite-compatible collection queries.'
+      'Chunk summary requests require collection snapshot support.'
     );
     await expect(result.current.loadCollectionExportData()).rejects.toThrow(
-      'Collection export requires PGlite-compatible collection queries.'
+      'Collection export requires collection snapshot support.'
     );
 
     expect(
@@ -510,6 +510,134 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.collectionBrowserUnavailableReason).toBe(
       'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
     );
+  });
+
+  it('loads selected collection snapshots through Turso repositories without raw PGlite SQL', async () => {
+    const now = '2026-06-24T05:30:00.000Z';
+    const record: FileRecord = {
+      chunksCount: 2,
+      chunksProcessedAt: now,
+      chunkingStrategy: 'recursive',
+      content: 'export const turso = true;',
+      contentHash: 'record-hash',
+      createdAt: now,
+      embeddingSetId: 'set-turso',
+      id: 'record-turso',
+      name: 'turso.ts',
+      path: 'src/turso.ts',
+      processedAt: now,
+      size: 64,
+      tokenCount: 6,
+      updatedAt: now,
+    };
+    const chunk: FileChunk = {
+      chunkIndex: 0,
+      chunkSize: 18,
+      chunkType: 'code',
+      content: 'export const turso = true;',
+      contentHash: 'chunk-hash',
+      createdAt: now,
+      embedding: [0.1, 0.2, 0.3],
+      embeddingHash: 'embedding-hash',
+      embeddingSetId: 'set-turso',
+      embeddingUpdatedAt: now,
+      fileRecordId: 'record-turso',
+      id: 'chunk-turso',
+      tokenCount: 6,
+      updatedAt: now,
+    };
+    const listByEmbeddingSetPage = vi.fn().mockResolvedValue([record]);
+    const countEmbeddedByFileRecordIds = vi.fn().mockResolvedValue(new Map([[record.id, 1]]));
+    const repository = {
+      count: vi.fn().mockResolvedValue(1),
+      countByEmbeddingSet: vi.fn().mockResolvedValue(1),
+      findById: vi.fn(async (id: string) => (id === record.id ? record : null)),
+      listByEmbeddingSet: vi.fn().mockResolvedValue([record]),
+      listByEmbeddingSetPage,
+    } as unknown as DrizzleFileRecordRepository;
+    const findByFileRecordId = vi.fn().mockResolvedValue([chunk]);
+    const chunkRepository = {
+      countEmbeddedByFileRecordIds,
+      findByFileRecordId,
+      findById: vi.fn(async (id: string) => (id === chunk.id ? chunk : null)),
+      getCoverageForSet: vi
+        .fn()
+        .mockResolvedValue({ totalChunks: 1, chunksWithEmbeddingsForSet: 1 }),
+    } as unknown as DrizzleFileChunkRepository;
+    setupLiveQueries();
+    const database = createMockDatabase();
+    const query = (database as unknown as { query: ReturnType<typeof vi.fn> }).query;
+
+    const { rerender, result } = renderHook(
+      ({ recordPage }: { recordPage: number }) =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast: vi.fn(),
+          database,
+          activeCollectionId: 'set-turso',
+          databaseRuntimeEngine: 'turso',
+          recordPage,
+          supportsPGliteCollectionQueries: false,
+        }),
+      {
+        initialProps: { recordPage: 0 },
+      }
+    );
+
+    await waitFor(() => {
+      expect(result.current.records).toEqual([
+        expect.objectContaining({
+          chunksCount: 2,
+          embeddedChunksCount: 1,
+          embeddingSetId: 'set-turso',
+          id: 'record-turso',
+        }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(false);
+    });
+
+    expect(result.current.collectionBrowserUnavailableReason).toBeUndefined();
+    expect(result.current.collectionCounts).toEqual({ records: 1, chunks: 1, embeddings: 1 });
+    expect(result.current.collectionCountsStatus).toBe('ready');
+    expect(result.current.recordPagination.totalRecords).toBe(1);
+    expect(listByEmbeddingSetPage).toHaveBeenCalledWith('set-turso', {
+      limit: 50,
+      offset: 0,
+    });
+    expect(countEmbeddedByFileRecordIds).toHaveBeenCalledWith(['record-turso'], 'set-turso');
+    expect(chunkRepository.getCoverageForSet).toHaveBeenCalledWith('set-turso');
+    expect(findByFileRecordId).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await expect(result.current.loadFileChunkSummaries('record-turso')).resolves.toEqual([
+        expect.objectContaining({
+          embeddingDimensions: 3,
+          fileRecordId: 'record-turso',
+          id: 'chunk-turso',
+        }),
+      ]);
+    });
+    await expect(result.current.loadCollectionExportData()).resolves.toEqual({
+      records: [record],
+      chunks: [chunk],
+    });
+    expect(query).not.toHaveBeenCalled();
+    expect(
+      mockedUseBrainstrikeLiveQuery.mock.calls.every(
+        ([queryOptions]) => queryOptions.enabled === false
+      )
+    ).toBe(true);
+
+    rerender({ recordPage: 1 });
+    await waitFor(() => {
+      expect(listByEmbeddingSetPage).toHaveBeenCalledWith('set-turso', {
+        limit: 50,
+        offset: 50,
+      });
+    });
   });
 
   it('uses active collection cache while replacement live queries are loading', async () => {

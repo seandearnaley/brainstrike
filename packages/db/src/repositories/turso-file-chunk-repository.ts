@@ -96,6 +96,11 @@ interface TursoCoverageRow {
   readonly totalChunks: number | string | null;
 }
 
+interface TursoEmbeddedChunksByFileRow {
+  readonly embeddedChunks: number | string | null;
+  readonly fileRecordId: string;
+}
+
 interface TursoEmbeddingSetDimensionRow {
   readonly dimensions: number | string | null;
   readonly id: string;
@@ -364,6 +369,45 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
         'coverage embedded chunks'
       ),
     };
+  }
+
+  async countEmbeddedByFileRecordIds(
+    fileRecordIds: readonly string[],
+    embeddingSetId: string
+  ): Promise<Map<string, number>> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+    const distinctFileRecordIds = Array.from(new Set(fileRecordIds));
+    if (distinctFileRecordIds.length === 0) {
+      return new Map();
+    }
+    const result = await this.db.query<TursoEmbeddedChunksByFileRow>(
+      `SELECT
+         c.file_record_id AS fileRecordId,
+         SUM(
+           CASE
+             WHEN (
+               (c.embedding_set_id = ? OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?))
+               AND c.embedding IS NOT NULL
+             )
+             THEN 1
+             ELSE 0
+           END
+         ) AS embeddedChunks
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+       WHERE fr.embedding_set_id = ?
+         AND c.file_record_id IN (${createPlaceholders(distinctFileRecordIds.length)})
+       GROUP BY c.file_record_id`,
+      [embeddingSetId, embeddingSetId, embeddingSetId, ...distinctFileRecordIds]
+    );
+    return new Map(
+      result.rows.map((row) => [
+        row.fileRecordId,
+        readNullableNonNegativeInteger(row.embeddedChunks, 'embedded chunks by file record'),
+      ])
+    );
   }
 
   async clearEmbeddingsForSet(embeddingSetId: string): Promise<number> {

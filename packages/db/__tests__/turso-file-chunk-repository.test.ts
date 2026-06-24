@@ -366,6 +366,63 @@ describe('TursoFileChunkRepository', () => {
     });
   });
 
+  it('counts embedded chunks by file record without selecting embedding payloads', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
+    );
+    const otherEmbeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:other',
+      'other',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-2', path: 'src/two.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: otherEmbeddingSet.id, id: 'file-other', path: 'src/other.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+      }),
+      createChunk({ chunkIndex: 1, fileRecordId: 'file-1', id: 'chunk-2' }),
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.4, 0.5, 0.6],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-2',
+        id: 'chunk-3',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.7, 0.8, 0.9],
+        embeddingSetId: otherEmbeddingSet.id,
+        fileRecordId: 'file-other',
+        id: 'chunk-other',
+      }),
+    ]);
+
+    await expect(
+      repository.countEmbeddedByFileRecordIds(['file-1', 'file-2'], embeddingSet.id)
+    ).resolves.toEqual(
+      new Map([
+        ['file-1', 1],
+        ['file-2', 1],
+      ])
+    );
+  });
+
   it('deletes chunks, clears all chunks, and relies on Turso foreign-key cascades', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
     await fileRecordsRepository.createWithContent(
