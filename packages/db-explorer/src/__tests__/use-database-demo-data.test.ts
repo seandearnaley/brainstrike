@@ -492,6 +492,26 @@ describe('useDatabaseDemoData', () => {
     );
   });
 
+  it('reports selected collection browsing as unavailable when collection queries are disabled', () => {
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+        supportsPGliteCollectionQueries: false,
+        databaseRuntimeEngine: 'turso',
+      })
+    );
+
+    expect(result.current.collectionBrowserUnavailableReason).toBe(
+      'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
+    );
+  });
+
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {

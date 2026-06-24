@@ -157,6 +157,7 @@ export interface DatabaseRecordPagination {
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   chunks: DatabaseFileChunkSummary[];
+  collectionBrowserUnavailableReason?: string;
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
@@ -176,6 +177,13 @@ const EXPORT_LOAD_BATCH_SIZE = 50;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD = 250;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_CHUNK_THRESHOLD = 1000;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD = 1000;
+
+function formatDatabaseRuntimeLabel(databaseRuntimeEngine: string | null): string {
+  if (databaseRuntimeEngine === 'turso') {
+    return 'Turso';
+  }
+  return 'current';
+}
 
 async function mapInBatches<T, R>(
   items: readonly T[],
@@ -328,6 +336,12 @@ export function useDatabaseDemoData({
   const normalizedRecordPageSize =
     Number.isFinite(recordPageSize) && recordPageSize > 0 ? Math.trunc(recordPageSize) : 50;
   const recordOffset = normalizedRecordPage * normalizedRecordPageSize;
+  const collectionBrowserUnavailableReason =
+    activeCollectionId && !supportsPGliteCollectionQueries
+      ? `Collection file browsing is unavailable for the ${formatDatabaseRuntimeLabel(
+          databaseRuntimeEngine
+        )} database runtime until selected-collection record queries are migrated.`
+      : undefined;
   const recordPageCacheKey = activeCollectionId
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
@@ -1327,6 +1341,7 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
+    ...(collectionBrowserUnavailableReason ? { collectionBrowserUnavailableReason } : {}),
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     records: resolvedRecords,

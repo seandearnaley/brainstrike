@@ -291,6 +291,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     loadFileChunkSummaries,
     loadCollectionExportData,
     recordPagination,
+    collectionBrowserUnavailableReason,
   } = data;
   const activeCollectionCounts = collectionCounts;
   const activeCollectionCountsPending = collectionCountsStatus === 'pending';
@@ -763,6 +764,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 {...(activeCollectionName ? { activeCollectionName } : {})}
                 activeCollectionSystemRole={activeCollection?.systemRole ?? null}
                 chunks={chunks}
+                {...(collectionBrowserUnavailableReason
+                  ? { collectionBrowserUnavailableReason }
+                  : {})}
                 height="100%"
                 isLoading={refreshing}
                 loadChunkDetail={loadChunkDetail}
