@@ -224,8 +224,10 @@ function useResolvedCollectionData(
 
   return {
     collections: externalCollections ?? internalData.collections,
-    loading: externalLoading ?? internalData.loading,
-    error: externalError ?? internalData.error,
+    loading: shouldFetchInternally
+      ? (externalLoading ?? internalData.loading)
+      : (externalLoading ?? false),
+    error: shouldFetchInternally ? (externalError ?? internalData.error) : (externalError ?? null),
     shouldFetchInternally,
   };
 }
@@ -755,7 +757,7 @@ export function CollectionSelect({
   );
   const hasCollections = collections.length > 0;
   // When external collections are provided, don't check db for loading state
-  const isLoading = loading || (shouldFetchInternally && !db);
+  const isLoading = loading || (shouldFetchInternally && !db && !hasCollections && !error);
   const styles = SIZE_STYLES[size];
 
   // Show empty state when no collections and not loading
