@@ -145,6 +145,11 @@ async function loadTursoFileRecordRepository() {
   return mod.TursoFileRecordRepository;
 }
 
+async function loadTursoFileChunkRepository() {
+  const mod = await import('./repositories/turso-file-chunk-repository.js');
+  return mod.TursoFileChunkRepository;
+}
+
 async function loadTursoTokenCacheStore() {
   const mod = await import('./repositories/turso-token-cache-store.js');
   return mod.TursoTokenCacheStore;
@@ -766,16 +771,18 @@ async function createElectronTursoRuntimeRepositories(
     return null;
   }
 
-  const [TursoEmbeddingSetsRepo, TursoFileRecordRepo, TursoTokenCacheStore] = await Promise.all([
-    loadTursoEmbeddingSetsRepository(),
-    loadTursoFileRecordRepository(),
-    loadTursoTokenCacheStore(),
-  ]);
+  const [TursoEmbeddingSetsRepo, TursoFileChunkRepo, TursoFileRecordRepo, TursoTokenCacheStore] =
+    await Promise.all([
+      loadTursoEmbeddingSetsRepository(),
+      loadTursoFileChunkRepository(),
+      loadTursoFileRecordRepository(),
+      loadTursoTokenCacheStore(),
+    ]);
   const tursoExecutionClient = createElectronTursoExecutionClient(repositoryDb);
 
   return {
     embeddingSetsRepository: new TursoEmbeddingSetsRepo(tursoExecutionClient),
-    fileChunkRepository: null,
+    fileChunkRepository: new TursoFileChunkRepo(tursoExecutionClient),
     fileRecordRepository: new TursoFileRecordRepo(tursoExecutionClient),
     report: tursoViewFilterPresets.report,
     tokenCacheStore: new TursoTokenCacheStore(tursoExecutionClient),

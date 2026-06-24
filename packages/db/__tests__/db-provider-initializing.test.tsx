@@ -648,7 +648,7 @@ describe('DbProvider initializing state', () => {
       'TursoEmbeddingSetsRepository'
     );
     expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
-    expect(result.current.chunkRepository).toBeNull();
+    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
 
     expect(runTransaction).not.toHaveBeenCalled();
@@ -794,7 +794,7 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('does not expose the Turso file chunk repository without callback transaction support', async () => {
+  it('exposes the Turso file chunk repository without exposing a PGlite-compatible handle', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql === 'SELECT 1 AS ok') {
         return { rows: [{ ok: 1 }] };
@@ -856,7 +856,7 @@ describe('DbProvider initializing state', () => {
       rows: [{ ok: 1 }],
     });
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
-    expect(result.current.chunkRepository).toBeNull();
+    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
   });
 
   it('fails closed when Electron IPC test fails before runtime classification', async () => {
@@ -903,7 +903,7 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('does not expose the Turso file chunk repository from an unsupported callback transaction property', async () => {
+  it('ignores the legacy IPC transaction property while exposing Turso file chunks', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql === 'SELECT 1 AS ok') {
         return { rows: [{ ok: 1 }] };
@@ -962,7 +962,7 @@ describe('DbProvider initializing state', () => {
 
     expect(transaction).not.toHaveBeenCalled();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
-    expect(result.current.chunkRepository).toBeNull();
+    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
   });
 
   it('fails closed instead of falling back to direct PGlite when Electron IPC is required but missing', async () => {
