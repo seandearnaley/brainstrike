@@ -1,7 +1,7 @@
 import {
   createPriorityDbHandle,
   getDatabaseWorkScheduler,
-  useBrainstrikeDbClient,
+  usePGliteDatabase,
 } from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
@@ -99,7 +99,7 @@ function normalizeError(error: unknown): string {
 }
 
 async function readQueueSnapshot(
-  db: ReturnType<typeof useBrainstrikeDbClient>
+  db: ReturnType<typeof usePGliteDatabase>
 ): Promise<IndexingQueueSnapshot | null> {
   if (!db || typeof db.query !== 'function') {
     return null;
@@ -117,7 +117,7 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 }
 
 export function IndexingActivityCoordinator(): null {
-  const db = useBrainstrikeDbClient();
+  const db = usePGliteDatabase();
   const backgroundDb = useMemo(
     () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
     [db]

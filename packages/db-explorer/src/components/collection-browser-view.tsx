@@ -164,6 +164,8 @@ export interface CollectionBrowserViewProps {
   activeCollectionSystemRole?: 'workspace-index' | null;
   /** File chunks */
   chunks: DatabaseFileChunkSummary[];
+  /** Explicit reason the active collection cannot currently be browsed. */
+  collectionBrowserUnavailableReason?: string;
   /** Height of the browser */
   height?: number | string;
   /** Loading state */
@@ -368,6 +370,7 @@ function CollectionBrowserPaginationFooter({
 export function CollectionBrowserView({
   records,
   chunks,
+  collectionBrowserUnavailableReason,
   pendingChunkIds,
   activeCollectionId,
   activeCollectionName,
@@ -1184,11 +1187,20 @@ export function CollectionBrowserView({
     if (!activeCollectionId) {
       return 'Create or select a collection to start importing files and searching with semantic embeddings.';
     }
+    if (collectionBrowserUnavailableReason) {
+      return collectionBrowserUnavailableReason;
+    }
     if (searchMode === 'semantic' && hasScopedSemanticSearch && scopedSearchResults.length === 0) {
       return 'No matching results found. Try adjusting your query or threshold.';
     }
     return 'No files in this collection. Import files to get started.';
-  }, [activeCollectionId, searchMode, hasScopedSemanticSearch, scopedSearchResults.length]);
+  }, [
+    activeCollectionId,
+    collectionBrowserUnavailableReason,
+    searchMode,
+    hasScopedSemanticSearch,
+    scopedSearchResults.length,
+  ]);
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>

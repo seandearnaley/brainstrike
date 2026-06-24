@@ -29,6 +29,8 @@ export type GrepMatchSource = 'index' | 'live' | 'both';
 export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
 
 const DEFAULT_CONTENT_MATCHES = 50;
+const TURSO_GREP_SEARCH_UNAVAILABLE =
+  'brainstrike.grepSearch is unavailable while the desktop database runtime is Turso; Turso indexed grep search is not migrated yet.';
 /**
  * Internal match cap for 'files' mode aggregation. The service caps the
  * candidate pool at 500 files regardless, so this only bounds per-file match
@@ -87,6 +89,13 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 }
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
+
+function assertPGliteSearchDatabase(db: unknown): asserts db is PGlite {
+  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
+  if (capabilities?.liveQuery === false) {
+    throw new Error(TURSO_GREP_SEARCH_UNAVAILABLE);
+  }
+}
 
 /**
  * The merged (index + live) match set the result builders consume. Mirrors
@@ -422,7 +431,8 @@ export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
 ): Promise<GrepToolResult> {
-  const db = (await getDatabase()) as unknown as PGlite;
+  const db = await getDatabase();
+  assertPGliteSearchDatabase(db);
   const repository = new FileChunkRepository(db);
   const service = new GrepSearchService(repository);
 
@@ -494,6 +504,7 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
+      /^brainstrike\.grepSearch is unavailable while the desktop database runtime is Turso;/,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

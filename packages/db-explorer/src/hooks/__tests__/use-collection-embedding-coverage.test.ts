@@ -26,7 +26,10 @@ const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQ
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
+
+import { useOptionalPGliteDatabase } from '@brainstrike/db';
 
 describe('collection embedding coverage status', () => {
   beforeEach(() => {
@@ -35,6 +38,7 @@ describe('collection embedding coverage status', () => {
     mockLiveQueryState.loading = false;
     mockLiveQueryState.error = null;
     useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   });
 
   it('reports idle when the collection has no files', () => {
@@ -67,5 +71,17 @@ describe('collection embedding coverage status', () => {
     const { result } = renderHook(() => useCollectionEmbeddingCoverage('active-collection'));
 
     expect(result.current.snapshot.status).toBe('idle');
+  });
+
+  it('disables the live coverage query when no PGlite live source is available', () => {
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+
+    renderHook(() => useCollectionEmbeddingCoverage('active-collection'));
+
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: false,
+      })
+    );
   });
 });

@@ -6,7 +6,12 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
-import { useBrainstrikeDbClient, useDbInitializing, useDbProviderError } from '@brainstrike/db';
+import {
+  useBrainstrikeDbClient,
+  useDbInitializing,
+  useDbProviderError,
+  useModelRegistryDbClient,
+} from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
   useFileExplorerStoreSelector,
@@ -289,6 +294,7 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = useBrainstrikeDbClient();
+  const modelRegistryDb = useModelRegistryDbClient();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
@@ -308,11 +314,11 @@ export function AssistantUiPanelWrapper({
     if (dbError || registryError) {
       return true;
     }
-    if (!db) {
+    if (!modelRegistryDb) {
       return !dbInitializing;
     }
     return false;
-  }, [db, dbError, dbInitializing, registryError]);
+  }, [dbError, dbInitializing, modelRegistryDb, registryError]);
 
   const enabledModelIds = useMemo(
     () =>
@@ -1349,7 +1355,7 @@ export function AssistantUiPanelWrapper({
   // panel never mounts the "@" feature. The app-shell owns the query state and
   // loads matches from the file index via `useFileMentions` (async-via-state).
   const [fileMentionQuery, setFileMentionQuery] = useState('');
-  const { fileMentions } = useFileMentions(fileMentionQuery);
+  const { error: fileMentionError, fileMentions } = useFileMentions(fileMentionQuery);
 
   return (
     <AssistantUiPanel
@@ -1369,7 +1375,11 @@ export function AssistantUiPanelWrapper({
       requestData={requestData}
       slashCommands={slashCommands}
       {...(desktopAssistantBackendAvailable
-        ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+        ? {
+            ...(fileMentionError ? { fileMentionError: fileMentionError.message } : {}),
+            fileMentions,
+            onFileMentionQueryChange: setFileMentionQuery,
+          }
         : {})}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}

@@ -1,5 +1,14 @@
-import type { EmbeddingSetSystemRole, useBrainstrikeDbClient } from '@brainstrike/db';
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import type {
+  EmbeddingSetSystemRole,
+  EmbeddingSpaceListing,
+  useBrainstrikeDbClient,
+} from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
+  useEmbeddingSetsRepository,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import {
   compareCollectionsDesc,
   useVectorStatusUIStore,
@@ -215,8 +224,10 @@ function useResolvedCollectionData(
 
   return {
     collections: externalCollections ?? internalData.collections,
-    loading: externalLoading ?? internalData.loading,
-    error: externalError ?? internalData.error,
+    loading: shouldFetchInternally
+      ? (externalLoading ?? internalData.loading)
+      : (externalLoading ?? false),
+    error: shouldFetchInternally ? (externalError ?? internalData.error) : (externalError ?? null),
     shouldFetchInternally,
   };
 }
@@ -245,6 +256,29 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
         : row.statsAvailable === true || row.statsAvailable === 'true',
     statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
     systemRole: row.systemRole ?? null,
+  }));
+}
+
+function collectionRowsFromEmbeddingSpaces(
+  spaces: readonly EmbeddingSpaceListing[]
+): CollectionRow[] {
+  return spaces.map((space) => ({
+    category: space.category,
+    chunkCount: space.stats?.totalChunks ?? 0,
+    createdAt: space.createdAt,
+    description: space.description,
+    dimensions: space.dimensions,
+    distance: space.distance ?? 'cosine',
+    embeddingCount: space.stats?.embeddedChunks ?? 0,
+    fileCount: space.stats?.fileCount ?? 0,
+    id: space.id,
+    modelId: space.modelId,
+    modelKey: space.modelKey,
+    name: space.name,
+    statsAvailable: space.stats !== undefined,
+    statsLastRefreshedAt: null,
+    systemRole: (space.systemRole as EmbeddingSetSystemRole | null | undefined) ?? null,
+    tags: space.tags,
   }));
 }
 
@@ -355,6 +389,8 @@ function areCollectionsEqual(
 }
 
 export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | null | undefined) {
+  const pgliteDb = useOptionalPGliteDatabase();
+  const embeddingSetsRepository = useEmbeddingSetsRepository();
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
@@ -365,17 +401,23 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   const cachedCollectionsRef = useRef(cachedCollections);
   const pendingMutationsRef = useRef(new Map<string, PendingCollectionMutationReason>());
   cachedCollectionsRef.current = cachedCollections;
+  const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
+  const canListFromRepository = Boolean(embeddingSetsRepository?.listEmbeddingSpaces);
+  const canUseSqlSnapshot = schemaVerified && canQuery;
+  const canUseRepositorySnapshot = !(canQuery || pgliteDb) && canListFromRepository;
+  const canUseSnapshot = canUseSqlSnapshot || canUseRepositorySnapshot;
   // Only enable live queries when:
-  // 1. Database is available
+  // 1. Generic database and PGlite live-query source are both available
   // 2. Schema has been verified (migrations completed, tables exist)
   // 3. Not currently importing files
   //
   // Background embedding must not detach foreground collection updates: the
   // collection selector is the user's navigation surface while indexing runs.
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
+  const liveQueryEnabled = Boolean(db) && Boolean(pgliteDb) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;
+    hasFetched: boolean;
     loading: boolean;
   }
   type FetchAction =
@@ -387,19 +429,20 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
     (_state: FetchState, action: FetchAction): FetchState => {
       switch (action.type) {
         case 'start':
-          return { loading: true, error: null };
+          return { loading: true, error: null, hasFetched: false };
         case 'success':
-          return { loading: false, error: null };
+          return { loading: false, error: null, hasFetched: true };
         case 'error':
-          return { loading: false, error: action.error };
+          return { loading: false, error: action.error, hasFetched: true };
         case 'reset':
-          return { loading: false, error: null };
+          return { loading: false, error: null, hasFetched: false };
       }
     },
-    { loading: false, error: null }
+    { loading: false, error: null, hasFetched: false }
   );
   // Track if we've done the initial fetch (separate from live query)
   const initialFetchedRef = useRef(false);
+  const didMountRef = useRef(false);
 
   const {
     rows: rawCollections,
@@ -415,15 +458,27 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   });
 
   const refreshCollectionsSnapshot = useCallback(async () => {
-    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    if (!(schemaVerified && canQuery)) {
+    if (!canUseSnapshot) {
       return;
     }
     try {
-      const result = await (
-        db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-      ).query(COLLECTIONS_QUERY);
-      const normalizedRows = normalizeCollectionRows(result.rows);
+      let rows: CollectionRow[];
+      if (canUseSqlSnapshot) {
+        rows = (
+          await (db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }).query(
+            COLLECTIONS_QUERY
+          )
+        ).rows;
+      } else {
+        const listEmbeddingSpaces = embeddingSetsRepository?.listEmbeddingSpaces;
+        if (!listEmbeddingSpaces) {
+          return;
+        }
+        rows = collectionRowsFromEmbeddingSpaces(
+          await listEmbeddingSpaces.call(embeddingSetsRepository, { includeStats: true })
+        );
+      }
+      const normalizedRows = normalizeCollectionRows(rows);
       clearSatisfiedPendingCollectionMutations(normalizedRows, pendingMutationsRef.current);
       const nextCollections = applyPendingCollectionMutations(
         normalizedRows,
@@ -440,7 +495,7 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
       dispatchFetch({ type: 'error', error: normalized });
       throw normalized;
     }
-  }, [db, schemaVerified, setCachedCollections]);
+  }, [canUseSnapshot, canUseSqlSnapshot, db, embeddingSetsRepository, setCachedCollections]);
 
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where the live query bridge may not auto-detect changes
@@ -560,12 +615,7 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
   // Performance note: A single fetch is fine; we only disable live queries (which fire on every
   // mutation) during bulk operations, not one-time queries.
   useEffect(() => {
-    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    const shouldFetch =
-      schemaVerified && // Wait for schema to be ready (tables exist)
-      canQuery &&
-      !fetchState.loading &&
-      !initialFetchedRef.current;
+    const shouldFetch = canUseSnapshot && !fetchState.loading && !initialFetchedRef.current;
     if (!shouldFetch) {
       return;
     }
@@ -594,18 +644,25 @@ export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | n
     return () => {
       cancelled = true;
     };
-  }, [db, refreshCollectionsSnapshot, schemaVerified]);
+  }, [db, embeddingSetsRepository, fetchState.loading, canUseSnapshot, refreshCollectionsSnapshot]);
 
-  // Reset initial fetch flag when db changes (e.g., reconnection)
+  // Reset initial fetch flag when db or repository changes (e.g., reconnection/runtime swap)
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     initialFetchedRef.current = false;
-  }, [db]);
+    dispatchFetch({ type: 'reset' });
+  }, [db, embeddingSetsRepository]);
 
   // Return live data when enabled, otherwise return cached data from Zustand store
   // Use initial loading/error state when live query is disabled
+  const snapshotLoading =
+    fetchState.loading || (canUseSnapshot && !fetchState.hasFetched && !fetchState.error);
   return {
     collections: resolvedCollections,
-    loading: liveQueryEnabled ? loading : fetchState.loading,
+    loading: liveQueryEnabled ? loading : snapshotLoading,
     error: liveQueryEnabled ? error : fetchState.error,
   };
 }
@@ -695,8 +752,7 @@ export function CollectionSelect({
     [collections, selectedId]
   );
   const hasCollections = collections.length > 0;
-  // When external collections are provided, don't check db for loading state
-  const isLoading = loading || (shouldFetchInternally && !db);
+  const isLoading = shouldFetchInternally ? loading : (externalLoading ?? false);
   const styles = SIZE_STYLES[size];
 
   // Show empty state when no collections and not loading

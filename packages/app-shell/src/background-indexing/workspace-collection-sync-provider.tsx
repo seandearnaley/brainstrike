@@ -10,7 +10,7 @@ import {
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
-  useBrainstrikeDbClient,
+  usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import {
@@ -1096,7 +1096,7 @@ export function WorkspaceCollectionSyncProvider({
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
     useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
-  const db = useBrainstrikeDbClient();
+  const db = usePGliteDatabase();
 
   // Root registry: ensure a DB roots row exists for every adapter root.
   // Runs once per boot, before the first sync cycle writes file records.

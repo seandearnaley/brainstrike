@@ -1,6 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
+
+import type { EmbeddingSpaceListing } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +31,10 @@ const mockLiveQueryResult = {
   loading: false,
   error: null,
   refresh: vi.fn(),
+};
+
+const mockEmbeddingSetsRepository = {
+  listEmbeddingSpaces: vi.fn<() => Promise<EmbeddingSpaceListing[]>>(async () => []),
 };
 
 // Mock store state with proper typing
@@ -80,6 +86,8 @@ const mockStoreState = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepository),
+  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
@@ -93,7 +101,11 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
   };
 });
 
-import { useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  useBrainstrikeLiveQuery,
+  useEmbeddingSetsRepository,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
@@ -109,7 +121,10 @@ describe('useCollections', () => {
     mockStoreState.schemaVerified = true;
     mockStoreState.cachedCollections = [];
     mockDb.query.mockImplementation(() => new Promise(() => {}));
+    mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([]);
     vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useEmbeddingSetsRepository).mockReturnValue(mockEmbeddingSetsRepository as never);
+    vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   });
 
   describe('Live Query Enabling', () => {
@@ -176,6 +191,112 @@ describe('useCollections', () => {
           enabled: false,
         })
       );
+    });
+
+    it('loads a repository snapshot when Turso intentionally withholds the generic db handle', async () => {
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
+        {
+          category: 'search',
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          id: 'turso-set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Turso Collection',
+          stats: {
+            averageTokensPerChunk: 5,
+            embeddedChunks: 7,
+            fileCount: 3,
+            tokenizedChunkCount: 8,
+            totalChunks: 9,
+            totalTokens: 45,
+          },
+          systemRole: null,
+          tags: 'docs',
+        },
+      ]);
+
+      const { result } = renderHook(() => useCollections(null));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(result.current.collections[0]).toMatchObject({
+        id: 'turso-set-1',
+        fileCount: 3,
+        chunkCount: 9,
+        embeddingCount: 7,
+        category: 'search',
+        tags: 'docs',
+      });
+    });
+
+    it('loads a repository snapshot before PGlite schema verification when only the repository is available', async () => {
+      mockStoreState.schemaVerified = false;
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
+        {
+          category: 'search',
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          id: 'turso-set-2',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Turso Startup Collection',
+          stats: {
+            averageTokensPerChunk: 5,
+            embeddedChunks: 6,
+            fileCount: 2,
+            tokenizedChunkCount: 6,
+            totalChunks: 6,
+            totalTokens: 30,
+          },
+          systemRole: null,
+          tags: null,
+        },
+      ]);
+
+      const { result } = renderHook(() => useCollections(null));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(mockEmbeddingSetsRepository.listEmbeddingSpaces).toHaveBeenCalledWith({
+        includeStats: true,
+      });
+      expect(result.current.collections[0]).toMatchObject({
+        id: 'turso-set-2',
+        fileCount: 2,
+        chunkCount: 6,
+        embeddingCount: 6,
+      });
+    });
+
+    it('should disable live query and use snapshot data when no PGlite live source is available', async () => {
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(result.current.collections.at(0)?.id).toBe('set-1');
     });
 
     it('keeps the collection live query attached during embedding generation', () => {

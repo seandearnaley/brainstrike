@@ -262,16 +262,8 @@ export interface AssistantUiPanelProps {
   disabledReason?: string;
   /** Effective input budget (contextWindow − output reservation). Passed to the context meter. */
   effectiveInputBudget?: number | undefined;
-  /**
-   * Workspace files projected into the composer's "@" mention menu. Like
-   * `slashCommands`, the panel is presentational: app-shell loads matches from
-   * the file index for the active mention query (reported via
-   * `onFileMentionQueryChange`) and feeds the resolved candidates here.
-   * Selecting one inserts a `:file[…]{name=…}` directive the server resolves to
-   * the file's content. The "@" feature is mounted only when
-   * `onFileMentionQueryChange` is provided (capability/seam gating lives in the
-   * app — web omits it).
-   */
+  /** Workspace files projected into the composer's "@" mention menu. */
+  fileMentionError?: string | undefined;
   fileMentions?: readonly FileMention[];
   historyAdapter?: ThreadHistoryAdapter;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
@@ -742,6 +734,7 @@ interface ChatThreadProps {
   disabled: boolean;
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
+  fileMentionError: string | undefined;
   fileMentions: readonly FileMention[];
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -799,6 +792,7 @@ const LocalRuntimeChat: FC<
   modelId,
   onLoadingStateChange,
   slashCommands,
+  fileMentionError,
   fileMentions,
   onFileMentionQueryChange,
   toolMenu,
@@ -871,6 +865,7 @@ const LocalRuntimeChat: FC<
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentionError={fileMentionError}
           fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
@@ -944,6 +939,7 @@ const DataStreamRuntimeChat: FC<
   prepareLocalModel,
   modelName,
   slashCommands,
+  fileMentionError,
   fileMentions,
   onFileMentionQueryChange,
   toolMenu,
@@ -1013,6 +1009,7 @@ const DataStreamRuntimeChat: FC<
           cumulativeUsage={cumulativeUsage}
           disabledReason={disabledReason}
           effectiveInputBudget={effectiveInputBudget}
+          fileMentionError={fileMentionError}
           fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
@@ -1062,6 +1059,7 @@ const ChatThreadUI: FC<{
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   slashCommands: readonly SlashCommand[];
+  fileMentionError: string | undefined;
   fileMentions: readonly FileMention[];
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   threadKey?: string | undefined;
@@ -1085,6 +1083,7 @@ const ChatThreadUI: FC<{
   disabledReason,
   localLoadingState,
   slashCommands,
+  fileMentionError,
   fileMentions,
   onFileMentionQueryChange,
   threadKey,
@@ -1211,6 +1210,11 @@ const ChatThreadUI: FC<{
           threadKey={threadKey}
         />
         {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+        {fileMentionError && (
+          <p aria-live="polite" className="px-4 pb-2 text-destructive text-xs">
+            {fileMentionError}
+          </p>
+        )}
         <ComposerPrimitive.Root
           aria-disabled={isComposerDisabled}
           className="aui-composer-root"
@@ -1277,6 +1281,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onThreadRunStart,
   onUsage,
   slashCommands = EMPTY_SLASH_COMMANDS,
+  fileMentionError,
   fileMentions = EMPTY_FILE_MENTIONS,
   onFileMentionQueryChange,
   toolMenu,
@@ -1361,6 +1366,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             {...(onUsage ? { onUsage } : {})}
+            fileMentionError={fileMentionError}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}
@@ -1395,6 +1401,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             onThreadRunStart={onThreadRunStart}
             prepareLocalModel={prepareLocalModel}
             {...(onUsage ? { onUsage } : {})}
+            fileMentionError={fileMentionError}
             fileMentions={fileMentions}
             onFileMentionQueryChange={onFileMentionQueryChange}
             pickerModels={pickerModels}

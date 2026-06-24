@@ -22,6 +22,7 @@ const WORKSPACE_FALLBACK_LABEL = 'Workspace';
 const QUICK_OPEN_DEBOUNCE_MS = 150;
 
 export interface UseQuickOpenFilesResult {
+  readonly error: Error | null;
   readonly files: readonly QuickOpenFileItem[];
   readonly loading: boolean;
 }
@@ -64,7 +65,7 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
 
-  const { rows, loading } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
+  const { rows, loading, error } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('quick-open', debounced),
     query: QUICK_OPEN_NAME_SEARCH_SQL,
     params: [debounced, QUICK_OPEN_MAX_LIMIT],
@@ -110,7 +111,7 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
 
   // Report loading while a query is in flight OR a debounce is pending, so the
   // palette shows "Searching…" instead of a misleading "No files found.".
-  return { files, loading: trimmed.length > 0 && (rowsAreStale || loading) };
+  return { error, files, loading: trimmed.length > 0 && (rowsAreStale || loading) };
 }
 
 /**

@@ -15,9 +15,13 @@ import {
   tryResolveEmbeddingSetMetadata,
 } from './embedding-set-metadata.js';
 
-interface EmbeddingSetsDb {
+interface EmbeddingSetsTransactionDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
+}
+
+interface EmbeddingSetsDb extends EmbeddingSetsTransactionDb {
+  transaction<T>(callback: (tx: EmbeddingSetsTransactionDb) => Promise<T>): Promise<T>;
 }
 
 export interface ListEmbeddingSpacesOptions {
@@ -37,6 +41,7 @@ export interface EmbeddingSpaceStats {
 }
 
 export interface EmbeddingSpaceListing {
+  readonly category: string | null;
   readonly createdAt: string;
   readonly description: string | null;
   readonly dimensions: number;
@@ -46,10 +51,13 @@ export interface EmbeddingSpaceListing {
   readonly modelKey: string;
   readonly name: string | null;
   readonly stats?: EmbeddingSpaceStats;
+  readonly systemRole?: string | null;
+  readonly tags: string | null;
 }
 
 interface EmbeddingSpaceListingRow {
   readonly averageTokensPerChunk?: number | string | null;
+  readonly category: string | null;
   readonly createdAt: string;
   readonly description: string | null;
   readonly dimensions: number | string;
@@ -60,6 +68,8 @@ interface EmbeddingSpaceListingRow {
   readonly modelId: string;
   readonly modelKey: string;
   readonly name: string | null;
+  readonly systemRole?: string | null;
+  readonly tags: string | null;
   readonly tokenizedChunkCount?: number | string | null;
   readonly totalChunks?: number | string | null;
   readonly totalTokens?: number | string | null;
@@ -392,6 +402,9 @@ export class EmbeddingSetsRepository {
                es.dimensions,
                es.distance,
                es.created_at AS "createdAt",
+               es.tags,
+               es.category,
+               es.system_role AS "systemRole",
                COALESCE(fs.file_count, '0') AS "fileCount",
                COALESCE(cs.total_chunks, '0') AS "totalChunks",
                COALESCE(cs.embedded_chunks, '0') AS "embeddedChunks",
@@ -412,7 +425,10 @@ export class EmbeddingSetsRepository {
                model_id AS "modelId",
                dimensions,
                distance,
-               created_at AS "createdAt"
+               created_at AS "createdAt",
+               tags,
+               category,
+               system_role AS "systemRole"
              FROM embedding_sets
              ORDER BY created_at DESC`
           );
@@ -421,9 +437,12 @@ export class EmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [
-      id,
-    ]);
+    const result = await this.db.transaction(async (tx) => {
+      await tx.query('DELETE FROM job_queue WHERE embedding_set_id = $1', [id]);
+      await tx.query('DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', [id]);
+      await tx.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [id]);
+      return await tx.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [id]);
+    });
     return result.rows.length > 0;
   }
 
@@ -471,6 +490,9 @@ export class EmbeddingSetsRepository {
       dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
       distance: row.distance,
       createdAt: row.createdAt,
+      tags: row.tags,
+      category: row.category,
+      systemRole: row.systemRole ?? null,
     };
     if (options.includeStats !== true) {
       return listing;

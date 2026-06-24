@@ -803,6 +803,23 @@ describe('CollectionBrowserView', () => {
     expect(latestProps).not.toHaveProperty('semanticResults');
   });
 
+  it('shows an explicit unavailable state instead of the empty collection message', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-a"
+        chunks={[]}
+        collectionBrowserUnavailableReason="Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated."
+        height={500}
+        records={[]}
+      />
+    );
+
+    expect(screen.getByTestId('empty-message')).toHaveTextContent(
+      'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
+    );
+    expect(screen.queryByText(/No files in this collection/i)).not.toBeInTheDocument();
+  });
+
   it('does not execute hybrid search without an active collection', async () => {
     const user = userEvent.setup();
     useCollectionBrowserStore.getState().setSemanticQuery('orphan query');

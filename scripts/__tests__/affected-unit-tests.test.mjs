@@ -211,18 +211,18 @@ test('DB public API and migration changes still expand dependent unit packages',
 test('Turso profile-bootstrap docs track Turso provider repository coverage', () => {
   const providerSource = readFileSync('packages/db/src/db-provider.tsx', 'utf8');
   const profileBootstrapDoc = readFileSync('docs/turso-migration/profile-bootstrap.md', 'utf8');
+  const migratedRepositories = providerSource.match(
+    /migratedRepositories:\s*\[(?<entries>[\s\S]*?)\]\s*,\s*unavailableRepositories:/
+  )?.groups?.entries;
 
-  assert.match(
-    providerSource,
-    /migratedRepositories:\s*\[[^\]]*'file_records'[^\]]*\]/s
-  );
+  assert.match(migratedRepositories ?? '', /'file_records'/);
   assert.doesNotMatch(
     providerSource,
     /unavailableRepositories:\s*\[[^\]]*'file_records'[^\]]*\]/s
   );
   assert.match(
     providerSource,
-    /unavailableRepositories:\s*\[[^\]]*'file_chunks'[^\]]*\]/s
+    /unavailableRepositories:\s*tursoRepositories\.fileChunkRepository\s*\?\s*\[\]\s*:\s*\['file_chunks'\]/
   );
   assert.match(profileBootstrapDoc, /^- `file_records`$/m);
   assert.match(

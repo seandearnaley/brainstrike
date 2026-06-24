@@ -234,6 +234,31 @@ describe('retrieval-tool', () => {
     getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
   });
 
+  it('fails explicitly instead of running PGlite vector retrieval against Turso', async () => {
+    getDatabaseMock.mockResolvedValueOnce({
+      capabilities: { liveQuery: false },
+      query: dbQueryMock,
+    });
+
+    await expect(
+      runQueryEmbeddingSpace(
+        {
+          query: 'Where is assistant retrieval wired?',
+          embeddingSetId: 'explicit-set',
+        },
+        {
+          workspaceIndexEmbeddingSetId: 'workspace-index-set',
+          workspaceIndexingEnabled: true,
+          workspaceIndexStatusState: 'idle',
+        }
+      )
+    ).rejects.toThrow(
+      'brainstrike.queryEmbeddingSpace is unavailable while the desktop database runtime is Turso'
+    );
+    expect(dbQueryMock).not.toHaveBeenCalled();
+    expect(searchSimilarMock).not.toHaveBeenCalled();
+  });
+
   it('retrieves and packs context with inline file paths', async () => {
     const tool = createRetrievalTool({
       embeddingSetId: 'set-1',

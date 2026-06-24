@@ -71,6 +71,17 @@ const mockChunkRepository = {
   searchSimilar: vi.fn(),
 };
 
+const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
+
+class TursoFileChunkRepository {
+  readonly brainstrikeRepositoryKind = TURSO_FILE_CHUNK_REPOSITORY_MARKER;
+
+  findAll = vi.fn();
+  findByFileRecordId = vi.fn();
+  findById = vi.fn();
+  searchSimilar = vi.fn();
+}
+
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
@@ -155,6 +166,9 @@ const mockDatabase = {
 };
 let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
+let mockProfileBootstrapReport: { runtime: { engine: string } } | null = {
+  runtime: { engine: 'pglite' },
+};
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
@@ -178,10 +192,20 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
   return {
     ...actual,
+    isTursoFileChunkRepository: vi.fn(
+      (repository: unknown) =>
+        typeof repository === 'object' &&
+        repository !== null &&
+        (repository as { readonly brainstrikeRepositoryKind?: unknown })
+          .brainstrikeRepositoryKind === TURSO_FILE_CHUNK_REPOSITORY_MARKER
+    ),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
+    useOptionalPGliteDatabase: () =>
+      mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
+    useOptionalProfileBootstrapReport: () => mockProfileBootstrapReport,
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
     useDbProviderError: () => null,
     useFactoryReset: () => null,
@@ -444,6 +468,7 @@ describe('DatabaseDemoPanel', () => {
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
     mockCurrentChunkRepository = mockChunkRepository;
+    mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
@@ -794,6 +819,50 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when database or chunk storage is unavailable', async () => {
       mockDatabaseClient = null;
       mockCurrentChunkRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import when Turso has no chunk repository bridge', async () => {
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+      mockCurrentChunkRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import for Turso chunk storage until the import path is migrated', async () => {
+      mockCurrentChunkRepository =
+        new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('disables manual import for marked Turso chunk storage when class names are mangled', async () => {
+      mockCurrentChunkRepository = {
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        findAll: vi.fn(),
+        findByFileRecordId: vi.fn(),
+        findById: vi.fn(),
+        searchSimilar: vi.fn(),
+      } as unknown as typeof mockChunkRepository;
 
       renderWithProviders(<DatabaseDemoPanel />);
 

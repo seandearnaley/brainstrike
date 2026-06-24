@@ -453,6 +453,65 @@ describe('useDatabaseDemoData', () => {
     expect(collectionStatsCall?.[0]).not.toHaveProperty('mode', 'incremental');
   });
 
+  it('does not run PGlite collection SQL when collection queries are unavailable', async () => {
+    setupLiveQueries();
+    const database = createMockDatabase();
+    const query = (database as unknown as { query: ReturnType<typeof vi.fn> }).query;
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+        supportsPGliteCollectionQueries: false,
+      })
+    );
+
+    await result.current.loadRecords();
+    await expect(result.current.loadFileChunkSummaries('record-1')).rejects.toThrow(
+      'Chunk summary requests require PGlite-compatible collection queries.'
+    );
+    await expect(result.current.loadCollectionExportData()).rejects.toThrow(
+      'Collection export requires PGlite-compatible collection queries.'
+    );
+
+    expect(
+      mockedUseBrainstrikeLiveQuery.mock.calls.every(
+        ([queryOptions]) => queryOptions.enabled === false
+      )
+    ).toBe(true);
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining('FROM file_records fr'),
+      expect.anything()
+    );
+    expect(query).not.toHaveBeenCalledWith(
+      expect.stringContaining('FROM file_chunks'),
+      expect.anything()
+    );
+  });
+
+  it('reports selected collection browsing as unavailable when collection queries are disabled', () => {
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+        supportsPGliteCollectionQueries: false,
+        databaseRuntimeEngine: 'turso',
+      })
+    );
+
+    expect(result.current.collectionBrowserUnavailableReason).toBe(
+      'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
+    );
+  });
+
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
@@ -1580,6 +1639,35 @@ describe('useDatabaseDemoData', () => {
 
     // Standard FileRecordRepository should resolve to 'PGlite WASM'
     expect(result.current.dbInfo?.location).toBe('PGlite WASM');
+  });
+
+  it('resolves storage location as Turso without running the PGlite info query', async () => {
+    const repository = createRepository([], 3);
+    const chunkRepository = createChunkRepository([]);
+    const databaseQuery = vi.fn(async () => ({ rows: [] }));
+    const database = { query: databaseQuery };
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database,
+        activeCollectionId: 'set-1',
+        databaseRuntimeEngine: 'turso',
+        supportsPGliteCollectionQueries: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    expect(result.current.dbInfo?.location).toBe('Turso');
+    expect(databaseQuery).not.toHaveBeenCalledWith('SELECT \'PGlite WASM\' AS "location"');
   });
 
   it('resolves storage location as Main Process for Electron repository', async () => {

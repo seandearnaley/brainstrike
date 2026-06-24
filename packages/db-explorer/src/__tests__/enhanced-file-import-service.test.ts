@@ -3,10 +3,13 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
+const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
+
 const {
   ensureStartedMock,
   runEnhancedImportMock,
   mockUseBrainstrikeDbClient,
+  mockUsePGliteDatabase,
   mockUseFileChunkRepository,
   mockUseFileRecordRepository,
   createBulkOperationContextMock,
@@ -34,6 +37,7 @@ const {
     })),
     runEnhancedImportMock: vi.fn(),
     mockUseBrainstrikeDbClient: vi.fn(() => mockDb),
+    mockUsePGliteDatabase: vi.fn(() => mockDb),
     mockUseFileRecordRepository: vi.fn(() => mockFileRecordRepository),
     mockUseFileChunkRepository: vi.fn(() => mockFileChunkRepository),
     bulkOperationState: state,
@@ -61,6 +65,13 @@ vi.mock('../base-file-import-service', () => ({
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  isTursoFileChunkRepository: vi.fn(
+    (repository: unknown) =>
+      typeof repository === 'object' &&
+      repository !== null &&
+      (repository as { readonly brainstrikeRepositoryKind?: unknown }).brainstrikeRepositoryKind ===
+        TURSO_FILE_CHUNK_REPOSITORY_MARKER
+  ),
   getChunkingPreset: vi.fn(() => ({
     id: 'balanced',
     strategy: 'auto',
@@ -74,6 +85,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: mockUseFileRecordRepository,
   useFileChunkRepository: mockUseFileChunkRepository,
   useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
+  usePGliteDatabase: mockUsePGliteDatabase,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,
@@ -172,6 +184,18 @@ describe('useEnhancedFileImportService', () => {
       expect(result.current.progress).toBe(null);
       expect(typeof result.current.importFiles).toBe('function');
       expect(result.current.chunkRepository).toBeDefined();
+    });
+
+    it('does not expose marked Turso chunk repositories to the manual import path', () => {
+      mockUseFileChunkRepository.mockReturnValue({
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        insertMany: vi.fn(),
+        update: vi.fn(),
+      } as unknown as ReturnType<typeof mockUseFileChunkRepository>);
+
+      const { result } = renderHook(() => useEnhancedFileImportService());
+
+      expect(result.current.chunkRepository).toBeNull();
     });
 
     it('should accept options parameter', () => {

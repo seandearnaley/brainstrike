@@ -72,6 +72,7 @@ function resolveMentionAdapterRootId(
 const FILE_MENTION_DEBOUNCE_MS = 150;
 
 export interface UseFileMentionsResult {
+  readonly error: Error | null;
   readonly fileMentions: readonly FileMention[];
   readonly loading: boolean;
 }
@@ -104,7 +105,7 @@ export function useFileMentions(query: string): UseFileMentionsResult {
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
 
-  const { rows, loading } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
+  const { rows, loading, error } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('file-mention', debounced),
     query: QUICK_OPEN_NAME_SEARCH_SQL,
     params: [debounced, QUICK_OPEN_MAX_LIMIT],
@@ -146,7 +147,7 @@ export function useFileMentions(query: string): UseFileMentionsResult {
     return items;
   }, [enabled, rowsAreStale, rows, activeRootIds, rootDescriptors, rootIdentity]);
 
-  return { fileMentions, loading: trimmed.length > 0 && (rowsAreStale || loading) };
+  return { error, fileMentions, loading: trimmed.length > 0 && (rowsAreStale || loading) };
 }
 
 /**

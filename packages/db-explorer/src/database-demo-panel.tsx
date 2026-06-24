@@ -1,5 +1,8 @@
 import {
+  type DrizzleFileChunkRepository,
+  type ElectronFileChunkRepository,
   type EmbeddingSet,
+  isTursoFileChunkRepository,
   refreshCollectionIndexingStats,
   useBrainstrikeDbClient,
   useClearAllData,
@@ -7,6 +10,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
@@ -74,7 +78,6 @@ import {
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
-import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 
 interface DatabaseDemoPanelProps {
@@ -142,6 +145,15 @@ declare global {
 
 const logger = createLogger('DatabaseDemoPanel');
 
+function toSemanticSearchChunkRepository(
+  repository: ReturnType<typeof useFileChunkRepository>
+): DrizzleFileChunkRepository | ElectronFileChunkRepository | null {
+  if (!repository || isTursoFileChunkRepository(repository)) {
+    return null;
+  }
+  return repository as DrizzleFileChunkRepository | ElectronFileChunkRepository;
+}
+
 function DatabaseDemoSemanticSearchTestHookBridge() {
   const { error, hasSearched, isSearching, searchResults } = useSemanticSearch();
 
@@ -173,9 +185,13 @@ function DatabaseDemoSemanticSearchTestHookBridge() {
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbChunkRepository = useFileChunkRepository();
+  const semanticSearchChunkRepository = useMemo<
+    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
+  >(() => toSemanticSearchChunkRepository(dbChunkRepository), [dbChunkRepository]);
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
 
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
@@ -213,7 +229,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       (activeCollection?.systemRole === 'workspace-index' ||
         activeCollectionId === managedCollectionId)
   );
-  const manualImportStorageUnavailable = !(dbContext && repository && dbChunkRepository);
+  const tursoChunkRepository = isTursoFileChunkRepository(dbChunkRepository);
+  const supportsPGliteCollectionQueries = Boolean(dbChunkRepository && !tursoChunkRepository);
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -243,8 +260,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
-  const [chunkRepository, setChunkRepository] =
-    useState<UseImportFlowResult['chunkRepository']>(null);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
@@ -253,7 +268,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const data = useDatabaseDemoData({
     repository,
-    chunkRepository,
+    chunkRepository: dbChunkRepository,
     toast,
     database: dbContext,
     activeCollectionId,
@@ -261,6 +276,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     isEmbeddingActive,
     recordPage,
     recordPageSize,
+    supportsPGliteCollectionQueries,
+    databaseRuntimeEngine: profileBootstrapReport?.runtime.engine ?? null,
   });
   const {
     collectionCounts,
@@ -274,6 +291,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     loadFileChunkSummaries,
     loadCollectionExportData,
     recordPagination,
+    collectionBrowserUnavailableReason,
   } = data;
   const activeCollectionCounts = collectionCounts;
   const activeCollectionCountsPending = collectionCountsStatus === 'pending';
@@ -301,7 +319,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Use dbChunkRepository (from hook) which is always available when DB is ready,
   // rather than chunkRepository (from import flow) which requires import to be triggered
   const semanticSearchExecutor = useSemanticSearchExecutor({
-    chunkRepository: dbChunkRepository,
+    chunkRepository: semanticSearchChunkRepository,
     fileRepository: repository,
   });
 
@@ -356,10 +374,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     importSettings: importFlowSettings,
     toast,
     onImportComplete: handleImportComplete,
-    onChunkRepositoryChange: setChunkRepository,
     embeddingQueue,
     resolveActiveCollectionId,
   });
+  const manualImportStorageUnavailable = !(
+    dbContext &&
+    repository &&
+    importFlow.chunkRepository &&
+    !tursoChunkRepository
+  );
 
   // Sync import state to Zustand store to pause live queries during bulk operations
   // This prevents O(n²) performance degradation from live queries firing on every DB mutation
@@ -741,6 +764,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 {...(activeCollectionName ? { activeCollectionName } : {})}
                 activeCollectionSystemRole={activeCollection?.systemRole ?? null}
                 chunks={chunks}
+                {...(collectionBrowserUnavailableReason
+                  ? { collectionBrowserUnavailableReason }
+                  : {})}
                 height="100%"
                 isLoading={refreshing}
                 loadChunkDetail={loadChunkDetail}
@@ -833,7 +859,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Delete Collection Dialog */}
       {collectionDialogs.deleteDialogOpen && collectionDialogs.selectedCollection && (
         <DeleteEmbeddingSetDialog
-          db={dbContext as never}
           embeddingSet={{
             id: collectionDialogs.selectedCollection.id,
             modelKey: collectionDialogs.selectedCollection.modelKey,
@@ -868,6 +893,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             }
           }}
           open={collectionDialogs.deleteDialogOpen}
+          repository={embeddingSetsRepository}
         />
       )}
     </div>

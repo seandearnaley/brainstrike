@@ -118,6 +118,14 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
   });
 
+  it('exposes batch database transactions but not renderer callback transactions', () => {
+    const preloadSource = readPreloadSource();
+
+    expect(preloadSource).toContain('runTransaction: (');
+    expect(preloadSource).toContain('ipcRenderer.invoke(DB_TRANSACTION_CHANNEL');
+    expect(preloadSource).not.toContain('transaction: (callback');
+  });
+
   it('keeps preload desktop diagnostics literal in parity with the platform diagnostics contract', () => {
     const preloadSource = readPreloadSource();
 

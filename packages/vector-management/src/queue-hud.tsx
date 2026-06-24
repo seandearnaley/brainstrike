@@ -1,4 +1,4 @@
-import { JobQueue, useBrainstrikeDbClient } from '@brainstrike/db';
+import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Badge,
@@ -261,7 +261,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
   // Compute flag without hooks to avoid initializing DB when disabled
   const enabled = isQueueEnabled();
 
-  const db = useBrainstrikeDbClient();
+  const db = usePGliteDatabase();
   const { toast } = useToast();
 
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);

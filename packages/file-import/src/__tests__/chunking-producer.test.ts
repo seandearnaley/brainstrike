@@ -12,6 +12,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { processChunking } from '../chunking';
 import type { ChunkingWorkerPort } from '../chunking-worker-port';
+import type { FileImportChunkRepository } from '../repository-ports';
 
 // Helper to create a mock worker port for tests
 function createMockPortableChunk(overrides: Partial<PortableChunk> = {}): PortableChunk {
@@ -90,9 +91,7 @@ describe('Chunking producer enqueues jobs', () => {
         repository: fileRepo as unknown as ReturnType<
           typeof import('@brainstrike/db').useFileRecordRepository
         >,
-        chunkRepository: chunkRepo as unknown as ReturnType<
-          typeof import('@brainstrike/db').useFileChunkRepository
-        >,
+        chunkRepository: chunkRepo as unknown as FileImportChunkRepository,
       },
       {
         updateProgress: () => null,

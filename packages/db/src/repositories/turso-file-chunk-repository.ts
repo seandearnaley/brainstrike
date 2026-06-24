@@ -42,6 +42,23 @@ const FILE_CHUNK_COLUMNS = `
   updated_at
 `.trim();
 
+export const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
+
+export interface TursoFileChunkRepositoryMarker {
+  readonly brainstrikeRepositoryKind: typeof TURSO_FILE_CHUNK_REPOSITORY_MARKER;
+}
+
+export function isTursoFileChunkRepository(
+  repository: unknown
+): repository is TursoFileChunkRepositoryMarker {
+  return (
+    typeof repository === 'object' &&
+    repository !== null &&
+    (repository as { readonly brainstrikeRepositoryKind?: unknown }).brainstrikeRepositoryKind ===
+      TURSO_FILE_CHUNK_REPOSITORY_MARKER
+  );
+}
+
 interface TursoFileChunkRow {
   readonly chunk_index: number | string;
   readonly chunk_size: number | string | null;
@@ -84,7 +101,9 @@ interface TursoEmbeddingSetDimensionRow {
   readonly id: string;
 }
 
-export class TursoFileChunkRepository {
+export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker {
+  readonly brainstrikeRepositoryKind = TURSO_FILE_CHUNK_REPOSITORY_MARKER;
+
   constructor(private readonly db: BrainstrikeDbExecutionClient) {}
 
   async findById(id: string): Promise<FileChunk | null> {

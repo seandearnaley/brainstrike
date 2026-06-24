@@ -12,10 +12,16 @@ import {
   type ModelRuntimeServices,
 } from '../model-runtime-services';
 
+const { useBrainstrikeDbClientMock, useModelRegistryDbClientMock } = vi.hoisted(() => ({
+  useBrainstrikeDbClientMock: vi.fn(),
+  useModelRegistryDbClientMock: vi.fn(),
+}));
+
 // Mock imports
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useBrainstrikeDbClient: vi.fn(() => ({})),
+  useBrainstrikeDbClient: useBrainstrikeDbClientMock,
+  useModelRegistryDbClient: useModelRegistryDbClientMock,
 }));
 
 vi.mock('../../../hooks/use-model-registry', () => ({
@@ -48,8 +54,18 @@ vi.mock('@brainstrike/ui', () => {
       </label>
     ),
     Progress: (props: MockComponentProps) => <div data-testid="progress" {...props} />,
-    Switch: (props: MockComponentProps) => (
-      <input aria-checked={false} role="switch" type="checkbox" {...props} readOnly />
+    Switch: ({ onCheckedChange, ...props }: MockComponentProps) => (
+      <input
+        aria-checked={props['checked'] === true}
+        onChange={(event) => {
+          if (typeof onCheckedChange === 'function') {
+            onCheckedChange((event.target as HTMLInputElement).checked);
+          }
+        }}
+        role="switch"
+        type="checkbox"
+        {...props}
+      />
     ),
   };
 });
@@ -63,6 +79,8 @@ describe('ModelRegistrySettingsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetModelRegistryStoreForTests();
+    useBrainstrikeDbClientMock.mockReturnValue(null);
+    useModelRegistryDbClientMock.mockReturnValue({ runtime: 'turso-registry' });
     downloadEmbeddingModelMock = vi
       .fn<ModelRuntimeServices['downloadEmbeddingModel']>()
       .mockRejectedValue(new Error('Network error'));
@@ -174,5 +192,29 @@ describe('ModelRegistrySettingsSection', () => {
     await userEvent.click(expandBtn);
 
     expect(screen.getByLabelText('Test Model download progress').getAttribute('value')).toBe('42');
+  });
+
+  it('uses the model-registry DB client for Turso refresh and toggles', async () => {
+    const registryDb = { runtime: 'turso-registry' };
+    const fetchRegistry = vi.fn().mockResolvedValue(undefined);
+    const toggleProvider = vi.fn().mockResolvedValue(undefined);
+    const toggleModel = vi.fn().mockResolvedValue(undefined);
+    useBrainstrikeDbClientMock.mockReturnValue(null);
+    useModelRegistryDbClientMock.mockReturnValue(registryDb);
+    setupStore();
+    useModelRegistryStore.setState({ fetchRegistry, toggleModel, toggleProvider });
+
+    render(<ModelRegistrySettingsSection />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh Registry' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable Local Provider' }));
+    await userEvent.click(screen.getByRole('button', { name: /Expand Local Provider/i }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Enable Test Model' }));
+
+    await waitFor(() => {
+      expect(fetchRegistry).toHaveBeenCalledWith(registryDb);
+      expect(toggleProvider).toHaveBeenCalledWith(registryDb, 'local', false);
+      expect(toggleModel).toHaveBeenCalledWith(registryDb, 'test-model', false);
+    });
   });
 });

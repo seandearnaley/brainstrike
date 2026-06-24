@@ -1,4 +1,8 @@
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useBrainstrikeLiveQuery,
+  useOptionalPGliteDatabase,
+} from '@brainstrike/db';
 import { useMemo } from 'react';
 
 export type CollectionEmbeddingCoverageStatus =
@@ -96,10 +100,12 @@ const IDLE_SNAPSHOT: CollectionEmbeddingCoverageSnapshot = {
 };
 
 export function useCollectionEmbeddingCoverage(activeCollectionId: string | null) {
+  const pgliteDb = useOptionalPGliteDatabase();
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
   );
+  const liveQueryEnabled = Boolean(activeCollectionId) && Boolean(pgliteDb);
 
   const { rows, error, loading } = useBrainstrikeLiveQuery<CollectionCoverageRow>({
     cacheKey: makeLiveQueryKey('collection-embedding-coverage', activeCollectionId),
@@ -107,7 +113,7 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
     ...(params ? { params } : {}),
     mode: 'incremental',
     key: 'embeddingsetid',
-    enabled: Boolean(activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const snapshot = useMemo(() => {

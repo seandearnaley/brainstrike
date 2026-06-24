@@ -1,8 +1,6 @@
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DbHandle,
-  type DrizzleFileChunkRepository,
-  type ElectronFileChunkRepository,
   type FileChunk,
   type FileRecord,
   type IFileRecordRepository,
@@ -45,8 +43,15 @@ const logger = createLogger('DatabaseDemoData');
  * This must match the expected values in database-status-item.tsx for proper status bar display.
  * - "Main Process" → displays as "IPC" in status bar
  * - "PGlite WASM" → displays as "PGlite WASM" in status bar
+ * - "Turso" → displays as "Turso" in status bar
  */
-function resolveStorageLocation(repository: IFileRecordRepository | null): string {
+function resolveStorageLocation(
+  repository: IFileRecordRepository | null,
+  databaseRuntimeEngine?: string | null
+): string {
+  if (databaseRuntimeEngine === 'turso') {
+    return 'Turso';
+  }
   if (!repository) {
     return 'Unknown';
   }
@@ -64,10 +69,17 @@ export interface DatabaseInfo {
   testResult: string;
 }
 
+interface DatabaseDemoChunkRepository {
+  readonly findByFileRecordId?: (fileRecordId: string) => Promise<FileChunk[]>;
+  readonly findById?: (chunkId: string) => Promise<FileChunk | null>;
+}
+
 export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
-  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository?: DatabaseDemoChunkRepository | null;
   database?: DbHandle | null;
+  /** Selected database engine, used for diagnostics labels and engine-specific probes. */
+  databaseRuntimeEngine?: string | null;
   /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
@@ -77,6 +89,8 @@ export interface UseDatabaseDemoDataOptions {
   /** Bounded page size for the active collection file list. */
   recordPageSize?: number;
   repository: IFileRecordRepository | null;
+  /** False when the current DB surface cannot execute the PGlite/Postgres collection-browser SQL. */
+  supportsPGliteCollectionQueries?: boolean;
   toast: ReturnType<typeof useToast>['toast'];
 }
 
@@ -143,6 +157,7 @@ export interface DatabaseRecordPagination {
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   chunks: DatabaseFileChunkSummary[];
+  collectionBrowserUnavailableReason?: string;
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
@@ -162,6 +177,13 @@ const EXPORT_LOAD_BATCH_SIZE = 50;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD = 250;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_CHUNK_THRESHOLD = 1000;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD = 1000;
+
+function formatDatabaseRuntimeLabel(databaseRuntimeEngine: string | null): string {
+  if (databaseRuntimeEngine === 'turso') {
+    return 'Turso';
+  }
+  return 'current';
+}
 
 async function mapInBatches<T, R>(
   items: readonly T[],
@@ -282,6 +304,8 @@ export function useDatabaseDemoData({
   isImporting = false,
   recordPage = 0,
   recordPageSize = 50,
+  supportsPGliteCollectionQueries = true,
+  databaseRuntimeEngine = null,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
@@ -312,6 +336,12 @@ export function useDatabaseDemoData({
   const normalizedRecordPageSize =
     Number.isFinite(recordPageSize) && recordPageSize > 0 ? Math.trunc(recordPageSize) : 50;
   const recordOffset = normalizedRecordPage * normalizedRecordPageSize;
+  const collectionBrowserUnavailableReason =
+    activeCollectionId && !supportsPGliteCollectionQueries
+      ? `Collection file browsing is unavailable for the ${formatDatabaseRuntimeLabel(
+          databaseRuntimeEngine
+        )} database runtime until selected-collection record queries are migrated.`
+      : undefined;
   const recordPageCacheKey = activeCollectionId
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
@@ -420,7 +450,9 @@ export function useDatabaseDemoData({
   // Pause live queries only during the foreground import path. Background embedding keeps
   // collection pages and counts live, but the queries above are intentionally page-scoped
   // and single-scan so embedding updates do not rematerialize the full collection page.
-  const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
+  const liveQueryEnabled = Boolean(
+    supportsPGliteCollectionQueries && database && schemaReady && activeCollectionId && !isImporting
+  );
 
   const {
     rows: recordRows,
@@ -603,7 +635,15 @@ export function useDatabaseDemoData({
       includeRecords: boolean;
       includeTotalRecords: boolean;
     }) => {
-      if (!(database && schemaReady && activeCollectionId && recordPageCacheKey)) {
+      if (
+        !(
+          supportsPGliteCollectionQueries &&
+          database &&
+          schemaReady &&
+          activeCollectionId &&
+          recordPageCacheKey
+        )
+      ) {
         return;
       }
       if (typeof (database as { query?: unknown }).query !== 'function') {
@@ -657,6 +697,7 @@ export function useDatabaseDemoData({
       recordPageCacheKey,
       recordQueryParams,
       schemaReady,
+      supportsPGliteCollectionQueries,
     ]
   );
 
@@ -666,6 +707,9 @@ export function useDatabaseDemoData({
       return;
     }
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
     if (fallbackLoading) {
@@ -719,6 +763,7 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     recordPageCacheKey,
     schemaReady,
+    supportsPGliteCollectionQueries,
   ]);
 
   const resolvedRecords =
@@ -750,6 +795,9 @@ export function useDatabaseDemoData({
       }
       if (!(database && schemaReady)) {
         throw new Error('Chunk summary requests require an initialized database.');
+      }
+      if (!supportsPGliteCollectionQueries) {
+        throw new Error('Chunk summary requests require PGlite-compatible collection queries.');
       }
       if (typeof (database as { query?: unknown }).query !== 'function') {
         throw new Error('Chunk summary requests require database query support.');
@@ -797,11 +845,15 @@ export function useDatabaseDemoData({
       recordPageCacheKey,
       schemaReady,
       setGlobalCachedFileData,
+      supportsPGliteCollectionQueries,
     ]
   );
 
   const loadRecords = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
 
@@ -840,6 +892,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
+    supportsPGliteCollectionQueries,
     toast,
   ]);
 
@@ -899,6 +952,9 @@ export function useDatabaseDemoData({
     if (!(database && typeof (database as { query?: unknown }).query === 'function')) {
       throw new Error('Collection export requires database query support.');
     }
+    if (!supportsPGliteCollectionQueries) {
+      throw new Error('Collection export requires PGlite-compatible collection queries.');
+    }
     if (!_chunkRepository) {
       throw new Error('Chunk export repository is unavailable.');
     }
@@ -911,6 +967,7 @@ export function useDatabaseDemoData({
     ) {
       throw new Error('Chunk export repository does not support findByFileRecordId.');
     }
+    const findChunksByFileRecordId = _chunkRepository.findByFileRecordId;
 
     const recordIdsResult = await (
       database as {
@@ -935,17 +992,20 @@ export function useDatabaseDemoData({
     });
 
     const chunkGroups = await mapInBatches(settledRecords, (record) =>
-      _chunkRepository.findByFileRecordId(record.id)
+      findChunksByFileRecordId(record.id)
     );
 
     return {
       records: settledRecords,
       chunks: chunkGroups.flat(),
     };
-  }, [_chunkRepository, activeCollectionId, database, repository]);
+  }, [_chunkRepository, activeCollectionId, database, repository, supportsPGliteCollectionQueries]);
 
   const refreshVisibleData = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (!supportsPGliteCollectionQueries) {
       return;
     }
 
@@ -971,6 +1031,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
+    supportsPGliteCollectionQueries,
   ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
@@ -1118,7 +1179,7 @@ export function useDatabaseDemoData({
   }, [fallbackError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
-    const location = resolveStorageLocation(repository);
+    const location = resolveStorageLocation(repository, databaseRuntimeEngine);
     if (!repository) {
       setDbInfo({
         location,
@@ -1145,13 +1206,14 @@ export function useDatabaseDemoData({
         connected: false,
       });
     }
-  }, [repository]);
+  }, [databaseRuntimeEngine, repository]);
 
   const databasePingHandlers = useMemo(() => {
     const handlers: Array<() => Promise<void>> = [];
     if (typeof window === 'undefined') {
       return handlers;
     }
+    const location = databaseRuntimeEngine === 'turso' ? 'Turso' : 'Main Process';
     const w = window as unknown as {
       electronAPI?: {
         db?: {
@@ -1167,7 +1229,7 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.ping?.();
           if (res?.success) {
             setDbInfo({
-              location: 'Main Process',
+              location,
               testResult: 'connected',
               connected: true,
             });
@@ -1185,7 +1247,7 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.test?.();
           if (res?.success) {
             setDbInfo({
-              location: 'Main Process',
+              location,
               testResult: 'Connected (IPC)',
               connected: true,
             });
@@ -1198,7 +1260,7 @@ export function useDatabaseDemoData({
     }
 
     return handlers;
-  }, []);
+  }, [databaseRuntimeEngine]);
 
   useEffect(() => {
     if (!repository) {
@@ -1233,6 +1295,9 @@ export function useDatabaseDemoData({
     if (!database) {
       return;
     }
+    if (databaseRuntimeEngine === 'turso') {
+      return;
+    }
     let canceled = false;
     const fetchInfo = async () => {
       try {
@@ -1259,7 +1324,7 @@ export function useDatabaseDemoData({
     return () => {
       canceled = true;
     };
-  }, [database]);
+  }, [database, databaseRuntimeEngine]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
 
@@ -1276,6 +1341,7 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
+    ...(collectionBrowserUnavailableReason ? { collectionBrowserUnavailableReason } : {}),
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     records: resolvedRecords,

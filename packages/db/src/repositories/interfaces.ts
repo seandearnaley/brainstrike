@@ -11,6 +11,10 @@ import type {
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
+import type {
+  EmbeddingSpaceListing,
+  ListEmbeddingSpacesOptions,
+} from './embedding-sets-repository.js';
 
 /**
  * Common interface for all embedding sets repositories
@@ -28,6 +32,9 @@ export interface IEmbeddingSetsRepository {
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet>;
   getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet>;
+  listEmbeddingSpaces?(
+    options?: ListEmbeddingSpacesOptions
+  ): Promise<readonly EmbeddingSpaceListing[]>;
   updateMetadata(
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }

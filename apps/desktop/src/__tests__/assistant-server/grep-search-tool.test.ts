@@ -2,10 +2,13 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 
-const queryMock = vi.fn();
+const { getDatabaseMock, queryMock } = vi.hoisted(() => ({
+  getDatabaseMock: vi.fn(),
+  queryMock: vi.fn(),
+}));
 
 vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(async () => ({ query: queryMock })),
+  getDatabase: getDatabaseMock,
 }));
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
@@ -23,7 +26,21 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 
 describe('grep search tool', () => {
   beforeEach(() => {
+    getDatabaseMock.mockReset();
+    getDatabaseMock.mockResolvedValue({ query: queryMock });
     queryMock.mockReset();
+  });
+
+  it('fails explicitly instead of running PGlite grep SQL against Turso', async () => {
+    getDatabaseMock.mockResolvedValueOnce({
+      capabilities: { liveQuery: false },
+      query: queryMock,
+    });
+
+    await expect(runGrepSearch({ pattern: 'needle' }, undefined)).rejects.toThrow(
+      'brainstrike.grepSearch is unavailable while the desktop database runtime is Turso'
+    );
+    expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('defaults to files mode: aggregated per-path summaries, no line content', async () => {

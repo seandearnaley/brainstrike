@@ -32,6 +32,7 @@ import {
   renderAssistantThreadPanel,
   type SelectionUpdateHandler,
   setMcpApi,
+  setMockDbClientsForAssistantPanel,
   testEnabledModels,
 } from './assistant-ui-panel-wrapper-test-support';
 
@@ -580,6 +581,29 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Verify the model was removed from the test enabled set (DB mock)
     expect(testEnabledModels.has(initialModelName)).toBe(false);
+  });
+
+  test('uses DB registry model enablement when only the model registry DB client is available', async () => {
+    testEnabledModels.add('gpt-5.2');
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      enabledModelsByProvider: {
+        ...state.enabledModelsByProvider,
+        openai: [],
+      },
+    }));
+    setMockDbClientsForAssistantPanel({
+      brainstrikeDb: null,
+      modelRegistryDb: mockDb,
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+        expect(modelSelect).not.toBeDisabled();
+        expect(modelSelect.value).toBe('gpt-5.2');
+      })
+    );
   });
 
   test('loads MCP tools on mount', async () => {

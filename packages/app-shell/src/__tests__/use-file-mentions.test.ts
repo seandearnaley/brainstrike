@@ -49,6 +49,15 @@ function mockRows(rows: DbRow[], loading = false): void {
   useBrainstrikeLiveQueryMock.mockReturnValue({ rows, loading, error: null, refresh: vi.fn() });
 }
 
+function mockError(error: Error): void {
+  useBrainstrikeLiveQueryMock.mockReturnValue({
+    rows: [],
+    loading: false,
+    error,
+    refresh: vi.fn(),
+  });
+}
+
 function setRoots(
   activeRootIds: string[],
   rootDescriptors: FileExplorerState['rootDescriptors']
@@ -140,6 +149,17 @@ describe('useFileMentions', () => {
     });
     expect(result.current.fileMentions).toEqual([]);
     expect(result.current.loading).toBe(true);
+  });
+
+  it('exposes live-query errors so Turso unsupported-runtime paths are visible', () => {
+    const error = new Error('Live queries are unavailable for Turso runtime.');
+    mockError(error);
+
+    const { result } = renderSettled('app');
+
+    expect(result.current.error).toBe(error);
+    expect(result.current.fileMentions).toEqual([]);
+    expect(result.current.loading).toBe(false);
   });
 
   it('disables the live query for an empty/whitespace query', () => {

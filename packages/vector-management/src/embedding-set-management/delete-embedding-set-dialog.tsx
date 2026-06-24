@@ -1,4 +1,4 @@
-import type { DbHandle, EmbeddingSet } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Button,
@@ -15,11 +15,11 @@ import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
 interface DeleteEmbeddingSetDialogProps {
-  db: DbHandle | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onOpenChange: (open: boolean) => void;
   onSetDeleted?: (setId: string) => void;
   open: boolean;
+  repository: IEmbeddingSetsRepository | null;
 }
 
 const logger = createLogger('DeleteEmbeddingSetDialog');
@@ -27,9 +27,9 @@ const logger = createLogger('DeleteEmbeddingSetDialog');
 export function DeleteEmbeddingSetDialog({
   open,
   onOpenChange,
-  db,
   embeddingSet,
   onSetDeleted,
+  repository,
 }: DeleteEmbeddingSetDialogProps) {
   const { toast } = useToast();
   const [deleting, setDeleting] = useState(false);
@@ -37,7 +37,7 @@ export function DeleteEmbeddingSetDialog({
   const removeCachedCollection = useVectorStatusUIStore((s) => s.removeCachedCollection);
 
   const handleDelete = async () => {
-    if (!(db && embeddingSet)) {
+    if (!(repository && embeddingSet)) {
       toast({
         title: 'Error',
         description: 'Invalid configuration',
@@ -51,11 +51,18 @@ export function DeleteEmbeddingSetDialog({
 
     setDeleting(true);
     try {
-      // Delete all chunks associated with this collection
-      await db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [collectionId]);
-
-      // Delete the collection itself
-      await db.query('DELETE FROM embedding_sets WHERE id = $1', [collectionId]);
+      const deleted = await repository.delete(collectionId);
+      if (!deleted) {
+        const message = `Collection not found: ${collectionId}`;
+        setDeleting(false);
+        logger.error('Failed to delete embedding set', { error: message });
+        toast({
+          title: 'Error',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
 
       // Immediately update the Zustand cache to remove the deleted collection
       // This ensures UI updates instantly without waiting for live query refresh

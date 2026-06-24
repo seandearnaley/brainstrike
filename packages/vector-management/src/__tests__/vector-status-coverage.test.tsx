@@ -98,6 +98,8 @@ function createMockVectorQueueService(): VectorQueueService {
   };
 }
 
+let mockRuntimeService: VectorQueueService | null = createMockVectorQueueService();
+
 // ─── Module mocks ────────────────────────────────────────────────────────────
 
 vi.mock('@brainstrike/ui', async () => {
@@ -232,7 +234,7 @@ vi.mock('../embedding-runtime-provider', () => ({
         lastError: null,
       })),
     },
-    service: createMockVectorQueueService(),
+    service: mockRuntimeService,
   }),
 }));
 
@@ -293,6 +295,7 @@ function resetMockState(): void {
     clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
   };
   mockActiveId = 'set-1';
+  mockRuntimeService = createMockVectorQueueService();
   mockWorkerControls.workerLocalRunning = false;
   mockWorkerControls.startingWorker = false;
   mockWorkerControls.startWorkerError = null;
@@ -522,6 +525,15 @@ describe('VectorStatusWithDb', () => {
       const startBtn = screen.getByRole('button', { name: 'Start embedding worker' });
       expect(startBtn).toBeDisabled();
     });
+
+    it('disables worker controls when the queue service is unavailable even if generic db exists', () => {
+      mockDb = { query: vi.fn() };
+      mockRuntimeService = null;
+      render(<VectorStatusWithDb />);
+
+      expect(screen.getByRole('button', { name: 'Start embedding worker' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Reset embedding worker' })).toBeDisabled();
+    });
   });
 
   describe('BackfillButton', () => {
@@ -542,6 +554,24 @@ describe('VectorStatusWithDb', () => {
       mockQueueState.backfillProgress = null;
       render(<VectorStatusWithDb />);
       expect(screen.getByText('Backfilling…')).toBeInTheDocument();
+    });
+
+    it('disables backfill with a Turso migration boundary reason when queue service is unavailable', () => {
+      mockDb = { query: vi.fn() };
+      mockRuntimeService = null;
+      render(<VectorStatusWithDb />);
+
+      const backfillButton = screen.getByRole('button', { name: 'Backfill current collection' });
+      expect(backfillButton).toBeDisabled();
+      expect(backfillButton).toHaveAttribute(
+        'title',
+        'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.'
+      );
+      expect(
+        screen.getByRole('tooltip', {
+          name: 'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.',
+        })
+      ).toBeInTheDocument();
     });
   });
 
@@ -564,6 +594,17 @@ describe('VectorStatusWithDb', () => {
       mockQueueState.queueCounts = { queued: 0, running: 0, failed: 2, succeeded: 0 };
       render(<VectorStatusWithDb />);
       expect(screen.getByRole('button', { name: 'Retry failed jobs' })).not.toBeDisabled();
+    });
+
+    it('disables queue actions when the queue service is unavailable even if generic db exists', () => {
+      mockDb = { query: vi.fn() };
+      mockRuntimeService = null;
+      mockQueueState.queueCounts = { queued: 0, running: 0, failed: 2, succeeded: 0 };
+      render(<VectorStatusWithDb />);
+
+      expect(screen.getByRole('button', { name: 'Retry failed jobs' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Clear queue' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Wipe queue' })).toBeDisabled();
     });
 
     it('calls retryFailed when Retry is clicked', async () => {

@@ -127,13 +127,11 @@ export function SearchCollectionSelector({
     [collections, onCollectionChange]
   );
 
-  const isLoading = loading || !db;
-
   return (
     <ErrorBoundary>
       <CollectionPicker
         collections={collections}
-        loading={isLoading}
+        loading={loading}
         maxHeight="none"
         onCreate={onCreateCollection}
         onDelete={handleDelete}

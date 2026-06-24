@@ -1,6 +1,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
+import { ElectronEmbeddingSetsRepository } from '../src/repositories/electron-embedding-sets-repository.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
@@ -46,6 +47,7 @@ describe('EmbeddingSetsRepository', () => {
         statements.push(sql);
         return await db.query<T>(sql, params as never);
       },
+      transaction: db.transaction.bind(db),
     };
     const trackedRepo = new EmbeddingSetsRepository(trackedDb);
 
@@ -239,6 +241,7 @@ describe('EmbeddingSetsRepository', () => {
           ] as T[],
         };
       },
+      transaction: db.transaction.bind(db),
     });
 
     await expect(trackedRepo.listEmbeddingSpaces({ includeStats: true })).resolves.toEqual([
@@ -289,6 +292,7 @@ describe('EmbeddingSetsRepository', () => {
         await db.exec(sql);
       }),
       query: db.query.bind(db),
+      transaction: db.transaction.bind(db),
     };
     const trackedRepo = new EmbeddingSetsRepository(trackedDb);
 
@@ -322,6 +326,7 @@ describe('EmbeddingSetsRepository', () => {
         await db.exec(sql);
       }),
       query: db.query.bind(db),
+      transaction: db.transaction.bind(db),
     };
     const trackedRepo = new EmbeddingSetsRepository(trackedDb);
 
@@ -365,6 +370,7 @@ describe('EmbeddingSetsRepository', () => {
         await db.exec(sql);
       }),
       query: db.query.bind(db),
+      transaction: db.transaction.bind(db),
     };
     // Fresh repo simulates a new app session (no in-memory builder state).
     const reopenedRepo = new EmbeddingSetsRepository(trackedDb);
@@ -390,6 +396,52 @@ describe('EmbeddingSetsRepository', () => {
 
     const fetched = await repo.getById(set.id);
     expect(fetched?.systemRole).toBeUndefined();
+  });
+
+  it('deletes chunks and the embedding set in one database transaction', async () => {
+    const created = await repo.getOrCreateSet(
+      'openai::text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine'
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, embedding_set_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      ['file-1', 'file.md', '/file.md', 12, created.id]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      ['chunk-1', 'file-1', 0, 'hello', created.id]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
+       VALUES ($1, $2, $3, $4::jsonb, $5)`,
+      ['job-1', 'embedding', 'embed_chunk', '{}', created.id]
+    );
+    const transaction = vi.spyOn(db, 'transaction');
+
+    await expect(repo.delete(created.id)).resolves.toBe(true);
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    const chunkRows = await db.query<{ id: string }>('SELECT id FROM file_chunks WHERE id = $1', [
+      'chunk-1',
+    ]);
+    expect(chunkRows.rows).toEqual([]);
+    const fileRows = await db.query<{ id: string }>('SELECT id FROM file_records WHERE id = $1', [
+      'file-1',
+    ]);
+    expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
+    const jobRows = await db.query<{ id: string }>('SELECT id FROM job_queue WHERE id = $1', [
+      'job-1',
+    ]);
+    expect(jobRows.rows).toEqual([]);
+    const statsRows = await db.query<{ embedding_set_id: string }>(
+      'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      [created.id]
+    );
+    expect(statsRows.rows).toEqual([]);
   });
 
   it('enforces a single workspace index system role at the database level', async () => {
@@ -444,6 +496,7 @@ describe('EmbeddingSetsRepository', () => {
           },
         ] as T[],
       }),
+      transaction: db.transaction.bind(db),
     });
 
     await expect(trackedRepo.listEmbeddingSpaces({ includeStats: true })).rejects.toThrow(
@@ -574,5 +627,42 @@ describe('EmbeddingSetsRepository', () => {
         model_id: 'Xenova/all-MiniLM-L6-v2',
       });
     });
+  });
+});
+
+describe('ElectronEmbeddingSetsRepository', () => {
+  it('deletes chunks and the embedding set through the atomic IPC transaction channel', async () => {
+    const transaction = vi.fn(async () => ({ rows: [{ id: 'set-1' }] }));
+    const repository = new ElectronEmbeddingSetsRepository({
+      exec: vi.fn(),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction,
+    });
+
+    await expect(repository.delete('set-1')).resolves.toBe(true);
+
+    expect(transaction).toHaveBeenCalledWith(
+      [
+        { sql: 'DELETE FROM job_queue WHERE embedding_set_id = $1', params: ['set-1'] },
+        {
+          sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1',
+          params: ['set-1'],
+        },
+        { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: ['set-1'] },
+        { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: ['set-1'] },
+      ],
+      3
+    );
+  });
+
+  it('fails closed when the atomic IPC transaction channel is unavailable', async () => {
+    const repository = new ElectronEmbeddingSetsRepository({
+      exec: vi.fn(),
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+
+    await expect(repository.delete('set-1')).rejects.toThrow(
+      'Electron embedding set deletion requires the atomic database transaction IPC channel.'
+    );
   });
 });

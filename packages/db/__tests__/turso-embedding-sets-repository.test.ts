@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import { applyTursoSchemaBaseline } from '../src/turso/schema-baseline.js';
@@ -245,5 +245,49 @@ describe('TursoEmbeddingSetsRepository', () => {
 
     await expect(repository.delete(created.id)).resolves.toBe(true);
     await expect(repository.getById(created.id)).resolves.toBeNull();
+  });
+
+  it('deletes chunks associated with the set while leaving file records', async () => {
+    const created = await repository.getOrCreateSet(
+      'openai:text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine'
+    );
+    await client.query(
+      `INSERT INTO file_records (id, name, path, size, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      ['file-1', 'file.md', '/file.md', 12, created.id]
+    );
+    await client.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      ['chunk-1', 'file-1', 0, 'hello', created.id]
+    );
+    await client.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      ['job-1', 'embedding', 'embed_chunk', '{}', created.id]
+    );
+    const transaction = vi.spyOn(client, 'transaction');
+
+    await expect(repository.delete(created.id)).resolves.toBe(true);
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    await expect(
+      client.query<{ id: string }>('SELECT id FROM file_chunks WHERE id = ?', ['chunk-1'])
+    ).resolves.toEqual({ rows: [] });
+    await expect(
+      client.query<{ id: string }>('SELECT id FROM file_records WHERE id = ?', ['file-1'])
+    ).resolves.toEqual({ rows: [{ id: 'file-1' }] });
+    await expect(
+      client.query<{ id: string }>('SELECT id FROM job_queue WHERE id = ?', ['job-1'])
+    ).resolves.toEqual({ rows: [] });
+    await expect(
+      client.query<{ embedding_set_id: string }>(
+        'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = ?',
+        [created.id]
+      )
+    ).resolves.toEqual({ rows: [] });
   });
 });

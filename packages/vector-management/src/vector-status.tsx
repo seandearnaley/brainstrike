@@ -23,6 +23,8 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('VectorStatus');
+const VECTOR_QUEUE_UNAVAILABLE_REASON =
+  'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.';
 
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
@@ -245,6 +247,7 @@ interface BackfillButtonProps {
   queueCounts: { queued: number; running: number };
   /** Whether worker is currently starting */
   startingWorker?: boolean;
+  unavailableReason?: string | undefined;
   /** Whether clicking backfill will auto-start the worker (web only) */
   willAutoStartWorker?: boolean;
 }
@@ -337,6 +340,7 @@ function BackfillButton(props: BackfillButtonProps) {
     onBackfill,
     coverage,
     queueCounts,
+    unavailableReason,
     willAutoStartWorker = false,
     startingWorker = false,
   } = props;
@@ -344,6 +348,7 @@ function BackfillButton(props: BackfillButtonProps) {
   const { disabled: isDisabled, title } = getBackfillDisabledState({
     activeId,
     hasDb,
+    unavailableReason,
     backfilling,
     coverage,
     queueCounts,
@@ -637,6 +642,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [verboseOrtLogs]);
 
   const { controller: runtimeController, service } = useSharedEmbeddingRuntime();
+  const hasQueueService = Boolean(service);
 
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
@@ -681,7 +687,10 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   // On web, determine if we need to auto-start the worker when backfill is clicked
   const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
   const needsWorkerStart =
-    isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
+    hasQueueService &&
+    isWebPlatform &&
+    !workerControls.workerLocalRunning &&
+    !workerControls.startingWorker;
 
   // Combined action: auto-start worker on web, then backfill
   const invokeBackfillWithWorkerStart = useCallback(async () => {
@@ -691,9 +700,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         hasDb: Boolean(db),
       });
       toast({
-        title: 'Database Not Ready',
-        description:
-          'The vector queue service is not available. Try switching tabs or restarting the app.',
+        title: 'Vector Queue Unavailable',
+        description: VECTOR_QUEUE_UNAVAILABLE_REASON,
         variant: 'destructive',
       });
       return;
@@ -755,8 +763,6 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   const runtimeMetadata = workerControls.workerStatus?.embeddingRuntime ?? null;
   const actualWorkerMetadata = runtimeMetadata?.actualWorkerMetadata ?? null;
   const backendMismatchMessage = formatBackendMismatchMessage(runtimeMetadata);
-
-  const hasDb = Boolean(db);
 
   const content = (
     <Card>
@@ -858,7 +864,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         )}
         <div className="grid grid-cols-3 gap-1">
           <WorkerControls
-            db={db}
+            db={hasQueueService ? db : null}
             onResetWorker={workerControls.resetWorker}
             onStartWorker={workerControls.startWorker}
             onStopWorker={workerControls.stopWorker}
@@ -873,14 +879,15 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
             coverage={queueState.coverage}
-            hasDb={hasDb}
+            hasDb={hasQueueService}
             onBackfill={invokeBackfillWithWorkerStart}
             queueCounts={queueState.queueCounts}
             startingWorker={workerControls.startingWorker}
+            unavailableReason={VECTOR_QUEUE_UNAVAILABLE_REASON}
             willAutoStartWorker={needsWorkerStart}
           />
           <QueueControls
-            hasDb={hasDb}
+            hasDb={hasQueueService}
             onClearQueue={() => queueState.clearQueue()}
             onRetryFailed={() => queueState.retryFailed()}
             onWipeQueue={() => queueState.wipeQueue()}

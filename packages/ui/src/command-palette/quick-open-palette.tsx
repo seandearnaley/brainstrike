@@ -20,6 +20,8 @@ export interface QuickOpenFileItem {
 }
 
 export interface QuickOpenPaletteProps {
+  /** Error from the backing file-query surface. Takes precedence over empty states. */
+  readonly error?: string | undefined;
   /** The rows the live query returned for the current query. */
   readonly files: readonly QuickOpenFileItem[];
   /** True while the live query is resolving the first page. */
@@ -48,6 +50,7 @@ export function QuickOpenPalette({
   onOpenChange,
   query,
   onQueryChange,
+  error,
   files,
   loading = false,
   onSelect,
@@ -101,8 +104,13 @@ export function QuickOpenPalette({
         />
       </div>
       <Cmdk.List className="max-h-[320px] overflow-y-auto overflow-x-hidden p-1">
-        <Cmdk.Empty className="py-6 text-center text-muted-foreground text-sm">
-          {loading ? 'Searching…' : query ? 'No files found.' : 'Type to search files.'}
+        <Cmdk.Empty
+          className={cn(
+            'py-6 text-center text-sm',
+            error ? 'text-destructive' : 'text-muted-foreground'
+          )}
+        >
+          {error ?? (loading ? 'Searching…' : query ? 'No files found.' : 'Type to search files.')}
         </Cmdk.Empty>
         {files.map((file) => (
           <QuickOpenItem file={file} key={file.id} onSelect={handleSelect} />

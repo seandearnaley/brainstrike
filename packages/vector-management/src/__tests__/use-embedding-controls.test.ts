@@ -107,7 +107,6 @@ vi.mock('@brainstrike/db', () => {
   return {
     JobQueue: MockJobQueue,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClient: vi.fn(() => ({})),
     useVectorEnabled: vi.fn(() => true),
   };
 });
@@ -170,7 +169,7 @@ vi.mock('../embedding-runtime-provider', () => ({
 }));
 
 // Import mocked modules for manipulation
-import { useBrainstrikeDbClient, useVectorEnabled } from '@brainstrike/db';
+import { useVectorEnabled } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
@@ -195,9 +194,6 @@ describe('useEmbeddingControls', () => {
     Reflect.deleteProperty(testWindow, 'electronAPI');
 
     // Reset mocks to defaults
-    vi.mocked(useBrainstrikeDbClient).mockReturnValue(
-      {} as ReturnType<typeof useBrainstrikeDbClient>
-    );
     vi.mocked(useVectorEnabled).mockReturnValue(true);
 
     vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
@@ -249,22 +245,34 @@ describe('useEmbeddingControls', () => {
       expect(result.current).toHaveProperty('hasDb');
     });
 
-    it('returns hasDb as true when database is available', () => {
-      vi.mocked(useBrainstrikeDbClient).mockReturnValue(
-        {} as ReturnType<typeof useBrainstrikeDbClient>
-      );
-
+    it('returns hasDb as true when vector queue service is available', () => {
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.hasDb).toBe(true);
     });
 
-    it('returns hasDb as false when database is not available', () => {
-      vi.mocked(useBrainstrikeDbClient).mockReturnValue(null);
+    it('returns hasDb as false when vector queue service is not available', () => {
+      vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
+        controller: {
+          cancelAllBackfills: vi.fn(async () => {}),
+          cancelBackfill: vi.fn(async () => {}),
+          enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+          ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          getBackfillsInFlight: vi.fn(async () => []),
+          getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          onBackfillProgress: vi.fn(() => () => {}),
+          onStatus: vi.fn(() => () => {}),
+          reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+          start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        },
+        service: null,
+      });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.hasDb).toBe(false);
+      expect(result.current.dropdownProps.hasDb).toBe(false);
     });
   });
 
@@ -326,6 +334,7 @@ describe('useEmbeddingControls', () => {
       expect(vi.mocked(getBackfillDisabledState)).toHaveBeenCalledWith(
         expect.objectContaining({
           backfilling: true,
+          hasDb: true,
           queueCounts: { queued: 4, running: 1, failed: 0, succeeded: 3 },
         })
       );
@@ -626,8 +635,9 @@ describe('useEmbeddingControls', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Database Not Ready',
-        description: expect.any(String),
+        title: 'Vector Queue Unavailable',
+        description:
+          'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.',
         variant: 'destructive',
       });
     });

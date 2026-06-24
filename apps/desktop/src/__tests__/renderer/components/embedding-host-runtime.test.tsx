@@ -72,7 +72,7 @@ const {
 
 vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  useBrainstrikeDbClient: () => currentDbRef.current,
+  usePGliteDatabase: () => currentDbRef.current,
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({

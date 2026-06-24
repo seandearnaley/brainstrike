@@ -133,6 +133,22 @@ describe('QuickOpenPalette', () => {
     expect(await screen.findByText('No files found.')).toBeTruthy();
   });
 
+  it('shows an honest error state instead of an empty state', async () => {
+    render(
+      <QuickOpenPalette
+        error="Live queries are unavailable for Turso runtime."
+        files={[]}
+        onOpenChange={() => {}}
+        onQueryChange={() => {}}
+        onSelect={() => {}}
+        open
+        query="read"
+      />
+    );
+    expect(await screen.findByText('Live queries are unavailable for Turso runtime.')).toBeTruthy();
+    expect(screen.queryByText('No files found.')).toBeNull();
+  });
+
   it('prompts to type when the query is empty', async () => {
     render(
       <QuickOpenPalette
