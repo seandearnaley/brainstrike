@@ -648,13 +648,45 @@ describe('DbProvider initializing state', () => {
       'TursoEmbeddingSetsRepository'
     );
     expect(result.current.fileRecordRepository?.constructor.name).toBe('TursoFileRecordRepository');
-    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
+    expect(result.current.chunkRepository?.constructor.name).toBe(
+      'ElectronProviderTursoFileChunkRepository'
+    );
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
 
     expect(runTransaction).not.toHaveBeenCalled();
     query.mockClear();
     exec.mockClear();
     runTransaction.mockClear();
+
+    if (!result.current.chunkRepository) {
+      throw new Error('Expected provider-safe Turso file chunk repository.');
+    }
+    await expect(result.current.chunkRepository.clearEmbeddingsForSet('set-1')).rejects.toThrow(
+      'Desktop Turso file chunk repository clearEmbeddingsForSet requires a callback transaction client with query support.'
+    );
+    await expect(
+      result.current.chunkRepository.insertMany([
+        {
+          chunkIndex: 0,
+          chunkSize: 12,
+          chunkType: 'paragraph',
+          content: 'hello turso chunks',
+          contentHash: 'chunk-hash-1',
+          createdAt: '2026-06-22T19:00:00.000Z',
+          endLine: 1,
+          endOffset: 18,
+          fileRecordId: 'file-1',
+          id: 'chunk-1',
+          startLine: 1,
+          startOffset: 0,
+          tokenCount: 3,
+          updatedAt: '2026-06-22T19:00:00.000Z',
+        },
+      ])
+    ).rejects.toThrow(
+      'Desktop Turso file chunk repository insertMany requires a callback transaction client with query support.'
+    );
+    expect(runTransaction).not.toHaveBeenCalled();
 
     if (!result.current.fileRecordRepository) {
       throw new Error('Expected Turso file record repository.');
@@ -856,7 +888,9 @@ describe('DbProvider initializing state', () => {
       rows: [{ ok: 1 }],
     });
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
-    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
+    expect(result.current.chunkRepository?.constructor.name).toBe(
+      'ElectronProviderTursoFileChunkRepository'
+    );
   });
 
   it('fails closed when Electron IPC test fails before runtime classification', async () => {
@@ -962,7 +996,9 @@ describe('DbProvider initializing state', () => {
 
     expect(transaction).not.toHaveBeenCalled();
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
-    expect(result.current.chunkRepository?.constructor.name).toBe('TursoFileChunkRepository');
+    expect(result.current.chunkRepository?.constructor.name).toBe(
+      'ElectronProviderTursoFileChunkRepository'
+    );
   });
 
   it('fails closed instead of falling back to direct PGlite when Electron IPC is required but missing', async () => {

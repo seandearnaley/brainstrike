@@ -43,6 +43,7 @@ as the implementation backlog.
 - #1335 `Split DB affected unit lanes`
 - #1336 `Add Turso job queue runtime`
 - #1339 `Gate Turso provider execution surfaces`
+- #1340 `Expose Turso file chunks in DB provider`
 
 ## Turso Docs Guardrail
 
