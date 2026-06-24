@@ -96,6 +96,13 @@ interface TursoCoverageRow {
   readonly totalChunks: number | string | null;
 }
 
+interface TursoCollectionEmbeddingCoverageRow {
+  readonly chunksMissingSourceRange: number | string | null;
+  readonly pendingReindexFileCount: number | string | null;
+  readonly totalChunks: number | string | null;
+  readonly totalFiles: number | string | null;
+}
+
 interface TursoEmbeddedChunksByFileRow {
   readonly embeddedChunks: number | string | null;
   readonly fileRecordId: string;
@@ -367,6 +374,60 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       chunksWithEmbeddingsForSet: readNullableNonNegativeInteger(
         row?.chunksWithEmbeddingsForSet,
         'coverage embedded chunks'
+      ),
+    };
+  }
+
+  async getCollectionEmbeddingCoverage(embeddingSetId: string): Promise<{
+    chunksMissingSourceRange: number;
+    pendingReindexFileCount: number;
+    totalChunks: number;
+    totalFiles: number;
+  }> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+    const result = await this.db.query<TursoCollectionEmbeddingCoverageRow>(
+      `SELECT
+         COUNT(DISTINCT fr.id) AS totalFiles,
+         COUNT(fc.id) AS totalChunks,
+         COUNT(DISTINCT CASE WHEN fr.chunks_processed_at IS NULL THEN fr.id END)
+           AS pendingReindexFileCount,
+         SUM(
+           CASE
+             WHEN fc.id IS NOT NULL
+              AND (
+                fc.start_line IS NULL
+                OR fc.end_line IS NULL
+                OR fc.start_offset IS NULL
+                OR fc.end_offset IS NULL
+              )
+             THEN 1
+             ELSE 0
+           END
+         ) AS chunksMissingSourceRange
+       FROM file_records fr
+       LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+       WHERE fr.embedding_set_id = ?`,
+      [embeddingSetId]
+    );
+    const row = result.rows[0];
+    return {
+      chunksMissingSourceRange: readNullableNonNegativeInteger(
+        row?.chunksMissingSourceRange,
+        'collection coverage chunks missing source range'
+      ),
+      pendingReindexFileCount: readNullableNonNegativeInteger(
+        row?.pendingReindexFileCount,
+        'collection coverage pending reindex files'
+      ),
+      totalChunks: readNullableNonNegativeInteger(
+        row?.totalChunks,
+        'collection coverage total chunks'
+      ),
+      totalFiles: readNullableNonNegativeInteger(
+        row?.totalFiles,
+        'collection coverage total files'
       ),
     };
   }
