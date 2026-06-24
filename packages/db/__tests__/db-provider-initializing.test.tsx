@@ -661,30 +661,34 @@ describe('DbProvider initializing state', () => {
     if (!result.current.chunkRepository) {
       throw new Error('Expected provider-safe Turso file chunk repository.');
     }
+    const chunkInsert = {
+      chunkIndex: 0,
+      chunkSize: 12,
+      chunkType: 'paragraph',
+      content: 'hello turso chunks',
+      contentHash: 'chunk-hash-1',
+      createdAt: '2026-06-22T19:00:00.000Z',
+      endLine: 1,
+      endOffset: 18,
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 3,
+      updatedAt: '2026-06-22T19:00:00.000Z',
+    } as const;
     await expect(result.current.chunkRepository.clearEmbeddingsForSet('set-1')).rejects.toThrow(
       'Desktop Turso file chunk repository clearEmbeddingsForSet requires a callback transaction client with query support.'
     );
+    await expect(result.current.chunkRepository.insertMany([chunkInsert])).rejects.toThrow(
+      'Desktop Turso file chunk repository insertMany requires a callback transaction client with query support.'
+    );
     await expect(
-      result.current.chunkRepository.insertMany([
-        {
-          chunkIndex: 0,
-          chunkSize: 12,
-          chunkType: 'paragraph',
-          content: 'hello turso chunks',
-          contentHash: 'chunk-hash-1',
-          createdAt: '2026-06-22T19:00:00.000Z',
-          endLine: 1,
-          endOffset: 18,
-          fileRecordId: 'file-1',
-          id: 'chunk-1',
-          startLine: 1,
-          startOffset: 0,
-          tokenCount: 3,
-          updatedAt: '2026-06-22T19:00:00.000Z',
-        },
+      result.current.chunkRepository.insertManyWithTx({ exec: vi.fn(), query: vi.fn() }, [
+        chunkInsert,
       ])
     ).rejects.toThrow(
-      'Desktop Turso file chunk repository insertMany requires a callback transaction client with query support.'
+      'Desktop Turso file chunk repository insertManyWithTx requires a callback transaction client with query support.'
     );
     expect(runTransaction).not.toHaveBeenCalled();
 
