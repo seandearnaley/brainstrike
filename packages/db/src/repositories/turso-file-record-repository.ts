@@ -25,7 +25,6 @@ import type { FileCollectionStatusSnapshot, IFileRecordRepository } from './inte
 const MAX_SQLITE_IN_LIST_PARAMS = 900;
 const MAX_STATUS_IDS_PER_QUERY = Math.floor((MAX_SQLITE_IN_LIST_PARAMS - 1) / 2);
 const BULK_IMPORT_BATCH_SIZE = 100;
-const QUICK_OPEN_CANDIDATE_LIMIT = 1000;
 
 const ALLOWED_UPDATE_COLUMNS = new Map<keyof FileRecord, string>([
   ['name', 'name'],
@@ -270,6 +269,8 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
           SELECT fng.file_record_id
           FROM file_record_name_grams fng
           JOIN requested_grams rg ON rg.gram = fng.gram
+          JOIN file_record_name_index fni ON fni.file_record_id = fng.file_record_id
+          WHERE instr(fni.normalized_name, ?) > 0
           GROUP BY fng.file_record_id
           HAVING COUNT(DISTINCT fng.gram) = ?
         )
@@ -279,17 +280,9 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
        LEFT JOIN roots r ON r.id = fr.root_id
        ORDER BY length(fr.name), fr.path
        LIMIT ?`,
-      [...queryGrams, queryGrams.length, QUICK_OPEN_CANDIDATE_LIMIT]
+      [...queryGrams, normalizedQuery, queryGrams.length, boundedLimit]
     );
-    const filteredRows = result.rows
-      .filter((row) => normalizeQuickOpenText(row.name).includes(normalizedQuery))
-      .slice(0, boundedLimit);
-    if (result.rows.length >= QUICK_OPEN_CANDIDATE_LIMIT && filteredRows.length < boundedLimit) {
-      throw new Error(
-        'Turso quick-open candidate set exceeded the indexed name-gram limit before enough authoritative matches were found.'
-      );
-    }
-    return filteredRows.map((row) => ({
+    return result.rows.map((row) => ({
       display_name: row.display_name ?? null,
       id: row.id,
       name: row.name,
@@ -424,6 +417,7 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
   async delete(id: string): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.exec('DELETE FROM file_record_name_grams WHERE file_record_id = ?', [id]);
+      await tx.exec('DELETE FROM file_record_name_index WHERE file_record_id = ?', [id]);
       await tx.exec('DELETE FROM file_records WHERE id = ?', [id]);
     });
   }
@@ -481,6 +475,7 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
     const deletedCount = await this.count();
     await this.db.transaction(async (tx) => {
       await tx.exec('DELETE FROM file_record_name_grams');
+      await tx.exec('DELETE FROM file_record_name_index');
       await tx.exec('DELETE FROM file_records');
     });
     return deletedCount;

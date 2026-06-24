@@ -1004,6 +1004,10 @@ export async function invalidateTursoManagedCacheEntriesByIdentity(
           fileRecordIds
         );
         await tx.exec(
+          `DELETE FROM file_record_name_index WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+          fileRecordIds
+        );
+        await tx.exec(
           `DELETE FROM file_records WHERE id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
           fileRecordIds
         );

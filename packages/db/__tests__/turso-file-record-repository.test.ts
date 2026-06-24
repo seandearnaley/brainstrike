@@ -238,6 +238,7 @@ describe('TursoFileRecordRepository', () => {
       'SELECT COUNT(*) AS count FROM file_records',
       'BEGIN',
       'DELETE FROM file_record_name_grams',
+      'DELETE FROM file_record_name_index',
       'DELETE FROM file_records',
     ]);
     expect(sqlCalls.join('\n')).not.toContain('RETURNING');
@@ -399,6 +400,8 @@ describe('TursoFileRecordRepository', () => {
     ]);
     const sql = queryCalls.at(-1) ?? '';
     expect(sql).toContain('file_record_name_grams');
+    expect(sql).toContain('file_record_name_index');
+    expect(sql).toContain('instr(fni.normalized_name, ?)');
     expect(sql).toContain('LEFT JOIN roots r ON r.id = fr.root_id');
     expect(sql).not.toContain('LOWER(fr.name) LIKE');
     expect(sql).not.toContain('ILIKE');
@@ -449,6 +452,8 @@ describe('TursoFileRecordRepository', () => {
 
     const sql = sqlCalls.join('\n');
     expect(sql).toContain('file_record_name_grams');
+    expect(sql).toContain('file_record_name_index');
+    expect(sql).toContain('instr(fni.normalized_name, ?)');
     expect(sql).not.toContain("LIKE '%' ||");
     expect(sql).not.toContain('ILIKE');
   });

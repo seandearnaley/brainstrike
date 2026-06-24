@@ -723,13 +723,15 @@ describe('DbProvider initializing state', () => {
     expect(fileRecordSqls).toEqual(
       expect.arrayContaining([
         expect.stringContaining('DELETE FROM file_record_name_grams'),
+        expect.stringContaining('DELETE FROM file_record_name_index'),
+        expect.stringContaining('INSERT INTO file_record_name_index'),
         expect.stringContaining('INSERT INTO file_record_name_grams'),
       ])
     );
     expect(
       fileRecordStatements
         ?.filter(({ sql }) => sql.includes('INSERT INTO file_record_name_grams'))
-        .map(({ params }) => params?.[1])
+        .flatMap(({ params }) => params?.filter((_, index) => index % 2 === 1) ?? [])
     ).toEqual(expect.arrayContaining(['r', 're', 'rea', 'md']));
     expect(fileRecordSqls.join('\n')).not.toContain('::');
     await expect(result.current.fileRecordRepository.findById('file-1')).resolves.toMatchObject({

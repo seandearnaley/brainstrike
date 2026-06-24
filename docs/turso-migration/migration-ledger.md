@@ -158,11 +158,13 @@ chunk count, requested file status lookups, and collection embedding coverage
 banner snapshots. Quick-open now has a repository-snapshot hook seam for runtimes
 that expose an indexed `findByNameSubstring` repository capability. Turso
 implements that seam with a primary-store `file_record_name_grams` table indexed
-by `(gram, file_record_id)`: the index produces candidates, and repository code
-applies the authoritative JavaScript substring check and the same
-shortest-name-then-path ordering used by the PGlite query. This is intentionally
-not a general FTS replacement; grep, full-text snippets, and hybrid search still
-need the split search-index work below.
+by `(gram, file_record_id)` plus a `file_record_name_index` normalized-name
+sidecar: the gram index produces candidates, SQLite's `instr` applies the exact
+substring guard, and ordering remains the same shortest-name-then-path ordering
+used by the PGlite query. Schema upgrades backfill both sidecar tables from
+existing `file_records`. This is intentionally not a general FTS replacement;
+grep, full-text snippets, and hybrid search still need the split search-index
+work below.
 
 ### 3. Background Indexing And Embedding Host
 

@@ -53,6 +53,7 @@ describe('Turso schema baseline', () => {
         'embedding_cache',
         'embedding_sets',
         'file_chunks',
+        'file_record_name_index',
         'file_record_name_grams',
         'file_records',
         'file_relationships',
@@ -222,6 +223,16 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
       expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
     );
+    await expect(
+      client.query<{ name: string; notnull: number; type: string }>(
+        'PRAGMA table_info(file_record_name_index)'
+      )
+    ).resolves.toMatchObject({
+      rows: expect.arrayContaining([
+        expect.objectContaining({ name: 'file_record_id', notnull: 1, type: 'TEXT' }),
+        expect.objectContaining({ name: 'normalized_name', notnull: 1, type: 'TEXT' }),
+      ]),
+    });
 
     await client.exec(
       "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-path-1', 'path', 'Project', '/workspace/project')"
@@ -310,6 +321,7 @@ describe('Turso schema baseline', () => {
         !(
           ddl.includes('idx_embedding_sets_workspace_index_system_role') ||
           ddl.includes('idx_job_queue_dedupe_active') ||
+          ddl.includes('file_record_name_index') ||
           ddl.includes('file_record_name_grams')
         )
     );
@@ -365,7 +377,11 @@ describe('Turso schema baseline', () => {
   it('upgrades an existing v2 Turso schema ledger with the previous checksum to the current baseline', async () => {
     const oldV2BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
       (ddl) =>
-        !(ddl.includes('idx_job_queue_dedupe_active') || ddl.includes('file_record_name_grams'))
+        !(
+          ddl.includes('idx_job_queue_dedupe_active') ||
+          ddl.includes('file_record_name_index') ||
+          ddl.includes('file_record_name_grams')
+        )
     );
     for (const ddl of oldV2BaselineDdl) {
       await client.exec(ddl);
@@ -415,7 +431,7 @@ describe('Turso schema baseline', () => {
 
   it('upgrades an existing v3 Turso schema ledger to the current name-gram baseline', async () => {
     const oldV3BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
-      (ddl) => !ddl.includes('file_record_name_grams')
+      (ddl) => !(ddl.includes('file_record_name_index') || ddl.includes('file_record_name_grams'))
     );
     for (const ddl of oldV3BaselineDdl) {
       await client.exec(ddl);
@@ -438,12 +454,41 @@ describe('Turso schema baseline', () => {
         '2026-06-24T00:00:00.000Z',
       ]
     );
+    await client.exec(
+      `INSERT INTO file_records (id, name, path, size, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'existing-file',
+        'AlphaReview.ts',
+        'src/AlphaReview.ts',
+        42,
+        '2026-06-24T00:00:00.000Z',
+        '2026-06-24T00:00:00.000Z',
+      ]
+    );
 
     await applyTursoSchemaBaseline(client);
 
     await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
       expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
     );
+    await expect(
+      client.query('SELECT normalized_name FROM file_record_name_index WHERE file_record_id = ?', [
+        'existing-file',
+      ])
+    ).resolves.toEqual({ rows: [{ normalized_name: 'alphareview.ts' }] });
+    await expect(
+      client.query('SELECT gram FROM file_record_name_grams WHERE file_record_id = ?', [
+        'existing-file',
+      ])
+    ).resolves.toMatchObject({
+      rows: expect.arrayContaining([
+        { gram: 'a' },
+        { gram: 'al' },
+        { gram: 'alp' },
+        { gram: 'rev' },
+      ]),
+    });
     await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
     ).resolves.toEqual({
