@@ -523,6 +523,20 @@ describe('DbProvider initializing state', () => {
       }
       return { rows: [] };
     });
+    const recordFileRecordInsert = (params: readonly unknown[] | undefined): void => {
+      createdFileRecord = {
+        content: typeof params?.[6] === 'string' ? params[6] : null,
+        content_hash: typeof params?.[7] === 'string' ? params[7] : null,
+        created_at: String(params?.[4]),
+        id: String(params?.[0]),
+        name: String(params?.[1]),
+        path: String(params?.[2]),
+        processed_at: typeof params?.[9] === 'string' ? params[9] : null,
+        size: Number(params?.[3]),
+        token_count: typeof params?.[8] === 'number' ? params[8] : null,
+        updated_at: String(params?.[5]),
+      };
+    };
     const exec = vi.fn(async (sql: string, params?: unknown[], _options?: unknown) => {
       if (sql.includes('view_filter_presets')) {
         createdPresetId = typeof params?.[0] === 'string' ? params[0] : null;
@@ -531,18 +545,7 @@ describe('DbProvider initializing state', () => {
         createdEmbeddingSetId = typeof params?.[0] === 'string' ? params[0] : null;
       }
       if (sql.includes('INSERT INTO file_records')) {
-        createdFileRecord = {
-          content: typeof params?.[6] === 'string' ? params[6] : null,
-          content_hash: typeof params?.[7] === 'string' ? params[7] : null,
-          created_at: String(params?.[4]),
-          id: String(params?.[0]),
-          name: String(params?.[1]),
-          path: String(params?.[2]),
-          processed_at: typeof params?.[9] === 'string' ? params[9] : null,
-          size: Number(params?.[3]),
-          token_count: typeof params?.[8] === 'number' ? params[8] : null,
-          updated_at: String(params?.[5]),
-        };
+        recordFileRecordInsert(params);
       }
     });
     const runTransaction = vi.fn(
@@ -551,6 +554,9 @@ describe('DbProvider initializing state', () => {
           if (statement.sql.includes('INSERT INTO embedding_sets')) {
             createdEmbeddingSetId =
               typeof statement.params?.[0] === 'string' ? statement.params[0] : null;
+          }
+          if (statement.sql.includes('INSERT INTO file_records')) {
+            recordFileRecordInsert(statement.params);
           }
         }
         return { rows: [] };
@@ -709,8 +715,23 @@ describe('DbProvider initializing state', () => {
       updatedAt: '2026-06-22T19:00:00.000Z',
     });
 
-    expect(exec.mock.calls[0]?.[0]).toContain('INSERT INTO file_records');
-    expect(exec.mock.calls[0]?.[0]).not.toContain('::');
+    const [fileRecordStatements, , fileRecordWorkOptions] = runTransaction.mock.calls[0] ?? [];
+    expect(exec).not.toHaveBeenCalled();
+    expect(fileRecordWorkOptions).toMatchObject({ label: 'turso.transaction' });
+    const fileRecordSqls = fileRecordStatements?.map(({ sql }) => sql) ?? [];
+    expect(fileRecordSqls[0]).toContain('INSERT INTO file_records');
+    expect(fileRecordSqls).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('DELETE FROM file_record_name_grams'),
+        expect.stringContaining('INSERT INTO file_record_name_grams'),
+      ])
+    );
+    expect(
+      fileRecordStatements
+        ?.filter(({ sql }) => sql.includes('INSERT INTO file_record_name_grams'))
+        .map(({ params }) => params?.[1])
+    ).toEqual(expect.arrayContaining(['r', 're', 'rea', 'md']));
+    expect(fileRecordSqls.join('\n')).not.toContain('::');
     await expect(result.current.fileRecordRepository.findById('file-1')).resolves.toMatchObject({
       content: 'hello turso',
       contentHash: 'content-hash-1',
@@ -719,6 +740,7 @@ describe('DbProvider initializing state', () => {
       path: 'src/readme.md',
     });
     exec.mockClear();
+    runTransaction.mockClear();
 
     if (!result.current.presetsRepository) {
       throw new Error('Expected Turso view filter presets repository.');

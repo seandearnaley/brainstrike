@@ -3,6 +3,7 @@ import type {
   BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
 import type { IDatabase } from '../repositories/interfaces.js';
+import { replaceQuickOpenNameGrams } from '../search/quick-open-name-grams.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
 import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
@@ -464,6 +465,9 @@ async function insertTursoManagedCacheImports(
       importBatch.map((record) => record.id),
       'insert'
     );
+    for (const record of importBatch) {
+      await replaceQuickOpenNameGrams(tx, record.id, record.name);
+    }
   }
 }
 
@@ -586,6 +590,7 @@ async function applyTursoManagedCacheReplacements(
       ]
     );
     assertReturnedIds(result.rows, [record.id], 'update');
+    await replaceQuickOpenNameGrams(tx, record.id, record.name);
   }
 }
 
@@ -994,6 +999,10 @@ export async function invalidateTursoManagedCacheEntriesByIdentity(
         if (fileRecordIds.length === 0) {
           continue;
         }
+        await tx.exec(
+          `DELETE FROM file_record_name_grams WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+          fileRecordIds
+        );
         await tx.exec(
           `DELETE FROM file_records WHERE id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
           fileRecordIds

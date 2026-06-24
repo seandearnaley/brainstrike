@@ -11,6 +11,12 @@ import type {
   ManagedCacheEntryMetadata,
 } from '../models/file-record.js';
 import {
+  createQuickOpenCandidateGrams,
+  normalizeQuickOpenText,
+  replaceQuickOpenNameGrams,
+} from '../search/quick-open-name-grams.js';
+import { clampQuickOpenLimit, type QuickOpenFileRow } from '../search/quick-open-query.js';
+import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
 } from '../text-content-invariants.js';
@@ -19,6 +25,7 @@ import type { FileCollectionStatusSnapshot, IFileRecordRepository } from './inte
 const MAX_SQLITE_IN_LIST_PARAMS = 900;
 const MAX_STATUS_IDS_PER_QUERY = Math.floor((MAX_SQLITE_IN_LIST_PARAMS - 1) / 2);
 const BULK_IMPORT_BATCH_SIZE = 100;
+const QUICK_OPEN_CANDIDATE_LIMIT = 1000;
 
 const ALLOWED_UPDATE_COLUMNS = new Map<keyof FileRecord, string>([
   ['name', 'name'],
@@ -82,53 +89,32 @@ interface TursoFileCollectionStatusRow {
   readonly totalChunksCount: number | string | null;
 }
 
+interface TursoQuickOpenFileRow {
+  readonly display_name: string | null;
+  readonly id: string;
+  readonly name: string;
+  readonly path: string;
+  readonly root_id: string | null;
+}
+
 export class TursoFileRecordRepository implements IFileRecordRepository {
   constructor(private readonly db: BrainstrikeDbExecutionClient) {}
 
   async create(record: FileRecord): Promise<void> {
     assertNoFileRecordEmbedding(record.embedding);
-    await this.db.exec(
-      `INSERT INTO file_records (
-        id, name, path, size, created_at, updated_at, token_count, embedding_set_id, chunks_count, chunking_strategy
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        record.id,
-        record.name,
-        record.path,
-        record.size,
-        normalizeDateValue(record.createdAt, 'createdAt'),
-        normalizeDateValue(record.updatedAt, 'updatedAt'),
-        record.tokenCount ?? null,
-        record.embeddingSetId ?? null,
-        record.chunksCount ?? null,
-        record.chunkingStrategy ?? null,
-      ]
-    );
+    await this.db.transaction(async (tx) => {
+      await insertFileRecord(tx, record);
+      await replaceQuickOpenNameGrams(tx, record.id, record.name);
+    });
   }
 
   async createWithContent(record: FileRecord): Promise<void> {
     assertNoFileRecordEmbedding(record.embedding);
     assertTextContentHasNoNullBytes(record.content, 'File record content');
-    await this.db.exec(
-      `INSERT INTO file_records (
-        id, name, path, size, created_at, updated_at, content, content_hash, token_count, processed_at, embedding_set_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        record.id,
-        record.name,
-        record.path,
-        record.size,
-        normalizeDateValue(record.createdAt, 'createdAt'),
-        normalizeDateValue(record.updatedAt, 'updatedAt'),
-        record.content ?? null,
-        record.contentHash ?? null,
-        record.tokenCount ?? 0,
-        normalizeNullableDateValue(record.processedAt, 'processedAt'),
-        record.embeddingSetId ?? null,
-      ]
-    );
+    await this.db.transaction(async (tx) => {
+      await insertFileRecordWithContent(tx, record);
+      await replaceQuickOpenNameGrams(tx, record.id, record.name);
+    });
   }
 
   async findById(id: string): Promise<FileRecord | null> {
@@ -265,6 +251,53 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
     return row ? rowToFileRecord(row) : null;
   }
 
+  async findByNameSubstring(query: string, limit: number): Promise<QuickOpenFileRow[]> {
+    const normalizedQuery = normalizeQuickOpenText(query);
+    const boundedLimit = clampQuickOpenLimit(limit);
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    const queryGrams = createQuickOpenCandidateGrams(normalizedQuery);
+    if (queryGrams.length === 0) {
+      return [];
+    }
+
+    const requestedGrams = queryGrams.map(() => '(?)').join(', ');
+    const result = await this.db.query<TursoQuickOpenFileRow>(
+      `WITH requested_grams(gram) AS (VALUES ${requestedGrams}),
+        candidate_files AS (
+          SELECT fng.file_record_id
+          FROM file_record_name_grams fng
+          JOIN requested_grams rg ON rg.gram = fng.gram
+          GROUP BY fng.file_record_id
+          HAVING COUNT(DISTINCT fng.gram) = ?
+        )
+       SELECT fr.id, fr.path, fr.name, fr.root_id, r.display_name
+       FROM candidate_files cf
+       JOIN file_records fr ON fr.id = cf.file_record_id
+       LEFT JOIN roots r ON r.id = fr.root_id
+       ORDER BY length(fr.name), fr.path
+       LIMIT ?`,
+      [...queryGrams, queryGrams.length, QUICK_OPEN_CANDIDATE_LIMIT]
+    );
+    const filteredRows = result.rows
+      .filter((row) => normalizeQuickOpenText(row.name).includes(normalizedQuery))
+      .slice(0, boundedLimit);
+    if (result.rows.length >= QUICK_OPEN_CANDIDATE_LIMIT && filteredRows.length < boundedLimit) {
+      throw new Error(
+        'Turso quick-open candidate set exceeded the indexed name-gram limit before enough authoritative matches were found.'
+      );
+    }
+    return filteredRows.map((row) => ({
+      display_name: row.display_name ?? null,
+      id: row.id,
+      name: row.name,
+      path: row.path,
+      root_id: row.root_id ?? null,
+    }));
+  }
+
   async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
     const result = await this.db.query<TursoFileRecordRow>(
       `SELECT id, name, path, size, created_at, updated_at, content, content_hash, token_count, processed_at,
@@ -363,7 +396,13 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
     }
 
     params.push(id);
-    await this.db.exec(`UPDATE file_records SET ${assignments.join(', ')} WHERE id = ?`, params);
+    const nextName = updates.name;
+    await this.db.transaction(async (tx) => {
+      await tx.exec(`UPDATE file_records SET ${assignments.join(', ')} WHERE id = ?`, params);
+      if (nextName !== undefined) {
+        await replaceQuickOpenNameGrams(tx, id, String(nextName));
+      }
+    });
   }
 
   async updateContent(
@@ -383,7 +422,10 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await this.db.exec('DELETE FROM file_records WHERE id = ?', [id]);
+    await this.db.transaction(async (tx) => {
+      await tx.exec('DELETE FROM file_record_name_grams WHERE file_record_id = ?', [id]);
+      await tx.exec('DELETE FROM file_records WHERE id = ?', [id]);
+    });
   }
 
   async count(): Promise<number> {
@@ -437,7 +479,10 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
 
   async clearAll(): Promise<number> {
     const deletedCount = await this.count();
-    await this.db.exec('DELETE FROM file_records');
+    await this.db.transaction(async (tx) => {
+      await tx.exec('DELETE FROM file_record_name_grams');
+      await tx.exec('DELETE FROM file_records');
+    });
     return deletedCount;
   }
 
@@ -497,6 +542,7 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
       await this.db.transaction(async (tx) => {
         for (const record of recordsToInsert) {
           await insertFileRecordWithContent(tx, record);
+          await replaceQuickOpenNameGrams(tx, record.id, record.name);
         }
       });
     }
@@ -529,6 +575,30 @@ export class TursoFileRecordRepository implements IFileRecordRepository {
     }
     return records;
   }
+}
+
+async function insertFileRecord(
+  db: BrainstrikeDbTransactionClient,
+  record: FileRecord
+): Promise<void> {
+  await db.exec(
+    `INSERT INTO file_records (
+      id, name, path, size, created_at, updated_at, token_count, embedding_set_id, chunks_count, chunking_strategy
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      record.id,
+      record.name,
+      record.path,
+      record.size,
+      normalizeDateValue(record.createdAt, 'createdAt'),
+      normalizeDateValue(record.updatedAt, 'updatedAt'),
+      record.tokenCount ?? null,
+      record.embeddingSetId ?? null,
+      record.chunksCount ?? null,
+      record.chunkingStrategy ?? null,
+    ]
+  );
 }
 
 async function insertFileRecordWithContent(

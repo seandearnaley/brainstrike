@@ -207,7 +207,7 @@ describe('TursoFileRecordRepository', () => {
     await expect(repository.count()).resolves.toBe(0);
   });
 
-  it('clears records without materializing deleted row ids', async () => {
+  it('clears records and quick-open grams without materializing deleted row ids', async () => {
     const sqlCalls: string[] = [];
     const fakeDb: BrainstrikeDbExecutionClient = {
       exec: vi.fn(async (sql: string) => {
@@ -217,15 +217,29 @@ describe('TursoFileRecordRepository', () => {
         sqlCalls.push(sql);
         return { rows: [{ count: 2 }] };
       }),
-      transaction: vi.fn(async () => {
-        throw new Error('clearAll should not need a transaction.');
+      transaction: vi.fn(async (callback) => {
+        sqlCalls.push('BEGIN');
+        return callback({
+          exec: async (sql: string) => {
+            sqlCalls.push(sql);
+          },
+          query: async (sql: string) => {
+            sqlCalls.push(sql);
+            return { rows: [] };
+          },
+        });
       }),
     };
     const fakeRepository = new TursoFileRecordRepository(fakeDb);
 
     await expect(fakeRepository.clearAll()).resolves.toBe(2);
 
-    expect(fakeDb.exec).toHaveBeenCalledWith('DELETE FROM file_records');
+    expect(sqlCalls).toEqual([
+      'SELECT COUNT(*) AS count FROM file_records',
+      'BEGIN',
+      'DELETE FROM file_record_name_grams',
+      'DELETE FROM file_records',
+    ]);
     expect(sqlCalls.join('\n')).not.toContain('RETURNING');
   });
 
@@ -341,6 +355,102 @@ describe('TursoFileRecordRepository', () => {
     expect(sql).not.toContain('FILTER');
     expect(sql).not.toContain('ANY(');
     expect(sql).not.toMatch(/\bc\.embedding\s+AS\b/i);
+  });
+
+  it('finds quick-open files by indexed name grams with root labels and bounded SQLite SQL', async () => {
+    const queryCalls: string[] = [];
+    const originalQuery = client.query.bind(client);
+    vi.spyOn(client, 'query').mockImplementation(
+      async (sql: string, params?: readonly unknown[]) => {
+        queryCalls.push(sql);
+        return originalQuery(sql, params);
+      }
+    );
+    await seedRoot('root-a', 'Alpha');
+    await seedRoot('root-b', 'Beta');
+    await repository.create(createRecord({ id: 'long', name: 'alphabet.ts', path: 'src/z.ts' }));
+    await repository.create(createRecord({ id: 'short', name: 'alpha.ts', path: 'src/a.ts' }));
+    await repository.create(createRecord({ id: 'beta', name: 'AlphaBeta.ts', path: 'src/b.ts' }));
+    await repository.create(
+      createRecord({ id: 'legacy', name: 'alpha.md', path: 'docs/alpha.md' })
+    );
+    await repository.create(
+      createRecord({ id: 'accented', name: 'Éclair.ts', path: 'src/eclair.ts' })
+    );
+    await repository.create(
+      createRecord({ id: 'unmatched', name: 'readme.md', path: 'docs/readme.md' })
+    );
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-a', 'long']);
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-a', 'short']);
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-b', 'beta']);
+
+    await expect(repository.findByNameSubstring('ALPHA', 2)).resolves.toEqual([
+      { display_name: null, id: 'legacy', name: 'alpha.md', path: 'docs/alpha.md', root_id: null },
+      { display_name: 'Alpha', id: 'short', name: 'alpha.ts', path: 'src/a.ts', root_id: 'root-a' },
+    ]);
+    await expect(repository.findByNameSubstring('écl', 50)).resolves.toEqual([
+      {
+        display_name: null,
+        id: 'accented',
+        name: 'Éclair.ts',
+        path: 'src/eclair.ts',
+        root_id: null,
+      },
+    ]);
+    const sql = queryCalls.at(-1) ?? '';
+    expect(sql).toContain('file_record_name_grams');
+    expect(sql).toContain('LEFT JOIN roots r ON r.id = fr.root_id');
+    expect(sql).not.toContain('LOWER(fr.name) LIKE');
+    expect(sql).not.toContain('ILIKE');
+    expect(sql).not.toContain('::');
+    expect(sql).not.toContain('ANY(');
+    expect(sql).not.toMatch(/\bc\.embedding\s+AS\b/i);
+  });
+
+  it('keeps quick-open name grams consistent across name updates, deletes, and clears', async () => {
+    await repository.create(createRecord({ id: 'rename-me', name: 'alpha.ts', path: 'src/a.ts' }));
+
+    await expect(repository.findByNameSubstring('alpha', 50)).resolves.toEqual([
+      expect.objectContaining({ id: 'rename-me' }),
+    ]);
+
+    await repository.update('rename-me', { name: 'beta.ts' });
+
+    await expect(repository.findByNameSubstring('alpha', 50)).resolves.toEqual([]);
+    await expect(repository.findByNameSubstring('beta', 50)).resolves.toEqual([
+      expect.objectContaining({ id: 'rename-me', name: 'beta.ts' }),
+    ]);
+
+    await repository.delete('rename-me');
+
+    await expect(repository.findByNameSubstring('beta', 50)).resolves.toEqual([]);
+
+    await repository.create(createRecord({ id: 'clear-me', name: 'gamma.ts', path: 'src/g.ts' }));
+    await repository.clearAll();
+
+    await expect(repository.findByNameSubstring('gamma', 50)).resolves.toEqual([]);
+  });
+
+  it('queries Turso quick-open through the name-gram index, not a leading-wildcard scan', async () => {
+    const sqlCalls: string[] = [];
+    const fakeDb: BrainstrikeDbExecutionClient = {
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        sqlCalls.push(sql);
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('findByNameSubstring should not need a transaction.');
+      }),
+    };
+    const fakeRepository = new TursoFileRecordRepository(fakeDb);
+
+    await fakeRepository.findByNameSubstring('alpha', 50);
+
+    const sql = sqlCalls.join('\n');
+    expect(sql).toContain('file_record_name_grams');
+    expect(sql).not.toContain("LIKE '%' ||");
+    expect(sql).not.toContain('ILIKE');
   });
 
   async function seedRoot(id: string, displayName: string): Promise<void> {

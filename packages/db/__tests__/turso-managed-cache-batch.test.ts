@@ -8,6 +8,7 @@ import {
 } from '../src/managed-cache/index.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
+import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import { applyTursoSchemaBaseline } from '../src/turso/schema-baseline.js';
 
@@ -255,6 +256,63 @@ describe('Turso managed-cache batch', () => {
     await expect(readStats()).resolves.toMatchObject({ file_count: 1 });
   });
 
+  it('keeps quick-open name grams searchable across Turso managed-cache writes', async () => {
+    const fileRecords = new TursoFileRecordRepository(client);
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({
+            id: 'file-1',
+            name: 'Alpha.ts',
+            path: 'src/alpha.ts',
+          }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(fileRecords.findByNameSubstring('alpha', 50)).resolves.toEqual([
+      expect.objectContaining({ id: 'file-1', name: 'Alpha.ts' }),
+    ]);
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'replace',
+          record: createReplaceRecord({
+            id: 'file-1',
+            name: 'Beta.ts',
+            path: 'src/beta.ts',
+          }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(fileRecords.findByNameSubstring('alpha', 50)).resolves.toEqual([]);
+    await expect(fileRecords.findByNameSubstring('beta', 50)).resolves.toEqual([
+      expect.objectContaining({ id: 'file-1', name: 'Beta.ts' }),
+    ]);
+
+    await invalidateTursoManagedCacheEntriesByIdentity(client, {
+      embeddingSetId,
+      targets: [
+        {
+          expectedFileRecordId: 'file-1',
+          mode: 'exact',
+          relativePath: 'src/beta.ts',
+          rootId: 'root-1',
+        },
+      ],
+    });
+
+    await expect(fileRecords.findByNameSubstring('beta', 50)).resolves.toEqual([]);
+  });
+
   function createImportRecord(overrides: Partial<Parameters<typeof createReplaceRecord>[0]> = {}) {
     return {
       ...createReplaceRecord(overrides),
@@ -267,6 +325,7 @@ describe('Turso managed-cache batch', () => {
       content: string;
       contentHash: string;
       id: string;
+      name: string;
       path: string;
     }> = {}
   ) {
@@ -275,7 +334,7 @@ describe('Turso managed-cache batch', () => {
       contentHash: overrides.contentHash ?? 'hash-1',
       id: overrides.id ?? 'file-1',
       mtimeMs: 1234.75,
-      name: 'file.ts',
+      name: overrides.name ?? 'file.ts',
       path: overrides.path ?? 'src/file.ts',
       processedAt: '2026-06-23T12:00:00.000Z',
       size: 24,

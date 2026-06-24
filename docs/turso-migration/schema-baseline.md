@@ -20,6 +20,7 @@ Version 1 creates the current greenfield table surface needed for later Turso
 repository slices:
 
 - roots, file records, file chunks, selection snapshots, and snapshot files
+- file-record name grams for indexed quick-open filename substring candidates
 - embedding sets, embedding cache, collection indexing stats, and job queue
 - file token cache and legacy token cache
 - file tags and file relationships
@@ -38,6 +39,10 @@ Catalog reseeding preserves existing `is_enabled` toggles.
 - JSON-like values are validated JSON text.
 - Timestamps are UTC ISO-like text using SQLite `strftime`.
 - Embedding columns are `BLOB` placeholders for Turso vector data.
+- Quick-open filename search uses `file_record_name_grams`, an auxiliary
+  primary-store table keyed by `(file_record_id, gram)` and indexed by
+  `(gram, file_record_id)`. Repository code treats this table as a candidate
+  source only; final substring matching and ordering remain in application code.
 
 ## Deferred Features
 

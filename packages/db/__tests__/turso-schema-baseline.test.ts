@@ -18,6 +18,8 @@ import {
   TURSO_SCHEMA_BASELINE_SEED_DML,
   TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
   TURSO_SCHEMA_BASELINE_V2_VERSION,
+  TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_V3_VERSION,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
 import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
@@ -51,6 +53,7 @@ describe('Turso schema baseline', () => {
         'embedding_cache',
         'embedding_sets',
         'file_chunks',
+        'file_record_name_grams',
         'file_records',
         'file_relationships',
         'file_tags',
@@ -216,6 +219,9 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('file_records')).resolves.toEqual(
       expect.arrayContaining(['idx_file_records_root_identity'])
     );
+    await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
+    );
 
     await client.exec(
       "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-path-1', 'path', 'Project', '/workspace/project')"
@@ -303,7 +309,8 @@ describe('Turso schema baseline', () => {
       (ddl) =>
         !(
           ddl.includes('idx_embedding_sets_workspace_index_system_role') ||
-          ddl.includes('idx_job_queue_dedupe_active')
+          ddl.includes('idx_job_queue_dedupe_active') ||
+          ddl.includes('file_record_name_grams')
         )
     );
     for (const ddl of previousBaselineDdl) {
@@ -336,6 +343,9 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('job_queue')).resolves.toEqual(
       expect.arrayContaining(['idx_job_queue_dedupe_active'])
     );
+    await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
+    );
     await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
     ).resolves.toEqual({
@@ -354,7 +364,8 @@ describe('Turso schema baseline', () => {
 
   it('upgrades an existing v2 Turso schema ledger with the previous checksum to the current baseline', async () => {
     const oldV2BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
-      (ddl) => !ddl.includes('idx_job_queue_dedupe_active')
+      (ddl) =>
+        !(ddl.includes('idx_job_queue_dedupe_active') || ddl.includes('file_record_name_grams'))
     );
     for (const ddl of oldV2BaselineDdl) {
       await client.exec(ddl);
@@ -383,6 +394,9 @@ describe('Turso schema baseline', () => {
     await expect(listIndexes('job_queue')).resolves.toEqual(
       expect.arrayContaining(['idx_job_queue_dedupe_active'])
     );
+    await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
+    );
     await expect(
       client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
     ).resolves.toEqual({
@@ -390,6 +404,53 @@ describe('Turso schema baseline', () => {
         {
           checksum: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
           version: TURSO_SCHEMA_BASELINE_V2_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
+  it('upgrades an existing v3 Turso schema ledger to the current name-gram baseline', async () => {
+    const oldV3BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
+      (ddl) => !ddl.includes('file_record_name_grams')
+    );
+    for (const ddl of oldV3BaselineDdl) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_V3_VERSION,
+        TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
+        '2026-06-24T00:00:00.000Z',
+      ]
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('file_record_name_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_record_name_grams_gram_record'])
+    );
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_V3_VERSION,
         },
         {
           checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
@@ -475,6 +536,24 @@ describe('Turso schema baseline', () => {
 
     await expect(applyTursoSchemaBaseline(client)).rejects.toThrow(
       `Turso schema baseline ${TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION} checksum mismatch`
+    );
+  });
+
+  it('fails closed when a v3 baseline checksum drifts', async () => {
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [TURSO_SCHEMA_BASELINE_V3_VERSION, 'bad-checksum', '2026-06-24T00:00:00.000Z']
+    );
+
+    await expect(applyTursoSchemaBaseline(client)).rejects.toThrow(
+      `Turso schema baseline ${TURSO_SCHEMA_BASELINE_V3_VERSION} checksum mismatch`
     );
   });
 
