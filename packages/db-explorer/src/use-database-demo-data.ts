@@ -16,17 +16,13 @@ import {
   buildCollectionFileDataSnapshot,
   buildRecordPageCacheKey,
   type CollectionCountsRow,
-  cacheCollectionCountsForCollection,
-  cacheTotalRecordsForCollection,
   collectionCountsRowBelongsToCollection,
   countLoadedChunkGroups,
   countLoadedChunks,
   extractErrorMessage,
-  type FileChunkRow,
   type FileRecordRow,
   type FileRecordsTotalRow,
   isMissingRelation,
-  mapChunkRow,
   mapCollectionCountsRow,
   mapRecordRow,
   normalizeCount,
@@ -35,6 +31,31 @@ import {
   restoreCachedRecord,
   rowBelongsToCollection,
 } from './database-demo-data-mappers';
+import {
+  cachePGliteCollectionSnapshot,
+  cacheRepositoryCollectionSnapshot,
+  type DatabaseCollectionCounts,
+  type DatabaseCollectionCountsStatus,
+  type DatabaseDemoChunkRepository,
+  type DatabaseDemoRecordRepository,
+  type DatabaseFileChunkSummary,
+  type DatabaseFileRecordSummary,
+  hasRepositorySnapshotSupport,
+  loadPGliteChunkSummaries,
+  loadPGliteExportRecords,
+  loadRepositoryChunkSummaries,
+  mapInBatches,
+  resolveCachedCollectionCountsStatus,
+  resolveCollectionBrowserUnavailableReason,
+  type SnapshotLoadOptions,
+} from './database-demo-data-snapshots';
+
+export type {
+  DatabaseCollectionCounts,
+  DatabaseCollectionCountsStatus,
+  DatabaseFileChunkSummary,
+  DatabaseFileRecordSummary,
+} from './database-demo-data-snapshots';
 
 const logger = createLogger('DatabaseDemoData');
 
@@ -69,11 +90,6 @@ export interface DatabaseInfo {
   testResult: string;
 }
 
-interface DatabaseDemoChunkRepository {
-  readonly findByFileRecordId?: (fileRecordId: string) => Promise<FileChunk[]>;
-  readonly findById?: (chunkId: string) => Promise<FileChunk | null>;
-}
-
 export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
   chunkRepository?: DatabaseDemoChunkRepository | null;
@@ -105,49 +121,6 @@ interface DatabaseLoaders {
   loadRecords: () => Promise<void>;
 }
 
-export interface DatabaseFileRecordSummary {
-  chunkingStrategy?: FileRecord['chunkingStrategy'];
-  chunksCount?: number;
-  chunksProcessedAt?: string;
-  contentHash?: string;
-  createdAt: string;
-  embeddedChunksCount?: number;
-  embeddingSetId?: string;
-  hasEmbedding?: boolean;
-  id: string;
-  name: string;
-  path: string;
-  processedAt?: string;
-  size: number;
-  tokenCount?: number;
-  updatedAt: string;
-}
-
-export interface DatabaseFileChunkSummary {
-  chunkIndex: number;
-  chunkSize: number;
-  chunkType: FileChunk['chunkType'];
-  contentHash: string;
-  createdAt: string;
-  embeddingDimensions?: number;
-  embeddingHash?: string;
-  embeddingSetId?: string;
-  embeddingUpdatedAt?: string;
-  fileRecordId: string;
-  hasEmbedding?: boolean;
-  id: string;
-  tokenCount: number;
-  updatedAt: string;
-}
-
-export interface DatabaseCollectionCounts {
-  chunks: number;
-  embeddings: number;
-  records: number;
-}
-
-export type DatabaseCollectionCountsStatus = 'pending' | 'ready';
-
 export interface DatabaseRecordPagination {
   currentPage: number;
   pageSize: number;
@@ -173,31 +146,9 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
-const EXPORT_LOAD_BATCH_SIZE = 50;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD = 250;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_CHUNK_THRESHOLD = 1000;
 const LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD = 1000;
-
-function formatDatabaseRuntimeLabel(databaseRuntimeEngine: string | null): string {
-  if (databaseRuntimeEngine === 'turso') {
-    return 'Turso';
-  }
-  return 'current';
-}
-
-async function mapInBatches<T, R>(
-  items: readonly T[],
-  mapper: (item: T) => Promise<R>,
-  batchSize = EXPORT_LOAD_BATCH_SIZE
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let start = 0; start < items.length; start += batchSize) {
-    const batch = items.slice(start, start + batchSize);
-    const batchResults = await Promise.all(batch.map((item) => mapper(item)));
-    results.push(...batchResults);
-  }
-  return results;
-}
 
 // PERFORMANCE: Do NOT select the full embedding column in live queries!
 // See FILE_CHUNKS_LIVE_QUERY comment for details.
@@ -261,6 +212,13 @@ const FILE_RECORDS_TOTAL_QUERY = `
   FROM target
   LEFT JOIN file_records fr ON fr.embedding_set_id = target.embedding_set_id
   GROUP BY target.embedding_set_id
+`.trim();
+
+const FILE_RECORD_IDS_FOR_COLLECTION_EXPORT_QUERY = `
+  SELECT id
+  FROM file_records
+  WHERE embedding_set_id = $1
+  ORDER BY updated_at DESC, id DESC
 `.trim();
 
 // Active-collection counts are computed live from file_records/file_chunks via
@@ -328,23 +286,26 @@ export function useDatabaseDemoData({
   const globalCachedFileData = useVectorStatusUIStore((s) => s.cachedFileData);
   const setGlobalCachedFileData = useVectorStatusUIStore((s) => s.setCachedFileData);
 
-  void _chunkRepository;
-
   const normalizedRecordPage = Number.isFinite(recordPage)
     ? Math.max(0, Math.trunc(recordPage))
     : 0;
   const normalizedRecordPageSize =
     Number.isFinite(recordPageSize) && recordPageSize > 0 ? Math.trunc(recordPageSize) : 50;
   const recordOffset = normalizedRecordPage * normalizedRecordPageSize;
-  const collectionBrowserUnavailableReason =
-    activeCollectionId && !supportsPGliteCollectionQueries
-      ? `Collection file browsing is unavailable for the ${formatDatabaseRuntimeLabel(
-          databaseRuntimeEngine
-        )} database runtime until selected-collection record queries are migrated.`
-      : undefined;
   const recordPageCacheKey = activeCollectionId
     ? buildRecordPageCacheKey(activeCollectionId, normalizedRecordPage, normalizedRecordPageSize)
     : null;
+  const supportsRepositoryCollectionSnapshots = hasRepositorySnapshotSupport(
+    repository,
+    _chunkRepository
+  );
+  const supportsCollectionSnapshots =
+    supportsPGliteCollectionQueries || supportsRepositoryCollectionSnapshots;
+  const collectionBrowserUnavailableReason = resolveCollectionBrowserUnavailableReason({
+    activeCollectionId,
+    databaseRuntimeEngine,
+    supportsCollectionSnapshots,
+  });
 
   useEffect(() => {
     if (!database) {
@@ -368,6 +329,7 @@ export function useDatabaseDemoData({
     if (!recordPageCacheKey) {
       return;
     }
+    const collectionId = activeCollectionId;
 
     let didRestoreFromGlobalCache = false;
 
@@ -376,11 +338,8 @@ export function useDatabaseDemoData({
         recordPageCacheKey,
         globalCachedFileData.records.map(restoreCachedRecord)
       );
-      cachedRecordTotalsRef.current.set(activeCollectionId, globalCachedFileData.totalRecords);
-      cachedCollectionCountsRef.current.set(
-        activeCollectionId,
-        globalCachedFileData.collectionCounts
-      );
+      cachedRecordTotalsRef.current.set(collectionId, globalCachedFileData.totalRecords);
+      cachedCollectionCountsRef.current.set(collectionId, globalCachedFileData.collectionCounts);
       loadedRecordPagesRef.current.add(recordPageCacheKey);
       didRestoreFromGlobalCache = true;
     }
@@ -630,61 +589,57 @@ export function useDatabaseDemoData({
   }, [cacheVersion, recordPageCacheKey, schemaReady]);
 
   const fetchSnapshot = useCallback(
-    async (options: {
-      includeCollectionCounts: boolean;
-      includeRecords: boolean;
-      includeTotalRecords: boolean;
-    }) => {
-      if (
-        !(
-          supportsPGliteCollectionQueries &&
-          database &&
-          schemaReady &&
-          activeCollectionId &&
-          recordPageCacheKey
-        )
-      ) {
+    async (options: SnapshotLoadOptions) => {
+      if (!(database && schemaReady && activeCollectionId && recordPageCacheKey)) {
         return;
       }
-      if (typeof (database as { query?: unknown }).query !== 'function') {
-        return;
-      }
-      const queryDatabase = database as {
-        query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+      const cache = {
+        cachedCollectionCounts: cachedCollectionCountsRef.current,
+        cachedRecords: cachedRecordsRef.current,
+        cachedRecordTotals: cachedRecordTotalsRef.current,
+        loadedRecordPages: loadedRecordPagesRef.current,
       };
-      const recordParams = recordQueryParams ?? [
-        activeCollectionId,
-        normalizedRecordPageSize,
-        recordOffset,
-        activeCollectionId,
-      ];
-      const recordsResult = await (options.includeRecords
-        ? queryDatabase.query<FileRecordRow>(FILE_RECORDS_PAGE_QUERY, recordParams)
-        : Promise.resolve(null));
-      const totalRecordsResult = await (options.includeTotalRecords
-        ? queryDatabase.query<FileRecordsTotalRow>(FILE_RECORDS_TOTAL_QUERY, [activeCollectionId])
-        : Promise.resolve(null));
-      const collectionCountsResult = await (options.includeCollectionCounts
-        ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [activeCollectionId])
-        : Promise.resolve(null));
-
-      if (recordsResult) {
-        cachedRecordsRef.current.set(recordPageCacheKey, recordsResult.rows.map(mapRecordRow));
-        loadedRecordPagesRef.current.add(recordPageCacheKey);
-      }
-      if (totalRecordsResult) {
-        cacheTotalRecordsForCollection({
-          cache: cachedRecordTotalsRef.current,
-          collectionId: activeCollectionId,
-          rows: totalRecordsResult.rows,
+      let didLoad = false;
+      if (supportsPGliteCollectionQueries) {
+        didLoad = await cachePGliteCollectionSnapshot({
+          activeCollectionId,
+          cache,
+          database,
+          normalizedRecordPageSize,
+          options,
+          queries: {
+            collectionCounts: COLLECTION_COUNTS_QUERY,
+            fileRecordsPage: FILE_RECORDS_PAGE_QUERY,
+            fileRecordsTotal: FILE_RECORDS_TOTAL_QUERY,
+          },
+          recordOffset,
+          recordPageCacheKey,
+          recordQueryParams,
         });
-      }
-      if (collectionCountsResult) {
-        cacheCollectionCountsForCollection({
-          cache: cachedCollectionCountsRef.current,
-          collectionId: activeCollectionId,
-          rows: collectionCountsResult.rows,
+      } else if (supportsRepositoryCollectionSnapshots) {
+        const snapshotRepository = repository as DatabaseDemoRecordRepository;
+        const snapshotChunkRepository = _chunkRepository as Required<
+          Pick<DatabaseDemoChunkRepository, 'findByFileRecordId' | 'getCoverageForSet'>
+        >;
+        await cacheRepositoryCollectionSnapshot({
+          activeCollectionId,
+          cache,
+          chunkRepository: snapshotChunkRepository,
+          normalizedRecordPageSize,
+          options,
+          recordOffset,
+          recordPageCacheKey,
+          repository: snapshotRepository as Required<
+            Pick<
+              DatabaseDemoRecordRepository,
+              'countByEmbeddingSet' | 'listByEmbeddingSet' | 'listByEmbeddingSetPage'
+            >
+          >,
         });
+        didLoad = true;
+      }
+      if (!didLoad) {
+        return;
       }
 
       setCacheVersion((prev) => prev + 1);
@@ -692,12 +647,15 @@ export function useDatabaseDemoData({
     [
       activeCollectionId,
       database,
+      _chunkRepository,
       normalizedRecordPageSize,
       recordOffset,
       recordPageCacheKey,
       recordQueryParams,
+      repository,
       schemaReady,
       supportsPGliteCollectionQueries,
+      supportsRepositoryCollectionSnapshots,
     ]
   );
 
@@ -709,7 +667,7 @@ export function useDatabaseDemoData({
     if (!(database && schemaReady && activeCollectionId)) {
       return;
     }
-    if (!supportsPGliteCollectionQueries) {
+    if (!supportsCollectionSnapshots) {
       return;
     }
     if (fallbackLoading) {
@@ -763,6 +721,7 @@ export function useDatabaseDemoData({
     liveQueryEnabled,
     recordPageCacheKey,
     schemaReady,
+    supportsCollectionSnapshots,
     supportsPGliteCollectionQueries,
   ]);
 
@@ -778,8 +737,13 @@ export function useDatabaseDemoData({
     liveQueryEnabled && !collectionCountsLoading && liveCollectionCountsStatus === 'ready'
       ? liveCollectionCounts
       : cachedCollectionCounts;
-  const resolvedCollectionCountsStatus: DatabaseCollectionCountsStatus =
-    liveQueryEnabled && liveCollectionCountsStatus === 'ready' ? 'ready' : 'pending';
+  const cachedCollectionCountsStatus = resolveCachedCollectionCountsStatus(
+    activeCollectionId,
+    cachedCollectionCountsRef.current
+  );
+  const resolvedCollectionCountsStatus: DatabaseCollectionCountsStatus = liveQueryEnabled
+    ? liveCollectionCountsStatus
+    : cachedCollectionCountsStatus;
   const pageDataDiagnosticSignatureRef = useRef<string | null>(null);
 
   const loadFileChunkSummaries = useCallback(
@@ -796,20 +760,16 @@ export function useDatabaseDemoData({
       if (!(database && schemaReady)) {
         throw new Error('Chunk summary requests require an initialized database.');
       }
-      if (!supportsPGliteCollectionQueries) {
+      if (!supportsCollectionSnapshots) {
         throw new Error('Chunk summary requests require PGlite-compatible collection queries.');
       }
-      if (typeof (database as { query?: unknown }).query !== 'function') {
-        throw new Error('Chunk summary requests require database query support.');
-      }
-
-      const result = await (
-        database as {
-          query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
-        }
-      ).query<FileChunkRow>(FILE_CHUNKS_FOR_FILE_RECORD_QUERY, [fileRecordId]);
-
-      const summaries = result.rows.map(mapChunkRow);
+      const summaries = supportsPGliteCollectionQueries
+        ? await loadPGliteChunkSummaries({
+            database,
+            fileRecordId,
+            query: FILE_CHUNKS_FOR_FILE_RECORD_QUERY,
+          })
+        : await loadRepositoryChunkSummaries(_chunkRepository, fileRecordId);
       const collectionChunks =
         cachedLoadedChunksRef.current.get(recordPageCacheKey) ??
         new Map<string, DatabaseFileChunkSummary[]>();
@@ -842,9 +802,11 @@ export function useDatabaseDemoData({
       database,
       normalizedRecordPage,
       normalizedRecordPageSize,
+      _chunkRepository,
       recordPageCacheKey,
       schemaReady,
       setGlobalCachedFileData,
+      supportsCollectionSnapshots,
       supportsPGliteCollectionQueries,
     ]
   );
@@ -853,7 +815,7 @@ export function useDatabaseDemoData({
     if (!(database && schemaReady && activeCollectionId)) {
       return;
     }
-    if (!supportsPGliteCollectionQueries) {
+    if (!supportsCollectionSnapshots) {
       return;
     }
 
@@ -892,6 +854,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
+    supportsCollectionSnapshots,
     supportsPGliteCollectionQueries,
     toast,
   ]);
@@ -949,10 +912,7 @@ export function useDatabaseDemoData({
     if (!repository) {
       throw new Error('File export repository is unavailable.');
     }
-    if (!(database && typeof (database as { query?: unknown }).query === 'function')) {
-      throw new Error('Collection export requires database query support.');
-    }
-    if (!supportsPGliteCollectionQueries) {
+    if (!supportsCollectionSnapshots) {
       throw new Error('Collection export requires PGlite-compatible collection queries.');
     }
     if (!_chunkRepository) {
@@ -968,28 +928,16 @@ export function useDatabaseDemoData({
       throw new Error('Chunk export repository does not support findByFileRecordId.');
     }
     const findChunksByFileRecordId = _chunkRepository.findByFileRecordId;
-
-    const recordIdsResult = await (
-      database as {
-        query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
-      }
-    ).query<{ id: string }>(
-      `
-        SELECT id
-        FROM file_records
-        WHERE embedding_set_id = $1
-        ORDER BY updated_at DESC, id DESC
-      `,
-      [activeCollectionId]
-    );
-    const recordIds = recordIdsResult.rows.map((record) => record.id);
-    const settledRecords = await mapInBatches(recordIds, async (recordId) => {
-      const record = await repository.findById(recordId);
-      if (!record) {
-        throw new Error(`Missing file record during export: ${recordId}`);
-      }
-      return record;
-    });
+    const listByEmbeddingSet = (repository as DatabaseDemoRecordRepository).listByEmbeddingSet;
+    const settledRecords =
+      supportsRepositoryCollectionSnapshots && typeof listByEmbeddingSet === 'function'
+        ? await listByEmbeddingSet(activeCollectionId)
+        : await loadPGliteExportRecords({
+            activeCollectionId,
+            database,
+            query: FILE_RECORD_IDS_FOR_COLLECTION_EXPORT_QUERY,
+            repository,
+          });
 
     const chunkGroups = await mapInBatches(settledRecords, (record) =>
       findChunksByFileRecordId(record.id)
@@ -999,13 +947,20 @@ export function useDatabaseDemoData({
       records: settledRecords,
       chunks: chunkGroups.flat(),
     };
-  }, [_chunkRepository, activeCollectionId, database, repository, supportsPGliteCollectionQueries]);
+  }, [
+    _chunkRepository,
+    activeCollectionId,
+    database,
+    repository,
+    supportsCollectionSnapshots,
+    supportsRepositoryCollectionSnapshots,
+  ]);
 
   const refreshVisibleData = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
       return;
     }
-    if (!supportsPGliteCollectionQueries) {
+    if (!supportsCollectionSnapshots) {
       return;
     }
 
@@ -1031,7 +986,7 @@ export function useDatabaseDemoData({
     refreshTotalRecordsQuery,
     runManualRefresh,
     schemaReady,
-    supportsPGliteCollectionQueries,
+    supportsCollectionSnapshots,
   ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);

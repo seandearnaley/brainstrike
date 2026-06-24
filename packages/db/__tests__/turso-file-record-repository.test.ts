@@ -124,6 +124,45 @@ describe('TursoFileRecordRepository', () => {
     ]);
   });
 
+  it('lists selected collection pages and counts without scanning unrelated sets', async () => {
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'record-old',
+        path: 'src/old.ts',
+        updatedAt: '2026-06-23T06:00:00.000Z',
+      })
+    );
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'record-new',
+        path: 'src/new.ts',
+        updatedAt: '2026-06-23T08:00:00.000Z',
+      })
+    );
+    await repository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-b',
+        id: 'record-other',
+        path: 'src/other.ts',
+        updatedAt: '2026-06-23T09:00:00.000Z',
+      })
+    );
+
+    await expect(repository.countByEmbeddingSet('set-a')).resolves.toBe(2);
+    await expect(
+      repository.listByEmbeddingSetPage('set-a', { limit: 1, offset: 0 })
+    ).resolves.toEqual([expect.objectContaining({ id: 'record-new' })]);
+    await expect(
+      repository.listByEmbeddingSetPage('set-a', { limit: 1, offset: 1 })
+    ).resolves.toEqual([expect.objectContaining({ id: 'record-old' })]);
+    await expect(repository.listByEmbeddingSet('set-a')).resolves.toEqual([
+      expect.objectContaining({ id: 'record-new' }),
+      expect.objectContaining({ id: 'record-old' }),
+    ]);
+  });
+
   it('bulk imports with content-hash dedupe scoped by embedding set', async () => {
     const shared = 'const shared = true;';
     const results = await repository.bulkImport([

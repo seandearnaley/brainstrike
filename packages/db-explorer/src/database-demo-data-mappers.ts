@@ -4,7 +4,7 @@ import type {
   DatabaseCollectionCounts,
   DatabaseFileChunkSummary,
   DatabaseFileRecordSummary,
-} from './use-database-demo-data';
+} from './database-demo-data-snapshots';
 
 export interface FileRecordRow {
   chunkingStrategy: string | null;
