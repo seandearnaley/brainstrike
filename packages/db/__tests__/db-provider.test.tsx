@@ -6,6 +6,7 @@ import type { Mock } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DbProvider,
+  useAssistantMemoryDbClient,
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
   useFileRecordRepository,
@@ -85,6 +86,7 @@ describe('DbProvider', () => {
 
     const { result } = renderHook(
       () => ({
+        assistantMemoryClient: useAssistantMemoryDbClient(),
         client: useBrainstrikeDbClient(),
         db: useBrainstrikeDatabase(),
         optionalClient: useOptionalBrainstrikeDbClient(),
@@ -97,6 +99,10 @@ describe('DbProvider', () => {
     await waitFor(() => {
       expect(result.current.db).toBeTruthy();
       expect(result.current.client).toBe(result.current.db);
+      expect(result.current.assistantMemoryClient).toEqual({
+        db: result.current.db,
+        runtimeEngine: 'pglite',
+      });
       expect(result.current.optionalClient).toBe(result.current.db);
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);

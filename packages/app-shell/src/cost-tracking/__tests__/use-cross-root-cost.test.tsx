@@ -1,26 +1,30 @@
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { unsubscribeMock, subscribeMock, useBrainstrikeDbClientMock, useBrainstrikeLiveQueryMock } =
-  vi.hoisted(() => {
-    const unsubscribe = vi.fn(async () => undefined);
-    const subscribe = vi.fn(() => unsubscribe);
-    return {
-      unsubscribeMock: unsubscribe,
-      subscribeMock: subscribe,
-      useBrainstrikeDbClientMock: vi.fn(),
-      // The live-query hook drives the real subscription lifecycle (its own
-      // package tests prove subscribe-on-mount / unsubscribe-on-unmount). Here we
-      // simulate that: when enabled, calling the hook registers a subscription,
-      // and React cleanup must invoke the returned unsubscribe on unmount.
-      useBrainstrikeLiveQueryMock: vi.fn(),
-    };
-  });
+const {
+  unsubscribeMock,
+  subscribeMock,
+  useAssistantMemoryDbClientMock,
+  useBrainstrikeLiveQueryMock,
+} = vi.hoisted(() => {
+  const unsubscribe = vi.fn(async () => undefined);
+  const subscribe = vi.fn(() => unsubscribe);
+  return {
+    unsubscribeMock: unsubscribe,
+    subscribeMock: subscribe,
+    useAssistantMemoryDbClientMock: vi.fn(),
+    // The live-query hook drives the real subscription lifecycle (its own
+    // package tests prove subscribe-on-mount / unsubscribe-on-unmount). Here we
+    // simulate that: when enabled, calling the hook registers a subscription,
+    // and React cleanup must invoke the returned unsubscribe on unmount.
+    useBrainstrikeLiveQueryMock: vi.fn(),
+  };
+});
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: (...args: unknown[]) => JSON.stringify(args),
-  useBrainstrikeDbClient: useBrainstrikeDbClientMock,
+  useAssistantMemoryDbClient: useAssistantMemoryDbClientMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
@@ -36,10 +40,14 @@ describe('useCrossRootCost', () => {
   beforeEach(() => {
     subscribeMock.mockClear();
     unsubscribeMock.mockClear();
-    useBrainstrikeDbClientMock.mockReset();
+    useAssistantMemoryDbClientMock.mockReset();
     useBrainstrikeLiveQueryMock.mockReset();
     // Default: durable assistant backend present (desktop) unless a test clears it.
     setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: {},
+      runtimeEngine: 'pglite',
+    });
     // Default live-query behavior: a real subscribe/unsubscribe pair tied to
     // React's effect lifecycle, plus empty rows.
     useBrainstrikeLiveQueryMock.mockImplementation((options: { enabled?: boolean }) => {
@@ -56,7 +64,7 @@ describe('useCrossRootCost', () => {
   });
 
   it('is unavailable and disables the live query when the PGlite handle is absent', () => {
-    useBrainstrikeDbClientMock.mockReturnValue(null);
+    useAssistantMemoryDbClientMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useCrossRootCost());
 
@@ -70,7 +78,10 @@ describe('useCrossRootCost', () => {
     // brainstrike is local-first: web ALSO has a PGlite handle. The durable
     // store is desktop-only, so the panel must gate on the assistant backend,
     // not the handle — otherwise web shows a durable-but-empty panel.
-    useBrainstrikeDbClientMock.mockReturnValue({});
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: {},
+      runtimeEngine: 'pglite',
+    });
     setDesktopAssistantBackend(undefined);
 
     const { result } = renderHook(() => useCrossRootCost());
@@ -84,7 +95,10 @@ describe('useCrossRootCost', () => {
   });
 
   it('subscribes on mount and unsubscribes on unmount on desktop (handle + assistant backend)', () => {
-    useBrainstrikeDbClientMock.mockReturnValue({});
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: {},
+      runtimeEngine: 'pglite',
+    });
     // Wire the live-query mock to a real React subscription tied to the render's
     // effect lifecycle so the cleanup path is exercised by unmount (the live
     // query hook itself owns this in production; here we simulate its contract).
@@ -113,7 +127,10 @@ describe('useCrossRootCost', () => {
   });
 
   it('maps live-query rows through the strict repo parser (bigint string → number)', () => {
-    useBrainstrikeDbClientMock.mockReturnValue({});
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: {},
+      runtimeEngine: 'pglite',
+    });
     useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [
         {
@@ -147,7 +164,10 @@ describe('useCrossRootCost', () => {
   });
 
   it('surfaces a malformed aggregate row as an error, never fabricated zeros', () => {
-    useBrainstrikeDbClientMock.mockReturnValue({});
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: {},
+      runtimeEngine: 'pglite',
+    });
     useBrainstrikeLiveQueryMock.mockReturnValue({
       rows: [
         {
@@ -172,5 +192,68 @@ describe('useCrossRootCost', () => {
     // returns NO fabricated rows.
     expect(result.current.error).toBeInstanceOf(Error);
     expect(result.current.rows).toEqual([]);
+  });
+
+  it('reads Turso durable usage through the repository snapshot path without live-query', async () => {
+    const tursoDb = {
+      exec: vi.fn(async (sql: string) => {
+        expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz|NULLS FIRST/i);
+      }),
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz|NULLS FIRST/i);
+        expect(params).toEqual(['brainstrike:workspace']);
+        return {
+          rows: [
+            {
+              rootId: 'root-a',
+              rootDisplayName: 'project-alpha',
+              provider: 'openai',
+              model: 'gpt-5.2',
+              inputTokens: 1500,
+              outputTokens: 300,
+            },
+          ],
+        };
+      }),
+    };
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: tursoDb,
+      runtimeEngine: 'turso',
+    });
+    useBrainstrikeLiveQueryMock.mockReturnValue({
+      rows: [
+        {
+          rootId: 'stale-pglite-root',
+          rootDisplayName: 'stale',
+          provider: 'openai',
+          model: 'gpt-5.2',
+          inputTokens: 999,
+          outputTokens: 999,
+        },
+      ],
+      loading: false,
+      error: new Error('live query must stay disabled for Turso'),
+      refresh: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useCrossRootCost());
+
+    expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false })
+    );
+    await waitFor(() => {
+      expect(result.current.rows).toEqual([
+        {
+          rootId: 'root-a',
+          rootDisplayName: 'project-alpha',
+          provider: 'openai',
+          model: 'gpt-5.2',
+          inputTokens: 1500,
+          outputTokens: 300,
+        },
+      ]);
+    });
+    expect(result.current.available).toBe(true);
+    expect(result.current.error).toBeNull();
   });
 });

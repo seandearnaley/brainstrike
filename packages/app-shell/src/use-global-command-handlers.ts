@@ -1,11 +1,11 @@
 import type { GlobalCommandHandlers } from '@brainstrike/commands';
-import type { DbHandle } from '@brainstrike/db';
+import type { AssistantMemoryDbClient } from '@brainstrike/db';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
 import {
   type AssistantThreadRepository,
-  createPgliteAssistantThreadRepository,
+  createAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { useAssistantThreadStore } from './assistant-thread-store';
@@ -22,15 +22,20 @@ import { useQuickOpenStore } from './stores/quick-open-store';
  * Shared by the ⌘K command palette host AND the composer's "/" slash menu so
  * both project the SAME global commands from one source of truth.
  */
-export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHandlers {
+export function useGlobalCommandHandlers(
+  assistantMemoryDb: AssistantMemoryDbClient | null
+): GlobalCommandHandlers {
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
   const { theme, setTheme } = useTheme();
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openQuickOpen = useQuickOpenStore((state) => state.open);
 
   const repository = useMemo<AssistantThreadRepository | null>(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
+    () =>
+      assistantMemoryDb
+        ? createAssistantThreadRepository(assistantMemoryDb.db, assistantMemoryDb.runtimeEngine)
+        : null,
+    [assistantMemoryDb]
   );
 
   // Bound only when the repository exists, so the closure captures a non-null

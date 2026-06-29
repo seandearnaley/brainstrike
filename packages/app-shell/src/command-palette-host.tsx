@@ -1,4 +1,4 @@
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import { useAssistantMemoryDbClient } from '@brainstrike/db';
 import { CommandPalette, useCommandPaletteHotkey } from '@brainstrike/ui';
 import { type ReactElement, useCallback, useEffect, useMemo } from 'react';
 import {
@@ -43,13 +43,13 @@ function resolveCommandPaletteBridge(): CommandPaletteBridge | null {
  * reusing the SAME capabilities/services the context-action registry exposes.
  */
 export function CommandPaletteHost(): ReactElement | null {
-  const db = useBrainstrikeDbClient();
+  const assistantMemoryDb = useAssistantMemoryDbClient();
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const openTarget = useCommandPaletteStore((state) => state.openTarget);
   const open = useCommandPaletteStore((state) => state.open);
   const close = useCommandPaletteStore((state) => state.close);
 
-  const handlers = useGlobalCommandHandlers(db);
+  const handlers = useGlobalCommandHandlers(assistantMemoryDb);
 
   // The action/capability/service parts are stable for the window's lifetime
   // (capability detection reads the preload bridges that exist before React

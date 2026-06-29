@@ -1,5 +1,5 @@
 import {
-  useBrainstrikeDbClient,
+  useAssistantMemoryDbClient,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
@@ -8,7 +8,7 @@ import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
+import { createAssistantThreadRepository } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import { useAssistantThreadStore } from './assistant-thread-store';
@@ -34,7 +34,7 @@ export function AssistantThreadTabsWorkspace({
   initialProviders,
   loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
-  const database = useBrainstrikeDbClient();
+  const database = useAssistantMemoryDbClient();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
@@ -42,7 +42,7 @@ export function AssistantThreadTabsWorkspace({
   // root path. See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
+    () => (database ? createAssistantThreadRepository(database.db, database.runtimeEngine) : null),
     [database]
   );
   const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({

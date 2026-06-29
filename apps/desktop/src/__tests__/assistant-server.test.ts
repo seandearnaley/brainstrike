@@ -8,6 +8,7 @@ import {
   getDesktopMastraMemoryForTests,
   handleAssistantRequest,
   resetDesktopMastraMemoryCacheForTests,
+  resetDesktopMastraMemoryDatabaseContextForTests,
   startAssistantServer,
 } from '../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
@@ -89,10 +90,13 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
 const mockPgliteMastraStorage = { id: 'desktop-storage' };
+const mockTursoMastraMemory = { id: 'desktop-turso-memory' };
+const mockTursoMastraStorage = { id: 'desktop-turso-storage' };
 const mockDesktopDatabase = {
   exec: vi.fn(),
   query: vi.fn(),
 };
+const mockGetDatabaseRuntimeDiagnostics = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
   createPgliteMastraMemory: vi.fn(() =>
@@ -101,6 +105,17 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
       storage: mockPgliteMastraStorage,
       store: {},
       vector: {},
+      workflows: {},
+    })
+  ),
+}));
+
+vi.mock('@brainstrike/agent/turso-mastra-memory', () => ({
+  createTursoMastraMemory: vi.fn(() =>
+    Promise.resolve({
+      memory: mockTursoMastraMemory,
+      storage: mockTursoMastraStorage,
+      store: {},
       workflows: {},
     })
   ),
@@ -116,7 +131,49 @@ vi.mock('../assistant-server/assistant-tools', () => ({
 
 vi.mock('../db-main', () => ({
   getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
+  getDatabaseRuntimeDiagnostics: mockGetDatabaseRuntimeDiagnostics,
 }));
+
+function createMockDatabaseDiagnostics(engine: 'pglite' | 'turso') {
+  return {
+    appDataDir: `/tmp/brainstrike-${engine}`,
+    databaseLockHeld: false,
+    databaseLockPath: null,
+    databaseProfile: `test-${engine}`,
+    dataDir: `/tmp/brainstrike-${engine}/store`,
+    hasDatabaseHandle: true,
+    initializationAttemptCount: 1,
+    initializationInFlight: false,
+    lastInitializationFailure: null,
+    lastInitializationStartedAt: '2026-06-29T11:00:00.000Z',
+    lastInitializationSucceededAt: '2026-06-29T11:00:01.000Z',
+    lastRuntimeCorruptionAt: null,
+    lastRuntimeCorruptionContext: null,
+    nodeEnv: 'test',
+    profileBootstrapReport: {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: `profile-${engine}`,
+      ready: true,
+      runtime: {
+        engine,
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'test search ready',
+        ownershipMode: engine === 'turso' ? 'split-search-index-store' : 'primary-store-indexes',
+      },
+      startedAt: '2026-06-29T11:00:00.000Z',
+      updatedAt: '2026-06-29T11:00:01.000Z',
+    },
+    runtimeCorruptionRecoveryCount: 0,
+  };
+}
+
+mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('pglite'));
 
 describe('assistant-server', () => {
   let server: { url: string; stop: () => Promise<void> } | undefined;
@@ -242,6 +299,7 @@ describe('assistant-server', () => {
     // other queries override this.
     mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
     resetDesktopMastraMemoryCacheForTests();
+    mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('pglite'));
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
   }, 15_000);
@@ -918,6 +976,166 @@ describe('assistant-server', () => {
         }),
         { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
       );
+    });
+
+    it('initializes Turso Mastra memory when the ready database runtime is Turso', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { createTursoMastraMemory } = await import('@brainstrike/agent/turso-mastra-memory');
+      const { getDatabaseRuntimeDiagnostics } = await import('../db-main');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('turso'));
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+      mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-turso',
+              resourceId: 'workspace-turso',
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  modelTarget: 'anthropic/claude-haiku-4-5',
+                  scope: 'thread',
+                  messageTokens: 20_000,
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                },
+                semanticRecall: {
+                  enabled: false,
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  scope: 'resource',
+                  topK: 5,
+                  messageRange: 2,
+                },
+              },
+            },
+          },
+        }),
+      });
+
+      expect(getDatabaseRuntimeDiagnostics).toHaveBeenCalled();
+      expect(createPgliteMastraMemory).not.toHaveBeenCalled();
+      expect(createTursoMastraMemory).toHaveBeenCalledWith({
+        database: expect.anything(),
+        memorySettings: {
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+            scope: 'thread',
+            messageTokens: 20_000,
+            observationTokens: 40_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 5,
+            messageRange: 2,
+          },
+        },
+        observationalMemoryModel: {
+          apiKey: 'test-api-key',
+          model: 'claude-haiku-4-5',
+          provider: 'anthropic',
+        },
+      });
+      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            resourceId: 'workspace-turso',
+            threadId: 'thread-turso',
+          }),
+        }),
+        { memory: mockTursoMastraMemory, storage: mockTursoMastraStorage }
+      );
+    });
+
+    it('keeps separate cached Mastra memory instances for PGlite and Turso runtime identities', async () => {
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { createTursoMastraMemory } = await import('@brainstrike/agent/turso-mastra-memory');
+      const memorySettings = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'anthropic/claude-haiku-4-5',
+          scope: 'thread' as const,
+          messageTokens: 20_000,
+          observationTokens: 40_000,
+          retrievalMode: 'off' as const,
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource' as const,
+          topK: 5,
+          messageRange: 2,
+        },
+      };
+
+      mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('pglite'));
+      const pgliteResult = await getDesktopMastraMemoryForTests(memorySettings);
+
+      resetDesktopMastraMemoryDatabaseContextForTests();
+      mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('turso'));
+      const tursoResult = await getDesktopMastraMemoryForTests(memorySettings);
+
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+      expect(createTursoMastraMemory).toHaveBeenCalledTimes(1);
+      expect(pgliteResult).toMatchObject({
+        memory: mockPgliteMastraMemory,
+        storage: mockPgliteMastraStorage,
+      });
+      expect(tursoResult).toMatchObject({
+        memory: mockTursoMastraMemory,
+        storage: mockTursoMastraStorage,
+      });
+    });
+
+    it('reuses the resolved database runtime context across desktop Mastra memory cache hits', async () => {
+      const memorySettings = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'anthropic/claude-haiku-4-5',
+          scope: 'thread' as const,
+          messageTokens: 20_000,
+          observationTokens: 40_000,
+          retrievalMode: 'off' as const,
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource' as const,
+          topK: 5,
+          messageRange: 2,
+        },
+      };
+
+      const firstResult = await getDesktopMastraMemoryForTests(memorySettings);
+      const secondResult = await getDesktopMastraMemoryForTests(memorySettings);
+
+      expect(firstResult).toBe(secondResult);
+      expect(mockGetDatabaseRuntimeDiagnostics).toHaveBeenCalledTimes(1);
     });
 
     it('builds observational memory on the built-in local model via the llm-host proxy', async () => {

@@ -39,6 +39,9 @@
       "@brainstrike/agent/pglite-mastra-memory": [
         "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
       ],
+      "@brainstrike/agent/turso-mastra-memory": [
+        "../../packages/agent/dist/turso-mastra-memory/index.d.ts"
+      ],
       "@brainstrike/db/bootstrap/turso-profile-bootstrap": [
         "../../packages/db/dist/bootstrap/turso-profile-bootstrap.d.ts"
       ],

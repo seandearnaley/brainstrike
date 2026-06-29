@@ -7,12 +7,13 @@ import { ThreadsPanel } from '../threads-panel';
 
 const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   dbMocks: {
-    database: undefined as unknown,
+    assistantMemoryDatabase: undefined as unknown,
     deleteFailureThreadId: null as string | null,
     initializing: false,
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     metadataFailureThreadId: null as string | null,
     providerError: null as Error | null,
+    runtimeEngine: 'pglite' as 'pglite' | 'turso',
   },
   fileExplorerMocks: {
     rootDirectoryHandle: {
@@ -44,7 +45,11 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
   useDbProviderError: () => dbMocks.providerError,
-  useBrainstrikeDbClient: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  useAssistantMemoryDbClient: () => {
+    const db =
+      dbMocks.assistantMemoryDatabase === undefined ? mockDb : dbMocks.assistantMemoryDatabase;
+    return db ? { db, runtimeEngine: dbMocks.runtimeEngine } : null;
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -59,12 +64,13 @@ describe('ThreadsPanel', () => {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     };
-    dbMocks.database = undefined;
+    dbMocks.assistantMemoryDatabase = undefined;
     dbMocks.deleteFailureThreadId = null;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
     dbMocks.metadataFailureThreadId = null;
     dbMocks.providerError = null;
+    dbMocks.runtimeEngine = 'pglite';
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: {},
       draftRuntimeByThreadId: {},
@@ -176,7 +182,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('shows loading instead of unavailable while the database is initializing', () => {
-    dbMocks.database = null;
+    dbMocks.assistantMemoryDatabase = null;
     dbMocks.initializing = true;
     dbMocks.initializationStatus = 'initializing';
 
@@ -189,7 +195,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('shows loading instead of unavailable before lazy database initialization starts', () => {
-    dbMocks.database = null;
+    dbMocks.assistantMemoryDatabase = null;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'idle';
 
@@ -204,7 +210,7 @@ describe('ThreadsPanel', () => {
   it('keeps loading while lazy database initialization has not completed', () => {
     vi.useFakeTimers();
     try {
-      dbMocks.database = null;
+      dbMocks.assistantMemoryDatabase = null;
       dbMocks.initializing = false;
       dbMocks.initializationStatus = 'idle';
 
@@ -223,7 +229,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('shows unavailable when the database stays missing after startup settles', async () => {
-    dbMocks.database = null;
+    dbMocks.assistantMemoryDatabase = null;
     dbMocks.initializing = false;
     dbMocks.initializationStatus = 'ready';
 
@@ -236,7 +242,7 @@ describe('ThreadsPanel', () => {
   });
 
   it('shows the database provider error after initialization fails', () => {
-    dbMocks.database = null;
+    dbMocks.assistantMemoryDatabase = null;
     dbMocks.providerError = new Error('PGlite startup failed.');
 
     render(<ThreadsPanel />);
@@ -265,6 +271,57 @@ describe('ThreadsPanel', () => {
     expect(
       useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toBe('thread-b');
+  });
+
+  it('lists workspace-scoped historical Mastra threads through the Turso-compatible database handle', async () => {
+    const tursoDb = {
+      exec: vi.fn(() => Promise.resolve()),
+      query: vi.fn<
+        (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
+      >(async (sql: string) => {
+        expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz|DISTINCT ON|NULLS FIRST/i);
+        if (sql.includes('FROM mastra_threads')) {
+          return { rows: [...threadRows] };
+        }
+        if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
+          return {
+            rows: [
+              {
+                id: 'run-1',
+                resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+                threadId: 'thread-b',
+                provider: 'openai',
+                model: 'gpt-5.2',
+                modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+                providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+                runtimeKind: 'hosted',
+                status: 'completed',
+                error: null,
+                startedAt: '2026-04-22T11:00:00.000Z',
+                completedAt: '2026-04-22T11:00:10.000Z',
+                createdAt: '2026-04-22T11:00:00.000Z',
+                updatedAt: '2026-04-22T11:00:10.000Z',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    dbMocks.runtimeEngine = 'turso';
+    dbMocks.assistantMemoryDatabase = tursoDb;
+
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(tursoDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
+      WORKSPACE_MEMORY_RESOURCE_ID,
+    ]);
+    expect(screen.getByText('Second thread')).toBeVisible();
+    expect(screen.getByText('OpenAI')).toBeVisible();
+    expect(screen.getByText('gpt-5.2')).toBeVisible();
   });
 
   it('renders curated thread identity without using the uuid as the primary row label', async () => {

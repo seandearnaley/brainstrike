@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vite
 import { createPriorityDbHandle } from '../src/database-work-scheduler';
 import {
   DbProvider,
+  useAssistantMemoryDbClient,
   useBrainstrikeDbClient,
   useDbInitializationStatus,
   useDbInitializing,
@@ -893,6 +894,7 @@ describe('DbProvider initializing state', () => {
     const { result } = renderHook(
       () => ({
         chunkRepository: useFileChunkRepository(),
+        assistantMemoryDb: useAssistantMemoryDbClient(),
         db: useBrainstrikeDbClient(),
         initializationStatus: useDbInitializationStatus(),
         modelRegistryDb: useModelRegistryDbClient(),
@@ -911,6 +913,10 @@ describe('DbProvider initializing state', () => {
 
     expect(result.current.db).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
+    expect(result.current.assistantMemoryDb).toEqual({
+      db: result.current.modelRegistryDb,
+      runtimeEngine: 'turso',
+    });
     expect(result.current.modelRegistryDb).not.toBeNull();
     expect(databaseModule.extractDbExecutionClient(result.current.modelRegistryDb)).toEqual(
       expect.objectContaining({

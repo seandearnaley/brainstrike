@@ -33,6 +33,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
@@ -67,7 +68,7 @@ import {
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import type { ManagedCacheBatchApplier } from './assistant-server/reindex-edited-file';
 import { enrichRuntimeDataWithWorkspaceRoots } from './assistant-server/workspace-roots';
-import { getDatabase } from './db-main';
+import { getDatabase, getDatabaseRuntimeDiagnostics } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
@@ -83,8 +84,10 @@ const assistantRequestBodyLimitBytes = resolveAssistantRequestBodyLimitBytes(
   process.env[ASSISTANT_REQUEST_BODY_LIMIT_ENV_VAR]
 );
 type DesktopMastraMemoryResult =
-  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
+  | import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
+  | import('@brainstrike/agent/turso-mastra-memory').TursoMastraMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
+type DesktopMastraMemoryRuntimeEngine = 'pglite' | 'turso';
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Fully resolved memory instances are keyed by provider/model plus hashed API
@@ -93,6 +96,9 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Each map is independently bounded to the same small desktop cache limit.
 const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
 const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
+let desktopMastraMemoryDatabaseContextPromise:
+  | Promise<DesktopMastraMemoryDatabaseContext>
+  | undefined;
 const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'anthropic',
@@ -131,11 +137,16 @@ interface DesktopSemanticRecallEmbeddingModelTarget extends DesktopMemoryModelTa
 type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
 interface DesktopMastraMemoryCacheState {
-  readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
   readonly observationalMemoryDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
   readonly observationalMemoryTarget?: DesktopObservationalMemoryModelTarget | undefined;
   readonly semanticRecallEmbeddingDescriptor?: DesktopMemoryModelTargetDescriptor | undefined;
   readonly semanticRecallEmbeddingTarget?: DesktopSemanticRecallEmbeddingModelTarget | undefined;
+}
+
+interface DesktopMastraMemoryDatabaseContext {
+  readonly database: Awaited<ReturnType<typeof getDatabase>>;
+  readonly runtimeCacheKey: string;
+  readonly runtimeEngine: DesktopMastraMemoryRuntimeEngine;
 }
 
 export interface AssistantServerOptions {
@@ -1195,18 +1206,15 @@ async function getDesktopMastraMemory(
   memoryDependencies?: DesktopMemoryDependencies | undefined
 ): Promise<DesktopMastraMemoryResult> {
   const memoryOptions = runtimeData?.memory?.memoryOptions;
+  const databaseContext = await getDesktopMastraMemoryDatabaseContext();
   const cacheState = createDesktopMastraMemoryCacheState({
-    memoryOptions,
     memorySettings,
-    runId,
     runtimeData,
   });
-  if (cacheState.cachedPromise) {
-    return cacheState.cachedPromise;
-  }
 
   if (!(runId || eventSink) && needsAsyncDesktopMemoryResolution(cacheState)) {
     const resolutionKey = buildDesktopMastraMemoryResolutionKey({
+      databaseRuntimeCacheKey: databaseContext.runtimeCacheKey,
       memoryOptions,
       memorySettings,
       observationalMemoryDescriptor: cacheState.observationalMemoryDescriptor,
@@ -1218,6 +1226,7 @@ async function getDesktopMastraMemory(
     }
     const pendingMemory = createDesktopMastraMemoryFromCacheState({
       cacheState,
+      databaseContext,
       eventSink,
       memoryDependencies,
       memoryOptions,
@@ -1236,6 +1245,7 @@ async function getDesktopMastraMemory(
 
   return createDesktopMastraMemoryFromCacheState({
     cacheState,
+    databaseContext,
     eventSink,
     memoryDependencies,
     memoryOptions,
@@ -1246,14 +1256,10 @@ async function getDesktopMastraMemory(
 }
 
 function createDesktopMastraMemoryCacheState({
-  memoryOptions,
   memorySettings,
-  runId,
   runtimeData,
 }: {
-  readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
-  readonly runId: string | undefined;
   readonly runtimeData: RuntimeData | undefined;
 }): DesktopMastraMemoryCacheState {
   const observationalMemoryDescriptor =
@@ -1268,27 +1274,7 @@ function createDesktopMastraMemoryCacheState({
     semanticRecallEmbeddingDescriptor,
     runtimeData
   );
-  if (
-    runId ||
-    (observationalMemoryDescriptor && !observationalMemoryTarget) ||
-    (semanticRecallEmbeddingDescriptor && !semanticRecallEmbeddingTarget)
-  ) {
-    return {
-      observationalMemoryDescriptor,
-      observationalMemoryTarget,
-      semanticRecallEmbeddingDescriptor,
-      semanticRecallEmbeddingTarget,
-    };
-  }
-
-  const cacheKey = buildDesktopMastraMemoryCacheKey({
-    memoryOptions,
-    memorySettings,
-    observationalMemoryTarget,
-    semanticRecallEmbeddingTarget,
-  });
   return {
-    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
     observationalMemoryDescriptor,
     observationalMemoryTarget,
     semanticRecallEmbeddingDescriptor,
@@ -1303,8 +1289,72 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
   );
 }
 
+async function getDesktopMastraMemoryDatabaseContext(): Promise<DesktopMastraMemoryDatabaseContext> {
+  if (desktopMastraMemoryDatabaseContextPromise) {
+    return await desktopMastraMemoryDatabaseContextPromise;
+  }
+  const pendingContext = resolveDesktopMastraMemoryDatabaseContext();
+  desktopMastraMemoryDatabaseContextPromise = pendingContext;
+  try {
+    return await pendingContext;
+  } catch (error) {
+    if (desktopMastraMemoryDatabaseContextPromise === pendingContext) {
+      desktopMastraMemoryDatabaseContextPromise = undefined;
+    }
+    throw error;
+  }
+}
+
+async function resolveDesktopMastraMemoryDatabaseContext(): Promise<DesktopMastraMemoryDatabaseContext> {
+  // Initialize the database before reading diagnostics so the bootstrap report
+  // reflects the ready runtime that memory construction will actually use.
+  const database = await getDatabase();
+  const diagnostics = await getDatabaseRuntimeDiagnostics();
+  const runtimeEngine = resolveDesktopMastraMemoryRuntimeEngine(diagnostics);
+  return {
+    database,
+    runtimeCacheKey: buildDesktopMastraMemoryRuntimeCacheKey(diagnostics),
+    runtimeEngine,
+  };
+}
+
+function resolveDesktopMastraMemoryRuntimeEngine(
+  diagnostics: DatabaseDiagnosticsSnapshot
+): DesktopMastraMemoryRuntimeEngine {
+  const report = diagnostics.profileBootstrapReport;
+  if (!report) {
+    throw new Error('Desktop Mastra memory requires database bootstrap diagnostics.');
+  }
+  if (!report.ready) {
+    throw new Error(
+      `Desktop Mastra memory requires a ready database bootstrap report; current phase is "${report.phase}".`
+    );
+  }
+  if (report.runtime.engine === 'pglite' || report.runtime.engine === 'turso') {
+    return report.runtime.engine;
+  }
+  throw new Error(
+    `Desktop Mastra memory does not support database runtime "${report.runtime.engine}".`
+  );
+}
+
+function buildDesktopMastraMemoryRuntimeCacheKey(diagnostics: DatabaseDiagnosticsSnapshot): string {
+  const report = diagnostics.profileBootstrapReport;
+  if (!report) {
+    throw new Error('Desktop Mastra memory requires database bootstrap diagnostics.');
+  }
+  return stableJsonStringify({
+    appDataDir: diagnostics.appDataDir,
+    databaseProfile: diagnostics.databaseProfile ?? null,
+    dataDir: diagnostics.dataDir,
+    profileId: report.profileId,
+    runtime: report.runtime,
+  });
+}
+
 async function createDesktopMastraMemoryFromCacheState({
   cacheState,
+  databaseContext,
   eventSink,
   memoryDependencies,
   memoryOptions,
@@ -1313,6 +1363,7 @@ async function createDesktopMastraMemoryFromCacheState({
   runtimeData,
 }: {
   readonly cacheState: DesktopMastraMemoryCacheState;
+  readonly databaseContext: DesktopMastraMemoryDatabaseContext;
   readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
   readonly memoryDependencies: DesktopMemoryDependencies | undefined;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
@@ -1320,7 +1371,6 @@ async function createDesktopMastraMemoryFromCacheState({
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData | undefined;
 }): Promise<DesktopMastraMemoryResult> {
-  const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
   const observationalMemoryTarget =
     cacheState.observationalMemoryTarget ??
     (cacheState.observationalMemoryDescriptor
@@ -1346,11 +1396,10 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
-    const database = await getDatabase();
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
-    return createPgliteMastraMemory({
-      database,
+    return createDesktopMastraMemoryForDatabaseRuntime({
+      databaseContext,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),
       ...(memoryOptions ? { memoryOptions } : {}),
@@ -1360,6 +1409,7 @@ async function createDesktopMastraMemoryFromCacheState({
     });
   }
   const cacheKey = buildDesktopMastraMemoryCacheKey({
+    databaseRuntimeCacheKey: databaseContext.runtimeCacheKey,
     memoryOptions,
     memorySettings,
     observationalMemoryTarget,
@@ -1369,16 +1419,14 @@ async function createDesktopMastraMemoryFromCacheState({
   if (cachedPromise) {
     return cachedPromise;
   }
-  const memoryPromise = (async () => {
-    const database = await getDatabase();
-    return createPgliteMastraMemory({
-      database,
+  const memoryPromise = (async () =>
+    createDesktopMastraMemoryForDatabaseRuntime({
+      databaseContext,
       ...(embedder ? { embedder } : {}),
       ...(memoryOptions ? { memoryOptions } : {}),
       ...(memorySettings ? { memorySettings } : {}),
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
-    });
-  })();
+    }))();
   evictOldestDesktopMastraMemoryPromise();
   desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
   memoryPromise.catch(() => {
@@ -1387,6 +1435,48 @@ async function createDesktopMastraMemoryFromCacheState({
     }
   });
   return memoryPromise;
+}
+
+async function createDesktopMastraMemoryForDatabaseRuntime({
+  databaseContext,
+  embedder,
+  eventSink,
+  memoryOptions,
+  memorySettings,
+  observationalMemoryModel,
+  runId,
+}: {
+  readonly databaseContext: DesktopMastraMemoryDatabaseContext;
+  readonly embedder?: ReturnType<typeof createEmbeddingProvider> | undefined;
+  readonly eventSink?: ((event: AssistantRunEvent) => void) | undefined;
+  readonly memoryOptions?: RuntimeMemoryOptions | undefined;
+  readonly memorySettings?: RuntimeAssistantMemorySettings | undefined;
+  readonly observationalMemoryModel?: ReturnType<typeof createProvider> | undefined;
+  readonly runId?: string | undefined;
+}): Promise<DesktopMastraMemoryResult> {
+  if (databaseContext.runtimeEngine === 'pglite') {
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    return createPgliteMastraMemory({
+      database: databaseContext.database,
+      ...(embedder ? { embedder } : {}),
+      ...(eventSink ? { eventSink } : {}),
+      ...(memoryOptions ? { memoryOptions } : {}),
+      ...(memorySettings ? { memorySettings } : {}),
+      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+      ...(runId ? { runId } : {}),
+    });
+  }
+
+  const { createTursoMastraMemory } = await import('@brainstrike/agent/turso-mastra-memory');
+  return createTursoMastraMemory({
+    database: databaseContext.database,
+    ...(embedder ? { embedder } : {}),
+    ...(eventSink ? { eventSink } : {}),
+    ...(memoryOptions ? { memoryOptions } : {}),
+    ...(memorySettings ? { memorySettings } : {}),
+    ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+    ...(runId ? { runId } : {}),
+  });
 }
 
 function resolveDesktopObservationalMemoryModelTargetDescriptor(
@@ -1585,17 +1675,20 @@ function createDesktopMastraMemoryProviderBindings({
 }
 
 function buildDesktopMastraMemoryCacheKey({
+  databaseRuntimeCacheKey,
   memoryOptions,
   memorySettings,
   observationalMemoryTarget,
   semanticRecallEmbeddingTarget,
 }: {
+  readonly databaseRuntimeCacheKey: string;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly observationalMemoryTarget: DesktopObservationalMemoryModelTarget | undefined;
   readonly semanticRecallEmbeddingTarget: DesktopSemanticRecallEmbeddingModelTarget | undefined;
 }): string {
   return stableJsonStringify({
+    databaseRuntime: databaseRuntimeCacheKey,
     memoryOptions: memoryOptions ?? null,
     memorySettings: memorySettings ?? null,
     observationalMemoryModel: observationalMemoryTarget?.cacheKey ?? null,
@@ -1604,17 +1697,20 @@ function buildDesktopMastraMemoryCacheKey({
 }
 
 function buildDesktopMastraMemoryResolutionKey({
+  databaseRuntimeCacheKey,
   memoryOptions,
   memorySettings,
   observationalMemoryDescriptor,
   semanticRecallEmbeddingDescriptor,
 }: {
+  readonly databaseRuntimeCacheKey: string;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly observationalMemoryDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
   readonly semanticRecallEmbeddingDescriptor: DesktopMemoryModelTargetDescriptor | undefined;
 }): string {
   return stableJsonStringify({
+    databaseRuntime: databaseRuntimeCacheKey,
     memoryOptions: memoryOptions ?? null,
     memorySettings: memorySettings ?? null,
     observationalMemoryDescriptor: observationalMemoryDescriptor ?? null,
@@ -1678,6 +1774,11 @@ function sortJsonValue(value: unknown): unknown {
 export function resetDesktopMastraMemoryCacheForTests(): void {
   desktopMastraMemoryPromises.clear();
   desktopMastraMemoryResolutionPromises.clear();
+  resetDesktopMastraMemoryDatabaseContextForTests();
+}
+
+export function resetDesktopMastraMemoryDatabaseContextForTests(): void {
+  desktopMastraMemoryDatabaseContextPromise = undefined;
 }
 
 export async function getDesktopMastraMemoryForTests(
