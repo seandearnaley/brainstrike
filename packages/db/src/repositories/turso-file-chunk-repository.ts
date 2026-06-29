@@ -13,7 +13,10 @@ import type {
   FTSSearchResult,
 } from '../models/file-chunk.js';
 import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
-import { EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT } from '../queue/embedding-job-dedupe-key.js';
+import {
+  buildEmbeddingJobDedupeKeySqlExpression,
+  EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
+} from '../queue/embedding-job-dedupe-key.js';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
@@ -156,6 +159,11 @@ interface TursoEmbeddingBackfillDiagnosticsRow {
 }
 
 const DEFAULT_EMBEDDING_BACKFILL_QUEUE = 'embeddings';
+const EMBEDDING_BACKFILL_DEDUPE_KEY_SQL = buildEmbeddingJobDedupeKeySqlExpression({
+  chunkIdExpression: 'c.id',
+  contentHashExpression: 'c.content_hash',
+  embeddingSetIdExpression: '?',
+});
 
 export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker {
   readonly brainstrikeRepositoryKind = TURSO_FILE_CHUNK_REPOSITORY_MARKER;
@@ -539,8 +547,8 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
                    AND j.job_type = 'embed_chunk'
                    AND j.state IN ('queued', 'running')
                    AND (
-                         j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
-                         OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                         j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
+                         OR j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
                        )
               )`,
       [
@@ -564,74 +572,57 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     const targetEmbeddingSetId = requireNonEmptyText(embeddingSetId, 'embeddingSetId');
     const queue = resolveEmbeddingBackfillQueue(options.queue);
     const result = await this.db.query<TursoEmbeddingBackfillDiagnosticsRow>(
-      `SELECT
+      `WITH scoped_chunks AS (
+         SELECT
+           c.id,
+           c.content_hash,
+           c.embedding
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+        WHERE (
+                c.embedding_set_id = ?
+                OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+              )
+       ),
+       chunk_counts AS (
+         SELECT
+           COUNT(*) AS chunkCount,
+           COALESCE(SUM(CASE WHEN c.embedding IS NULL THEN 1 ELSE 0 END), 0) AS pendingChunkCount,
+           COALESCE(SUM(CASE WHEN c.embedding IS NULL AND c.content_hash IS NULL THEN 1 ELSE 0 END), 0) AS missingContentHashCount,
+           COALESCE(
+             SUM(
+               CASE
+                 WHEN c.embedding IS NULL
+                   AND c.content_hash IS NOT NULL
+                   AND NOT EXISTS (
+                         SELECT 1
+                           FROM job_queue j
+                          WHERE j.queue = ?
+                            AND j.job_type = 'embed_chunk'
+                            AND j.state IN ('queued', 'running')
+                            AND (
+                                  j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
+                                  OR j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
+                                )
+                       )
+                 THEN 1
+                 ELSE 0
+               END
+             ),
+             0
+           ) AS candidateCount,
+           COALESCE(SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END), 0) AS embeddedChunkCount
+         FROM scoped_chunks c
+       )
+       SELECT
          (
            SELECT COUNT(*)
              FROM file_records fr
             WHERE fr.embedding_set_id = ?
          ) AS fileCount,
-         (
-           SELECT COUNT(*)
-             FROM file_chunks c
-             JOIN file_records fr ON fr.id = c.file_record_id
-            WHERE (
-                    c.embedding_set_id = ?
-                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
-                  )
-         ) AS chunkCount,
-         (
-           SELECT COUNT(*)
-             FROM file_chunks c
-             JOIN file_records fr ON fr.id = c.file_record_id
-            WHERE (
-                    c.embedding_set_id = ?
-                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
-                  )
-              AND c.embedding IS NULL
-         ) AS pendingChunkCount,
-         (
-           SELECT COUNT(*)
-             FROM file_chunks c
-             JOIN file_records fr ON fr.id = c.file_record_id
-            WHERE (
-                    c.embedding_set_id = ?
-                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
-                  )
-              AND c.embedding IS NULL
-              AND c.content_hash IS NULL
-         ) AS missingContentHashCount,
-         (
-           SELECT COUNT(*)
-             FROM file_chunks c
-             JOIN file_records fr ON fr.id = c.file_record_id
-            WHERE (
-                    c.embedding_set_id = ?
-                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
-                  )
-              AND c.embedding IS NULL
-              AND c.content_hash IS NOT NULL
-              AND NOT EXISTS (
-                    SELECT 1
-                      FROM job_queue j
-                     WHERE j.queue = ?
-                       AND j.job_type = 'embed_chunk'
-                       AND j.state IN ('queued', 'running')
-                       AND (
-                             j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
-                             OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
-                           )
-                  )
-         ) AS candidateCount,
-         (
-           SELECT COUNT(*)
-             FROM file_chunks c
-             JOIN file_records fr ON fr.id = c.file_record_id
-            WHERE (
-                    c.embedding_set_id = ?
-                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
-                  )
-              AND c.embedding IS NOT NULL
-         ) AS embeddedChunkCount,
+         chunk_counts.candidateCount AS candidateCount,
+         chunk_counts.chunkCount AS chunkCount,
+         chunk_counts.embeddedChunkCount AS embeddedChunkCount,
          (
            SELECT COUNT(*)
              FROM job_queue j
@@ -647,21 +638,16 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
               AND j.job_type = 'embed_chunk'
               AND j.embedding_set_id = ?
               AND j.state = 'failed'
-         ) AS failedJobs`,
+         ) AS failedJobs,
+         chunk_counts.missingContentHashCount AS missingContentHashCount,
+         chunk_counts.pendingChunkCount AS pendingChunkCount
+       FROM chunk_counts`,
       [
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
-        targetEmbeddingSetId,
         targetEmbeddingSetId,
         targetEmbeddingSetId,
         queue,
         targetEmbeddingSetId,
         EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
-        targetEmbeddingSetId,
         targetEmbeddingSetId,
         queue,
         targetEmbeddingSetId,
@@ -735,8 +721,8 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
                  AND j.job_type = 'embed_chunk'
                  AND j.state IN ('queued', 'running')
                  AND (
-                       j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
-                       OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                       j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
+                       OR j.dedupe_key = ${EMBEDDING_BACKFILL_DEDUPE_KEY_SQL}
                      )
             )
       ORDER BY c.id ASC
