@@ -214,27 +214,25 @@ export class TursoJobQueue {
     }
     const now = new Date().toISOString();
     const newLease = addMs(now, extendMs);
-    const updated = await withTursoWriteRetry('heartbeatBatch', async () =>
-      this.db.transaction(async (tx) => {
-        const updatedJobs: Job[] = [];
-        for (const job of jobs) {
-          const result = await tx.query<JobRow>(
-            `UPDATE job_queue
-              SET leased_until = ?,
-                  updated_at = ?
-            WHERE id = ?
-              AND lease_token = ?
-              AND state = 'running'
-          RETURNING *`,
-            [newLease, now, job.id, job.leaseToken]
-          );
-          if (result.rows[0]) {
-            updatedJobs.push(fromRow(result.rows[0]));
-          }
+    const updated = await withTursoWriteRetry('heartbeatBatch', async () => {
+      const updatedJobs: Job[] = [];
+      for (const job of jobs) {
+        const result = await this.db.query<JobRow>(
+          `UPDATE job_queue
+            SET leased_until = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND lease_token = ?
+            AND state = 'running'
+        RETURNING *`,
+          [newLease, now, job.id, job.leaseToken]
+        );
+        if (result.rows[0]) {
+          updatedJobs.push(fromRow(result.rows[0]));
         }
-        return updatedJobs;
-      })
-    );
+      }
+      return updatedJobs;
+    });
     if (updated.length > 0) {
       logger.debug('Turso jobs heartbeated in batch', { count: updated.length });
     }
@@ -253,6 +251,7 @@ export class TursoJobQueue {
     const updatedAt = new Date().toISOString();
     const completed = await withTursoWriteRetry('completeBatch', async () =>
       this.db.transaction(async (tx) => {
+        // A retry after partial commits would omit already-completed rows from the final result.
         const completedJobs: Job[] = [];
         for (const job of jobs) {
           const result = await tx.query<JobRow>(

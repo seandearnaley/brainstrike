@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addQueueTelemetryListener, type QueueTelemetryEvent } from '@brainstrike/queue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import type { JobRow } from '../src/queue/job-queue.js';
@@ -317,6 +320,78 @@ describe('TursoJobQueue runtime operations', () => {
       expect.objectContaining({ id: 'job-complete-retry-b', state: 'succeeded' }),
     ]);
     expect(query).toHaveBeenCalledTimes(4);
+  });
+
+  it('rolls back partially completed Turso job batches before retrying write contention', async () => {
+    const first = await queue.enqueue({
+      queue: 'rollback',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-rollback-a', embeddingSetId },
+    });
+    const second = await queue.enqueue({
+      queue: 'rollback',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-rollback-b', embeddingSetId },
+    });
+    const claimed = await queue.claimMany({
+      queue: 'rollback',
+      workerId: 'worker-rollback',
+      leaseMs: 10_000,
+      limit: 2,
+    });
+    const leaseById = new Map(claimed.map((job) => [job.id, job.lease_token ?? '']));
+    let transactionAttempts = 0;
+    let statesAfterRollback: Array<{ id: string; state: string }> | null = null;
+    const retryQueue = new TursoJobQueue({
+      exec: (sql, params) => client.exec(sql, params),
+      query: (sql, params, options) => client.query(sql, params, options),
+      transaction: async (callback) => {
+        transactionAttempts += 1;
+        let completionUpdates = 0;
+        try {
+          return await client.transaction((tx) =>
+            callback(
+              createContentionInjectingTx(tx, () => {
+                if (transactionAttempts !== 1) {
+                  return false;
+                }
+                completionUpdates += 1;
+                return completionUpdates === 2;
+              })
+            )
+          );
+        } catch (error) {
+          if (transactionAttempts === 1) {
+            statesAfterRollback = await readJobStatesForIds([first.id, second.id]);
+          }
+          throw error;
+        }
+      },
+    });
+
+    await expect(
+      retryQueue.completeBatch([
+        { id: first.id, leaseToken: leaseById.get(first.id) ?? '' },
+        { id: second.id, leaseToken: leaseById.get(second.id) ?? '' },
+      ])
+    ).resolves.toEqual([
+      expect.objectContaining({ id: first.id, state: 'succeeded' }),
+      expect.objectContaining({ id: second.id, state: 'succeeded' }),
+    ]);
+
+    expect(transactionAttempts).toBe(2);
+    expect(statesAfterRollback).toEqual(
+      expect.arrayContaining([
+        { id: first.id, state: 'running' },
+        { id: second.id, state: 'running' },
+      ])
+    );
+    await expect(readJobStatesForIds([first.id, second.id])).resolves.toEqual(
+      expect.arrayContaining([
+        { id: first.id, state: 'succeeded' },
+        { id: second.id, state: 'succeeded' },
+      ])
+    );
   });
 
   it('retries transient Turso write contention while requeueing failed jobs', async () => {
@@ -665,6 +740,16 @@ describe('TursoJobQueue runtime operations', () => {
     return result.rows;
   }
 
+  async function readJobStatesForIds(
+    ids: readonly string[]
+  ): Promise<Array<{ id: string; state: string }>> {
+    const result = await client.query<{ id: string; state: string }>(
+      `SELECT id, state FROM job_queue WHERE id IN (${ids.map(() => '?').join(', ')}) ORDER BY id`,
+      [...ids]
+    );
+    return result.rows;
+  }
+
   async function insertRawJob(input: {
     embeddingSetId: string;
     error?: string | null;
@@ -764,6 +849,25 @@ function createExecutionClient(overrides: {
     query: client.query,
     transaction: client.transaction,
   };
+}
+
+function createContentionInjectingTx(
+  tx: BrainstrikeDbTransactionClient,
+  shouldInjectContention: (sql: string) => boolean
+): BrainstrikeDbTransactionClient {
+  return {
+    exec: tx.exec,
+    query: async (sql, params, options) => {
+      if (isJobCompletionUpdate(sql) && shouldInjectContention(sql)) {
+        throw new Error('SQLITE_BUSY: injected write contention');
+      }
+      return tx.query(sql, params, options);
+    },
+  };
+}
+
+function isJobCompletionUpdate(sql: string): boolean {
+  return sql.includes('UPDATE job_queue') && sql.includes("SET state = 'succeeded'");
 }
 
 function createJobRow(overrides: Partial<JobRow> = {}): JobRow {
