@@ -1476,7 +1476,10 @@ function decodeEmbeddingBlob(
     throw new Error(`Invalid Turso embedding blob for chunk ${chunkId}: empty payload.`);
   }
   if (bytes[0] === 0x5b) {
-    return decodeEmbeddingJsonPayload(new TextDecoder().decode(bytes), chunkId);
+    const legacyJsonEmbedding = tryDecodeEmbeddingJsonPayload(new TextDecoder().decode(bytes));
+    if (legacyJsonEmbedding) {
+      return legacyJsonEmbedding;
+    }
   }
   if (bytes.byteLength % 4 !== 0) {
     throw new Error(
@@ -1496,19 +1499,23 @@ function decodeEmbeddingBlob(
 }
 
 function decodeEmbeddingJsonPayload(text: string, chunkId: string): number[] {
+  const parsed = tryDecodeEmbeddingJsonPayload(text);
+  if (!parsed) {
+    throw new Error(`Invalid Turso embedding JSON payload for chunk ${chunkId}.`);
+  }
+  return parsed;
+}
+
+function tryDecodeEmbeddingJsonPayload(text: string): number[] | undefined {
   const trimmed = text.trim();
   if (!trimmed.startsWith('[')) {
-    throw new Error(`Invalid Turso embedding JSON payload for chunk ${chunkId}.`);
+    return;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
-  } catch (error) {
-    throw new Error(
-      `Failed to decode Turso embedding blob for chunk ${chunkId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+  } catch {
+    return;
   }
   if (
     !(
@@ -1516,7 +1523,7 @@ function decodeEmbeddingJsonPayload(text: string, chunkId: string): number[] {
       parsed.every((value) => typeof value === 'number' && Number.isFinite(value))
     )
   ) {
-    throw new Error(`Invalid Turso embedding blob for chunk ${chunkId}.`);
+    return;
   }
   return parsed;
 }

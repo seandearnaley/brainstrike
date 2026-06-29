@@ -182,6 +182,37 @@ describe('TursoFileChunkRepository', () => {
     });
   });
 
+  it('reads native vector32 blobs when the first float byte looks like JSON', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:native-leading-bracket',
+      'native leading bracket',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-native-leading-bracket',
+        path: 'src/native-leading-bracket.ts',
+      })
+    );
+
+    await expect(
+      repository.insert(
+        createChunk({
+          embedding: [1.000_010_848_045_349_1, 0, 0],
+          embeddingSetId: embeddingSet.id,
+          fileRecordId: 'file-native-leading-bracket',
+          id: 'chunk-native-leading-bracket',
+        })
+      )
+    ).resolves.toMatchObject({
+      embedding: [1.000_011, 0, 0],
+      embeddingDimensions: 3,
+      id: 'chunk-native-leading-bracket',
+    });
+  });
+
   it('batch inserts atomically and rejects null-byte content before writing', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
 
