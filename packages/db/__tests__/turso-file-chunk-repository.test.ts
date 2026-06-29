@@ -79,6 +79,140 @@ describe('TursoFileChunkRepository', () => {
     ]);
   });
 
+  it('does not prepare vector functions when inserting chunks without embeddings', async () => {
+    const insertedRow = {
+      chunk_index: 0,
+      chunk_size: 18,
+      chunk_type: 'code',
+      content: 'const answer = 42;',
+      content_hash: 'hash-chunk-1',
+      created_at: '2026-06-23T08:10:00.000Z',
+      embedding: null,
+      embedding_hash: null,
+      embedding_set_id: null,
+      embedding_updated_at: null,
+      end_line: null,
+      end_offset: null,
+      file_record_id: 'file-1',
+      id: 'chunk-no-embedding',
+      start_line: null,
+      start_offset: null,
+      token_count: 4,
+      updated_at: '2026-06-23T08:10:00.000Z',
+    };
+    let capturedInsertSql = '';
+    const transactionClient = {
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        capturedInsertSql = sql;
+        return { rows: [insertedRow] };
+      }),
+    };
+    const repositoryWithoutVector = new TursoFileChunkRepository({
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction: vi.fn(async (callback) => callback(transactionClient)),
+    });
+
+    await repositoryWithoutVector.insert(
+      createChunk({ embedding: undefined, id: 'chunk-no-embedding' })
+    );
+
+    expect(capturedInsertSql).toContain('INSERT INTO file_chunks');
+    expect(capturedInsertSql).toContain('NULL');
+    expect(capturedInsertSql).not.toContain('vector32(');
+  });
+
+  it('reads legacy JSON embedding blobs from pre-vector Turso profiles', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:legacy-json',
+      'legacy json',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-legacy-json',
+        path: 'src/legacy-json.ts',
+      })
+    );
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         embedding,
+         embedding_set_id,
+         embedding_updated_at,
+         embedding_hash,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'chunk-legacy-json',
+        'file-legacy-json',
+        0,
+        'legacy embedding',
+        'hash-legacy-json',
+        3,
+        'code',
+        16,
+        new TextEncoder().encode(JSON.stringify([0.1, 0.2, 0.3])),
+        embeddingSet.id,
+        '2026-06-23T08:10:00.000Z',
+        'hash-embedding-legacy-json',
+        '2026-06-23T08:10:00.000Z',
+        '2026-06-23T08:10:00.000Z',
+      ]
+    );
+
+    await expect(repository.findById('chunk-legacy-json')).resolves.toMatchObject({
+      embedding: [0.1, 0.2, 0.3],
+      embeddingDimensions: 3,
+      embeddingHash: 'hash-embedding-legacy-json',
+      embeddingSetId: embeddingSet.id,
+      id: 'chunk-legacy-json',
+    });
+  });
+
+  it('reads native vector32 blobs when the first float byte looks like JSON', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:native-leading-bracket',
+      'native leading bracket',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-native-leading-bracket',
+        path: 'src/native-leading-bracket.ts',
+      })
+    );
+
+    await expect(
+      repository.insert(
+        createChunk({
+          embedding: [1.000_010_848_045_349_1, 0, 0],
+          embeddingSetId: embeddingSet.id,
+          fileRecordId: 'file-native-leading-bracket',
+          id: 'chunk-native-leading-bracket',
+        })
+      )
+    ).resolves.toMatchObject({
+      embedding: [1.000_011, 0, 0],
+      embeddingDimensions: 3,
+      id: 'chunk-native-leading-bracket',
+    });
+  });
+
   it('batch inserts atomically and rejects null-byte content before writing', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
 
@@ -1079,10 +1213,316 @@ describe('TursoFileChunkRepository', () => {
     expect(planDetails).not.toMatch(/\bSCAN file_chunks\b/);
   });
 
-  it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
-    await expect(repository.searchSimilar([0.1, 0.2, 0.3])).rejects.toThrow(
-      'TursoFileChunkRepository.searchSimilar requires the Turso vector search slice.'
+  it('uses native Turso vector top-k SQL for similarity search', async () => {
+    const capturedSearchQueries: Array<{ params: readonly unknown[]; sql: string }> = [];
+    const indexedRepository = new TursoFileChunkRepository({
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 3, distance: 'cosine' }] };
+        }
+        capturedSearchQueries.push({ sql, params: params ?? [] });
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('searchSimilar should not open a transaction');
+      }),
+    });
+
+    await indexedRepository.searchSimilar([1, 0, 0], {
+      embeddingSetId: 'set-native',
+      limit: 7,
+      threshold: 0.2,
+    });
+
+    const searchSql = capturedSearchQueries[0]?.sql ?? '';
+    expect(searchSql).toContain('WITH query_vector(value) AS (SELECT vector32(?))');
+    expect(searchSql).toContain('vector_distance_cos(fc.embedding, q.value)');
+    expect(searchSql).toContain('ORDER BY distance ASC');
+    expect(searchSql).toContain('LIMIT ?');
+    expect(searchSql).not.toContain('ORDER BY fc.id');
+    expect(capturedSearchQueries[0]?.params[0]).toBe('[1,0,0]');
+  });
+
+  it.each([
+    ['cosine', 'vector_distance_cos(fc.embedding, q.value)', '1.0 - ('],
+    ['l2', 'vector_distance_l2(fc.embedding, q.value)', '1.0 / (1.0 +'],
+    ['ip', 'vector_distance_dot(fc.embedding, q.value)', '1.0 / (1.0 + exp('],
+  ] as const)('uses the Turso %s distance primitive for similarity search', async (distance, distanceExpression, similarityExpression) => {
+    let capturedSql = '';
+    const indexedRepository = new TursoFileChunkRepository({
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 3, distance }] };
+        }
+        capturedSql = sql;
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('searchSimilar should not open a transaction');
+      }),
+    });
+
+    await indexedRepository.searchSimilar([1, 0, 0], {
+      embeddingSetId: `set-${distance}`,
+      limit: 3,
+    });
+
+    expect(capturedSql).toContain(distanceExpression);
+    expect(capturedSql).toContain(similarityExpression);
+  });
+
+  it('searches stored Turso embeddings with set, threshold, root, and path filters', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
     );
+    const otherEmbeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:other',
+      'other',
+      3,
+      'cosine'
+    );
+    await client.exec(
+      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
+      [
+        'root-a',
+        'path',
+        'Root A',
+        '/workspace/root-a',
+        'live',
+        '2026-06-23T07:00:00.000Z',
+        'root-b',
+        'path',
+        'Root B',
+        '/workspace/root-b',
+        'live',
+        '2026-06-23T07:00:00.000Z',
+      ]
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-a', path: 'src/alpha.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-b', path: 'src/beta.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-c', path: 'src/gamma.ts' })
+    );
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id IN (?, ?)', [
+      'root-a',
+      'file-a',
+      'file-b',
+    ]);
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-b', 'file-c']);
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        content: 'near',
+        embedding: [1, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-a',
+        id: 'chunk-near',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        content: 'mid',
+        embedding: [0.8, 0.6, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-b',
+        id: 'chunk-mid',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'far',
+        embedding: [0, 1, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-b',
+        id: 'chunk-far',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        content: 'opposite',
+        embedding: [-1, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-b',
+        id: 'chunk-opposite',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        content: 'wrong root',
+        embedding: [0.99, 0.1, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-c',
+        id: 'chunk-wrong-root',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'wrong set',
+        embedding: [1, 0, 0],
+        embeddingSetId: otherEmbeddingSet.id,
+        fileRecordId: 'file-a',
+        id: 'chunk-wrong-set',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        content: 'pending',
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-a',
+        id: 'chunk-pending',
+      }),
+    ]);
+
+    await expect(
+      repository.searchSimilar([1, 0, 0], {
+        embeddingSetId: embeddingSet.id,
+        limit: 2,
+        rootId: 'root-a',
+        threshold: 0.75,
+      })
+    ).resolves.toEqual([
+      {
+        chunk: expect.objectContaining({
+          embeddingDimensions: 3,
+          embeddingSetId: embeddingSet.id,
+          id: 'chunk-near',
+        }),
+        rank: 1,
+        similarity: expect.closeTo(1, 6),
+      },
+      {
+        chunk: expect.objectContaining({
+          embeddingDimensions: 3,
+          embeddingSetId: embeddingSet.id,
+          id: 'chunk-mid',
+        }),
+        rank: 2,
+        similarity: expect.closeTo(0.9, 6),
+      },
+    ]);
+
+    await client.exec(
+      `INSERT INTO selection_snapshots (id, created_at, expires_at)
+       VALUES (?, ?, ?)`,
+      ['selection-beta', '2026-06-23T07:00:00.000Z', '2999-01-01T00:00:00.000Z']
+    );
+    await client.exec(
+      `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+       VALUES (?, ?)`,
+      ['selection-beta', 'src/beta.ts']
+    );
+
+    const ranked = await repository.searchSimilar([1, 0, 0], {
+      embeddingSetId: embeddingSet.id,
+      filePaths: ['src/beta.ts'],
+      includeEmbedding: true,
+      limit: 5,
+      selectionSnapshotId: 'selection-beta',
+      threshold: 0.5,
+    });
+    expect(ranked.map((result) => result.chunk.id)).toEqual(['chunk-mid', 'chunk-far']);
+    expect(ranked[0]?.chunk.embedding).toEqual([0.8, 0.6, 0]);
+    expect(ranked[0]?.similarity).toEqual(expect.closeTo(0.9, 6));
+    expect(ranked[1]?.similarity).toEqual(expect.closeTo(0.5, 6));
+
+    await expect(
+      repository.searchSimilar([1, 0], { embeddingSetId: embeddingSet.id })
+    ).rejects.toThrow(
+      `Query embedding dimension mismatch: received 2, expected 3 for embedding set ${embeddingSet.id}.`
+    );
+  });
+
+  it('searches stored Turso embeddings with live L2 distance semantics', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet('test:l2', 'l2', 3, 'l2');
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-l2', path: 'src/l2.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        content: 'same',
+        embedding: [1, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-l2',
+        id: 'chunk-l2-same',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'one away',
+        embedding: [0, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-l2',
+        id: 'chunk-l2-one-away',
+      }),
+    ]);
+
+    const results = await repository.searchSimilar([1, 0, 0], {
+      embeddingSetId: embeddingSet.id,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual([
+      'chunk-l2-same',
+      'chunk-l2-one-away',
+    ]);
+    expect(results[0]?.similarity).toEqual(expect.closeTo(1, 6));
+    expect(results[1]?.similarity).toEqual(expect.closeTo(0.5, 6));
+  });
+
+  it('searches stored Turso embeddings with live inner-product sign semantics', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet('test:ip', 'ip', 3, 'ip');
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-ip', path: 'src/ip.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        content: 'largest dot',
+        embedding: [2, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-largest',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'middle dot',
+        embedding: [0.5, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-middle',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        content: 'negative dot',
+        embedding: [-2, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-negative',
+      }),
+    ]);
+
+    const results = await repository.searchSimilar([1, 0, 0], {
+      embeddingSetId: embeddingSet.id,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual([
+      'chunk-ip-largest',
+      'chunk-ip-middle',
+      'chunk-ip-negative',
+    ]);
+    expect(results[0]?.similarity).toEqual(expect.closeTo(0.880_797, 6));
+    expect(results[1]?.similarity).toEqual(expect.closeTo(0.622_459, 6));
+    expect(results[2]?.similarity).toEqual(expect.closeTo(0.119_203, 6));
+  });
+
+  it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
     await expect(repository.fullTextSearch('answer')).rejects.toThrow(
       'TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.'
     );

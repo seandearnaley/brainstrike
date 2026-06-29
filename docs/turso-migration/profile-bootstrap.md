@@ -72,17 +72,20 @@ This is repository coverage, not full import parity: default imports still need
 Turso chunk storage plus embedding-job enqueue support before file records,
 chunks, and jobs are committed atomically in Turso mode.
 
-Turso file-chunk repository implementation is now staged as repository-only
-groundwork for non-search persistence: ordered reads, single and batched upserts,
-transaction-scoped batch inserts, content/position/embedding metadata updates,
-delete/clear operations, coverage counts, stats, and explicit embedding-clearing
-stats refresh. Search methods (`searchSimilar`, `fullTextSearch`, and
-`findGrepCandidates`) fail loudly until the split search-index owner is wired;
-they do not fall back to unindexed scans. Repository-authored chunks must also
-carry the non-null `FileChunk` identity/type fields (`contentHash`,
-`chunkType`); if another raw Turso path writes nullable baseline rows that
-violate that contract, repository reads fail loudly instead of coalescing
-malformed data.
+Turso file-chunk repository implementation is now staged as repository-level
+groundwork for persistence and native search: ordered reads, single and batched
+upserts, transaction-scoped batch inserts, content/position/embedding metadata
+updates, delete/clear operations, coverage counts, stats, explicit
+embedding-clearing stats refresh, trigram-backed grep candidates, and native
+`vector32(?)` similarity search. Repository-authored embeddings are stored as
+Turso vector blobs and decoded from the raw BLOB on reads, so ordinary reads do
+not depend on vector SQL functions. Legacy JSON embedding blobs from the
+pre-vector Turso slice remain readable for cleanup or re-embedding, but new
+writes use native Turso vector storage. `fullTextSearch` still fails loudly until
+the split FTS owner is wired. Repository-authored chunks must also carry the non-null
+`FileChunk` identity/type fields (`contentHash`, `chunkType`); if another raw
+Turso path writes nullable baseline rows that violate that contract, repository
+reads fail loudly instead of coalescing malformed data.
 
 The first Turso-native chunk/job orchestration seam is also staged:
 `insertTursoChunksAndEnqueueEmbeddingJobs()` inserts chunks through the Turso
@@ -119,11 +122,9 @@ compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is a runtime-keyed vector backfill service:
-replace the remaining Postgres-shaped candidate-selection SQL and transaction
-query usage in `packages/vector-management/src/vector-status/vector-queue-service.ts`
-before enabling backfill/enqueue from Turso profiles. Quick-open filename lookup
-has a primary-store indexed name-gram candidate table because it only needs
-bounded filename substring search. Broader grep, FTS snippets, and hybrid
-retrieval remain split-owned until
+The next low-vector-risk slice is a required Turso vector-search bootstrap
+check plus desktop assistant `brainstrike.queryEmbeddingSpace` re-enable behind
+that proof. Quick-open filename lookup and grep already use primary-store gram
+candidate tables because they only need bounded substring search. FTS snippets
+and hybrid retrieval remain split-owned until
 `docs/turso-migration/search-index-architecture.md` is implemented.

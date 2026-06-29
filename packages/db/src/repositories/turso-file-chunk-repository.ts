@@ -3,6 +3,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
+import type { EmbeddingDistance } from '../models/embedding-set.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -26,7 +27,7 @@ import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
 } from '../text-content-invariants.js';
-import { MAX_INLINE_FILE_PATHS } from './_shared.js';
+import { computeOverfetchLimit, MAX_INLINE_FILE_PATHS } from './_shared.js';
 
 const MAX_SQLITE_PARAMS = 900;
 const GREP_CANDIDATE_MAX_LIMIT = 500;
@@ -52,6 +53,8 @@ const FILE_CHUNK_COLUMNS = `
   created_at,
   updated_at
 `.trim();
+const FILE_CHUNK_COLUMN_NAMES = FILE_CHUNK_COLUMNS.split(',').map((column) => column.trim());
+const FILE_CHUNK_SELECT_COLUMNS = buildFileChunkProjection();
 
 export const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
 
@@ -89,6 +92,12 @@ interface TursoFileChunkRow {
   readonly start_offset: number | string | null;
   readonly token_count: number | string | null;
   readonly updated_at: string;
+}
+
+interface TursoFileChunkSearchRow extends TursoFileChunkRow {
+  readonly distance: number | string;
+  readonly rank: number | string;
+  readonly similarity: number | string;
 }
 
 interface TursoStatsRow {
@@ -130,6 +139,11 @@ interface TursoGrepCandidateRow {
   readonly path: string;
   readonly root_id: string | null;
   readonly start_line: number | string | null;
+}
+
+interface TursoEmbeddingSetSearchConfigRow {
+  readonly dimensions: number | string | null;
+  readonly distance: string | null;
 }
 
 export interface TursoEmbeddingBackfillCandidate {
@@ -187,7 +201,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query<TursoFileChunkRow>(
-      `SELECT ${FILE_CHUNK_COLUMNS}
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS}
          FROM file_chunks
         WHERE id = ?`,
       [id]
@@ -198,7 +212,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
   async findByFileRecordId(fileRecordId: string): Promise<FileChunk[]> {
     const result = await this.db.query<TursoFileChunkRow>(
-      `SELECT ${FILE_CHUNK_COLUMNS}
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS}
          FROM file_chunks
         WHERE file_record_id = ?
         ORDER BY chunk_index ASC`,
@@ -268,7 +282,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       await validateEmbeddings(db, [
         { embedding: chunk.embedding, embeddingSetId: validationSetId },
       ]);
-      appendColumn(assignments, params, 'embedding', encodeEmbeddingBlob(chunk.embedding));
+      appendEmbeddingVectorColumn(assignments, params, chunk.embedding);
       appendColumn(
         assignments,
         params,
@@ -309,7 +323,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       `UPDATE file_chunks
           SET ${assignments.join(', ')}
         WHERE id = ?
-        RETURNING ${FILE_CHUNK_COLUMNS}`,
+        RETURNING ${FILE_CHUNK_SELECT_COLUMNS}`,
       params
     );
     const row = result.rows[0];
@@ -339,12 +353,77 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
   }
 
   async searchSimilar(
-    _queryEmbedding: number[],
-    _options: ChunkSearchOptions = {}
+    queryEmbedding: number[],
+    options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    throw new Error(
-      'TursoFileChunkRepository.searchSimilar requires the Turso vector search slice.'
+    const {
+      chunkType,
+      embeddingSetId,
+      filePaths,
+      fileRecordId,
+      includeEmbedding = false,
+      limit = 10,
+      rootId,
+      selectionSnapshotId,
+      threshold = 0.5,
+    } = options;
+
+    if (!embeddingSetId) {
+      throw new Error(
+        'searchSimilar SQL path requires embeddingSetId to avoid dimension mismatches'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const normalizedFilePaths = normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const config = await resolveTursoDistanceConfig(this.db, embeddingSetId, queryEmbedding);
+    const distanceExpressions = buildTursoDistanceExpressions(config.distance);
+    const conditions = ['fc.embedding IS NOT NULL', 'fc.embedding_set_id = ?'];
+    const params: unknown[] = [encodeEmbeddingVectorParam(queryEmbedding), embeddingSetId];
+    appendOptionalCondition(conditions, params, 'fc.file_record_id', fileRecordId);
+    appendOptionalCondition(conditions, params, 'fc.chunk_type', chunkType);
+    appendOptionalCondition(conditions, params, 'fr.root_id', rootId);
+    if (normalizedFilePaths) {
+      conditions.push(`fr.path IN (${createPlaceholders(normalizedFilePaths.length)})`);
+      params.push(...normalizedFilePaths);
+    }
+    if (normalizedSnapshotId) {
+      conditions.push(`EXISTS (
+          SELECT 1
+            FROM selection_snapshot_files ssf
+            JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id
+           WHERE ssf.snapshot_id = ?
+             AND ssf.file_path = fr.path
+             AND (ss.expires_at IS NULL OR ss.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        )`);
+      params.push(normalizedSnapshotId);
+    }
+
+    const overfetchLimit = computeOverfetchLimit(limit);
+    const result = await this.db.query<TursoFileChunkSearchRow>(
+      `WITH query_vector(value) AS (SELECT vector32(?))
+       SELECT ${prefixFileChunkColumns('fc', includeEmbedding)},
+              ${distanceExpressions.distanceExpr} AS distance,
+              ${distanceExpressions.similarityExpr} AS similarity,
+              ROW_NUMBER() OVER (ORDER BY ${distanceExpressions.distanceExpr} ASC, fc.id ASC) AS rank
+         FROM file_chunks fc
+         JOIN file_records fr ON fr.id = fc.file_record_id
+         CROSS JOIN query_vector q
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY distance ASC, fc.id ASC
+        LIMIT ?`,
+      [...params, overfetchLimit]
     );
+
+    return result.rows
+      .map((row) => mapRowToSearchResult(row, config, includeEmbedding))
+      .filter((result) => Number.isFinite(result.similarity) && result.similarity >= threshold)
+      .slice(0, limit);
   }
 
   async fullTextSearch(
@@ -442,7 +521,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
   async findAll(): Promise<FileChunk[]> {
     const result = await this.db.query<TursoFileChunkRow>(
-      `SELECT ${FILE_CHUNK_COLUMNS}
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS}
          FROM file_chunks
         ORDER BY created_at DESC`
     );
@@ -916,7 +995,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     id: string
   ): Promise<FileChunk | null> {
     const result = await db.query<TursoFileChunkRow>(
-      `SELECT ${FILE_CHUNK_COLUMNS}
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS}
          FROM file_chunks
         WHERE id = ?`,
       [id]
@@ -944,7 +1023,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
     const inserted: FileChunk[] = [];
     for (const batch of batchArray(chunks, BATCH_SIZE)) {
-      const values = batch.map(() => `(${createPlaceholders(FILE_CHUNK_COLUMN_COUNT)})`).join(', ');
+      const values = batch.map((chunk) => buildInsertValueSql(chunk)).join(', ');
       const params = batch.flatMap((chunk) => toInsertParams(chunk));
       const result = await db.query<TursoFileChunkRow>(
         `INSERT INTO file_chunks (${FILE_CHUNK_COLUMNS})
@@ -964,7 +1043,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
            embedding_updated_at = excluded.embedding_updated_at,
            embedding_hash = excluded.embedding_hash,
            updated_at = excluded.updated_at
-         RETURNING ${FILE_CHUNK_COLUMNS}`,
+         RETURNING ${FILE_CHUNK_SELECT_COLUMNS}`,
         params
       );
       for (const row of result.rows) {
@@ -982,7 +1061,8 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 }
 
 function toInsertParams(chunk: FileChunkInsert): unknown[] {
-  return [
+  const embeddingVectorParam = encodeEmbeddingVectorParam(chunk.embedding);
+  const params: unknown[] = [
     chunk.id,
     chunk.fileRecordId,
     chunk.chunkIndex,
@@ -995,15 +1075,163 @@ function toInsertParams(chunk: FileChunkInsert): unknown[] {
     chunk.endLine ?? null,
     chunk.startOffset ?? null,
     chunk.endOffset ?? null,
-    encodeEmbeddingBlob(chunk.embedding),
+  ];
+  if (embeddingVectorParam !== null) {
+    params.push(embeddingVectorParam);
+  }
+  params.push(
     chunk.embeddingSetId ?? null,
     chunk.embedding
       ? normalizeDateValue(chunk.embeddingUpdatedAt ?? chunk.updatedAt, 'embeddingUpdatedAt')
       : null,
     chunk.embeddingHash ?? null,
     normalizeDateValue(chunk.createdAt, 'createdAt'),
-    normalizeDateValue(chunk.updatedAt, 'updatedAt'),
-  ];
+    normalizeDateValue(chunk.updatedAt, 'updatedAt')
+  );
+  return params;
+}
+
+function buildInsertValueSql(chunk: FileChunkInsert): string {
+  return `(${FILE_CHUNK_COLUMN_NAMES.map((column) => {
+    if (column === 'embedding') {
+      return chunk.embedding === undefined ? 'NULL' : 'vector32(?)';
+    }
+    return '?';
+  }).join(', ')})`;
+}
+
+function buildFileChunkProjection(tableAlias?: string, includeEmbeddingPayload = true): string {
+  return FILE_CHUNK_COLUMN_NAMES.map((column) => {
+    const qualifiedColumn = tableAlias ? `${tableAlias}.${column}` : column;
+    if (column !== 'embedding') {
+      return qualifiedColumn;
+    }
+    if (!includeEmbeddingPayload) {
+      return 'NULL AS embedding';
+    }
+    return qualifiedColumn;
+  }).join(', ');
+}
+
+function prefixFileChunkColumns(tableAlias: string, includeEmbeddingPayload = true): string {
+  return buildFileChunkProjection(tableAlias, includeEmbeddingPayload);
+}
+
+async function resolveTursoDistanceConfig(
+  db: BrainstrikeDbExecutionClient,
+  embeddingSetId: string,
+  queryEmbedding: readonly number[]
+): Promise<{
+  readonly dimension: number;
+  readonly distance: EmbeddingDistance;
+}> {
+  const result = await db.query<TursoEmbeddingSetSearchConfigRow>(
+    'SELECT distance, dimensions FROM embedding_sets WHERE id = ?',
+    [embeddingSetId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`Embedding set ${embeddingSetId} not found.`);
+  }
+  const expectedDimension = readPositiveInteger(
+    row.dimensions,
+    `embedding set ${embeddingSetId} dimensions`
+  );
+  if (queryEmbedding.length !== expectedDimension) {
+    throw new Error(
+      `Query embedding dimension mismatch: received ${queryEmbedding.length}, expected ${expectedDimension} for embedding set ${embeddingSetId}.`
+    );
+  }
+  return { dimension: expectedDimension, distance: readEmbeddingDistance(row.distance) };
+}
+
+function appendOptionalCondition(
+  conditions: string[],
+  params: unknown[],
+  column: string,
+  value: string | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+  conditions.push(`${column} = ?`);
+  params.push(value);
+}
+
+function normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
+  if (!filePaths || filePaths.length === 0) {
+    return;
+  }
+  const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
+  if (trimmed.length === 0) {
+    return;
+  }
+  return Array.from(new Set(trimmed));
+}
+
+function mapRowToSearchResult(
+  row: TursoFileChunkSearchRow,
+  config: {
+    readonly dimension: number;
+  },
+  includeEmbedding: boolean
+): ChunkSearchResult {
+  const chunkWithEmbedding = mapRowToChunk(row);
+  if (includeEmbedding && !chunkWithEmbedding.embedding) {
+    throw new Error(`Turso vector search row ${row.id} is missing an embedding.`);
+  }
+  if (chunkWithEmbedding.embedding && chunkWithEmbedding.embedding.length !== config.dimension) {
+    throw new Error(
+      `Stored embedding dimension mismatch for chunk ${row.id}: received ${chunkWithEmbedding.embedding.length}, expected ${config.dimension}.`
+    );
+  }
+  return {
+    chunk: includeEmbedding
+      ? chunkWithEmbedding
+      : omitEmbeddingPayload(chunkWithEmbedding, config.dimension),
+    rank: readPositiveInteger(row.rank, `Turso vector search rank for chunk ${row.id}`),
+    similarity: readFiniteNumber(
+      row.similarity,
+      `Turso vector search similarity for chunk ${row.id}`
+    ),
+  };
+}
+
+function omitEmbeddingPayload(chunk: FileChunk, dimension: number): FileChunk {
+  const { embedding: _embedding, ...withoutEmbedding } = chunk;
+  return { ...withoutEmbedding, embeddingDimensions: dimension };
+}
+
+function buildTursoDistanceExpressions(distance: EmbeddingDistance): {
+  readonly distanceExpr: string;
+  readonly similarityExpr: string;
+} {
+  if (distance === 'l2') {
+    const distanceExpr = 'vector_distance_l2(fc.embedding, q.value)';
+    return {
+      distanceExpr,
+      similarityExpr: `(1.0 / (1.0 + ${distanceExpr}))`,
+    };
+  }
+  if (distance === 'ip') {
+    const distanceExpr = 'vector_distance_dot(fc.embedding, q.value)';
+    return {
+      distanceExpr,
+      similarityExpr: `(1.0 / (1.0 + exp(${distanceExpr})))`,
+    };
+  }
+  const distanceExpr = 'vector_distance_cos(fc.embedding, q.value)';
+  return {
+    distanceExpr,
+    similarityExpr: `(1.0 - (${distanceExpr} / 2.0))`,
+  };
+}
+
+function readEmbeddingDistance(value: string | null): EmbeddingDistance {
+  if (value === 'cosine' || value === 'l2' || value === 'ip') {
+    return value;
+  }
+  throw new Error(`Invalid embedding set distance: ${String(value)}`);
 }
 
 function appendColumn(
@@ -1017,6 +1245,15 @@ function appendColumn(
   }
   assignments.push(`${column} = ?`);
   params.push(value);
+}
+
+function appendEmbeddingVectorColumn(
+  assignments: string[],
+  params: unknown[],
+  embedding: readonly number[]
+): void {
+  assignments.push('embedding = vector32(?)');
+  params.push(encodeEmbeddingVectorParam(embedding));
 }
 
 async function validateEmbeddings(
@@ -1216,11 +1453,11 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
   };
 }
 
-function encodeEmbeddingBlob(embedding: readonly number[] | undefined): Uint8Array | null {
+function encodeEmbeddingVectorParam(embedding: readonly number[] | undefined): string | null {
   if (embedding === undefined) {
     return null;
   }
-  return new TextEncoder().encode(JSON.stringify(embedding));
+  return JSON.stringify(embedding);
 }
 
 function decodeEmbeddingBlob(
@@ -1230,16 +1467,55 @@ function decodeEmbeddingBlob(
   if (embedding === null) {
     return;
   }
-  const text = typeof embedding === 'string' ? embedding : new TextDecoder().decode(embedding);
+  if (typeof embedding === 'string') {
+    return decodeEmbeddingJsonPayload(embedding, chunkId);
+  }
+
+  const bytes = embedding instanceof Uint8Array ? embedding : new Uint8Array(embedding);
+  if (bytes.length === 0) {
+    throw new Error(`Invalid Turso embedding blob for chunk ${chunkId}: empty payload.`);
+  }
+  if (bytes[0] === 0x5b) {
+    const legacyJsonEmbedding = tryDecodeEmbeddingJsonPayload(new TextDecoder().decode(bytes));
+    if (legacyJsonEmbedding) {
+      return legacyJsonEmbedding;
+    }
+  }
+  if (bytes.byteLength % 4 !== 0) {
+    throw new Error(
+      `Invalid Turso vector32 blob for chunk ${chunkId}: byte length ${bytes.byteLength} is not divisible by 4.`
+    );
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const vector: number[] = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += 4) {
+    const value = Number(view.getFloat32(offset, true).toPrecision(7));
+    if (!Number.isFinite(value)) {
+      throw new Error(`Invalid Turso vector32 value for chunk ${chunkId}.`);
+    }
+    vector.push(value);
+  }
+  return vector;
+}
+
+function decodeEmbeddingJsonPayload(text: string, chunkId: string): number[] {
+  const parsed = tryDecodeEmbeddingJsonPayload(text);
+  if (!parsed) {
+    throw new Error(`Invalid Turso embedding JSON payload for chunk ${chunkId}.`);
+  }
+  return parsed;
+}
+
+function tryDecodeEmbeddingJsonPayload(text: string): number[] | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('[')) {
+    return;
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    throw new Error(
-      `Failed to decode Turso embedding blob for chunk ${chunkId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return;
   }
   if (
     !(
@@ -1247,7 +1523,7 @@ function decodeEmbeddingBlob(
       parsed.every((value) => typeof value === 'number' && Number.isFinite(value))
     )
   ) {
-    throw new Error(`Invalid Turso embedding blob for chunk ${chunkId}.`);
+    return;
   }
   return parsed;
 }
@@ -1340,6 +1616,17 @@ function readNullableFiniteNumber(
 ): number {
   if (value === null || value === undefined) {
     return 0;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid ${fieldName}: ${String(value)}`);
+  }
+  return parsed;
+}
+
+function readFiniteNumber(value: number | string | null | undefined, fieldName: string): number {
+  if (value === null || value === undefined) {
+    throw new Error(`Invalid ${fieldName}: ${String(value)}`);
   }
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) {
