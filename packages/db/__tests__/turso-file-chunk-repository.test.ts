@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
+import { buildEmbeddingJobDedupeKey } from '../src/queue/embedding-job-dedupe-key.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
@@ -517,6 +518,245 @@ describe('TursoFileChunkRepository', () => {
     );
   });
 
+  it('selects Turso embedding backfill candidates without Postgres SQL features', async () => {
+    const queryCalls: string[] = [];
+    const originalQuery = client.query.bind(client);
+    vi.spyOn(client, 'query').mockImplementation(
+      async (sql: string, params?: readonly unknown[]) => {
+        queryCalls.push(sql);
+        return originalQuery(sql, params);
+      }
+    );
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
+    );
+    const otherEmbeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:other',
+      'other',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-2', path: 'src/two.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: otherEmbeddingSet.id, id: 'file-other', path: 'src/other.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        contentHash: 'hash-01',
+        fileRecordId: 'file-1',
+        id: 'chunk-01',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        contentHash: 'hash-02-active',
+        fileRecordId: 'file-1',
+        id: 'chunk-02-active',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        contentHash: 'hash-03-inherited',
+        fileRecordId: 'file-1',
+        id: 'chunk-03-inherited',
+      }),
+      createChunk({
+        chunkIndex: 3,
+        contentHash: 'hash-03-inherited-active',
+        fileRecordId: 'file-1',
+        id: 'chunk-03-inherited-active',
+      }),
+      createChunk({
+        chunkIndex: 0,
+        contentHash: 'hash-04-embedded',
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-2',
+        id: 'chunk-04-embedded',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        contentHash: 'hash-05-running',
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-2',
+        id: 'chunk-05-running',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        contentHash: 'hash-06-failed',
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-2',
+        id: 'chunk-06-failed',
+      }),
+      createChunk({
+        chunkIndex: 3,
+        contentHash: 'hash-07-succeeded',
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-2',
+        id: 'chunk-07-succeeded',
+      }),
+      createChunk({
+        contentHash: 'hash-other',
+        embeddingSetId: otherEmbeddingSet.id,
+        fileRecordId: 'file-other',
+        id: 'chunk-other',
+      }),
+    ]);
+    await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-02-active',
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-02-active', embeddingSet.id, 'hash-02-active'),
+      embeddingSetId: embeddingSet.id,
+      id: 'job-queued',
+      state: 'queued',
+    });
+    await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-03-inherited-active',
+      dedupeKey: buildEmbeddingJobDedupeKey(
+        'chunk-03-inherited-active',
+        null,
+        'hash-03-inherited-active'
+      ),
+      embeddingSetId: null,
+      id: 'job-inherited-null-set',
+      state: 'queued',
+    });
+    await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-05-running',
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-05-running', embeddingSet.id, 'hash-05-running'),
+      embeddingSetId: embeddingSet.id,
+      id: 'job-running',
+      state: 'running',
+    });
+    await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-06-failed',
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-06-failed', embeddingSet.id, 'hash-06-failed'),
+      embeddingSetId: embeddingSet.id,
+      id: 'job-failed',
+      state: 'failed',
+    });
+    await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-07-succeeded',
+      dedupeKey: buildEmbeddingJobDedupeKey(
+        'chunk-07-succeeded',
+        embeddingSet.id,
+        'hash-07-succeeded'
+      ),
+      embeddingSetId: embeddingSet.id,
+      id: 'job-succeeded',
+      state: 'succeeded',
+    });
+
+    await expect(repository.countEmbeddingBackfillCandidates(embeddingSet.id)).resolves.toBe(4);
+    await expect(
+      repository.getEmbeddingBackfillCandidateDiagnostics(embeddingSet.id)
+    ).resolves.toEqual({
+      candidateCount: 4,
+      chunkCount: 8,
+      embeddedChunkCount: 1,
+      failedJobs: 1,
+      fileCount: 2,
+      missingContentHashCount: 0,
+      pendingChunkCount: 7,
+      queuedOrRunningJobs: 2,
+    });
+    await expect(
+      repository.findEmbeddingBackfillCandidates({
+        afterChunkId: null,
+        embeddingSetId: embeddingSet.id,
+        limit: 2,
+      })
+    ).resolves.toEqual([
+      { contentHash: 'hash-01', fileRecordId: 'file-1', id: 'chunk-01' },
+      { contentHash: 'hash-03-inherited', fileRecordId: 'file-1', id: 'chunk-03-inherited' },
+    ]);
+    await expect(
+      repository.findEmbeddingBackfillCandidates({
+        afterChunkId: 'chunk-03-inherited',
+        embeddingSetId: embeddingSet.id,
+        limit: 10,
+      })
+    ).resolves.toEqual([
+      { contentHash: 'hash-06-failed', fileRecordId: 'file-2', id: 'chunk-06-failed' },
+      { contentHash: 'hash-07-succeeded', fileRecordId: 'file-2', id: 'chunk-07-succeeded' },
+    ]);
+
+    const backfillQueries = queryCalls.filter(
+      (sql) => sql.includes('FROM file_chunks c') || sql.includes('FROM job_queue j')
+    );
+    expect(backfillQueries.join('\n')).not.toContain('::');
+    expect(backfillQueries.join('\n')).not.toContain('FILTER');
+    expect(backfillQueries.join('\n')).not.toContain('ANY(');
+    expect(backfillQueries.join('\n')).not.toContain('$1');
+  });
+
+  it('fails closed when Turso embedding backfill sees pending chunks without content hashes', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:small',
+      'small',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
+    );
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+      [
+        'chunk-missing-hash',
+        'file-1',
+        0,
+        'const answer = 42;',
+        4,
+        'code',
+        18,
+        '2026-06-23T08:10:00.000Z',
+        '2026-06-23T08:10:00.000Z',
+      ]
+    );
+
+    await expect(
+      repository.getEmbeddingBackfillCandidateDiagnostics(embeddingSet.id)
+    ).resolves.toEqual({
+      candidateCount: 0,
+      chunkCount: 1,
+      embeddedChunkCount: 0,
+      failedJobs: 0,
+      fileCount: 1,
+      missingContentHashCount: 1,
+      pendingChunkCount: 1,
+      queuedOrRunningJobs: 0,
+    });
+    await expect(repository.countEmbeddingBackfillCandidates(embeddingSet.id)).rejects.toThrow(
+      `Embedding backfill cannot enqueue 1 chunk(s) for embedding set '${embeddingSet.id}' because content_hash is missing.`
+    );
+    await expect(
+      repository.findEmbeddingBackfillCandidates({
+        embeddingSetId: embeddingSet.id,
+        limit: 10,
+      })
+    ).rejects.toThrow(
+      `Embedding backfill cannot enqueue 1 chunk(s) for embedding set '${embeddingSet.id}' because content_hash is missing.`
+    );
+  });
+
   it('deletes chunks, clears all chunks, and relies on Turso foreign-key cascades', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
     await fileRecordsRepository.createWithContent(
@@ -591,4 +831,41 @@ function createChunk(overrides: Partial<FileChunkInsert> = {}): FileChunkInsert 
     updatedAt: '2026-06-23T08:10:00.000Z',
     ...overrides,
   };
+}
+
+async function insertRawEmbeddingJob(
+  client: TursoOwnerClient,
+  input: {
+    chunkId: string;
+    dedupeKey: string;
+    embeddingSetId: string | null;
+    id: string;
+    state: 'failed' | 'queued' | 'running' | 'succeeded';
+  }
+): Promise<void> {
+  await client.exec(
+    `INSERT INTO job_queue (
+       id,
+       queue,
+       job_type,
+       payload,
+       chunk_id,
+       embedding_set_id,
+       state,
+       dedupe_key,
+       created_at,
+       updated_at
+     )
+     VALUES (?, 'embeddings', 'embed_chunk', ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.id,
+      JSON.stringify({ chunkId: input.chunkId, embeddingSetId: input.embeddingSetId }),
+      input.chunkId,
+      input.embeddingSetId,
+      input.state,
+      input.dedupeKey,
+      '2026-06-23T08:20:00.000Z',
+      '2026-06-23T08:20:00.000Z',
+    ]
+  );
 }

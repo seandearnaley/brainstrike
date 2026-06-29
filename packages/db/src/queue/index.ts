@@ -1,3 +1,7 @@
+export {
+  buildEmbeddingJobDedupeKey,
+  EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
+} from './embedding-job-dedupe-key.js';
 export type {
   CancelParams,
   ClaimParams,

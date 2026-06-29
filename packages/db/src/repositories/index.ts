@@ -58,6 +58,9 @@ export { TursoEmbeddingSetsRepository } from './turso-embedding-sets-repository.
 export {
   isTursoFileChunkRepository,
   TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+  type TursoEmbeddingBackfillCandidate,
+  type TursoEmbeddingBackfillCandidateDiagnostics,
+  type TursoEmbeddingBackfillCandidateOptions,
   TursoFileChunkRepository,
   type TursoFileChunkRepositoryMarker,
 } from './turso-file-chunk-repository.js';
