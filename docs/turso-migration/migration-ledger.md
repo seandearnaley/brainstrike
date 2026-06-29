@@ -49,7 +49,8 @@ as the implementation backlog.
 - #1343 `Use Turso snapshots for collection coverage banner`
 - #1344 `Gate quick open on indexed repository snapshots`
 - #1346 `Use Turso vector queue stats and retry controls`
-- Current slice: runtime-keyed vector queue service gate for embedding runtime
+- #1347 `Gate vector queue service by DB runtime`
+- Current slice: Turso embedding backfill candidate repository primitives
 
 ## Turso Docs Guardrail
 
@@ -113,6 +114,11 @@ Current Turso repository/runtime coverage:
   `VectorQueueService`; Turso returns an explicit
   `turso-vector-backfill-not-migrated` unavailable result so old PGlite SQL does
   not run under Turso.
+- Turso file chunks expose SQLite-compatible embedding backfill candidate
+  counting, diagnostics, and cursor-batched candidate selection. These methods
+  exclude active queued/running deduped jobs, include inherited
+  `file_records.embedding_set_id` scope, and fail closed when pending chunks
+  lack `content_hash`.
 
 ## Non-Negotiable Migration Rules
 
@@ -200,13 +206,15 @@ Completed low-risk queue UI slices:
   service-null with an explicit unavailable reason.
 
 Remaining slice: introduce a Turso-capable backfill/repository port for
-candidate discovery, diagnostics, queue counts, and enqueue/drain operations.
-Use PGlite/Electron repositories today, and Turso file-record, file-chunk,
-embedding-set, and job-queue repositories for Turso. Preserve the
-hidden-renderer worker boundary. Do not enable Turso backfill through
-`vector-queue-service.ts` until its Postgres-shaped candidate-selection SQL and
-transaction query requirements are replaced with SQLite-compatible repository
-operations.
+queue counts, metadata lookup, enqueue/drain operations, and worker completion
+IO. Turso file-chunk candidate discovery and diagnostics now exist, but the
+vector-management service still needs a storage-neutral backfill repository
+contract before Turso can be enabled. Use PGlite/Electron repositories today,
+and Turso file-record, file-chunk, embedding-set, and job-queue repositories
+for Turso. Preserve the hidden-renderer worker boundary. Do not enable Turso
+backfill through `vector-queue-service.ts` until its remaining Postgres-shaped
+queue counts, metadata lookup, drain, and transaction query requirements are
+replaced with runtime repository operations.
 
 ### 4. Assistant Search And Retrieval
 

@@ -113,6 +113,49 @@ interface TursoEmbeddingSetDimensionRow {
   readonly id: string;
 }
 
+export interface TursoEmbeddingBackfillCandidate {
+  readonly contentHash: string;
+  readonly fileRecordId: string;
+  readonly id: string;
+}
+
+export interface TursoEmbeddingBackfillCandidateDiagnostics {
+  readonly candidateCount: number;
+  readonly chunkCount: number;
+  readonly embeddedChunkCount: number;
+  readonly failedJobs: number;
+  readonly fileCount: number;
+  readonly missingContentHashCount: number;
+  readonly pendingChunkCount: number;
+  readonly queuedOrRunningJobs: number;
+}
+
+export interface TursoEmbeddingBackfillCandidateOptions {
+  readonly afterChunkId?: string | null;
+  readonly embeddingSetId: string;
+  readonly limit: number;
+  readonly queue?: string;
+}
+
+interface TursoEmbeddingBackfillCandidateRow {
+  readonly contentHash: string | null;
+  readonly fileRecordId: string;
+  readonly id: string;
+}
+
+interface TursoEmbeddingBackfillDiagnosticsRow {
+  readonly candidateCount: number | string | null;
+  readonly chunkCount: number | string | null;
+  readonly embeddedChunkCount: number | string | null;
+  readonly failedJobs: number | string | null;
+  readonly fileCount: number | string | null;
+  readonly missingContentHashCount: number | string | null;
+  readonly pendingChunkCount: number | string | null;
+  readonly queuedOrRunningJobs: number | string | null;
+}
+
+const DEFAULT_EMBEDDING_BACKFILL_QUEUE = 'embeddings';
+
 export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker {
   readonly brainstrikeRepositoryKind = TURSO_FILE_CHUNK_REPOSITORY_MARKER;
 
@@ -469,6 +512,254 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
         readNullableNonNegativeInteger(row.embeddedChunks, 'embedded chunks by file record'),
       ])
     );
+  }
+
+  async countEmbeddingBackfillCandidates(
+    embeddingSetId: string,
+    options: { readonly queue?: string } = {}
+  ): Promise<number> {
+    const targetEmbeddingSetId = requireNonEmptyText(embeddingSetId, 'embeddingSetId');
+    const queue = resolveEmbeddingBackfillQueue(options.queue);
+    await this.assertNoMissingBackfillContentHashes(targetEmbeddingSetId);
+    const result = await this.db.query<TursoCountRow>(
+      `SELECT COUNT(*) AS count
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+        WHERE (
+                c.embedding_set_id = ?
+                OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+          )
+          AND c.embedding IS NULL
+          AND c.content_hash IS NOT NULL
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM job_queue j
+                 WHERE j.queue = ?
+                   AND j.state IN ('queued', 'running')
+                   AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+              )`,
+      [targetEmbeddingSetId, targetEmbeddingSetId, queue, targetEmbeddingSetId]
+    );
+    return readNullableNonNegativeInteger(
+      result.rows[0]?.count,
+      'embedding backfill candidate count'
+    );
+  }
+
+  async getEmbeddingBackfillCandidateDiagnostics(
+    embeddingSetId: string,
+    options: { readonly queue?: string } = {}
+  ): Promise<TursoEmbeddingBackfillCandidateDiagnostics> {
+    const targetEmbeddingSetId = requireNonEmptyText(embeddingSetId, 'embeddingSetId');
+    const queue = resolveEmbeddingBackfillQueue(options.queue);
+    const result = await this.db.query<TursoEmbeddingBackfillDiagnosticsRow>(
+      `SELECT
+         (
+           SELECT COUNT(*)
+             FROM file_records fr
+            WHERE fr.embedding_set_id = ?
+         ) AS fileCount,
+         (
+           SELECT COUNT(*)
+             FROM file_chunks c
+             JOIN file_records fr ON fr.id = c.file_record_id
+            WHERE (
+                    c.embedding_set_id = ?
+                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+                  )
+         ) AS chunkCount,
+         (
+           SELECT COUNT(*)
+             FROM file_chunks c
+             JOIN file_records fr ON fr.id = c.file_record_id
+            WHERE (
+                    c.embedding_set_id = ?
+                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+                  )
+              AND c.embedding IS NULL
+         ) AS pendingChunkCount,
+         (
+           SELECT COUNT(*)
+             FROM file_chunks c
+             JOIN file_records fr ON fr.id = c.file_record_id
+            WHERE (
+                    c.embedding_set_id = ?
+                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+                  )
+              AND c.embedding IS NULL
+              AND c.content_hash IS NULL
+         ) AS missingContentHashCount,
+         (
+           SELECT COUNT(*)
+             FROM file_chunks c
+             JOIN file_records fr ON fr.id = c.file_record_id
+            WHERE (
+                    c.embedding_set_id = ?
+                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+                  )
+              AND c.embedding IS NULL
+              AND c.content_hash IS NOT NULL
+              AND NOT EXISTS (
+                    SELECT 1
+                      FROM job_queue j
+                     WHERE j.queue = ?
+                       AND j.state IN ('queued', 'running')
+                       AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                  )
+         ) AS candidateCount,
+         (
+           SELECT COUNT(*)
+             FROM file_chunks c
+             JOIN file_records fr ON fr.id = c.file_record_id
+            WHERE (
+                    c.embedding_set_id = ?
+                    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+                  )
+              AND c.embedding IS NOT NULL
+         ) AS embeddedChunkCount,
+         (
+           SELECT COUNT(*)
+             FROM job_queue j
+            WHERE j.queue = ?
+              AND j.job_type = 'embed_chunk'
+              AND j.embedding_set_id = ?
+              AND j.state IN ('queued', 'running')
+         ) AS queuedOrRunningJobs,
+         (
+           SELECT COUNT(*)
+             FROM job_queue j
+            WHERE j.queue = ?
+              AND j.job_type = 'embed_chunk'
+              AND j.embedding_set_id = ?
+              AND j.state = 'failed'
+         ) AS failedJobs`,
+      [
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        queue,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        queue,
+        targetEmbeddingSetId,
+        queue,
+        targetEmbeddingSetId,
+      ]
+    );
+    const row = result.rows[0];
+    return {
+      candidateCount: readNullableNonNegativeInteger(
+        row?.candidateCount,
+        'embedding backfill diagnostics candidate count'
+      ),
+      chunkCount: readNullableNonNegativeInteger(
+        row?.chunkCount,
+        'embedding backfill diagnostics chunk count'
+      ),
+      embeddedChunkCount: readNullableNonNegativeInteger(
+        row?.embeddedChunkCount,
+        'embedding backfill diagnostics embedded chunk count'
+      ),
+      failedJobs: readNullableNonNegativeInteger(
+        row?.failedJobs,
+        'embedding backfill diagnostics failed jobs'
+      ),
+      fileCount: readNullableNonNegativeInteger(
+        row?.fileCount,
+        'embedding backfill diagnostics file count'
+      ),
+      missingContentHashCount: readNullableNonNegativeInteger(
+        row?.missingContentHashCount,
+        'embedding backfill diagnostics missing content hash count'
+      ),
+      pendingChunkCount: readNullableNonNegativeInteger(
+        row?.pendingChunkCount,
+        'embedding backfill diagnostics pending chunk count'
+      ),
+      queuedOrRunningJobs: readNullableNonNegativeInteger(
+        row?.queuedOrRunningJobs,
+        'embedding backfill diagnostics queued or running jobs'
+      ),
+    };
+  }
+
+  async findEmbeddingBackfillCandidates(
+    options: TursoEmbeddingBackfillCandidateOptions
+  ): Promise<TursoEmbeddingBackfillCandidate[]> {
+    const targetEmbeddingSetId = requireNonEmptyText(options.embeddingSetId, 'embeddingSetId');
+    const queue = resolveEmbeddingBackfillQueue(options.queue);
+    const limit = readPositiveInteger(options.limit, 'embedding backfill candidate limit');
+    const afterChunkId = options.afterChunkId ?? null;
+    await this.assertNoMissingBackfillContentHashes(targetEmbeddingSetId);
+    const result = await this.db.query<TursoEmbeddingBackfillCandidateRow>(
+      `SELECT
+         c.id AS id,
+         c.file_record_id AS fileRecordId,
+         c.content_hash AS contentHash
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+      WHERE (
+              c.embedding_set_id = ?
+              OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+            )
+        AND c.embedding IS NULL
+        AND c.content_hash IS NOT NULL
+        AND (? IS NULL OR c.id > ?)
+        AND NOT EXISTS (
+              SELECT 1
+                FROM job_queue j
+               WHERE j.queue = ?
+                 AND j.state IN ('queued', 'running')
+                 AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+            )
+      ORDER BY c.id ASC
+      LIMIT ?`,
+      [
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        afterChunkId,
+        afterChunkId,
+        queue,
+        targetEmbeddingSetId,
+        limit,
+      ]
+    );
+    return result.rows.map((row) => ({
+      contentHash: readRequiredText(row.contentHash, `file chunk ${row.id} content_hash`),
+      fileRecordId: row.fileRecordId,
+      id: row.id,
+    }));
+  }
+
+  private async assertNoMissingBackfillContentHashes(embeddingSetId: string): Promise<void> {
+    const result = await this.db.query<TursoCountRow>(
+      `SELECT COUNT(*) AS count
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+        WHERE (
+                c.embedding_set_id = ?
+                OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+              )
+          AND c.embedding IS NULL
+          AND c.content_hash IS NULL`,
+      [embeddingSetId, embeddingSetId]
+    );
+    const missingCount = readNullableNonNegativeInteger(
+      result.rows[0]?.count,
+      'embedding backfill missing content hash count'
+    );
+    if (missingCount > 0) {
+      throw new Error(
+        `Embedding backfill cannot enqueue ${missingCount} chunk(s) for embedding set '${embeddingSetId}' because content_hash is missing.`
+      );
+    }
   }
 
   async clearEmbeddingsForSet(embeddingSetId: string): Promise<number> {
@@ -889,6 +1180,21 @@ function readRequiredText(value: string | null | undefined, fieldName: string): 
     return value;
   }
   throw new Error(`${fieldName} is required.`);
+}
+
+function requireNonEmptyText(value: string, fieldName: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return normalized;
+}
+
+function resolveEmbeddingBackfillQueue(queue: string | undefined): string {
+  if (queue === undefined) {
+    return DEFAULT_EMBEDDING_BACKFILL_QUEUE;
+  }
+  return requireNonEmptyText(queue, 'embedding backfill queue');
 }
 
 function readNullableFiniteNumber(
