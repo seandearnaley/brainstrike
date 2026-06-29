@@ -263,6 +263,80 @@ describe('Turso owner client', () => {
     }
   });
 
+  it('reports queued, started, completed, and slow queued owner operations without changing serialization', async () => {
+    let now = 1000;
+    const firstQueryGate = createDeferred<void>();
+    const database = createMockTursoDatabase();
+    database.all = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await firstQueryGate.promise;
+        return [{ value: 'first' }];
+      })
+      .mockResolvedValueOnce([{ value: 'second' }]);
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'qos-diagnostics.db'),
+      now: () => now,
+      openDatabase: async () => database,
+      slowQueueThresholdMs: 50,
+    });
+
+    try {
+      const firstQuery = client.query<{ value: string }>('SELECT 1 AS value', undefined, {
+        label: 'first query',
+      });
+      await waitFor(() => client.getQoSDiagnostics().activeOperation?.label === 'first query');
+
+      now = 1010;
+      const secondQuery = client.query<{ value: string }>('SELECT 2 AS value', undefined, {
+        label: 'queued query',
+      });
+      await waitFor(() => client.getQoSDiagnostics().queuedOperationCount === 1);
+
+      now = 1075;
+      expect(client.getQoSDiagnostics()).toMatchObject({
+        activeOperation: {
+          activeDurationMs: 75,
+          kind: 'query',
+          label: 'first query',
+          queueWaitMs: 0,
+        },
+        queuedOperationCount: 1,
+        queuedOperations: [
+          {
+            kind: 'query',
+            label: 'queued query',
+            queuedForMs: 65,
+          },
+        ],
+        slowQueuedOperationCount: 1,
+        totalCompletedOperations: 0,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 2,
+        totalStartedOperations: 1,
+      });
+
+      firstQueryGate.resolve();
+      await expect(firstQuery).resolves.toEqual({ rows: [{ value: 'first' }] });
+      now = 1090;
+      await expect(secondQuery).resolves.toEqual({ rows: [{ value: 'second' }] });
+
+      expect(client.getQoSDiagnostics()).toMatchObject({
+        activeOperation: null,
+        queuedOperationCount: 0,
+        queuedOperations: [],
+        slowQueuedOperationCount: 0,
+        totalCompletedOperations: 2,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 2,
+        totalStartedOperations: 2,
+      });
+    } finally {
+      firstQueryGate.resolve();
+      await client.close();
+    }
+  });
+
   it('fails loudly after the owner handle is closed', async () => {
     const client = await createTursoOwnerClient({
       dbPath: join(tempDir, 'closed.db'),
@@ -289,4 +363,29 @@ function createMockTursoDatabase(): TursoDatabase {
     ),
     run: vi.fn(async () => undefined),
   } as unknown as TursoDatabase;
+}
+
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly reject: (error: unknown) => void;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('Timed out waiting for condition.');
 }
