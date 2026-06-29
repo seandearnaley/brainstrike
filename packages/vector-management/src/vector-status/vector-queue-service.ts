@@ -1,4 +1,9 @@
-import type { FileChunkRepository, JobQueue, ProfileBootstrapRuntime } from '@brainstrike/db';
+import {
+  buildEmbeddingJobDedupeKey,
+  type FileChunkRepository,
+  type JobQueue,
+  type ProfileBootstrapRuntime,
+} from '@brainstrike/db';
 import {
   type ApiKeyValidationUnavailableReason,
   checkApiKeyAvailability,
@@ -65,6 +70,7 @@ export interface VectorQueueDatabase {
 }
 
 export interface VectorQueueServiceDependencies {
+  backfillRepository?: EmbeddingBackfillRepository;
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
   db: VectorQueueDatabase;
   jobQueue: Pick<
@@ -124,9 +130,38 @@ export interface BackfillOptions {
 
 export const EMBEDDINGS_QUEUE = 'embeddings';
 
-interface EmbeddingSetJobMetadata {
+export interface EmbeddingSetJobMetadata {
   expectedDimension: number;
   modelKey: string;
+}
+
+export interface BackfillCandidate {
+  contentHash: string;
+  fileRecordId: string;
+  id: string;
+}
+
+export interface BackfillCandidateBatchParams {
+  afterChunkId: string | null;
+  embeddingSetId: string;
+  limit: number;
+}
+
+export interface BackfillCandidateDiagnostics {
+  chunkCount: number;
+  embeddedChunkCount: number;
+  failedJobs: number;
+  fileCount: number;
+  pendingChunkCount: number;
+  queuedOrRunningJobs: number;
+}
+
+export interface EmbeddingBackfillRepository {
+  countBackfillCandidates(embeddingSetId: string): Promise<number>;
+  getEmbeddingSetQueueCounts(embeddingSetId: string): Promise<QueueCounts>;
+  loadBackfillCandidateBatch(params: BackfillCandidateBatchParams): Promise<BackfillCandidate[]>;
+  loadBackfillCandidateDiagnostics(embeddingSetId: string): Promise<BackfillCandidateDiagnostics>;
+  resolveEmbeddingSetJobMetadata(embeddingSetId: string): Promise<EmbeddingSetJobMetadata>;
 }
 
 const logger = createLogger('VectorQueueService');
@@ -209,7 +244,7 @@ async function getEmbeddingSetQueueCounts(
 }
 
 async function waitForEmbeddingSetDrain(
-  db: VectorQueueDatabase,
+  backfillRepository: Pick<EmbeddingBackfillRepository, 'getEmbeddingSetQueueCounts'>,
   embeddingSetId: string,
   timeoutMs: number,
   signal?: AbortSignal
@@ -217,7 +252,7 @@ async function waitForEmbeddingSetDrain(
   const startedAt = Date.now();
   while (true) {
     throwIfAborted(signal);
-    const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId);
+    const counts = await backfillRepository.getEmbeddingSetQueueCounts(embeddingSetId);
     if (counts.queued === 0 && counts.running === 0) {
       return counts;
     }
@@ -344,6 +379,8 @@ export function createVectorQueueService(
   dependencies: VectorQueueServiceDependencies
 ): VectorQueueService {
   const { db, jobQueue, chunkRepository } = dependencies;
+  const backfillRepository =
+    dependencies.backfillRepository ?? createPGliteEmbeddingBackfillRepository(db);
 
   const defaultCounts: QueueCounts = {
     queued: 0,
@@ -421,7 +458,7 @@ export function createVectorQueueService(
 
     async validateApiKeyForSet(embeddingSetId): Promise<ApiKeyValidation> {
       try {
-        const setMetadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
+        const setMetadata = await backfillRepository.resolveEmbeddingSetJobMetadata(embeddingSetId);
         const validation = await checkApiKeyAvailability(setMetadata.modelKey);
         if (validation.available) {
           return { valid: true };
@@ -442,11 +479,11 @@ export function createVectorQueueService(
       }
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
       throwIfAborted(signal);
-      const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
+      const setMetadata = await backfillRepository.resolveEmbeddingSetJobMetadata(activeSetId);
       throwIfAborted(signal);
       await recoverBackfillQueueState(jobQueue, activeSetId);
       throwIfAborted(signal);
-      const total = await countBackfillCandidates(db, activeSetId);
+      const total = await backfillRepository.countBackfillCandidates(activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
         embeddingSetId: activeSetId,
         modelKey: setMetadata.modelKey,
@@ -454,7 +491,7 @@ export function createVectorQueueService(
         candidates: total,
       });
       if (total === 0) {
-        const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
+        const diagnostics = await backfillRepository.loadBackfillCandidateDiagnostics(activeSetId);
         // An already-current incremental pass legitimately has no candidates;
         // diagnostics remain attached for investigation without surfacing a warning.
         logger.info('Backfill found no eligible chunks', {
@@ -462,7 +499,9 @@ export function createVectorQueueService(
           diagnostics,
         });
       }
-      const failedBeforeBackfill = (await getEmbeddingSetQueueCounts(db, activeSetId)).failed;
+      const failedBeforeBackfill = (
+        await backfillRepository.getEmbeddingSetQueueCounts(activeSetId)
+      ).failed;
 
       let done = 0;
       let cursor: string | null = null;
@@ -478,7 +517,11 @@ export function createVectorQueueService(
           signal
         );
         const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);
-        const batch = await loadBackfillCandidateBatch(db, activeSetId, cursor, batchLimit);
+        const batch = await backfillRepository.loadBackfillCandidateBatch({
+          embeddingSetId: activeSetId,
+          afterChunkId: cursor,
+          limit: batchLimit,
+        });
         throwIfAborted(signal);
         if (batch.length === 0) {
           break;
@@ -507,7 +550,7 @@ export function createVectorQueueService(
       }
 
       const drainedCounts = await waitForEmbeddingSetDrain(
-        db,
+        backfillRepository,
         activeSetId,
         BACKFILL_DRAIN_TIMEOUT_MS,
         signal
@@ -607,24 +650,24 @@ export function createVectorQueueServiceForRuntime(
   };
 }
 
-interface BackfillCandidate {
-  contentHash: string;
-  fileRecordId: string;
-  id: string;
-}
-
 interface BackfillBatchResult {
   inserted: number;
   selected: number;
 }
 
-interface BackfillCandidateDiagnostics {
-  chunkCount: number;
-  embeddedChunkCount: number;
-  failedJobs: number;
-  fileCount: number;
-  pendingChunkCount: number;
-  queuedOrRunningJobs: number;
+function createPGliteEmbeddingBackfillRepository(
+  db: VectorQueueDatabase
+): EmbeddingBackfillRepository {
+  return {
+    countBackfillCandidates: (embeddingSetId) => countBackfillCandidates(db, embeddingSetId),
+    getEmbeddingSetQueueCounts: (embeddingSetId) => getEmbeddingSetQueueCounts(db, embeddingSetId),
+    loadBackfillCandidateBatch: ({ embeddingSetId, afterChunkId, limit }) =>
+      loadBackfillCandidateBatch(db, embeddingSetId, afterChunkId, limit),
+    loadBackfillCandidateDiagnostics: (embeddingSetId) =>
+      loadBackfillCandidateDiagnostics(db, embeddingSetId),
+    resolveEmbeddingSetJobMetadata: (embeddingSetId) =>
+      resolveEmbeddingSetJobMetadata(db, embeddingSetId),
+  };
 }
 
 async function countBackfillCandidates(
@@ -857,7 +900,7 @@ async function enqueueEmbeddingChunkJobsBatch(
         modelKey: metadata.modelKey,
         expectedDimension: metadata.expectedDimension,
       },
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      dedupeKey: buildEmbeddingJobDedupeKey(row.id, embeddingSetId, row.contentHash),
       maxAttempts: 5,
     }))
   );
