@@ -20,6 +20,8 @@ import {
   TURSO_SCHEMA_BASELINE_V2_VERSION,
   TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
   TURSO_SCHEMA_BASELINE_V3_VERSION,
+  TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_V4_VERSION,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
 import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
@@ -52,6 +54,8 @@ describe('Turso schema baseline', () => {
         'collection_indexing_stats',
         'embedding_cache',
         'embedding_sets',
+        'file_chunk_content_grams',
+        'file_chunk_content_index',
         'file_chunks',
         'file_record_name_index',
         'file_record_name_grams',
@@ -85,6 +89,9 @@ describe('Turso schema baseline', () => {
         'idx_job_queue_embed_set_state',
         'idx_job_queue_state_run_at',
       ])
+    );
+    await expect(listIndexes('file_chunk_content_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_chunk_content_grams_lookup'])
     );
     await expect(client.query('PRAGMA table_info(file_chunks)')).resolves.toMatchObject({
       rows: expect.arrayContaining([expect.objectContaining({ name: 'embedding', type: 'BLOB' })]),
@@ -431,7 +438,13 @@ describe('Turso schema baseline', () => {
 
   it('upgrades an existing v3 Turso schema ledger to the current name-gram baseline', async () => {
     const oldV3BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
-      (ddl) => !(ddl.includes('file_record_name_index') || ddl.includes('file_record_name_grams'))
+      (ddl) =>
+        !(
+          ddl.includes('file_record_name_index') ||
+          ddl.includes('file_record_name_grams') ||
+          ddl.includes('file_chunk_content_index') ||
+          ddl.includes('file_chunk_content_grams')
+        )
     );
     for (const ddl of oldV3BaselineDdl) {
       await client.exec(ddl);
@@ -496,6 +509,110 @@ describe('Turso schema baseline', () => {
         {
           checksum: TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
           version: TURSO_SCHEMA_BASELINE_V3_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
+  it('upgrades an existing v4 Turso schema ledger to the current content-gram baseline', async () => {
+    const oldV4BaselineDdl = TURSO_SCHEMA_BASELINE_DDL.filter(
+      (ddl) =>
+        !(ddl.includes('file_chunk_content_index') || ddl.includes('file_chunk_content_grams'))
+    );
+    for (const ddl of oldV4BaselineDdl) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_V4_VERSION,
+        TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
+        '2026-06-29T00:00:00.000Z',
+      ]
+    );
+    await client.exec(
+      `INSERT INTO file_records (id, name, path, size, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'existing-file',
+        'AlphaReview.ts',
+        'src/AlphaReview.ts',
+        42,
+        '2026-06-29T00:00:00.000Z',
+        '2026-06-29T00:00:00.000Z',
+      ]
+    );
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'existing-chunk',
+        'existing-file',
+        0,
+        'const AlphaReview = true;',
+        'hash-existing-chunk',
+        4,
+        'code',
+        25,
+        '2026-06-29T00:00:00.000Z',
+        '2026-06-29T00:00:00.000Z',
+      ]
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(listIndexes('file_chunk_content_grams')).resolves.toEqual(
+      expect.arrayContaining(['idx_file_chunk_content_grams_lookup'])
+    );
+    await expect(
+      client.query(
+        'SELECT normalized_content FROM file_chunk_content_index WHERE file_chunk_id = ?',
+        ['existing-chunk']
+      )
+    ).resolves.toEqual({ rows: [{ normalized_content: 'const alphareview = true;' }] });
+    await expect(
+      client.query(
+        `SELECT gram
+           FROM file_chunk_content_grams
+          WHERE file_chunk_id = ?
+            AND case_sensitive = 0`,
+        ['existing-chunk']
+      )
+    ).resolves.toMatchObject({
+      rows: expect.arrayContaining([{ gram: 'alp' }, { gram: 'rev' }]),
+    });
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_V4_VERSION,
         },
         {
           checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,

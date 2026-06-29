@@ -54,8 +54,10 @@ as the implementation backlog.
 - #1349 `Extract vector backfill repository port`
 - #1350 `Add Turso vector backfill adapter`
 - #1351 `Make vector queue refresh metrics storage-neutral`
-- Current slice: Turso Mastra memory/workflows adapter in `@brainstrike/agent`,
-  not yet wired into the desktop assistant server.
+- #1354 `Wire desktop Mastra memory to Turso runtime`
+- Current slice: repository-level Turso grep candidate selection over a
+  Turso-owned chunk-content gram sidecar, without re-enabling assistant grep or
+  claiming full FTS/vector retrieval parity.
 
 ## Turso Docs Guardrail
 
@@ -140,6 +142,9 @@ Current Turso repository/runtime coverage:
   PGlite keeps the existing PostgreSQL-shaped SQL behind the default repository;
   Turso exposes the same metrics through `TursoJobQueue.getQueueMetrics()` and a
   vector-management adapter. This is intentionally not runtime wiring yet.
+- Desktop Turso assistant memory is wired through the ready runtime/bootstrap
+  verdict. The renderer thread repository, OM meter, and cross-root usage reads
+  now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
 
 ## Non-Negotiable Migration Rules
 
@@ -252,16 +257,23 @@ Concrete blockers:
 
 - `brainstrike.grepSearch` and `brainstrike.queryEmbeddingSpace` are removed
   from Turso tool maps.
-- `TursoFileChunkRepository.searchSimilar()`,
-  `TursoFileChunkRepository.fullTextSearch()`, and
-  `TursoFileChunkRepository.findGrepCandidates()` throw.
+- `TursoFileChunkRepository.findGrepCandidates()` now provides bounded
+  SQLite-compatible candidate selection. Literal/regex-literal prefilters use
+  `file_chunk_content_grams` plus `file_chunk_content_index` as an indexed
+  candidate source; no-prefilter regex scans stay explicitly bounded and are
+  surfaced by the grep service as `scanLimited`. The path covers root, path,
+  embedding-set, limit, and root-display metadata.
+- `TursoFileChunkRepository.searchSimilar()` and
+  `TursoFileChunkRepository.fullTextSearch()` still throw until the Turso vector
+  and FTS slices land.
 - Retrieval selection snapshots still use PGlite/Postgres SQL, including
   `NOW()` cleanup and `UNNEST($2::text[])`.
 
 Preferred implementation order:
 
-1. Implement `TursoFileChunkRepository.findGrepCandidates()` against an
-   explicitly bounded or indexed candidate source.
+1. Re-enable `brainstrike.grepSearch` only after the desktop tool registry and
+   bootstrap capability report prove the Turso grep candidate path is available
+   and still bounded.
 2. Implement basic Turso vector search over stored embeddings with
    `embeddingSetId`, limit, threshold, and root filtering.
 3. Add a Turso selection-snapshot writer using SQLite-compatible statements.

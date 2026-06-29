@@ -255,41 +255,41 @@ describe('TursoFileChunkRepository', () => {
 
   it('does not fetch the existing chunk for non-embedding updates', async () => {
     const queryCalls: string[] = [];
+    const exec = vi.fn(async () => {});
+    const query = vi.fn(async (sql: string) => {
+      queryCalls.push(sql);
+      if (sql.includes('SELECT') && sql.includes('FROM file_chunks')) {
+        throw new Error('non-embedding update should not read the existing chunk');
+      }
+      return {
+        rows: [
+          {
+            chunk_index: 0,
+            chunk_size: 19,
+            chunk_type: 'code',
+            content: 'const updated = true;',
+            content_hash: 'hash-updated',
+            created_at: '2026-06-23T08:10:00.000Z',
+            embedding: null,
+            embedding_hash: null,
+            embedding_set_id: null,
+            embedding_updated_at: null,
+            end_line: null,
+            end_offset: null,
+            file_record_id: 'file-1',
+            id: 'chunk-1',
+            start_line: null,
+            start_offset: null,
+            token_count: 6,
+            updated_at: '2026-06-23T08:45:00.000Z',
+          },
+        ],
+      };
+    });
     const fakeDb: BrainstrikeDbExecutionClient = {
-      exec: vi.fn(async () => {}),
-      query: vi.fn(async (sql: string) => {
-        queryCalls.push(sql);
-        if (sql.includes('SELECT') && sql.includes('FROM file_chunks')) {
-          throw new Error('non-embedding update should not read the existing chunk');
-        }
-        return {
-          rows: [
-            {
-              chunk_index: 0,
-              chunk_size: 19,
-              chunk_type: 'code',
-              content: 'const updated = true;',
-              content_hash: 'hash-updated',
-              created_at: '2026-06-23T08:10:00.000Z',
-              embedding: null,
-              embedding_hash: null,
-              embedding_set_id: null,
-              embedding_updated_at: null,
-              end_line: null,
-              end_offset: null,
-              file_record_id: 'file-1',
-              id: 'chunk-1',
-              start_line: null,
-              start_offset: null,
-              token_count: 6,
-              updated_at: '2026-06-23T08:45:00.000Z',
-            },
-          ],
-        };
-      }),
-      transaction: vi.fn(async () => {
-        throw new Error('update should not open a transaction');
-      }),
+      exec,
+      query,
+      transaction: vi.fn(async (callback) => callback({ exec, query })),
     };
     const fakeRepository = new TursoFileChunkRepository(fakeDb);
 
@@ -798,21 +798,293 @@ describe('TursoFileChunkRepository', () => {
     await expect(repository.findAll()).resolves.toEqual([]);
   });
 
+  it('returns grep candidates with Turso filters, ordering, and root metadata', async () => {
+    await client.exec(
+      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
+      [
+        'root-a',
+        'path',
+        'Root A',
+        '/workspace/root-a',
+        'live',
+        '2026-06-23T07:00:00.000Z',
+        'root-b',
+        'path',
+        'Root B',
+        '/workspace/root-b',
+        'live',
+        '2026-06-23T07:00:00.000Z',
+      ]
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-a', name: 'alpha.ts', path: 'src/alpha.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-b', name: 'beta.ts', path: 'src/beta.ts' })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-c', name: 'gamma.ts', path: 'src/gamma.ts' })
+    );
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-a', 'file-a']);
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-b', 'file-b']);
+    await client.exec('UPDATE file_records SET root_id = ? WHERE id = ?', ['root-a', 'file-c']);
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 1,
+        content: 'const answer = 42;\nconst answerAgain = answer;',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-a',
+        id: 'chunk-a',
+        startLine: 10,
+      }),
+      createChunk({
+        content: 'const Answer = 99;',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-b',
+        id: 'chunk-b',
+        startLine: 3,
+      }),
+      createChunk({
+        content: 'const answer = 100;',
+        embeddingSetId: 'set-b',
+        fileRecordId: 'file-c',
+        id: 'chunk-c',
+        startLine: 1,
+      }),
+      createChunk({
+        chunkIndex: 2,
+        content: 'const percent = "100%_done";',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-a',
+        id: 'chunk-d',
+        startLine: 20,
+      }),
+    ]);
+
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        embeddingSetId: 'set-a',
+        filePaths: ['src/beta.ts', 'src/alpha.ts'],
+        likePattern: 'answer',
+        limit: 10,
+        rootId: 'root-a',
+      })
+    ).resolves.toEqual([
+      {
+        content: 'const answer = 42;\nconst answerAgain = answer;',
+        filePath: 'src/alpha.ts',
+        rootId: 'root-a',
+        rootName: 'Root A',
+        startLine: 10,
+      },
+    ]);
+
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: true,
+        likePattern: 'answer',
+        limit: 10,
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({ filePath: 'src/alpha.ts' }),
+      expect.objectContaining({ filePath: 'src/gamma.ts' }),
+    ]);
+
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: 'answer',
+        limit: 1,
+      })
+    ).resolves.toHaveLength(1);
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: '100\\%\\_done',
+        limit: 10,
+      })
+    ).resolves.toEqual([expect.objectContaining({ filePath: 'src/alpha.ts', startLine: 20 })]);
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        filePaths: [],
+        likePattern: 'answer',
+        limit: 10,
+      })
+    ).resolves.toEqual([]);
+  });
+
+  it('runs bounded Turso grep candidate scans when no prefilter literal is available', async () => {
+    await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-2', name: 'two.ts', path: 'src/two.ts' })
+    );
+    await repository.insertMany([
+      createChunk({ chunkIndex: 1, fileRecordId: 'file-1', id: 'chunk-2' }),
+      createChunk({ chunkIndex: 0, fileRecordId: 'file-1', id: 'chunk-1' }),
+      createChunk({ fileRecordId: 'file-2', id: 'chunk-3' }),
+    ]);
+
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: null,
+        limit: 2,
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({ filePath: 'src/index.ts', startLine: null }),
+      expect.objectContaining({ filePath: 'src/index.ts', startLine: null }),
+    ]);
+  });
+
+  it('maintains a Turso grep content index for chunk insert, update, and delete', async () => {
+    await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
+
+    await repository.insert(
+      createChunk({
+        content: 'Alpha Beta',
+        id: 'chunk-1',
+      })
+    );
+
+    await expect(readChunkContentIndex(client, 'chunk-1')).resolves.toEqual({
+      normalized_content: 'alpha beta',
+    });
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.toEqual(
+      expect.arrayContaining([{ gram: 'alp' }, { gram: 'bet' }])
+    );
+    await expect(readChunkContentGrams(client, 'chunk-1', 1)).resolves.toEqual(
+      expect.arrayContaining([{ gram: 'Alp' }, { gram: 'Bet' }])
+    );
+
+    await repository.update({
+      content: 'Gamma Delta',
+      contentHash: 'hash-gamma-delta',
+      id: 'chunk-1',
+      updatedAt: '2026-06-23T08:50:00.000Z',
+    });
+
+    await expect(readChunkContentIndex(client, 'chunk-1')).resolves.toEqual({
+      normalized_content: 'gamma delta',
+    });
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.toEqual(
+      expect.arrayContaining([{ gram: 'gam' }, { gram: 'del' }])
+    );
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.not.toEqual(
+      expect.arrayContaining([{ gram: 'alp' }])
+    );
+
+    await repository.delete('chunk-1');
+
+    await expect(readChunkContentIndex(client, 'chunk-1')).resolves.toBeUndefined();
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.toEqual([]);
+  });
+
+  it('rolls back public content updates when Turso grep index maintenance fails', async () => {
+    await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
+    await repository.insert(
+      createChunk({
+        content: 'Alpha Beta',
+        contentHash: 'hash-alpha-beta',
+        id: 'chunk-1',
+      })
+    );
+    await client.exec(`
+      CREATE TRIGGER fail_grep_content_index_insert
+      BEFORE INSERT ON file_chunk_content_index
+      BEGIN
+        SELECT RAISE(ABORT, 'forced grep content index failure');
+      END
+    `);
+
+    await expect(
+      repository.update({
+        content: 'Gamma Delta',
+        contentHash: 'hash-gamma-delta',
+        id: 'chunk-1',
+        updatedAt: '2026-06-23T08:55:00.000Z',
+      })
+    ).rejects.toThrow('forced grep content index failure');
+
+    await expect(repository.findById('chunk-1')).resolves.toMatchObject({
+      content: 'Alpha Beta',
+      contentHash: 'hash-alpha-beta',
+    });
+    await expect(readChunkContentIndex(client, 'chunk-1')).resolves.toEqual({
+      normalized_content: 'alpha beta',
+    });
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.toEqual(
+      expect.arrayContaining([{ gram: 'alp' }])
+    );
+    await expect(readChunkContentGrams(client, 'chunk-1', 0)).resolves.not.toEqual(
+      expect.arrayContaining([{ gram: 'gam' }])
+    );
+  });
+
+  it('rejects unsafe Turso grep candidate limits before they reach SQLite LIMIT', async () => {
+    await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
+    await repository.insert(createChunk({ id: 'chunk-1' }));
+
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: 'answer',
+        limit: -1,
+      })
+    ).rejects.toThrow('Invalid grep candidate limit: -1');
+    await expect(
+      repository.findGrepCandidates({
+        caseSensitive: false,
+        likePattern: 'answer',
+        limit: 501,
+      })
+    ).rejects.toThrow('grep candidate limit 501 exceeds maximum 500');
+  });
+
+  it('selects literal grep candidates from the Turso content gram index', async () => {
+    let capturedSql = '';
+    let capturedParams: readonly unknown[] = [];
+    const indexedRepository = new TursoFileChunkRepository({
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+        capturedSql = sql;
+        capturedParams = params ?? [];
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async () => {
+        throw new Error('findGrepCandidates should not open a transaction');
+      }),
+    });
+
+    await indexedRepository.findGrepCandidates({
+      caseSensitive: false,
+      likePattern: 'Needle',
+      limit: 10,
+    });
+
+    expect(capturedSql).toContain('FROM file_chunk_content_grams gc');
+    expect(capturedSql).toContain('JOIN file_chunk_content_index fci');
+    expect(capturedSql).toContain('instr(fci.normalized_content, ?)');
+    expect(capturedSql).not.toContain('lower(fc.content)');
+    expect(capturedParams).toEqual(expect.arrayContaining(['nee', 'eed', 'edl', 'dle', 0, 4]));
+
+    const plan = await client.query<{ detail: string }>(
+      `EXPLAIN QUERY PLAN ${capturedSql}`,
+      capturedParams
+    );
+    const planDetails = plan.rows.map((row) => row.detail).join('\n');
+    expect(planDetails).toContain('file_chunk_content_grams');
+    expect(planDetails).not.toMatch(/\bSCAN file_chunks\b/);
+  });
+
   it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
     await expect(repository.searchSimilar([0.1, 0.2, 0.3])).rejects.toThrow(
       'TursoFileChunkRepository.searchSimilar requires the Turso vector search slice.'
     );
     await expect(repository.fullTextSearch('answer')).rejects.toThrow(
       'TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.'
-    );
-    await expect(
-      repository.findGrepCandidates({
-        caseSensitive: false,
-        likePattern: 'answer',
-        limit: 10,
-      })
-    ).rejects.toThrow(
-      'TursoFileChunkRepository.findGrepCandidates requires the Turso grep search slice.'
     );
   });
 });
@@ -883,4 +1155,31 @@ async function insertRawEmbeddingJob(
       '2026-06-23T08:20:00.000Z',
     ]
   );
+}
+
+async function readChunkContentIndex(
+  client: TursoOwnerClient,
+  fileChunkId: string
+): Promise<{ normalized_content: string } | undefined> {
+  const result = await client.query<{ normalized_content: string }>(
+    'SELECT normalized_content FROM file_chunk_content_index WHERE file_chunk_id = ?',
+    [fileChunkId]
+  );
+  return result.rows[0];
+}
+
+async function readChunkContentGrams(
+  client: TursoOwnerClient,
+  fileChunkId: string,
+  caseSensitive: 0 | 1
+): Promise<readonly { gram: string }[]> {
+  const result = await client.query<{ gram: string }>(
+    `SELECT gram
+       FROM file_chunk_content_grams
+      WHERE file_chunk_id = ?
+        AND case_sensitive = ?
+      ORDER BY gram`,
+    [fileChunkId, caseSensitive]
+  );
+  return result.rows;
 }
