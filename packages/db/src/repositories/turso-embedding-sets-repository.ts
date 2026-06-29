@@ -336,6 +336,15 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
              )`,
         [id, id]
       );
+      await tx.exec(
+        `UPDATE file_records
+            SET embedding_set_id = NULL,
+                chunks_processed_at = NULL,
+                chunks_count = NULL,
+                chunking_strategy = NULL
+          WHERE embedding_set_id = ?`,
+        [id]
+      );
       await tx.exec('DELETE FROM embedding_sets WHERE id = ?', [id]);
     });
     return true;
