@@ -60,12 +60,12 @@ as the implementation backlog.
 - #1358 `Gate Turso semantic retrieval by bootstrap`
 - #1359 `Gate scheduled desktop database and dimension-index maintenance by runtime`
 - #1360 `Fix Turso inherited chunk stats`
-- Current slice: harden Turso job queue write-contention symmetry. Queue
-  completion, embedding-chunk completion, heartbeat, failure/retry,
-  cancel/clear/prune/expire, and failed-job reset paths now use the same
-  transient Turso write retry policy as enqueue and claim. Multi-row
-  completion/failure/reset paths run inside transactions so retry does not hide
-  partial writes or emit telemetry before commit.
+- #1361 `Fix Turso baseline seed upgrades`
+- #1362 `Fix Turso queue write contention retries`
+- Current slice: make Turso embedding-set deletion clear stale
+  `file_records` embedding metadata in the same transaction that deletes jobs,
+  stats, chunks, and the embedding-set row. File records remain available for
+  future reindexing, but no longer point at a deleted embedding set.
 
 ## Turso Docs Guardrail
 
@@ -186,6 +186,11 @@ Current Turso repository/runtime coverage:
   grep gram backfills only run for historical baselines whose upgrade DDL
   introduced those sidecar tables; v5-to-v6 reseeding leaves existing generated
   gram rows untouched.
+- Turso embedding-set deletion now keeps durable `file_records` but clears
+  `embedding_set_id`, `chunks_processed_at`, `chunks_count`, and
+  `chunking_strategy` for rows that belonged to the deleted set after deleting
+  effective-member chunks. This prevents stale file rows from surfacing under a
+  deleted embedding set while preserving the file identity for future reindexing.
 
 ## Non-Negotiable Migration Rules
 
@@ -387,8 +392,7 @@ Concrete blockers:
   table-targeted `VACUUM`), and dimension-index maintenance still builds
   pgvector HNSW SQL. Neither path is translated inline for Turso.
 - Post-merge retrospective follow-ups still need focused slices: owner-client
-  timeout/QoS diagnostics, explicit embedding-set delete semantics for
-  `file_records`, and Turso corruption diagnostics/recovery.
+  timeout/QoS diagnostics and Turso corruption diagnostics/recovery.
 
 Preferred next slice: add a Turso maintenance implementation only for
 operations that are meaningful under SQLite/Turso, then wire that implementation

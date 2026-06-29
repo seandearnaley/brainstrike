@@ -247,7 +247,7 @@ describe('TursoEmbeddingSetsRepository', () => {
     await expect(repository.getById(created.id)).resolves.toBeNull();
   });
 
-  it('deletes chunks associated with the set while leaving file records', async () => {
+  it('deletes chunks associated with the set while clearing file record embedding metadata', async () => {
     const created = await repository.getOrCreateSet(
       'openai:text-embedding-3-small',
       'text-embedding-3-small',
@@ -255,9 +255,18 @@ describe('TursoEmbeddingSetsRepository', () => {
       'cosine'
     );
     await client.query(
-      `INSERT INTO file_records (id, name, path, size, embedding_set_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['file-1', 'file.md', '/file.md', 12, created.id]
+      `INSERT INTO file_records (
+         id,
+         name,
+         path,
+         size,
+         embedding_set_id,
+         chunks_processed_at,
+         chunks_count,
+         chunking_strategy
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['file-1', 'file.md', '/file.md', 12, created.id, '2026-06-29T18:00:00.000Z', 2, 'sentence']
     );
     await client.query(
       `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
@@ -281,8 +290,35 @@ describe('TursoEmbeddingSetsRepository', () => {
       )
     ).resolves.toEqual({ rows: [] });
     await expect(
-      client.query<{ id: string }>('SELECT id FROM file_records WHERE id = ?', ['file-1'])
-    ).resolves.toEqual({ rows: [{ id: 'file-1' }] });
+      client.query<{
+        chunking_strategy: string | null;
+        chunks_count: number | null;
+        chunks_processed_at: string | null;
+        embedding_set_id: string | null;
+        id: string;
+      }>(
+        `SELECT id, embedding_set_id, chunks_processed_at, chunks_count, chunking_strategy
+           FROM file_records
+          WHERE id = ?`,
+        ['file-1']
+      )
+    ).resolves.toEqual({
+      rows: [
+        {
+          chunking_strategy: null,
+          chunks_count: 0,
+          chunks_processed_at: null,
+          embedding_set_id: null,
+          id: 'file-1',
+        },
+      ],
+    });
+    await expect(
+      client.query<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM file_records WHERE embedding_set_id = ?',
+        [created.id]
+      )
+    ).resolves.toEqual({ rows: [{ count: 0 }] });
     await expect(
       client.query<{ id: string }>('SELECT id FROM job_queue WHERE id = ?', ['job-1'])
     ).resolves.toEqual({ rows: [] });
