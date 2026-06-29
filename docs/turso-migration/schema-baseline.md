@@ -38,7 +38,8 @@ Catalog reseeding preserves existing `is_enabled` toggles.
 - Booleans are `INTEGER CHECK (... IN (0, 1))`.
 - JSON-like values are validated JSON text.
 - Timestamps are UTC ISO-like text using SQLite `strftime`.
-- Embedding columns are `BLOB` placeholders for Turso vector data.
+- Embedding columns are `BLOB` at the schema layer; repository-authored
+  embeddings use Turso `vector32(?)` payloads.
 - Quick-open filename search uses `file_record_name_index` plus
   `file_record_name_grams` in the primary store. The normalized-name sidecar
   gives SQLite an exact substring guard while the gram table supplies indexed

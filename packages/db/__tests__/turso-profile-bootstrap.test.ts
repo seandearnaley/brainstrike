@@ -8,7 +8,7 @@ describe('Turso profile bootstrap', () => {
     const pragmaSql: string[] = [];
     const close = vi.fn(async () => undefined);
     const database = {
-      all: async (source: string) => {
+      all: async (source: string, params?: readonly unknown[]) => {
         querySql.push(source);
         if (source.includes('idx_file_chunk_content_grams_lookup')) {
           return [
@@ -16,6 +16,10 @@ describe('Turso profile bootstrap', () => {
             { name: 'file_chunk_content_grams', type: 'table' },
             { name: 'idx_file_chunk_content_grams_lookup', type: 'index' },
           ];
+        }
+        if (source.includes('vector_distance_cos')) {
+          expect(params).toEqual(['[1,0]', '[1,0]', '[1,0]', '[1,0]']);
+          return [{ cos_distance: 0, dot_distance: -1, extracted: '[1,0]', l2_distance: 0 }];
         }
         return [];
       },
@@ -76,10 +80,59 @@ describe('Turso profile bootstrap', () => {
       expect.objectContaining({ id: 'primary-store.mvcc', status: 'passed' }),
       expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
       expect.objectContaining({ id: 'search.grep-content-grams', status: 'passed' }),
+      expect.objectContaining({ id: 'search.vector32-functions', status: 'passed' }),
       expect.objectContaining({ id: 'search.ownership', status: 'passed' }),
       expect.objectContaining({ id: 'store.close', status: 'passed' }),
     ]);
     expect(report.blockingIssues).toEqual([]);
+  });
+
+  it('fails closed when Turso vector search functions are unavailable', async () => {
+    const close = vi.fn(async () => undefined);
+    const database = {
+      all: async (source: string) => {
+        if (source.includes('idx_file_chunk_content_grams_lookup')) {
+          return [
+            { name: 'file_chunk_content_index', type: 'table' },
+            { name: 'file_chunk_content_grams', type: 'table' },
+            { name: 'idx_file_chunk_content_grams_lookup', type: 'index' },
+          ];
+        }
+        if (source.includes('vector_distance_cos')) {
+          throw new Error('no such function: vector32');
+        }
+        return [];
+      },
+      close,
+      exec: async () => undefined,
+      pragma: async () => [{ journal_mode: 'mvcc' }],
+      run: async () => undefined,
+    };
+
+    const report = await runTursoProfileBootstrap({
+      dbPath: '/tmp/brainstrike-turso/profile.db',
+      generatedAt: createClock(),
+      openDatabase: async () => database,
+      profileId: 'branch-turso',
+    });
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(report.bootstrapReport).toMatchObject({
+      failure: {
+        code: 'turso_profile_bootstrap_failed',
+        message: 'no such function: vector32',
+        phase: 'probing-capabilities',
+      },
+      phase: 'failed',
+      ready: false,
+    });
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'search.vector32-functions',
+        message: 'no such function: vector32',
+        status: 'failed',
+      })
+    );
   });
 
   it('fails closed when MVCC mode returns a different applied journal mode', async () => {

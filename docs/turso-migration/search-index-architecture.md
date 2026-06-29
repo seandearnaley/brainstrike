@@ -4,7 +4,11 @@
 
 The Turso capability spike is ready for the next migration phase only if Brainstrike does not require Turso FTS custom indexes to live in the same MVCC-enabled database file as the primary writable store.
 
-This readiness is a capability and planning checkpoint. It does not mean production Turso search repositories are implemented yet; the next runtime/bootstrap slices must expose the selected search ownership mode before any search tool or UI path can rely on it.
+This readiness is a capability and planning checkpoint. The current migration
+branch now exposes the selected search ownership mode in the Turso bootstrap
+report and has primary-store implementations for bounded grep candidates and
+native vector similarity. It does not mean FTS snippets or hybrid search are
+implemented yet.
 
 The verified capabilities are:
 
@@ -37,8 +41,17 @@ Do not silently replace indexed search with an unbounded scan. If a search index
 - `packages/db/src/drizzle/migrate.ts`: current migration runner is PGlite/Postgres specific. Turso migration work should add a separate migration ledger instead of forcing existing generated SQL through libSQL.
 - `apps/desktop/src/db-main.ts`: desktop remains the likely owner for filesystem Turso runtime and bootstrap reporting.
 
-## Next Implementation Step
+## Current Implementation Step
 
-The Turso profile bootstrap contract now opens the primary MVCC store and returns a typed capability report with `search.ownershipMode = "split-search-index-store"` before production repository wiring. See `docs/turso-migration/profile-bootstrap.md`.
+The Turso profile bootstrap contract opens the primary MVCC store and returns a
+typed capability report with `search.ownershipMode = "split-search-index-store"`.
+It also requires concrete search checks before the desktop DB host accepts a
+ready Turso report:
 
-Next, introduce the Turso owner client/adapter behind the desktop DB host. Do not route query, search, or UI paths through Turso until the host returns an initialized Turso execution surface instead of the current fail-closed bootstrap-only report.
+- `search.grep-content-grams` for bounded indexed grep candidate lookup.
+- `search.vector32-functions` for native `vector32(?)` similarity retrieval.
+
+Desktop assistant grep and semantic vector retrieval are routed through those
+proofs. FTS snippets and hybrid retrieval remain split-index work: do not route
+them through Turso until their owning search store and capability checks are
+implemented.

@@ -1,4 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent';
+import type { BrainstrikeDbTransactionClient } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -6,21 +7,29 @@ const {
   embedMock,
   findByIdsMock,
   getDatabaseMock,
+  getDatabaseRuntimeDiagnosticsMock,
   getKeyMock,
   loggerError,
   loggerWarn,
   resolveHostedProviderApiKeyMock,
   searchSimilarMock,
+  tursoFindByIdsMock,
+  tursoGetEmbeddingSetByIdMock,
+  tursoSearchSimilarMock,
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   embedMock: vi.fn(),
   findByIdsMock: vi.fn(),
   getDatabaseMock: vi.fn(),
+  getDatabaseRuntimeDiagnosticsMock: vi.fn(),
   getKeyMock: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
   resolveHostedProviderApiKeyMock: vi.fn(),
   searchSimilarMock: vi.fn(),
+  tursoFindByIdsMock: vi.fn(),
+  tursoGetEmbeddingSetByIdMock: vi.fn(),
+  tursoSearchSimilarMock: vi.fn(),
 }));
 
 vi.mock('@brainstrike/agent', async () => {
@@ -104,6 +113,30 @@ vi.mock('@brainstrike/db', () => ({
       return findByIdsMock(ids);
     }
   },
+  TursoEmbeddingSetsRepository: class {
+    getById(id: string) {
+      return tursoGetEmbeddingSetByIdMock(id);
+    }
+  },
+  TursoFileChunkRepository: class {
+    searchSimilar(
+      embedding: number[],
+      options: {
+        limit: number;
+        threshold: number;
+        embeddingSetId: string;
+        filePaths?: string[];
+        selectionSnapshotId?: string;
+      }
+    ) {
+      return tursoSearchSimilarMock(embedding, options);
+    }
+  },
+  TursoFileRecordRepository: class {
+    findByIds(ids: readonly string[]) {
+      return tursoFindByIdsMock(ids);
+    }
+  },
 }));
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
@@ -159,6 +192,7 @@ vi.mock('@brainstrike/text-splitter', () => ({
 
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
+  getDatabaseRuntimeDiagnostics: getDatabaseRuntimeDiagnosticsMock,
 }));
 
 vi.mock('../../secrets', () => ({
@@ -176,12 +210,55 @@ import {
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
 
+  function createReadyTursoDiagnostics() {
+    return {
+      profileBootstrapReport: {
+        checks: [
+          {
+            id: 'search.vector32-functions',
+            label: 'Turso vector32 similarity functions are available',
+            required: true,
+            status: 'passed',
+          },
+        ],
+        failure: null,
+        phase: 'ready',
+        profileId: 'profile-turso',
+        ready: true,
+        runtime: {
+          engine: 'turso',
+          host: 'electron-utility',
+          persistence: 'filesystem',
+        },
+        search: {
+          indexedSearch: 'available',
+          message: 'test search ready',
+          ownershipMode: 'split-search-index-store',
+        },
+        startedAt: '2026-06-29T11:00:00.000Z',
+        updatedAt: '2026-06-29T11:00:01.000Z',
+      },
+    };
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValue(createReadyTursoDiagnostics());
     getKeyMock.mockResolvedValue('test-api-key');
     resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
     embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
     findByIdsMock.mockResolvedValue([
+      {
+        id: 'file-1',
+        name: 'file.ts',
+        path: '/repo/file.ts',
+        tokenCount: 42,
+        size: 123,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    tursoFindByIdsMock.mockResolvedValue([
       {
         id: 'file-1',
         name: 'file.ts',
@@ -211,6 +288,33 @@ describe('retrieval-tool', () => {
         rank: 1,
       },
     ]);
+    tursoSearchSimilarMock.mockResolvedValue([
+      {
+        chunk: {
+          id: 'chunk-1',
+          content: 'Hello Turso world',
+          tokenCount: 4,
+          chunkIndex: 0,
+          startLine: 10,
+          endLine: 12,
+          startOffset: 120,
+          endOffset: 155,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.9,
+        rank: 1,
+      },
+    ]);
+    tursoGetEmbeddingSetByIdMock.mockResolvedValue({
+      id: 'explicit-set',
+      modelKey: 'openai:text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
+      dimensions: 2,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+    });
 
     dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
       if (sql.includes('FROM embedding_sets')) {
@@ -239,6 +343,12 @@ describe('retrieval-tool', () => {
       capabilities: { liveQuery: false },
       query: dbQueryMock,
     });
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
+      profileBootstrapReport: {
+        ...createReadyTursoDiagnostics().profileBootstrapReport,
+        checks: [],
+      },
+    });
 
     await expect(
       runQueryEmbeddingSpace(
@@ -252,10 +362,101 @@ describe('retrieval-tool', () => {
           workspaceIndexStatusState: 'idle',
         }
       )
-    ).rejects.toThrow(
-      'brainstrike.queryEmbeddingSpace is unavailable while the desktop database runtime is Turso'
-    );
+    ).rejects.toThrow('brainstrike.queryEmbeddingSpace requires a ready Turso bootstrap report');
     expect(dbQueryMock).not.toHaveBeenCalled();
+    expect(searchSimilarMock).not.toHaveBeenCalled();
+    expect(tursoSearchSimilarMock).not.toHaveBeenCalled();
+  });
+
+  it('runs Turso vector retrieval only when the bootstrap vector check passed', async () => {
+    getDatabaseMock.mockResolvedValueOnce({
+      capabilities: { liveQuery: false },
+      query: dbQueryMock,
+      transaction: vi.fn(),
+      exec: vi.fn(),
+    });
+
+    const result = await runQueryEmbeddingSpace(
+      {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+      {
+        workspaceIndexEmbeddingSetId: 'workspace-index-set',
+        workspaceIndexingEnabled: true,
+        workspaceIndexStatusState: 'idle',
+      }
+    );
+
+    expect(result.embeddingSetId).toBe('explicit-set');
+    expect(getDatabaseRuntimeDiagnosticsMock).toHaveBeenCalledTimes(1);
+    expect(tursoGetEmbeddingSetByIdMock).toHaveBeenCalledWith('explicit-set');
+    expect(tursoSearchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+    expect(tursoFindByIdsMock).toHaveBeenCalledWith(['file-1']);
+    expect(searchSimilarMock).not.toHaveBeenCalled();
+    expect(findByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it('creates Turso selection snapshots inside a transaction for large file-path filters', async () => {
+    const transactionExecMock = vi.fn(async () => undefined);
+    const transactionClient: BrainstrikeDbTransactionClient = {
+      exec: transactionExecMock,
+      query: dbQueryMock as BrainstrikeDbTransactionClient['query'],
+    };
+    const transactionMock = vi.fn(
+      async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ): Promise<TResult> => callback(transactionClient)
+    );
+    getDatabaseMock.mockResolvedValueOnce({
+      capabilities: { liveQuery: false },
+      exec: vi.fn(),
+      query: dbQueryMock,
+      transaction: transactionMock,
+    });
+    const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
+
+    const result = await runQueryEmbeddingSpace(
+      {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+        filePaths,
+      },
+      {
+        workspaceIndexEmbeddingSetId: 'workspace-index-set',
+        workspaceIndexingEnabled: true,
+        workspaceIndexStatusState: 'idle',
+      }
+    );
+
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(result.selectionSnapshotId).toEqual(
+      expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    );
+    expect(transactionExecMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('DELETE FROM selection_snapshots')
+    );
+    expect(transactionExecMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('INSERT INTO selection_snapshots'),
+      [result.selectionSnapshotId, expect.stringMatching(/Z$/)]
+    );
+    expect(transactionExecMock).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT OR IGNORE INTO selection_snapshot_files'),
+      expect.arrayContaining([result.selectionSnapshotId, 'file-0.ts'])
+    );
+    expect(tursoSearchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+      selectionSnapshotId: result.selectionSnapshotId,
+    });
+    expect(tursoSearchSimilarMock.mock.calls[0]?.[1]).not.toHaveProperty('filePaths');
     expect(searchSimilarMock).not.toHaveBeenCalled();
   });
 

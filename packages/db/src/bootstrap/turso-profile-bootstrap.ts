@@ -49,6 +49,7 @@ type TursoProfileBootstrapCheckId =
   | 'primary-store.mvcc'
   | 'schema.baseline'
   | 'search.grep-content-grams'
+  | 'search.vector32-functions'
   | 'search.ownership'
   | 'store.close'
   | 'store.open';
@@ -74,6 +75,11 @@ const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: 'search.grep-content-grams',
     label: 'Turso grep content gram index is available',
+    required: true,
+  },
+  {
+    id: 'search.vector32-functions',
+    label: 'Turso vector32 similarity functions are available',
     required: true,
   },
   {
@@ -122,6 +128,8 @@ export async function runTursoProfileBootstrap(
     checks = setCheck(checks, 'schema.baseline', 'passed');
     await assertTursoGrepContentGramIndex(db);
     checks = setCheck(checks, 'search.grep-content-grams', 'passed');
+    await assertTursoVectorSearchFunctions(db);
+    checks = setCheck(checks, 'search.vector32-functions', 'passed');
     checks = setCheck(checks, 'search.ownership', 'passed', TURSO_SPLIT_SEARCH_OWNERSHIP.message);
 
     bootstrapReport = createProfileBootstrapReport({
@@ -330,6 +338,45 @@ async function assertTursoGrepContentGramIndex(
   }
 }
 
+async function assertTursoVectorSearchFunctions(
+  database: TursoProfileExecutionDatabase
+): Promise<void> {
+  const rows = await database.all(
+    `SELECT
+       vector_distance_cos(vector32(?), vector32('[1,0]')) AS cos_distance,
+       vector_distance_l2(vector32(?), vector32('[1,0]')) AS l2_distance,
+       vector_distance_dot(vector32(?), vector32('[1,0]')) AS dot_distance,
+       vector_extract(vector32(?)) AS extracted`,
+    ['[1,0]', '[1,0]', '[1,0]', '[1,0]']
+  );
+  const firstRow = rows[0];
+  if (!firstRow || typeof firstRow !== 'object') {
+    throw new Error('Turso vector search probe returned no row.');
+  }
+  const row = firstRow as {
+    readonly cos_distance?: unknown;
+    readonly dot_distance?: unknown;
+    readonly extracted?: unknown;
+    readonly l2_distance?: unknown;
+  };
+  assertFiniteVectorProbeNumber(row.cos_distance, 'vector_distance_cos');
+  assertFiniteVectorProbeNumber(row.l2_distance, 'vector_distance_l2');
+  assertFiniteVectorProbeNumber(row.dot_distance, 'vector_distance_dot');
+  if (typeof row.extracted !== 'string' || !row.extracted.includes('1')) {
+    throw new Error('Turso vector_extract probe returned an invalid vector payload.');
+  }
+}
+
+function assertFiniteVectorProbeNumber(value: unknown, functionName: string): void {
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim().length > 0)) {
+    throw new Error(`${functionName} probe did not return a finite number.`);
+  }
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${functionName} probe did not return a finite number.`);
+  }
+}
+
 function getFailureAttribution(
   error: unknown,
   checks: readonly ProfileBootstrapCheck[],
@@ -359,6 +406,9 @@ function getFailureCheckId(
   }
   if (!checkPassed(checks, 'search.grep-content-grams')) {
     return 'search.grep-content-grams';
+  }
+  if (!checkPassed(checks, 'search.vector32-functions')) {
+    return 'search.vector32-functions';
   }
   return 'search.ownership';
 }

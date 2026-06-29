@@ -18,11 +18,19 @@ Current behavior:
 2. Open `<profile>/turso-primary.db`.
 3. Enable `PRAGMA journal_mode = 'mvcc'`.
 4. Apply the Turso greenfield schema baseline through `brainstrike_turso_schema_ledger`.
-5. Return a ready bootstrap report with `search.ownershipMode = "split-search-index-store"`.
-6. Open a long-lived Turso owner client for the same primary database.
-7. Return `initialized: true` only after the Turso owner handle is live, with `capabilities.liveQuery = false`.
+5. Prove the required Turso search primitives:
+   `search.grep-content-grams` and `search.vector32-functions`.
+6. Return a ready bootstrap report with `search.ownershipMode = "split-search-index-store"`.
+7. Open a long-lived Turso owner client for the same primary database.
+8. Return `initialized: true` only after the Turso owner handle is live, with `capabilities.liveQuery = false`.
 
-The host manager validates Turso reports against Turso-required checks (`store.open`, `primary-store.mvcc`, `schema.baseline`, `search.ownership`, `store.close`) and still rejects any ready report that does not include an initialized owner client and an explicit capability contract. This prevents silent fallback to PGlite while Turso-specific repositories and search ownership are still being converted.
+The host manager validates Turso reports against Turso-required checks
+(`store.open`, `primary-store.mvcc`, `schema.baseline`,
+`search.grep-content-grams`, `search.vector32-functions`,
+`search.ownership`, `store.close`) and still rejects any ready report that
+does not include an initialized owner client and an explicit capability
+contract. This prevents silent fallback to PGlite while Turso-specific
+repositories and search ownership are still being converted.
 
 `initialized` means the current engine-specific execution surface is open. It does not mean every PGlite capability exists. Turso live queries are rejected locally by the remote DB client before any `live:start` request is sent to the host.
 
@@ -54,8 +62,10 @@ The baseline intentionally omits PGlite/Postgres-only physical features:
 - historical backfills for pre-Turso user data.
 
 JSON-like values use validated JSON text and booleans use integer `0`/`1`.
-Embedding columns are stored as Turso-compatible `BLOB` placeholders until the
-repository/search slices bind them to Turso vector APIs.
+Embedding columns are `BLOB` at the schema layer. Repository-authored
+embeddings are stored with Turso `vector32(?)` payloads and the bootstrap
+report proves the required vector functions before assistant semantic retrieval
+can use them.
 
 ## Repository Coverage
 
@@ -122,9 +132,9 @@ compatibility.
 
 ## Next Touchpoint
 
-The next low-vector-risk slice is a required Turso vector-search bootstrap
-check plus desktop assistant `brainstrike.queryEmbeddingSpace` re-enable behind
-that proof. Quick-open filename lookup and grep already use primary-store gram
-candidate tables because they only need bounded substring search. FTS snippets
-and hybrid retrieval remain split-owned until
-`docs/turso-migration/search-index-architecture.md` is implemented.
+Desktop assistant `brainstrike.queryEmbeddingSpace` is enabled for Turso only
+when the ready bootstrap report proves `search.vector32-functions`. Quick-open
+filename lookup and grep already use primary-store gram candidate tables because
+they only need bounded substring search. FTS snippets and hybrid retrieval
+remain split-owned until `docs/turso-migration/search-index-architecture.md` is
+implemented.

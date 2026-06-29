@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   ContextPackerChunk,
   ContextPackerResult,
@@ -16,8 +17,20 @@ import {
   RetrievalContextInputSchema,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
-import type { ChunkSearchResult } from '@brainstrike/db';
-import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
+import type {
+  BrainstrikeDbExecutionClient,
+  ChunkSearchOptions,
+  ChunkSearchResult,
+  EmbeddingSet,
+  FileRecord,
+} from '@brainstrike/db';
+import {
+  FileChunkRepository,
+  FileRecordRepository,
+  TursoEmbeddingSetsRepository,
+  TursoFileChunkRepository,
+  TursoFileRecordRepository,
+} from '@brainstrike/db';
 import {
   CohereEmbeddingProvider,
   type EmbeddingProviderType,
@@ -34,7 +47,7 @@ import {
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
-import { getDatabase } from '../db-main';
+import { getDatabase, getDatabaseRuntimeDiagnostics } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
 import { resolveWorkspaceRoot } from './workspace-roots';
@@ -77,9 +90,11 @@ const ERROR_MESSAGES = {
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   tursoUnavailable:
-    'brainstrike.queryEmbeddingSpace is unavailable while the desktop database runtime is Turso; Turso vector retrieval is not migrated yet.',
+    'brainstrike.queryEmbeddingSpace requires a ready Turso bootstrap report with search.vector32-functions passed.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
+
+const TURSO_VECTOR_SEARCH_CHECK_ID = 'search.vector32-functions';
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
@@ -131,6 +146,25 @@ type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
+type PgliteRetrievalDatabase = PGlite;
+type TursoRetrievalDatabase = BrainstrikeDbExecutionClient;
+type RetrievalDatabase = PgliteRetrievalDatabase | TursoRetrievalDatabase;
+
+interface ChunkSearchRepository {
+  searchSimilar(
+    embedding: number[],
+    options: ChunkSearchOptions
+  ): Promise<readonly ChunkSearchResult[]>;
+}
+
+interface FileRecordLookupRepository {
+  findByIds(ids: readonly string[]): Promise<readonly FileRecord[]>;
+}
+
+interface RetrievalRepositories {
+  readonly chunks: ChunkSearchRepository;
+  readonly files: FileRecordLookupRepository;
+}
 
 interface SkippedSourceRangeChunk {
   chunkId: string;
@@ -147,9 +181,23 @@ export interface RetrievalToolDependencies {
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
 }
 
-function assertPGliteRetrievalDatabase(db: unknown): asserts db is PGlite {
+function isTursoRetrievalDatabase(db: unknown): db is TursoRetrievalDatabase {
   const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
-  if (capabilities?.liveQuery === false) {
+  return capabilities?.liveQuery === false;
+}
+
+async function assertReadyTursoVectorBootstrap(): Promise<void> {
+  const diagnostics = await getDatabaseRuntimeDiagnostics();
+  const report = diagnostics.profileBootstrapReport;
+  const vectorCheck = report?.checks.find((check) => check.id === TURSO_VECTOR_SEARCH_CHECK_ID);
+  if (
+    !report?.ready ||
+    report.phase !== 'ready' ||
+    report.runtime.engine !== 'turso' ||
+    report.failure ||
+    vectorCheck?.required !== true ||
+    vectorCheck.status !== 'passed'
+  ) {
     throw new Error(ERROR_MESSAGES.tursoUnavailable);
   }
 }
@@ -244,6 +292,28 @@ async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<
   return row;
 }
 
+async function resolveTursoEmbeddingSet(
+  db: TursoRetrievalDatabase,
+  embeddingSetId: string
+): Promise<EmbeddingSetRow> {
+  let embeddingSet: EmbeddingSet | null;
+  try {
+    embeddingSet = await new TursoEmbeddingSetsRepository(db).getById(embeddingSetId);
+  } catch (error) {
+    logger.error('Failed to load Turso embedding set metadata', { embeddingSetId, error });
+    throw new Error(ERROR_MESSAGES.embeddingSetLookupFailed);
+  }
+  if (!(embeddingSet?.modelKey && embeddingSet.modelId && embeddingSet.dimensions)) {
+    throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
+  }
+  return {
+    dimensions: embeddingSet.dimensions,
+    distance: embeddingSet.distance,
+    modelId: embeddingSet.modelId,
+    modelKey: embeddingSet.modelKey,
+  };
+}
+
 async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   const secrets = getSecretsService();
   const fromSecrets = await secrets.getKey(provider);
@@ -308,10 +378,18 @@ function createHostedProvider(
   }
 }
 
-async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+async function createSelectionSnapshot(
+  db: RetrievalDatabase,
+  filePaths: readonly string[],
+  runtime: 'pglite' | 'turso'
+): Promise<string> {
   assertValidSelectionFilePaths(filePaths);
+  if (runtime === 'turso') {
+    return createTursoSelectionSnapshot(db as TursoRetrievalDatabase, filePaths);
+  }
+  const pgliteDb = db as PGlite;
   // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
-  void db
+  void pgliteDb
     .query(
       `DELETE FROM selection_snapshots
        WHERE expires_at IS NOT NULL
@@ -319,7 +397,7 @@ async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[])
     )
     .catch(() => {});
   const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
-  const snapshotResult = (await db.query(
+  const snapshotResult = (await pgliteDb.query(
     `INSERT INTO selection_snapshots (expires_at)
      VALUES ($1)
      RETURNING id`,
@@ -330,11 +408,41 @@ async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[])
     throw new Error(ERROR_MESSAGES.retrievalFailed);
   }
   assertValidSelectionSnapshotId(snapshotId);
-  await db.query(
+  await pgliteDb.query(
     `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
      SELECT $1, UNNEST($2::text[])`,
     [snapshotId, filePaths]
   );
+  return snapshotId;
+}
+
+async function createTursoSelectionSnapshot(
+  db: TursoRetrievalDatabase,
+  filePaths: readonly string[]
+): Promise<string> {
+  const snapshotId = randomUUID();
+  const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
+  await db.transaction(async (tx) => {
+    await tx.exec(
+      `DELETE FROM selection_snapshots
+       WHERE expires_at IS NOT NULL
+         AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
+    );
+    await tx.exec('INSERT INTO selection_snapshots (id, expires_at) VALUES (?, ?)', [
+      snapshotId,
+      expiresAt,
+    ]);
+    const batchSize = 250;
+    for (let offset = 0; offset < filePaths.length; offset += batchSize) {
+      const batch = filePaths.slice(offset, offset + batchSize);
+      const placeholders = batch.map(() => '(?, ?)').join(', ');
+      await tx.exec(
+        `INSERT OR IGNORE INTO selection_snapshot_files (snapshot_id, file_path)
+         VALUES ${placeholders}`,
+        batch.flatMap((filePath) => [snapshotId, filePath])
+      );
+    }
+  });
   return snapshotId;
 }
 
@@ -508,10 +616,37 @@ async function loadRootLabels(db: PGlite, ids: readonly string[]): Promise<Map<s
   );
 }
 
-async function buildFileRecordMap(
-  repository: FileRecordRepository,
-  db: PGlite,
+async function loadTursoRootLabels(
+  db: TursoRetrievalDatabase,
   ids: readonly string[]
+): Promise<Map<string, RootLabel>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const result = await db.query<{
+    id: string;
+    rootId: string | null;
+    rootName: string | null;
+  }>(
+    `SELECT fr.id, fr.root_id AS rootId, r.display_name AS rootName
+       FROM file_records fr
+       LEFT JOIN roots r ON r.id = fr.root_id
+      WHERE fr.id IN (${ids.map(() => '?').join(', ')})`,
+    Array.from(ids)
+  );
+  return new Map(
+    result.rows.map((row) => [
+      row.id,
+      { rootId: row.rootId ?? null, rootName: row.rootName ?? null },
+    ])
+  );
+}
+
+async function buildFileRecordMap(
+  repository: FileRecordLookupRepository,
+  db: RetrievalDatabase,
+  ids: readonly string[],
+  runtime: 'pglite' | 'turso'
 ): Promise<Map<string, FileRecordRow>> {
   const map = new Map<string, FileRecordRow>();
   if (ids.length === 0) {
@@ -519,7 +654,10 @@ async function buildFileRecordMap(
   }
   const uniqueIds = Array.from(new Set(ids));
   const records = await repository.findByIds(uniqueIds);
-  const rootLabels = await loadRootLabels(db, uniqueIds);
+  const rootLabels =
+    runtime === 'turso'
+      ? await loadTursoRootLabels(db as TursoRetrievalDatabase, uniqueIds)
+      : await loadRootLabels(db as PGlite, uniqueIds);
   for (const record of records) {
     const label = rootLabels.get(record.id);
     map.set(record.id, {
@@ -602,7 +740,8 @@ function assertEmbeddingDimensions(expected: number, actual: number): void {
 }
 
 async function resolveSelectionState(
-  db: PGlite,
+  db: RetrievalDatabase,
+  runtime: 'pglite' | 'turso',
   runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput
 ): Promise<RetrievalSelectionState> {
@@ -622,7 +761,7 @@ async function resolveSelectionState(
   }
 
   if (!selectionSnapshotId && filePaths && filePaths.length > MAX_INLINE_FILE_PATHS) {
-    selectionSnapshotId = await createSelectionSnapshot(db, filePaths);
+    selectionSnapshotId = await createSelectionSnapshot(db, filePaths, runtime);
     filePaths = undefined;
   }
 
@@ -637,31 +776,34 @@ async function resolveSelectionState(
 }
 
 async function searchForChunks(
-  db: PGlite,
+  repository: ChunkSearchRepository,
   embedding: number[],
   embeddingSetId: string,
   input: RetrievalContextInput,
   selection: RetrievalSelectionState,
   rootId: string | undefined
 ): Promise<ChunkSearchResult[]> {
-  const chunkRepository = new FileChunkRepository(db);
   const limit = input.limit ?? DEFAULT_LIMIT;
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
 
-  return chunkRepository.searchSimilar(embedding, {
-    limit,
-    threshold,
-    embeddingSetId,
-    ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
-    ...(selection.selectionSnapshotId
-      ? { selectionSnapshotId: selection.selectionSnapshotId }
-      : {}),
-    ...(rootId === undefined ? {} : { rootId }),
-  });
+  return Array.from(
+    await repository.searchSimilar(embedding, {
+      limit,
+      threshold,
+      embeddingSetId,
+      ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
+      ...(selection.selectionSnapshotId
+        ? { selectionSnapshotId: selection.selectionSnapshotId }
+        : {}),
+      ...(rootId === undefined ? {} : { rootId }),
+    })
+  );
 }
 
 async function packRetrievedContext(
-  db: PGlite,
+  db: RetrievalDatabase,
+  repositories: RetrievalRepositories,
+  runtime: 'pglite' | 'turso',
   searchResults: Array<{
     chunk: {
       id: string;
@@ -682,9 +824,8 @@ async function packRetrievedContext(
   contextText: string;
   skippedSourceRangeChunks: SkippedSourceRangeChunk[];
 }> {
-  const recordRepository = new FileRecordRepository(db);
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
-  const fileMap = await buildFileRecordMap(recordRepository, db, fileIds);
+  const fileMap = await buildFileRecordMap(repositories.files, db, fileIds, runtime);
   const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
   if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
     logger.warn('All retrieved chunks are missing source ranges', {
@@ -711,6 +852,24 @@ async function packRetrievedContext(
   return { packed, contextText, skippedSourceRangeChunks };
 }
 
+function createRetrievalRepositories(
+  db: RetrievalDatabase,
+  runtime: 'pglite' | 'turso'
+): RetrievalRepositories {
+  if (runtime === 'turso') {
+    const executionDb = db as TursoRetrievalDatabase;
+    return {
+      chunks: new TursoFileChunkRepository(executionDb),
+      files: new TursoFileRecordRepository(executionDb),
+    };
+  }
+  const pgliteDb = db as PGlite;
+  return {
+    chunks: new FileChunkRepository(pgliteDb),
+    files: new FileRecordRepository(pgliteDb),
+  };
+}
+
 async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
@@ -727,19 +886,31 @@ async function runRetrieval(
   }
 
   const db = await getDatabase();
-  assertPGliteRetrievalDatabase(db);
-  const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
+  const runtime = isTursoRetrievalDatabase(db) ? 'turso' : 'pglite';
+  if (runtime === 'turso') {
+    await assertReadyTursoVectorBootstrap();
+  }
+  const repositories = createRetrievalRepositories(db as RetrievalDatabase, runtime);
+  const embeddingSet =
+    runtime === 'turso'
+      ? await resolveTursoEmbeddingSet(db as TursoRetrievalDatabase, embeddingSetId)
+      : await resolveEmbeddingSet(db as PGlite, embeddingSetId);
   const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
-  const selectionState = await resolveSelectionState(db, runtimeData, input);
+  const selectionState = await resolveSelectionState(
+    db as RetrievalDatabase,
+    runtime,
+    runtimeData,
+    input
+  );
   // An explicit `root` scopes retrieval to one open folder; resolving throws a
   // clear "Open folders: ..." error for an unknown/ambiguous name. Omitting it
   // searches every root (results stay labelled with their owning root).
   const rootId =
     input.root === undefined ? undefined : resolveWorkspaceRoot(runtimeData, input.root).rootId;
   const searchResults = await searchForChunks(
-    db,
+    repositories.chunks,
     embedding,
     embeddingSetId,
     input,
@@ -747,7 +918,9 @@ async function runRetrieval(
     rootId
   );
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
-    db,
+    db as RetrievalDatabase,
+    repositories,
+    runtime,
     searchResults,
     runtimeData,
     input
