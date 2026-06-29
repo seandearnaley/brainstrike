@@ -1132,11 +1132,13 @@ async function refreshTursoCollectionIndexingStats(
     }>(
       `SELECT
           COUNT(*) AS chunk_count,
-          SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded_chunk_count,
-          SUM(CASE WHEN embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
-         FROM file_chunks
-        WHERE embedding_set_id = ?`,
-      [embeddingSetId]
+          SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded_chunk_count,
+          SUM(CASE WHEN c.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+        WHERE c.embedding_set_id = ?
+           OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)`,
+      [embeddingSetId, embeddingSetId]
     );
     const chunkCounts = chunkCountResult.rows[0];
     await tx.exec(

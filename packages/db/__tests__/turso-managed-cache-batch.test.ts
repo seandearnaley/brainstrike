@@ -85,6 +85,79 @@ describe('Turso managed-cache batch', () => {
     await expect(readStats()).resolves.toMatchObject({ file_count: importCount });
   });
 
+  it('refreshes Turso collection stats with inherited file-record chunk ownership', async () => {
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'file-1', path: 'src/file-1.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+    const chunks = new TursoFileChunkRepository(client);
+    await chunks.insert({
+      chunkIndex: 0,
+      chunkSize: 24,
+      chunkType: 'text',
+      content: 'export const pending = 1;',
+      contentHash: 'chunk-hash-pending',
+      createdAt: '2026-06-23T12:00:00.000Z',
+      fileRecordId: 'file-1',
+      id: 'chunk-pending',
+      tokenCount: 5,
+      updatedAt: '2026-06-23T12:00:00.000Z',
+    });
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         embedding,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, vector32(?), ?, ?)`,
+      [
+        'chunk-embedded',
+        'file-1',
+        1,
+        'export const embedded = 1;',
+        'chunk-hash-embedded',
+        7,
+        'text',
+        26,
+        '[0.1,0.2,0.3]',
+        '2026-06-23T12:00:00.000Z',
+        '2026-06-23T12:00:00.000Z',
+      ]
+    );
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'file-2', path: 'src/file-2.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(readStats()).resolves.toMatchObject({
+      chunk_count: 2,
+      embedded_chunk_count: 1,
+      file_count: 2,
+      pending_chunk_count: 1,
+    });
+  });
+
   it('replaces records, clears stale chunks and cancels active embedding jobs atomically', async () => {
     await applyTursoManagedCacheBatch(client, {
       changes: [

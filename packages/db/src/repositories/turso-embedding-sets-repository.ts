@@ -259,15 +259,16 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
              ),
              chunk_stats AS (
                SELECT
-                 embedding_set_id,
+                 COALESCE(c.embedding_set_id, fr.embedding_set_id) AS embedding_set_id,
                  COUNT(*) AS totalChunks,
-                 SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedChunks,
-                 COUNT(token_count) AS tokenizedChunkCount,
-                 COALESCE(SUM(token_count), 0) AS totalTokens,
-                 COALESCE(AVG(token_count), 0) AS averageTokensPerChunk
-               FROM file_chunks
-               WHERE embedding_set_id IS NOT NULL
-               GROUP BY embedding_set_id
+                 SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embeddedChunks,
+                 COUNT(c.token_count) AS tokenizedChunkCount,
+                 COALESCE(SUM(c.token_count), 0) AS totalTokens,
+                 COALESCE(AVG(c.token_count), 0) AS averageTokensPerChunk
+               FROM file_chunks c
+               JOIN file_records fr ON fr.id = c.file_record_id
+               WHERE COALESCE(c.embedding_set_id, fr.embedding_set_id) IS NOT NULL
+               GROUP BY COALESCE(c.embedding_set_id, fr.embedding_set_id)
              )
              SELECT
                es.id,
@@ -321,7 +322,20 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
     await this.db.transaction(async (tx) => {
       await tx.exec('DELETE FROM job_queue WHERE embedding_set_id = ?', [id]);
       await tx.exec('DELETE FROM collection_indexing_stats WHERE embedding_set_id = ?', [id]);
-      await tx.exec('DELETE FROM file_chunks WHERE embedding_set_id = ?', [id]);
+      await tx.exec(
+        `DELETE FROM file_chunks
+          WHERE embedding_set_id = ?
+             OR (
+               embedding_set_id IS NULL
+               AND EXISTS (
+                 SELECT 1
+                   FROM file_records fr
+                  WHERE fr.id = file_chunks.file_record_id
+                    AND fr.embedding_set_id = ?
+               )
+             )`,
+        [id, id]
+      );
       await tx.exec('DELETE FROM embedding_sets WHERE id = ?', [id]);
     });
     return true;

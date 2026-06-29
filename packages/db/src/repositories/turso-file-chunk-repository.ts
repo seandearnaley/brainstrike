@@ -383,8 +383,15 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     }
     const config = await resolveTursoDistanceConfig(this.db, embeddingSetId, queryEmbedding);
     const distanceExpressions = buildTursoDistanceExpressions(config.distance);
-    const conditions = ['fc.embedding IS NOT NULL', 'fc.embedding_set_id = ?'];
-    const params: unknown[] = [encodeEmbeddingVectorParam(queryEmbedding), embeddingSetId];
+    const conditions = [
+      'fc.embedding IS NOT NULL',
+      '(fc.embedding_set_id = ? OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id = ?))',
+    ];
+    const params: unknown[] = [
+      encodeEmbeddingVectorParam(queryEmbedding),
+      embeddingSetId,
+      embeddingSetId,
+    ];
     appendOptionalCondition(conditions, params, 'fc.file_record_id', fileRecordId);
     appendOptionalCondition(conditions, params, 'fc.chunk_type', chunkType);
     appendOptionalCondition(conditions, params, 'fr.root_id', rootId);
@@ -471,8 +478,10 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       }
     }
     if (embeddingSetId !== undefined) {
-      conditions.push('fc.embedding_set_id = ?');
-      params.push(embeddingSetId);
+      conditions.push(
+        '(fc.embedding_set_id = ? OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id = ?))'
+      );
+      params.push(embeddingSetId, embeddingSetId);
     }
     if (rootId !== undefined) {
       conditions.push('fr.root_id = ?');
@@ -960,10 +969,21 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
                 embedding_updated_at = NULL,
                 embedding_hash = NULL,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-          WHERE embedding_set_id = ?
+          WHERE (
+                  embedding_set_id = ?
+                  OR (
+                    embedding_set_id IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                        FROM file_records fr
+                       WHERE fr.id = file_chunks.file_record_id
+                         AND fr.embedding_set_id = ?
+                    )
+                  )
+                )
             AND embedding IS NOT NULL
         RETURNING id`,
-        [embeddingSetId]
+        [embeddingSetId, embeddingSetId]
       );
       await refreshCollectionIndexingStatsForSet(tx, embeddingSetId);
       return clearedResult.rows.length;
@@ -1379,18 +1399,28 @@ async function refreshCollectionIndexingStatsForSet(
        (
          SELECT COUNT(*)
            FROM file_chunks c
+           JOIN file_records fr ON fr.id = c.file_record_id
           WHERE c.embedding_set_id = s.id
+             OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
        ),
        (
          SELECT COUNT(*)
            FROM file_chunks c
-          WHERE c.embedding_set_id = s.id
+           JOIN file_records fr ON fr.id = c.file_record_id
+          WHERE (
+                  c.embedding_set_id = s.id
+                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
+                )
             AND c.embedding IS NOT NULL
        ),
        (
          SELECT COUNT(*)
            FROM file_chunks c
-          WHERE c.embedding_set_id = s.id
+           JOIN file_records fr ON fr.id = c.file_record_id
+          WHERE (
+                  c.embedding_set_id = s.id
+                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
+                )
             AND c.embedding IS NULL
        ),
        0,

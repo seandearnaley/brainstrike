@@ -458,26 +458,37 @@ describe('TursoFileChunkRepository', () => {
         id: 'chunk-1',
         tokenCount: 5,
       }),
-      createChunk({ chunkIndex: 1, id: 'chunk-2', tokenCount: 7 }),
+      createChunk({
+        chunkIndex: 1,
+        embedding: [0.3, 0.2, 0.1],
+        id: 'chunk-2',
+        tokenCount: 7,
+      }),
     ]);
 
     await expect(repository.getStats()).resolves.toEqual({
       averageTokenCount: 6,
       chunkTypeDistribution: { code: 2 },
-      chunksWithEmbeddings: 1,
+      chunksWithEmbeddings: 2,
       totalChunks: 2,
     });
     await expect(repository.getCoverageForSet(embeddingSet.id)).resolves.toEqual({
-      chunksWithEmbeddingsForSet: 1,
+      chunksWithEmbeddingsForSet: 2,
       totalChunks: 2,
     });
 
-    await expect(repository.clearEmbeddingsForSet(embeddingSet.id)).resolves.toBe(1);
+    await expect(repository.clearEmbeddingsForSet(embeddingSet.id)).resolves.toBe(2);
     const clearedChunk = await repository.findById('chunk-1');
     expect(clearedChunk).toMatchObject({ embeddingSetId: embeddingSet.id });
     expect(clearedChunk).not.toHaveProperty('embedding');
     expect(clearedChunk).not.toHaveProperty('embeddingHash');
     expect(clearedChunk).not.toHaveProperty('embeddingUpdatedAt');
+    const inheritedClearedChunk = await repository.findById('chunk-2');
+    expect(inheritedClearedChunk).toMatchObject({ id: 'chunk-2' });
+    expect(inheritedClearedChunk).not.toHaveProperty('embeddingSetId');
+    expect(inheritedClearedChunk).not.toHaveProperty('embedding');
+    expect(inheritedClearedChunk).not.toHaveProperty('embeddingHash');
+    expect(inheritedClearedChunk).not.toHaveProperty('embeddingUpdatedAt');
     await expect(
       client.query<{
         chunk_count: number;
@@ -494,11 +505,11 @@ describe('TursoFileChunkRepository', () => {
     ).resolves.toEqual({
       rows: [
         {
-          chunk_count: 1,
+          chunk_count: 2,
           dirty: 0,
           embedded_chunk_count: 0,
           file_count: 1,
-          pending_chunk_count: 1,
+          pending_chunk_count: 2,
         },
       ],
     });
@@ -952,7 +963,12 @@ describe('TursoFileChunkRepository', () => {
       ]
     );
     await fileRecordsRepository.createWithContent(
-      createRecord({ id: 'file-a', name: 'alpha.ts', path: 'src/alpha.ts' })
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-a',
+        name: 'alpha.ts',
+        path: 'src/alpha.ts',
+      })
     );
     await fileRecordsRepository.createWithContent(
       createRecord({ id: 'file-b', name: 'beta.ts', path: 'src/beta.ts' })
@@ -967,7 +983,6 @@ describe('TursoFileChunkRepository', () => {
       createChunk({
         chunkIndex: 1,
         content: 'const answer = 42;\nconst answerAgain = answer;',
-        embeddingSetId: 'set-a',
         fileRecordId: 'file-a',
         id: 'chunk-a',
         startLine: 10,
@@ -1332,7 +1347,6 @@ describe('TursoFileChunkRepository', () => {
         chunkIndex: 0,
         content: 'mid',
         embedding: [0.8, 0.6, 0],
-        embeddingSetId: embeddingSet.id,
         fileRecordId: 'file-b',
         id: 'chunk-mid',
       }),
@@ -1397,7 +1411,6 @@ describe('TursoFileChunkRepository', () => {
       {
         chunk: expect.objectContaining({
           embeddingDimensions: 3,
-          embeddingSetId: embeddingSet.id,
           id: 'chunk-mid',
         }),
         rank: 2,

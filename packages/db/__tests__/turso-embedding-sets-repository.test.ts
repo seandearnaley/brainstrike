@@ -168,14 +168,14 @@ describe('TursoEmbeddingSetsRepository', () => {
         'three',
         13,
         new Uint8Array([3, 2, 1]),
-        embeddingSet.id,
+        null,
         'chunk-4',
         'file-2',
         1,
         'untokenized',
         null,
         null,
-        embeddingSet.id,
+        null,
       ]
     );
 
@@ -261,8 +261,8 @@ describe('TursoEmbeddingSetsRepository', () => {
     );
     await client.query(
       `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      ['chunk-1', 'file-1', 0, 'hello', created.id]
+       VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+      ['chunk-1', 'file-1', 0, 'hello', created.id, 'chunk-2', 'file-1', 1, 'inherited', null]
     );
     await client.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
@@ -275,7 +275,10 @@ describe('TursoEmbeddingSetsRepository', () => {
 
     expect(transaction).toHaveBeenCalledTimes(1);
     await expect(
-      client.query<{ id: string }>('SELECT id FROM file_chunks WHERE id = ?', ['chunk-1'])
+      client.query<{ id: string }>(
+        'SELECT id FROM file_chunks WHERE file_record_id = ? ORDER BY id',
+        ['file-1']
+      )
     ).resolves.toEqual({ rows: [] });
     await expect(
       client.query<{ id: string }>('SELECT id FROM file_records WHERE id = ?', ['file-1'])
