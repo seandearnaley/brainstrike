@@ -55,10 +55,11 @@ as the implementation backlog.
 - #1350 `Add Turso vector backfill adapter`
 - #1351 `Make vector queue refresh metrics storage-neutral`
 - #1354 `Wire desktop Mastra memory to Turso runtime`
-- Current slice: capability-gated desktop assistant `brainstrike.grepSearch`
-  re-enable for Turso, backed by the Turso-owned chunk-content gram sidecar and
-  a required bootstrap check. This still does not claim full FTS/vector
-  retrieval parity.
+- #1356 `Gate Turso grep search`
+- Current slice: repository-level Turso vector search over native `vector32(?)`
+  chunk embeddings. This does not re-enable desktop assistant
+  `brainstrike.queryEmbeddingSpace` yet; that remains gated until a bootstrap
+  check and assistant-tool smoke coverage prove the runtime surface.
 
 ## Turso Docs Guardrail
 
@@ -270,17 +271,23 @@ Concrete blockers:
   candidate source; no-prefilter regex scans stay explicitly bounded and are
   surfaced by the grep service as `scanLimited`. The path covers root, path,
   embedding-set, limit, and root-display metadata.
-- `TursoFileChunkRepository.searchSimilar()` and
-  `TursoFileChunkRepository.fullTextSearch()` still throw until the Turso vector
-  and FTS slices land.
-- Retrieval selection snapshots still use PGlite/Postgres SQL, including
-  `NOW()` cleanup and `UNNEST($2::text[])`.
+- `TursoFileChunkRepository.searchSimilar()` now writes repository-authored
+  embeddings as native `vector32(?)` blobs, queries with Turso vector distance
+  primitives (`vector_distance_cos`, `vector_distance_l2`, `vector_distance_dot`),
+  preserves the PGlite similarity formulas, and supports embedding-set, root,
+  file-record, chunk-type, inline file-path, and selection-snapshot filters.
+- `TursoFileChunkRepository.fullTextSearch()` still throws until the Turso FTS
+  slice lands.
+- Desktop assistant `brainstrike.queryEmbeddingSpace` is still removed from
+  Turso tool maps. Re-enable it only after an explicit bootstrap proof for Turso
+  vector search and an assistant-level smoke test.
 
 Preferred implementation order:
 
-1. Implement basic Turso vector search over stored embeddings with
-   `embeddingSetId`, limit, threshold, and root filtering.
-2. Add a Turso selection-snapshot writer using SQLite-compatible statements.
+1. Add a required Turso vector-search bootstrap check tied to native
+   `vector32(?)` storage/query support.
+2. Re-enable `brainstrike.queryEmbeddingSpace` for Turso profiles behind that
+   bootstrap proof and the repository marker.
 3. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
    and bootstrap reports.
 
