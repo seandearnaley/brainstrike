@@ -558,6 +558,43 @@ describe('useVectorQueueState', () => {
     expect(result.current.queueCounts).toEqual({ queued: 2, running: 0, failed: 0, succeeded: 0 });
   });
 
+  it('does not reuse snapshot-only last error or latency after live queries resume empty', async () => {
+    const controller = createMockController();
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn(async () =>
+        createSnapshot({
+          lastError: 'snapshot failure',
+          latency: { avgMs: 100, p50Ms: 80, p95Ms: 200 },
+        })
+      ),
+    };
+    vectorStatusUiStoreState.isJobQueueActive = true;
+
+    const { result, rerender } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        snapshotReader,
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
+      expect(result.current.lastError).toBe('snapshot failure');
+    });
+    expect(result.current.latencyStats).toEqual({ avgMs: 100, p50Ms: 80, p95Ms: 200 });
+
+    vectorStatusUiStoreState.isJobQueueActive = false;
+    liveQueryState.lastError.rows = [];
+    liveQueryState.latency.rows = [];
+    rerender();
+
+    expect(result.current.lastError).toBeNull();
+    expect(result.current.latencyStats).toEqual({ avgMs: 0, p50Ms: 0, p95Ms: 0 });
+  });
+
   it('refreshes live queries when live query polling is re-enabled', async () => {
     const controller = createMockController();
     const service = createMockService();

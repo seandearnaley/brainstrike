@@ -394,6 +394,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     !isEmbeddingActive &&
     !isBackfillActive &&
     !isJobQueueActive;
+  const snapshotFallback = liveQueryEnabled ? null : snapshot;
   const isDesktopRenderer =
     typeof window !== 'undefined' &&
     (window as Window & { electronAPI?: unknown }).electronAPI !== undefined;
@@ -465,8 +466,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         succeeded: Number(row.succeeded ?? 0),
       };
     }
-    if (snapshot) {
-      return snapshot.queueCounts;
+    if (snapshotFallback) {
+      return snapshotFallback.queueCounts;
     }
     if (durableQueueStats) {
       return {
@@ -477,7 +478,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       };
     }
     return DEFAULT_QUEUE_COUNTS;
-  }, [durableQueueStats, queueCountsResult.rows, snapshot]);
+  }, [durableQueueStats, queueCountsResult.rows, snapshotFallback]);
 
   const activeSetQueueCountsParams = useMemo<readonly [string, string] | undefined>(
     () => (activeEmbeddingSetId ? ([EMBEDDINGS_QUEUE, activeEmbeddingSetId] as const) : undefined),
@@ -501,8 +502,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         succeeded: Number(row.succeeded ?? 0),
       };
     }
-    return snapshot?.activeSetQueueCounts ?? DEFAULT_QUEUE_COUNTS;
-  }, [activeSetQueueCountsResult.rows, snapshot]);
+    return snapshotFallback?.activeSetQueueCounts ?? DEFAULT_QUEUE_COUNTS;
+  }, [activeSetQueueCountsResult.rows, snapshotFallback]);
 
   const throughputResult = useBrainstrikeLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
@@ -516,11 +517,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (row && row.count !== null && row.count !== undefined) {
       return Number(row.count);
     }
-    if (snapshot) {
-      return snapshot.throughput;
+    if (snapshotFallback) {
+      return snapshotFallback.throughput;
     }
     return Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0;
-  }, [metrics.throughputPerMinute, snapshot, throughputResult.rows]);
+  }, [metrics.throughputPerMinute, snapshotFallback, throughputResult.rows]);
 
   const lastErrorResult = useBrainstrikeLiveQuery<LastErrorRow>({
     cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
@@ -530,8 +531,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   });
 
   const lastError = useMemo(
-    () => lastErrorResult.rows[0]?.error ?? snapshot?.lastError ?? null,
-    [lastErrorResult.rows, snapshot]
+    () => lastErrorResult.rows[0]?.error ?? snapshotFallback?.lastError ?? null,
+    [lastErrorResult.rows, snapshotFallback]
   );
 
   const latencyRowsResult = useBrainstrikeLiveQuery<LatencyRow>({
@@ -556,15 +557,15 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (latencyStatsFromQuery) {
       return latencyStatsFromQuery;
     }
-    if (snapshot) {
-      return snapshot.latency;
+    if (snapshotFallback) {
+      return snapshotFallback.latency;
     }
     return {
       avgMs: 0,
       p50Ms: 0,
       p95Ms: 0,
     };
-  }, [latencyStatsFromQuery, snapshot]);
+  }, [latencyStatsFromQuery, snapshotFallback]);
 
   const coverageParams = useMemo<readonly [string] | undefined>(
     () => (activeEmbeddingSetId ? ([activeEmbeddingSetId] as const) : undefined),
@@ -589,8 +590,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         withSet: Number(row.chunksWithEmbeddingsForSet ?? 0),
       };
     }
-    return snapshot?.coverage ?? DEFAULT_COVERAGE;
-  }, [activeEmbeddingSetId, coverageResult.rows, snapshot]);
+    return snapshotFallback?.coverage ?? DEFAULT_COVERAGE;
+  }, [activeEmbeddingSetId, coverageResult.rows, snapshotFallback]);
 
   const refreshSnapshotReaderState = useCallback(async () => {
     const requestId = snapshotRefreshRequestIdRef.current + 1;
