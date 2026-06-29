@@ -58,9 +58,12 @@ as the implementation backlog.
 - #1356 `Gate Turso grep search`
 - #1357 `Add Turso vector search`
 - #1358 `Gate Turso semantic retrieval by bootstrap`
-- Current slice: gate scheduled desktop database and dimension-index
-  maintenance by runtime so existing PGlite/Postgres/pgvector maintenance SQL
-  cannot run against Turso.
+- #1359 `Gate scheduled desktop database and dimension-index maintenance by runtime`
+- Current slice: make Turso collection indexing stats count inherited chunks
+  consistently, so chunks with `file_chunks.embedding_set_id IS NULL` inherit
+  the owning `file_records.embedding_set_id` in live embedding-space stats,
+  repository refreshes, managed-cache refreshes, semantic retrieval, indexed
+  grep candidates, embedding clears, and set deletion cleanup.
 
 ## Turso Docs Guardrail
 
@@ -158,6 +161,19 @@ Current Turso repository/runtime coverage:
   `search.vector32-functions=passed`. It uses Turso embedding-set, file-record,
   and file-chunk repositories plus SQLite-compatible snapshot/root-label helper
   queries; PGlite keeps the legacy retrieval path.
+- Turso collection indexing stats now use the same effective embedding-set
+  membership as the backfill and file-status paths: explicit
+  `file_chunks.embedding_set_id` wins, and chunks with a null chunk set inherit
+  from `file_records.embedding_set_id`. This is covered for
+  `listEmbeddingSpaces({ includeStats: true })`,
+  `TursoFileChunkRepository.clearEmbeddingsForSet()` stats refresh, and
+  managed-cache stats refresh. Turso clear/delete cleanup now uses the same
+  effective membership rule so inherited chunks do not retain stale embeddings
+  or survive embedding-set deletion. Turso vector similarity search now uses the
+  same membership rule so `brainstrike.queryEmbeddingSpace` can retrieve chunks
+  that stats report as embedded/covered. Turso indexed grep candidates also use
+  the same rule so `brainstrike.grepSearch` can search inherited chunks when it
+  receives the workspace index embedding set.
 
 ## Non-Negotiable Migration Rules
 

@@ -1183,7 +1183,9 @@ describe('assistant-tools', () => {
     });
 
     const sql = queryMock.mock.calls[0]?.[0] ?? '';
-    expect(sql).toContain('SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END)');
+    expect(sql).toContain('SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END)');
+    expect(sql).toContain('JOIN file_records fr ON fr.id = c.file_record_id');
+    expect(sql).toContain('COALESCE(c.embedding_set_id, fr.embedding_set_id)');
     expect(sql).not.toContain('COUNT(*) FILTER');
     expect(sql).not.toContain('::text');
     expect(result.spaces[0]?.coverage).toMatchObject({
