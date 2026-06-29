@@ -439,11 +439,102 @@ describe('TursoJobQueue runtime operations', () => {
     ]);
   });
 
+  it('reports queue counts scoped to one embedding set', async () => {
+    const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
+    const otherEmbeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'local::other-model',
+      'other-model',
+      3,
+      'cosine'
+    );
+
+    await insertRawJob({
+      id: 'target-queued',
+      state: 'queued',
+      embeddingSetId,
+    });
+    await insertRawJob({
+      id: 'target-running',
+      state: 'running',
+      embeddingSetId,
+    });
+    await insertRawJob({
+      id: 'target-failed',
+      state: 'failed',
+      embeddingSetId,
+    });
+    await insertRawJob({
+      id: 'target-succeeded',
+      state: 'succeeded',
+      embeddingSetId,
+    });
+    await insertRawJob({
+      id: 'other-set-queued',
+      state: 'queued',
+      embeddingSetId: otherEmbeddingSet.id,
+    });
+    await insertRawJob({
+      id: 'other-queue-queued',
+      queue: 'other',
+      state: 'queued',
+      embeddingSetId,
+    });
+
+    await expect(queue.getEmbeddingSetQueueCounts('embeddings', embeddingSetId)).resolves.toEqual({
+      failed: 1,
+      queued: 1,
+      running: 1,
+      succeeded: 1,
+    });
+  });
+
   async function readJobStates(): Promise<Array<{ id: string; state: string }>> {
     const result = await client.query<{ id: string; state: string }>(
       'SELECT id, state FROM job_queue ORDER BY id'
     );
     return result.rows;
+  }
+
+  async function insertRawJob(input: {
+    embeddingSetId: string;
+    id: string;
+    queue?: string;
+    state: 'failed' | 'queued' | 'running' | 'succeeded';
+  }): Promise<void> {
+    await client.exec(
+      `INSERT INTO job_queue (
+         id,
+         queue,
+         job_type,
+         payload,
+         chunk_id,
+         embedding_set_id,
+         state,
+         run_at,
+         attempts,
+         max_attempts,
+         backoff_ms,
+         lease_token,
+         leased_until,
+         worker_id,
+         dedupe_key,
+         error,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, 'embed_chunk', ?, ?, ?, ?, ?, 0, 5, 0, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      [
+        input.id,
+        input.queue ?? 'embeddings',
+        JSON.stringify({ chunkId: input.id, embeddingSetId: input.embeddingSetId }),
+        input.id,
+        input.embeddingSetId,
+        input.state,
+        '2026-06-23T08:20:00.000Z',
+        '2026-06-23T08:20:00.000Z',
+        '2026-06-23T08:20:00.000Z',
+      ]
+    );
   }
 });
 

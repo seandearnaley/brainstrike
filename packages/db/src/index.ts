@@ -103,6 +103,7 @@ export type {
   FailParams,
   HeartbeatParams,
   Job,
+  JobQueueStateCounts,
   JobState,
   JobType,
 } from './queue/index.js';
