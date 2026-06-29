@@ -534,7 +534,6 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
-      /^brainstrike\.grepSearch requires a ready Turso bootstrap report with search\.grep-content-grams passed\./,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;
