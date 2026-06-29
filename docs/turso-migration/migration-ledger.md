@@ -56,10 +56,10 @@ as the implementation backlog.
 - #1351 `Make vector queue refresh metrics storage-neutral`
 - #1354 `Wire desktop Mastra memory to Turso runtime`
 - #1356 `Gate Turso grep search`
-- Current slice: repository-level Turso vector search over native `vector32(?)`
-  chunk embeddings. This does not re-enable desktop assistant
-  `brainstrike.queryEmbeddingSpace` yet; that remains gated until a bootstrap
-  check and assistant-tool smoke coverage prove the runtime surface.
+- #1357 `Add Turso vector search`
+- Current slice: require Turso `search.vector32-functions` at profile bootstrap
+  and re-enable desktop assistant `brainstrike.queryEmbeddingSpace` only behind
+  that ready-report proof.
 
 ## Turso Docs Guardrail
 
@@ -151,7 +151,12 @@ Current Turso repository/runtime coverage:
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses
   `TursoFileChunkRepository.findGrepCandidates()` through the shared bounded
-  `GrepSearchService`; semantic vector retrieval remains disabled.
+  `GrepSearchService`.
+- Desktop assistant `brainstrike.queryEmbeddingSpace` is available under Turso
+  only when the ready bootstrap report includes required check
+  `search.vector32-functions=passed`. It uses Turso embedding-set, file-record,
+  and file-chunk repositories plus SQLite-compatible snapshot/root-label helper
+  queries; PGlite keeps the legacy retrieval path.
 
 ## Non-Negotiable Migration Rules
 
@@ -260,11 +265,12 @@ Known production touchpoints:
 - `packages/db/src/search/hybrid-search-service.ts`
 - `packages/db/src/repositories/turso-file-chunk-repository.ts`
 
-Concrete blockers:
+Concrete status:
 
-- `brainstrike.queryEmbeddingSpace` is removed from Turso tool maps. Turso
-  `brainstrike.grepSearch` is registered only behind the explicit
+- Turso `brainstrike.grepSearch` is registered only behind the explicit
   `search.grep-content-grams` bootstrap proof.
+- Turso `brainstrike.queryEmbeddingSpace` is registered and requires the
+  explicit `search.vector32-functions` bootstrap proof before it can query.
 - `TursoFileChunkRepository.findGrepCandidates()` now provides bounded
   SQLite-compatible candidate selection. Literal/regex-literal prefilters use
   `file_chunk_content_grams` plus `file_chunk_content_index` as an indexed
@@ -278,18 +284,14 @@ Concrete blockers:
   file-record, chunk-type, inline file-path, and selection-snapshot filters.
 - `TursoFileChunkRepository.fullTextSearch()` still throws until the Turso FTS
   slice lands.
-- Desktop assistant `brainstrike.queryEmbeddingSpace` is still removed from
-  Turso tool maps. Re-enable it only after an explicit bootstrap proof for Turso
-  vector search and an assistant-level smoke test.
 
 Preferred implementation order:
 
-1. Add a required Turso vector-search bootstrap check tied to native
-   `vector32(?)` storage/query support.
-2. Re-enable `brainstrike.queryEmbeddingSpace` for Turso profiles behind that
-   bootstrap proof and the repository marker.
-3. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
+1. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
    and bootstrap reports.
+2. Implement FTS snippets and hybrid ranking through the split search-index
+   owner once `docs/turso-migration/search-index-architecture.md` is
+   implemented.
 
 ### 5. Mastra Memory And Assistant Persistence
 

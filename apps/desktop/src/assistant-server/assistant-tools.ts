@@ -2195,10 +2195,6 @@ export function buildDesktopAssistantTools(
     },
   };
 
-  if (isTursoRuntimeSelected()) {
-    delete tools[QUERY_EMBEDDING_SPACE_TOOL_ID];
-  }
-
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;
   if (!Array.isArray(enabledNativeToolIds)) {
     return tools;

@@ -141,6 +141,7 @@ function createReadyTursoBootstrapReport() {
     'primary-store.mvcc',
     'schema.baseline',
     'search.grep-content-grams',
+    'search.vector32-functions',
     'search.ownership',
     'store.close',
   ].map((id) => ({
@@ -318,6 +319,31 @@ describe('DbHostManager', () => {
 
     await expect(databasePromise).rejects.toThrow(
       'Bootstrap report missing required check: search.grep-content-grams'
+    );
+  });
+
+  it('rejects ready Turso bootstrap reports that omit the vector function check', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const reportWithoutVectorFunctions = {
+      ...createReadyTursoBootstrapReport(),
+      checks: createReadyTursoBootstrapReport().checks.filter(
+        (check) => check.id !== 'search.vector32-functions'
+      ),
+    };
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: reportWithoutVectorFunctions,
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    await expect(databasePromise).rejects.toThrow(
+      'Bootstrap report missing required check: search.vector32-functions'
     );
   });
 

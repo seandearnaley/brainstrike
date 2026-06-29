@@ -129,6 +129,14 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('keeps queryEmbeddingSpace registered when Turso runtime is selected', async () => {
+    vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
+
+    const tools = buildDesktopAssistantTools({} as RuntimeData);
+
+    expect(tools['brainstrike.queryEmbeddingSpace']).toBeDefined();
+  });
+
   it('reads a workspace file when execute receives direct args', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
@@ -306,7 +314,7 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
 
-  it('keeps bounded grep search and omits semantic search when Turso runtime is selected', () => {
+  it('keeps bounded grep search and semantic search when Turso runtime is selected', () => {
     vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
 
     const tools = buildDesktopAssistantTools({
@@ -314,7 +322,7 @@ describe('assistant-tools', () => {
     } as RuntimeData);
 
     expect(tools['brainstrike.grepSearch']).toBeDefined();
-    expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
+    expect(tools['brainstrike.queryEmbeddingSpace']).toBeDefined();
     expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
     expect(tools['brainstrike.readWorkspaceFile']).toBeDefined();
   });
