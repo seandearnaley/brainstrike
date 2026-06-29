@@ -14,6 +14,8 @@ import {
   EMBEDDINGS_QUEUE,
   type QueueCounts,
   type VectorQueueService,
+  type VectorQueueSnapshot,
+  type VectorQueueSnapshotReader,
 } from './vector-queue-service';
 
 const logger = createLogger('useVectorQueueState');
@@ -29,6 +31,7 @@ export interface UseVectorQueueStateParams {
   isImporting?: boolean;
   service: VectorQueueService | null;
   shouldAutoBackfill: boolean;
+  snapshotReader?: VectorQueueSnapshotReader | null;
 }
 
 export interface TelemetryTrendPoint {
@@ -328,6 +331,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const embeddingQueueContext = useEmbeddingQueueSafe();
   const metrics = embeddingQueueContext?.metrics ?? DEFAULT_METRICS;
   const service = params.service;
+  const snapshotReader = params.snapshotReader ?? null;
   const controller = params.controller;
   const activeBackfill = useVectorStatusUIStore((s) => s.activeBackfill);
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
@@ -337,6 +341,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
   const [recentErrorCount, setRecentErrorCount] = useState(0);
+  const [snapshot, setSnapshot] = useState<VectorQueueSnapshot | null>(null);
   const autoBackfillRef = useRef<string | null>(null);
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -459,6 +464,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         succeeded: Number(row.succeeded ?? 0),
       };
     }
+    if (snapshot) {
+      return snapshot.queueCounts;
+    }
     if (durableQueueStats) {
       return {
         queued: durableQueueStats.queued,
@@ -468,7 +476,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       };
     }
     return DEFAULT_QUEUE_COUNTS;
-  }, [durableQueueStats, queueCountsResult.rows]);
+  }, [durableQueueStats, queueCountsResult.rows, snapshot]);
 
   const activeSetQueueCountsParams = useMemo<readonly [string, string] | undefined>(
     () => (activeEmbeddingSetId ? ([EMBEDDINGS_QUEUE, activeEmbeddingSetId] as const) : undefined),
@@ -484,16 +492,16 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const activeSetQueueCounts = useMemo<QueueCounts>(() => {
     const row = activeSetQueueCountsResult.rows[0];
-    if (!row) {
-      return DEFAULT_QUEUE_COUNTS;
+    if (row) {
+      return {
+        queued: Number(row.queued ?? 0),
+        running: Number(row.running ?? 0),
+        failed: Number(row.failed ?? 0),
+        succeeded: Number(row.succeeded ?? 0),
+      };
     }
-    return {
-      queued: Number(row.queued ?? 0),
-      running: Number(row.running ?? 0),
-      failed: Number(row.failed ?? 0),
-      succeeded: Number(row.succeeded ?? 0),
-    };
-  }, [activeSetQueueCountsResult.rows]);
+    return snapshot?.activeSetQueueCounts ?? DEFAULT_QUEUE_COUNTS;
+  }, [activeSetQueueCountsResult.rows, snapshot]);
 
   const throughputResult = useBrainstrikeLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
@@ -507,8 +515,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (row && row.count !== null && row.count !== undefined) {
       return Number(row.count);
     }
+    if (snapshot) {
+      return snapshot.throughput;
+    }
     return Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0;
-  }, [metrics.throughputPerMinute, throughputResult.rows]);
+  }, [metrics.throughputPerMinute, snapshot, throughputResult.rows]);
 
   const lastErrorResult = useBrainstrikeLiveQuery<LastErrorRow>({
     cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
@@ -517,7 +528,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     enabled: liveQueryEnabled,
   });
 
-  const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
+  const lastError = useMemo(
+    () => lastErrorResult.rows[0]?.error ?? snapshot?.lastError ?? null,
+    [lastErrorResult.rows, snapshot]
+  );
 
   const latencyRowsResult = useBrainstrikeLiveQuery<LatencyRow>({
     cacheKey: makeLiveQueryKey('latency', EMBEDDINGS_QUEUE),
@@ -541,12 +555,15 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (latencyStatsFromQuery) {
       return latencyStatsFromQuery;
     }
+    if (snapshot) {
+      return snapshot.latency;
+    }
     return {
       avgMs: 0,
       p50Ms: 0,
       p95Ms: 0,
     };
-  }, [latencyStatsFromQuery]);
+  }, [latencyStatsFromQuery, snapshot]);
 
   const coverageParams = useMemo<readonly [string] | undefined>(
     () => (activeEmbeddingSetId ? ([activeEmbeddingSetId] as const) : undefined),
@@ -565,17 +582,27 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       return DEFAULT_COVERAGE;
     }
     const row = coverageResult.rows[0];
-    if (!row) {
-      return DEFAULT_COVERAGE;
+    if (row) {
+      return {
+        total: Number(row.totalChunks ?? 0),
+        withSet: Number(row.chunksWithEmbeddingsForSet ?? 0),
+      };
     }
-    return {
-      total: Number(row.totalChunks ?? 0),
-      withSet: Number(row.chunksWithEmbeddingsForSet ?? 0),
-    };
-  }, [activeEmbeddingSetId, coverageResult.rows]);
+    return snapshot?.coverage ?? DEFAULT_COVERAGE;
+  }, [activeEmbeddingSetId, coverageResult.rows, snapshot]);
+
+  const refreshSnapshotReaderState = useCallback(async () => {
+    if (!snapshotReader) {
+      setSnapshot(null);
+      return;
+    }
+    const nextSnapshot = await snapshotReader.refresh(activeEmbeddingSetId);
+    setSnapshot(nextSnapshot);
+  }, [activeEmbeddingSetId, snapshotReader]);
 
   const refreshCoverageAndQueueState = useCallback(async () => {
-    if (!activeEmbeddingSetId) {
+    if (!liveQueryEnabled) {
+      await refreshSnapshotReaderState();
       return;
     }
     await Promise.all([
@@ -587,12 +614,13 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       coverageResult.refresh(),
     ]);
   }, [
-    activeEmbeddingSetId,
     coverageResult,
     activeSetQueueCountsResult,
     lastErrorResult,
     latencyRowsResult,
+    liveQueryEnabled,
     queueCountsResult,
+    refreshSnapshotReaderState,
     throughputResult,
   ]);
 
@@ -606,6 +634,13 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     void refreshCoverageAndQueueState();
   }, [liveQueryEnabled, refreshCoverageAndQueueState]);
+
+  useEffect(() => {
+    if (liveQueryEnabled) {
+      return;
+    }
+    void refreshSnapshotReaderState();
+  }, [liveQueryEnabled, refreshSnapshotReaderState]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !activeEmbeddingSetId) {

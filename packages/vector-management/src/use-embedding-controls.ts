@@ -106,6 +106,7 @@ export function useEmbeddingControls({
     controller: runtimeController,
     service,
     serviceUnavailableReason,
+    snapshotReader,
   } = useSharedEmbeddingRuntime();
   const queueUnavailableReasonText =
     formatVectorQueueServiceUnavailableReason(serviceUnavailableReason);
@@ -142,6 +143,7 @@ export function useEmbeddingControls({
   const queueState = useVectorQueueState({
     controller: runtimeController,
     service,
+    snapshotReader,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
     isImporting,

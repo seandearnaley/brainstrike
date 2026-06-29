@@ -150,6 +150,22 @@ export interface JobQueueStateCounts {
   succeeded: number;
 }
 
+export interface JobQueueLatencyRow {
+  runAt: string;
+  updatedAt: string;
+}
+
+export interface JobQueueMetricsOptions {
+  latencyLimit: number;
+  since: string;
+}
+
+export interface JobQueueMetricsSnapshot {
+  lastError: string | null;
+  latencyRows: JobQueueLatencyRow[];
+  throughput: number;
+}
+
 export interface CancelParams {
   id: string;
   leaseToken?: string;

@@ -5,7 +5,7 @@ import { addQueueTelemetryListener, type QueueTelemetryEvent } from '@brainstrik
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
-import { TursoJobQueue } from '../src/queue/turso-job-queue.js';
+import { createTursoJobQueueReadModel, TursoJobQueue } from '../src/queue/turso-job-queue.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
@@ -488,6 +488,92 @@ describe('TursoJobQueue runtime operations', () => {
     });
   });
 
+  it('reports queue metrics for recent completed and failed jobs', async () => {
+    await insertRawJob({
+      id: 'recent-succeeded-a',
+      state: 'succeeded',
+      embeddingSetId,
+      runAt: '2026-06-23T08:00:00.000Z',
+      updatedAt: '2026-06-23T08:01:00.000Z',
+    });
+    await insertRawJob({
+      id: 'recent-succeeded-b',
+      state: 'succeeded',
+      embeddingSetId,
+      runAt: '2026-06-23T08:03:00.000Z',
+      updatedAt: '2026-06-23T08:03:30.000Z',
+    });
+    await insertRawJob({
+      id: 'old-succeeded',
+      state: 'succeeded',
+      embeddingSetId,
+      runAt: '2026-06-23T07:00:00.000Z',
+      updatedAt: '2026-06-23T07:01:00.000Z',
+    });
+    await insertRawJob({
+      id: 'other-queue-succeeded',
+      queue: 'other',
+      state: 'succeeded',
+      embeddingSetId,
+      runAt: '2026-06-23T08:02:00.000Z',
+      updatedAt: '2026-06-23T08:02:10.000Z',
+    });
+    await insertRawJob({
+      error: 'older failure',
+      id: 'failed-old',
+      state: 'failed',
+      embeddingSetId,
+      updatedAt: '2026-06-23T08:00:00.000Z',
+    });
+    await insertRawJob({
+      error: 'newer failure',
+      id: 'failed-new',
+      state: 'failed',
+      embeddingSetId,
+      updatedAt: '2026-06-23T08:04:00.000Z',
+    });
+
+    await expect(
+      queue.getQueueMetrics('embeddings', {
+        latencyLimit: 1,
+        since: '2026-06-23T08:00:00.000Z',
+      })
+    ).resolves.toEqual({
+      lastError: 'newer failure',
+      latencyRows: [
+        {
+          runAt: '2026-06-23T08:03:00.000Z',
+          updatedAt: '2026-06-23T08:03:30.000Z',
+        },
+      ],
+      throughput: 2,
+    });
+  });
+
+  it('supports read-only queue metrics on query-only clients', async () => {
+    await insertRawJob({
+      id: 'query-only-succeeded',
+      state: 'succeeded',
+      embeddingSetId,
+      runAt: '2026-06-23T08:00:00.000Z',
+      updatedAt: '2026-06-23T08:01:00.000Z',
+    });
+
+    const queryOnlyQueue = createTursoJobQueueReadModel({
+      query: <TRecord = unknown>(sql: string, params?: unknown[]) =>
+        client.query<TRecord>(sql, params),
+    });
+
+    await expect(
+      queryOnlyQueue.getQueueMetrics('embeddings', {
+        latencyLimit: 10,
+        since: '2026-06-23T08:00:00.000Z',
+      })
+    ).resolves.toMatchObject({
+      throughput: 1,
+    });
+  });
+
   async function readJobStates(): Promise<Array<{ id: string; state: string }>> {
     const result = await client.query<{ id: string; state: string }>(
       'SELECT id, state FROM job_queue ORDER BY id'
@@ -497,10 +583,15 @@ describe('TursoJobQueue runtime operations', () => {
 
   async function insertRawJob(input: {
     embeddingSetId: string;
+    error?: string | null;
     id: string;
     queue?: string;
+    runAt?: string;
     state: 'failed' | 'queued' | 'running' | 'succeeded';
+    updatedAt?: string;
   }): Promise<void> {
+    const runAt = input.runAt ?? '2026-06-23T08:20:00.000Z';
+    const updatedAt = input.updatedAt ?? runAt;
     await client.exec(
       `INSERT INTO job_queue (
          id,
@@ -522,7 +613,7 @@ describe('TursoJobQueue runtime operations', () => {
          created_at,
          updated_at
        )
-       VALUES (?, ?, 'embed_chunk', ?, ?, ?, ?, ?, 0, 5, 0, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+       VALUES (?, ?, 'embed_chunk', ?, ?, ?, ?, ?, 0, 5, 0, NULL, NULL, NULL, NULL, ?, ?, ?)`,
       [
         input.id,
         input.queue ?? 'embeddings',
@@ -530,9 +621,10 @@ describe('TursoJobQueue runtime operations', () => {
         input.id,
         input.embeddingSetId,
         input.state,
-        '2026-06-23T08:20:00.000Z',
-        '2026-06-23T08:20:00.000Z',
-        '2026-06-23T08:20:00.000Z',
+        runAt,
+        input.error ?? null,
+        updatedAt,
+        updatedAt,
       ]
     );
   }

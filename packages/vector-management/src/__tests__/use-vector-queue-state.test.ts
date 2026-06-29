@@ -9,7 +9,10 @@ import type {
   EmbeddingRuntimeController,
 } from '../vector-status/embedding-runtime-controller';
 import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
-import type { VectorQueueService } from '../vector-status/vector-queue-service';
+import type {
+  VectorQueueService,
+  VectorQueueSnapshotReader,
+} from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
 
 const vectorStatusUiStoreState = {
@@ -381,6 +384,57 @@ describe('useVectorQueueState', () => {
     await expect(result.current.wipeQueue()).resolves.toBeUndefined();
     await expect(result.current.backfillActiveSet()).rejects.toThrow('No active embedding set');
     expect(controller.cancelAllBackfillsMock).not.toHaveBeenCalled();
+  });
+
+  it('reads queue state from a snapshot reader without enabling live queries or actions', async () => {
+    const controller = createMockController();
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn(async () => ({
+        activeSetQueueCounts: { queued: 4, running: 3, failed: 2, succeeded: 1 },
+        coverage: { total: 12, withSet: 8 },
+        lastError: 'snapshot failure',
+        latency: { avgMs: 100, p50Ms: 80, p95Ms: 200 },
+        queueCounts: { queued: 5, running: 6, failed: 7, succeeded: 8 },
+        throughput: 9,
+      })),
+    };
+    const liveQueryCallStart = vi.mocked(useBrainstrikeLiveQuery).mock.calls.length;
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: null,
+        snapshotReader,
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
+      expect(result.current.coverage).toEqual({ total: 12, withSet: 8 });
+    });
+    expect(result.current.activeSetQueueCounts).toEqual({
+      queued: 4,
+      running: 3,
+      failed: 2,
+      succeeded: 1,
+    });
+    expect(result.current.queueCounts).toEqual({ queued: 5, running: 6, failed: 7, succeeded: 8 });
+    expect(result.current.throughput).toBe(9);
+    expect(result.current.lastError).toBe('snapshot failure');
+    expect(result.current.latencyStats).toEqual({ avgMs: 100, p50Ms: 80, p95Ms: 200 });
+    await expect(result.current.validateApiKey()).resolves.toEqual({ valid: true });
+    await expect(result.current.retryFailed()).resolves.toBeUndefined();
+    await expect(result.current.clearQueue()).resolves.toBeUndefined();
+    await expect(result.current.wipeQueue()).resolves.toBeUndefined();
+    const liveQueryCallsForRender = vi
+      .mocked(useBrainstrikeLiveQuery)
+      .mock.calls.slice(liveQueryCallStart);
+    expect(
+      liveQueryCallsForRender.length > 0 &&
+        liveQueryCallsForRender.every(([options]) => options.enabled === false)
+    ).toBe(true);
   });
 
   it('refreshes live queries when live query polling is re-enabled', async () => {

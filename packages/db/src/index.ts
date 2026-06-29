@@ -103,13 +103,17 @@ export type {
   FailParams,
   HeartbeatParams,
   Job,
+  JobQueueMetricsSnapshot,
   JobQueueStateCounts,
   JobState,
   JobType,
+  TursoJobQueueQueryClient,
+  TursoJobQueueReadModel,
 } from './queue/index.js';
 // Queue
 export {
   buildEmbeddingJobDedupeKey,
+  createTursoJobQueueReadModel,
   EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
   JobQueue,
   TursoJobQueue,
