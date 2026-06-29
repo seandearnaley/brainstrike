@@ -17,7 +17,8 @@ export const TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION = 1;
 export const TURSO_SCHEMA_BASELINE_V2_VERSION = 2;
 export const TURSO_SCHEMA_BASELINE_V3_VERSION = 3;
 export const TURSO_SCHEMA_BASELINE_V4_VERSION = 4;
-export const TURSO_SCHEMA_BASELINE_VERSION = 5;
+export const TURSO_SCHEMA_BASELINE_V5_VERSION = 5;
+export const TURSO_SCHEMA_BASELINE_VERSION = 6;
 export const TURSO_SCHEMA_BASELINE_PREVIOUS_CHECKSUM =
   '8e9f598868dda50fb9f763c010bf74215cd51b305bfda68719dd6a12cf8587c7';
 
@@ -964,7 +965,7 @@ export const TURSO_SCHEMA_BASELINE_SEED_DML = [
         excludes = excluded.excludes,
         use_regex = excluded.use_regex,
         is_default = view_filter_presets.is_default,
-        sort_order = excluded.sort_order,
+        sort_order = view_filter_presets.sort_order,
         updated_at = ${nowSql}
     `,
   })),
@@ -981,6 +982,8 @@ export const TURSO_SCHEMA_BASELINE_V3_CHECKSUM =
   'ac49c1b4765e2947d3d8fc880de384f61f46e0ef697b5be95ceb8996da9088d7';
 export const TURSO_SCHEMA_BASELINE_V4_CHECKSUM =
   '38b2d36ad2a152baa5748bcd37b78d535bb0799fe1be689baa387de13985b190';
+export const TURSO_SCHEMA_BASELINE_V5_CHECKSUM =
+  'de6b684b37a9e876c9124e64c3d40abdc95ded9946a0b7654f2be3e94733b18c';
 
 const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION = {
   [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: [
@@ -1015,6 +1018,7 @@ const TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION = {
     fileChunkContentGramsTableDdl,
     fileChunkContentGramsIndexDdl,
   ],
+  [TURSO_SCHEMA_BASELINE_V5_VERSION]: [],
 } as const;
 
 const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
@@ -1022,6 +1026,40 @@ const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
   [TURSO_SCHEMA_BASELINE_V2_VERSION]: TURSO_SCHEMA_BASELINE_V2_CHECKSUM,
   [TURSO_SCHEMA_BASELINE_V3_VERSION]: TURSO_SCHEMA_BASELINE_V3_CHECKSUM,
   [TURSO_SCHEMA_BASELINE_V4_VERSION]: TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
+  [TURSO_SCHEMA_BASELINE_V5_VERSION]: TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+} as const;
+
+const TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS = [
+  TURSO_SCHEMA_BASELINE_V5_VERSION,
+  TURSO_SCHEMA_BASELINE_V4_VERSION,
+  TURSO_SCHEMA_BASELINE_V3_VERSION,
+  TURSO_SCHEMA_BASELINE_V2_VERSION,
+  TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+] as const;
+
+type TursoSchemaBaselineUpgradeVersion = (typeof TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS)[number];
+
+const TURSO_SCHEMA_BASELINE_BACKFILLS_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V3_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V4_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: false,
+  },
+  [TURSO_SCHEMA_BASELINE_V5_VERSION]: {
+    grepContentIndex: false,
+    quickOpenNameGrams: false,
+  },
 } as const;
 
 export async function applyTursoSchemaBaseline(
@@ -1036,6 +1074,7 @@ export async function applyTursoSchemaBaseline(
       TURSO_SCHEMA_BASELINE_V2_VERSION,
       TURSO_SCHEMA_BASELINE_V3_VERSION,
       TURSO_SCHEMA_BASELINE_V4_VERSION,
+      TURSO_SCHEMA_BASELINE_V5_VERSION,
       TURSO_SCHEMA_BASELINE_VERSION,
     ]);
 
@@ -1049,46 +1088,73 @@ export async function applyTursoSchemaBaseline(
       return;
     }
 
-    const upgradeVersions = [
-      TURSO_SCHEMA_BASELINE_V4_VERSION,
-      TURSO_SCHEMA_BASELINE_V3_VERSION,
-      TURSO_SCHEMA_BASELINE_V2_VERSION,
-      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
-    ] as const;
-    for (const upgradeVersion of upgradeVersions) {
-      const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
-      if (!previousEntry) {
-        continue;
-      }
-      const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[upgradeVersion];
-      if (previousEntry.checksum !== expectedChecksum) {
-        throw new Error(
-          `Turso schema baseline ${upgradeVersion} checksum mismatch: expected ${expectedChecksum}, found ${previousEntry.checksum}.`
-        );
-      }
-      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
-        await tx.exec(ddl);
-      }
-      await backfillQuickOpenNameGrams(tx);
-      await backfillGrepContentIndex(tx);
-      await recordTursoSchemaLedgerEntry(tx, {
-        checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
-        version: TURSO_SCHEMA_BASELINE_VERSION,
-      });
+    if (await applyExistingTursoSchemaBaselineUpgrade(tx)) {
       return;
     }
 
     for (const ddl of TURSO_SCHEMA_BASELINE_DDL) {
       await tx.exec(ddl);
     }
-    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
-      await tx.exec(statement.sql, statement.params);
-    }
+    await applyTursoSchemaBaselineSeeds(tx);
     await recordTursoSchemaLedgerEntry(tx, {
       checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
       version: TURSO_SCHEMA_BASELINE_VERSION,
     });
   });
+}
+
+async function applyExistingTursoSchemaBaselineUpgrade(
+  tx: BrainstrikeDbTransactionClient
+): Promise<boolean> {
+  for (const upgradeVersion of TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS) {
+    const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
+    if (!previousEntry) {
+      continue;
+    }
+    assertTursoSchemaBaselineChecksum(upgradeVersion, previousEntry.checksum);
+    for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
+      await tx.exec(ddl);
+    }
+    await applyTursoSchemaBaselineBackfills(tx, upgradeVersion);
+    await applyTursoSchemaBaselineSeeds(tx);
+    await recordTursoSchemaLedgerEntry(tx, {
+      checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+      version: TURSO_SCHEMA_BASELINE_VERSION,
+    });
+    return true;
+  }
+  return false;
+}
+
+function assertTursoSchemaBaselineChecksum(
+  version: TursoSchemaBaselineUpgradeVersion,
+  checksum: string
+): void {
+  const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[version];
+  if (checksum !== expectedChecksum) {
+    throw new Error(
+      `Turso schema baseline ${version} checksum mismatch: expected ${expectedChecksum}, found ${checksum}.`
+    );
+  }
+}
+
+async function applyTursoSchemaBaselineBackfills(
+  tx: BrainstrikeDbTransactionClient,
+  version: TursoSchemaBaselineUpgradeVersion
+): Promise<void> {
+  const backfills = TURSO_SCHEMA_BASELINE_BACKFILLS_BY_PREVIOUS_VERSION[version];
+  if (backfills.quickOpenNameGrams) {
+    await backfillQuickOpenNameGrams(tx);
+  }
+  if (backfills.grepContentIndex) {
+    await backfillGrepContentIndex(tx);
+  }
+}
+
+async function applyTursoSchemaBaselineSeeds(tx: BrainstrikeDbTransactionClient): Promise<void> {
+  for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+    await tx.exec(statement.sql, statement.params);
+  }
 }
 
 function runTursoSchemaTransaction<TResult>(

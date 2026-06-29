@@ -22,11 +22,15 @@ import {
   TURSO_SCHEMA_BASELINE_V3_VERSION,
   TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
   TURSO_SCHEMA_BASELINE_V4_VERSION,
+  TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_V5_VERSION,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
 import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
 
 const DB_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const HISTORICAL_TURSO_SCHEMA_BASELINE_V5_CHECKSUM =
+  'de6b684b37a9e876c9124e64c3d40abdc95ded9946a0b7654f2be3e94733b18c';
 
 describe('Turso schema baseline', () => {
   let tempDir: string;
@@ -622,6 +626,153 @@ describe('Turso schema baseline', () => {
     });
   });
 
+  it('upgrades an existing v5 Turso schema ledger by rerunning idempotent seeds', async () => {
+    for (const ddl of TURSO_SCHEMA_BASELINE_DDL) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_V5_VERSION,
+        HISTORICAL_TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+        '2026-06-29T12:00:00.000Z',
+      ]
+    );
+    await client.exec(
+      `INSERT INTO file_records (id, name, path, size, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'existing-v5-file',
+        'GammaReview.ts',
+        'src/GammaReview.ts',
+        42,
+        '2026-06-29T12:00:00.000Z',
+        '2026-06-29T12:00:00.000Z',
+      ]
+    );
+    await client.exec(
+      `INSERT INTO file_record_name_index (file_record_id, normalized_name)
+       VALUES (?, ?)`,
+      ['existing-v5-file', 'preexisting-name-index']
+    );
+    await client.exec(
+      `INSERT INTO file_record_name_grams (file_record_id, gram)
+       VALUES (?, ?)`,
+      ['existing-v5-file', 'zzz']
+    );
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'existing-v5-chunk',
+        'existing-v5-file',
+        0,
+        'const GammaReview = true;',
+        'hash-existing-v5-chunk',
+        4,
+        'code',
+        25,
+        '2026-06-29T12:00:00.000Z',
+        '2026-06-29T12:00:00.000Z',
+      ]
+    );
+    await client.exec(
+      `INSERT INTO file_chunk_content_index (file_chunk_id, normalized_content)
+       VALUES (?, ?)`,
+      ['existing-v5-chunk', 'preexisting-content-index']
+    );
+    await client.exec(
+      `INSERT INTO file_chunk_content_grams (file_chunk_id, case_sensitive, gram)
+       VALUES (?, ?, ?)`,
+      ['existing-v5-chunk', 0, 'zzz']
+    );
+    await client.exec("DELETE FROM models WHERE id = 'gpt-5.5'");
+    await client.exec("UPDATE models SET is_enabled = 0 WHERE id = 'gpt-5.4-mini'");
+    await client.exec(
+      "UPDATE view_filter_presets SET sort_order = 42 WHERE id = 'typescript-javascript'"
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(
+      client.query<{ id: string; is_enabled: number }>(
+        "SELECT id, is_enabled FROM models WHERE id IN ('gpt-5.5', 'gpt-5.4-mini') ORDER BY id"
+      )
+    ).resolves.toEqual({
+      rows: [
+        { id: 'gpt-5.4-mini', is_enabled: 0 },
+        { id: 'gpt-5.5', is_enabled: 1 },
+      ],
+    });
+    await expect(
+      client.query<{ sort_order: number }>(
+        "SELECT sort_order FROM view_filter_presets WHERE id = 'typescript-javascript'"
+      )
+    ).resolves.toEqual({ rows: [{ sort_order: 42 }] });
+    await expect(
+      client.query<{ normalized_name: string }>(
+        'SELECT normalized_name FROM file_record_name_index WHERE file_record_id = ?',
+        ['existing-v5-file']
+      )
+    ).resolves.toEqual({ rows: [{ normalized_name: 'preexisting-name-index' }] });
+    await expect(
+      client.query<{ gram: string }>(
+        'SELECT gram FROM file_record_name_grams WHERE file_record_id = ?',
+        ['existing-v5-file']
+      )
+    ).resolves.toEqual({ rows: [{ gram: 'zzz' }] });
+    await expect(
+      client.query<{ normalized_content: string }>(
+        'SELECT normalized_content FROM file_chunk_content_index WHERE file_chunk_id = ?',
+        ['existing-v5-chunk']
+      )
+    ).resolves.toEqual({ rows: [{ normalized_content: 'preexisting-content-index' }] });
+    await expect(
+      client.query<{ gram: string }>(
+        `SELECT gram
+           FROM file_chunk_content_grams
+          WHERE file_chunk_id = ?
+            AND case_sensitive = 0`,
+        ['existing-v5-chunk']
+      )
+    ).resolves.toEqual({ rows: [{ gram: 'zzz' }] });
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: HISTORICAL_TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_V5_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,
@@ -645,6 +796,21 @@ describe('Turso schema baseline', () => {
       "'9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a'"
     );
     expect(v2ChecksumDeclaration).not.toContain('computeTursoSchemaChecksum');
+  });
+
+  it('pins the historical v5 checksum instead of mutating applied seed declarations', async () => {
+    expect(TURSO_SCHEMA_BASELINE_V5_VERSION).toBe(5);
+    expect(TURSO_SCHEMA_BASELINE_V5_CHECKSUM).toBe(HISTORICAL_TURSO_SCHEMA_BASELINE_V5_CHECKSUM);
+
+    const source = await readFile(join(DB_PACKAGE_ROOT, 'src/turso/schema-baseline.ts'), 'utf8');
+    const v5ChecksumDeclaration = source.match(
+      /TURSO_SCHEMA_BASELINE_V5_CHECKSUM\s*=[\s\S]*?;\n/
+    )?.[0];
+
+    expect(v5ChecksumDeclaration).toContain(
+      "'de6b684b37a9e876c9124e64c3d40abdc95ded9946a0b7654f2be3e94733b18c'"
+    );
+    expect(v5ChecksumDeclaration).not.toContain('computeTursoSchemaChecksum');
   });
 
   it('enables foreign key enforcement before opening the baseline transaction', async () => {

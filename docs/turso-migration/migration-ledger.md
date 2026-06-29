@@ -59,11 +59,12 @@ as the implementation backlog.
 - #1357 `Add Turso vector search`
 - #1358 `Gate Turso semantic retrieval by bootstrap`
 - #1359 `Gate scheduled desktop database and dimension-index maintenance by runtime`
-- Current slice: make Turso collection indexing stats count inherited chunks
-  consistently, so chunks with `file_chunks.embedding_set_id IS NULL` inherit
-  the owning `file_records.embedding_set_id` in live embedding-space stats,
-  repository refreshes, managed-cache refreshes, semantic retrieval, indexed
-  grep candidates, embedding clears, and set deletion cleanup.
+- #1360 `Fix Turso inherited chunk stats`
+- Current slice: bump the Turso schema baseline to v6 so existing v5 profiles
+  re-run idempotent catalog/view-preset seeds during upgrade. The seed upgrade
+  restores missing catalog rows while preserving user-owned model toggles and
+  view-preset ordering; v5-to-v6 is seed-only and does not rerun generated gram
+  backfills.
 
 ## Turso Docs Guardrail
 
@@ -174,6 +175,14 @@ Current Turso repository/runtime coverage:
   that stats report as embedded/covered. Turso indexed grep candidates also use
   the same rule so `brainstrike.grepSearch` can search inherited chunks when it
   receives the workspace index embedding set.
+- Turso schema baseline v6 treats seed DML changes as a real baseline upgrade
+  instead of mutating v5 in place. Upgrades from v1-v5 re-run idempotent seed
+  DML before recording the current ledger row, so future catalog rows are
+  inserted for existing Turso profiles while `models.is_enabled` and
+  `view_filter_presets.sort_order` remain user-owned. Generated quick-open and
+  grep gram backfills only run for historical baselines whose upgrade DDL
+  introduced those sidecar tables; v5-to-v6 reseeding leaves existing generated
+  gram rows untouched.
 
 ## Non-Negotiable Migration Rules
 
@@ -374,6 +383,10 @@ Concrete blockers:
   Postgres-shaped (`COUNT(*)::text`, `$n` parameters, data-modifying CTE delete,
   table-targeted `VACUUM`), and dimension-index maintenance still builds
   pgvector HNSW SQL. Neither path is translated inline for Turso.
+- Post-merge retrospective follow-ups still need focused slices: Turso queue
+  retry symmetry around completion/write-contention paths, owner-client
+  timeout/QoS diagnostics, explicit embedding-set delete semantics for
+  `file_records`, and Turso corruption diagnostics/recovery.
 
 Preferred next slice: add a Turso maintenance implementation only for
 operations that are meaningful under SQLite/Turso, then wire that implementation
