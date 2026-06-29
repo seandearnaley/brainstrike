@@ -22,6 +22,8 @@ import {
   TURSO_SCHEMA_BASELINE_V3_VERSION,
   TURSO_SCHEMA_BASELINE_V4_CHECKSUM,
   TURSO_SCHEMA_BASELINE_V4_VERSION,
+  TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+  TURSO_SCHEMA_BASELINE_V5_VERSION,
   TURSO_SCHEMA_BASELINE_VERSION,
 } from '../src/turso/schema-baseline.js';
 import { computeTursoSchemaChecksum } from '../src/turso/schema-ledger.js';
@@ -622,6 +624,67 @@ describe('Turso schema baseline', () => {
     });
   });
 
+  it('upgrades an existing v5 Turso schema ledger by rerunning idempotent seeds', async () => {
+    for (const ddl of TURSO_SCHEMA_BASELINE_DDL) {
+      await client.exec(ddl);
+    }
+    for (const statement of TURSO_SCHEMA_BASELINE_SEED_DML) {
+      await client.exec(statement.sql, statement.params);
+    }
+    await client.exec(`
+      CREATE TABLE brainstrike_turso_schema_ledger (
+        version INTEGER PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    await client.exec(
+      'INSERT INTO brainstrike_turso_schema_ledger (version, checksum, applied_at) VALUES (?, ?, ?)',
+      [
+        TURSO_SCHEMA_BASELINE_V5_VERSION,
+        TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+        '2026-06-29T12:00:00.000Z',
+      ]
+    );
+    await client.exec("DELETE FROM models WHERE id = 'gpt-5.5'");
+    await client.exec("UPDATE models SET is_enabled = 0 WHERE id = 'gpt-5.4-mini'");
+    await client.exec(
+      "UPDATE view_filter_presets SET sort_order = 42 WHERE id = 'typescript-javascript'"
+    );
+
+    await applyTursoSchemaBaseline(client);
+
+    await expect(
+      client.query<{ id: string; is_enabled: number }>(
+        "SELECT id, is_enabled FROM models WHERE id IN ('gpt-5.5', 'gpt-5.4-mini') ORDER BY id"
+      )
+    ).resolves.toEqual({
+      rows: [
+        { id: 'gpt-5.4-mini', is_enabled: 0 },
+        { id: 'gpt-5.5', is_enabled: 1 },
+      ],
+    });
+    await expect(
+      client.query<{ sort_order: number }>(
+        "SELECT sort_order FROM view_filter_presets WHERE id = 'typescript-javascript'"
+      )
+    ).resolves.toEqual({ rows: [{ sort_order: 42 }] });
+    await expect(
+      client.query('SELECT version, checksum FROM brainstrike_turso_schema_ledger ORDER BY version')
+    ).resolves.toEqual({
+      rows: [
+        {
+          checksum: TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_V5_VERSION,
+        },
+        {
+          checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+          version: TURSO_SCHEMA_BASELINE_VERSION,
+        },
+      ],
+    });
+  });
+
   it('includes seed parameters in the baseline checksum', () => {
     const sqlOnlyChecksum = computeTursoSchemaChecksum([
       ...TURSO_SCHEMA_BASELINE_DDL,
@@ -645,6 +708,23 @@ describe('Turso schema baseline', () => {
       "'9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a'"
     );
     expect(v2ChecksumDeclaration).not.toContain('computeTursoSchemaChecksum');
+  });
+
+  it('pins the historical v5 checksum instead of mutating applied seed declarations', async () => {
+    expect(TURSO_SCHEMA_BASELINE_V5_VERSION).toBe(5);
+    expect(TURSO_SCHEMA_BASELINE_V5_CHECKSUM).toBe(
+      'de6b684b37a9e876c9124e64c3d40abdc95ded9946a0b7654f2be3e94733b18c'
+    );
+
+    const source = await readFile(join(DB_PACKAGE_ROOT, 'src/turso/schema-baseline.ts'), 'utf8');
+    const v5ChecksumDeclaration = source.match(
+      /TURSO_SCHEMA_BASELINE_V5_CHECKSUM\s*=[\s\S]*?;\n/
+    )?.[0];
+
+    expect(v5ChecksumDeclaration).toContain(
+      "'de6b684b37a9e876c9124e64c3d40abdc95ded9946a0b7654f2be3e94733b18c'"
+    );
+    expect(v5ChecksumDeclaration).not.toContain('computeTursoSchemaChecksum');
   });
 
   it('enables foreign key enforcement before opening the baseline transaction', async () => {
