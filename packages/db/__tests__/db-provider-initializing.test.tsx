@@ -687,6 +687,9 @@ describe('DbProvider initializing state', () => {
     await expect(result.current.chunkRepository.clearEmbeddingsForSet('set-1')).rejects.toThrow(
       'Desktop Turso file chunk repository clearEmbeddingsForSet requires a callback transaction client with query support.'
     );
+    await expect(result.current.chunkRepository.insert(chunkInsert)).rejects.toThrow(
+      'Desktop Turso file chunk repository insert requires a callback transaction client with query support.'
+    );
     await expect(result.current.chunkRepository.insertMany([chunkInsert])).rejects.toThrow(
       'Desktop Turso file chunk repository insertMany requires a callback transaction client with query support.'
     );
@@ -696,6 +699,16 @@ describe('DbProvider initializing state', () => {
       ])
     ).rejects.toThrow(
       'Desktop Turso file chunk repository insertManyWithTx requires a callback transaction client with query support.'
+    );
+    await expect(
+      result.current.chunkRepository.update({
+        content: 'updated turso chunk',
+        contentHash: 'chunk-hash-updated',
+        id: 'chunk-1',
+        updatedAt: '2026-06-22T19:01:00.000Z',
+      })
+    ).rejects.toThrow(
+      'Desktop Turso file chunk repository update requires a callback transaction client with query support.'
     );
     expect(runTransaction).not.toHaveBeenCalled();
 

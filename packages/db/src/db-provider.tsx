@@ -47,7 +47,7 @@ import {
 import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
-import type { FileChunk, FileChunkInsert } from './models/file-chunk.js';
+import type { FileChunk, FileChunkInsert, FileChunkUpdate } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
@@ -774,6 +774,12 @@ function createElectronProviderTursoFileChunkRepository(
   db: BrainstrikeDbExecutionClient
 ): TursoFileChunkRepository {
   class ElectronProviderTursoFileChunkRepository extends TursoFileChunkRepo {
+    override async insert(_chunk: FileChunkInsert): Promise<FileChunk> {
+      throw new Error(
+        'Desktop Turso file chunk repository insert requires a callback transaction client with query support.'
+      );
+    }
+
     override async insertMany(_chunks: FileChunkInsert[]): Promise<FileChunk[]> {
       throw new Error(
         'Desktop Turso file chunk repository insertMany requires a callback transaction client with query support.'
@@ -792,6 +798,12 @@ function createElectronProviderTursoFileChunkRepository(
     override async clearEmbeddingsForSet(_embeddingSetId: string): Promise<number> {
       throw new Error(
         'Desktop Turso file chunk repository clearEmbeddingsForSet requires a callback transaction client with query support.'
+      );
+    }
+
+    override async update(_chunk: FileChunkUpdate): Promise<FileChunk | null> {
+      throw new Error(
+        'Desktop Turso file chunk repository update requires a callback transaction client with query support.'
       );
     }
   }

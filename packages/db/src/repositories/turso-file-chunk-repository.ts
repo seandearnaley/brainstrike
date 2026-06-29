@@ -18,11 +18,18 @@ import {
   EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
 } from '../queue/embedding-job-dedupe-key.js';
 import {
+  createGrepContentCandidateGrams,
+  normalizeGrepContentText,
+  replaceGrepContentIndex,
+} from '../search/grep-content-grams.js';
+import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
 } from '../text-content-invariants.js';
+import { MAX_INLINE_FILE_PATHS } from './_shared.js';
 
 const MAX_SQLITE_PARAMS = 900;
+const GREP_CANDIDATE_MAX_LIMIT = 500;
 const FILE_CHUNK_COLUMN_COUNT = 18;
 const BATCH_SIZE = Math.floor(MAX_SQLITE_PARAMS / FILE_CHUNK_COLUMN_COUNT);
 const FILE_CHUNK_COLUMNS = `
@@ -117,6 +124,14 @@ interface TursoEmbeddingSetDimensionRow {
   readonly id: string;
 }
 
+interface TursoGrepCandidateRow {
+  readonly content: string;
+  readonly display_name: string | null;
+  readonly path: string;
+  readonly root_id: string | null;
+  readonly start_line: number | string | null;
+}
+
 export interface TursoEmbeddingBackfillCandidate {
   readonly contentHash: string;
   readonly fileRecordId: string;
@@ -193,7 +208,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
-    const rows = await this.insertManyWithClient(this.db, [chunk]);
+    const rows = await this.db.transaction(async (tx) => this.insertManyWithClient(tx, [chunk]));
     const inserted = rows[0];
     if (!inserted) {
       throw new Error(`Failed to insert Turso file chunk ${chunk.id}.`);
@@ -219,7 +234,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
   }
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
-    return this.updateWithClient(this.db, chunk);
+    return this.db.transaction(async (tx) => this.updateWithClient(tx, chunk));
   }
 
   async updateWithTx(
@@ -298,7 +313,13 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       params
     );
     const row = result.rows[0];
-    return row ? mapRowToChunk(row) : null;
+    if (!row) {
+      return null;
+    }
+    if (chunk.content !== undefined) {
+      await replaceGrepContentIndex(db, row.id, row.content);
+    }
+    return mapRowToChunk(row);
   }
 
   async delete(id: string): Promise<boolean> {
@@ -333,10 +354,90 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     throw new Error('TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.');
   }
 
-  async findGrepCandidates(_options: GrepCandidateOptions): Promise<GrepCandidate[]> {
-    throw new Error(
-      'TursoFileChunkRepository.findGrepCandidates requires the Turso grep search slice.'
+  async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
+    const { caseSensitive, embeddingSetId, filePaths, likePattern, limit, rootId } = options;
+    const boundedLimit = readGrepCandidateLimit(limit);
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let candidateCteSql = '';
+    let candidateParams: unknown[] = [];
+    let candidateSourceSql = 'file_chunks fc';
+    let contentIndexJoinSql = '';
+    if (likePattern !== null) {
+      const literal = unescapeLikeLiteral(likePattern);
+      const grams = createGrepContentCandidateGrams(literal, caseSensitive);
+      if (grams.length === 0) {
+        throw new Error('Grep candidate literal must not be empty.');
+      }
+      const requestedGrams = grams.map(() => '(?)').join(', ');
+      candidateCteSql = `WITH requested_grams(gram) AS (VALUES ${requestedGrams}),
+           candidate_chunks AS (
+             SELECT gc.file_chunk_id
+               FROM file_chunk_content_grams gc
+               JOIN requested_grams rg ON rg.gram = gc.gram
+              WHERE gc.case_sensitive = ?
+              GROUP BY gc.file_chunk_id
+             HAVING COUNT(DISTINCT gc.gram) = ?
+           )`;
+      candidateParams = [...grams, caseSensitive ? 1 : 0, grams.length];
+      candidateSourceSql = 'candidate_chunks cc JOIN file_chunks fc ON fc.id = cc.file_chunk_id';
+      contentIndexJoinSql = 'JOIN file_chunk_content_index fci ON fci.file_chunk_id = fc.id';
+      if (caseSensitive) {
+        conditions.push('instr(fc.content, ?) > 0');
+        params.push(literal);
+      } else {
+        conditions.push('instr(fci.normalized_content, ?) > 0');
+        params.push(normalizeGrepContentText(literal));
+      }
+    }
+    if (embeddingSetId !== undefined) {
+      conditions.push('fc.embedding_set_id = ?');
+      params.push(embeddingSetId);
+    }
+    if (rootId !== undefined) {
+      conditions.push('fr.root_id = ?');
+      params.push(rootId);
+    }
+    if (filePaths !== undefined) {
+      if (filePaths.length === 0) {
+        return [];
+      }
+      if (filePaths.length > MAX_INLINE_FILE_PATHS) {
+        throw new Error(
+          `findGrepCandidates filePaths limit exceeded (${filePaths.length} > ${MAX_INLINE_FILE_PATHS}).`
+        );
+      }
+      const paths = Array.from(filePaths);
+      conditions.push(`fr.path IN (${createPlaceholders(paths.length)})`);
+      params.push(...paths);
+    }
+    params.push(boundedLimit);
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await this.db.query<TursoGrepCandidateRow>(
+      `${candidateCteSql}
+       SELECT fc.content, fc.start_line, fr.path, fr.root_id, r.display_name
+         FROM ${candidateSourceSql}
+         ${contentIndexJoinSql}
+         JOIN file_records fr ON fr.id = fc.file_record_id
+         LEFT JOIN roots r ON r.id = fr.root_id
+         ${whereClause}
+        ORDER BY fr.path, fc.chunk_index
+        LIMIT ?`,
+      [...candidateParams, ...params]
     );
+
+    return result.rows.map((row) => ({
+      content: row.content,
+      filePath: row.path,
+      rootId: row.root_id,
+      rootName: row.display_name,
+      startLine:
+        row.start_line === null
+          ? null
+          : readInteger(row.start_line, `grep candidate ${row.path} start line`),
+    }));
   }
 
   async findAll(): Promise<FileChunk[]> {
@@ -866,7 +967,10 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
          RETURNING ${FILE_CHUNK_COLUMNS}`,
         params
       );
-      inserted.push(...result.rows.map((row) => mapRowToChunk(row)));
+      for (const row of result.rows) {
+        await replaceGrepContentIndex(db, row.id, row.content);
+        inserted.push(mapRowToChunk(row));
+      }
     }
     return sortLikeInput(inserted, chunks);
   }
@@ -1202,6 +1306,32 @@ function resolveEmbeddingBackfillQueue(queue: string | undefined): string {
     return DEFAULT_EMBEDDING_BACKFILL_QUEUE;
   }
   return requireNonEmptyText(queue, 'embedding backfill queue');
+}
+
+function readGrepCandidateLimit(value: number): number {
+  const limit = readPositiveInteger(value, 'grep candidate limit');
+  if (limit > GREP_CANDIDATE_MAX_LIMIT) {
+    throw new Error(`grep candidate limit ${limit} exceeds maximum ${GREP_CANDIDATE_MAX_LIMIT}.`);
+  }
+  return limit;
+}
+
+function unescapeLikeLiteral(likePattern: string): string {
+  let literal = '';
+  let escaping = false;
+  for (const char of likePattern) {
+    if (escaping) {
+      literal += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaping = true;
+      continue;
+    }
+    literal += char;
+  }
+  return escaping ? `${literal}\\` : literal;
 }
 
 function readNullableFiniteNumber(
