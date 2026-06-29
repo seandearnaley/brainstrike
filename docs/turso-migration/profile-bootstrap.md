@@ -78,9 +78,11 @@ upserts, transaction-scoped batch inserts, content/position/embedding metadata
 updates, delete/clear operations, coverage counts, stats, explicit
 embedding-clearing stats refresh, trigram-backed grep candidates, and native
 `vector32(?)` similarity search. Repository-authored embeddings are stored as
-Turso vector blobs and read back through `vector_extract`; raw JSON embedding
-blobs are not accepted. `fullTextSearch` still fails loudly until the split FTS
-owner is wired. Repository-authored chunks must also carry the non-null
+Turso vector blobs and decoded from the raw BLOB on reads, so ordinary reads do
+not depend on vector SQL functions. Legacy JSON embedding blobs from the
+pre-vector Turso slice remain readable for cleanup or re-embedding, but new
+writes use native Turso vector storage. `fullTextSearch` still fails loudly until
+the split FTS owner is wired. Repository-authored chunks must also carry the non-null
 `FileChunk` identity/type fields (`contentHash`, `chunkType`); if another raw
 Turso path writes nullable baseline rows that violate that contract, repository
 reads fail loudly instead of coalescing malformed data.

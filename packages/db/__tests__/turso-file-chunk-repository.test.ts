@@ -79,6 +79,109 @@ describe('TursoFileChunkRepository', () => {
     ]);
   });
 
+  it('does not prepare vector functions when inserting chunks without embeddings', async () => {
+    const insertedRow = {
+      chunk_index: 0,
+      chunk_size: 18,
+      chunk_type: 'code',
+      content: 'const answer = 42;',
+      content_hash: 'hash-chunk-1',
+      created_at: '2026-06-23T08:10:00.000Z',
+      embedding: null,
+      embedding_hash: null,
+      embedding_set_id: null,
+      embedding_updated_at: null,
+      end_line: null,
+      end_offset: null,
+      file_record_id: 'file-1',
+      id: 'chunk-no-embedding',
+      start_line: null,
+      start_offset: null,
+      token_count: 4,
+      updated_at: '2026-06-23T08:10:00.000Z',
+    };
+    let capturedInsertSql = '';
+    const transactionClient = {
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async (sql: string) => {
+        capturedInsertSql = sql;
+        return { rows: [insertedRow] };
+      }),
+    };
+    const repositoryWithoutVector = new TursoFileChunkRepository({
+      exec: vi.fn(async () => {}),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction: vi.fn(async (callback) => callback(transactionClient)),
+    });
+
+    await repositoryWithoutVector.insert(
+      createChunk({ embedding: undefined, id: 'chunk-no-embedding' })
+    );
+
+    expect(capturedInsertSql).toContain('INSERT INTO file_chunks');
+    expect(capturedInsertSql).toContain('NULL');
+    expect(capturedInsertSql).not.toContain('vector32(');
+  });
+
+  it('reads legacy JSON embedding blobs from pre-vector Turso profiles', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:legacy-json',
+      'legacy json',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-legacy-json',
+        path: 'src/legacy-json.ts',
+      })
+    );
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         embedding,
+         embedding_set_id,
+         embedding_updated_at,
+         embedding_hash,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'chunk-legacy-json',
+        'file-legacy-json',
+        0,
+        'legacy embedding',
+        'hash-legacy-json',
+        3,
+        'code',
+        16,
+        new TextEncoder().encode(JSON.stringify([0.1, 0.2, 0.3])),
+        embeddingSet.id,
+        '2026-06-23T08:10:00.000Z',
+        'hash-embedding-legacy-json',
+        '2026-06-23T08:10:00.000Z',
+        '2026-06-23T08:10:00.000Z',
+      ]
+    );
+
+    await expect(repository.findById('chunk-legacy-json')).resolves.toMatchObject({
+      embedding: [0.1, 0.2, 0.3],
+      embeddingDimensions: 3,
+      embeddingHash: 'hash-embedding-legacy-json',
+      embeddingSetId: embeddingSet.id,
+      id: 'chunk-legacy-json',
+    });
+  });
+
   it('batch inserts atomically and rejects null-byte content before writing', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
 

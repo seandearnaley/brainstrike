@@ -32,8 +32,7 @@ import { computeOverfetchLimit, MAX_INLINE_FILE_PATHS } from './_shared.js';
 const MAX_SQLITE_PARAMS = 900;
 const GREP_CANDIDATE_MAX_LIMIT = 500;
 const FILE_CHUNK_COLUMN_COUNT = 18;
-const FILE_CHUNK_INSERT_PARAM_COUNT = FILE_CHUNK_COLUMN_COUNT + 1;
-const BATCH_SIZE = Math.floor(MAX_SQLITE_PARAMS / FILE_CHUNK_INSERT_PARAM_COUNT);
+const BATCH_SIZE = Math.floor(MAX_SQLITE_PARAMS / FILE_CHUNK_COLUMN_COUNT);
 const FILE_CHUNK_COLUMNS = `
   id,
   file_record_id,
@@ -56,9 +55,6 @@ const FILE_CHUNK_COLUMNS = `
 `.trim();
 const FILE_CHUNK_COLUMN_NAMES = FILE_CHUNK_COLUMNS.split(',').map((column) => column.trim());
 const FILE_CHUNK_SELECT_COLUMNS = buildFileChunkProjection();
-const FILE_CHUNK_INSERT_VALUES_SQL = FILE_CHUNK_COLUMN_NAMES.map((column) =>
-  column === 'embedding' ? 'CASE WHEN ? IS NULL THEN NULL ELSE vector32(?) END' : '?'
-).join(', ');
 
 export const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
 
@@ -1027,7 +1023,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
     const inserted: FileChunk[] = [];
     for (const batch of batchArray(chunks, BATCH_SIZE)) {
-      const values = batch.map(() => `(${FILE_CHUNK_INSERT_VALUES_SQL})`).join(', ');
+      const values = batch.map((chunk) => buildInsertValueSql(chunk)).join(', ');
       const params = batch.flatMap((chunk) => toInsertParams(chunk));
       const result = await db.query<TursoFileChunkRow>(
         `INSERT INTO file_chunks (${FILE_CHUNK_COLUMNS})
@@ -1066,7 +1062,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
 
 function toInsertParams(chunk: FileChunkInsert): unknown[] {
   const embeddingVectorParam = encodeEmbeddingVectorParam(chunk.embedding);
-  return [
+  const params: unknown[] = [
     chunk.id,
     chunk.fileRecordId,
     chunk.chunkIndex,
@@ -1079,16 +1075,29 @@ function toInsertParams(chunk: FileChunkInsert): unknown[] {
     chunk.endLine ?? null,
     chunk.startOffset ?? null,
     chunk.endOffset ?? null,
-    embeddingVectorParam,
-    embeddingVectorParam,
+  ];
+  if (embeddingVectorParam !== null) {
+    params.push(embeddingVectorParam);
+  }
+  params.push(
     chunk.embeddingSetId ?? null,
     chunk.embedding
       ? normalizeDateValue(chunk.embeddingUpdatedAt ?? chunk.updatedAt, 'embeddingUpdatedAt')
       : null,
     chunk.embeddingHash ?? null,
     normalizeDateValue(chunk.createdAt, 'createdAt'),
-    normalizeDateValue(chunk.updatedAt, 'updatedAt'),
-  ];
+    normalizeDateValue(chunk.updatedAt, 'updatedAt')
+  );
+  return params;
+}
+
+function buildInsertValueSql(chunk: FileChunkInsert): string {
+  return `(${FILE_CHUNK_COLUMN_NAMES.map((column) => {
+    if (column === 'embedding') {
+      return chunk.embedding === undefined ? 'NULL' : 'vector32(?)';
+    }
+    return '?';
+  }).join(', ')})`;
 }
 
 function buildFileChunkProjection(tableAlias?: string, includeEmbeddingPayload = true): string {
@@ -1100,7 +1109,7 @@ function buildFileChunkProjection(tableAlias?: string, includeEmbeddingPayload =
     if (!includeEmbeddingPayload) {
       return 'NULL AS embedding';
     }
-    return `CASE WHEN ${qualifiedColumn} IS NULL THEN NULL ELSE vector_extract(${qualifiedColumn}) END AS embedding`;
+    return qualifiedColumn;
   }).join(', ');
 }
 
@@ -1458,18 +1467,42 @@ function decodeEmbeddingBlob(
   if (embedding === null) {
     return;
   }
-  if (typeof embedding !== 'string') {
+  if (typeof embedding === 'string') {
+    return decodeEmbeddingJsonPayload(embedding, chunkId);
+  }
+
+  const bytes = embedding instanceof Uint8Array ? embedding : new Uint8Array(embedding);
+  if (bytes.length === 0) {
+    throw new Error(`Invalid Turso embedding blob for chunk ${chunkId}: empty payload.`);
+  }
+  if (bytes[0] === 0x5b) {
+    return decodeEmbeddingJsonPayload(new TextDecoder().decode(bytes), chunkId);
+  }
+  if (bytes.byteLength % 4 !== 0) {
     throw new Error(
-      `Turso embedding blob for chunk ${chunkId} must be read through vector_extract().`
+      `Invalid Turso vector32 blob for chunk ${chunkId}: byte length ${bytes.byteLength} is not divisible by 4.`
     );
   }
-  const text = embedding.trim();
-  if (!text.startsWith('[')) {
-    throw new Error(`Invalid Turso vector_extract payload for chunk ${chunkId}.`);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const vector: number[] = [];
+  for (let offset = 0; offset < bytes.byteLength; offset += 4) {
+    const value = Number(view.getFloat32(offset, true).toPrecision(7));
+    if (!Number.isFinite(value)) {
+      throw new Error(`Invalid Turso vector32 value for chunk ${chunkId}.`);
+    }
+    vector.push(value);
+  }
+  return vector;
+}
+
+function decodeEmbeddingJsonPayload(text: string, chunkId: string): number[] {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('[')) {
+    throw new Error(`Invalid Turso embedding JSON payload for chunk ${chunkId}.`);
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(trimmed);
   } catch (error) {
     throw new Error(
       `Failed to decode Turso embedding blob for chunk ${chunkId}: ${
