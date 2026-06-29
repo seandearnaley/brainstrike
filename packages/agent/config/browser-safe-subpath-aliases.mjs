@@ -7,6 +7,7 @@ const AGENT_BROWSER_SAFE_SOURCE_FILES = {
   '@brainstrike/agent/pglite-mastra-memory/schema': 'src/pglite-mastra-memory/schema.ts',
   '@brainstrike/agent/provider-metadata': 'src/provider-metadata.ts',
   '@brainstrike/agent/tool-metadata': 'src/tool-metadata.ts',
+  '@brainstrike/agent/turso-mastra-memory/schema': 'src/turso-mastra-memory/schema.ts',
 };
 
 export function createAgentBrowserSafeAliasEntries(agentPackageDir) {

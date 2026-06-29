@@ -717,6 +717,9 @@ importers:
       '@electric-sql/pglite-pgvector':
         specifier: 0.0.2
         version: 0.0.2(@electric-sql/pglite@0.5.1)
+      '@tursodatabase/database':
+        specifier: 0.6.1
+        version: 0.6.1
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0

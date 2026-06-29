@@ -16,6 +16,8 @@ export default defineConfig((_options) => ({
     'src/run-events.ts',
     'src/pglite-mastra-memory/index.ts',
     'src/pglite-mastra-memory/schema.ts',
+    'src/turso-mastra-memory/index.ts',
+    'src/turso-mastra-memory/schema.ts',
   ],
   format: ['esm', 'cjs'],
   dts: {
@@ -32,6 +34,8 @@ export default defineConfig((_options) => ({
       'src/run-events.ts',
       'src/pglite-mastra-memory/index.ts',
       'src/pglite-mastra-memory/schema.ts',
+      'src/turso-mastra-memory/index.ts',
+      'src/turso-mastra-memory/schema.ts',
     ],
     compilerOptions: {
       composite: false,

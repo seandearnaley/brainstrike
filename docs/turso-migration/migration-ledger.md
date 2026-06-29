@@ -53,8 +53,9 @@ as the implementation backlog.
 - #1348 `Add Turso embedding backfill candidate queries`
 - #1349 `Extract vector backfill repository port`
 - #1350 `Add Turso vector backfill adapter`
-- Current slice: storage-neutral vector queue refresh metrics plus Turso queue
-  metrics, still behind the `turso-vector-backfill-not-migrated` runtime gate.
+- #1351 `Make vector queue refresh metrics storage-neutral`
+- Current slice: Turso Mastra memory/workflows adapter in `@brainstrike/agent`,
+  not yet wired into the desktop assistant server.
 
 ## Turso Docs Guardrail
 
@@ -286,17 +287,23 @@ Known production touchpoints:
 Concrete blockers:
 
 - `createPgliteMastraMemory()` is still the server memory factory.
-- `PgliteMemoryStore`, `PgliteWorkflowsStore`, and `PgliteVectorStore` are
-  still the concrete stores.
+- `TursoMemoryStore` and `TursoWorkflowsStore` now exist under
+  `@brainstrike/agent/turso-mastra-memory`, with SQLite-compatible schema,
+  thread/message/resource persistence, non-vector observational memory, and
+  workflow snapshots.
+- The Turso factory intentionally does not expose vector memory yet. Semantic
+  recall and observational vector retrieval fail closed with deterministic
+  configuration errors instead of silently disabling vector behavior.
 - `PgliteVectorStore` creates `vector` extension, `embedding vector`, JSONB,
   and GIN indexes.
 - The renderer thread repository is named and shaped around PGlite/Postgres
   SQL, including JSONB casts.
 
-Preferred next slice: create a Turso Mastra memory adapter or a dialect-neutral
-factory. First cover storage/workflows and fail closed for vector memory until
-Turso vector support lands. Then replay the existing live-loop persistence and
-tool-approval tests against Turso.
+Preferred next slice: wire the desktop assistant server to select the Turso
+factory from the ready runtime/bootstrap verdict, include runtime/profile/store
+identity in the memory cache key, bootstrap the related run-event tables for
+Turso, and replay the live-loop persistence and tool-approval tests against
+Turso before enabling the path.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 
