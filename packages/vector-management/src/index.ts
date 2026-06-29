@@ -59,10 +59,20 @@ export {
   useEmbeddingSetSelection,
 } from './vector-status/embedding-set-selector';
 export { createTursoEmbeddingBackfillRepository } from './vector-status/turso-embedding-backfill-repository';
+export {
+  createTursoVectorQueueMetricsRepository,
+  createTursoVectorQueueSnapshotReader,
+} from './vector-status/turso-vector-queue-metrics-repository';
 // Vector status hooks
 export { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 export { useVectorQueueState } from './vector-status/use-vector-queue-state';
-export type { VectorQueueService } from './vector-status/vector-queue-service';
+export type {
+  VectorQueueService,
+  VectorQueueSnapshotReader,
+} from './vector-status/vector-queue-service';
 // Vector queue service
-export { createVectorQueueService } from './vector-status/vector-queue-service';
+export {
+  createVectorQueueService,
+  createVectorQueueSnapshotReader,
+} from './vector-status/vector-queue-service';
 export { VectorStatusWithDialog } from './vector-status-with-dialog';

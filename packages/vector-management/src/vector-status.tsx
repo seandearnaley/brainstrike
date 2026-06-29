@@ -644,6 +644,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     controller: runtimeController,
     service,
     serviceUnavailableReason,
+    snapshotReader,
   } = useSharedEmbeddingRuntime();
   const hasQueueService = Boolean(service);
   const queueUnavailableReasonText =
@@ -678,6 +679,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   const queueState = useVectorQueueState({
     controller: runtimeController,
     service,
+    snapshotReader,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
     isImporting,

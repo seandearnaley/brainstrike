@@ -52,9 +52,9 @@ as the implementation backlog.
 - #1347 `Gate vector queue service by DB runtime`
 - #1348 `Add Turso embedding backfill candidate queries`
 - #1349 `Extract vector backfill repository port`
-- Current slice: Turso vector backfill repository adapter plus per-set Turso
-  queue counts, still behind the `turso-vector-backfill-not-migrated` runtime
-  gate.
+- #1350 `Add Turso vector backfill adapter`
+- Current slice: storage-neutral vector queue refresh metrics plus Turso queue
+  metrics, still behind the `turso-vector-backfill-not-migrated` runtime gate.
 
 ## Turso Docs Guardrail
 
@@ -134,6 +134,11 @@ Current Turso repository/runtime coverage:
   Turso job-queue per-set state counts. It is exported for future wiring, but
   runtime selection still returns `turso-vector-backfill-not-migrated` until the
   hidden worker, Electron IPC, and Turso claim/load/complete path are migrated.
+- `VectorQueueService.refresh()` now reads queue throughput, latest failure, and
+  latency samples through a storage-neutral `VectorQueueMetricsRepository`.
+  PGlite keeps the existing PostgreSQL-shaped SQL behind the default repository;
+  Turso exposes the same metrics through `TursoJobQueue.getQueueMetrics()` and a
+  vector-management adapter. This is intentionally not runtime wiring yet.
 
 ## Non-Negotiable Migration Rules
 
@@ -221,11 +226,10 @@ Completed low-risk queue UI slices:
   service-null with an explicit unavailable reason.
 
 Remaining slice: wire the Turso `EmbeddingBackfillRepository` only after the
-hidden embedding host can run the Turso claim/load/complete path end-to-end, and
-move `refresh()` metrics behind a Turso-safe repository path instead of the
-current PostgreSQL-shaped SQL. Preserve the hidden-renderer worker boundary. Do
-not enable Turso backfill through `vector-queue-service.ts` until Electron
-transaction/query support and runtime-specific worker tests prove the full path.
+hidden embedding host can run the Turso claim/load/complete path end-to-end.
+Preserve the hidden-renderer worker boundary. Do not enable Turso backfill
+through `vector-queue-service.ts` until Electron transaction/query support and
+runtime-specific worker tests prove the full path.
 
 ### 4. Assistant Search And Retrieval
 

@@ -166,6 +166,7 @@ vi.mock('../embedding-runtime-provider', () => ({
     },
     service: createMockVectorQueueService(),
     serviceUnavailableReason: null,
+    snapshotReader: null,
   })),
 }));
 
@@ -235,6 +236,7 @@ describe('useEmbeddingControls', () => {
       },
       service: createMockVectorQueueService(),
       serviceUnavailableReason: null,
+      snapshotReader: null,
     });
   });
 
@@ -270,6 +272,7 @@ describe('useEmbeddingControls', () => {
         },
         service: null,
         serviceUnavailableReason: 'unsupported-db-runtime',
+        snapshotReader: null,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -630,6 +633,7 @@ describe('useEmbeddingControls', () => {
         },
         service: null,
         serviceUnavailableReason: 'unsupported-db-runtime',
+        snapshotReader: null,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -662,6 +666,7 @@ describe('useEmbeddingControls', () => {
         },
         service: null,
         serviceUnavailableReason: 'turso-vector-backfill-not-migrated',
+        snapshotReader: null,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));

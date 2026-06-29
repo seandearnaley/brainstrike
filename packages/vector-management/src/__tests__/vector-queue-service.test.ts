@@ -178,6 +178,90 @@ describe('vector-queue-service', () => {
     expect(snapshot.latency.p50Ms).toBeGreaterThan(0);
   });
 
+  it('refresh can load queue metrics without raw database queries', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 2, running: 1, failed: 0, succeeded: 8 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+      repairUnclaimableQueued: vi.fn(),
+    };
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => {
+        throw new Error('refresh must not query the raw database when metrics are injected');
+      }) as VectorQueueDatabase['query'],
+    };
+    const now = Date.now();
+    const queueMetricsRepository = {
+      loadQueueMetrics: vi.fn(async () => ({
+        lastError: 'latest failure',
+        latencyRows: [
+          {
+            runAt: new Date(now - 1500).toISOString(),
+            updatedAt: new Date(now).toISOString(),
+          },
+        ],
+        throughput: 6,
+      })),
+    };
+    const backfillRepository: VectorQueueServiceDependencies['backfillRepository'] = {
+      countBackfillCandidates: vi.fn(async () => 0),
+      getEmbeddingSetQueueCounts: vi.fn(async () => ({
+        failed: 4,
+        queued: 3,
+        running: 2,
+        succeeded: 1,
+      })),
+      loadBackfillCandidateBatch: vi.fn(async () => []),
+      loadBackfillCandidateDiagnostics: vi.fn(async () => ({
+        chunkCount: 0,
+        embeddedChunkCount: 0,
+        failedJobs: 0,
+        fileCount: 0,
+        pendingChunkCount: 0,
+        queuedOrRunningJobs: 0,
+      })),
+      resolveEmbeddingSetJobMetadata: vi.fn(async () => ({
+        expectedDimension: 384,
+        modelKey: 'local::test-model',
+      })),
+    };
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({
+        totalChunks: 9,
+        chunksWithEmbeddingsForSet: 4,
+      })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      backfillRepository,
+      chunkRepository,
+      queueMetricsRepository,
+    });
+
+    const snapshot = await service.refresh('set-1');
+
+    expect(queueMetricsRepository.loadQueueMetrics).toHaveBeenCalledWith({
+      latencyLimit: 200,
+      queue: 'embeddings',
+      since: expect.any(String),
+    });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(snapshot).toMatchObject({
+      activeSetQueueCounts: { queued: 3, running: 2, failed: 4, succeeded: 1 },
+      coverage: { total: 9, withSet: 4 },
+      lastError: 'latest failure',
+      queueCounts: { queued: 2, running: 1, failed: 0, succeeded: 8 },
+      throughput: 6,
+    });
+    expect(snapshot.latency.p50Ms).toBe(1500);
+  });
+
   it('backfill enqueues chunks with dedupe keys', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),

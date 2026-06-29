@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingRuntimeProvider, useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 
 const {
+  createTursoVectorQueueSnapshotReaderMock,
   createVectorQueueServiceMock,
   createVectorQueueServiceForRuntimeMock,
+  createTursoJobQueueReadModelMock,
   JobQueueMock,
   useEmbeddingRuntimeControllerMock,
   useFileChunkRepositoryMock,
@@ -13,8 +15,10 @@ const {
   useOptionalProfileBootstrapReportMock,
   useVectorPreferencesStoreMock,
 } = vi.hoisted(() => ({
+  createTursoVectorQueueSnapshotReaderMock: vi.fn(),
   createVectorQueueServiceMock: vi.fn(),
   createVectorQueueServiceForRuntimeMock: vi.fn(),
+  createTursoJobQueueReadModelMock: vi.fn((db: unknown) => ({ db })),
   JobQueueMock: vi.fn(function MockJobQueue(this: { db: unknown }, db: unknown) {
     this.db = db;
   }),
@@ -26,6 +30,7 @@ const {
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  createTursoJobQueueReadModel: createTursoJobQueueReadModelMock,
   JobQueue: JobQueueMock,
   useFileChunkRepository: useFileChunkRepositoryMock,
   useModelRegistryDbClient: useModelRegistryDbClientMock,
@@ -43,6 +48,10 @@ vi.mock('../vector-status/embedding-runtime-controller', () => ({
 vi.mock('../vector-status/vector-queue-service', () => ({
   createVectorQueueService: createVectorQueueServiceMock,
   createVectorQueueServiceForRuntime: createVectorQueueServiceForRuntimeMock,
+}));
+
+vi.mock('../vector-status/turso-vector-queue-metrics-repository', () => ({
+  createTursoVectorQueueSnapshotReader: createTursoVectorQueueSnapshotReaderMock,
 }));
 
 describe('EmbeddingRuntimeProvider', () => {
@@ -89,6 +98,9 @@ describe('EmbeddingRuntimeProvider', () => {
     );
     useEmbeddingRuntimeControllerMock.mockReturnValue({
       ensureStarted: vi.fn(),
+    });
+    createTursoVectorQueueSnapshotReaderMock.mockReturnValue({
+      refresh: vi.fn(),
     });
   });
 
@@ -156,7 +168,7 @@ describe('EmbeddingRuntimeProvider', () => {
     expect(result.current.service).toBeNull();
   });
 
-  it('passes turso runtime through as unavailable without constructing a pglite job queue', () => {
+  it('passes turso runtime through as unavailable while constructing a read-only snapshot reader', () => {
     useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
     useOptionalProfileBootstrapReportMock.mockReturnValue({
       runtime: { engine: 'turso', host: 'electron-utility', persistence: 'filesystem' },
@@ -184,6 +196,14 @@ describe('EmbeddingRuntimeProvider', () => {
     });
     expect(JobQueueMock).not.toHaveBeenCalled();
     expect(createVectorQueueServiceMock).not.toHaveBeenCalled();
+    expect(createTursoJobQueueReadModelMock).toHaveBeenCalledWith({ dialect: 'turso' });
+    expect(createTursoVectorQueueSnapshotReaderMock).toHaveBeenCalledWith({
+      chunkRepository: expect.objectContaining({
+        clearEmbeddingsForSet: expect.any(Function),
+        getCoverageForSet: expect.any(Function),
+      }),
+      jobQueue: expect.objectContaining({ db: { dialect: 'turso' } }),
+    });
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
       db: null,
       devicePreference: 'webgpu',
@@ -191,6 +211,9 @@ describe('EmbeddingRuntimeProvider', () => {
       service: null,
     });
     expect(result.current.service).toBeNull();
+    expect(result.current.snapshotReader).toBe(
+      createTursoVectorQueueSnapshotReaderMock.mock.results[0]?.value
+    );
     expect(result.current.serviceUnavailableReason).toBe('turso-vector-backfill-not-migrated');
   });
 });

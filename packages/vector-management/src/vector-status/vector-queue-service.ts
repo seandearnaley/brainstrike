@@ -48,11 +48,32 @@ export interface LatencyStats {
   p95Ms: number;
 }
 
+export interface VectorQueueLatencyRow {
+  runAt: string;
+  updatedAt: string;
+}
+
+export interface VectorQueueMetricsSnapshot {
+  lastError: string | null;
+  latencyRows: VectorQueueLatencyRow[];
+  throughput: number;
+}
+
+export interface VectorQueueMetricsRepository {
+  loadQueueMetrics(params: {
+    latencyLimit: number;
+    queue: string;
+    since: string;
+  }): Promise<VectorQueueMetricsSnapshot>;
+}
+
 /**
  * Complete snapshot of the vector queue state at a point in time.
  * Returned by service.refresh() to update UI with current queue activity.
  */
 export interface VectorQueueSnapshot {
+  /** Queue counts scoped to the active embedding set, null if no active set */
+  activeSetQueueCounts?: QueueCounts | null;
   /** Coverage statistics for the active embedding set, null if no active set */
   coverage: CoverageSnapshot | null;
   /** Most recent error message, null if no errors */
@@ -65,8 +86,19 @@ export interface VectorQueueSnapshot {
   throughput: number;
 }
 
+export interface VectorQueueSnapshotReader {
+  refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
+}
+
 export interface VectorQueueDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
+
+export interface VectorQueueSnapshotReaderDependencies {
+  activeSetQueueCountsRepository?: Pick<EmbeddingBackfillRepository, 'getEmbeddingSetQueueCounts'>;
+  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet'>;
+  jobQueue: Pick<JobQueue, 'getQueueStats'>;
+  queueMetricsRepository: VectorQueueMetricsRepository;
 }
 
 export interface VectorQueueServiceDependencies {
@@ -77,6 +109,7 @@ export interface VectorQueueServiceDependencies {
     JobQueue,
     'clear' | 'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
   >;
+  queueMetricsRepository?: VectorQueueMetricsRepository;
 }
 
 type VectorQueueRuntimeEngine = ProfileBootstrapRuntime['engine'];
@@ -335,7 +368,68 @@ export interface ReembedResult {
   queueCounts: QueueCounts;
 }
 
-export interface VectorQueueService {
+export function createVectorQueueSnapshotReader({
+  activeSetQueueCountsRepository,
+  chunkRepository,
+  jobQueue,
+  queueMetricsRepository,
+}: VectorQueueSnapshotReaderDependencies): VectorQueueSnapshotReader {
+  const defaultCounts: QueueCounts = {
+    queued: 0,
+    running: 0,
+    failed: 0,
+    succeeded: 0,
+  };
+  const defaultLatency: LatencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
+
+  return {
+    async refresh(activeSetId) {
+      const since = new Date(Date.now() - 60_000).toISOString();
+      const [queueStats, queueMetrics, coverage, activeSetQueueCounts] = await Promise.all([
+        jobQueue.getQueueStats(EMBEDDINGS_QUEUE),
+        queueMetricsRepository.loadQueueMetrics({
+          latencyLimit: 200,
+          queue: EMBEDDINGS_QUEUE,
+          since,
+        }),
+        activeSetId
+          ? chunkRepository.getCoverageForSet(activeSetId)
+          : Promise.resolve({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 }),
+        activeSetId && activeSetQueueCountsRepository
+          ? activeSetQueueCountsRepository.getEmbeddingSetQueueCounts(activeSetId)
+          : Promise.resolve(null),
+      ]);
+
+      const stats = queueStats[0];
+      const queueCounts: QueueCounts = stats
+        ? {
+            queued: stats.queued,
+            running: stats.running,
+            failed: stats.failed,
+            succeeded: stats.succeeded,
+          }
+        : defaultCounts;
+
+      const coverageSnapshot: CoverageSnapshot | null = activeSetId
+        ? {
+            total: coverage.totalChunks,
+            withSet: coverage.chunksWithEmbeddingsForSet,
+          }
+        : null;
+
+      return {
+        activeSetQueueCounts,
+        coverage: coverageSnapshot,
+        queueCounts,
+        throughput: queueMetrics.throughput,
+        lastError: queueMetrics.lastError,
+        latency: calculateLatency(queueMetrics.latencyRows) ?? defaultLatency,
+      };
+    },
+  };
+}
+
+export interface VectorQueueService extends VectorQueueSnapshotReader {
   backfill(activeSetId: string, options: BackfillOptions): Promise<QueueCounts>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   /**
@@ -381,80 +475,17 @@ export function createVectorQueueService(
   const { db, jobQueue, chunkRepository } = dependencies;
   const backfillRepository =
     dependencies.backfillRepository ?? createPGliteEmbeddingBackfillRepository(db);
-
-  const defaultCounts: QueueCounts = {
-    queued: 0,
-    running: 0,
-    failed: 0,
-    succeeded: 0,
-  };
-
-  const defaultLatency: LatencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
+  const queueMetricsRepository =
+    dependencies.queueMetricsRepository ?? createPGliteVectorQueueMetricsRepository(db);
+  const snapshotReader = createVectorQueueSnapshotReader({
+    activeSetQueueCountsRepository: backfillRepository,
+    chunkRepository,
+    jobQueue,
+    queueMetricsRepository,
+  });
 
   return {
-    async refresh(activeSetId) {
-      const since = new Date(Date.now() - 60_000).toISOString();
-      const [queueStats, throughputRows, lastErrorRows, latencyRows, coverage] = await Promise.all([
-        jobQueue.getQueueStats(EMBEDDINGS_QUEUE),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count
-             FROM job_queue
-            WHERE queue = $1 AND state = 'succeeded' AND updated_at >= $2`,
-          [EMBEDDINGS_QUEUE, since]
-        ),
-        db.query<{ error: string | null }>(
-          `SELECT error
-             FROM job_queue
-            WHERE state = 'failed'
-              AND queue = $1
-         ORDER BY updated_at DESC
-            LIMIT 1`,
-          [EMBEDDINGS_QUEUE]
-        ),
-        db.query<{ runAt: string; updatedAt: string }>(
-          `SELECT run_at AS "runAt", updated_at AS "updatedAt"
-             FROM job_queue
-            WHERE queue = $1
-              AND state = 'succeeded'
-              AND updated_at >= $2
-         ORDER BY updated_at DESC
-            LIMIT 200`,
-          [EMBEDDINGS_QUEUE, since]
-        ),
-        activeSetId
-          ? chunkRepository.getCoverageForSet(activeSetId)
-          : Promise.resolve({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 }),
-      ]);
-
-      const stats = queueStats[0];
-      const queueCounts: QueueCounts = stats
-        ? {
-            queued: stats.queued,
-            running: stats.running,
-            failed: stats.failed,
-            succeeded: stats.succeeded,
-          }
-        : defaultCounts;
-
-      const throughput = Number(throughputRows.rows[0]?.count ?? 0);
-      const lastError = lastErrorRows.rows[0]?.error ?? null;
-      const latency = calculateLatency(latencyRows.rows) ?? defaultLatency;
-
-      const coverageSnapshot: CoverageSnapshot | null = activeSetId
-        ? {
-            total: coverage.totalChunks,
-            withSet: coverage.chunksWithEmbeddingsForSet,
-          }
-        : null;
-
-      return {
-        coverage: coverageSnapshot,
-        queueCounts,
-        throughput,
-        lastError,
-        latency,
-      };
-    },
+    refresh: (activeSetId) => snapshotReader.refresh(activeSetId),
 
     async validateApiKeyForSet(embeddingSetId): Promise<ApiKeyValidation> {
       try {
@@ -667,6 +698,48 @@ function createPGliteEmbeddingBackfillRepository(
       loadBackfillCandidateDiagnostics(db, embeddingSetId),
     resolveEmbeddingSetJobMetadata: (embeddingSetId) =>
       resolveEmbeddingSetJobMetadata(db, embeddingSetId),
+  };
+}
+
+function createPGliteVectorQueueMetricsRepository(
+  db: VectorQueueDatabase
+): VectorQueueMetricsRepository {
+  return {
+    async loadQueueMetrics({ latencyLimit, queue, since }) {
+      const [throughputRows, lastErrorRows, latencyRows] = await Promise.all([
+        db.query<{ count: number | string | null }>(
+          `SELECT COUNT(*)::text AS count
+             FROM job_queue
+            WHERE queue = $1 AND state = 'succeeded' AND updated_at >= $2`,
+          [queue, since]
+        ),
+        db.query<{ error: string | null }>(
+          `SELECT error
+             FROM job_queue
+            WHERE state = 'failed'
+              AND queue = $1
+         ORDER BY updated_at DESC
+            LIMIT 1`,
+          [queue]
+        ),
+        db.query<VectorQueueLatencyRow>(
+          `SELECT run_at AS "runAt", updated_at AS "updatedAt"
+             FROM job_queue
+            WHERE queue = $1
+              AND state = 'succeeded'
+              AND updated_at >= $2
+         ORDER BY updated_at DESC
+            LIMIT $3`,
+          [queue, since, latencyLimit]
+        ),
+      ]);
+
+      return {
+        throughput: Number(throughputRows.rows[0]?.count ?? 0),
+        lastError: lastErrorRows.rows[0]?.error ?? null,
+        latencyRows: latencyRows.rows,
+      };
+    },
   };
 }
 

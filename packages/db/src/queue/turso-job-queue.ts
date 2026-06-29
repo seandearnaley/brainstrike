@@ -2,7 +2,7 @@ import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/que
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type {
   BrainstrikeDbExecutionClient,
-  BrainstrikeDbTransactionClient,
+  BrainstrikeDbQueryResult,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { TursoFileChunkRepository } from '../repositories/turso-file-chunk-repository.js';
 import type {
@@ -14,6 +14,8 @@ import type {
   FailBatchParams,
   FailParams,
   Job,
+  JobQueueMetricsOptions,
+  JobQueueMetricsSnapshot,
   JobQueueStateCounts,
   JobRow,
   JobState,
@@ -27,11 +29,50 @@ const MAX_TURSO_WRITE_RETRIES = 6;
 const TURSO_WRITE_RETRY_BASE_DELAY_MS = 5;
 const logger = createLogger('TursoJobQueue');
 
+export interface TursoJobQueueQueryClient {
+  readonly query: <TRecord = unknown>(
+    sql: string,
+    params?: unknown[]
+  ) => Promise<BrainstrikeDbQueryResult<TRecord>>;
+}
+
+export interface TursoJobQueueReadModel {
+  getCountsByState(
+    queue?: string
+  ): Promise<Array<{ queue: string; state: JobState; count: number }>>;
+  getEmbeddingSetQueueCounts(queue: string, embeddingSetId: string): Promise<JobQueueStateCounts>;
+  getQueueMetrics(queue: string, options: JobQueueMetricsOptions): Promise<JobQueueMetricsSnapshot>;
+  getQueueStats(queue?: string): Promise<
+    Array<{
+      failed: number;
+      nextRunnableAt?: string | null;
+      queue: string;
+      queued: number;
+      running: number;
+      succeeded: number;
+    }>
+  >;
+}
+
+export function createTursoJobQueueReadModel(db: TursoJobQueueQueryClient): TursoJobQueueReadModel {
+  return {
+    getCountsByState: (queue) => getCountsByState(db, queue),
+    getEmbeddingSetQueueCounts: (queue, embeddingSetId) =>
+      getEmbeddingSetQueueCounts(db, queue, embeddingSetId),
+    getQueueMetrics: (queue, options) => getQueueMetrics(db, queue, options),
+    getQueueStats: (queue) => getQueueStats(db, queue),
+  };
+}
+
 export class TursoJobQueue {
+  private readonly readModel: TursoJobQueueReadModel;
+
   constructor(
     private readonly db: BrainstrikeDbExecutionClient,
     private readonly defaults: { maxAttempts?: number } = {}
-  ) {}
+  ) {
+    this.readModel = createTursoJobQueueReadModel(db);
+  }
 
   retryPolicy(attempts: number): number {
     const base = 1000;
@@ -506,69 +547,21 @@ export class TursoJobQueue {
   async getCountsByState(
     queue?: string
   ): Promise<Array<{ queue: string; state: JobState; count: number }>> {
-    const result = await this.db.query<{ count: number | string; queue: string; state: JobState }>(
-      `SELECT queue, state, COUNT(*) AS count
-         FROM job_queue
-         ${queue ? 'WHERE queue = ?' : ''}
-        GROUP BY queue, state
-        ORDER BY queue, state`,
-      queue ? [queue] : []
-    );
-    return result.rows.map((row) => ({
-      queue: row.queue,
-      state: row.state,
-      count: Number(row.count),
-    }));
+    return this.readModel.getCountsByState(queue);
   }
 
   async getEmbeddingSetQueueCounts(
     queue: string,
     embeddingSetId: string
   ): Promise<JobQueueStateCounts> {
-    const queueName = queue.trim();
-    if (!queueName) {
-      throw new Error('queue is required');
-    }
-    const targetEmbeddingSetId = embeddingSetId.trim();
-    if (!targetEmbeddingSetId) {
-      throw new Error('embeddingSetId is required');
-    }
+    return this.readModel.getEmbeddingSetQueueCounts(queue, embeddingSetId);
+  }
 
-    const result = await this.db.query<{ count: number | string; state: JobState }>(
-      `SELECT state, COUNT(*) AS count
-         FROM job_queue
-        WHERE queue = ?
-          AND job_type = 'embed_chunk'
-          AND embedding_set_id = ?
-          AND state IN ('queued', 'running', 'failed', 'succeeded')
-        GROUP BY state`,
-      [queueName, targetEmbeddingSetId]
-    );
-    const counts: JobQueueStateCounts = {
-      failed: 0,
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-    };
-    for (const row of result.rows) {
-      const count = Number(row.count);
-      if (!Number.isFinite(count) || count < 0) {
-        throw new Error(`Invalid Turso queue count for state '${row.state}'`);
-      }
-      if (row.state === 'queued') {
-        counts.queued = count;
-      }
-      if (row.state === 'running') {
-        counts.running = count;
-      }
-      if (row.state === 'failed') {
-        counts.failed = count;
-      }
-      if (row.state === 'succeeded') {
-        counts.succeeded = count;
-      }
-    }
-    return counts;
+  async getQueueMetrics(
+    queue: string,
+    options: JobQueueMetricsOptions
+  ): Promise<JobQueueMetricsSnapshot> {
+    return this.readModel.getQueueMetrics(queue, options);
   }
 
   async getQueueStats(queue?: string): Promise<
@@ -581,42 +574,7 @@ export class TursoJobQueue {
       nextRunnableAt?: string | null;
     }>
   > {
-    const counts = await this.getCountsByState(queue);
-    const queues = new Map<
-      string,
-      { queued: number; running: number; failed: number; succeeded: number }
-    >();
-    for (const count of counts) {
-      const entry = queues.get(count.queue) ?? { queued: 0, running: 0, failed: 0, succeeded: 0 };
-      if (count.state === 'queued') {
-        entry.queued += count.count;
-      }
-      if (count.state === 'running') {
-        entry.running += count.count;
-      }
-      if (count.state === 'failed') {
-        entry.failed += count.count;
-      }
-      if (count.state === 'succeeded') {
-        entry.succeeded += count.count;
-      }
-      queues.set(count.queue, entry);
-    }
-
-    const nextRunnable = await this.db.query<{ queue: string; run_at: string }>(
-      `SELECT queue, MIN(run_at) AS run_at
-         FROM job_queue
-        WHERE state = 'queued' ${queue ? 'AND queue = ?' : ''}
-        GROUP BY queue`,
-      queue ? [queue] : []
-    );
-    const nextByQueue = new Map(nextRunnable.rows.map((row) => [row.queue, row.run_at]));
-
-    return [...queues.entries()].map(([queueName, stats]) => ({
-      queue: queueName,
-      ...stats,
-      nextRunnableAt: nextByQueue.get(queueName) ?? null,
-    }));
+    return this.readModel.getQueueStats(queue);
   }
 
   async clear(queue?: string, states?: JobState[]): Promise<number> {
@@ -669,8 +627,197 @@ export class TursoJobQueue {
   }
 }
 
+async function getCountsByState(
+  db: TursoJobQueueQueryClient,
+  queue?: string
+): Promise<Array<{ queue: string; state: JobState; count: number }>> {
+  const result = await db.query<{ count: number | string; queue: string; state: JobState }>(
+    `SELECT queue, state, COUNT(*) AS count
+       FROM job_queue
+       ${queue ? 'WHERE queue = ?' : ''}
+      GROUP BY queue, state
+      ORDER BY queue, state`,
+    queue ? [queue] : []
+  );
+  return result.rows.map((row) => ({
+    queue: row.queue,
+    state: row.state,
+    count: Number(row.count),
+  }));
+}
+
+async function getEmbeddingSetQueueCounts(
+  db: TursoJobQueueQueryClient,
+  queue: string,
+  embeddingSetId: string
+): Promise<JobQueueStateCounts> {
+  const queueName = queue.trim();
+  if (!queueName) {
+    throw new Error('queue is required');
+  }
+  const targetEmbeddingSetId = embeddingSetId.trim();
+  if (!targetEmbeddingSetId) {
+    throw new Error('embeddingSetId is required');
+  }
+
+  const result = await db.query<{ count: number | string; state: JobState }>(
+    `SELECT state, COUNT(*) AS count
+       FROM job_queue
+      WHERE queue = ?
+        AND job_type = 'embed_chunk'
+        AND embedding_set_id = ?
+        AND state IN ('queued', 'running', 'failed', 'succeeded')
+      GROUP BY state`,
+    [queueName, targetEmbeddingSetId]
+  );
+  const counts: JobQueueStateCounts = {
+    failed: 0,
+    queued: 0,
+    running: 0,
+    succeeded: 0,
+  };
+  for (const row of result.rows) {
+    const count = Number(row.count);
+    if (!Number.isFinite(count) || count < 0) {
+      throw new Error(`Invalid Turso queue count for state '${row.state}'`);
+    }
+    if (row.state === 'queued') {
+      counts.queued = count;
+    }
+    if (row.state === 'running') {
+      counts.running = count;
+    }
+    if (row.state === 'failed') {
+      counts.failed = count;
+    }
+    if (row.state === 'succeeded') {
+      counts.succeeded = count;
+    }
+  }
+  return counts;
+}
+
+async function getQueueMetrics(
+  db: TursoJobQueueQueryClient,
+  queue: string,
+  options: JobQueueMetricsOptions
+): Promise<JobQueueMetricsSnapshot> {
+  const queueName = queue.trim();
+  if (!queueName) {
+    throw new Error('queue is required');
+  }
+  const since = options.since.trim();
+  if (!since || Number.isNaN(Date.parse(since))) {
+    throw new Error('since must be a valid ISO timestamp');
+  }
+  if (!Number.isInteger(options.latencyLimit) || options.latencyLimit <= 0) {
+    throw new Error('latencyLimit must be a positive integer');
+  }
+
+  const [throughputRows, lastErrorRows, latencyRows] = await Promise.all([
+    db.query<{ count: number | string | null }>(
+      `SELECT COUNT(*) AS count
+         FROM job_queue
+        WHERE queue = ?
+          AND state = 'succeeded'
+          AND updated_at >= ?`,
+      [queueName, since]
+    ),
+    db.query<{ error: string | null }>(
+      `SELECT error
+         FROM job_queue
+        WHERE queue = ?
+          AND state = 'failed'
+     ORDER BY updated_at DESC
+        LIMIT 1`,
+      [queueName]
+    ),
+    db.query<{ runAt: unknown; updatedAt: unknown }>(
+      `SELECT run_at AS runAt,
+              updated_at AS updatedAt
+         FROM job_queue
+        WHERE queue = ?
+          AND state = 'succeeded'
+          AND updated_at >= ?
+     ORDER BY updated_at DESC
+        LIMIT ?`,
+      [queueName, since, options.latencyLimit]
+    ),
+  ]);
+
+  const throughput = Number(throughputRows.rows[0]?.count ?? 0);
+  if (!Number.isFinite(throughput) || throughput < 0) {
+    throw new Error('Invalid Turso queue throughput count');
+  }
+
+  return {
+    lastError: lastErrorRows.rows[0]?.error ?? null,
+    latencyRows: latencyRows.rows.map((row) => {
+      if (!(typeof row.runAt === 'string' && typeof row.updatedAt === 'string')) {
+        throw new Error('Invalid Turso queue latency row');
+      }
+      return {
+        runAt: row.runAt,
+        updatedAt: row.updatedAt,
+      };
+    }),
+    throughput,
+  };
+}
+
+async function getQueueStats(
+  db: TursoJobQueueQueryClient,
+  queue?: string
+): Promise<
+  Array<{
+    queue: string;
+    queued: number;
+    running: number;
+    failed: number;
+    succeeded: number;
+    nextRunnableAt?: string | null;
+  }>
+> {
+  const counts = await getCountsByState(db, queue);
+  const queues = new Map<
+    string,
+    { queued: number; running: number; failed: number; succeeded: number }
+  >();
+  for (const count of counts) {
+    const entry = queues.get(count.queue) ?? { queued: 0, running: 0, failed: 0, succeeded: 0 };
+    if (count.state === 'queued') {
+      entry.queued += count.count;
+    }
+    if (count.state === 'running') {
+      entry.running += count.count;
+    }
+    if (count.state === 'failed') {
+      entry.failed += count.count;
+    }
+    if (count.state === 'succeeded') {
+      entry.succeeded += count.count;
+    }
+    queues.set(count.queue, entry);
+  }
+
+  const nextRunnable = await db.query<{ queue: string; run_at: string }>(
+    `SELECT queue, MIN(run_at) AS run_at
+       FROM job_queue
+      WHERE state = 'queued' ${queue ? 'AND queue = ?' : ''}
+      GROUP BY queue`,
+    queue ? [queue] : []
+  );
+  const nextByQueue = new Map(nextRunnable.rows.map((row) => [row.queue, row.run_at]));
+
+  return [...queues.entries()].map(([queueName, stats]) => ({
+    queue: queueName,
+    ...stats,
+    nextRunnableAt: nextByQueue.get(queueName) ?? null,
+  }));
+}
+
 async function enqueueJobs(
-  tx: BrainstrikeDbTransactionClient,
+  tx: TursoJobQueueQueryClient,
   params: EnqueueParams[],
   defaultMaxAttempts = DEFAULT_MAX_ATTEMPTS
 ): Promise<EnqueueJobsResult> {
@@ -984,7 +1131,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function resetJobsForRetry(
-  db: BrainstrikeDbExecutionClient,
+  db: TursoJobQueueQueryClient,
   baseCondition: string,
   queue: string | undefined,
   limit: number,

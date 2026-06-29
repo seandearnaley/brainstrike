@@ -1,4 +1,5 @@
 import {
+  createTursoJobQueueReadModel,
   JobQueue,
   useFileChunkRepository,
   useModelRegistryDbClient,
@@ -10,10 +11,12 @@ import {
   type EmbeddingRuntimeController,
   useEmbeddingRuntimeController,
 } from './vector-status/embedding-runtime-controller';
+import { createTursoVectorQueueSnapshotReader } from './vector-status/turso-vector-queue-metrics-repository';
 import {
   createVectorQueueServiceForRuntime,
   type VectorQueueService,
   type VectorQueueServiceUnavailableReason,
+  type VectorQueueSnapshotReader,
 } from './vector-status/vector-queue-service';
 
 interface EmbeddingCoverageRepository {
@@ -27,6 +30,7 @@ interface EmbeddingRuntimeContextValue {
   controller: EmbeddingRuntimeController;
   service: VectorQueueService | null;
   serviceUnavailableReason: VectorQueueServiceUnavailableReason | null;
+  snapshotReader: VectorQueueSnapshotReader | null;
 }
 
 const EmbeddingRuntimeContext = createContext<EmbeddingRuntimeContextValue | null>(null);
@@ -65,6 +69,19 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
   );
   const service = serviceResolution.service;
   const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
+  const snapshotReader = useMemo(() => {
+    if (service) {
+      return service;
+    }
+    if (!(runtimeEngine === 'turso' && db && coverageRepository)) {
+      return null;
+    }
+    const jobQueue = createTursoJobQueueReadModel(db);
+    return createTursoVectorQueueSnapshotReader({
+      chunkRepository: coverageRepository,
+      jobQueue,
+    });
+  }, [coverageRepository, db, runtimeEngine, service]);
   const controllerDb = runtimeEngine === 'pglite' ? db : null;
 
   const controller = useEmbeddingRuntimeController({
@@ -79,8 +96,9 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
       controller,
       service,
       serviceUnavailableReason,
+      snapshotReader,
     }),
-    [controller, service, serviceUnavailableReason]
+    [controller, service, serviceUnavailableReason, snapshotReader]
   );
 
   return (
