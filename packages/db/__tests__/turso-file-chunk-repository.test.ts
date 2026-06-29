@@ -1302,6 +1302,92 @@ describe('TursoFileChunkRepository', () => {
     );
   });
 
+  it('searches stored Turso embeddings with live L2 distance semantics', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet('test:l2', 'l2', 3, 'l2');
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-l2', path: 'src/l2.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        content: 'same',
+        embedding: [1, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-l2',
+        id: 'chunk-l2-same',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'one away',
+        embedding: [0, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-l2',
+        id: 'chunk-l2-one-away',
+      }),
+    ]);
+
+    const results = await repository.searchSimilar([1, 0, 0], {
+      embeddingSetId: embeddingSet.id,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual([
+      'chunk-l2-same',
+      'chunk-l2-one-away',
+    ]);
+    expect(results[0]?.similarity).toEqual(expect.closeTo(1, 6));
+    expect(results[1]?.similarity).toEqual(expect.closeTo(0.5, 6));
+  });
+
+  it('searches stored Turso embeddings with live inner-product sign semantics', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet('test:ip', 'ip', 3, 'ip');
+    await fileRecordsRepository.createWithContent(
+      createRecord({ embeddingSetId: embeddingSet.id, id: 'file-ip', path: 'src/ip.ts' })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkIndex: 0,
+        content: 'largest dot',
+        embedding: [2, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-largest',
+      }),
+      createChunk({
+        chunkIndex: 1,
+        content: 'middle dot',
+        embedding: [0.5, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-middle',
+      }),
+      createChunk({
+        chunkIndex: 2,
+        content: 'negative dot',
+        embedding: [-2, 0, 0],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-ip',
+        id: 'chunk-ip-negative',
+      }),
+    ]);
+
+    const results = await repository.searchSimilar([1, 0, 0], {
+      embeddingSetId: embeddingSet.id,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual([
+      'chunk-ip-largest',
+      'chunk-ip-middle',
+      'chunk-ip-negative',
+    ]);
+    expect(results[0]?.similarity).toEqual(expect.closeTo(0.880_797, 6));
+    expect(results[1]?.similarity).toEqual(expect.closeTo(0.622_459, 6));
+    expect(results[2]?.similarity).toEqual(expect.closeTo(0.119_203, 6));
+  });
+
   it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
     await expect(repository.fullTextSearch('answer')).rejects.toThrow(
       'TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.'
