@@ -165,6 +165,7 @@ vi.mock('../embedding-runtime-provider', () => ({
       stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
     },
     service: createMockVectorQueueService(),
+    serviceUnavailableReason: null,
   })),
 }));
 
@@ -233,6 +234,7 @@ describe('useEmbeddingControls', () => {
         stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
       },
       service: createMockVectorQueueService(),
+      serviceUnavailableReason: null,
     });
   });
 
@@ -267,6 +269,7 @@ describe('useEmbeddingControls', () => {
           stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
         },
         service: null,
+        serviceUnavailableReason: 'unsupported-db-runtime',
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -626,6 +629,7 @@ describe('useEmbeddingControls', () => {
           stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
         },
         service: null,
+        serviceUnavailableReason: 'unsupported-db-runtime',
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -636,8 +640,7 @@ describe('useEmbeddingControls', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Vector Queue Unavailable',
-        description:
-          'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.',
+        description: 'Embedding queue actions are unavailable for the selected database runtime.',
         variant: 'destructive',
       });
     });

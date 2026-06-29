@@ -10,7 +10,6 @@ const PGLITE_IMPORT_MARKERS = [
 ] as const;
 const PGLITE_ONLY_CONSUMERS = new Set([
   'embedding-job-queue-tracker.tsx',
-  'embedding-runtime-provider.tsx',
   'indexing-activity-coordinator.tsx',
   'queue-hud.tsx',
 ]);

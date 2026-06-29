@@ -1,4 +1,9 @@
-import { JobQueue, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db';
+import {
+  JobQueue,
+  useFileChunkRepository,
+  useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
+} from '@brainstrike/db';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import {
@@ -6,8 +11,9 @@ import {
   useEmbeddingRuntimeController,
 } from './vector-status/embedding-runtime-controller';
 import {
-  createVectorQueueService,
+  createVectorQueueServiceForRuntime,
   type VectorQueueService,
+  type VectorQueueServiceUnavailableReason,
 } from './vector-status/vector-queue-service';
 
 interface EmbeddingCoverageRepository {
@@ -20,6 +26,7 @@ interface EmbeddingCoverageRepository {
 interface EmbeddingRuntimeContextValue {
   controller: EmbeddingRuntimeController;
   service: VectorQueueService | null;
+  serviceUnavailableReason: VectorQueueServiceUnavailableReason | null;
 }
 
 const EmbeddingRuntimeContext = createContext<EmbeddingRuntimeContextValue | null>(null);
@@ -34,7 +41,9 @@ function toEmbeddingCoverageRepository(
 }
 
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
-  const db = usePGliteDatabase();
+  const db = useModelRegistryDbClient();
+  const bootstrapReport = useOptionalProfileBootstrapReport();
+  const runtimeEngine = bootstrapReport?.runtime.engine ?? 'unknown';
   const chunkRepository = useFileChunkRepository();
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const reinitEveryN = useVectorPreferencesStore((state) => state.reinitEveryN);
@@ -44,19 +53,22 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     [chunkRepository]
   );
 
-  const service = useMemo(() => {
-    if (!(db && coverageRepository)) {
-      return null;
-    }
-    return createVectorQueueService({
-      db,
-      jobQueue: new JobQueue(db),
-      chunkRepository: coverageRepository,
-    });
-  }, [coverageRepository, db]);
+  const serviceResolution = useMemo(
+    () =>
+      createVectorQueueServiceForRuntime({
+        db,
+        chunkRepository: coverageRepository,
+        createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
+        runtimeEngine,
+      }),
+    [coverageRepository, db, runtimeEngine]
+  );
+  const service = serviceResolution.service;
+  const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
+  const controllerDb = runtimeEngine === 'pglite' ? db : null;
 
   const controller = useEmbeddingRuntimeController({
-    db,
+    db: controllerDb,
     devicePreference,
     reinitEveryN,
     service,
@@ -66,8 +78,9 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     () => ({
       controller,
       service,
+      serviceUnavailableReason,
     }),
-    [controller, service]
+    [controller, service, serviceUnavailableReason]
   );
 
   return (

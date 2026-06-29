@@ -9,9 +9,7 @@ import type { EmbeddingStatusBarProps } from './embedding-status-bar';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
-
-const VECTOR_QUEUE_UNAVAILABLE_REASON =
-  'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.';
+import { formatVectorQueueServiceUnavailableReason } from './vector-status/vector-queue-service';
 
 export interface UseEmbeddingControlsOptions {
   /** Chunk repository with coverage methods */
@@ -104,7 +102,13 @@ export function useEmbeddingControls({
   const activeId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const { controller: runtimeController, service } = useSharedEmbeddingRuntime();
+  const {
+    controller: runtimeController,
+    service,
+    serviceUnavailableReason,
+  } = useSharedEmbeddingRuntime();
+  const queueUnavailableReasonText =
+    formatVectorQueueServiceUnavailableReason(serviceUnavailableReason);
 
   // Refs for backfill and validation callbacks
   const backfillRef = useRef<() => Promise<void>>(async () => {});
@@ -165,7 +169,7 @@ export function useEmbeddingControls({
     if (!service) {
       toast({
         title: 'Vector Queue Unavailable',
-        description: VECTOR_QUEUE_UNAVAILABLE_REASON,
+        description: queueUnavailableReasonText,
         variant: 'destructive',
       });
       return;
@@ -215,13 +219,21 @@ export function useEmbeddingControls({
       });
       throw error;
     }
-  }, [toast, isWebPlatform, workerControls, service, activeId]);
+  }, [
+    toast,
+    isWebPlatform,
+    workerControls,
+    service,
+    activeId,
+    queueUnavailableReasonText,
+    runtimeController,
+  ]);
 
   // Get disabled state for backfill button
   const { disabled: backfillDisabled, title: disabledReason } = getBackfillDisabledState({
     activeId,
     hasDb: hasQueueService,
-    unavailableReason: VECTOR_QUEUE_UNAVAILABLE_REASON,
+    unavailableReason: queueUnavailableReasonText,
     backfilling: queueState.activeSetBackfilling,
     coverage: queueState.coverage,
     queueCounts: queueState.activeSetQueueCounts,

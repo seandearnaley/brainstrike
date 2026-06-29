@@ -5,26 +5,31 @@ import { EmbeddingRuntimeProvider, useSharedEmbeddingRuntime } from '../embeddin
 
 const {
   createVectorQueueServiceMock,
+  createVectorQueueServiceForRuntimeMock,
   JobQueueMock,
   useEmbeddingRuntimeControllerMock,
   useFileChunkRepositoryMock,
-  usePGliteDatabaseMock,
+  useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReportMock,
   useVectorPreferencesStoreMock,
 } = vi.hoisted(() => ({
   createVectorQueueServiceMock: vi.fn(),
+  createVectorQueueServiceForRuntimeMock: vi.fn(),
   JobQueueMock: vi.fn(function MockJobQueue(this: { db: unknown }, db: unknown) {
     this.db = db;
   }),
   useEmbeddingRuntimeControllerMock: vi.fn(),
   useFileChunkRepositoryMock: vi.fn(),
-  usePGliteDatabaseMock: vi.fn(),
+  useModelRegistryDbClientMock: vi.fn(),
+  useOptionalProfileBootstrapReportMock: vi.fn(),
   useVectorPreferencesStoreMock: vi.fn(),
 }));
 
 vi.mock('@brainstrike/db', () => ({
   JobQueue: JobQueueMock,
   useFileChunkRepository: useFileChunkRepositoryMock,
-  usePGliteDatabase: usePGliteDatabaseMock,
+  useModelRegistryDbClient: useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
@@ -37,12 +42,16 @@ vi.mock('../vector-status/embedding-runtime-controller', () => ({
 
 vi.mock('../vector-status/vector-queue-service', () => ({
   createVectorQueueService: createVectorQueueServiceMock,
+  createVectorQueueServiceForRuntime: createVectorQueueServiceForRuntimeMock,
 }));
 
 describe('EmbeddingRuntimeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    usePGliteDatabaseMock.mockReturnValue({ dialect: 'pglite' });
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'pglite' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      runtime: { engine: 'pglite', host: 'browser', persistence: 'memory' },
+    });
     useFileChunkRepositoryMock.mockReturnValue({
       clearEmbeddingsForSet: vi.fn(),
       getCoverageForSet: vi.fn(),
@@ -55,6 +64,29 @@ describe('EmbeddingRuntimeProvider', () => {
         })
     );
     createVectorQueueServiceMock.mockReturnValue({ backfill: vi.fn() });
+    createVectorQueueServiceForRuntimeMock.mockImplementation(
+      (input: { chunkRepository: unknown; runtimeEngine: string }) => {
+        if (!input.chunkRepository) {
+          return {
+            available: false,
+            reason: 'missing-db-or-coverage-repository',
+            service: null,
+          };
+        }
+        if (input.runtimeEngine === 'turso') {
+          return {
+            available: false,
+            reason: 'turso-vector-backfill-not-migrated',
+            service: null,
+          };
+        }
+        return {
+          available: true,
+          reason: null,
+          service: { backfill: vi.fn() },
+        };
+      }
+    );
     useEmbeddingRuntimeControllerMock.mockReturnValue({
       ensureStarted: vi.fn(),
     });
@@ -73,23 +105,28 @@ describe('EmbeddingRuntimeProvider', () => {
 
     const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
 
-    expect(createVectorQueueServiceMock).toHaveBeenCalledWith({
+    expect(createVectorQueueServiceForRuntimeMock).toHaveBeenCalledWith({
       db: { dialect: 'pglite' },
-      jobQueue: expect.objectContaining({
-        db: { dialect: 'pglite' },
-      }),
       chunkRepository: expect.objectContaining({
         clearEmbeddingsForSet: expect.any(Function),
         getCoverageForSet: expect.any(Function),
       }),
+      createPGliteJobQueue: expect.any(Function),
+      runtimeEngine: 'pglite',
     });
+    const factoryArgs = createVectorQueueServiceForRuntimeMock.mock.calls[0]?.[0];
+    expect(factoryArgs?.createPGliteJobQueue({ dialect: 'pglite' })).toEqual(
+      expect.objectContaining({ db: { dialect: 'pglite' } })
+    );
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
       db: { dialect: 'pglite' },
       devicePreference: 'webgpu',
       reinitEveryN: 250,
-      service: createVectorQueueServiceMock.mock.results[0]?.value ?? null,
+      service: createVectorQueueServiceForRuntimeMock.mock.results[0]?.value.service ?? null,
     });
-    expect(result.current.service).toBe(createVectorQueueServiceMock.mock.results[0]?.value);
+    expect(result.current.service).toBe(
+      createVectorQueueServiceForRuntimeMock.mock.results[0]?.value.service
+    );
   });
 
   it('falls back to a null service when the repository is not coverage-capable', () => {
@@ -104,6 +141,12 @@ describe('EmbeddingRuntimeProvider', () => {
     const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
 
     expect(createVectorQueueServiceMock).not.toHaveBeenCalled();
+    expect(createVectorQueueServiceForRuntimeMock).toHaveBeenCalledWith({
+      db: { dialect: 'pglite' },
+      chunkRepository: null,
+      createPGliteJobQueue: expect.any(Function),
+      runtimeEngine: 'pglite',
+    });
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
       db: { dialect: 'pglite' },
       devicePreference: 'webgpu',
@@ -111,5 +154,43 @@ describe('EmbeddingRuntimeProvider', () => {
       service: null,
     });
     expect(result.current.service).toBeNull();
+  });
+
+  it('passes turso runtime through as unavailable without constructing a pglite job queue', () => {
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      runtime: { engine: 'turso', host: 'electron-utility', persistence: 'filesystem' },
+    });
+    createVectorQueueServiceForRuntimeMock.mockReturnValue({
+      available: false,
+      reason: 'turso-vector-backfill-not-migrated',
+      service: null,
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+
+    const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    expect(createVectorQueueServiceForRuntimeMock).toHaveBeenCalledWith({
+      db: { dialect: 'turso' },
+      chunkRepository: expect.objectContaining({
+        clearEmbeddingsForSet: expect.any(Function),
+        getCoverageForSet: expect.any(Function),
+      }),
+      createPGliteJobQueue: expect.any(Function),
+      runtimeEngine: 'turso',
+    });
+    expect(JobQueueMock).not.toHaveBeenCalled();
+    expect(createVectorQueueServiceMock).not.toHaveBeenCalled();
+    expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
+      db: null,
+      devicePreference: 'webgpu',
+      reinitEveryN: 250,
+      service: null,
+    });
+    expect(result.current.service).toBeNull();
+    expect(result.current.serviceUnavailableReason).toBe('turso-vector-backfill-not-migrated');
   });
 });

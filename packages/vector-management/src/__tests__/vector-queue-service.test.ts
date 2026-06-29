@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateLatency,
   createVectorQueueService,
+  createVectorQueueServiceForRuntime,
   type VectorQueueDatabase,
   type VectorQueueServiceDependencies,
 } from '../vector-status/vector-queue-service';
@@ -67,6 +68,51 @@ describe('vector-queue-service', () => {
   beforeEach(() => {
     vi.mocked(checkApiKeyAvailability).mockReset();
     vi.mocked(checkApiKeyAvailability).mockResolvedValue({ available: true });
+  });
+
+  it('creates the legacy vector queue service only for the pglite runtime', async () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const dependencies = createMinimalDependencies(db);
+    const createPGliteJobQueue = vi.fn(() => dependencies.jobQueue);
+
+    const result = createVectorQueueServiceForRuntime({
+      chunkRepository: dependencies.chunkRepository,
+      createPGliteJobQueue,
+      db,
+      runtimeEngine: 'pglite',
+    });
+
+    expect(result).toMatchObject({ available: true, reason: null });
+    expect(result.service).not.toBeNull();
+    expect(createPGliteJobQueue).toHaveBeenCalledWith(db);
+    await result.service?.refresh(null);
+    expect(dependencies.jobQueue.getQueueStats).toHaveBeenCalledWith('embeddings');
+  });
+
+  it('keeps turso runtime out of the pglite-shaped vector queue service', () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const dependencies = createMinimalDependencies(db);
+    const createPGliteJobQueue = vi.fn(() => dependencies.jobQueue);
+
+    const result = createVectorQueueServiceForRuntime({
+      chunkRepository: dependencies.chunkRepository,
+      createPGliteJobQueue,
+      db,
+      runtimeEngine: 'turso',
+    });
+
+    expect(result).toEqual({
+      available: false,
+      reason: 'turso-vector-backfill-not-migrated',
+      service: null,
+    });
+    expect(createPGliteJobQueue).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+    expect(dependencies.jobQueue.enqueueBatch).not.toHaveBeenCalled();
   });
 
   it('refresh aggregates queue metrics and latency', async () => {

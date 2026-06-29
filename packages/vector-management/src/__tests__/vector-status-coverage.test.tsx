@@ -99,6 +99,11 @@ function createMockVectorQueueService(): VectorQueueService {
 }
 
 let mockRuntimeService: VectorQueueService | null = createMockVectorQueueService();
+let mockRuntimeServiceUnavailableReason:
+  | 'missing-db-or-coverage-repository'
+  | 'turso-vector-backfill-not-migrated'
+  | 'unsupported-db-runtime'
+  | null = null;
 
 // ─── Module mocks ────────────────────────────────────────────────────────────
 
@@ -235,6 +240,7 @@ vi.mock('../embedding-runtime-provider', () => ({
       })),
     },
     service: mockRuntimeService,
+    serviceUnavailableReason: mockRuntimeServiceUnavailableReason,
   }),
 }));
 
@@ -296,6 +302,7 @@ function resetMockState(): void {
   };
   mockActiveId = 'set-1';
   mockRuntimeService = createMockVectorQueueService();
+  mockRuntimeServiceUnavailableReason = null;
   mockWorkerControls.workerLocalRunning = false;
   mockWorkerControls.startingWorker = false;
   mockWorkerControls.startWorkerError = null;
@@ -559,17 +566,18 @@ describe('VectorStatusWithDb', () => {
     it('disables backfill with a Turso migration boundary reason when queue service is unavailable', () => {
       mockDb = { query: vi.fn() };
       mockRuntimeService = null;
+      mockRuntimeServiceUnavailableReason = 'missing-db-or-coverage-repository';
       render(<VectorStatusWithDb />);
 
       const backfillButton = screen.getByRole('button', { name: 'Backfill current collection' });
       expect(backfillButton).toBeDisabled();
       expect(backfillButton).toHaveAttribute(
         'title',
-        'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.'
+        'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.'
       );
       expect(
         screen.getByRole('tooltip', {
-          name: 'Embedding queue actions require the PGlite vector queue. Turso queue support is not migrated yet.',
+          name: 'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.',
         })
       ).toBeInTheDocument();
     });
