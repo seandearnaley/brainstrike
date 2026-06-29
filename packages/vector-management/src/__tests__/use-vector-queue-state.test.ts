@@ -11,6 +11,7 @@ import type {
 import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 import type {
   VectorQueueService,
+  VectorQueueSnapshot,
   VectorQueueSnapshotReader,
 } from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
@@ -191,6 +192,18 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
       queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
       throughput: 0,
     })),
+    ...overrides,
+  };
+}
+
+function createSnapshot(overrides: Partial<VectorQueueSnapshot> = {}): VectorQueueSnapshot {
+  return {
+    activeSetQueueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+    coverage: { total: 0, withSet: 0 },
+    lastError: null,
+    latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+    queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+    throughput: 0,
     ...overrides,
   };
 }
@@ -435,6 +448,114 @@ describe('useVectorQueueState', () => {
       liveQueryCallsForRender.length > 0 &&
         liveQueryCallsForRender.every(([options]) => options.enabled === false)
     ).toBe(true);
+  });
+
+  it('logs snapshot refresh failures instead of leaving unhandled rejections', async () => {
+    const controller = createMockController();
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn(async () => {
+        throw new Error('Turso metrics unavailable');
+      }),
+    };
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service: null,
+          snapshotReader,
+          controller: controller.controller,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await waitFor(() => {
+        expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
+        expect(records).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              level: LogLevel.WARN,
+              message: 'Failed to refresh vector queue snapshot',
+            }),
+          ])
+        );
+      });
+      expect(result.current.coverage).toEqual({ total: 0, withSet: 0 });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('ignores stale snapshot refresh responses after the active set changes', async () => {
+    const controller = createMockController();
+    const firstSnapshot = createSnapshot({
+      activeSetQueueCounts: { queued: 1, running: 0, failed: 0, succeeded: 0 },
+      coverage: { total: 10, withSet: 1 },
+      queueCounts: { queued: 1, running: 0, failed: 0, succeeded: 0 },
+    });
+    const secondSnapshot = createSnapshot({
+      activeSetQueueCounts: { queued: 2, running: 0, failed: 0, succeeded: 0 },
+      coverage: { total: 20, withSet: 2 },
+      queueCounts: { queued: 2, running: 0, failed: 0, succeeded: 0 },
+    });
+    let resolveFirst!: (snapshot: VectorQueueSnapshot) => void;
+    let resolveSecond!: (snapshot: VectorQueueSnapshot) => void;
+    const firstRefresh = new Promise<VectorQueueSnapshot>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const secondRefresh = new Promise<VectorQueueSnapshot>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn((activeSetId) => {
+        if (activeSetId === 'set-1') {
+          return firstRefresh;
+        }
+        if (activeSetId === 'set-2') {
+          return secondRefresh;
+        }
+        return Promise.reject(new Error(`Unexpected snapshot set ${String(activeSetId)}`));
+      }),
+    };
+
+    const { result, rerender } = renderHook(
+      ({ activeSetId }: { activeSetId: string }) =>
+        useVectorQueueState({
+          service: null,
+          snapshotReader,
+          controller: controller.controller,
+          activeEmbeddingSetId: activeSetId,
+          shouldAutoBackfill: false,
+        }),
+      { initialProps: { activeSetId: 'set-1' } }
+    );
+
+    await waitFor(() => {
+      expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
+    });
+    rerender({ activeSetId: 'set-2' });
+    await waitFor(() => {
+      expect(snapshotReader.refresh).toHaveBeenCalledWith('set-2');
+    });
+
+    await act(async () => {
+      resolveSecond(secondSnapshot);
+      await secondRefresh;
+    });
+    await waitFor(() => {
+      expect(result.current.coverage).toEqual({ total: 20, withSet: 2 });
+    });
+
+    await act(async () => {
+      resolveFirst(firstSnapshot);
+      await firstRefresh;
+    });
+    expect(result.current.coverage).toEqual({ total: 20, withSet: 2 });
+    expect(result.current.queueCounts).toEqual({ queued: 2, running: 0, failed: 0, succeeded: 0 });
   });
 
   it('refreshes live queries when live query polling is re-enabled', async () => {

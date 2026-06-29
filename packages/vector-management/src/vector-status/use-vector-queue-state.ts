@@ -342,6 +342,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
   const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [snapshot, setSnapshot] = useState<VectorQueueSnapshot | null>(null);
+  const snapshotRefreshRequestIdRef = useRef(0);
   const autoBackfillRef = useRef<string | null>(null);
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -592,12 +593,22 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [activeEmbeddingSetId, coverageResult.rows, snapshot]);
 
   const refreshSnapshotReaderState = useCallback(async () => {
+    const requestId = snapshotRefreshRequestIdRef.current + 1;
+    snapshotRefreshRequestIdRef.current = requestId;
     if (!snapshotReader) {
       setSnapshot(null);
       return;
     }
-    const nextSnapshot = await snapshotReader.refresh(activeEmbeddingSetId);
-    setSnapshot(nextSnapshot);
+    try {
+      const nextSnapshot = await snapshotReader.refresh(activeEmbeddingSetId);
+      if (snapshotRefreshRequestIdRef.current === requestId) {
+        setSnapshot(nextSnapshot);
+      }
+    } catch (error) {
+      if (snapshotRefreshRequestIdRef.current === requestId) {
+        logger.warn('Failed to refresh vector queue snapshot', { err: error });
+      }
+    }
   }, [activeEmbeddingSetId, snapshotReader]);
 
   const refreshCoverageAndQueueState = useCallback(async () => {
