@@ -23,6 +23,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.1",
     "@electric-sql/pglite-pgvector": "0.0.2",
+    "@tursodatabase/database": "0.6.1",
     "@types/node": "^25.6.0",
     "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
@@ -92,6 +93,16 @@
       "types": "./dist/pglite-mastra-memory/schema.d.ts",
       "import": "./dist/pglite-mastra-memory/schema.mjs",
       "require": "./dist/pglite-mastra-memory/schema.js"
+    },
+    "./turso-mastra-memory": {
+      "types": "./dist/turso-mastra-memory/index.d.ts",
+      "import": "./dist/turso-mastra-memory/index.mjs",
+      "require": "./dist/turso-mastra-memory/index.js"
+    },
+    "./turso-mastra-memory/schema": {
+      "types": "./dist/turso-mastra-memory/schema.d.ts",
+      "import": "./dist/turso-mastra-memory/schema.mjs",
+      "require": "./dist/turso-mastra-memory/schema.js"
     }
   },
   "files": [
