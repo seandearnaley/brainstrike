@@ -57,9 +57,10 @@ as the implementation backlog.
 - #1354 `Wire desktop Mastra memory to Turso runtime`
 - #1356 `Gate Turso grep search`
 - #1357 `Add Turso vector search`
-- Current slice: require Turso `search.vector32-functions` at profile bootstrap
-  and re-enable desktop assistant `brainstrike.queryEmbeddingSpace` only behind
-  that ready-report proof.
+- #1358 `Gate Turso semantic retrieval by bootstrap`
+- Current slice: gate scheduled desktop database and dimension-index
+  maintenance by runtime so existing PGlite/Postgres/pgvector maintenance SQL
+  cannot run against Turso.
 
 ## Turso Docs Guardrail
 
@@ -352,12 +353,15 @@ Concrete blockers:
 - There is no production PGlite-to-Turso data migration path. This is
   acceptable only while the project remains greenfield and the bootstrap path
   continues to reject PGlite migration ledgers in Turso profiles.
-- Scheduled DB maintenance uses Postgres-shaped SQL and needs Turso gating or a
-  Turso-specific implementation.
+- Scheduled DB maintenance and dimension-index maintenance now run only for the
+  PGlite runtime. The existing scheduled maintenance service remains
+  Postgres-shaped (`COUNT(*)::text`, `$n` parameters, data-modifying CTE delete,
+  table-targeted `VACUUM`), and dimension-index maintenance still builds
+  pgvector HNSW SQL. Neither path is translated inline for Turso.
 
-Preferred next slice: gate scheduled DB maintenance by runtime capability before
-it can run against Turso, then add a Turso maintenance implementation only for
-operations that are meaningful under SQLite/Turso.
+Preferred next slice: add a Turso maintenance implementation only for
+operations that are meaningful under SQLite/Turso, then wire that implementation
+through an explicit runtime capability instead of broadening the PGlite service.
 
 ### 7. Factory Reset And Profile Cleanup
 

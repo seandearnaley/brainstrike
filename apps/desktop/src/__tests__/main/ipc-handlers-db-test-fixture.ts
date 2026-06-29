@@ -319,6 +319,7 @@ vi.mock('../../db-main', () => ({
   resetLocalDatabase: resetLocalDatabaseMock,
   closeDatabase: closeDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+  resolveCurrentDesktopDbRuntimeEngine: vi.fn(async () => 'pglite'),
 }));
 
 vi.mock('../../db-host-manager', () => ({
