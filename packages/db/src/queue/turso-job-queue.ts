@@ -3,6 +3,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbQueryResult,
+  BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { TursoFileChunkRepository } from '../repositories/turso-file-chunk-repository.js';
 import type {
@@ -213,22 +214,25 @@ export class TursoJobQueue {
     }
     const now = new Date().toISOString();
     const newLease = addMs(now, extendMs);
-    const updated: Job[] = [];
-    for (const job of jobs) {
-      const result = await this.db.query<JobRow>(
-        `UPDATE job_queue
+    const updated = await withTursoWriteRetry('heartbeatBatch', async () => {
+      const updatedJobs: Job[] = [];
+      for (const job of jobs) {
+        const result = await this.db.query<JobRow>(
+          `UPDATE job_queue
             SET leased_until = ?,
                 updated_at = ?
           WHERE id = ?
             AND lease_token = ?
             AND state = 'running'
         RETURNING *`,
-        [newLease, now, job.id, job.leaseToken]
-      );
-      if (result.rows[0]) {
-        updated.push(fromRow(result.rows[0]));
+          [newLease, now, job.id, job.leaseToken]
+        );
+        if (result.rows[0]) {
+          updatedJobs.push(fromRow(result.rows[0]));
+        }
       }
-    }
+      return updatedJobs;
+    });
     if (updated.length > 0) {
       logger.debug('Turso jobs heartbeated in batch', { count: updated.length });
     }
@@ -245,23 +249,29 @@ export class TursoJobQueue {
       return [];
     }
     const updatedAt = new Date().toISOString();
-    const completed: Job[] = [];
-    for (const job of jobs) {
-      const result = await this.db.query<JobRow>(
-        `UPDATE job_queue
-            SET state = 'succeeded',
-                leased_until = NULL,
-                updated_at = ?
-          WHERE id = ?
-            AND lease_token = ?
-            AND state = 'running'
-        RETURNING *`,
-        [updatedAt, job.id, job.leaseToken]
-      );
-      if (result.rows[0]) {
-        completed.push(fromRow(result.rows[0]));
-      }
-    }
+    const completed = await withTursoWriteRetry('completeBatch', async () =>
+      this.db.transaction(async (tx) => {
+        // A retry after partial commits would omit already-completed rows from the final result.
+        const completedJobs: Job[] = [];
+        for (const job of jobs) {
+          const result = await tx.query<JobRow>(
+            `UPDATE job_queue
+              SET state = 'succeeded',
+                  leased_until = NULL,
+                  updated_at = ?
+            WHERE id = ?
+              AND lease_token = ?
+              AND state = 'running'
+          RETURNING *`,
+            [updatedAt, job.id, job.leaseToken]
+          );
+          if (result.rows[0]) {
+            completedJobs.push(fromRow(result.rows[0]));
+          }
+        }
+        return completedJobs;
+      })
+    );
     if (completed.length > 0) {
       logger.trace('Turso jobs completed in batch', { count: completed.length });
     }
@@ -274,68 +284,11 @@ export class TursoJobQueue {
       return [];
     }
     const updatedAt = new Date().toISOString();
-    const completed = await this.db.transaction(async (tx) => {
-      const ownedJobs: CompleteEmbeddingChunkParams[] = [];
-      const chunkRepository = new TursoFileChunkRepository(this.db);
-
-      for (const job of jobs) {
-        const owned = await tx.query<JobRow>(
-          `SELECT *
-             FROM job_queue
-            WHERE id = ?
-              AND lease_token = ?
-              AND state = 'running'
-            LIMIT 1`,
-          [job.id, job.leaseToken]
-        );
-        if (!owned.rows[0]) {
-          continue;
-        }
-        ownedJobs.push(job);
-      }
-
-      const chunkWinners = selectFirstJobByChunkId(ownedJobs);
-      const updatedChunkIds = new Set<string>();
-      for (const job of chunkWinners) {
-        const updatedChunk = await chunkRepository.updateWithTx(tx, {
-          id: job.chunkId,
-          embedding: job.embedding,
-          embeddingHash: job.embeddingHash,
-          embeddingSetId: job.embeddingSetId,
-          embeddingUpdatedAt: updatedAt,
-          updatedAt,
-        });
-        if (updatedChunk) {
-          updatedChunkIds.add(job.chunkId);
-        }
-      }
-
-      const completedJobs: Job[] = [];
-      for (const job of ownedJobs) {
-        if (!updatedChunkIds.has(job.chunkId)) {
-          continue;
-        }
-
-        const result = await tx.query<JobRow>(
-          `UPDATE job_queue
-              SET state = 'succeeded',
-                  chunk_id = COALESCE(chunk_id, ?),
-                  embedding_set_id = COALESCE(embedding_set_id, ?),
-                  leased_until = NULL,
-                  updated_at = ?
-            WHERE id = ?
-              AND lease_token = ?
-              AND state = 'running'
-          RETURNING *`,
-          [job.chunkId, job.embeddingSetId, updatedAt, job.id, job.leaseToken]
-        );
-        if (result.rows[0]) {
-          completedJobs.push(fromRow(result.rows[0]));
-        }
-      }
-
-      return completedJobs;
-    });
+    const completed = await withTursoWriteRetry('completeEmbeddingChunkBatch', async () =>
+      this.db.transaction(async (tx) =>
+        completeEmbeddingChunkJobs(tx, new TursoFileChunkRepository(this.db), jobs, updatedAt)
+      )
+    );
     if (completed.length > 0) {
       logger.trace('Turso embedding chunks completed in batch', { count: completed.length });
     }
@@ -364,79 +317,29 @@ export class TursoJobQueue {
     }
     const now = new Date();
     const updatedAt = now.toISOString();
-    const failed: Job[] = [];
+    const results = await withTursoWriteRetry('failBatch', async () =>
+      this.db.transaction(async (tx) =>
+        failJobsWithTx(tx, params, now, updatedAt, (attempts) => this.retryPolicy(attempts))
+      )
+    );
+    const failed = results.map((result) => result.job);
 
-    for (const job of params.jobs) {
-      const current = await this.db.query<JobRow>(
-        `SELECT *
-           FROM job_queue
-          WHERE id = ?
-            AND lease_token = ?
-            AND state = 'running'
-          LIMIT 1`,
-        [job.id, job.leaseToken]
-      );
-      const row = current.rows[0];
-      if (!row) {
-        continue;
-      }
-
-      const attempts = Number(row.attempts ?? 0);
-      const maxAttempts = Number(row.max_attempts ?? DEFAULT_MAX_ATTEMPTS);
-      if (params.terminal || attempts >= maxAttempts) {
-        const result = await this.db.query<JobRow>(
-          `UPDATE job_queue
-              SET state = 'failed',
-                  attempts = ?,
-                  error = ?,
-                  updated_at = ?
-            WHERE id = ?
-              AND lease_token = ?
-              AND state = 'running'
-          RETURNING *`,
-          [attempts, params.error, updatedAt, job.id, job.leaseToken]
-        );
-        if (result.rows[0]) {
-          const failedJob = fromRow(result.rows[0]);
-          failed.push(failedJob);
-          logger.error('Turso job failed permanently', {
-            jobId: failedJob.id,
-            queue: failedJob.queue,
-            error: params.error,
-          });
-          emitFailTelemetry([failedJob], params.error, true);
-        }
-        continue;
-      }
-
-      const backoff = params.backoffMs ?? this.retryPolicy(attempts);
-      const runAt = new Date(now.getTime() + backoff).toISOString();
-      const result = await this.db.query<JobRow>(
-        `UPDATE job_queue
-            SET state = 'queued',
-                attempts = ?,
-                backoff_ms = ?,
-                run_at = ?,
-                error = ?,
-                leased_until = NULL,
-                lease_token = NULL,
-                updated_at = ?
-          WHERE id = ?
-            AND lease_token = ?
-            AND state = 'running'
-        RETURNING *`,
-        [attempts, backoff, runAt, params.error, updatedAt, job.id, job.leaseToken]
-      );
-      if (result.rows[0]) {
-        const retriedJob = fromRow(result.rows[0]);
-        failed.push(retriedJob);
-        logger.warn('Turso job failed; retry scheduled', {
-          jobId: retriedJob.id,
-          queue: retriedJob.queue,
-          attempts,
-          retryAt: runAt,
+    for (const result of results) {
+      if (result.terminal) {
+        logger.error('Turso job failed permanently', {
+          jobId: result.job.id,
+          queue: result.job.queue,
+          error: params.error,
         });
-        emitFailTelemetry([retriedJob], params.error, false);
+        emitFailTelemetry([result.job], params.error, true);
+      } else {
+        logger.warn('Turso job failed; retry scheduled', {
+          jobId: result.job.id,
+          queue: result.job.queue,
+          attempts: result.job.attempts,
+          retryAt: result.retryAt,
+        });
+        emitFailTelemetry([result.job], params.error, false);
       }
     }
 
@@ -448,9 +351,10 @@ export class TursoJobQueue {
 
   async cancel(params: CancelParams): Promise<Job | null> {
     const updatedAt = new Date().toISOString();
-    const result = params.leaseToken
-      ? await this.db.query<JobRow>(
-          `UPDATE job_queue
+    const result = await withTursoWriteRetry('cancel', async () =>
+      params.leaseToken
+        ? this.db.query<JobRow>(
+            `UPDATE job_queue
               SET state = 'canceled',
                   leased_until = NULL,
                   updated_at = ?
@@ -458,18 +362,19 @@ export class TursoJobQueue {
               AND lease_token = ?
               AND state IN ('queued', 'running')
           RETURNING *`,
-          [updatedAt, params.id, params.leaseToken]
-        )
-      : await this.db.query<JobRow>(
-          `UPDATE job_queue
+            [updatedAt, params.id, params.leaseToken]
+          )
+        : this.db.query<JobRow>(
+            `UPDATE job_queue
               SET state = 'canceled',
                   leased_until = NULL,
                   updated_at = ?
             WHERE id = ?
               AND state IN ('queued', 'running')
           RETURNING *`,
-          [updatedAt, params.id]
-        );
+            [updatedAt, params.id]
+          )
+    );
     const row = result.rows[0];
     const job = row ? fromRow(row) : null;
     if (job) {
@@ -485,15 +390,17 @@ export class TursoJobQueue {
 
   async cancelMany(queue: string, _reason?: string): Promise<number> {
     const updatedAt = new Date().toISOString();
-    const result = await this.db.query<{ id: string }>(
-      `UPDATE job_queue
-          SET state = 'canceled',
-              leased_until = NULL,
-              updated_at = ?
-        WHERE queue = ?
-          AND state IN ('queued', 'running')
-      RETURNING id`,
-      [updatedAt, queue]
+    const result = await withTursoWriteRetry('cancelMany', async () =>
+      this.db.query<{ id: string }>(
+        `UPDATE job_queue
+            SET state = 'canceled',
+                leased_until = NULL,
+                updated_at = ?
+          WHERE queue = ?
+            AND state IN ('queued', 'running')
+        RETURNING id`,
+        [updatedAt, queue]
+      )
     );
     const count = result.rows.length;
     if (count > 0) {
@@ -504,17 +411,19 @@ export class TursoJobQueue {
 
   async expireLeases(nowIso?: string): Promise<number> {
     const now = nowIso ?? new Date().toISOString();
-    const result = await this.db.query<{ id: string }>(
-      `UPDATE job_queue
-          SET state = 'queued',
-              lease_token = NULL,
-              leased_until = NULL,
-              updated_at = ?
-        WHERE state = 'running'
-          AND leased_until IS NOT NULL
-          AND leased_until <= ?
-      RETURNING id`,
-      [now, now]
+    const result = await withTursoWriteRetry('expireLeases', async () =>
+      this.db.query<{ id: string }>(
+        `UPDATE job_queue
+            SET state = 'queued',
+                lease_token = NULL,
+                leased_until = NULL,
+                updated_at = ?
+          WHERE state = 'running'
+            AND leased_until IS NOT NULL
+            AND leased_until <= ?
+        RETURNING id`,
+        [now, now]
+      )
     );
     const released = result.rows.length;
     if (released > 0) {
@@ -530,12 +439,14 @@ export class TursoJobQueue {
     if (states.length === 0) {
       return 0;
     }
-    const result = await this.db.query<{ id: string }>(
-      `DELETE FROM job_queue
-        WHERE updated_at < ?
-          AND state IN (${placeholders(states.length)})
-      RETURNING id`,
-      [olderThanIso, ...states]
+    const result = await withTursoWriteRetry('prune', async () =>
+      this.db.query<{ id: string }>(
+        `DELETE FROM job_queue
+          WHERE updated_at < ?
+            AND state IN (${placeholders(states.length)})
+        RETURNING id`,
+        [olderThanIso, ...states]
+      )
     );
     const removed = result.rows.length;
     if (removed > 0) {
@@ -589,9 +500,8 @@ export class TursoJobQueue {
       params.push(...states);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const result = await this.db.query<{ id: string }>(
-      `DELETE FROM job_queue ${where} RETURNING id`,
-      params
+    const result = await withTursoWriteRetry('clear', async () =>
+      this.db.query<{ id: string }>(`DELETE FROM job_queue ${where} RETURNING id`, params)
     );
     const removed = result.rows.length;
     if (removed > 0) {
@@ -998,6 +908,220 @@ function selectFirstJobByChunkId(
   return [...winners.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
+async function completeEmbeddingChunkJobs(
+  tx: BrainstrikeDbTransactionClient,
+  chunkRepository: TursoFileChunkRepository,
+  jobs: readonly CompleteEmbeddingChunkParams[],
+  updatedAt: string
+): Promise<Job[]> {
+  const ownedJobs = await collectOwnedEmbeddingChunkJobs(tx, jobs);
+  const updatedChunkIds = await updateEmbeddingChunksWithTx(
+    tx,
+    chunkRepository,
+    ownedJobs,
+    updatedAt
+  );
+  return markCompletedEmbeddingChunkJobs(tx, ownedJobs, updatedChunkIds, updatedAt);
+}
+
+async function collectOwnedEmbeddingChunkJobs(
+  tx: BrainstrikeDbTransactionClient,
+  jobs: readonly CompleteEmbeddingChunkParams[]
+): Promise<CompleteEmbeddingChunkParams[]> {
+  const ownedJobs: CompleteEmbeddingChunkParams[] = [];
+  for (const job of jobs) {
+    const owned = await tx.query<JobRow>(
+      `SELECT *
+         FROM job_queue
+        WHERE id = ?
+          AND lease_token = ?
+          AND state = 'running'
+        LIMIT 1`,
+      [job.id, job.leaseToken]
+    );
+    if (owned.rows[0]) {
+      ownedJobs.push(job);
+    }
+  }
+  return ownedJobs;
+}
+
+async function updateEmbeddingChunksWithTx(
+  tx: BrainstrikeDbTransactionClient,
+  chunkRepository: TursoFileChunkRepository,
+  ownedJobs: readonly CompleteEmbeddingChunkParams[],
+  updatedAt: string
+): Promise<Set<string>> {
+  const updatedChunkIds = new Set<string>();
+  for (const job of selectFirstJobByChunkId(ownedJobs)) {
+    const updatedChunk = await chunkRepository.updateWithTx(tx, {
+      id: job.chunkId,
+      embedding: job.embedding,
+      embeddingHash: job.embeddingHash,
+      embeddingSetId: job.embeddingSetId,
+      embeddingUpdatedAt: updatedAt,
+      updatedAt,
+    });
+    if (updatedChunk) {
+      updatedChunkIds.add(job.chunkId);
+    }
+  }
+  return updatedChunkIds;
+}
+
+async function markCompletedEmbeddingChunkJobs(
+  tx: BrainstrikeDbTransactionClient,
+  ownedJobs: readonly CompleteEmbeddingChunkParams[],
+  updatedChunkIds: ReadonlySet<string>,
+  updatedAt: string
+): Promise<Job[]> {
+  const completedJobs: Job[] = [];
+  for (const job of ownedJobs) {
+    if (!updatedChunkIds.has(job.chunkId)) {
+      continue;
+    }
+
+    const result = await tx.query<JobRow>(
+      `UPDATE job_queue
+          SET state = 'succeeded',
+              chunk_id = COALESCE(chunk_id, ?),
+              embedding_set_id = COALESCE(embedding_set_id, ?),
+              leased_until = NULL,
+              updated_at = ?
+        WHERE id = ?
+          AND lease_token = ?
+          AND state = 'running'
+      RETURNING *`,
+      [job.chunkId, job.embeddingSetId, updatedAt, job.id, job.leaseToken]
+    );
+    if (result.rows[0]) {
+      completedJobs.push(fromRow(result.rows[0]));
+    }
+  }
+  return completedJobs;
+}
+
+interface FailedJobResult {
+  readonly job: Job;
+  readonly retryAt?: string;
+  readonly terminal: boolean;
+}
+
+type FailureInputJob = FailBatchParams['jobs'][number];
+
+async function failJobsWithTx(
+  tx: BrainstrikeDbTransactionClient,
+  params: FailBatchParams,
+  now: Date,
+  updatedAt: string,
+  retryPolicy: (attempts: number) => number
+): Promise<FailedJobResult[]> {
+  const failedJobs: FailedJobResult[] = [];
+  for (const job of params.jobs) {
+    const row = await findOwnedRunningJob(tx, job);
+    if (!row) {
+      continue;
+    }
+    const result = await failOwnedJobWithTx(tx, job, row, params, now, updatedAt, retryPolicy);
+    if (result) {
+      failedJobs.push(result);
+    }
+  }
+  return failedJobs;
+}
+
+async function findOwnedRunningJob(
+  tx: BrainstrikeDbTransactionClient,
+  job: FailureInputJob
+): Promise<JobRow | null> {
+  const current = await tx.query<JobRow>(
+    `SELECT *
+       FROM job_queue
+      WHERE id = ?
+        AND lease_token = ?
+        AND state = 'running'
+      LIMIT 1`,
+    [job.id, job.leaseToken]
+  );
+  return current.rows[0] ?? null;
+}
+
+async function failOwnedJobWithTx(
+  tx: BrainstrikeDbTransactionClient,
+  job: FailureInputJob,
+  row: JobRow,
+  params: FailBatchParams,
+  now: Date,
+  updatedAt: string,
+  retryPolicy: (attempts: number) => number
+): Promise<FailedJobResult | null> {
+  const attempts = Number(row.attempts ?? 0);
+  const maxAttempts = Number(row.max_attempts ?? DEFAULT_MAX_ATTEMPTS);
+  if (params.terminal || attempts >= maxAttempts) {
+    return markJobFailedWithTx(tx, job, attempts, params.error, updatedAt);
+  }
+  const backoff = params.backoffMs ?? retryPolicy(attempts);
+  return requeueFailedJobWithTx(
+    tx,
+    job,
+    attempts,
+    params.error,
+    updatedAt,
+    new Date(now.getTime() + backoff).toISOString(),
+    backoff
+  );
+}
+
+async function markJobFailedWithTx(
+  tx: BrainstrikeDbTransactionClient,
+  job: FailureInputJob,
+  attempts: number,
+  error: string,
+  updatedAt: string
+): Promise<FailedJobResult | null> {
+  const result = await tx.query<JobRow>(
+    `UPDATE job_queue
+        SET state = 'failed',
+            attempts = ?,
+            error = ?,
+            updated_at = ?
+      WHERE id = ?
+        AND lease_token = ?
+        AND state = 'running'
+    RETURNING *`,
+    [attempts, error, updatedAt, job.id, job.leaseToken]
+  );
+  return result.rows[0] ? { job: fromRow(result.rows[0]), terminal: true } : null;
+}
+
+async function requeueFailedJobWithTx(
+  tx: BrainstrikeDbTransactionClient,
+  job: FailureInputJob,
+  attempts: number,
+  error: string,
+  updatedAt: string,
+  runAt: string,
+  backoff: number
+): Promise<FailedJobResult | null> {
+  const result = await tx.query<JobRow>(
+    `UPDATE job_queue
+        SET state = 'queued',
+            attempts = ?,
+            backoff_ms = ?,
+            run_at = ?,
+            error = ?,
+            leased_until = NULL,
+            lease_token = NULL,
+            updated_at = ?
+      WHERE id = ?
+        AND lease_token = ?
+        AND state = 'running'
+    RETURNING *`,
+    [attempts, backoff, runAt, error, updatedAt, job.id, job.leaseToken]
+  );
+  return result.rows[0] ? { job: fromRow(result.rows[0]), retryAt: runAt, terminal: false } : null;
+}
+
 function extractEmbedChunkId(param: EnqueueParams): string | null {
   if (param.jobType !== 'embed_chunk' || !(param.payload && typeof param.payload === 'object')) {
     return null;
@@ -1131,15 +1255,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function resetJobsForRetry(
-  db: TursoJobQueueQueryClient,
+  db: BrainstrikeDbExecutionClient,
   baseCondition: string,
   queue: string | undefined,
   limit: number,
   embeddingSetId: string | undefined
 ): Promise<number> {
   const now = new Date().toISOString();
-  const params: unknown[] = [];
   const conditions = [baseCondition];
+  const params: unknown[] = [];
   if (queue) {
     conditions.push('queue = ?');
     params.push(queue);
@@ -1148,31 +1272,35 @@ async function resetJobsForRetry(
     conditions.push('embedding_set_id = ?');
     params.push(embeddingSetId);
   }
-  const candidates = await db.query<{ id: string }>(
-    `SELECT id
-       FROM job_queue
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY updated_at DESC
-      LIMIT ?`,
-    [...params, limit]
+  return withTursoWriteRetry('resetJobsForRetry', async () =>
+    db.transaction(async (tx) => {
+      const candidates = await tx.query<{ id: string }>(
+        `SELECT id
+           FROM job_queue
+          WHERE ${conditions.join(' AND ')}
+          ORDER BY updated_at DESC
+          LIMIT ?`,
+        [...params, limit]
+      );
+      if (candidates.rows.length === 0) {
+        return 0;
+      }
+      const ids = candidates.rows.map((row) => row.id);
+      const result = await tx.query<{ id: string }>(
+        `UPDATE job_queue
+            SET state = 'queued',
+                attempts = 0,
+                run_at = ?,
+                backoff_ms = 0,
+                leased_until = NULL,
+                lease_token = NULL,
+                error = NULL,
+                updated_at = ?
+          WHERE id IN (${placeholders(ids.length)})
+        RETURNING id`,
+        [now, now, ...ids]
+      );
+      return result.rows.length;
+    })
   );
-  if (candidates.rows.length === 0) {
-    return 0;
-  }
-  const ids = candidates.rows.map((row) => row.id);
-  const result = await db.query<{ id: string }>(
-    `UPDATE job_queue
-        SET state = 'queued',
-            attempts = 0,
-            run_at = ?,
-            backoff_ms = 0,
-            leased_until = NULL,
-            lease_token = NULL,
-            error = NULL,
-            updated_at = ?
-      WHERE id IN (${placeholders(ids.length)})
-    RETURNING id`,
-    [now, now, ...ids]
-  );
-  return result.rows.length;
 }

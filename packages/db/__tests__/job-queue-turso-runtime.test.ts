@@ -2,9 +2,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addQueueTelemetryListener, type QueueTelemetryEvent } from '@brainstrike/queue';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
+import type { JobRow } from '../src/queue/job-queue.js';
 import { createTursoJobQueueReadModel, TursoJobQueue } from '../src/queue/turso-job-queue.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
@@ -284,6 +289,160 @@ describe('TursoJobQueue runtime operations', () => {
         }),
       ])
     );
+  });
+
+  it('retries transient Turso write contention transactionally while completing job batches', async () => {
+    const firstJob = createJobRow({
+      id: 'job-complete-retry-a',
+      lease_token: 'lease-complete-a',
+      state: 'succeeded',
+    });
+    const secondJob = createJobRow({
+      id: 'job-complete-retry-b',
+      lease_token: 'lease-complete-b',
+      state: 'succeeded',
+    });
+    const query = vi
+      .fn<BrainstrikeDbExecutionClient['query']>()
+      .mockResolvedValueOnce({ rows: [firstJob] })
+      .mockRejectedValueOnce(new Error('SQLITE_BUSY: database is locked'))
+      .mockResolvedValueOnce({ rows: [firstJob] })
+      .mockResolvedValueOnce({ rows: [secondJob] });
+    const retryQueue = new TursoJobQueue(createExecutionClient({ query }));
+
+    await expect(
+      retryQueue.completeBatch([
+        { id: 'job-complete-retry-a', leaseToken: 'lease-complete-a' },
+        { id: 'job-complete-retry-b', leaseToken: 'lease-complete-b' },
+      ])
+    ).resolves.toEqual([
+      expect.objectContaining({ id: 'job-complete-retry-a', state: 'succeeded' }),
+      expect.objectContaining({ id: 'job-complete-retry-b', state: 'succeeded' }),
+    ]);
+    expect(query).toHaveBeenCalledTimes(4);
+  });
+
+  it('rolls back partially completed Turso job batches before retrying write contention', async () => {
+    const first = await queue.enqueue({
+      queue: 'rollback',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-rollback-a', embeddingSetId },
+    });
+    const second = await queue.enqueue({
+      queue: 'rollback',
+      jobType: 'embed_chunk',
+      payload: { chunkId: 'chunk-rollback-b', embeddingSetId },
+    });
+    const claimed = await queue.claimMany({
+      queue: 'rollback',
+      workerId: 'worker-rollback',
+      leaseMs: 10_000,
+      limit: 2,
+    });
+    const leaseById = new Map(claimed.map((job) => [job.id, job.lease_token ?? '']));
+    let transactionAttempts = 0;
+    let statesAfterRollback: Array<{ id: string; state: string }> | null = null;
+    const retryQueue = new TursoJobQueue({
+      exec: (sql, params) => client.exec(sql, params),
+      query: (sql, params, options) => client.query(sql, params, options),
+      transaction: async (callback) => {
+        transactionAttempts += 1;
+        let completionUpdates = 0;
+        try {
+          return await client.transaction((tx) =>
+            callback(
+              createContentionInjectingTx(tx, () => {
+                if (transactionAttempts !== 1) {
+                  return false;
+                }
+                completionUpdates += 1;
+                return completionUpdates === 2;
+              })
+            )
+          );
+        } catch (error) {
+          if (transactionAttempts === 1) {
+            statesAfterRollback = await readJobStatesForIds([first.id, second.id]);
+          }
+          throw error;
+        }
+      },
+    });
+
+    await expect(
+      retryQueue.completeBatch([
+        { id: first.id, leaseToken: leaseById.get(first.id) ?? '' },
+        { id: second.id, leaseToken: leaseById.get(second.id) ?? '' },
+      ])
+    ).resolves.toEqual([
+      expect.objectContaining({ id: first.id, state: 'succeeded' }),
+      expect.objectContaining({ id: second.id, state: 'succeeded' }),
+    ]);
+
+    expect(transactionAttempts).toBe(2);
+    expect(statesAfterRollback).toEqual(
+      expect.arrayContaining([
+        { id: first.id, state: 'running' },
+        { id: second.id, state: 'running' },
+      ])
+    );
+    await expect(readJobStatesForIds([first.id, second.id])).resolves.toEqual(
+      expect.arrayContaining([
+        { id: first.id, state: 'succeeded' },
+        { id: second.id, state: 'succeeded' },
+      ])
+    );
+  });
+
+  it('retries transient Turso write contention while requeueing failed jobs', async () => {
+    const runningRow = createJobRow({
+      attempts: 1,
+      id: 'job-fail-retry',
+      lease_token: 'lease-fail',
+      max_attempts: 5,
+      state: 'running',
+    });
+    const requeuedRow = createJobRow({
+      attempts: 1,
+      backoff_ms: 50,
+      error: 'model unavailable',
+      id: 'job-fail-retry',
+      lease_token: null,
+      run_at: '2026-06-23T08:20:00.000Z',
+      state: 'queued',
+    });
+    const query = vi
+      .fn<BrainstrikeDbExecutionClient['query']>()
+      .mockResolvedValueOnce({ rows: [runningRow] })
+      .mockRejectedValueOnce(new Error('database is locked'))
+      .mockResolvedValueOnce({ rows: [runningRow] })
+      .mockResolvedValueOnce({ rows: [requeuedRow] });
+    const retryQueue = new TursoJobQueue(createExecutionClient({ query }));
+
+    await expect(
+      retryQueue.fail({
+        backoffMs: 50,
+        error: 'model unavailable',
+        id: 'job-fail-retry',
+        leaseToken: 'lease-fail',
+      })
+    ).resolves.toMatchObject({
+      id: 'job-fail-retry',
+      state: 'queued',
+    });
+    expect(query).toHaveBeenCalledTimes(4);
+  });
+
+  it('retries transient Turso write contention while resetting failed jobs for retry', async () => {
+    const query = vi
+      .fn<BrainstrikeDbExecutionClient['query']>()
+      .mockRejectedValueOnce(new Error('SQLITE_BUSY: database is locked'))
+      .mockResolvedValueOnce({ rows: [{ id: 'job-reset-retry' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'job-reset-retry' }] });
+    const retryQueue = new TursoJobQueue(createExecutionClient({ query }));
+
+    await expect(retryQueue.requeueFailed('embeddings', 1)).resolves.toBe(1);
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
   it('throws a row-scoped diagnostic for malformed job payload JSON', async () => {
@@ -581,6 +740,16 @@ describe('TursoJobQueue runtime operations', () => {
     return result.rows;
   }
 
+  async function readJobStatesForIds(
+    ids: readonly string[]
+  ): Promise<Array<{ id: string; state: string }>> {
+    const result = await client.query<{ id: string; state: string }>(
+      `SELECT id, state FROM job_queue WHERE id IN (${ids.map(() => '?').join(', ')}) ORDER BY id`,
+      [...ids]
+    );
+    return result.rows;
+  }
+
   async function insertRawJob(input: {
     embeddingSetId: string;
     error?: string | null;
@@ -662,6 +831,65 @@ function createChunk(overrides: Partial<FileChunkInsert> = {}): FileChunkInsert 
     id: 'chunk-1',
     tokenCount: 4,
     updatedAt: '2026-06-23T08:10:00.000Z',
+    ...overrides,
+  };
+}
+
+function createExecutionClient(overrides: {
+  query: BrainstrikeDbExecutionClient['query'];
+}): BrainstrikeDbExecutionClient {
+  const client = {
+    exec: vi.fn<BrainstrikeDbExecutionClient['exec']>(),
+    query: overrides.query,
+    transaction: vi.fn<BrainstrikeDbExecutionClient['transaction']>(),
+  };
+  client.transaction.mockImplementation(async (callback) => await callback(client));
+  return {
+    exec: client.exec,
+    query: client.query,
+    transaction: client.transaction,
+  };
+}
+
+function createContentionInjectingTx(
+  tx: BrainstrikeDbTransactionClient,
+  shouldInjectContention: (sql: string) => boolean
+): BrainstrikeDbTransactionClient {
+  return {
+    exec: tx.exec,
+    query: async (sql, params, options) => {
+      if (isJobCompletionUpdate(sql) && shouldInjectContention(sql)) {
+        throw new Error('SQLITE_BUSY: injected write contention');
+      }
+      return tx.query(sql, params, options);
+    },
+  };
+}
+
+function isJobCompletionUpdate(sql: string): boolean {
+  return sql.includes('UPDATE job_queue') && sql.includes("SET state = 'succeeded'");
+}
+
+function createJobRow(overrides: Partial<JobRow> = {}): JobRow {
+  return {
+    attempts: 1,
+    backoff_ms: 0,
+    chunk_id: 'chunk-1',
+    created_at: '2026-06-23T08:00:00.000Z',
+    dedupe_key: null,
+    embedding_set_id: 'embedding-set-1',
+    error: null,
+    id: 'job-1',
+    job_type: 'embed_chunk',
+    lease_token: 'lease-1',
+    leased_until: '2026-06-23T08:10:00.000Z',
+    max_attempts: 5,
+    payload: JSON.stringify({ chunkId: 'chunk-1', embeddingSetId: 'embedding-set-1' }),
+    queue: 'embeddings',
+    run_at: '2026-06-23T08:00:00.000Z',
+    state: 'running' as const,
+    updated_at: '2026-06-23T08:00:00.000Z',
+    worker_id: 'worker-a',
     ...overrides,
   };
 }

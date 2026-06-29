@@ -60,11 +60,12 @@ as the implementation backlog.
 - #1358 `Gate Turso semantic retrieval by bootstrap`
 - #1359 `Gate scheduled desktop database and dimension-index maintenance by runtime`
 - #1360 `Fix Turso inherited chunk stats`
-- Current slice: bump the Turso schema baseline to v6 so existing v5 profiles
-  re-run idempotent catalog/view-preset seeds during upgrade. The seed upgrade
-  restores missing catalog rows while preserving user-owned model toggles and
-  view-preset ordering; v5-to-v6 is seed-only and does not rerun generated gram
-  backfills.
+- Current slice: harden Turso job queue write-contention symmetry. Queue
+  completion, embedding-chunk completion, heartbeat, failure/retry,
+  cancel/clear/prune/expire, and failed-job reset paths now use the same
+  transient Turso write retry policy as enqueue and claim. Multi-row
+  completion/failure/reset paths run inside transactions so retry does not hide
+  partial writes or emit telemetry before commit.
 
 ## Turso Docs Guardrail
 
@@ -114,7 +115,9 @@ Current Turso repository/runtime coverage:
 - `file_token_cache`
 - managed-cache apply/invalidate
 - chunk insert plus embedding job enqueue
-- job queue claim, lease, completion, failure, retry, pending-count, and delete
+- job queue claim, lease, completion, failure, retry, pending-count, and delete;
+  Turso write-contention retries cover enqueue, claim, completion, heartbeat,
+  failure/retry, cancel/clear/prune/expire, and failed-job reset paths
 - selected model/embedding-set read paths exposed through provider-safe hooks
 - DB Explorer selected-collection browsing snapshots, indexed chunk count, and
   requested file status lookups through repository-backed Turso paths
@@ -383,8 +386,7 @@ Concrete blockers:
   Postgres-shaped (`COUNT(*)::text`, `$n` parameters, data-modifying CTE delete,
   table-targeted `VACUUM`), and dimension-index maintenance still builds
   pgvector HNSW SQL. Neither path is translated inline for Turso.
-- Post-merge retrospective follow-ups still need focused slices: Turso queue
-  retry symmetry around completion/write-contention paths, owner-client
+- Post-merge retrospective follow-ups still need focused slices: owner-client
   timeout/QoS diagnostics, explicit embedding-set delete semantics for
   `file_records`, and Turso corruption diagnostics/recovery.
 
