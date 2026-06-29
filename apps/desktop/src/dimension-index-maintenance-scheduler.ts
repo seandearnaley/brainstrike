@@ -1,4 +1,5 @@
 import {
+  type BrainstrikeDbRuntimeEngine,
   type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
   hnswParams,
@@ -45,13 +46,16 @@ interface MaintenanceLogger {
   readonly warn?: (context: Record<string, unknown>, message: string) => void;
 }
 
+export type DesktopDimensionIndexMaintenanceRuntimeEngine = BrainstrikeDbRuntimeEngine;
+
 export type DesktopDimensionIndexMaintenanceSkipReason =
   | 'already-running'
   | 'database-scheduler-busy'
   | 'power-not-ac'
   | 'power-not-idle'
   | 'strategy-unavailable'
-  | 'thermal-pressure';
+  | 'thermal-pressure'
+  | 'unsupported-runtime';
 
 export type DesktopDimensionIndexMaintenanceRunResult =
   | RunDimensionIndexMaintenanceResult
@@ -70,6 +74,7 @@ export interface DesktopDimensionIndexMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<DimensionIndexMaintenanceDb>;
   readonly getDimensionIndexStrategy: () => DimensionIndexStrategySelection | null;
   readonly getPowerSnapshot: () => WorkspaceIndexingPowerSnapshot;
+  readonly getRuntimeEngine: () => Promise<DesktopDimensionIndexMaintenanceRuntimeEngine>;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
   readonly initialDelayMs?: number;
   readonly intervalMs?: number;
@@ -106,6 +111,12 @@ function hasQueuedDatabaseWork(snapshot: SchedulerSnapshot): boolean {
   return (
     snapshot.queued.background > 0 || snapshot.queued.foreground > 0 || snapshot.queued.normal > 0
   );
+}
+
+function isDimensionIndexMaintenanceSupportedRuntime(
+  runtimeEngine: DesktopDimensionIndexMaintenanceRuntimeEngine
+): boolean {
+  return runtimeEngine === 'pglite';
 }
 
 function createSkippedResult(
@@ -197,36 +208,45 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
       return createSkippedResult('already-running');
     }
 
-    const snapshot = options.getSchedulerSnapshot();
-    if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
-      options.logger.debug(
-        { queued: snapshot.queued, runningPriority: snapshot.runningPriority },
-        'Skipped dimension index maintenance because database scheduler is busy'
-      );
-      return createSkippedResult('database-scheduler-busy');
-    }
+    maintenanceInFlight = (async () => {
+      const runtimeEngine = await options.getRuntimeEngine();
+      if (!isDimensionIndexMaintenanceSupportedRuntime(runtimeEngine)) {
+        options.logger.debug(
+          { runtimeEngine },
+          'Skipped dimension index maintenance because the runtime does not support it'
+        );
+        return createSkippedResult('unsupported-runtime');
+      }
 
-    const powerSnapshot = options.getPowerSnapshot();
-    const powerSkipReason = resolvePowerSkipReason(powerSnapshot);
-    if (powerSkipReason) {
-      options.logger.debug(
-        { powerSnapshot, reason: powerSkipReason },
-        'Skipped dimension index maintenance because power state is not eligible'
-      );
-      return createSkippedResult(powerSkipReason);
-    }
+      const snapshot = options.getSchedulerSnapshot();
+      if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
+        options.logger.debug(
+          { queued: snapshot.queued, runningPriority: snapshot.runningPriority },
+          'Skipped dimension index maintenance because database scheduler is busy'
+        );
+        return createSkippedResult('database-scheduler-busy');
+      }
 
-    const strategySelection = options.getDimensionIndexStrategy();
-    if (!strategySelection) {
-      options.logger.warn?.(
-        { reason: 'dimension-index-strategy-unavailable' },
-        'Skipped dimension index maintenance because capability probe is unavailable'
-      );
-      return createSkippedResult('strategy-unavailable');
-    }
+      const powerSnapshot = options.getPowerSnapshot();
+      const powerSkipReason = resolvePowerSkipReason(powerSnapshot);
+      if (powerSkipReason) {
+        options.logger.debug(
+          { powerSnapshot, reason: powerSkipReason },
+          'Skipped dimension index maintenance because power state is not eligible'
+        );
+        return createSkippedResult(powerSkipReason);
+      }
 
-    maintenanceInFlight = options
-      .runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
+      const strategySelection = options.getDimensionIndexStrategy();
+      if (!strategySelection) {
+        options.logger.warn?.(
+          { reason: 'dimension-index-strategy-unavailable' },
+          'Skipped dimension index maintenance because capability probe is unavailable'
+        );
+        return createSkippedResult('strategy-unavailable');
+      }
+
+      const result = await options.runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
         const db = await options.getDatabase();
         return await runDimensionMaintenance(db, {
           createIndex: async (request) =>
@@ -234,29 +254,28 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
           now,
           strategy: strategySelection.strategy,
         });
-      })
-      .then((result) => {
-        if (isCompletedResult(result)) {
-          options.logger.info(
-            {
-              dimension: result.dimension,
-              durationMs: result.durationMs,
-              strategy: result.strategy,
-              strategyReason: strategySelection.reason,
-            },
-            'Dimension index maintenance completed'
-          );
-        } else {
-          options.logger.debug(
-            { result, strategyReason: strategySelection.reason },
-            'Dimension index maintenance did not complete'
-          );
-        }
-        return result;
-      })
-      .finally(() => {
-        maintenanceInFlight = null;
       });
+
+      if (isCompletedResult(result)) {
+        options.logger.info(
+          {
+            dimension: result.dimension,
+            durationMs: result.durationMs,
+            strategy: result.strategy,
+            strategyReason: strategySelection.reason,
+          },
+          'Dimension index maintenance completed'
+        );
+      } else {
+        options.logger.debug(
+          { result, strategyReason: strategySelection.reason },
+          'Dimension index maintenance did not complete'
+        );
+      }
+      return result;
+    })().finally(() => {
+      maintenanceInFlight = null;
+    });
 
     return await maintenanceInFlight;
   };

@@ -27,7 +27,12 @@ import {
   type DesktopDatabaseMaintenanceScheduler,
 } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import {
+  closeDatabase,
+  getDatabase,
+  resetLocalDatabase,
+  resolveCurrentDesktopDbRuntimeEngine,
+} from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
@@ -877,6 +882,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
+  getRuntimeEngine: resolveCurrentDesktopDbRuntimeEngine,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
@@ -885,6 +891,7 @@ desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenan
   getDatabase,
   getDimensionIndexStrategy: () => desktopDimensionIndexStrategySelection,
   getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
+  getRuntimeEngine: resolveCurrentDesktopDbRuntimeEngine,
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,

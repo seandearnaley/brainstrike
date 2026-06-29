@@ -1537,6 +1537,12 @@ async function resolveCurrentDesktopDbRuntimeSelection(): Promise<BrainstrikeDbR
   });
 }
 
+export async function resolveCurrentDesktopDbRuntimeEngine(): Promise<
+  BrainstrikeDbRuntimeSelection['engine']
+> {
+  return (await resolveCurrentDesktopDbRuntimeSelection()).engine;
+}
+
 async function runCurrentPgliteBootstrapCapabilityProbe(
   runtimeSelection: BrainstrikeDbRuntimeSelection
 ): Promise<BootstrapCapabilityProbeReport> {

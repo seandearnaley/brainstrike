@@ -1,4 +1,5 @@
 import {
+  type BrainstrikeDbRuntimeEngine,
   type DatabaseWorkPriority,
   type DatabaseWorkRunOptions,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
@@ -32,7 +33,12 @@ interface MaintenanceLogger {
   readonly info: (context: Record<string, unknown>, message: string) => void;
 }
 
-export type DesktopDatabaseMaintenanceSkipReason = 'already-running' | 'database-scheduler-busy';
+export type DesktopDatabaseMaintenanceRuntimeEngine = BrainstrikeDbRuntimeEngine;
+
+export type DesktopDatabaseMaintenanceSkipReason =
+  | 'already-running'
+  | 'database-scheduler-busy'
+  | 'unsupported-runtime';
 
 export type DesktopDatabaseMaintenanceRunResult =
   | ScheduledDatabaseMaintenanceResult
@@ -55,6 +61,7 @@ export interface DesktopDatabaseMaintenanceScheduler {
 
 export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<MaintenanceDb>;
+  readonly getRuntimeEngine: () => Promise<DesktopDatabaseMaintenanceRuntimeEngine>;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
   readonly initialDelayMs?: number;
   readonly intervalMs?: number;
@@ -92,6 +99,12 @@ function hasQueuedDatabaseWork(snapshot: SchedulerSnapshot): boolean {
   );
 }
 
+function isMaintenanceSupportedRuntime(
+  runtimeEngine: DesktopDatabaseMaintenanceRuntimeEngine
+): boolean {
+  return runtimeEngine === 'pglite';
+}
+
 function createSkippedResult(
   reason: DesktopDatabaseMaintenanceSkipReason,
   now: () => Date
@@ -124,51 +137,60 @@ export function createDesktopDatabaseMaintenanceScheduler(
     if (maintenanceInFlight) {
       return createSkippedResult('already-running', now);
     }
-    const snapshot = options.getSchedulerSnapshot();
-    if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
-      options.logger.debug(
-        {
-          queued: snapshot.queued,
-          runningPriority: snapshot.runningPriority,
-        },
-        'Skipped scheduled database maintenance because database scheduler is busy'
-      );
-      return createSkippedResult('database-scheduler-busy', now);
-    }
 
-    maintenanceInFlight = options
-      .runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
+    maintenanceInFlight = (async () => {
+      const runtimeEngine = await options.getRuntimeEngine();
+      if (!isMaintenanceSupportedRuntime(runtimeEngine)) {
+        options.logger.debug(
+          { runtimeEngine },
+          'Skipped scheduled database maintenance because the runtime does not support it'
+        );
+        return createSkippedResult('unsupported-runtime', now);
+      }
+
+      const snapshot = options.getSchedulerSnapshot();
+      if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
+        options.logger.debug(
+          {
+            queued: snapshot.queued,
+            runningPriority: snapshot.runningPriority,
+          },
+          'Skipped scheduled database maintenance because database scheduler is busy'
+        );
+        return createSkippedResult('database-scheduler-busy', now);
+      }
+
+      const result = await options.runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
         const db = await options.getDatabase();
         return await runMaintenance(db, {
           ...options.maintenanceOptions,
           now,
         });
-      })
-      .then((result) => {
-        if (result.status === 'completed') {
-          options.logger.info(
-            {
-              activeJobs: result.activeJobs,
-              durationMs: result.durationMs,
-              prunedTerminalJobs: result.prunedTerminalJobs,
-              vacuumedTables: result.vacuumedTables,
-            },
-            'Scheduled database maintenance completed'
-          );
-        } else {
-          options.logger.debug(
-            {
-              activeJobs: result.activeJobs,
-              reason: result.reason,
-            },
-            'Skipped scheduled database maintenance'
-          );
-        }
-        return result;
-      })
-      .finally(() => {
-        maintenanceInFlight = null;
       });
+
+      if (result.status === 'completed') {
+        options.logger.info(
+          {
+            activeJobs: result.activeJobs,
+            durationMs: result.durationMs,
+            prunedTerminalJobs: result.prunedTerminalJobs,
+            vacuumedTables: result.vacuumedTables,
+          },
+          'Scheduled database maintenance completed'
+        );
+      } else {
+        options.logger.debug(
+          {
+            activeJobs: result.activeJobs,
+            reason: result.reason,
+          },
+          'Skipped scheduled database maintenance'
+        );
+      }
+      return result;
+    })().finally(() => {
+      maintenanceInFlight = null;
+    });
     return await maintenanceInFlight;
   };
 

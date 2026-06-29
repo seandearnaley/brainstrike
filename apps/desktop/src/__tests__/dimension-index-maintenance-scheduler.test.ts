@@ -42,6 +42,10 @@ function createLogger() {
   };
 }
 
+async function resolvePgliteRuntimeEngine(): Promise<'pglite'> {
+  return 'pglite';
+}
+
 describe('DesktopDimensionIndexMaintenanceScheduler', () => {
   it('skips when DB scheduler is busy', async () => {
     const runScheduledWork = vi.fn();
@@ -53,6 +57,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         strategy: 'regular',
       }),
       getPowerSnapshot: idleAcSnapshot,
+      getRuntimeEngine: resolvePgliteRuntimeEngine,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts({ foreground: 1 }),
         runningPriority: null,
@@ -70,6 +75,42 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     expect(runDimensionMaintenance).not.toHaveBeenCalled();
   });
 
+  it('skips before entering the database lane when dimension index maintenance is unsupported for Turso', async () => {
+    const getSchedulerSnapshot = vi.fn(() => {
+      throw new Error(
+        'Turso dimension index maintenance should skip before reading scheduler state.'
+      );
+    });
+    const runScheduledWork = vi.fn();
+    const runDimensionMaintenance = vi.fn();
+    const logger = createLogger();
+    const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
+      getDatabase: vi.fn(async () => ({ maintenance: { exec: vi.fn() }, query: vi.fn() })),
+      getDimensionIndexStrategy: () => ({
+        reason: 'concurrent-index-build-supported-and-responsive',
+        strategy: 'concurrent',
+      }),
+      getPowerSnapshot: idleAcSnapshot,
+      getRuntimeEngine: vi.fn(async () => 'turso'),
+      getSchedulerSnapshot,
+      logger,
+      runDimensionMaintenance,
+      runScheduledWork,
+    });
+
+    await expect(scheduler.runOnce()).resolves.toMatchObject({
+      reason: 'unsupported-runtime',
+      status: 'skipped',
+    });
+    expect(getSchedulerSnapshot).not.toHaveBeenCalled();
+    expect(runScheduledWork).not.toHaveBeenCalled();
+    expect(runDimensionMaintenance).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(
+      { runtimeEngine: 'turso' },
+      'Skipped dimension index maintenance because the runtime does not support it'
+    );
+  });
+
   it('skips when the machine is not idle on AC', async () => {
     const runScheduledWork = vi.fn();
     const scheduler = createDesktopDimensionIndexMaintenanceScheduler({
@@ -83,6 +124,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         idleState: 'active',
         idleTimeMs: 1000,
       }),
+      getRuntimeEngine: resolvePgliteRuntimeEngine,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
       runDimensionMaintenance: vi.fn(),
@@ -125,6 +167,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         strategy: 'regular',
       }),
       getPowerSnapshot: idleAcSnapshot,
+      getRuntimeEngine: resolvePgliteRuntimeEngine,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
       runDimensionMaintenance,
@@ -165,6 +208,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         strategy: 'concurrent',
       }),
       getPowerSnapshot: idleAcSnapshot,
+      getRuntimeEngine: resolvePgliteRuntimeEngine,
       getSchedulerSnapshot: idleSchedulerSnapshot,
       logger: createLogger(),
       runDimensionMaintenance,
