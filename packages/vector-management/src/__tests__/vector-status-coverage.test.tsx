@@ -566,18 +566,18 @@ describe('VectorStatusWithDb', () => {
     it('disables backfill with a Turso migration boundary reason when queue service is unavailable', () => {
       mockDb = { query: vi.fn() };
       mockRuntimeService = null;
-      mockRuntimeServiceUnavailableReason = 'missing-db-or-coverage-repository';
+      mockRuntimeServiceUnavailableReason = 'turso-vector-backfill-not-migrated';
       render(<VectorStatusWithDb />);
 
       const backfillButton = screen.getByRole('button', { name: 'Backfill current collection' });
       expect(backfillButton).toBeDisabled();
       expect(backfillButton).toHaveAttribute(
         'title',
-        'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.'
+        'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.'
       );
       expect(
         screen.getByRole('tooltip', {
-          name: 'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.',
+          name: 'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.',
         })
       ).toBeInTheDocument();
     });

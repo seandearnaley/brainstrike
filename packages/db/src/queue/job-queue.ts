@@ -143,6 +143,13 @@ export interface QueueRetryOptions {
   embeddingSetId?: string;
 }
 
+export interface JobQueueStateCounts {
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}
+
 export interface CancelParams {
   id: string;
   leaseToken?: string;

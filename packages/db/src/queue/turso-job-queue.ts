@@ -14,6 +14,7 @@ import type {
   FailBatchParams,
   FailParams,
   Job,
+  JobQueueStateCounts,
   JobRow,
   JobState,
   QueueRetryOptions,
@@ -518,6 +519,56 @@ export class TursoJobQueue {
       state: row.state,
       count: Number(row.count),
     }));
+  }
+
+  async getEmbeddingSetQueueCounts(
+    queue: string,
+    embeddingSetId: string
+  ): Promise<JobQueueStateCounts> {
+    const queueName = queue.trim();
+    if (!queueName) {
+      throw new Error('queue is required');
+    }
+    const targetEmbeddingSetId = embeddingSetId.trim();
+    if (!targetEmbeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+
+    const result = await this.db.query<{ count: number | string; state: JobState }>(
+      `SELECT state, COUNT(*) AS count
+         FROM job_queue
+        WHERE queue = ?
+          AND job_type = 'embed_chunk'
+          AND embedding_set_id = ?
+          AND state IN ('queued', 'running', 'failed', 'succeeded')
+        GROUP BY state`,
+      [queueName, targetEmbeddingSetId]
+    );
+    const counts: JobQueueStateCounts = {
+      failed: 0,
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+    };
+    for (const row of result.rows) {
+      const count = Number(row.count);
+      if (!Number.isFinite(count) || count < 0) {
+        throw new Error(`Invalid Turso queue count for state '${row.state}'`);
+      }
+      if (row.state === 'queued') {
+        counts.queued = count;
+      }
+      if (row.state === 'running') {
+        counts.running = count;
+      }
+      if (row.state === 'failed') {
+        counts.failed = count;
+      }
+      if (row.state === 'succeeded') {
+        counts.succeeded = count;
+      }
+    }
+    return counts;
   }
 
   async getQueueStats(queue?: string): Promise<

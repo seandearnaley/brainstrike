@@ -645,6 +645,39 @@ describe('useEmbeddingControls', () => {
       });
     });
 
+    it('shows Turso migration boundary toast when Turso vector backfill is not migrated', async () => {
+      vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
+        controller: {
+          cancelAllBackfills: vi.fn(async () => {}),
+          cancelBackfill: vi.fn(async () => {}),
+          enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+          ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          getBackfillsInFlight: vi.fn(async () => []),
+          getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          onBackfillProgress: vi.fn(() => () => {}),
+          onStatus: vi.fn(() => () => {}),
+          reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+          start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        },
+        service: null,
+        serviceUnavailableReason: 'turso-vector-backfill-not-migrated',
+      });
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      await act(async () => {
+        await result.current.dropdownProps.onBackfill();
+      });
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Vector Queue Unavailable',
+        description:
+          'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.',
+        variant: 'destructive',
+      });
+    });
+
     it('shows toast when no collection is selected', async () => {
       vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
         const state = {

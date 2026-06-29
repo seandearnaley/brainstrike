@@ -12,6 +12,7 @@ export type {
   FailParams,
   HeartbeatParams,
   Job,
+  JobQueueStateCounts,
   JobState,
   JobType,
 } from './job-queue.js';
