@@ -1,6 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTursoEmbeddingBackfillRepository } from '../vector-status/turso-embedding-backfill-repository';
 
+const mockLoggerError = vi.hoisted(() => vi.fn());
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...(actual as object),
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: mockLoggerError,
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
+    }),
+  };
+});
+
 describe('createTursoEmbeddingBackfillRepository', () => {
   it('maps the vector backfill repository contract onto Turso repositories', async () => {
     const chunkRepository = {
@@ -79,6 +95,7 @@ describe('createTursoEmbeddingBackfillRepository', () => {
   });
 
   it('fails closed when the Turso embedding set metadata is missing', async () => {
+    mockLoggerError.mockClear();
     const repository = createTursoEmbeddingBackfillRepository({
       chunkRepository: {
         countEmbeddingBackfillCandidates: vi.fn(),
@@ -95,6 +112,59 @@ describe('createTursoEmbeddingBackfillRepository', () => {
 
     await expect(repository.resolveEmbeddingSetJobMetadata('missing-set')).rejects.toThrow(
       'Embedding set missing-set not found'
+    );
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Failed to resolve embedding set metadata (missing row)',
+      { embeddingSetId: 'missing-set' }
+    );
+  });
+
+  it('logs and rejects empty Turso embedding model keys as missing metadata', async () => {
+    mockLoggerError.mockClear();
+    const repository = createTursoEmbeddingBackfillRepository({
+      chunkRepository: {
+        countEmbeddingBackfillCandidates: vi.fn(),
+        findEmbeddingBackfillCandidates: vi.fn(),
+        getEmbeddingBackfillCandidateDiagnostics: vi.fn(),
+      },
+      embeddingSetsRepository: {
+        getById: vi.fn(async () => ({ dimensions: 384, modelKey: '   ' })),
+      },
+      jobQueue: {
+        getEmbeddingSetQueueCounts: vi.fn(),
+      },
+    });
+
+    await expect(repository.resolveEmbeddingSetJobMetadata('empty-key-set')).rejects.toThrow(
+      'Embedding set empty-key-set is missing model_key metadata'
+    );
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Failed to resolve embedding set metadata (missing model_key)',
+      { embeddingSetId: 'empty-key-set' }
+    );
+  });
+
+  it('logs invalid Turso embedding set dimensions before failing closed', async () => {
+    mockLoggerError.mockClear();
+    const invalidDimensionRepository = createTursoEmbeddingBackfillRepository({
+      chunkRepository: {
+        countEmbeddingBackfillCandidates: vi.fn(),
+        findEmbeddingBackfillCandidates: vi.fn(),
+        getEmbeddingBackfillCandidateDiagnostics: vi.fn(),
+      },
+      embeddingSetsRepository: {
+        getById: vi.fn(async () => ({ dimensions: 0, modelKey: 'local::valid-model' })),
+      },
+      jobQueue: {
+        getEmbeddingSetQueueCounts: vi.fn(),
+      },
+    });
+    await expect(
+      invalidDimensionRepository.resolveEmbeddingSetJobMetadata('invalid-dimension-set')
+    ).rejects.toThrow('Embedding set invalid-dimension-set is missing dimension metadata');
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Failed to resolve embedding set metadata (invalid dimension)',
+      { dimensions: 0, embeddingSetId: 'invalid-dimension-set' }
     );
   });
 });

@@ -6,12 +6,15 @@ import type {
   TursoEmbeddingBackfillCandidateOptions,
 } from '@brainstrike/db';
 import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   type BackfillCandidateDiagnostics,
   EMBEDDINGS_QUEUE,
   type EmbeddingBackfillRepository,
   type QueueCounts,
 } from './vector-queue-service';
+
+const logger = createLogger('TursoEmbeddingBackfillRepository');
 
 interface TursoBackfillChunkRepository {
   countEmbeddingBackfillCandidates(
@@ -68,14 +71,30 @@ export function createTursoEmbeddingBackfillRepository(
     resolveEmbeddingSetJobMetadata: async (embeddingSetId) => {
       const embeddingSet = await dependencies.embeddingSetsRepository.getById(embeddingSetId);
       if (!embeddingSet) {
+        logger.error('Failed to resolve embedding set metadata (missing row)', { embeddingSetId });
         throw new Error(`Embedding set ${embeddingSetId} not found`);
       }
-      const canonical = canonicalizeEmbeddingProviderModelKey(embeddingSet.modelKey);
+      const rawKey = embeddingSet.modelKey.trim();
+      if (!rawKey) {
+        logger.error('Failed to resolve embedding set metadata (missing model_key)', {
+          embeddingSetId,
+        });
+        throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
+      }
+      const canonical = canonicalizeEmbeddingProviderModelKey(rawKey);
       if (!canonical) {
+        logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
+          embeddingSetId,
+          modelKey: embeddingSet.modelKey,
+        });
         throw new Error(`Embedding set ${embeddingSetId} has invalid model_key metadata`);
       }
       const expectedDimension = Number(embeddingSet.dimensions);
       if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
+        logger.error('Failed to resolve embedding set metadata (invalid dimension)', {
+          dimensions: embeddingSet.dimensions,
+          embeddingSetId,
+        });
         throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata`);
       }
       return {
