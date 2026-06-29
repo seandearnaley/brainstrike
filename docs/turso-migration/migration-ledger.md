@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-06-24 on `feature/turso-migration`.
+Last updated: 2026-06-29 on `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -50,7 +50,9 @@ as the implementation backlog.
 - #1344 `Gate quick open on indexed repository snapshots`
 - #1346 `Use Turso vector queue stats and retry controls`
 - #1347 `Gate vector queue service by DB runtime`
-- Current slice: Turso embedding backfill candidate repository primitives
+- #1348 `Add Turso embedding backfill candidate queries`
+- Current slice: storage-neutral vector backfill repository port in
+  `@brainstrike/vector-management`
 
 ## Turso Docs Guardrail
 
@@ -119,6 +121,14 @@ Current Turso repository/runtime coverage:
   exclude active queued/running deduped jobs, include inherited
   `file_records.embedding_set_id` scope, and fail closed when pending chunks
   lack `content_hash`.
+- `VectorQueueService` now consumes a storage-neutral
+  `EmbeddingBackfillRepository` for embedding-set metadata, candidate counts,
+  candidate batches, candidate diagnostics, and per-set drain counts. The
+  default implementation preserves the existing PGlite SQL path, while tests
+  prove backfill and API-key validation can run through an injected repository
+  without raw DB queries. Turso still returns
+  `turso-vector-backfill-not-migrated` until a Turso adapter and worker path are
+  wired.
 
 ## Non-Negotiable Migration Rules
 
@@ -205,16 +215,15 @@ Completed low-risk queue UI slices:
   the bootstrap runtime, constructs `JobQueue` only for PGlite, and keeps Turso
   service-null with an explicit unavailable reason.
 
-Remaining slice: introduce a Turso-capable backfill/repository port for
-queue counts, metadata lookup, enqueue/drain operations, and worker completion
-IO. Turso file-chunk candidate discovery and diagnostics now exist, but the
-vector-management service still needs a storage-neutral backfill repository
-contract before Turso can be enabled. Use PGlite/Electron repositories today,
-and Turso file-record, file-chunk, embedding-set, and job-queue repositories
-for Turso. Preserve the hidden-renderer worker boundary. Do not enable Turso
-backfill through `vector-queue-service.ts` until its remaining Postgres-shaped
-queue counts, metadata lookup, drain, and transaction query requirements are
-replaced with runtime repository operations.
+Remaining slice: implement a Turso adapter for the storage-neutral
+`EmbeddingBackfillRepository`, add split per-set queue counts for Turso drain
+logic, and move `refresh()` metrics behind a Turso-safe repository path instead
+of the current PostgreSQL-shaped SQL. Use PGlite/Electron repositories today,
+and Turso file-record, file-chunk, embedding-set, and job-queue repositories for
+Turso. Preserve the hidden-renderer worker boundary. Do not enable Turso
+backfill through `vector-queue-service.ts` until the Turso adapter, Electron
+transaction/query support, and worker claim/load/complete path are proven by
+runtime-specific tests.
 
 ### 4. Assistant Search And Retrieval
 

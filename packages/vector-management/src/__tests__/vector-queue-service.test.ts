@@ -278,6 +278,76 @@ describe('vector-queue-service', () => {
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
   });
 
+  it('backfill can run through an injected storage-neutral repository without raw DB queries', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+      repairUnclaimableQueued: vi.fn(),
+    };
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => {
+        throw new Error('raw db query should not be used by backfill repository path');
+      }) as VectorQueueDatabase['query'],
+    };
+    const backfillRepository = {
+      countBackfillCandidates: vi.fn(async () => 2),
+      getEmbeddingSetQueueCounts: vi
+        .fn()
+        .mockResolvedValueOnce({ queued: 0, running: 0, failed: 0, succeeded: 0 })
+        .mockResolvedValueOnce({ queued: 0, running: 0, failed: 0, succeeded: 2 }),
+      loadBackfillCandidateBatch: vi.fn(async () => [
+        { id: 'chunk-a', fileRecordId: 'file-a', contentHash: 'hash-a' },
+        { id: 'chunk-b', fileRecordId: 'file-b', contentHash: 'hash-b' },
+      ]),
+      loadBackfillCandidateDiagnostics: vi.fn(async () => ({
+        fileCount: 1,
+        chunkCount: 2,
+        pendingChunkCount: 2,
+        embeddedChunkCount: 0,
+        queuedOrRunningJobs: 0,
+        failedJobs: 0,
+      })),
+      resolveEmbeddingSetJobMetadata: vi.fn(async () => ({
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        expectedDimension: 384,
+      })),
+    };
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository: {
+        getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+        clearEmbeddingsForSet: vi.fn(async () => 0),
+      },
+      backfillRepository,
+    });
+
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+    await expect(
+      service.backfill('set-1', {
+        onProgress: (done, total) => progressUpdates.push({ done, total }),
+      })
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
+
+    expect(db.query).not.toHaveBeenCalled();
+    expect(backfillRepository.resolveEmbeddingSetJobMetadata).toHaveBeenCalledWith('set-1');
+    expect(backfillRepository.countBackfillCandidates).toHaveBeenCalledWith('set-1');
+    expect(backfillRepository.loadBackfillCandidateBatch).toHaveBeenCalledWith({
+      afterChunkId: null,
+      embeddingSetId: 'set-1',
+      limit: 2,
+    });
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 2 },
+      { done: 2, total: 2 },
+    ]);
+  });
+
   it('loads candidate diagnostics when backfill has no eligible chunks', async () => {
     const capturedLogs: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => {
@@ -1118,6 +1188,35 @@ describe('vector-queue-service', () => {
 
     await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({ valid: true });
 
+    expect(checkApiKeyAvailability).toHaveBeenCalledWith('openai::text-embedding-3-small');
+  });
+
+  it('validates API keys through injected backfill repository metadata without raw DB queries', async () => {
+    vi.mocked(checkApiKeyAvailability).mockResolvedValue({ available: true });
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => {
+        throw new Error('raw db query should not be used by API key validation repository path');
+      }) as VectorQueueDatabase['query'],
+    };
+    const backfillRepository = {
+      countBackfillCandidates: vi.fn(),
+      getEmbeddingSetQueueCounts: vi.fn(),
+      loadBackfillCandidateBatch: vi.fn(),
+      loadBackfillCandidateDiagnostics: vi.fn(),
+      resolveEmbeddingSetJobMetadata: vi.fn(async () => ({
+        modelKey: 'openai::text-embedding-3-small',
+        expectedDimension: 1536,
+      })),
+    };
+    const service = createVectorQueueService({
+      ...createMinimalDependencies(db),
+      backfillRepository,
+    });
+
+    await expect(service.validateApiKeyForSet('set-1')).resolves.toEqual({ valid: true });
+
+    expect(db.query).not.toHaveBeenCalled();
+    expect(backfillRepository.resolveEmbeddingSetJobMetadata).toHaveBeenCalledWith('set-1');
     expect(checkApiKeyAvailability).toHaveBeenCalledWith('openai::text-embedding-3-small');
   });
 
