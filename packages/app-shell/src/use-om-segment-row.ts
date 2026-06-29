@@ -1,11 +1,12 @@
 /**
- * Live subscription to the active thread's / workspace's observational-memory
+ * Runtime-aware read for the active thread's / workspace's observational-memory
  * (OM) row.
  *
- * Drives the OM informational stats in the context meter. Reactive via
- * `useBrainstrikeLiveQuery` (auto subscribe/unsubscribe on unmount). Reads RAW
- * @mastra/memory columns off `mastra_observational_memory` — the exact column
- * set is locked by the projection drift guard in
+ * Drives the OM informational stats in the context meter. PGlite stays reactive
+ * via `useBrainstrikeLiveQuery`; Turso uses a strict snapshot query because the
+ * desktop DB host deliberately does not expose live queries for Turso. Both read
+ * RAW @mastra/memory columns off `mastra_observational_memory` — the exact
+ * column set is locked by the projection drift guard in
  * packages/db/__tests__/mastra-om-schema-projection.test.ts.
  *
  * Lookup key (mirrors the store's `observationalMemoryKey` + the library's
@@ -25,7 +26,12 @@
  */
 
 import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
-import { makeLiveQueryKey, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  makeLiveQueryKey,
+  useAssistantMemoryDbClient,
+  useBrainstrikeLiveQuery,
+} from '@brainstrike/db';
+import { useEffect, useState } from 'react';
 
 /**
  * Build the OM lookup key the store writes under. Mirrors the memory store's
@@ -58,9 +64,33 @@ const OM_ROW_QUERY = `
   LIMIT 1
 `;
 
+const SQLITE_OM_ROW_QUERY = `
+  SELECT "observationTokenCount", "totalTokensObserved"
+  FROM mastra_observational_memory
+  WHERE "lookupKey" = ?
+  ORDER BY "generationCount" DESC, "createdAt" DESC
+  LIMIT 1
+`;
+
 interface ObservationalMemoryRowQueryResult {
   observationTokenCount: number | string;
   totalTokensObserved: number | string;
+}
+
+interface ObservationalMemorySnapshotState {
+  readonly error: Error | null;
+  readonly loading: boolean;
+  readonly row: ObservationalMemoryRowQueryResult | null;
+}
+
+const EMPTY_SNAPSHOT_STATE: ObservationalMemorySnapshotState = {
+  error: null,
+  loading: false,
+  row: null,
+};
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 export interface UseObservationalMemoryRowInput {
@@ -84,28 +114,75 @@ export interface UseObservationalMemoryRowResult {
 export function useObservationalMemoryRow(
   input: UseObservationalMemoryRowInput
 ): UseObservationalMemoryRowResult {
+  const assistantMemoryDb = useAssistantMemoryDbClient();
+  const database = assistantMemoryDb?.db ?? null;
+  const runtimeEngine = assistantMemoryDb?.runtimeEngine ?? null;
   const lookupKey = buildObservationalMemoryLookupKey({
     scope: input.scope,
     threadId: input.threadId,
     resourceId: input.resourceId,
   });
   const enabled = input.hasDurableCapability && lookupKey !== null;
+  const pgliteLiveEnabled = enabled && runtimeEngine === 'pglite';
+  const tursoSnapshotEnabled = enabled && runtimeEngine === 'turso';
+  const [tursoSnapshot, setTursoSnapshot] =
+    useState<ObservationalMemorySnapshotState>(EMPTY_SNAPSHOT_STATE);
 
   const result = useBrainstrikeLiveQuery<ObservationalMemoryRowQueryResult>({
     cacheKey: makeLiveQueryKey('om-row', lookupKey ?? ''),
     query: OM_ROW_QUERY,
     params: [lookupKey ?? ''],
-    enabled,
+    enabled: pgliteLiveEnabled,
     // Drop stale rows the instant the query is disabled (thread closed / scope id
     // missing) so a prior thread's OM never leaks into another / no thread.
     clearOnDisable: true,
   });
 
+  useEffect(() => {
+    if (!(tursoSnapshotEnabled && database && lookupKey)) {
+      setTursoSnapshot(EMPTY_SNAPSHOT_STATE);
+      return;
+    }
+
+    let cancelled = false;
+    setTursoSnapshot({ error: null, loading: true, row: null });
+    database
+      .query<ObservationalMemoryRowQueryResult>(SQLITE_OM_ROW_QUERY, [lookupKey])
+      .then((queryResult) => {
+        if (cancelled) {
+          return;
+        }
+        setTursoSnapshot({
+          error: null,
+          loading: false,
+          row: queryResult.rows[0] ?? null,
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setTursoSnapshot({ error: toError(error), loading: false, row: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [database, lookupKey, tursoSnapshotEnabled]);
+
+  if (tursoSnapshotEnabled) {
+    return tursoSnapshot;
+  }
+
+  if (enabled && !assistantMemoryDb) {
+    return { error: null, loading: true, row: null };
+  }
+
   return {
     // Belt-and-suspenders with clearOnDisable: never surface a row from a
     // disabled query even if the live layer has not cleared yet.
-    row: enabled ? (result.rows[0] ?? null) : null,
-    loading: enabled && result.loading,
+    row: pgliteLiveEnabled ? (result.rows[0] ?? null) : null,
+    loading: pgliteLiveEnabled && result.loading,
     error: result.error,
   };
 }

@@ -431,6 +431,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async () => {
 
 const { dbClientState, mockDb } = vi.hoisted(() => ({
   dbClientState: {
+    assistantMemoryDb: undefined as unknown,
     brainstrikeDb: undefined as unknown,
     modelRegistryDb: undefined as unknown,
   },
@@ -451,6 +452,14 @@ vi.mock('@brainstrike/db', () => ({
   useModelRegistryDbClient: vi.fn(() =>
     dbClientState.modelRegistryDb === undefined ? mockDb : dbClientState.modelRegistryDb
   ),
+  useAssistantMemoryDbClient: vi.fn(() =>
+    dbClientState.assistantMemoryDb === undefined
+      ? { db: mockDb, runtimeEngine: 'pglite' }
+      : dbClientState.assistantMemoryDb
+  ),
+  useOptionalProfileBootstrapReport: vi.fn(() => ({
+    runtime: { engine: 'pglite' },
+  })),
   // The OM segment live query (useObservationalMemoryRow) and the "@" file
   // mention query (useFileMentions) — inert in these tests (no rows, not
   // loading) so neither runs a real subscription.
@@ -969,6 +978,7 @@ beforeEach(() => {
   mockDb.exec.mockResolvedValue(undefined);
   dbClientState.brainstrikeDb = undefined;
   dbClientState.modelRegistryDb = undefined;
+  dbClientState.assistantMemoryDb = undefined;
   mockDb.query.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM mastra_threads')) {
       return {
@@ -1096,9 +1106,11 @@ export type SelectionUpdateHandler = (
 ) => void;
 
 export function setMockDbClientsForAssistantPanel(options: {
+  readonly assistantMemoryDb?: unknown;
   readonly brainstrikeDb?: unknown;
   readonly modelRegistryDb?: unknown;
 }) {
+  dbClientState.assistantMemoryDb = options.assistantMemoryDb;
   dbClientState.brainstrikeDb = options.brainstrikeDb;
   dbClientState.modelRegistryDb = options.modelRegistryDb;
 }

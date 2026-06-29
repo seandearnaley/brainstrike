@@ -24,6 +24,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
 } from './architecture/brainstrike-db-client-contract.js';
+import type { BrainstrikeDbRuntimeEngine } from './architecture/db-runtime-selection.js';
 import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
@@ -184,6 +185,11 @@ export interface DbHandle extends IDatabase {
   ) => Promise<void>;
   readonly raw?: unknown;
   readonly syncToFs?: () => Promise<void>;
+}
+
+export interface AssistantMemoryDbClient {
+  readonly db: DbHandle;
+  readonly runtimeEngine: BrainstrikeDbRuntimeEngine;
 }
 
 interface QueryExecutor {
@@ -1798,6 +1804,36 @@ export function useModelRegistryDbClient(): DbHandle | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {
+  const ctx = useContext(DbContext);
+
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx) {
+    logger.warn('useAssistantMemoryDbClient must be used within a DbProvider');
+    return null;
+  }
+
+  const runtimeEngine = ctx.profileBootstrapReport.runtime.engine;
+  if (!(runtimeEngine === 'pglite' || runtimeEngine === 'turso')) {
+    return null;
+  }
+
+  return ctx.ready && !ctx.error && ctx.db ? { db: ctx.db, runtimeEngine } : null;
 }
 
 export function useOptionalPGliteDatabase(): DbHandle | null {

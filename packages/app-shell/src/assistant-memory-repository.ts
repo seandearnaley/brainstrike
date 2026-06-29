@@ -1,6 +1,7 @@
 import {
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
+  SQLITE_MASTRA_MEMORY_SCHEMA_SQL,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -243,6 +244,8 @@ export interface AssistantThreadMessageListOptions {
 
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
+export type AssistantThreadRepositoryRuntimeEngine = 'pglite' | 'turso';
+
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
@@ -329,8 +332,10 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
 `;
 
-const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
-const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+const pgliteAssistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
+const pgliteAssistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+const tursoAssistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
+const tursoAssistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
@@ -1301,25 +1306,600 @@ function toHistoryRepository(
   };
 }
 
-export function createPgliteAssistantThreadRepository(
+const SQLITE_ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
+${SQLITE_MASTRA_MEMORY_SCHEMA_SQL}
+
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
+  id TEXT PRIMARY KEY,
+  resource_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  model_settings TEXT CHECK (model_settings IS NULL OR json_valid(model_settings)),
+  provider_options TEXT CHECK (provider_options IS NULL OR json_valid(provider_options)),
+  runtime_kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_resource_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_thread_latest_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id, thread_id, started_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
+
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_EVENTS_TABLE} (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES ${ASSISTANT_THREAD_RUNS_TABLE}(id) ON DELETE CASCADE,
+  resource_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  label TEXT NOT NULL,
+  detail TEXT,
+  duration_ms INTEGER,
+  metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (thread_id, resource_id, sequence ASC, occurred_at ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
+
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_USAGE_TABLE} (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  created_at TEXT NOT NULL,
+  root_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
+  ON ${ASSISTANT_RUN_USAGE_TABLE} (resource_id, root_id);
+`;
+
+const SQLITE_CROSS_ROOT_USAGE_AGGREGATION_SQL = `
+  SELECT
+    u.root_id AS "rootId",
+    SUBSTR(r.display_name, 1, 512) AS "rootDisplayName",
+    u.provider AS provider,
+    u.model AS model,
+    SUM(u.input_tokens) AS "inputTokens",
+    SUM(u.output_tokens) AS "outputTokens"
+  FROM brainstrike_assistant_run_usage u
+  LEFT JOIN roots r ON r.id = u.root_id
+  WHERE u.resource_id = ?
+  GROUP BY u.root_id, r.display_name, u.provider, u.model
+  ORDER BY u.root_id IS NOT NULL ASC, u.root_id ASC, u.provider ASC, u.model ASC
+`;
+
+function toSqliteTimestamp(value: Date): string {
+  return normalizeDate(value).toISOString();
+}
+
+function stringifyJsonOrNull(value: Record<string, unknown> | undefined): string | null {
+  return value ? JSON.stringify(value) : null;
+}
+
+function parseMetadataRecordForMerge(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) {
+    return {};
+  }
+  const parsed = parseJson(value);
+  if (!isRecord(parsed)) {
+    throw new Error('Invalid assistant thread metadata row: metadata is not an object.');
+  }
+  return parsed;
+}
+
+async function runTursoAssistantThreadTransaction(
+  database: DbHandle,
+  callback: (tx: DbHandle) => Promise<void>
+): Promise<void> {
+  if (typeof database.transaction !== 'function') {
+    throw new Error('Turso assistant thread repository requires transaction support.');
+  }
+  await database.transaction(callback);
+}
+
+export function createTursoAssistantThreadRepository(
   database: DbHandle
 ): AssistantThreadRepository {
   assertMemoryDatabase(database);
-  const cachedRepository = assistantThreadRepositoryCache.get(database);
+  const cachedRepository = tursoAssistantThreadRepositoryCache.get(database);
   if (cachedRepository) {
     return cachedRepository;
   }
   const initialize = async (): Promise<void> => {
-    let initPromise = assistantThreadSchemaInitPromises.get(database);
+    let initPromise = tursoAssistantThreadSchemaInitPromises.get(database);
+    if (!initPromise) {
+      initPromise = database
+        .exec(SQLITE_ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          tursoAssistantThreadSchemaInitPromises.delete(database);
+          throw error;
+        });
+      tursoAssistantThreadSchemaInitPromises.set(database, initPromise);
+    }
+    await initPromise;
+  };
+
+  const listLatestThreadRuns = async (
+    resourceId: string
+  ): Promise<readonly AssistantThreadRunRecord[]> => {
+    await initialize();
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          runs.id,
+          runs.resource_id AS "resourceId",
+          runs.thread_id AS "threadId",
+          runs.provider,
+          runs.model,
+          runs.model_settings AS "modelSettings",
+          runs.provider_options AS "providerOptions",
+          runs.runtime_kind AS "runtimeKind",
+          runs.status,
+          runs.error,
+          runs.started_at AS "startedAt",
+          runs.completed_at AS "completedAt",
+          runs.created_at AS "createdAt",
+          runs.updated_at AS "updatedAt"
+       FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+       WHERE runs.resource_id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS newer
+           WHERE newer.resource_id = runs.resource_id
+             AND newer.thread_id = runs.thread_id
+             AND (
+               newer.started_at > runs.started_at
+               OR (newer.started_at = runs.started_at AND newer.id > runs.id)
+             )
+         )
+       ORDER BY runs.thread_id ASC`,
+      [resourceId]
+    );
+    return result.rows.map(toThreadRunRecord);
+  };
+
+  const listThreadRunEvents = async (
+    threadId: string,
+    resourceId: string
+  ): Promise<readonly AssistantRunEvent[]> => {
+    await initialize();
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          id,
+          run_id,
+          sequence,
+          kind,
+          status,
+          label,
+          detail,
+          duration_ms,
+          metadata,
+          occurred_at
+       FROM ${ASSISTANT_RUN_EVENTS_TABLE}
+       WHERE thread_id = ?
+          AND resource_id = ?
+          AND run_id = (
+            SELECT id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+            WHERE thread_id = ? AND resource_id = ?
+            ORDER BY started_at DESC, created_at DESC, id DESC
+            LIMIT 1
+          )
+       ORDER BY sequence ASC, occurred_at ASC, id ASC`,
+      [threadId, resourceId, threadId, resourceId]
+    );
+    return result.rows.map(toThreadRunEvent);
+  };
+
+  const repository: AssistantThreadRepository = {
+    async appendThreadRunEvent(runId: string, event: AssistantRunEvent): Promise<void> {
+      await initialize();
+      const sequence = event.sequence ?? 0;
+      if (!Number.isSafeInteger(sequence) || sequence < 0) {
+        throw new Error('Assistant run event sequence must be a non-negative safe integer.');
+      }
+      const occurredAt = normalizeDate(event.timestamp);
+      const sanitizedMetadata = sanitizeAssistantRunEventMetadata(event.metadata);
+      const now = new Date();
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+          (
+            id,
+            run_id,
+            resource_id,
+            thread_id,
+            sequence,
+            kind,
+            status,
+            label,
+            detail,
+            metadata,
+            duration_ms,
+            occurred_at,
+            created_at,
+            updated_at
+          )
+         SELECT
+            ?,
+            runs.id,
+            runs.resource_id,
+            runs.thread_id,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         WHERE runs.id = ?
+         ON CONFLICT (id) DO UPDATE SET
+            sequence = excluded.sequence,
+            kind = excluded.kind,
+            status = excluded.status,
+            label = excluded.label,
+            detail = excluded.detail,
+            metadata = excluded.metadata,
+            duration_ms = excluded.duration_ms,
+            occurred_at = excluded.occurred_at,
+            updated_at = excluded.updated_at`,
+        [
+          event.id,
+          sequence,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
+          event.durationMs ?? null,
+          toSqliteTimestamp(occurredAt),
+          toSqliteTimestamp(now),
+          toSqliteTimestamp(now),
+          runId,
+        ]
+      );
+    },
+    async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
+      await initialize();
+      const now = new Date();
+      await database.query(
+        `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+         SET status = ?, error = ?, completed_at = ?, updated_at = ?
+         WHERE id = ?`,
+        [input.status, input.error ?? null, toSqliteTimestamp(now), toSqliteTimestamp(now), runId]
+      );
+    },
+    async createThread(resourceId: string): Promise<AssistantMemoryThread> {
+      await initialize();
+      const now = new Date();
+      const thread = {
+        id: createThreadId(),
+        resourceId,
+        title: 'New Thread',
+        createdAt: now,
+        updatedAt: now,
+      } satisfies AssistantMemoryThread;
+      await database.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          thread.id,
+          thread.resourceId,
+          thread.title,
+          JSON.stringify({ source: 'brainstrike' }),
+          toSqliteTimestamp(thread.createdAt),
+          toSqliteTimestamp(thread.updatedAt),
+        ]
+      );
+      return thread;
+    },
+    async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
+      await initialize();
+      const now = new Date();
+      const startedAt = input.startedAt ?? now;
+      const completedAt = input.completedAt ?? null;
+      const record = {
+        id: input.id,
+        resourceId: input.resourceId,
+        threadId: input.threadId,
+        provider: input.provider,
+        model: input.model,
+        runtimeKind: input.runtimeKind,
+        status: input.status ?? 'running',
+        error: input.error ?? null,
+        startedAt,
+        completedAt,
+        createdAt: now,
+        updatedAt: now,
+        ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
+        ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
+      } satisfies AssistantThreadRunRecord;
+      await database.query(
+        `INSERT INTO ${ASSISTANT_THREAD_RUNS_TABLE}
+          (
+            id,
+            resource_id,
+            thread_id,
+            provider,
+            model,
+            model_settings,
+            provider_options,
+            runtime_kind,
+            status,
+            error,
+            started_at,
+            completed_at,
+            created_at,
+            updated_at
+          )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          record.id,
+          record.resourceId,
+          record.threadId,
+          record.provider,
+          record.model,
+          stringifyJsonOrNull(record.modelSettings),
+          stringifyJsonOrNull(record.providerOptions),
+          record.runtimeKind,
+          record.status,
+          record.error,
+          toSqliteTimestamp(record.startedAt),
+          record.completedAt ? toSqliteTimestamp(record.completedAt) : null,
+          toSqliteTimestamp(record.createdAt),
+          toSqliteTimestamp(record.updatedAt),
+        ]
+      );
+      return record;
+    },
+    async recordRunUsage(input: RecordRunUsageInput): Promise<void> {
+      assertUsageTokenCount(input.inputTokens, 'inputTokens');
+      assertUsageTokenCount(input.outputTokens, 'outputTokens');
+      await initialize();
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_USAGE_TABLE}
+          (id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, created_at, root_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          crypto.randomUUID(),
+          input.threadId,
+          input.runId,
+          input.resourceId,
+          input.model,
+          input.provider,
+          input.inputTokens,
+          input.outputTokens,
+          toSqliteTimestamp(new Date()),
+          input.rootId ?? null,
+        ]
+      );
+    },
+    async getThreadCumulativeUsage(threadId: string): Promise<ThreadCumulativeUsage | null> {
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT
+            provider,
+            model,
+            SUM(input_tokens) AS "inputTokens",
+            SUM(output_tokens) AS "outputTokens"
+         FROM ${ASSISTANT_RUN_USAGE_TABLE}
+         WHERE thread_id = ?
+         GROUP BY provider, model
+         ORDER BY provider ASC, model ASC`,
+        [threadId]
+      );
+      if (result.rows.length === 0) {
+        return null;
+      }
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      const perModel = result.rows.map((row) => {
+        const inputTokens = requireNonNegativeInteger(row['inputTokens'], 'inputTokens');
+        const outputTokens = requireNonNegativeInteger(row['outputTokens'], 'outputTokens');
+        totalInputTokens += inputTokens;
+        totalOutputTokens += outputTokens;
+        return {
+          provider: requireString(row['provider'], 'provider'),
+          model: requireString(row['model'], 'model'),
+          inputTokens,
+          outputTokens,
+        } satisfies ThreadModelUsageSubtotal;
+      });
+      return { perModel, totalInputTokens, totalOutputTokens };
+    },
+    async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        SQLITE_CROSS_ROOT_USAGE_AGGREGATION_SQL,
+        [resourceId]
+      );
+      return result.rows.map(mapCrossRootUsageRow);
+    },
+    async deleteThread(threadId: string): Promise<void> {
+      await initialize();
+      await runTursoAssistantThreadTransaction(database, async (tx) => {
+        if (typeof tx.exec !== 'function') {
+          throw new Error('Turso assistant thread delete requires transaction exec support.');
+        }
+        await tx.exec(
+          `DELETE FROM ${ASSISTANT_RUN_EVENTS_TABLE}
+           WHERE thread_id = ?`,
+          [threadId]
+        );
+        await tx.exec(
+          `DELETE FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+           WHERE thread_id = ?`,
+          [threadId]
+        );
+        await tx.exec(
+          `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+           WHERE "threadId" = ? OR "lookupKey" = ?`,
+          [threadId, `thread:${threadId}`]
+        );
+        await tx.exec(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = ?`, [
+          threadId,
+        ]);
+        await tx.exec(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = ?`, [threadId]);
+      });
+    },
+    listThreadRunEvents,
+    async listMessages(
+      threadId: string,
+      resourceId: string,
+      options?: AssistantThreadMessageListOptions
+    ): Promise<readonly AssistantHistoryMessage[]> {
+      await initialize();
+      const limitLatest =
+        typeof options?.limitLatest === 'number' && Number.isSafeInteger(options.limitLatest)
+          ? options.limitLatest
+          : undefined;
+      if (limitLatest !== undefined && limitLatest < 1) {
+        throw new Error('Assistant message history limit must be a positive safe integer.');
+      }
+      const params: unknown[] = [threadId, resourceId];
+      const sql =
+        limitLatest === undefined
+          ? `SELECT id, role, content, "createdAt"
+             FROM ${MASTRA_MEMORY_TABLES.messages}
+             WHERE thread_id = ? AND "resourceId" = ?
+             ORDER BY "createdAt" ASC, id ASC`
+          : `SELECT id, role, content, "createdAt"
+             FROM (
+               SELECT id, role, content, "createdAt"
+               FROM ${MASTRA_MEMORY_TABLES.messages}
+               WHERE thread_id = ? AND "resourceId" = ?
+               ORDER BY "createdAt" DESC, id DESC
+               LIMIT ?
+             ) AS recent_messages
+             ORDER BY "createdAt" ASC, id ASC`;
+      if (limitLatest !== undefined) {
+        params.push(limitLatest);
+      }
+      const result = await database.query<Record<string, unknown>>(sql, params);
+      return result.rows.map((row) => ({
+        id: requireString(row['id'], 'id'),
+        role: requireString(row['role'], 'role'),
+        content: parseJson(row['content']),
+        createdAt: normalizeDate(row['createdAt']),
+      }));
+    },
+    listLatestThreadRuns,
+    async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
+         FROM ${MASTRA_MEMORY_TABLES.threads}
+         WHERE "resourceId" = ?
+         ORDER BY "updatedAt" DESC, id DESC`,
+        [resourceId]
+      );
+      const latestRunByThreadId = new Map(
+        (await listLatestThreadRuns(resourceId)).map((run) => [run.threadId, run])
+      );
+      return result.rows.map((row) => {
+        const threadId = requireString(row['id'], 'id');
+        const latestRun = latestRunByThreadId.get(threadId);
+        return toMemoryThread({
+          id: threadId,
+          resourceId: requireString(row['resourceId'], 'resourceId'),
+          title: typeof row['title'] === 'string' ? row['title'] : null,
+          metadata: parseJson(row['metadata']),
+          createdAt: row['createdAt'],
+          updatedAt: row['updatedAt'],
+          ...(latestRun ? { latestRun } : {}),
+        });
+      });
+    },
+    async renameThread(threadId: string, title: string): Promise<void> {
+      const normalizedTitle = title.trim();
+      if (!normalizedTitle) {
+        throw new Error('Thread title is required.');
+      }
+      await initialize();
+      await database.query(
+        `UPDATE ${MASTRA_MEMORY_TABLES.threads}
+         SET title = ?, "updatedAt" = ?
+         WHERE id = ?`,
+        [normalizedTitle, toSqliteTimestamp(new Date()), threadId]
+      );
+    },
+    async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
+      assertPersistableThreadMetadata(metadata);
+      await initialize();
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT metadata
+         FROM ${MASTRA_MEMORY_TABLES.threads}
+         WHERE id = ?`,
+        [threadId]
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return;
+      }
+      const mergedMetadata = {
+        ...parseMetadataRecordForMerge(row['metadata']),
+        ...metadata,
+      };
+      await database.query(
+        `UPDATE ${MASTRA_MEMORY_TABLES.threads}
+         SET metadata = ?, "updatedAt" = ?
+         WHERE id = ?`,
+        [JSON.stringify(mergedMetadata), toSqliteTimestamp(new Date()), threadId]
+      );
+    },
+  };
+  tursoAssistantThreadRepositoryCache.set(database, repository);
+  return repository;
+}
+
+export function createPgliteAssistantThreadRepository(
+  database: DbHandle
+): AssistantThreadRepository {
+  assertMemoryDatabase(database);
+  const cachedRepository = pgliteAssistantThreadRepositoryCache.get(database);
+  if (cachedRepository) {
+    return cachedRepository;
+  }
+  const initialize = async (): Promise<void> => {
+    let initPromise = pgliteAssistantThreadSchemaInitPromises.get(database);
     if (!initPromise) {
       initPromise = database
         .exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
         .then(() => undefined)
         .catch((error: unknown) => {
-          assistantThreadSchemaInitPromises.delete(database);
+          pgliteAssistantThreadSchemaInitPromises.delete(database);
           throw error;
         });
-      assistantThreadSchemaInitPromises.set(database, initPromise);
+      pgliteAssistantThreadSchemaInitPromises.set(database, initPromise);
     }
     await initPromise;
   };
@@ -1735,8 +2315,18 @@ export function createPgliteAssistantThreadRepository(
       );
     },
   };
-  assistantThreadRepositoryCache.set(database, repository);
+  pgliteAssistantThreadRepositoryCache.set(database, repository);
   return repository;
+}
+
+export function createAssistantThreadRepository(
+  database: DbHandle,
+  runtimeEngine: AssistantThreadRepositoryRuntimeEngine
+): AssistantThreadRepository {
+  if (runtimeEngine === 'turso') {
+    return createTursoAssistantThreadRepository(database);
+  }
+  return createPgliteAssistantThreadRepository(database);
 }
 
 export function createAssistantThreadHistoryAdapter({

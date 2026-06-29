@@ -7,7 +7,7 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  useBrainstrikeDbClient,
+  useAssistantMemoryDbClient,
   useDbInitializing,
   useDbProviderError,
   useModelRegistryDbClient,
@@ -55,7 +55,7 @@ import {
 import { hasDurableAssistantUsageCapability } from './assistant-durable-usage-capability';
 import {
   createAssistantThreadHistoryAdapter,
-  createPgliteAssistantThreadRepository,
+  createAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
@@ -293,8 +293,8 @@ export function AssistantUiPanelWrapper({
   const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
-  const db = useBrainstrikeDbClient();
   const modelRegistryDb = useModelRegistryDbClient();
+  const assistantMemoryDb = useAssistantMemoryDbClient();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
@@ -799,8 +799,11 @@ export function AssistantUiPanelWrapper({
     ]
   );
   const assistantThreadRepository = useMemo(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
+    () =>
+      assistantMemoryDb
+        ? createAssistantThreadRepository(assistantMemoryDb.db, assistantMemoryDb.runtimeEngine)
+        : null,
+    [assistantMemoryDb]
   );
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
@@ -1103,11 +1106,11 @@ export function AssistantUiPanelWrapper({
       }
 
       // Always use database as the source of truth for model enabled state
-      if (db) {
-        void toggleModelInDb(db, modelId, enabled);
+      if (modelRegistryDb) {
+        void toggleModelInDb(modelRegistryDb, modelId, enabled);
       }
     },
-    [db, toggleModelInDb]
+    [modelRegistryDb, toggleModelInDb]
   );
 
   const handleProviderSettingsChange = useCallback(
@@ -1252,7 +1255,7 @@ export function AssistantUiPanelWrapper({
   //   1. the session-lived zustand store (last-turn meter), keyed by the active
   //      memory thread id (falls back to 'active' for non-memory sessions);
   //   2. a DURABLE per-run row in brainstrike_assistant_run_usage, written only
-  //      when the PGlite-backed thread repo exists (desktop). On web the repo is
+  //      when the runtime-aware thread repo exists (desktop). On web the repo is
   //      absent → the durable write is simply skipped (honest session-only
   //      fallback; capability-gated, never an isElectron() check and never $0).
   // model/provider are attributed from the REQUEST-START snapshot (the model that
@@ -1264,7 +1267,7 @@ export function AssistantUiPanelWrapper({
       const threadId = selectedMemoryThreadId ?? 'active';
       useContextUsageStore.getState().recordUsage(threadId, usage);
 
-      // Durable sink: requires a real thread id, the desktop PGlite repo, and the
+      // Durable sink: requires a real thread id, the desktop thread repo, and the
       // in-flight run's request-start usage context. A missing piece means we
       // cannot attribute the row honestly, so we skip the durable write (the
       // zustand sink still ran).
@@ -1286,7 +1289,7 @@ export function AssistantUiPanelWrapper({
           outputTokens: usage.outputTokens,
         })
         // Re-read the cumulative total from the write's OWN completion so the
-        // SELECT provably follows the INSERT (not racing it on the PGlite queue).
+        // SELECT provably follows the INSERT on the active runtime.
         .then(() => refreshCumulativeUsage())
         .catch((error: unknown) => {
           // Never swallow silently — durable usage is best-effort relative to the
@@ -1310,12 +1313,10 @@ export function AssistantUiPanelWrapper({
   }, [refreshCumulativeUsage]);
 
   // OM informational stats (observed tokens + compaction saved). Desktop-only:
-  // gated on the durable-assistant capability (NOT raw PGlite presence — web has
-  // a PGlite handle but no durable OM rows). The observation is NOT a budget
+  // gated on the durable-assistant capability (NOT raw DB presence — web can
+  // have a local DB but no durable OM rows). The observation is NOT a budget
   // segment (it does not consume this turn's input budget), so this derivation
-  // takes no budget/chat input. The live query is the ONLY async state; omSegment
-  // is DERIVED during render (no setState-in-effect, per the react-doctor
-  // no-adjust-state-on-prop-change rule). Scope selects the lookup key shape:
+  // takes no budget/chat input. Scope selects the lookup key shape:
   // thread → thread:{threadId}, Workspace(resource) → resource:{resourceId}.
   const hasDurableOmCapability = hasDurableAssistantUsageCapability();
   const omRowResult = useObservationalMemoryRow({

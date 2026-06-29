@@ -1,5 +1,5 @@
 import {
-  useBrainstrikeDbClient,
+  useAssistantMemoryDbClient,
   useDbInitializationStatus,
   useDbInitializing,
   useDbProviderError,
@@ -32,7 +32,7 @@ import {
   type AssistantThreadIconId,
   type AssistantThreadMetadata,
   type AssistantThreadRepository,
-  createPgliteAssistantThreadRepository,
+  createAssistantThreadRepository,
 } from './assistant-memory-repository';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
@@ -869,7 +869,7 @@ function ThreadsPanelContent({
   if (!repository && databaseStartupLoading) {
     return (
       <ThreadStateCard
-        description="Reading Mastra memory from PGlite."
+        description="Reading Mastra memory from the database."
         testId="threads-loading-card"
         title="Loading threads..."
       />
@@ -936,7 +936,7 @@ function ThreadsPanelContent({
 }
 
 export function ThreadsPanel(): ReactElement {
-  const database = useBrainstrikeDbClient();
+  const database = useAssistantMemoryDbClient();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
   const databaseError = useDbProviderError();
@@ -946,7 +946,7 @@ export function ThreadsPanel(): ReactElement {
   // See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
+    () => (database ? createAssistantThreadRepository(database.db, database.runtimeEngine) : null),
     [database]
   );
   const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({

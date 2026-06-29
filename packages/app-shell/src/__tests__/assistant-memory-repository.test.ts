@@ -6,6 +6,7 @@ import {
   type AssistantThreadRepository,
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
+  createTursoAssistantThreadRepository,
 } from '../assistant-memory-repository';
 
 describe('createAssistantThreadHistoryAdapter', () => {
@@ -1677,6 +1678,289 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     });
 
     expect(db.exec).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createTursoAssistantThreadRepository thread runs', () => {
+  it('creates and lists assistant threads with SQLite-compatible SQL', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string, _params?: unknown[]) => {
+      expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz|DISTINCT ON|NULLS FIRST/i);
+      if (sql.includes('INSERT INTO mastra_threads')) {
+        return { rows: [] };
+      }
+      if (sql.includes('FROM mastra_threads')) {
+        return {
+          rows: [
+            {
+              id: 'thread-turso',
+              resourceId: 'workspace-a',
+              title: 'Turso thread',
+              metadata: JSON.stringify({ source: 'brainstrike', icon: 'message' }),
+              createdAt: '2026-06-29T12:00:00.000Z',
+              updatedAt: '2026-06-29T12:00:01.000Z',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createTursoAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.createThread('workspace-a');
+    const threads = await repository.listThreads('workspace-a');
+
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS mastra_threads')
+    );
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.not.stringMatching(/\$[0-9]|::|jsonb|timestamptz|DISTINCT ON|NULLS FIRST/i)
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO mastra_threads'),
+      expect.arrayContaining([
+        'workspace-a',
+        'New Thread',
+        JSON.stringify({ source: 'brainstrike' }),
+      ])
+    );
+    expect(threads).toEqual([
+      {
+        id: 'thread-turso',
+        resourceId: 'workspace-a',
+        title: 'Turso thread',
+        createdAt: new Date('2026-06-29T12:00:00.000Z'),
+        updatedAt: new Date('2026-06-29T12:00:01.000Z'),
+        metadata: { source: 'brainstrike', icon: 'message' },
+      },
+    ]);
+  });
+
+  it('persists run, message, usage, and metadata flows with SQLite-compatible SQL', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz|DISTINCT ON|NULLS FIRST/i);
+      if (
+        sql.includes('SELECT') &&
+        sql.includes('FROM mastra_threads') &&
+        sql.includes('metadata')
+      ) {
+        return {
+          rows: [
+            {
+              metadata: JSON.stringify({ source: 'brainstrike', icon: 'message' }),
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM brainstrike_assistant_thread_runs') && sql.includes('NOT EXISTS')) {
+        return {
+          rows: [
+            {
+              id: 'run-turso',
+              resourceId: 'workspace-a',
+              threadId: 'thread-turso',
+              provider: 'openai',
+              model: 'gpt-5.2',
+              modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+              providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+              runtimeKind: 'hosted',
+              status: 'completed',
+              error: null,
+              startedAt: '2026-06-29T12:00:00.000Z',
+              completedAt: '2026-06-29T12:00:03.000Z',
+              createdAt: '2026-06-29T12:00:00.000Z',
+              updatedAt: '2026-06-29T12:00:03.000Z',
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM brainstrike_assistant_run_events')) {
+        return {
+          rows: [
+            {
+              id: 'event-turso',
+              run_id: 'run-turso',
+              sequence: 1,
+              kind: 'memory.configured',
+              status: 'completed',
+              label: 'Memory configured',
+              detail: 'ready',
+              duration_ms: 12,
+              metadata: JSON.stringify({ provider: 'openai' }),
+              occurred_at: '2026-06-29T12:00:01.000Z',
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM mastra_messages')) {
+        return {
+          rows: [
+            {
+              id: 'message-turso',
+              role: 'user',
+              content: JSON.stringify({ content: 'hello turso' }),
+              createdAt: '2026-06-29T12:00:02.000Z',
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes('FROM brainstrike_assistant_run_usage') &&
+        sql.includes('GROUP BY provider')
+      ) {
+        return {
+          rows: [{ provider: 'openai', model: 'gpt-5.2', inputTokens: 100, outputTokens: 20 }],
+        };
+      }
+      if (sql.includes('FROM brainstrike_assistant_run_usage u')) {
+        return {
+          rows: [
+            {
+              rootId: null,
+              rootDisplayName: null,
+              provider: 'openai',
+              model: 'gpt-5.2',
+              inputTokens: 100,
+              outputTokens: 20,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createTursoAssistantThreadRepository(db as unknown as DbHandle);
+
+    const run = await repository.createThreadRun({
+      id: 'run-turso',
+      model: 'gpt-5.2',
+      modelSettings: { maxOutputTokens: 512 },
+      provider: 'openai',
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+      resourceId: 'workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-06-29T12:00:00.000Z'),
+      threadId: 'thread-turso',
+    });
+    await repository.appendThreadRunEvent('run-turso', {
+      id: 'event-turso',
+      kind: 'memory.configured',
+      label: 'Memory configured',
+      sequence: 1,
+      status: 'completed',
+      timestamp: '2026-06-29T12:00:01.000Z',
+      detail: 'ready',
+      durationMs: 12,
+      metadata: { provider: 'openai' },
+    } satisfies AssistantRunEvent);
+    await repository.completeThreadRun('run-turso', {
+      status: 'completed',
+    });
+    await repository.recordRunUsage({
+      inputTokens: 100,
+      model: 'gpt-5.2',
+      outputTokens: 20,
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runId: 'run-turso',
+      threadId: 'thread-turso',
+    });
+    await repository.renameThread('thread-turso', 'Renamed Turso Thread');
+    await repository.updateThreadMetadata('thread-turso', {
+      color: 'rose',
+      icon: 'bug',
+    });
+
+    await expect(repository.listLatestThreadRuns('workspace-a')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'run-turso',
+        model: 'gpt-5.2',
+        provider: 'openai',
+        status: 'completed',
+      }),
+    ]);
+    await expect(repository.listThreadRunEvents('thread-turso', 'workspace-a')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'event-turso',
+        detail: 'ready',
+        durationMs: 12,
+        metadata: { provider: 'openai' },
+      }),
+    ]);
+    await expect(
+      repository.listMessages('thread-turso', 'workspace-a', { limitLatest: 1 })
+    ).resolves.toEqual([
+      {
+        id: 'message-turso',
+        role: 'user',
+        content: { content: 'hello turso' },
+        createdAt: new Date('2026-06-29T12:00:02.000Z'),
+      },
+    ]);
+    await expect(repository.getThreadCumulativeUsage('thread-turso')).resolves.toEqual({
+      perModel: [{ provider: 'openai', model: 'gpt-5.2', inputTokens: 100, outputTokens: 20 }],
+      totalInputTokens: 100,
+      totalOutputTokens: 20,
+    });
+    await expect(repository.getCrossRootUsage('workspace-a')).resolves.toEqual([
+      {
+        rootId: null,
+        rootDisplayName: null,
+        provider: 'openai',
+        model: 'gpt-5.2',
+        inputTokens: 100,
+        outputTokens: 20,
+      },
+    ]);
+    expect(run).toEqual(
+      expect.objectContaining({
+        id: 'run-turso',
+        modelSettings: { maxOutputTokens: 512 },
+        providerOptions: { openai: { reasoningEffort: 'high' } },
+      })
+    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('SET metadata = ?'), [
+      JSON.stringify({ source: 'brainstrike', icon: 'bug', color: 'rose' }),
+      expect.any(String),
+      'thread-turso',
+    ]);
+  });
+
+  it('deletes assistant thread rows through transaction exec statements', async () => {
+    const transactionExec = vi.fn(async () => undefined);
+    const transactionQuery = vi.fn(async () => {
+      throw new Error('transaction query unavailable');
+    });
+    const db = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction: vi.fn(
+        async (
+          fn: (tx: {
+            exec: typeof transactionExec;
+            query: typeof transactionQuery;
+          }) => Promise<unknown>
+        ) => await fn({ exec: transactionExec, query: transactionQuery })
+      ),
+    };
+    const repository = createTursoAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.deleteThread('thread-turso');
+
+    expect(transactionQuery).not.toHaveBeenCalled();
+    expect(transactionExec).toHaveBeenCalledTimes(5);
+    expect(transactionExec).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM brainstrike_assistant_run_events'),
+      ['thread-turso']
+    );
+    expect(transactionExec).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_messages'),
+      ['thread-turso']
+    );
+    expect(transactionExec).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_threads'),
+      ['thread-turso']
+    );
   });
 });
 

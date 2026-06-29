@@ -1,9 +1,13 @@
-import { renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const useBrainstrikeLiveQueryMock = vi.fn();
+const { useAssistantMemoryDbClientMock, useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
+  useAssistantMemoryDbClientMock: vi.fn(),
+  useBrainstrikeLiveQueryMock: vi.fn(),
+}));
 
 vi.mock('@brainstrike/db', () => ({
+  useAssistantMemoryDbClient: useAssistantMemoryDbClientMock,
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
 }));
@@ -53,8 +57,13 @@ describe('buildObservationalMemoryLookupKey', () => {
 });
 
 describe('useObservationalMemoryRow', () => {
-  afterEach(() => {
+  beforeEach(() => {
     useBrainstrikeLiveQueryMock.mockReset();
+    useAssistantMemoryDbClientMock.mockReset();
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      runtimeEngine: 'pglite',
+    });
   });
 
   it('enables + keys by thread:<id> for thread scope, with clearOnDisable', () => {
@@ -136,6 +145,43 @@ describe('useObservationalMemoryRow', () => {
       })
     );
     expect(result.current.row).toEqual({ observationTokenCount: 42 });
+  });
+
+  it('reads the latest OM row through a Turso snapshot query instead of live-query', async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).not.toMatch(/\$[0-9]|::|jsonb|timestamptz/i);
+      expect(params).toEqual(['thread:thread-abc']);
+      return {
+        rows: [{ observationTokenCount: '42', totalTokensObserved: '100' }],
+      };
+    });
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: { query },
+      runtimeEngine: 'turso',
+    });
+    useBrainstrikeLiveQueryMock.mockReturnValue({
+      rows: [{ observationTokenCount: 7777, totalTokensObserved: 7777 }],
+      loading: false,
+      error: new Error('live query must stay disabled for Turso'),
+    });
+
+    const { result } = renderHook(() =>
+      useObservationalMemoryRow({
+        hasDurableCapability: true,
+        scope: 'thread',
+        threadId: 'thread-abc',
+        resourceId: 'res-1',
+      })
+    );
+
+    expect(captureLastOptions().enabled).toBe(false);
+    await waitFor(() => {
+      expect(result.current.row).toEqual({
+        observationTokenCount: '42',
+        totalTokensObserved: '100',
+      });
+    });
+    expect(result.current.error).toBeNull();
   });
 
   it('FIX 4: a disabled query yields NO stale row even if the live layer still holds prior rows', () => {

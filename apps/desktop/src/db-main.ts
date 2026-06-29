@@ -1866,6 +1866,14 @@ export async function getDatabase(): Promise<any> {
   return await manager.getDatabase();
 }
 
+export async function getDatabaseRuntimeDiagnostics(): Promise<DatabaseDiagnosticsSnapshot> {
+  if (isUtilityProcessRuntime()) {
+    return getDatabaseDiagnostics();
+  }
+  const manager = await getRemoteDbHostManager();
+  return await manager.getDiagnostics();
+}
+
 export async function closeDatabase(): Promise<void> {
   if (isUtilityProcessRuntime()) {
     await closeLocalDatabase();
