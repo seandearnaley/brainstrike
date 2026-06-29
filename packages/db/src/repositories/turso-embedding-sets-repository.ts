@@ -340,7 +340,7 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
         `UPDATE file_records
             SET embedding_set_id = NULL,
                 chunks_processed_at = NULL,
-                chunks_count = 0,
+                chunks_count = NULL,
                 chunking_strategy = NULL
           WHERE embedding_set_id = ?`,
         [id]

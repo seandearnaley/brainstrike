@@ -306,7 +306,7 @@ describe('TursoEmbeddingSetsRepository', () => {
       rows: [
         {
           chunking_strategy: null,
-          chunks_count: 0,
+          chunks_count: null,
           chunks_processed_at: null,
           embedding_set_id: null,
           id: 'file-1',
