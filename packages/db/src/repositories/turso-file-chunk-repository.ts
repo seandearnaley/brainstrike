@@ -13,6 +13,7 @@ import type {
   FTSSearchResult,
 } from '../models/file-chunk.js';
 import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
+import { EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT } from '../queue/embedding-job-dedupe-key.js';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
@@ -535,10 +536,20 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
                 SELECT 1
                   FROM job_queue j
                  WHERE j.queue = ?
+                   AND j.job_type = 'embed_chunk'
                    AND j.state IN ('queued', 'running')
-                   AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                   AND (
+                         j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                         OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                       )
               )`,
-      [targetEmbeddingSetId, targetEmbeddingSetId, queue, targetEmbeddingSetId]
+      [
+        targetEmbeddingSetId,
+        targetEmbeddingSetId,
+        queue,
+        targetEmbeddingSetId,
+        EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
+      ]
     );
     return readNullableNonNegativeInteger(
       result.rows[0]?.count,
@@ -603,8 +614,12 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
                     SELECT 1
                       FROM job_queue j
                      WHERE j.queue = ?
+                       AND j.job_type = 'embed_chunk'
                        AND j.state IN ('queued', 'running')
-                       AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                       AND (
+                             j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                             OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                           )
                   )
          ) AS candidateCount,
          (
@@ -645,6 +660,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
         targetEmbeddingSetId,
         queue,
         targetEmbeddingSetId,
+        EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
         targetEmbeddingSetId,
         targetEmbeddingSetId,
         queue,
@@ -716,8 +732,12 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
               SELECT 1
                 FROM job_queue j
                WHERE j.queue = ?
+                 AND j.job_type = 'embed_chunk'
                  AND j.state IN ('queued', 'running')
-                 AND j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                 AND (
+                       j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                       OR j.dedupe_key = (c.id || ':' || ? || ':' || c.content_hash)
+                     )
             )
       ORDER BY c.id ASC
       LIMIT ?`,
@@ -728,6 +748,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
         afterChunkId,
         queue,
         targetEmbeddingSetId,
+        EMBEDDING_JOB_NULL_SET_DEDUPE_SEGMENT,
         limit,
       ]
     );

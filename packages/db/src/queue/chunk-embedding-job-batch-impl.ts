@@ -7,6 +7,7 @@ import type { InsertChunksAndEnqueueEmbeddingJobsArgs } from '../chunk-embedding
 import { FileChunkRepository } from '../repositories/file-chunk-repository.js';
 import type { IDatabase } from '../repositories/interfaces.js';
 import { TursoFileChunkRepository } from '../repositories/turso-file-chunk-repository.js';
+import { buildEmbeddingJobDedupeKey } from './embedding-job-dedupe-key.js';
 import { type EnqueueParams, JobQueue } from './job-queue.js';
 
 function requireNonEmptyString(value: string | null | undefined, message: string): string {
@@ -21,14 +22,6 @@ function assertPositiveInteger(value: number, message: string): void {
   if (!(Number.isInteger(value) && value > 0)) {
     throw new Error(message);
   }
-}
-
-function buildDedupeKey(
-  chunkId: string,
-  embeddingSetId: string | null,
-  contentHash: string
-): string {
-  return `${chunkId}:${embeddingSetId ?? 'none'}:${contentHash}`;
 }
 
 function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs): EnqueueParams[] {
@@ -66,7 +59,7 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
         provider,
         dimensionParameter,
       },
-      dedupeKey: buildDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
+      dedupeKey: buildEmbeddingJobDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
     };
   });
 }

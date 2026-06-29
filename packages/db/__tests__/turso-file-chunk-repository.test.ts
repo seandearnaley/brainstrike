@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
+import { buildEmbeddingJobDedupeKey } from '../src/queue/embedding-job-dedupe-key.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
@@ -566,6 +567,12 @@ describe('TursoFileChunkRepository', () => {
         id: 'chunk-03-inherited',
       }),
       createChunk({
+        chunkIndex: 3,
+        contentHash: 'hash-03-inherited-active',
+        fileRecordId: 'file-1',
+        id: 'chunk-03-inherited-active',
+      }),
+      createChunk({
         chunkIndex: 0,
         contentHash: 'hash-04-embedded',
         embedding: [0.1, 0.2, 0.3],
@@ -603,28 +610,43 @@ describe('TursoFileChunkRepository', () => {
     ]);
     await insertRawEmbeddingJob(client, {
       chunkId: 'chunk-02-active',
-      dedupeKey: `chunk-02-active:${embeddingSet.id}:hash-02-active`,
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-02-active', embeddingSet.id, 'hash-02-active'),
       embeddingSetId: embeddingSet.id,
       id: 'job-queued',
       state: 'queued',
     });
     await insertRawEmbeddingJob(client, {
+      chunkId: 'chunk-03-inherited-active',
+      dedupeKey: buildEmbeddingJobDedupeKey(
+        'chunk-03-inherited-active',
+        null,
+        'hash-03-inherited-active'
+      ),
+      embeddingSetId: null,
+      id: 'job-inherited-null-set',
+      state: 'queued',
+    });
+    await insertRawEmbeddingJob(client, {
       chunkId: 'chunk-05-running',
-      dedupeKey: `chunk-05-running:${embeddingSet.id}:hash-05-running`,
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-05-running', embeddingSet.id, 'hash-05-running'),
       embeddingSetId: embeddingSet.id,
       id: 'job-running',
       state: 'running',
     });
     await insertRawEmbeddingJob(client, {
       chunkId: 'chunk-06-failed',
-      dedupeKey: `chunk-06-failed:${embeddingSet.id}:hash-06-failed`,
+      dedupeKey: buildEmbeddingJobDedupeKey('chunk-06-failed', embeddingSet.id, 'hash-06-failed'),
       embeddingSetId: embeddingSet.id,
       id: 'job-failed',
       state: 'failed',
     });
     await insertRawEmbeddingJob(client, {
       chunkId: 'chunk-07-succeeded',
-      dedupeKey: `chunk-07-succeeded:${embeddingSet.id}:hash-07-succeeded`,
+      dedupeKey: buildEmbeddingJobDedupeKey(
+        'chunk-07-succeeded',
+        embeddingSet.id,
+        'hash-07-succeeded'
+      ),
       embeddingSetId: embeddingSet.id,
       id: 'job-succeeded',
       state: 'succeeded',
@@ -635,12 +657,12 @@ describe('TursoFileChunkRepository', () => {
       repository.getEmbeddingBackfillCandidateDiagnostics(embeddingSet.id)
     ).resolves.toEqual({
       candidateCount: 4,
-      chunkCount: 7,
+      chunkCount: 8,
       embeddedChunkCount: 1,
       failedJobs: 1,
       fileCount: 2,
       missingContentHashCount: 0,
-      pendingChunkCount: 6,
+      pendingChunkCount: 7,
       queuedOrRunningJobs: 2,
     });
     await expect(
@@ -816,7 +838,7 @@ async function insertRawEmbeddingJob(
   input: {
     chunkId: string;
     dedupeKey: string;
-    embeddingSetId: string;
+    embeddingSetId: string | null;
     id: string;
     state: 'failed' | 'queued' | 'running' | 'succeeded';
   }
