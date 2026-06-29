@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS ${MASTRA_MEMORY_TABLES.threads} (
   title TEXT NOT NULL,
   metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
   "createdAt" TEXT NOT NULL,
-  "updatedAt" TEXT NOT NULL,
-  FOREIGN KEY ("resourceId") REFERENCES ${MASTRA_MEMORY_TABLES.resources}(id) ON DELETE CASCADE
+  "updatedAt" TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS mastra_threads_resource_updated_idx
@@ -36,9 +35,7 @@ CREATE TABLE IF NOT EXISTS ${MASTRA_MEMORY_TABLES.messages} (
   role TEXT NOT NULL,
   type TEXT NOT NULL,
   "createdAt" TEXT NOT NULL,
-  "resourceId" TEXT,
-  FOREIGN KEY (thread_id) REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
-  FOREIGN KEY ("resourceId") REFERENCES ${MASTRA_MEMORY_TABLES.resources}(id) ON DELETE SET NULL
+  "resourceId" TEXT
 );
 
 CREATE INDEX IF NOT EXISTS mastra_messages_thread_created_idx
@@ -81,9 +78,7 @@ CREATE TABLE IF NOT EXISTS ${MASTRA_MEMORY_TABLES.observationalMemory} (
   "lastBufferedAtTime" TEXT,
   metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
   "createdAt" TEXT NOT NULL,
-  "updatedAt" TEXT NOT NULL,
-  FOREIGN KEY ("resourceId") REFERENCES ${MASTRA_MEMORY_TABLES.resources}(id) ON DELETE CASCADE,
-  FOREIGN KEY ("threadId") REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE
+  "updatedAt" TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS mastra_observational_memory_lookup_generation_idx

@@ -339,6 +339,57 @@ function messageRowMatchesListScope(row: MessageRow, args: MessageListArgs): boo
   return true;
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeMetadataFilter(filter: Record<string, unknown>): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(JSON.stringify(filter));
+  if (!isJsonRecord(parsed)) {
+    throw new Error('metadata filter must serialize to a JSON object');
+  }
+  return parsed;
+}
+
+function containsJsonSubset(candidate: unknown, expectedSubset: unknown): boolean {
+  if (Array.isArray(expectedSubset)) {
+    if (!Array.isArray(candidate)) {
+      return false;
+    }
+    return expectedSubset.every((expectedItem) =>
+      candidate.some((candidateItem) => containsJsonSubset(candidateItem, expectedItem))
+    );
+  }
+  if (isJsonRecord(expectedSubset)) {
+    if (!isJsonRecord(candidate)) {
+      return false;
+    }
+    return Object.entries(expectedSubset).every(
+      ([key, expectedValue]) =>
+        Object.hasOwn(candidate, key) && containsJsonSubset(candidate[key], expectedValue)
+    );
+  }
+  return candidate === expectedSubset;
+}
+
+function threadMatchesMetadataFilter(
+  row: ThreadRow,
+  metadataFilter: Record<string, unknown> | undefined
+): boolean {
+  if (!metadataFilter) {
+    return true;
+  }
+  const metadata = parseJsonRecord(row.metadata);
+  return metadata ? containsJsonSubset(metadata, metadataFilter) : false;
+}
+
+function sliceRows<T>(rows: T[], page: number, perPage: number | false): T[] {
+  if (perPage === false) {
+    return rows;
+  }
+  return rows.slice(page * perPage, page * perPage + perPage);
+}
+
 function appendLimit(
   sql: string,
   values: TursoMastraQueryValue[],
@@ -693,6 +744,7 @@ export class TursoMemoryStore extends MemoryStorage {
     const where: string[] = [];
     const values: TursoMastraQueryValue[] = [];
     const filter = args.filter;
+    let metadataFilter: Record<string, unknown> | undefined;
 
     if (filter?.resourceId !== undefined) {
       values.push(filter.resourceId);
@@ -700,23 +752,31 @@ export class TursoMemoryStore extends MemoryStorage {
     }
     if (filter?.metadata && Object.keys(filter.metadata).length > 0) {
       this.validateMetadataKeys(filter.metadata);
-      for (const [key, value] of Object.entries(filter.metadata)) {
-        values.push(value as TursoMastraQueryValue);
-        where.push(`json_extract(metadata, '$.${key}') = ?`);
-      }
+      metadataFilter = normalizeMetadataFilter(filter.metadata);
     }
 
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const baseSql = `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
+       FROM ${MASTRA_MEMORY_TABLES.threads}
+       ${whereSql}
+       ORDER BY ${orderBySql(args.orderBy, 'createdAt', 'DESC')}`;
+    if (metadataFilter) {
+      const rows = await this.database.query<ThreadRow>(baseSql, values);
+      const filteredRows = rows.rows.filter((row) =>
+        threadMatchesMetadataFilter(row, metadataFilter)
+      );
+      return {
+        threads: sliceRows(filteredRows, page, perPage).map(threadFromRow),
+        ...pagination(filteredRows.length, page, perPage),
+      };
+    }
+
     const countResult = await this.database.query<CountRow>(
       `SELECT COUNT(*) AS count FROM ${MASTRA_MEMORY_TABLES.threads} ${whereSql}`,
       values
     );
     const total = Number(countResult.rows[0]?.count ?? 0);
     const queryValues = [...values];
-    const baseSql = `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
-       FROM ${MASTRA_MEMORY_TABLES.threads}
-       ${whereSql}
-       ORDER BY ${orderBySql(args.orderBy, 'createdAt', 'DESC')}`;
     const rows = await this.database.query<ThreadRow>(
       appendLimit(baseSql, queryValues, page, perPage),
       queryValues
