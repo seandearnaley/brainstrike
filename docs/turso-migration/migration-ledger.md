@@ -48,13 +48,17 @@ as the implementation backlog.
 - #1342 `Use Turso collection status snapshots in DB Explorer`
 - #1343 `Use Turso snapshots for collection coverage banner`
 - #1344 `Gate quick open on indexed repository snapshots`
+- #1345 `Add Turso indexed quick-open filename search`
 - #1346 `Use Turso vector queue stats and retry controls`
 - #1347 `Gate vector queue service by DB runtime`
 - #1348 `Add Turso embedding backfill candidate queries`
 - #1349 `Extract vector backfill repository port`
 - #1350 `Add Turso vector backfill adapter`
 - #1351 `Make vector queue refresh metrics storage-neutral`
+- #1352 `Add Turso Mastra memory adapter`
+- #1353 `Tighten Turso backfill dedupe diagnostics`
 - #1354 `Wire desktop Mastra memory to Turso runtime`
+- #1355 `Add Turso grep candidates`
 - #1356 `Gate Turso grep search`
 - #1357 `Add Turso vector search`
 - #1358 `Gate Turso semantic retrieval by bootstrap`
@@ -62,10 +66,11 @@ as the implementation backlog.
 - #1360 `Fix Turso inherited chunk stats`
 - #1361 `Fix Turso baseline seed upgrades`
 - #1362 `Fix Turso queue write contention retries`
-- Current slice: make Turso embedding-set deletion clear stale
-  `file_records` embedding metadata in the same transaction that deletes jobs,
-  stats, chunks, and the embedding-set row. File records remain available for
-  future reindexing, but no longer point at a deleted embedding set.
+- #1363 `Fix Turso embedding-set delete file metadata`
+- Current slice: expose read-only Turso owner-client QoS diagnostics for
+  queued and active exclusive operations, including slow queued operation
+  counts. This is intentionally diagnostic-only: it does not add timeouts,
+  retries, or change write serialization behavior.
 
 ## Turso Docs Guardrail
 
@@ -101,6 +106,10 @@ The branch currently has a real Turso runtime seam:
 - The Turso primary store uses a greenfield baseline ledger rather than the
   PGlite/Postgres migration chain.
 - The desktop DB host can open a long-lived Turso owner client.
+- The Turso owner client exposes read-only QoS snapshots for its exclusive
+  operation queue: active operation, queued operations, slow queued operation
+  count, and queued/started/completed/failed totals. This is package-local
+  diagnostic data and does not alter timeout or retry policy.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.
@@ -391,8 +400,9 @@ Concrete blockers:
   Postgres-shaped (`COUNT(*)::text`, `$n` parameters, data-modifying CTE delete,
   table-targeted `VACUUM`), and dimension-index maintenance still builds
   pgvector HNSW SQL. Neither path is translated inline for Turso.
-- Post-merge retrospective follow-ups still need focused slices: owner-client
-  timeout/QoS diagnostics and Turso corruption diagnostics/recovery.
+- Post-merge retrospective follow-ups still need focused slices: Turso owner
+  client timeout policy, desktop surfacing for owner-client QoS diagnostics,
+  and Turso corruption diagnostics/recovery.
 
 Preferred next slice: add a Turso maintenance implementation only for
 operations that are meaningful under SQLite/Turso, then wire that implementation
