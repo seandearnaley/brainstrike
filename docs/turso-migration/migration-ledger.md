@@ -63,7 +63,8 @@ as the implementation backlog.
 - Current slice: bump the Turso schema baseline to v6 so existing v5 profiles
   re-run idempotent catalog/view-preset seeds during upgrade. The seed upgrade
   restores missing catalog rows while preserving user-owned model toggles and
-  view-preset ordering.
+  view-preset ordering; v5-to-v6 is seed-only and does not rerun generated gram
+  backfills.
 
 ## Turso Docs Guardrail
 
@@ -178,7 +179,10 @@ Current Turso repository/runtime coverage:
   instead of mutating v5 in place. Upgrades from v1-v5 re-run idempotent seed
   DML before recording the current ledger row, so future catalog rows are
   inserted for existing Turso profiles while `models.is_enabled` and
-  `view_filter_presets.sort_order` remain user-owned.
+  `view_filter_presets.sort_order` remain user-owned. Generated quick-open and
+  grep gram backfills only run for historical baselines whose upgrade DDL
+  introduced those sidecar tables; v5-to-v6 reseeding leaves existing generated
+  gram rows untouched.
 
 ## Non-Negotiable Migration Rules
 

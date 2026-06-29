@@ -1029,6 +1029,39 @@ const TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION = {
   [TURSO_SCHEMA_BASELINE_V5_VERSION]: TURSO_SCHEMA_BASELINE_V5_CHECKSUM,
 } as const;
 
+const TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS = [
+  TURSO_SCHEMA_BASELINE_V5_VERSION,
+  TURSO_SCHEMA_BASELINE_V4_VERSION,
+  TURSO_SCHEMA_BASELINE_V3_VERSION,
+  TURSO_SCHEMA_BASELINE_V2_VERSION,
+  TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
+] as const;
+
+type TursoSchemaBaselineUpgradeVersion = (typeof TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS)[number];
+
+const TURSO_SCHEMA_BASELINE_BACKFILLS_BY_PREVIOUS_VERSION = {
+  [TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V2_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V3_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: true,
+  },
+  [TURSO_SCHEMA_BASELINE_V4_VERSION]: {
+    grepContentIndex: true,
+    quickOpenNameGrams: false,
+  },
+  [TURSO_SCHEMA_BASELINE_V5_VERSION]: {
+    grepContentIndex: false,
+    quickOpenNameGrams: false,
+  },
+} as const;
+
 export async function applyTursoSchemaBaseline(
   client: BrainstrikeDbExecutionClient
 ): Promise<void> {
@@ -1055,34 +1088,7 @@ export async function applyTursoSchemaBaseline(
       return;
     }
 
-    const upgradeVersions = [
-      TURSO_SCHEMA_BASELINE_V5_VERSION,
-      TURSO_SCHEMA_BASELINE_V4_VERSION,
-      TURSO_SCHEMA_BASELINE_V3_VERSION,
-      TURSO_SCHEMA_BASELINE_V2_VERSION,
-      TURSO_SCHEMA_BASELINE_PREVIOUS_VERSION,
-    ] as const;
-    for (const upgradeVersion of upgradeVersions) {
-      const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
-      if (!previousEntry) {
-        continue;
-      }
-      const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[upgradeVersion];
-      if (previousEntry.checksum !== expectedChecksum) {
-        throw new Error(
-          `Turso schema baseline ${upgradeVersion} checksum mismatch: expected ${expectedChecksum}, found ${previousEntry.checksum}.`
-        );
-      }
-      for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
-        await tx.exec(ddl);
-      }
-      await backfillQuickOpenNameGrams(tx);
-      await backfillGrepContentIndex(tx);
-      await applyTursoSchemaBaselineSeeds(tx);
-      await recordTursoSchemaLedgerEntry(tx, {
-        checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
-        version: TURSO_SCHEMA_BASELINE_VERSION,
-      });
+    if (await applyExistingTursoSchemaBaselineUpgrade(tx)) {
       return;
     }
 
@@ -1095,6 +1101,54 @@ export async function applyTursoSchemaBaseline(
       version: TURSO_SCHEMA_BASELINE_VERSION,
     });
   });
+}
+
+async function applyExistingTursoSchemaBaselineUpgrade(
+  tx: BrainstrikeDbTransactionClient
+): Promise<boolean> {
+  for (const upgradeVersion of TURSO_SCHEMA_BASELINE_UPGRADE_VERSIONS) {
+    const previousEntry = await readTursoSchemaLedgerEntry(tx, upgradeVersion);
+    if (!previousEntry) {
+      continue;
+    }
+    assertTursoSchemaBaselineChecksum(upgradeVersion, previousEntry.checksum);
+    for (const ddl of TURSO_SCHEMA_BASELINE_UPGRADE_DDL_BY_PREVIOUS_VERSION[upgradeVersion]) {
+      await tx.exec(ddl);
+    }
+    await applyTursoSchemaBaselineBackfills(tx, upgradeVersion);
+    await applyTursoSchemaBaselineSeeds(tx);
+    await recordTursoSchemaLedgerEntry(tx, {
+      checksum: TURSO_SCHEMA_BASELINE_CHECKSUM,
+      version: TURSO_SCHEMA_BASELINE_VERSION,
+    });
+    return true;
+  }
+  return false;
+}
+
+function assertTursoSchemaBaselineChecksum(
+  version: TursoSchemaBaselineUpgradeVersion,
+  checksum: string
+): void {
+  const expectedChecksum = TURSO_SCHEMA_BASELINE_CHECKSUM_BY_PREVIOUS_VERSION[version];
+  if (checksum !== expectedChecksum) {
+    throw new Error(
+      `Turso schema baseline ${version} checksum mismatch: expected ${expectedChecksum}, found ${checksum}.`
+    );
+  }
+}
+
+async function applyTursoSchemaBaselineBackfills(
+  tx: BrainstrikeDbTransactionClient,
+  version: TursoSchemaBaselineUpgradeVersion
+): Promise<void> {
+  const backfills = TURSO_SCHEMA_BASELINE_BACKFILLS_BY_PREVIOUS_VERSION[version];
+  if (backfills.quickOpenNameGrams) {
+    await backfillQuickOpenNameGrams(tx);
+  }
+  if (backfills.grepContentIndex) {
+    await backfillGrepContentIndex(tx);
+  }
 }
 
 async function applyTursoSchemaBaselineSeeds(tx: BrainstrikeDbTransactionClient): Promise<void> {
