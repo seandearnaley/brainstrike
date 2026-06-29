@@ -589,6 +589,7 @@ function createReadyTursoProfileBootstrapReport() {
     'store.open',
     'primary-store.mvcc',
     'schema.baseline',
+    'search.grep-content-grams',
     'search.ownership',
     'store.close',
   ].map((id) => ({

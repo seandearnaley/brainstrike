@@ -2,13 +2,15 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 
-const { getDatabaseMock, queryMock } = vi.hoisted(() => ({
+const { getDatabaseMock, getDatabaseRuntimeDiagnosticsMock, queryMock } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
+  getDatabaseRuntimeDiagnosticsMock: vi.fn(),
   queryMock: vi.fn(),
 }));
 
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
+  getDatabaseRuntimeDiagnostics: getDatabaseRuntimeDiagnosticsMock,
 }));
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
@@ -25,20 +27,102 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 });
 
 describe('grep search tool', () => {
+  function createReadyTursoDiagnostics() {
+    return {
+      profileBootstrapReport: {
+        checks: [
+          {
+            id: 'schema.baseline',
+            label: 'Turso greenfield schema baseline is applied',
+            required: true,
+            status: 'passed',
+          },
+          {
+            id: 'search.grep-content-grams',
+            label: 'Turso grep content gram index is available',
+            required: true,
+            status: 'passed',
+          },
+          {
+            id: 'search.ownership',
+            label: 'Turso search index ownership is explicit',
+            required: true,
+            status: 'passed',
+          },
+        ],
+        failure: null,
+        phase: 'ready',
+        profileId: 'profile-turso',
+        ready: true,
+        runtime: {
+          engine: 'turso',
+          host: 'electron-utility',
+          persistence: 'filesystem',
+        },
+        search: {
+          indexedSearch: 'available',
+          message: 'test search ready',
+          ownershipMode: 'split-search-index-store',
+        },
+        startedAt: '2026-06-29T11:00:00.000Z',
+        updatedAt: '2026-06-29T11:00:01.000Z',
+      },
+    };
+  }
+
   beforeEach(() => {
     getDatabaseMock.mockReset();
     getDatabaseMock.mockResolvedValue({ query: queryMock });
+    getDatabaseRuntimeDiagnosticsMock.mockReset();
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValue(createReadyTursoDiagnostics());
     queryMock.mockReset();
   });
 
-  it('fails explicitly instead of running PGlite grep SQL against Turso', async () => {
+  it('uses the bounded Turso grep candidate repository when Turso runtime is selected', async () => {
     getDatabaseMock.mockResolvedValueOnce({
       capabilities: { liveQuery: false },
       query: queryMock,
     });
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+    });
+
+    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, undefined);
+
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toEqual([
+      {
+        path: 'src/x.ts',
+        line: 11,
+        lineText: 'needle line',
+        before: ['alpha'],
+        after: ['omega'],
+        source: 'index',
+      },
+    ]);
+    const [sql, params] = queryMock.mock.calls[0] ?? [];
+    expect(String(sql)).toContain('file_chunk_content_grams');
+    expect(String(sql)).toContain('LIMIT ?');
+    expect(String(sql)).not.toContain('$1');
+    expect(params).toContain(500);
+  });
+
+  it('fails closed before querying when Turso bootstrap does not prove the grep content gram index', async () => {
+    getDatabaseMock.mockResolvedValueOnce({
+      capabilities: { liveQuery: false },
+      query: queryMock,
+    });
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
+      profileBootstrapReport: {
+        ...createReadyTursoDiagnostics().profileBootstrapReport,
+        checks: [],
+      },
+    });
 
     await expect(runGrepSearch({ pattern: 'needle' }, undefined)).rejects.toThrow(
-      'brainstrike.grepSearch is unavailable while the desktop database runtime is Turso'
+      'brainstrike.grepSearch requires a ready Turso bootstrap report with search.grep-content-grams passed'
     );
     expect(queryMock).not.toHaveBeenCalled();
   });

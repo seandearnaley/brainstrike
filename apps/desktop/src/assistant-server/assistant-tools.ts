@@ -2196,7 +2196,6 @@ export function buildDesktopAssistantTools(
   };
 
   if (isTursoRuntimeSelected()) {
-    delete tools[GREP_SEARCH_TOOL_ID];
     delete tools[QUERY_EMBEDDING_SPACE_TOOL_ID];
   }
 

@@ -4,11 +4,20 @@ import {
   normalizeOptionalText,
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
-import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
-import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
+import type {
+  BrainstrikeDbExecutionClient,
+  GrepMatch,
+  GrepSearchResult,
+  LineMatcher,
+} from '@brainstrike/db';
+import {
+  createGrepLineMatcher,
+  FileChunkRepository,
+  GrepSearchService,
+  TursoFileChunkRepository,
+} from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { PGlite } from '@electric-sql/pglite';
-import { getDatabase } from '../db-main';
+import { getDatabase, getDatabaseRuntimeDiagnostics } from '../db-main';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
 import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 
@@ -29,8 +38,9 @@ export type GrepMatchSource = 'index' | 'live' | 'both';
 export type LabeledGrepMatch = GrepMatch & { source: GrepMatchSource };
 
 const DEFAULT_CONTENT_MATCHES = 50;
-const TURSO_GREP_SEARCH_UNAVAILABLE =
-  'brainstrike.grepSearch is unavailable while the desktop database runtime is Turso; Turso indexed grep search is not migrated yet.';
+const TURSO_GREP_CONTENT_GRAMS_CHECK_ID = 'search.grep-content-grams';
+const TURSO_GREP_SEARCH_BOOTSTRAP_UNAVAILABLE = `brainstrike.grepSearch requires a ready Turso bootstrap report with ${TURSO_GREP_CONTENT_GRAMS_CHECK_ID} passed.`;
+type PgliteGrepDatabase = ConstructorParameters<typeof FileChunkRepository>[0];
 /**
  * Internal match cap for 'files' mode aggregation. The service caps the
  * candidate pool at 500 files regardless, so this only bounds per-file match
@@ -90,11 +100,33 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
-function assertPGliteSearchDatabase(db: unknown): asserts db is PGlite {
+function isTursoSearchDatabase(db: unknown): boolean {
   const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
-  if (capabilities?.liveQuery === false) {
-    throw new Error(TURSO_GREP_SEARCH_UNAVAILABLE);
+  return capabilities?.liveQuery === false;
+}
+
+async function assertReadyTursoGrepBootstrap(): Promise<void> {
+  const diagnostics = await getDatabaseRuntimeDiagnostics();
+  const report = diagnostics.profileBootstrapReport;
+  const grepCheck = report?.checks.find((check) => check.id === TURSO_GREP_CONTENT_GRAMS_CHECK_ID);
+  if (
+    !report?.ready ||
+    report.phase !== 'ready' ||
+    report.runtime.engine !== 'turso' ||
+    report.failure ||
+    grepCheck?.required !== true ||
+    grepCheck.status !== 'passed'
+  ) {
+    throw new Error(TURSO_GREP_SEARCH_BOOTSTRAP_UNAVAILABLE);
   }
+}
+
+async function createIndexedGrepSearchService(db: unknown): Promise<GrepSearchService> {
+  if (isTursoSearchDatabase(db)) {
+    await assertReadyTursoGrepBootstrap();
+    return new GrepSearchService(new TursoFileChunkRepository(db as BrainstrikeDbExecutionClient));
+  }
+  return new GrepSearchService(new FileChunkRepository(db as PgliteGrepDatabase));
 }
 
 /**
@@ -432,9 +464,7 @@ export async function runGrepSearch(
   runtimeData: RuntimeData | undefined
 ): Promise<GrepToolResult> {
   const db = await getDatabase();
-  assertPGliteSearchDatabase(db);
-  const repository = new FileChunkRepository(db);
-  const service = new GrepSearchService(repository);
+  const service = await createIndexedGrepSearchService(db);
 
   const embeddingSetId =
     normalizeOptionalText(runtimeData?.embeddingSetId) ??
@@ -504,7 +534,7 @@ export async function runGrepSearch(
       /^Invalid regular expression pattern:/,
       /^Grep pattern must be at least \d+ characters/,
       /^findGrepCandidates filePaths limit exceeded/,
-      /^brainstrike\.grepSearch is unavailable while the desktop database runtime is Turso;/,
+      /^brainstrike\.grepSearch requires a ready Turso bootstrap report with search\.grep-content-grams passed\./,
     ];
     if (knownSafeMessages.some((re) => re.test(message))) {
       throw error;

@@ -306,14 +306,14 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
 
-  it('omits PGlite-only search tools when Turso runtime is selected', () => {
+  it('keeps bounded grep search and omits semantic search when Turso runtime is selected', () => {
     vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
 
     const tools = buildDesktopAssistantTools({
       workspaceRootPath: '/tmp/workspace',
     } as RuntimeData);
 
-    expect(tools['brainstrike.grepSearch']).toBeUndefined();
+    expect(tools['brainstrike.grepSearch']).toBeDefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
     expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
     expect(tools['brainstrike.readWorkspaceFile']).toBeDefined();
