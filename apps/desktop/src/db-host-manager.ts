@@ -46,6 +46,7 @@ const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'store.open',
   'primary-store.mvcc',
   'schema.baseline',
+  'search.grep-content-grams',
   'search.ownership',
   'store.close',
 ] as const;

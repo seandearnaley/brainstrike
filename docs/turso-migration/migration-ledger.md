@@ -55,9 +55,10 @@ as the implementation backlog.
 - #1350 `Add Turso vector backfill adapter`
 - #1351 `Make vector queue refresh metrics storage-neutral`
 - #1354 `Wire desktop Mastra memory to Turso runtime`
-- Current slice: repository-level Turso grep candidate selection over a
-  Turso-owned chunk-content gram sidecar, without re-enabling assistant grep or
-  claiming full FTS/vector retrieval parity.
+- Current slice: capability-gated desktop assistant `brainstrike.grepSearch`
+  re-enable for Turso, backed by the Turso-owned chunk-content gram sidecar and
+  a required bootstrap check. This still does not claim full FTS/vector
+  retrieval parity.
 
 ## Turso Docs Guardrail
 
@@ -145,6 +146,11 @@ Current Turso repository/runtime coverage:
 - Desktop Turso assistant memory is wired through the ready runtime/bootstrap
   verdict. The renderer thread repository, OM meter, and cross-root usage reads
   now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
+- Desktop assistant `brainstrike.grepSearch` is available under Turso only when
+  the ready bootstrap report includes required check
+  `search.grep-content-grams=passed`. The tool uses
+  `TursoFileChunkRepository.findGrepCandidates()` through the shared bounded
+  `GrepSearchService`; semantic vector retrieval remains disabled.
 
 ## Non-Negotiable Migration Rules
 
@@ -255,8 +261,9 @@ Known production touchpoints:
 
 Concrete blockers:
 
-- `brainstrike.grepSearch` and `brainstrike.queryEmbeddingSpace` are removed
-  from Turso tool maps.
+- `brainstrike.queryEmbeddingSpace` is removed from Turso tool maps. Turso
+  `brainstrike.grepSearch` is registered only behind the explicit
+  `search.grep-content-grams` bootstrap proof.
 - `TursoFileChunkRepository.findGrepCandidates()` now provides bounded
   SQLite-compatible candidate selection. Literal/regex-literal prefilters use
   `file_chunk_content_grams` plus `file_chunk_content_index` as an indexed
@@ -271,13 +278,10 @@ Concrete blockers:
 
 Preferred implementation order:
 
-1. Re-enable `brainstrike.grepSearch` only after the desktop tool registry and
-   bootstrap capability report prove the Turso grep candidate path is available
-   and still bounded.
-2. Implement basic Turso vector search over stored embeddings with
+1. Implement basic Turso vector search over stored embeddings with
    `embeddingSetId`, limit, threshold, and root filtering.
-3. Add a Turso selection-snapshot writer using SQLite-compatible statements.
-4. Re-enable assistant tools only for capabilities proven by the repository
+2. Add a Turso selection-snapshot writer using SQLite-compatible statements.
+3. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
    and bootstrap reports.
 
 ### 5. Mastra Memory And Assistant Persistence

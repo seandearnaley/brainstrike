@@ -10,6 +10,13 @@ describe('Turso profile bootstrap', () => {
     const database = {
       all: async (source: string) => {
         querySql.push(source);
+        if (source.includes('idx_file_chunk_content_grams_lookup')) {
+          return [
+            { name: 'file_chunk_content_index', type: 'table' },
+            { name: 'file_chunk_content_grams', type: 'table' },
+            { name: 'idx_file_chunk_content_grams_lookup', type: 'index' },
+          ];
+        }
         return [];
       },
       close,
@@ -43,6 +50,12 @@ describe('Turso profile bootstrap', () => {
     expect(querySql).toContain(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?) ORDER BY name"
     );
+    expect(querySql).toContain(
+      `SELECT type, name
+       FROM sqlite_master
+      WHERE (type = 'table' AND name IN ('file_chunk_content_index', 'file_chunk_content_grams'))
+         OR (type = 'index' AND name = 'idx_file_chunk_content_grams_lookup')`
+    );
     expect(close).toHaveBeenCalledTimes(1);
     expect(report.bootstrapReport).toMatchObject({
       phase: 'ready',
@@ -62,6 +75,7 @@ describe('Turso profile bootstrap', () => {
       expect.objectContaining({ id: 'store.open', status: 'passed' }),
       expect.objectContaining({ id: 'primary-store.mvcc', status: 'passed' }),
       expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
+      expect.objectContaining({ id: 'search.grep-content-grams', status: 'passed' }),
       expect.objectContaining({ id: 'search.ownership', status: 'passed' }),
       expect.objectContaining({ id: 'store.close', status: 'passed' }),
     ]);

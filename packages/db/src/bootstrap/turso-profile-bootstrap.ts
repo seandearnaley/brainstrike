@@ -48,6 +48,7 @@ type TursoProfileExecutionDatabase = Pick<
 type TursoProfileBootstrapCheckId =
   | 'primary-store.mvcc'
   | 'schema.baseline'
+  | 'search.grep-content-grams'
   | 'search.ownership'
   | 'store.close'
   | 'store.open';
@@ -68,6 +69,11 @@ const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   {
     id: 'schema.baseline',
     label: 'Turso greenfield schema baseline is applied',
+    required: true,
+  },
+  {
+    id: 'search.grep-content-grams',
+    label: 'Turso grep content gram index is available',
     required: true,
   },
   {
@@ -114,6 +120,8 @@ export async function runTursoProfileBootstrap(
     checks = setCheck(checks, 'primary-store.mvcc', 'passed');
     await applyTursoSchemaBaseline(createTursoProfileExecutionClient(db));
     checks = setCheck(checks, 'schema.baseline', 'passed');
+    await assertTursoGrepContentGramIndex(db);
+    checks = setCheck(checks, 'search.grep-content-grams', 'passed');
     checks = setCheck(checks, 'search.ownership', 'passed', TURSO_SPLIT_SEARCH_OWNERSHIP.message);
 
     bootstrapReport = createProfileBootstrapReport({
@@ -295,6 +303,33 @@ function formatJournalMode(journalMode: string | null): string {
   return journalMode === null ? 'no journal_mode row' : `'${journalMode}'`;
 }
 
+async function assertTursoGrepContentGramIndex(
+  database: TursoProfileExecutionDatabase
+): Promise<void> {
+  const rows = await database.all(
+    `SELECT type, name
+       FROM sqlite_master
+      WHERE (type = 'table' AND name IN ('file_chunk_content_index', 'file_chunk_content_grams'))
+         OR (type = 'index' AND name = 'idx_file_chunk_content_grams_lookup')`
+  );
+  const present = new Set(
+    rows
+      .map((row) =>
+        row && typeof row === 'object' ? (row as { readonly name?: unknown }).name : null
+      )
+      .filter((name): name is string => typeof name === 'string')
+  );
+  const requiredNames = [
+    'file_chunk_content_index',
+    'file_chunk_content_grams',
+    'idx_file_chunk_content_grams_lookup',
+  ];
+  const missing = requiredNames.filter((name) => !present.has(name));
+  if (missing.length > 0) {
+    throw new Error(`Turso grep content gram index is missing: ${missing.join(', ')}.`);
+  }
+}
+
 function getFailureAttribution(
   error: unknown,
   checks: readonly ProfileBootstrapCheck[],
@@ -319,7 +354,13 @@ function getFailureCheckId(
   if (!checkPassed(checks, 'primary-store.mvcc')) {
     return 'primary-store.mvcc';
   }
-  return 'schema.baseline';
+  if (!checkPassed(checks, 'schema.baseline')) {
+    return 'schema.baseline';
+  }
+  if (!checkPassed(checks, 'search.grep-content-grams')) {
+    return 'search.grep-content-grams';
+  }
+  return 'search.ownership';
 }
 
 function checkPassed(

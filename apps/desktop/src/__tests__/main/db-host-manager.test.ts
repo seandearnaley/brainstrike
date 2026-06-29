@@ -140,6 +140,7 @@ function createReadyTursoBootstrapReport() {
     'store.open',
     'primary-store.mvcc',
     'schema.baseline',
+    'search.grep-content-grams',
     'search.ownership',
     'store.close',
   ].map((id) => ({
@@ -292,6 +293,31 @@ describe('DbHostManager', () => {
 
     await expect(databasePromise).rejects.toThrow(
       'Bootstrap report missing required check: schema.baseline'
+    );
+  });
+
+  it('rejects ready Turso bootstrap reports that omit the grep content gram check', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const reportWithoutGrepContentGrams = {
+      ...createReadyTursoBootstrapReport(),
+      checks: createReadyTursoBootstrapReport().checks.filter(
+        (check) => check.id !== 'search.grep-content-grams'
+      ),
+    };
+
+    const databasePromise = manager.getDatabase();
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: reportWithoutGrepContentGrams,
+        capabilities: { liveQuery: false },
+      })
+    );
+
+    await expect(databasePromise).rejects.toThrow(
+      'Bootstrap report missing required check: search.grep-content-grams'
     );
   });
 

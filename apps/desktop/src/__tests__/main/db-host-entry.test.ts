@@ -49,20 +49,31 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
 });
 
 function createReadyBootstrapProbeReport(engine: 'pglite' | 'turso' = 'pglite') {
-  const checks = [
-    'store.open',
-    'schema.migrated',
-    'extension.pgvector',
-    'extension.pg_trgm',
-    'search.fts-grep',
-    'capability.transaction',
-    'capability.live-query',
-    'queue.table',
-    'assistant-memory.run-usage',
-    'assistant-memory.mastra-schema',
-    'workspace-index.system-role',
-    'store.close',
-  ].map((id) => ({
+  const checkIds =
+    engine === 'turso'
+      ? [
+          'store.open',
+          'primary-store.mvcc',
+          'schema.baseline',
+          'search.grep-content-grams',
+          'search.ownership',
+          'store.close',
+        ]
+      : [
+          'store.open',
+          'schema.migrated',
+          'extension.pgvector',
+          'extension.pg_trgm',
+          'search.fts-grep',
+          'capability.transaction',
+          'capability.live-query',
+          'queue.table',
+          'assistant-memory.run-usage',
+          'assistant-memory.mastra-schema',
+          'workspace-index.system-role',
+          'store.close',
+        ];
+  const checks = checkIds.map((id) => ({
     id,
     label: id,
     required: id !== 'assistant-memory.mastra-schema',
