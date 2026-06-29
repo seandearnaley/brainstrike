@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrainstrikeDbExecutionClient } from '../src/architecture/brainstrike-db-client-contract.js';
 import type { FileChunkInsert } from '../src/models/file-chunk.js';
 import type { FileRecord } from '../src/models/file-record.js';
-import { buildEmbeddingJobDedupeKey } from '../src/queue/embedding-job-dedupe-key.js';
+import {
+  buildEmbeddingJobDedupeKey,
+  buildEmbeddingJobDedupeKeySqlExpression,
+} from '../src/queue/embedding-job-dedupe-key.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
@@ -689,6 +692,18 @@ describe('TursoFileChunkRepository', () => {
     const backfillQueries = queryCalls.filter(
       (sql) => sql.includes('FROM file_chunks c') || sql.includes('FROM job_queue j')
     );
+    const canonicalDedupeExpression = buildEmbeddingJobDedupeKeySqlExpression({
+      chunkIdExpression: 'c.id',
+      contentHashExpression: 'c.content_hash',
+      embeddingSetIdExpression: '?',
+    });
+    expect(backfillQueries.join('\n')).toContain(`j.dedupe_key = ${canonicalDedupeExpression}`);
+    const diagnosticsQuery = backfillQueries.find(
+      (sql) => sql.includes('AS candidateCount') && sql.includes('AS queuedOrRunningJobs')
+    );
+    expect(diagnosticsQuery).toBeDefined();
+    expect(diagnosticsQuery?.match(/FROM file_chunks c/g)).toHaveLength(1);
+    expect(diagnosticsQuery).toContain('SUM(CASE WHEN');
     expect(backfillQueries.join('\n')).not.toContain('::');
     expect(backfillQueries.join('\n')).not.toContain('FILTER');
     expect(backfillQueries.join('\n')).not.toContain('ANY(');
