@@ -174,6 +174,8 @@ export {
   type ScheduledDatabaseMaintenanceSkipReason,
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
+export { createTursoOwnerClient, type TursoOwnerClient } from './turso/owner-client.js';
+export { applyTursoSchemaBaseline } from './turso/schema-baseline.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';

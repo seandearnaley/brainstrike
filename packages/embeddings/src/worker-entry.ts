@@ -6,6 +6,7 @@ export type {
 } from './worker/embedding-worker';
 export { startEmbeddingWorker } from './worker/embedding-worker';
 export type {
+  EmbeddingWorkerClaimedJob,
   EmbeddingWorkerClaimParams,
   EmbeddingWorkerCompleteEmbeddingChunkParams,
   EmbeddingWorkerFailBatchParams,
@@ -15,7 +16,10 @@ export type {
   EmbeddingWorkerStatsControllerOptions,
   EmbeddingWorkerStorage,
 } from './worker/embedding-worker-storage';
-export { createPGliteEmbeddingWorkerStorage } from './worker/embedding-worker-storage';
+export {
+  createPGliteEmbeddingWorkerStorage,
+  createTursoEmbeddingWorkerStorage,
+} from './worker/embedding-worker-storage';
 export type {
   ForegroundEmbeddingGate,
   ForegroundEmbeddingGateOptions,
