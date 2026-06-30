@@ -1,3 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createTursoOwnerClient, type TursoOwnerClient } from '@brainstrike/db/turso/owner-client';
+import { applyTursoSchemaBaseline } from '@brainstrike/db/turso/schema-baseline';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetModelRegistryStoreForTests,
@@ -65,6 +70,8 @@ function createRowsDeferred(): {
     resolve: () => resolvePromise({ rows: [] }),
   };
 }
+
+const ISO_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 describe('model-registry-store', () => {
   beforeEach(() => {
@@ -384,6 +391,22 @@ describe('model-registry-store', () => {
   });
 
   describe('toggleModel', () => {
+    it('persists model toggles through a Turso owner client', async () => {
+      const { client, cleanup } = await createTursoRegistryClient();
+      try {
+        await useModelRegistryStore.getState().toggleModel(client as never, 'gpt-5.5', false);
+
+        const result = await client.query<{ is_enabled: number; updated_at: string }>(
+          'SELECT is_enabled, updated_at FROM models WHERE id = ?',
+          ['gpt-5.5']
+        );
+        expect(result.rows[0]?.is_enabled).toBe(0);
+        expect(result.rows[0]?.updated_at).toMatch(ISO_UTC_TIMESTAMP_PATTERN);
+      } finally {
+        await cleanup();
+      }
+    });
+
     it('optimistically updates model enabled state', async () => {
       const model = createMockModel({ id: 'model-1', isEnabled: false });
       useModelRegistryStore.setState({ models: [model] });
@@ -408,8 +431,8 @@ describe('model-registry-store', () => {
       await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
 
       expect(mockDb.query).toHaveBeenCalledWith(
-        'UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
-        [true, 'model-1']
+        'UPDATE models SET is_enabled = $1, updated_at = $2 WHERE id = $3',
+        [true, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'model-1']
       );
     });
 
@@ -482,6 +505,22 @@ describe('model-registry-store', () => {
   });
 
   describe('toggleProvider', () => {
+    it('persists provider toggles through a Turso owner client', async () => {
+      const { client, cleanup } = await createTursoRegistryClient();
+      try {
+        await useModelRegistryStore.getState().toggleProvider(client as never, 'openrouter', true);
+
+        const result = await client.query<{ is_enabled: number; updated_at: string }>(
+          'SELECT is_enabled, updated_at FROM providers WHERE id = ?',
+          ['openrouter']
+        );
+        expect(result.rows[0]?.is_enabled).toBe(1);
+        expect(result.rows[0]?.updated_at).toMatch(ISO_UTC_TIMESTAMP_PATTERN);
+      } finally {
+        await cleanup();
+      }
+    });
+
     it('optimistically updates provider enabled state', async () => {
       const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
       useModelRegistryStore.setState({ providers: [provider] });
@@ -506,8 +545,8 @@ describe('model-registry-store', () => {
       await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
 
       expect(mockDb.query).toHaveBeenCalledWith(
-        'UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
-        [true, 'provider-1']
+        'UPDATE providers SET is_enabled = $1, updated_at = $2 WHERE id = $3',
+        [true, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'provider-1']
       );
     });
 
@@ -580,3 +619,22 @@ describe('model-registry-store', () => {
     });
   });
 });
+
+async function createTursoRegistryClient(): Promise<{
+  readonly cleanup: () => Promise<void>;
+  readonly client: TursoOwnerClient;
+}> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-model-registry-turso-'));
+  const client = await createTursoOwnerClient({
+    dbPath: join(tempDir, 'profile.db'),
+  });
+  await applyTursoSchemaBaseline(client);
+
+  return {
+    cleanup: async () => {
+      await client.close();
+      await rm(tempDir, { force: true, recursive: true });
+    },
+    client,
+  };
+}

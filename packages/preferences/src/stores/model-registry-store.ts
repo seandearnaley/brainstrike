@@ -13,6 +13,8 @@ import { createBrowserJsonStorage } from './browser-json-storage';
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
 
+const createUpdatedAtTimestamp = (): string => new Date().toISOString();
+
 export interface DbProvider {
   icon: string | null;
   id: string;
@@ -304,8 +306,10 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             ),
           }));
 
-          await db.query('UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2', [
+          const updatedAt = createUpdatedAtTimestamp();
+          await db.query('UPDATE providers SET is_enabled = $1, updated_at = $2 WHERE id = $3', [
             enabled,
+            updatedAt,
             providerId,
           ]);
           await syncDurableDatabaseWrites(db);
@@ -329,8 +333,10 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
           }));
 
-          await db.query('UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2', [
+          const updatedAt = createUpdatedAtTimestamp();
+          await db.query('UPDATE models SET is_enabled = $1, updated_at = $2 WHERE id = $3', [
             enabled,
+            updatedAt,
             modelId,
           ]);
           await syncDurableDatabaseWrites(db);
