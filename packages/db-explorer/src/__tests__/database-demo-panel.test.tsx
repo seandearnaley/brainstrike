@@ -60,6 +60,7 @@ const mockRepository = {
   update: vi.fn(),
   delete: vi.fn(),
 };
+let mockCurrentRepository: typeof mockRepository | null = mockRepository;
 
 const mockChunkRepository = {
   findAll: vi.fn(),
@@ -205,7 +206,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
           .brainstrikeRepositoryKind === TURSO_FILE_CHUNK_REPOSITORY_MARKER
     ),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useFileRecordRepository: () => mockRepository,
+    useFileRecordRepository: () => mockCurrentRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
     useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
     useOptionalPGliteDatabase: () =>
@@ -474,6 +475,7 @@ describe('DatabaseDemoPanel', () => {
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
     mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
+    mockCurrentRepository = mockRepository;
     mockCurrentChunkRepository = mockChunkRepository;
     mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
 
@@ -630,6 +632,15 @@ describe('DatabaseDemoPanel', () => {
 
       expect(screen.queryByText('No collection selected')).not.toBeInTheDocument();
       expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
+    });
+
+    it('uses storage-neutral copy while database repositories initialize', () => {
+      mockCurrentRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(screen.getByText('Loading database...')).toBeInTheDocument();
+      expect(screen.queryByText(/PGlite database/i)).not.toBeInTheDocument();
     });
 
     it('delegates model registry hydration to the runtime-aware hook on mount', async () => {

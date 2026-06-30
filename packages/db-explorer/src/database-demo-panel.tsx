@@ -560,7 +560,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <CardDescription className="text-xs">Database is initializing...</CardDescription>
         </CardHeader>
         <CardContent className="flex h-32 items-center justify-center">
-          <div className="text-muted-foreground text-sm">Loading PGlite database...</div>
+          <div className="text-muted-foreground text-sm">Loading database...</div>
         </CardContent>
       </Card>
     );
