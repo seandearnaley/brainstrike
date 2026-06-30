@@ -90,6 +90,8 @@ describe('App database path resolution', () => {
           query: vi.fn(),
           resetLocal: vi.fn(),
           test: vi.fn(),
+          tursoEmbeddingWorkerQueue: vi.fn(),
+          tursoEmbeddingWorkerStats: vi.fn(),
         },
         fileSystem: {
           exists: vi.fn(),

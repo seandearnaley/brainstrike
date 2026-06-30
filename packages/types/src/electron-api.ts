@@ -375,6 +375,25 @@ export interface ElectronDatabaseAPI {
    * Test database connection health
    */
   test?: () => Promise<DatabaseTestResult>;
+
+  /**
+   * Desktop Turso embedding worker queue operations that need main/DB-host
+   * callback transaction support.
+   */
+  tursoEmbeddingWorkerQueue?: (
+    operation: string,
+    payload: unknown,
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
+
+  /**
+   * Desktop Turso embedding worker stats maintenance operations.
+   */
+  tursoEmbeddingWorkerStats?: (
+    operation: string,
+    embeddingSetIds: readonly string[],
+    options?: DatabaseWorkOptions
+  ) => Promise<void>;
 }
 
 /**

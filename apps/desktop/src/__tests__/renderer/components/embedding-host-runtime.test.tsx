@@ -6,10 +6,13 @@ import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-hos
 const {
   commandListenerRef,
   currentDbRef,
+  currentRuntimeEngineRef,
   dbHandle,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
+  createEmbeddingWorkerConfigMock,
+  createDesktopTursoEmbeddingWorkerStorageMock,
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
@@ -29,7 +32,17 @@ const {
   currentDbRef: {
     current: null as null | { query: ReturnType<typeof vi.fn> },
   },
-  dbHandle: { query: vi.fn() },
+  currentRuntimeEngineRef: {
+    current: 'pglite' as 'libsql' | 'pglite' | 'turso' | 'unknown',
+  },
+  dbHandle: {
+    exec: vi.fn(async () => {}),
+    query: vi.fn(),
+    transaction: vi.fn(
+      async (callback: (tx: { exec: typeof vi.fn; query: typeof vi.fn }) => unknown) =>
+        callback({ exec: vi.fn(), query: vi.fn() })
+    ),
+  },
   embeddingCacheRepository: {
     get: vi.fn(),
     getBatch: vi.fn(),
@@ -38,6 +51,16 @@ const {
   },
   embeddingQueueBootstrapMock: vi.fn(),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
+  createEmbeddingWorkerConfigMock: vi.fn(
+    (
+      db: unknown,
+      _gate?: unknown,
+      options?: { runtimeEngine?: 'pglite' | 'turso'; storage?: unknown }
+    ) => (options?.storage ? { storage: options.storage } : { db })
+  ),
+  createDesktopTursoEmbeddingWorkerStorageMock: vi.fn(() => ({
+    id: 'turso-embedding-worker-storage',
+  })),
   createEmbeddingCacheRepositoryMock: vi.fn(),
   detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
@@ -72,6 +95,18 @@ const {
 
 vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  getMissingBrainstrikeDbExecutionClientCapabilities: (candidate: unknown) => {
+    if (!(candidate && typeof candidate === 'object')) {
+      return ['query', 'exec', 'transaction'];
+    }
+    return (['query', 'exec', 'transaction'] as const).filter(
+      (capability) => typeof (candidate as Record<string, unknown>)[capability] !== 'function'
+    );
+  },
+  useModelRegistryDbClient: () => currentDbRef.current,
+  useOptionalProfileBootstrapReport: () => ({
+    runtime: { engine: currentRuntimeEngineRef.current },
+  }),
   usePGliteDatabase: () => currentDbRef.current,
 }));
 
@@ -102,6 +137,10 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
     options.generate(),
 }));
 
+vi.mock('../../../renderer/components/desktop-turso-embedding-worker-storage', () => ({
+  createDesktopTursoEmbeddingWorkerStorage: createDesktopTursoEmbeddingWorkerStorageMock,
+}));
+
 vi.mock('@brainstrike/embeddings/service', () => ({
   SimpleEmbeddingService: class {
     initializeWithModel = initializeWithModelMock;
@@ -120,15 +159,14 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
 }));
 
 vi.mock('../../../renderer/components/embedding-worker-config', () => ({
-  createEmbeddingWorkerConfig: () => ({
-    db: dbHandle,
-  }),
+  createEmbeddingWorkerConfig: createEmbeddingWorkerConfigMock,
 }));
 
 describe('EmbeddingHostRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentDbRef.current = dbHandle;
+    currentRuntimeEngineRef.current = 'pglite';
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = true;
@@ -266,6 +304,115 @@ describe('EmbeddingHostRuntime', () => {
       );
     });
     expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
+  });
+
+  it('starts Turso host workers with explicit storage and no PGlite cache repository', async () => {
+    storeState.hasHydrated = true;
+    currentRuntimeEngineRef.current = 'turso';
+    const tursoStorage = { id: 'turso-storage' };
+    createDesktopTursoEmbeddingWorkerStorageMock.mockReturnValueOnce(tursoStorage);
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storage: tursoStorage,
+        })
+      );
+    });
+
+    expect(createDesktopTursoEmbeddingWorkerStorageMock).toHaveBeenCalledWith(dbHandle);
+    expect(createEmbeddingWorkerConfigMock).toHaveBeenCalledWith(
+      dbHandle,
+      expect.any(Object),
+      expect.objectContaining({
+        runtimeEngine: 'turso',
+        storage: tursoStorage,
+      })
+    );
+    expect(startEmbeddingWorkerMock.mock.calls[0]?.[0]).not.toHaveProperty('db');
+    expect(createEmbeddingCacheRepositoryMock).not.toHaveBeenCalled();
+  });
+
+  it('reports unsupported ready runtimes without throwing during render', async () => {
+    storeState.hasHydrated = true;
+    currentRuntimeEngineRef.current = 'libsql';
+
+    expect(() => render(<EmbeddingHostRuntime />)).not.toThrow();
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lastError: "Embedding host does not support database runtime engine 'libsql'.",
+          state: 'error',
+        })
+      );
+    });
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+    expect(createDesktopTursoEmbeddingWorkerStorageMock).not.toHaveBeenCalled();
+  });
+
+  it('loads Turso query embedding model config with SQLite placeholders', async () => {
+    storeState.hasHydrated = true;
+    currentRuntimeEngineRef.current = 'turso';
+    dbHandle.query.mockResolvedValue({
+      rows: [
+        {
+          id: 'Xenova/all-MiniLM-L6-v2',
+          providerId: 'local',
+          name: 'MiniLM',
+          description: '',
+          capabilities: JSON.stringify({ defaultDimension: 2, type: 'embedding' }),
+          parameters: JSON.stringify({ contextWindow: 512, size: 'small' }),
+        },
+      ],
+    });
+
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
+    });
+    const queryEmbeddingListener = queryEmbeddingListenerRef.current;
+    if (!queryEmbeddingListener) {
+      throw new Error('Expected embedding host query embedding listener to be registered.');
+    }
+
+    queryEmbeddingListener({
+      type: 'request',
+      channel: 'query-embedding',
+      requestId: 'embedding-query:turso',
+      runtimeId: 'test-runtime',
+      payload: {
+        dimensions: 2,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+        query: 'database config',
+      },
+    });
+
+    await waitFor(() => {
+      expect(initializeWithModelMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contextWindow: 512,
+          dimensions: 2,
+          id: 'Xenova/all-MiniLM-L6-v2',
+          name: 'MiniLM',
+          origin: 'local',
+          size: 'small',
+          tags: ['local', 'embedding'],
+        }),
+        undefined,
+        'webgpu'
+      );
+    });
+
+    const modelQuery = dbHandle.query.mock.calls.find(([sql]) =>
+      String(sql).includes('FROM models')
+    );
+    expect(modelQuery?.[0]).toContain('WHERE id = ?');
+    expect(modelQuery?.[0]).not.toContain('$1');
+    expect(modelQuery?.[1]).toEqual(['Xenova/all-MiniLM-L6-v2']);
   });
 
   it('passes the hydrated reinit cadence to the background worker', async () => {

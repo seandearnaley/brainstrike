@@ -40,13 +40,75 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({
     transaction: async (
       fn: (tx: {
+        exec?: (sql: string, params?: unknown[]) => Promise<void>;
         query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
       }) => Promise<unknown>
     ) => {
       const queries: { sql: string; params?: unknown[] }[] = [];
       const result = await fn({
+        exec: async (sql: string, params?: unknown[]) => {
+          queries.push({ sql, params });
+        },
         query: async (sql: string, params?: unknown[]) => {
           queries.push({ sql, params });
+          if (sql.includes('FROM job_queue') && sql.includes('LIMIT ?')) {
+            return {
+              rows: [
+                {
+                  attempts: 0,
+                  backoff_ms: 0,
+                  chunk_id: 'chunk-1',
+                  created_at: '2026-06-30T10:00:00.000Z',
+                  dedupe_key: null,
+                  embedding_set_id: 'embedding-set-1',
+                  error: null,
+                  id: 'job-1',
+                  job_type: 'embed_chunk',
+                  lease_token: null,
+                  leased_until: null,
+                  max_attempts: 5,
+                  payload: JSON.stringify({
+                    chunkId: 'chunk-1',
+                    embeddingSetId: 'embedding-set-1',
+                  }),
+                  queue: 'embeddings',
+                  run_at: '2026-06-30T10:00:00.000Z',
+                  state: 'queued',
+                  updated_at: '2026-06-30T10:00:00.000Z',
+                  worker_id: null,
+                },
+              ],
+            };
+          }
+          if (sql.includes('UPDATE job_queue') && sql.includes('RETURNING *')) {
+            return {
+              rows: [
+                {
+                  attempts: 1,
+                  backoff_ms: 0,
+                  chunk_id: 'chunk-1',
+                  created_at: '2026-06-30T10:00:00.000Z',
+                  dedupe_key: null,
+                  embedding_set_id: 'embedding-set-1',
+                  error: null,
+                  id: 'job-1',
+                  job_type: 'embed_chunk',
+                  lease_token: String(params?.[0]),
+                  leased_until: String(params?.[1]),
+                  max_attempts: 5,
+                  payload: JSON.stringify({
+                    chunkId: 'chunk-1',
+                    embeddingSetId: 'embedding-set-1',
+                  }),
+                  queue: 'embeddings',
+                  run_at: '2026-06-30T10:00:00.000Z',
+                  state: 'running',
+                  updated_at: String(params?.[3]),
+                  worker_id: String(params?.[2]),
+                },
+              ],
+            };
+          }
           return { rows: [{ sql }] };
         },
       });
@@ -67,6 +129,7 @@ describe('database IPC domain', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    transactionSpy.mockClear();
     dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
     registerDatabaseIpcHandlers({});
   });
@@ -213,6 +276,37 @@ describe('database IPC domain', () => {
       targetDimension: 384,
       targetEmbeddingSetId: 'workspace-index',
     });
+  });
+
+  it('runs Turso embedding worker queue operations against the main DB transaction client', async () => {
+    const result = await handlers.get('db:turso-embedding-worker:queue')?.(
+      {} as IpcMainInvokeEvent,
+      'claimMany',
+      {
+        leaseMs: 60_000,
+        limit: 1,
+        now: '2026-06-30T10:01:00.000Z',
+        queue: 'embeddings',
+        workerId: 'worker-1',
+      },
+      { label: 'turso.embedding-worker.queue.claimMany', priority: 'background' }
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'job-1',
+        jobType: 'embed_chunk',
+        lease_token: expect.any(String),
+        state: 'running',
+        worker_id: 'worker-1',
+      }),
+    ]);
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+    const ranSql = transactionSpy.mock.calls[0]?.[0]?.map((s: { sql: string }) => s.sql);
+    expect(ranSql).toEqual([
+      expect.stringContaining('SELECT *'),
+      expect.stringContaining('UPDATE job_queue'),
+    ]);
   });
 
   it('rejects malformed atomic chunk/job payloads before DB host scheduling', async () => {

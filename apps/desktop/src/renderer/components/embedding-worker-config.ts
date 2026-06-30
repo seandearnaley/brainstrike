@@ -5,10 +5,12 @@ import {
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   type IDatabase,
+  type ProfileBootstrapRuntime,
 } from '@brainstrike/db';
 import type {
   EmbeddingWorkerOptions,
   EmbeddingWorkerPipelineCapacity,
+  EmbeddingWorkerStorage,
   ForegroundEmbeddingGate,
 } from '@brainstrike/embeddings/worker';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
@@ -197,7 +199,7 @@ async function readEmbeddingQueueDepth(
   db: IDatabase
 ): Promise<WorkspaceIndexingQosInputs['pipeline']['queueDepth']> {
   const result = await db.query<{ count: number | string }>(
-    `SELECT COUNT(*)::int AS count
+    `SELECT CAST(COUNT(*) AS INTEGER) AS count
        FROM job_queue
       WHERE queue = 'embeddings'
         AND job_type = 'embed_chunk'
@@ -320,6 +322,15 @@ function resolveDesktopClaimBatchSize(
 }
 
 type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
+type EmbeddingWorkerConfigRuntimeEngine = Extract<
+  ProfileBootstrapRuntime['engine'],
+  'pglite' | 'turso'
+>;
+
+interface EmbeddingWorkerConfigOptions {
+  readonly runtimeEngine?: EmbeddingWorkerConfigRuntimeEngine;
+  readonly storage?: EmbeddingWorkerStorage;
+}
 
 function resolveDesktopPipelineCapacity(
   snapshot: DatabaseWorkSchedulerSnapshot,
@@ -445,9 +456,34 @@ function createDesktopPressureControls(
   };
 }
 
+function resolveEmbeddingWorkerStorageOptions(
+  db: IDatabase,
+  options: EmbeddingWorkerConfigOptions
+): Pick<EmbeddingWorkerOptions, 'db' | 'storage'> {
+  const runtimeEngine = options.runtimeEngine ?? 'pglite';
+  if (runtimeEngine === 'pglite') {
+    if (options.storage) {
+      throw new Error('PGlite embedding worker config must use the database handle.');
+    }
+    return { db };
+  }
+  if (runtimeEngine === 'turso') {
+    if (!options.storage) {
+      throw new Error('Turso embedding worker config requires an explicit storage port.');
+    }
+    return { storage: options.storage };
+  }
+  return unsupportedEmbeddingWorkerRuntime(runtimeEngine);
+}
+
+function unsupportedEmbeddingWorkerRuntime(runtimeEngine: never): never {
+  throw new Error(`Unsupported embedding worker database runtime: ${String(runtimeEngine)}`);
+}
+
 export function createEmbeddingWorkerConfig(
   db: IDatabase,
-  gate?: ForegroundEmbeddingGate
+  gate?: ForegroundEmbeddingGate,
+  options: EmbeddingWorkerConfigOptions = {}
 ): EmbeddingWorkerOptions {
   const claimBatchSize = parsePositiveIntegerEnv(
     'VITE_EMBED_CLAIM_BATCH_SIZE',
@@ -479,7 +515,7 @@ export function createEmbeddingWorkerConfig(
   const telemetry = createEmbeddingPipelineTelemetry();
 
   return {
-    db,
+    ...resolveEmbeddingWorkerStorageOptions(db, options),
     claimBatchSize,
     concurrency,
     interBatchDelayMs,

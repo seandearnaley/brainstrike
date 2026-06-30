@@ -8,6 +8,8 @@ interface DesktopBridgeLike {
       query?: unknown;
       resetLocal?: unknown;
       test?: unknown;
+      tursoEmbeddingWorkerQueue?: unknown;
+      tursoEmbeddingWorkerStats?: unknown;
     };
     fileSystem?: {
       addRoot?: unknown;

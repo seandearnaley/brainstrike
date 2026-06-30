@@ -1,4 +1,12 @@
-import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
+import {
+  type BrainstrikeDbExecutionClient,
+  createEmbeddingCacheRepository,
+  type DbHandle,
+  getMissingBrainstrikeDbExecutionClientCapabilities,
+  type ProfileBootstrapRuntime,
+  useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
+} from '@brainstrike/db';
 import {
   type DeviceCapabilities,
   detectDeviceCapabilities,
@@ -10,6 +18,7 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
   createForegroundEmbeddingGate,
   type EmbeddingWorkerController,
+  type EmbeddingWorkerStorage,
   type ForegroundEmbeddingGate,
   POWER_BROADCAST_CHANNEL,
   runCoordinatedQueryEmbedding,
@@ -34,6 +43,7 @@ import {
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
+import { createDesktopTursoEmbeddingWorkerStorage } from './desktop-turso-embedding-worker-storage';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -41,6 +51,11 @@ const QUERY_DRAIN_TIMEOUT_MS = 5000;
 const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
 const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
+type EmbeddingHostRuntimeEngine = Extract<ProfileBootstrapRuntime['engine'], 'pglite' | 'turso'>;
+interface EmbeddingHostRuntimeEngineResolution {
+  readonly runtimeEngine: EmbeddingHostRuntimeEngine | null;
+  readonly unsupportedRuntimeError: string | null;
+}
 let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 
 interface HydratedEmbeddingWorkerPreferences {
@@ -274,6 +289,21 @@ function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): E
   );
 }
 
+function resolveEmbeddingHostRuntimeEngine(
+  runtimeEngine: ProfileBootstrapRuntime['engine'] | null | undefined
+): EmbeddingHostRuntimeEngineResolution {
+  if (runtimeEngine === undefined || runtimeEngine === null) {
+    return { runtimeEngine: null, unsupportedRuntimeError: null };
+  }
+  if (runtimeEngine === 'pglite' || runtimeEngine === 'turso') {
+    return { runtimeEngine, unsupportedRuntimeError: null };
+  }
+  return {
+    runtimeEngine: null,
+    unsupportedRuntimeError: `Embedding host does not support database runtime engine '${runtimeEngine}'.`,
+  };
+}
+
 async function resolveHydratedEmbeddingWorkerPreferences(): Promise<HydratedEmbeddingWorkerPreferences> {
   const vectorPreferences = await ensureVectorPreferencesHydrated({
     forceReload: true,
@@ -345,9 +375,11 @@ function assertEmbeddingResultDimensions(
 }
 
 async function loadQueryEmbeddingModelConfig(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  db: DbHandle,
+  runtimeEngine: EmbeddingHostRuntimeEngine,
   request: EmbeddingHostQueryEmbeddingRequest
 ): Promise<ModelConfig> {
+  const modelIdPlaceholder = runtimeEngine === 'turso' ? '?' : '$1';
   const result = await db.query<DbModelRow>(
     `SELECT
       id,
@@ -357,7 +389,7 @@ async function loadQueryEmbeddingModelConfig(
       capabilities,
       parameters
      FROM models
-     WHERE id = $1
+     WHERE id = ${modelIdPlaceholder}
      LIMIT 1`,
     [request.payload.modelId]
   );
@@ -413,7 +445,8 @@ async function disposeQueryEmbeddingService(
 }
 
 async function getQueryEmbeddingService(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  db: DbHandle,
+  runtimeEngine: EmbeddingHostRuntimeEngine,
   request: EmbeddingHostQueryEmbeddingRequest,
   runtimeIdRef: MutableRefObject<string>,
   serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>
@@ -423,7 +456,7 @@ async function getQueryEmbeddingService(
     return existing.service;
   }
   await disposeQueryEmbeddingService(runtimeIdRef, serviceStateRef);
-  const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
+  const modelConfig = await loadQueryEmbeddingModelConfig(db, runtimeEngine, request);
   const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
   const service = new SimpleEmbeddingService({
     streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
@@ -438,12 +471,13 @@ async function getQueryEmbeddingService(
 
 async function handleQueryEmbeddingRequest(options: {
   readonly activeRef: MutableRefObject<boolean>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly db: DbHandle;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
   readonly request: EmbeddingHostQueryEmbeddingRequest;
+  readonly runtimeEngine: EmbeddingHostRuntimeEngine;
   readonly runtimeIdRef: MutableRefObject<string>;
   readonly serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>;
 }): Promise<void> {
@@ -455,6 +489,7 @@ async function handleQueryEmbeddingRequest(options: {
     gate,
     queryEmbeddingActiveCountRef,
     request,
+    runtimeEngine,
     runtimeIdRef,
     serviceStateRef,
   } = options;
@@ -482,7 +517,13 @@ async function handleQueryEmbeddingRequest(options: {
         });
       },
       generate: async () => {
-        const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
+        const service = await getQueryEmbeddingService(
+          db,
+          runtimeEngine,
+          request,
+          runtimeIdRef,
+          serviceStateRef
+        );
         const generated = await service.generateQueryEmbedding(request.payload.query);
         assertEmbeddingResultDimensions(request, generated);
         if (generated.runtime) {
@@ -546,16 +587,63 @@ function resolveEmbeddingHostRuntimeId(): string {
   return runtimeId;
 }
 
+function assertTursoExecutionClient(
+  db: DbHandle
+): asserts db is DbHandle & BrainstrikeDbExecutionClient {
+  const missingCapabilities = getMissingBrainstrikeDbExecutionClientCapabilities(db);
+  if (missingCapabilities.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Turso embedding host requires DB execution client capabilities: ${missingCapabilities.join(', ')}.`
+  );
+}
+
+function unsupportedEmbeddingHostRuntime(runtimeEngine: never): never {
+  throw new Error(`Unsupported embedding host database runtime: ${String(runtimeEngine)}`);
+}
+
+function createEmbeddingHostWorkerStorage(
+  db: DbHandle,
+  runtimeEngine: EmbeddingHostRuntimeEngine
+): EmbeddingWorkerStorage | undefined {
+  if (runtimeEngine === 'pglite') {
+    return;
+  }
+  if (runtimeEngine === 'turso') {
+    assertTursoExecutionClient(db);
+    return createDesktopTursoEmbeddingWorkerStorage(db);
+  }
+  return unsupportedEmbeddingHostRuntime(runtimeEngine);
+}
+
+function createEmbeddingHostWorkerCache(
+  db: DbHandle,
+  runtimeEngine: EmbeddingHostRuntimeEngine
+): ReturnType<typeof createEmbeddingCacheRepository> | undefined {
+  if (runtimeEngine === 'pglite') {
+    return createEmbeddingCacheRepository(db);
+  }
+  if (runtimeEngine === 'turso') {
+    logger.warn(
+      'Turso embedding host worker cache is not enabled because the embedding cache repository is not migrated to Turso SQL.'
+    );
+    return;
+  }
+  return unsupportedEmbeddingHostRuntime(runtimeEngine);
+}
+
 interface StartEmbeddingHostWorkerOptions {
   readonly activeRef: MutableRefObject<boolean>;
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
-  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly db: DbHandle;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
   readonly onFatalError: (error: Error) => void;
   readonly onWorkerActivityChange: (active: boolean) => void;
+  readonly runtimeEngine: EmbeddingHostRuntimeEngine;
   readonly runtimeIdRef: MutableRefObject<string>;
   readonly startingRef: MutableRefObject<boolean>;
   readonly stopPromiseRef: MutableRefObject<Promise<void> | null>;
@@ -571,6 +659,7 @@ async function startEmbeddingHostWorkerRuntime({
   isDisposed,
   onFatalError,
   onWorkerActivityChange,
+  runtimeEngine,
   runtimeIdRef,
   startingRef,
   stopPromiseRef,
@@ -592,11 +681,16 @@ async function startEmbeddingHostWorkerRuntime({
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
     const hydratedDevicePref = hydratedPreferences.devicePref;
     embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null);
-    const workerConfig = createEmbeddingWorkerConfig(db, gate);
+    const workerStorage = createEmbeddingHostWorkerStorage(db, runtimeEngine);
+    const workerConfig = createEmbeddingWorkerConfig(db, gate, {
+      runtimeEngine,
+      ...(workerStorage ? { storage: workerStorage } : {}),
+    });
+    const embeddingCache = createEmbeddingHostWorkerCache(db, runtimeEngine);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
       device: hydratedDevicePref,
-      embeddingCache: createEmbeddingCacheRepository(db),
+      ...(embeddingCache ? { embeddingCache } : {}),
       initializeLocalModelOnStart: false,
       onFatalError,
       onRuntimeMetadataChange: (metadata) => {
@@ -649,7 +743,11 @@ async function startEmbeddingHostWorkerRuntime({
 }
 
 export function EmbeddingHostRuntime(): null {
-  const db = usePGliteDatabase();
+  const db = useModelRegistryDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
+  const { runtimeEngine, unsupportedRuntimeError } = resolveEmbeddingHostRuntimeEngine(
+    profileBootstrapReport?.runtime.engine
+  );
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const embeddingRuntimeRef = useRef<EmbeddingHostRuntimeMetadata | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
@@ -662,7 +760,14 @@ export function EmbeddingHostRuntime(): null {
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
 
   useEffect(() => {
-    if (!db) {
+    if (unsupportedRuntimeError) {
+      fatalErrorRef.current = unsupportedRuntimeError;
+      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+        lastError: unsupportedRuntimeError,
+      });
+      return;
+    }
+    if (!(db && runtimeEngine)) {
       return;
     }
 
@@ -687,6 +792,7 @@ export function EmbeddingHostRuntime(): null {
         isDisposed: () => disposed,
         onFatalError,
         onWorkerActivityChange,
+        runtimeEngine,
         runtimeIdRef,
         startingRef,
         stopPromiseRef,
@@ -858,6 +964,7 @@ export function EmbeddingHostRuntime(): null {
           gate: gateRef.current,
           queryEmbeddingActiveCountRef,
           request,
+          runtimeEngine,
           runtimeIdRef,
           serviceStateRef: queryEmbeddingServiceStateRef,
         }).catch((error: unknown) => {
@@ -907,7 +1014,7 @@ export function EmbeddingHostRuntime(): null {
       );
       void stopWorker('dispose');
     };
-  }, [db]);
+  }, [db, runtimeEngine, unsupportedRuntimeError]);
 
   return null;
 }

@@ -28,6 +28,8 @@ const DB_QUERY_CHANNEL = 'db:query' as const;
 const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
 const DB_TEST_CHANNEL = 'db:test' as const;
 const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
+const DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL = 'db:turso-embedding-worker:queue' as const;
+const DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL = 'db:turso-embedding-worker:stats' as const;
 const FILE_SYSTEM_ADD_ROOT_CHANNEL = 'fs:addRoot' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
@@ -579,6 +581,22 @@ if (shouldExposeBridge('electronAPI')) {
         resultIndex: number,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_TRANSACTION_CHANNEL, statements, resultIndex, options),
+      tursoEmbeddingWorkerQueue: (
+        operation: string,
+        payload: unknown,
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke(DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL, operation, payload, options),
+      tursoEmbeddingWorkerStats: (
+        operation: string,
+        embeddingSetIds: readonly string[],
+        options?: DatabaseWorkOptions
+      ) =>
+        ipcRenderer.invoke(
+          DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
+          operation,
+          embeddingSetIds,
+          options
+        ),
       test: () => ipcRenderer.invoke(DB_TEST_CHANNEL),
       clearAll: (confirmationToken?: string) =>
         ipcRenderer.invoke(DB_CLEAR_ALL_CHANNEL, confirmationToken),

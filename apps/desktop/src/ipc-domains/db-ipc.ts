@@ -1,9 +1,13 @@
 import {
+  type BrainstrikeDbExecutionClient,
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
+  markTursoCollectionIndexingStatsDirty,
   parseManagedCacheBatchArgs,
+  refreshTursoCollectionIndexingStats,
   runStatementsInTransaction,
   type TransactionStatement,
+  TursoJobQueue,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
@@ -13,8 +17,14 @@ import {
   DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
   DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL,
   DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
+  DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
+  DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
+  type ParsedTursoEmbeddingWorkerQueueRequest,
+  type ParsedTursoEmbeddingWorkerStatsRequest,
   parseInsertChunksAndEnqueueEmbeddingJobsArgs,
   parseManagedCacheInvalidationsArgs,
+  parseTursoEmbeddingWorkerQueueArgs,
+  parseTursoEmbeddingWorkerStatsArgs,
 } from '../db-shared';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
@@ -280,6 +290,54 @@ async function clearOptionalRelation(
     logger.warn('Failed to clear optional database table', { error, tableName });
     throw error;
   }
+}
+
+async function executeTursoEmbeddingWorkerQueueOperation(
+  db: BrainstrikeDbExecutionClient,
+  request: ParsedTursoEmbeddingWorkerQueueRequest
+): Promise<unknown> {
+  const queue = new TursoJobQueue(db);
+  switch (request.operation) {
+    case 'claimMany':
+      return await queue.claimMany(request.payload);
+    case 'completeBatch':
+      return await queue.completeBatch([...request.payload]);
+    case 'completeEmbeddingChunkBatch':
+      return await queue.completeEmbeddingChunkBatch([...request.payload]);
+    case 'fail':
+      return await queue.fail(request.payload);
+    case 'failBatch':
+      return await queue.failBatch(request.payload);
+    case 'heartbeatBatch':
+      return await queue.heartbeatBatch([...request.payload.jobs], request.payload.extendMs);
+    default:
+      return assertNeverTursoQueueOperation(request);
+  }
+}
+
+function assertNeverTursoQueueOperation(_request: never): never {
+  throw new Error('Unsupported Turso embedding worker queue operation.');
+}
+
+async function executeTursoEmbeddingWorkerStatsOperation(
+  db: BrainstrikeDbExecutionClient,
+  request: ParsedTursoEmbeddingWorkerStatsRequest
+): Promise<void> {
+  if (request.operation === 'markDirty') {
+    await markTursoCollectionIndexingStatsDirty(db, request.embeddingSetIds);
+    return;
+  }
+  if (request.operation === 'refresh') {
+    await db.transaction(async (tx) => {
+      await refreshTursoCollectionIndexingStats(tx, request.embeddingSetIds);
+    });
+    return;
+  }
+  assertNeverTursoStatsOperation(request.operation);
+}
+
+function assertNeverTursoStatsOperation(_operation: never): never {
+  throw new Error('Unsupported Turso embedding worker stats operation.');
 }
 
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
@@ -621,6 +679,60 @@ export function registerDatabaseIpcHandlers(
             const { getDbHostManager } = await import('../db-host-manager');
             await getDbHostManager().insertChunksAndEnqueueEmbeddingJobs(parsedPayload);
           }, DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
+    async (
+      event: IpcMainInvokeEvent,
+      operation: unknown,
+      payload: unknown,
+      workOptions?: DatabaseWorkOptions
+    ) => {
+      const parsedRequest = parseTursoEmbeddingWorkerQueueArgs(operation, payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDatabase } = await import('../db-main');
+            return await executeTursoEmbeddingWorkerQueueOperation(
+              (await getDatabase()) as BrainstrikeDbExecutionClient,
+              parsedRequest
+            );
+          }, DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
+    async (
+      event: IpcMainInvokeEvent,
+      operation: unknown,
+      embeddingSetIds: unknown,
+      workOptions?: DatabaseWorkOptions
+    ) => {
+      const parsedRequest = parseTursoEmbeddingWorkerStatsArgs(operation, embeddingSetIds);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDatabase } = await import('../db-main');
+            await executeTursoEmbeddingWorkerStatsOperation(
+              (await getDatabase()) as BrainstrikeDbExecutionClient,
+              parsedRequest
+            );
+          }, DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL)
       );
     }
   );
