@@ -153,7 +153,7 @@ export type DatabaseTursoOwnerClientQoSDiagnostics =
   | ({ readonly available: true } & DatabaseTursoOwnerClientQoSSnapshot)
   | {
       readonly available: false;
-      readonly reason: 'owner-client-not-open' | 'runtime-not-turso';
+      readonly reason: 'diagnostics-unsupported' | 'owner-client-not-open' | 'runtime-not-turso';
     };
 
 export interface DatabaseDiagnosticsSnapshot {

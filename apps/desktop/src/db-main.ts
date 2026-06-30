@@ -1107,7 +1107,8 @@ function getTursoOwnerClientQoSDiagnostics(
     return { available: false, reason: 'owner-client-not-open' };
   }
   if (!hasTursoOwnerClientQoSProvider(db)) {
-    throw new Error('Turso owner client diagnostics are unavailable on the active Turso handle.');
+    logger.error('Turso owner handle is missing getQoSDiagnostics');
+    return { available: false, reason: 'diagnostics-unsupported' };
   }
   return { available: true, ...db.getQoSDiagnostics() };
 }

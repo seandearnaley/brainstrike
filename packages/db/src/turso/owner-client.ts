@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { DatabaseTursoOwnerClientQoSSnapshot } from '@brainstrike/types';
 import { connect, type Database as TursoDatabase } from '@tursodatabase/database';
 import type {
   BrainstrikeDbQueryResult,
@@ -282,7 +283,7 @@ function createQoSDiagnosticsSnapshot(
   const queuedOperations = input.queuedOperations.map((operation) =>
     createQueuedOperationDiagnostic(operation, input.now)
   );
-  return {
+  const snapshot = {
     activeOperation: input.activeOperation
       ? createActiveOperationDiagnostic(input.activeOperation, input.now)
       : null,
@@ -296,7 +297,8 @@ function createQoSDiagnosticsSnapshot(
     totalFailedOperations: input.totalFailedOperations,
     totalQueuedOperations: input.totalQueuedOperations,
     totalStartedOperations: input.totalStartedOperations,
-  };
+  } satisfies DatabaseTursoOwnerClientQoSSnapshot;
+  return snapshot;
 }
 
 function createActiveOperationDiagnostic(

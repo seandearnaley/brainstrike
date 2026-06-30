@@ -70,7 +70,8 @@ as the implementation backlog.
 - #1364 `Add Turso owner client QoS diagnostics`
 - Current slice: surface the Turso owner-client QoS snapshot through desktop
   database diagnostics and DB-host IPC, with explicit unavailable states for
-  non-Turso runtimes and not-yet-open owner handles.
+  non-Turso runtimes, not-yet-open owner handles, and unsupported owner-handle
+  diagnostics.
 
 ## Turso Docs Guardrail
 
@@ -111,9 +112,10 @@ The branch currently has a real Turso runtime seam:
   count, and queued/started/completed/failed totals. Desktop
   `DatabaseDiagnosticsSnapshot` now carries that snapshot through the DB host
   IPC surface when Turso is active, returns explicit unavailable reasons for
-  non-Turso or not-yet-open states, and throws if an active Turso owner handle
-  lacks the diagnostics method. This is diagnostic-only and does not alter
-  timeout, retry, or write serialization policy.
+  non-Turso, not-yet-open, or unsupported owner-handle diagnostics states, and
+  logs an error when an active Turso owner handle lacks the diagnostics method.
+  This is diagnostic-only and does not alter timeout, retry, or write
+  serialization policy.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.

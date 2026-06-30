@@ -85,6 +85,7 @@ vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 const migrateMock = vi.fn();
 const runPgliteBootstrapCapabilityProbeMock = vi.fn();
 const runTursoProfileBootstrapMock = vi.fn();
+const loggerErrorMock = vi.fn();
 const tursoOwnerQueryMock = vi.fn(async (sql: string, params?: readonly unknown[]) => ({
   rows: [{ sql, params, value: 'ok' }],
 }));
@@ -156,11 +157,19 @@ vi.mock('@brainstrike/utils', async () => {
     createLogger: () => ({
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
+      error: loggerErrorMock,
       debug: vi.fn(),
     }),
   };
 });
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: loggerErrorMock,
+    debug: vi.fn(),
+  }),
+}));
 
 describe('initializeMainDatabase', () => {
   const originalArgv = [...process.argv];
@@ -486,6 +495,28 @@ describe('initializeMainDatabase', () => {
     expect(PGliteMock).not.toHaveBeenCalled();
     expect(migrateMock).not.toHaveBeenCalled();
     expect(tursoOwnerQoSDiagnosticsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps diagnostics available when a Turso owner handle lacks QoS diagnostics', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+    createTursoOwnerClientMock.mockResolvedValueOnce({
+      close: tursoOwnerCloseMock,
+      exec: tursoOwnerExecMock,
+      query: tursoOwnerQueryMock,
+    });
+
+    const { getDatabaseDiagnostics, initializeMainDatabaseWithBootstrapReport } = await import(
+      '../../db-main'
+    );
+    await initializeMainDatabaseWithBootstrapReport();
+
+    expect(getDatabaseDiagnostics().tursoOwnerClientQoS).toEqual({
+      available: false,
+      reason: 'diagnostics-unsupported',
+    });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Turso owner handle is missing getQoSDiagnostics');
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {
