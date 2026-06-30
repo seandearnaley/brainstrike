@@ -52,6 +52,11 @@
       "import": "./dist/local-runtime.js",
       "require": "./dist/local-runtime.js"
     },
+    "./assistant-run-persistence": {
+      "types": "./dist/assistant-run-persistence.d.ts",
+      "import": "./dist/assistant-run-persistence.js",
+      "require": "./dist/assistant-run-persistence.js"
+    },
     "./mastra-memory-schema": {
       "types": "./dist/mastra-memory-schema.d.ts",
       "import": "./dist/mastra-memory-schema.js",

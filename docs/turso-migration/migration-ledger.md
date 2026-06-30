@@ -69,9 +69,11 @@ as the implementation backlog.
 - #1363 `Fix Turso embedding-set delete file metadata`
 - #1364 `Add Turso owner client QoS diagnostics`
 - #1365 `Surface Turso owner QoS diagnostics in desktop`
-- Current slice: persist desktop assistant run events and run status with
-  runtime-specific SQL so Turso profiles do not receive Postgres placeholders or
-  casts.
+- #1366 `Persist desktop assistant run data on Turso`
+- Current slice: centralize Brainstrike-owned assistant run-event and run-status
+  write SQL behind shared assistant-contract query builders so desktop server
+  persistence and app-shell thread repositories cannot drift between
+  PGlite/Postgres and Turso/SQLite dialects.
 
 Recently completed diagnostics slice: surface the Turso owner-client QoS snapshot through desktop
   database diagnostics and DB-host IPC, with explicit unavailable states for
@@ -179,7 +181,9 @@ Current Turso repository/runtime coverage:
   ready runtime: PGlite keeps the existing Postgres-shaped statements, while
   Turso uses `?` placeholders, SQLite timestamps, and `excluded.*` conflict
   updates for `brainstrike_assistant_run_events` and
-  `brainstrike_assistant_thread_runs`.
+  `brainstrike_assistant_thread_runs`. Those write queries are now built by
+  shared `@brainstrike/assistant-contract/assistant-run-persistence` helpers
+  used by both the desktop assistant server and app-shell thread repositories.
 - Desktop assistant `brainstrike.grepSearch` is available under Turso only when
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses
@@ -370,7 +374,6 @@ Known production touchpoints:
 
 Concrete blockers:
 
-- `createPgliteMastraMemory()` is still the server memory factory.
 - `TursoMemoryStore` and `TursoWorkflowsStore` now exist under
   `@brainstrike/agent/turso-mastra-memory`, with SQLite-compatible schema,
   thread/message/resource persistence, non-vector observational memory, and
@@ -380,14 +383,18 @@ Concrete blockers:
   configuration errors instead of silently disabling vector behavior.
 - `PgliteVectorStore` creates `vector` extension, `embedding vector`, JSONB,
   and GIN indexes.
-- The renderer thread repository is named and shaped around PGlite/Postgres
-  SQL, including JSONB casts.
+- The renderer thread repository still contains separate PGlite and Turso read
+  query dialects for latest-run listing, message hydration, usage aggregation,
+  and thread CRUD. Do not centralize those until each read surface is covered by
+  a dialect-specific contract test; the current shared helper only owns
+  run-event append and terminal run-status writes.
 
-Preferred next slice: wire the desktop assistant server to select the Turso
-factory from the ready runtime/bootstrap verdict, include runtime/profile/store
-identity in the memory cache key, bootstrap the related run-event tables for
-Turso, and replay the live-loop persistence and tool-approval tests against
-Turso before enabling the path.
+Completed slices have wired the desktop assistant server to select the Turso
+factory from the ready runtime/bootstrap verdict, included runtime/profile/store
+identity in the memory cache key, and replayed live-loop persistence against
+Turso. Remaining work in this area is vector semantic memory parity: the Turso
+factory intentionally fails closed for vector memory until a Turso-compatible
+vector store and recall contract exist.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 
