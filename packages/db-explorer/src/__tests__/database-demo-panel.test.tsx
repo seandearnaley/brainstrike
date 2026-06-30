@@ -632,26 +632,22 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
     });
 
-    it('fetches model registry on mount', async () => {
+    it('delegates model registry hydration to the runtime-aware hook on mount', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
-          expect.objectContaining({ db: mockDatabase })
-        );
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith();
       });
     });
 
-    it('fetches model registry through the Turso runtime DB when the PGlite client is unavailable', async () => {
+    it('does not pass a null PGlite client to model registry hydration in Turso mode', async () => {
       mockDatabaseClient = null;
       mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
 
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
-          expect.objectContaining({ db: mockModelRegistryDatabase })
-        );
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith();
       });
 
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();

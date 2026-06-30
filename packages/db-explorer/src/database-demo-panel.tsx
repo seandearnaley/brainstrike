@@ -10,7 +10,6 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
-  useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import {
@@ -192,7 +191,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();
-  const modelRegistryDbContext = useModelRegistryDbClient();
   const profileBootstrapReport = useOptionalProfileBootstrapReport();
 
   const { toast } = useToast();
@@ -243,7 +241,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const models = useModelRegistryStore((s) => s.models);
   const providers = useModelRegistryStore((s) => s.providers);
   const isRegistryLoading = useModelRegistryStore((s) => s.isLoading);
-  useEnsureModelRegistry({ db: modelRegistryDbContext });
+  useEnsureModelRegistry();
   const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
     useLocalRuntimeEmbeddingModelCatalog({
       verifyEmbeddingDimensions: true,
