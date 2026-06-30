@@ -128,6 +128,16 @@ declare global {
           options: ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
           workOptions?: DatabaseWorkOptions
         ) => Promise<void>;
+        tursoEmbeddingWorkerQueue: (
+          operation: string,
+          payload: unknown,
+          workOptions?: DatabaseWorkOptions
+        ) => Promise<unknown>;
+        tursoEmbeddingWorkerStats: (
+          operation: string,
+          embeddingSetIds: readonly string[],
+          workOptions?: DatabaseWorkOptions
+        ) => Promise<void>;
         test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
         clearAll: (confirmationToken?: string) => Promise<{
           success: boolean;

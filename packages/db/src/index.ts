@@ -97,6 +97,7 @@ export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.
 export type {
   CancelParams,
   ClaimParams,
+  CompleteEmbeddingChunkParams,
   CompleteParams,
   EnqueueParams,
   FailBatchParams,

@@ -243,6 +243,34 @@ describe('createEmbeddingWorkerConfig', () => {
     );
   });
 
+  it('uses explicit Turso worker storage and SQL-standard queue depth reads', async () => {
+    const { db, scheduledDb } = createScheduledTestDb();
+    const storage = { id: 'turso-storage' };
+    db.query.mockResolvedValueOnce({ rows: [{ count: '17' }] });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never, undefined, {
+      runtimeEngine: 'turso',
+      storage: storage as never,
+    });
+
+    expect(config).toMatchObject({ storage });
+    expect(config).not.toHaveProperty('db');
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('CAST(COUNT(*) AS INTEGER)'));
+    expect(db.query.mock.calls[0]?.[0]).not.toContain('::int');
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pipeline: expect.objectContaining({
+          queueDepth: {
+            activeEmbeddingJobs: 17,
+            available: true,
+          },
+        }),
+      })
+    );
+  });
+
   it('passes renderer memory pressure into desktop QoS resolution', async () => {
     const { scheduledDb } = createScheduledTestDb();
     Object.defineProperty(globalThis.performance, 'memory', {

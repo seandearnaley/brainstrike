@@ -38,6 +38,8 @@ export const DESKTOP_IPC_CHANNELS = {
     transaction: 'db:transaction',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    tursoEmbeddingWorkerQueue: 'db:turso-embedding-worker:queue',
+    tursoEmbeddingWorkerStats: 'db:turso-embedding-worker:stats',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',

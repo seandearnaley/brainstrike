@@ -1,5 +1,10 @@
 import type {
   ApplyManagedCacheInvalidationsArgs,
+  ClaimParams,
+  CompleteEmbeddingChunkParams,
+  CompleteParams,
+  FailBatchParams,
+  FailParams,
   ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
 import type {
@@ -13,6 +18,10 @@ export const DB_INSERT_CHUNKS_AND_ENQUEUE_JOBS_CHANNEL =
   DESKTOP_IPC_CHANNELS.db.insertChunksAndEnqueueEmbeddingJobs;
 export const DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL =
   DESKTOP_IPC_CHANNELS.db.invalidateManagedCacheEntriesByIdentity;
+export const DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL =
+  DESKTOP_IPC_CHANNELS.db.tursoEmbeddingWorkerQueue;
+export const DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL =
+  DESKTOP_IPC_CHANNELS.db.tursoEmbeddingWorkerStats;
 
 type ElectronEmbeddingProvider = NonNullable<
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions['provider']
@@ -29,6 +38,50 @@ export interface ParsedInsertChunksAndEnqueueEmbeddingJobsArgs {
   readonly provider?: ElectronEmbeddingProvider | null;
   readonly targetDimension: number;
   readonly targetEmbeddingSetId?: string | null;
+}
+
+export type TursoEmbeddingWorkerQueueOperation =
+  | 'claimMany'
+  | 'completeBatch'
+  | 'completeEmbeddingChunkBatch'
+  | 'fail'
+  | 'failBatch'
+  | 'heartbeatBatch';
+
+export type ParsedTursoEmbeddingWorkerQueueRequest =
+  | {
+      readonly operation: 'claimMany';
+      readonly payload: ClaimParams & { readonly limit?: number };
+    }
+  | {
+      readonly operation: 'completeBatch';
+      readonly payload: readonly CompleteParams[];
+    }
+  | {
+      readonly operation: 'completeEmbeddingChunkBatch';
+      readonly payload: readonly CompleteEmbeddingChunkParams[];
+    }
+  | {
+      readonly operation: 'fail';
+      readonly payload: FailParams;
+    }
+  | {
+      readonly operation: 'failBatch';
+      readonly payload: FailBatchParams;
+    }
+  | {
+      readonly operation: 'heartbeatBatch';
+      readonly payload: {
+        readonly extendMs: number;
+        readonly jobs: readonly CompleteParams[];
+      };
+    };
+
+export type TursoEmbeddingWorkerStatsOperation = 'markDirty' | 'refresh';
+
+export interface ParsedTursoEmbeddingWorkerStatsRequest {
+  readonly embeddingSetIds: readonly string[];
+  readonly operation: TursoEmbeddingWorkerStatsOperation;
 }
 
 const EMBEDDING_PROVIDERS = new Set<ElectronEmbeddingProvider>([
@@ -80,11 +133,33 @@ function requirePositiveInteger(value: unknown, message: string): number {
   return integer;
 }
 
+function requireNonNegativeInteger(value: unknown, message: string): number {
+  const integer = requireInteger(value, message);
+  if (integer < 0) {
+    throw new Error(message);
+  }
+  return integer;
+}
+
 function parseOptionalInteger(value: unknown, message: string): number | undefined {
   if (value === undefined) {
     return;
   }
   return requireInteger(value, message);
+}
+
+function parseOptionalPositiveInteger(value: unknown, message: string): number | undefined {
+  if (value === undefined) {
+    return;
+  }
+  return requirePositiveInteger(value, message);
+}
+
+function parseOptionalNonNegativeInteger(value: unknown, message: string): number | undefined {
+  if (value === undefined) {
+    return;
+  }
+  return requireNonNegativeInteger(value, message);
 }
 
 function parseOptionalString(value: unknown, message: string): string | undefined {
@@ -99,6 +174,23 @@ function parseOptionalNumberArray(value: unknown, message: string): number[] | u
     return;
   }
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'number')) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function requireNumberArray(value: unknown, message: string): number[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'number')) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function parseOptionalBoolean(value: unknown, message: string): boolean | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'boolean') {
     throw new Error(message);
   }
   return value;
@@ -234,6 +326,200 @@ export function parseInsertChunksAndEnqueueEmbeddingJobsArgs(
             'Atomic chunk/job enqueue targetEmbeddingSetId invalid.'
           ),
     dimensionParameter: parseDimensionParameter(options['dimensionParameter']),
+  };
+}
+
+function parseLeaseRef(value: unknown, context: string): CompleteParams {
+  if (!(value && typeof value === 'object')) {
+    throw new Error(`${context} requires a job lease object.`);
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    id: requireNonEmptyString(candidate['id'], `${context} requires a non-empty job id.`),
+    leaseToken: requireNonEmptyString(
+      candidate['leaseToken'],
+      `${context} requires a non-empty lease token.`
+    ),
+  };
+}
+
+function parseLeaseRefs(value: unknown, context: string): CompleteParams[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${context} requires an array of job lease objects.`);
+  }
+  return value.map((entry) => parseLeaseRef(entry, context));
+}
+
+function parseClaimManyPayload(value: unknown): ClaimParams & { readonly limit?: number } {
+  if (!(value && typeof value === 'object')) {
+    throw new Error('Turso embedding worker claimMany payload must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const limit = parseOptionalPositiveInteger(
+    candidate['limit'],
+    'Turso embedding worker claimMany limit must be positive.'
+  );
+  const workerId = parseOptionalString(
+    candidate['workerId'],
+    'Turso embedding worker claimMany workerId must be non-empty.'
+  );
+  const now = parseOptionalString(
+    candidate['now'],
+    'Turso embedding worker claimMany now must be non-empty.'
+  );
+  return {
+    leaseMs: requirePositiveInteger(
+      candidate['leaseMs'],
+      'Turso embedding worker claimMany leaseMs must be positive.'
+    ),
+    queue: requireNonEmptyString(
+      candidate['queue'],
+      'Turso embedding worker claimMany requires a non-empty queue.'
+    ),
+    ...(limit === undefined ? {} : { limit }),
+    ...(workerId === undefined ? {} : { workerId }),
+    ...(now === undefined ? {} : { now }),
+  };
+}
+
+function parseCompleteEmbeddingChunkPayload(value: unknown): CompleteEmbeddingChunkParams {
+  const leaseRef = parseLeaseRef(value, 'Turso embedding worker completeEmbeddingChunkBatch');
+  const candidate = value as Record<string, unknown>;
+  return {
+    ...leaseRef,
+    chunkId: requireNonEmptyString(
+      candidate['chunkId'],
+      'Turso embedding worker completeEmbeddingChunkBatch requires a non-empty chunkId.'
+    ),
+    embedding: requireNumberArray(
+      candidate['embedding'],
+      'Turso embedding worker completeEmbeddingChunkBatch embedding must be a number array.'
+    ),
+    embeddingHash: requireNonEmptyString(
+      candidate['embeddingHash'],
+      'Turso embedding worker completeEmbeddingChunkBatch requires a non-empty embeddingHash.'
+    ),
+    embeddingSetId: requireNonEmptyString(
+      candidate['embeddingSetId'],
+      'Turso embedding worker completeEmbeddingChunkBatch requires a non-empty embeddingSetId.'
+    ),
+  };
+}
+
+function parseCompleteEmbeddingChunkBatchPayload(value: unknown): CompleteEmbeddingChunkParams[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Turso embedding worker completeEmbeddingChunkBatch payload must be an array.');
+  }
+  return value.map(parseCompleteEmbeddingChunkPayload);
+}
+
+function parseFailPayload(value: unknown): FailParams {
+  const leaseRef = parseLeaseRef(value, 'Turso embedding worker fail');
+  const candidate = value as Record<string, unknown>;
+  const backoffMs = parseOptionalNonNegativeInteger(
+    candidate['backoffMs'],
+    'Turso embedding worker fail backoffMs must be non-negative.'
+  );
+  const terminal = parseOptionalBoolean(
+    candidate['terminal'],
+    'Turso embedding worker fail terminal must be boolean.'
+  );
+  return {
+    ...leaseRef,
+    error: requireString(
+      candidate['error'],
+      'Turso embedding worker fail requires an error string.'
+    ),
+    ...(backoffMs === undefined ? {} : { backoffMs }),
+    ...(terminal === undefined ? {} : { terminal }),
+  };
+}
+
+function parseFailBatchPayload(value: unknown): FailBatchParams {
+  if (!(value && typeof value === 'object')) {
+    throw new Error('Turso embedding worker failBatch payload must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const backoffMs = parseOptionalNonNegativeInteger(
+    candidate['backoffMs'],
+    'Turso embedding worker failBatch backoffMs must be non-negative.'
+  );
+  const terminal = parseOptionalBoolean(
+    candidate['terminal'],
+    'Turso embedding worker failBatch terminal must be boolean.'
+  );
+  return {
+    error: requireString(
+      candidate['error'],
+      'Turso embedding worker failBatch requires an error string.'
+    ),
+    jobs: parseLeaseRefs(candidate['jobs'], 'Turso embedding worker failBatch'),
+    ...(backoffMs === undefined ? {} : { backoffMs }),
+    ...(terminal === undefined ? {} : { terminal }),
+  };
+}
+
+function parseHeartbeatBatchPayload(value: unknown): {
+  readonly extendMs: number;
+  readonly jobs: readonly CompleteParams[];
+} {
+  if (!(value && typeof value === 'object')) {
+    throw new Error('Turso embedding worker heartbeatBatch payload must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    extendMs: requirePositiveInteger(
+      candidate['extendMs'],
+      'Turso embedding worker heartbeatBatch extendMs must be positive.'
+    ),
+    jobs: parseLeaseRefs(candidate['jobs'], 'Turso embedding worker heartbeatBatch'),
+  };
+}
+
+export function parseTursoEmbeddingWorkerQueueArgs(
+  operation: unknown,
+  payload: unknown
+): ParsedTursoEmbeddingWorkerQueueRequest {
+  switch (operation) {
+    case 'claimMany':
+      return { operation, payload: parseClaimManyPayload(payload) };
+    case 'completeBatch':
+      return {
+        operation,
+        payload: parseLeaseRefs(payload, 'Turso embedding worker completeBatch'),
+      };
+    case 'completeEmbeddingChunkBatch':
+      return { operation, payload: parseCompleteEmbeddingChunkBatchPayload(payload) };
+    case 'fail':
+      return { operation, payload: parseFailPayload(payload) };
+    case 'failBatch':
+      return { operation, payload: parseFailBatchPayload(payload) };
+    case 'heartbeatBatch':
+      return { operation, payload: parseHeartbeatBatchPayload(payload) };
+    default:
+      throw new Error('Turso embedding worker queue operation is invalid.');
+  }
+}
+
+function parseEmbeddingSetIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Turso embedding worker stats payload must be an array.');
+  }
+  return value.map((entry) =>
+    requireNonEmptyString(entry, 'Turso embedding worker stats requires embedding set ids.')
+  );
+}
+
+export function parseTursoEmbeddingWorkerStatsArgs(
+  operation: unknown,
+  embeddingSetIds: unknown
+): ParsedTursoEmbeddingWorkerStatsRequest {
+  if (operation !== 'markDirty' && operation !== 'refresh') {
+    throw new Error('Turso embedding worker stats operation is invalid.');
+  }
+  return {
+    embeddingSetIds: parseEmbeddingSetIds(embeddingSetIds),
+    operation,
   };
 }
 

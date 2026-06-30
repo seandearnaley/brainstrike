@@ -75,9 +75,10 @@ as the implementation backlog.
 - #1369 `Fix Turso profile reset recreation`
 - #1371 `test(agent): prove Turso tool approval resume`
 - #1372 `feat(db-explorer): activate Turso collection snapshots`
-- Current slice: extract a storage-neutral embedding worker port so the hidden
-  worker can later receive Turso queue/chunk/model/stats operations without
-  constructing PGlite `JobQueue` and PGlite helper queries internally.
+- #1373 `Extract embedding worker storage port`
+- #1374 `Add Turso embedding worker storage adapter`
+- Current slice: wire the hidden renderer embedding host to Turso worker
+  storage without handing the worker a PGlite handle or silently falling back.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -126,6 +127,18 @@ The branch currently has a real Turso runtime seam:
   logs an error when an active Turso owner handle lacks the diagnostics method.
   This is diagnostic-only and does not alter timeout, retry, or write
   serialization policy.
+- Connection-model decision for the hidden embedding worker: desktop Turso
+  worker DB mutations use the shared main-process owner client through explicit
+  command-style IPC and the existing database work scheduler's `background`
+  priority lane, not a separate renderer-owned Turso connection. This keeps
+  local embedding inference in the hidden renderer while routing interactive
+  `TursoJobQueue` transactions to a query-capable owner client. The tradeoff is
+  deliberate: this path is foreground-prioritized serialized access, not true
+  parallel writer concurrency. A background transaction can briefly head-of-line
+  block foreground DB work until it commits, and `BEGIN CONCURRENT` does not add
+  primary-store write parallelism while all writes share one owner client. Reopen
+  the separate-connection design only if QoS diagnostics show material
+  foreground blocking from embedding-worker operations.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.
@@ -464,14 +477,15 @@ Concrete blockers:
   `collection_indexing_stats` through the shared `@brainstrike/db` Turso stats
   service. The hidden renderer host is not switched to this adapter yet; that
   remains the runtime wiring slice.
+- The hidden renderer embedding host now selects desktop Turso worker storage
+  when the DB provider exposes a ready Turso execution client. Queue and stats
+  mutations are delegated to the main DB host over explicit IPC operations so
+  claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
+  owner client instead of the renderer's exec-only transaction adapter.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout/watchdog policy, QoS/connection-model decision, and Turso
-  corruption diagnostics/recovery.
-
-Preferred next slice: wire the hidden renderer embedding host to select
-`createTursoEmbeddingWorkerStorage` only when the DB provider exposes a ready
-Turso execution client, with focused runtime tests proving the host never hands
-the Turso worker a PGlite handle or silently falls back.
+  client timeout/watchdog policy, full IPC-to-real-owner-client integration
+  coverage for the embedding worker bridge, and Turso corruption
+  diagnostics/recovery.
 
 ### 7. Factory Reset And Profile Cleanup
 

@@ -1,4 +1,5 @@
 export { POWER_BROADCAST_CHANNEL } from '@brainstrike/embedding-worker';
+export { createEmbeddingStatsRefreshControllerWithOperations } from './worker/embedding-stats-refresh-controller';
 export type {
   EmbeddingWorkerController,
   EmbeddingWorkerOptions,
