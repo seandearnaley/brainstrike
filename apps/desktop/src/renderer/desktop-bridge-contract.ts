@@ -10,6 +10,7 @@ interface DesktopBridgeLike {
       test?: unknown;
       tursoEmbeddingWorkerQueue?: unknown;
       tursoEmbeddingWorkerStats?: unknown;
+      tursoVectorQueueAction?: unknown;
     };
     fileSystem?: {
       addRoot?: unknown;

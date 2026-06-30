@@ -138,6 +138,11 @@ declare global {
           embeddingSetIds: readonly string[],
           workOptions?: DatabaseWorkOptions
         ) => Promise<void>;
+        tursoVectorQueueAction: (
+          operation: string,
+          payload: unknown,
+          workOptions?: DatabaseWorkOptions
+        ) => Promise<unknown>;
         test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
         clearAll: (confirmationToken?: string) => Promise<{
           success: boolean;

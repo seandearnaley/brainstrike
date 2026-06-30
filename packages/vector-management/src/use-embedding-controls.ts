@@ -104,6 +104,7 @@ export function useEmbeddingControls({
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
   const {
     controller: runtimeController,
+    liveQueryMetricsEnabled,
     service,
     serviceUnavailableReason,
     snapshotReader,
@@ -144,6 +145,7 @@ export function useEmbeddingControls({
     controller: runtimeController,
     service,
     snapshotReader,
+    liveQueryMetricsEnabled,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
     isImporting,

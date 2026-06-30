@@ -5,6 +5,7 @@ import type {
   CompleteParams,
   FailBatchParams,
   FailParams,
+  JobState,
   ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
 import type {
@@ -22,6 +23,7 @@ export const DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL =
   DESKTOP_IPC_CHANNELS.db.tursoEmbeddingWorkerQueue;
 export const DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL =
   DESKTOP_IPC_CHANNELS.db.tursoEmbeddingWorkerStats;
+export const DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL = DESKTOP_IPC_CHANNELS.db.tursoVectorQueueAction;
 
 type ElectronEmbeddingProvider = NonNullable<
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions['provider']
@@ -84,6 +86,29 @@ export interface ParsedTursoEmbeddingWorkerStatsRequest {
   readonly operation: TursoEmbeddingWorkerStatsOperation;
 }
 
+export type TursoVectorQueueActionOperation = 'clearQueue' | 'retryFailed' | 'wipeQueue';
+
+export type ParsedTursoVectorQueueActionRequest =
+  | {
+      readonly operation: 'clearQueue';
+      readonly payload: {
+        readonly states?: readonly Extract<
+          JobState,
+          'failed' | 'queued' | 'running' | 'succeeded'
+        >[];
+      };
+    }
+  | {
+      readonly operation: 'retryFailed';
+      readonly payload: {
+        readonly limit: number;
+      };
+    }
+  | {
+      readonly operation: 'wipeQueue';
+      readonly payload: null;
+    };
+
 const EMBEDDING_PROVIDERS = new Set<ElectronEmbeddingProvider>([
   'local',
   'transformers',
@@ -99,6 +124,7 @@ const DIMENSION_PARAMETERS = new Set<ElectronDimensionParameter>([
   'output_dimensionality',
   'output_dimension',
 ]);
+const VECTOR_QUEUE_CLEAR_STATES = new Set<JobState>(['failed', 'queued', 'running', 'succeeded']);
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
@@ -521,6 +547,69 @@ export function parseTursoEmbeddingWorkerStatsArgs(
     embeddingSetIds: parseEmbeddingSetIds(embeddingSetIds),
     operation,
   };
+}
+
+function parseVectorQueueActionPayloadObject(
+  value: unknown,
+  operation: TursoVectorQueueActionOperation
+): Record<string, unknown> {
+  if (!(value && typeof value === 'object') || Array.isArray(value)) {
+    throw new Error(`Turso vector queue ${operation} payload must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseVectorQueueClearStates(
+  value: unknown
+): Extract<JobState, 'failed' | 'queued' | 'running' | 'succeeded'>[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Turso vector queue clearQueue states must be an array.');
+  }
+  return value.map((state) => {
+    if (typeof state !== 'string' || !VECTOR_QUEUE_CLEAR_STATES.has(state as JobState)) {
+      throw new Error('Turso vector queue clearQueue state is invalid.');
+    }
+    return state as Extract<JobState, 'failed' | 'queued' | 'running' | 'succeeded'>;
+  });
+}
+
+export function parseTursoVectorQueueActionArgs(
+  operation: unknown,
+  payload: unknown
+): ParsedTursoVectorQueueActionRequest {
+  switch (operation) {
+    case 'clearQueue': {
+      const candidate = parseVectorQueueActionPayloadObject(payload, operation);
+      const states = parseVectorQueueClearStates(candidate['states']);
+      return {
+        operation,
+        payload: states === undefined ? {} : { states },
+      };
+    }
+    case 'retryFailed': {
+      const candidate = parseVectorQueueActionPayloadObject(payload, operation);
+      return {
+        operation,
+        payload: {
+          limit:
+            parseOptionalPositiveInteger(
+              candidate['limit'],
+              'Turso vector queue retryFailed limit must be positive.'
+            ) ?? 20,
+        },
+      };
+    }
+    case 'wipeQueue':
+      if (payload !== null) {
+        throw new Error('Turso vector queue wipeQueue payload must be null.');
+      }
+      return { operation, payload: null };
+    default:
+      throw new Error('Turso vector queue action operation is invalid.');
+  }
 }
 
 function parseManagedCacheInvalidationTarget(payload: unknown): ManagedCacheInvalidationTarget {

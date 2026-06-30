@@ -175,6 +175,7 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.db.tursoEmbeddingWorkerQueue,
       DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.db.tursoEmbeddingWorkerStats,
+      DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.tursoVectorQueueAction,
       DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot,
       GIT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.status,

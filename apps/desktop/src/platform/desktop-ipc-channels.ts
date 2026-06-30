@@ -40,6 +40,7 @@ export const DESKTOP_IPC_CHANNELS = {
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
     tursoEmbeddingWorkerQueue: 'db:turso-embedding-worker:queue',
     tursoEmbeddingWorkerStats: 'db:turso-embedding-worker:stats',
+    tursoVectorQueueAction: 'db:turso-vector-queue:action',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',

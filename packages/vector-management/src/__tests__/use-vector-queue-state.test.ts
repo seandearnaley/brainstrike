@@ -450,6 +450,66 @@ describe('useVectorQueueState', () => {
     ).toBe(true);
   });
 
+  it('can enable queue actions while keeping metrics on the snapshot reader', async () => {
+    const controller = createMockController();
+    const service = createMockService();
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn(async () => ({
+        activeSetQueueCounts: { queued: 2, running: 0, failed: 1, succeeded: 4 },
+        coverage: { total: 9, withSet: 5 },
+        lastError: 'snapshot-owned failure',
+        latency: { avgMs: 30, p50Ms: 20, p95Ms: 90 },
+        queueCounts: { queued: 3, running: 0, failed: 1, succeeded: 8 },
+        throughput: 7,
+      })),
+    };
+    const liveQueryCallStart = vi.mocked(useBrainstrikeLiveQuery).mock.calls.length;
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service,
+        snapshotReader,
+        liveQueryMetricsEnabled: false,
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
+      expect(result.current.coverage).toEqual({ total: 9, withSet: 5 });
+    });
+    expect(result.current.queueCounts).toEqual({ queued: 3, running: 0, failed: 1, succeeded: 8 });
+    expect(result.current.activeSetQueueCounts).toEqual({
+      queued: 2,
+      running: 0,
+      failed: 1,
+      succeeded: 4,
+    });
+    expect(result.current.throughput).toBe(7);
+    expect(result.current.lastError).toBe('snapshot-owned failure');
+    vi.mocked(snapshotReader.refresh).mockClear();
+    await expect(result.current.validateApiKey()).resolves.toEqual({ valid: true });
+    await result.current.retryFailed(12);
+    await result.current.clearQueue();
+    await result.current.wipeQueue();
+    expect(service.retryFailed).toHaveBeenCalledWith(12);
+    expect(service.clearQueue).toHaveBeenCalledWith(['failed']);
+    expect(service.wipeQueue).toHaveBeenCalledTimes(1);
+    expect(snapshotReader.refresh).toHaveBeenCalledTimes(3);
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(1, 'set-1');
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(2, 'set-1');
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(3, 'set-1');
+    const liveQueryCallsForRender = vi
+      .mocked(useBrainstrikeLiveQuery)
+      .mock.calls.slice(liveQueryCallStart);
+    expect(
+      liveQueryCallsForRender.length > 0 &&
+        liveQueryCallsForRender.every(([options]) => options.enabled === false)
+    ).toBe(true);
+  });
+
   it('logs snapshot refresh failures instead of leaving unhandled rejections', async () => {
     const controller = createMockController();
     const snapshotReader: VectorQueueSnapshotReader = {

@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/db';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
+import { createDesktopTursoVectorQueueService } from './vector-status/desktop-turso-vector-queue-service';
 import {
   type EmbeddingRuntimeController,
   useEmbeddingRuntimeController,
@@ -28,6 +29,7 @@ interface EmbeddingCoverageRepository {
 
 interface EmbeddingRuntimeContextValue {
   controller: EmbeddingRuntimeController;
+  liveQueryMetricsEnabled: boolean;
   service: VectorQueueService | null;
   serviceUnavailableReason: VectorQueueServiceUnavailableReason | null;
   snapshotReader: VectorQueueSnapshotReader | null;
@@ -44,10 +46,6 @@ function toEmbeddingCoverageRepository(
   return null;
 }
 
-function createUnavailableTursoVectorQueueService(): VectorQueueService | null {
-  return null;
-}
-
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
   const db = useModelRegistryDbClient();
   const bootstrapReport = useOptionalProfileBootstrapReport();
@@ -61,23 +59,7 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     [chunkRepository]
   );
 
-  const serviceResolution = useMemo(
-    () =>
-      createVectorQueueServiceForRuntime({
-        db,
-        chunkRepository: coverageRepository,
-        createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
-        createTursoVectorQueueService: createUnavailableTursoVectorQueueService,
-        runtimeEngine,
-      }),
-    [coverageRepository, db, runtimeEngine]
-  );
-  const service = serviceResolution.service;
-  const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
-  const snapshotReader = useMemo(() => {
-    if (service) {
-      return service;
-    }
+  const tursoSnapshotReader = useMemo(() => {
     if (!(runtimeEngine === 'turso' && db && coverageRepository)) {
       return null;
     }
@@ -86,8 +68,30 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
       chunkRepository: coverageRepository,
       jobQueue,
     });
-  }, [coverageRepository, db, runtimeEngine, service]);
+  }, [coverageRepository, db, runtimeEngine]);
+
+  const serviceResolution = useMemo(
+    () =>
+      createVectorQueueServiceForRuntime({
+        db,
+        chunkRepository: coverageRepository,
+        createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
+        createTursoVectorQueueService: ({ db: vectorQueueDb }) =>
+          tursoSnapshotReader
+            ? createDesktopTursoVectorQueueService({
+                db: vectorQueueDb,
+                snapshotReader: tursoSnapshotReader,
+              })
+            : null,
+        runtimeEngine,
+      }),
+    [coverageRepository, db, runtimeEngine, tursoSnapshotReader]
+  );
+  const service = serviceResolution.service;
+  const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
+  const snapshotReader = service ?? tursoSnapshotReader;
   const controllerDb = runtimeEngine === 'pglite' ? db : null;
+  const liveQueryMetricsEnabled = runtimeEngine === 'pglite' && Boolean(service);
 
   const controller = useEmbeddingRuntimeController({
     db: controllerDb,
@@ -99,11 +103,12 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
   const value = useMemo<EmbeddingRuntimeContextValue>(
     () => ({
       controller,
+      liveQueryMetricsEnabled,
       service,
       serviceUnavailableReason,
       snapshotReader,
     }),
-    [controller, service, serviceUnavailableReason, snapshotReader]
+    [controller, liveQueryMetricsEnabled, service, serviceUnavailableReason, snapshotReader]
   );
 
   return (

@@ -642,6 +642,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   const {
     controller: runtimeController,
+    liveQueryMetricsEnabled,
     service,
     serviceUnavailableReason,
     snapshotReader,
@@ -680,6 +681,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     controller: runtimeController,
     service,
     snapshotReader,
+    liveQueryMetricsEnabled,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
     isImporting,

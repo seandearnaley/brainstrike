@@ -148,6 +148,7 @@ describe('EmbeddingRuntimeProvider', () => {
     expect(result.current.service).toBe(
       createVectorQueueServiceForRuntimeMock.mock.results[0]?.value.service
     );
+    expect(result.current.liveQueryMetricsEnabled).toBe(true);
   });
 
   it('falls back to a null service when the repository is not coverage-capable', () => {
@@ -219,5 +220,41 @@ describe('EmbeddingRuntimeProvider', () => {
       createTursoVectorQueueSnapshotReaderMock.mock.results[0]?.value
     );
     expect(result.current.serviceUnavailableReason).toBe('missing-turso-vector-queue-adapter');
+    expect(result.current.liveQueryMetricsEnabled).toBe(false);
+  });
+
+  it('keeps Turso live metrics disabled when a queue action adapter is available', () => {
+    const actionService = { backfill: vi.fn(), refresh: vi.fn() };
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      runtime: { engine: 'turso', host: 'electron-utility', persistence: 'filesystem' },
+    });
+    createVectorQueueServiceForRuntimeMock.mockImplementation(
+      (input: { runtimeEngine: string }) => {
+        if (input.runtimeEngine === 'turso') {
+          return {
+            available: true,
+            reason: null,
+            service: actionService,
+          };
+        }
+        return {
+          available: true,
+          reason: null,
+          service: { backfill: vi.fn() },
+        };
+      }
+    );
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+
+    const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    expect(result.current.service).toBe(actionService);
+    expect(result.current.snapshotReader).toBe(actionService);
+    expect(result.current.serviceUnavailableReason).toBeNull();
+    expect(result.current.liveQueryMetricsEnabled).toBe(false);
   });
 });
