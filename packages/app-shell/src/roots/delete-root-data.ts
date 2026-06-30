@@ -1,4 +1,15 @@
 import type { WorkspaceRootsDbClient } from '@brainstrike/db';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+
+export interface RootDataDeletionSelector {
+  readonly rootId: string;
+  readonly rootPath?: string | undefined;
+}
+
+interface RootDeleteRow {
+  readonly id: string;
+  readonly path: string | null;
+}
 
 /**
  * Reads the affected-row count from a DML query result across driver shapes:
@@ -18,6 +29,105 @@ function readAffectedRows(result: unknown): number | null {
   return null;
 }
 
+function isRootDeleteRow(row: unknown): row is RootDeleteRow {
+  return (
+    typeof row === 'object' &&
+    row !== null &&
+    typeof (row as RootDeleteRow).id === 'string' &&
+    ((row as RootDeleteRow).path === null || typeof (row as RootDeleteRow).path === 'string')
+  );
+}
+
+function handleIdentity(
+  handle: DirectoryHandle,
+  rootIdByPath: ReadonlyMap<string, string>
+): string {
+  return handle.rootId ?? rootIdByPath.get(handle.path) ?? handle.path;
+}
+
+export function resolveRootDataDeletionSelector(
+  rootIdToDelete: string,
+  rootDirectoryHandles: readonly DirectoryHandle[],
+  rootIdByPath: ReadonlyMap<string, string>
+): RootDataDeletionSelector {
+  const handle = rootDirectoryHandles.find(
+    (candidate) =>
+      handleIdentity(candidate, rootIdByPath) === rootIdToDelete ||
+      candidate.path === rootIdToDelete
+  );
+  if (!handle) {
+    return { rootId: rootIdToDelete };
+  }
+  const samePathCount = rootDirectoryHandles.filter(
+    (candidate) => candidate.path === handle.path
+  ).length;
+  if (samePathCount !== 1) {
+    return { rootId: rootIdToDelete };
+  }
+  return { rootId: rootIdToDelete, rootPath: handle.path };
+}
+
+async function resolveRootDeleteId(
+  dbClient: WorkspaceRootsDbClient,
+  selector: RootDataDeletionSelector
+): Promise<string> {
+  if (!selector.rootPath) {
+    return selector.rootId;
+  }
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('SELECT id, path FROM roots WHERE id = ? OR path = ?', [
+          selector.rootId,
+          selector.rootPath,
+        ])
+      : await dbClient.db.query('SELECT id, path FROM roots WHERE id = $1 OR path = $2', [
+          selector.rootId,
+          selector.rootPath,
+        ]);
+  const rows = result.rows.filter(isRootDeleteRow);
+  const idMatch = rows.find((row) => row.id === selector.rootId);
+  if (idMatch) {
+    return idMatch.id;
+  }
+  const pathMatches = rows.filter((row) => row.path === selector.rootPath);
+  if (pathMatches.length > 1) {
+    throw new Error(
+      `Root data deletion matched ambiguous root path "${selector.rootPath}" - refusing to delete by path.`
+    );
+  }
+  return pathMatches[0]?.id ?? selector.rootId;
+}
+
+async function deleteRootByResolvedId(
+  dbClient: WorkspaceRootsDbClient,
+  rootId: string,
+  errorIdentity: string
+): Promise<void> {
+  if (dbClient.runtimeEngine === 'turso') {
+    const result = await dbClient.db.query('DELETE FROM roots WHERE id = ? RETURNING id', [rootId]);
+    const rows = (result as { rows?: unknown }).rows;
+    if (!Array.isArray(rows)) {
+      throw new Error(
+        `Turso root data deletion did not return deleted rows for "${errorIdentity}" - refusing to report a silent success.`
+      );
+    }
+    if (rows.length === 0) {
+      throw new Error(
+        `Root data deletion matched no rows for "${errorIdentity}" - refusing to report a silent success.`
+      );
+    }
+    return;
+  }
+
+  const result = await dbClient.db.query('DELETE FROM roots WHERE id = $1', [rootId]);
+  const affectedRows = readAffectedRows(result);
+  if (affectedRows === 0) {
+    throw new Error(
+      `Root data deletion matched no rows for "${errorIdentity}" - refusing to report a silent success.`
+    );
+  }
+}
+
 /**
  * Deletes a root's `roots` row (cascading file_records + chunks via migration
  * 039's ON DELETE CASCADE). `roots.id` is a uuidv7, but the disconnect flow
@@ -30,8 +140,15 @@ function readAffectedRows(result: unknown): number | null {
  */
 export async function deleteRootDataFromDb(
   dbClient: WorkspaceRootsDbClient,
-  rootIdOrPath: string
+  target: RootDataDeletionSelector | string
 ): Promise<void> {
+  if (typeof target !== 'string') {
+    const rootId = await resolveRootDeleteId(dbClient, target);
+    await deleteRootByResolvedId(dbClient, rootId, target.rootId);
+    return;
+  }
+
+  const rootIdOrPath = target;
   if (dbClient.runtimeEngine === 'turso') {
     const result = await dbClient.db.query(
       'DELETE FROM roots WHERE id = ? OR path = ? RETURNING id',

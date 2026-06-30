@@ -44,7 +44,7 @@ import { CommandPaletteHost } from './command-palette-host';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { QuickOpenHost } from './quick-open-host';
-import { deleteRootDataFromDb } from './roots/delete-root-data';
+import { deleteRootDataFromDb, resolveRootDataDeletionSelector } from './roots/delete-root-data';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
@@ -56,7 +56,7 @@ interface DebouncedPanelLayoutState {
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
-  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
+  const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
   // Prefer the stamped handle.rootId — the path→id map collides for same-named
@@ -74,9 +74,12 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
       if (!dbClient) {
         throw new Error('Cannot delete root data: database is not ready.');
       }
-      await deleteRootDataFromDb(dbClient, rootIdToDelete);
+      await deleteRootDataFromDb(
+        dbClient,
+        resolveRootDataDeletionSelector(rootIdToDelete, rootDirectoryHandles, rootIdByPath)
+      );
     },
-    [dbClient]
+    [dbClient, rootDirectoryHandles, rootIdByPath]
   );
   return (
     <FileTreeProvider

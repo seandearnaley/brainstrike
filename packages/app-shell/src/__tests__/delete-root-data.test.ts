@@ -1,6 +1,7 @@
 import type { DbHandle } from '@brainstrike/db';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { describe, expect, it, vi } from 'vitest';
-import { deleteRootDataFromDb } from '../roots/delete-root-data';
+import { deleteRootDataFromDb, resolveRootDataDeletionSelector } from '../roots/delete-root-data';
 
 function makeDb(queryImpl: (sql: string, params?: unknown[]) => unknown): {
   db: DbHandle;
@@ -56,6 +57,51 @@ describe('deleteRootDataFromDb', () => {
     ).rejects.toThrow(/did not return deleted rows/);
   });
 
+  it('deletes a path-bridged Turso row by DB id when the adapter id differs', async () => {
+    const { db, query } = makeDb((sql) => {
+      if (sql.startsWith('SELECT id, path FROM roots')) {
+        return { rows: [{ id: 'db-root-id', path: '/Users/me/project' }] };
+      }
+      return { rows: [{ id: 'db-root-id' }] };
+    });
+
+    await deleteRootDataFromDb(
+      { db, runtimeEngine: 'turso' },
+      { rootId: 'adapter-root-id', rootPath: '/Users/me/project' }
+    );
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0]).toEqual([
+      'SELECT id, path FROM roots WHERE id = ? OR path = ?',
+      ['adapter-root-id', '/Users/me/project'],
+    ]);
+    expect(query.mock.calls[1]).toEqual([
+      'DELETE FROM roots WHERE id = ? RETURNING id',
+      ['db-root-id'],
+    ]);
+  });
+
+  it('throws before deleting when a path fallback would match multiple roots', async () => {
+    const { db, query } = makeDb(() => ({
+      rows: [
+        { id: 'db-root-a', path: 'project' },
+        { id: 'db-root-b', path: 'project' },
+      ],
+    }));
+
+    await expect(
+      deleteRootDataFromDb(
+        { db, runtimeEngine: 'turso' },
+        { rootId: 'adapter-a', rootPath: 'project' }
+      )
+    ).rejects.toThrow(/ambiguous root path/);
+
+    expect(query).toHaveBeenCalledExactlyOnceWith(
+      'SELECT id, path FROM roots WHERE id = ? OR path = ?',
+      ['adapter-a', 'project']
+    );
+  });
+
   it('deletes a legacy root passed by PATH (the silent-no-op regression)', async () => {
     // The sidebar falls back to handle.path when rootIdByPath has no entry.
     // roots.id is always a uuidv7, so `id = '<path>'` alone matched zero rows
@@ -93,5 +139,29 @@ describe('deleteRootDataFromDb', () => {
     await expect(
       deleteRootDataFromDb({ db, runtimeEngine: 'pglite' }, 'some-root')
     ).resolves.toBeUndefined();
+  });
+
+  it('resolves a unique mounted adapter root to its handle path for DB deletion', () => {
+    const handle = {
+      name: 'project',
+      path: '/Users/me/project',
+      rootId: 'adapter-root-id',
+    } as DirectoryHandle;
+
+    expect(resolveRootDataDeletionSelector('adapter-root-id', [handle], new Map())).toEqual({
+      rootId: 'adapter-root-id',
+      rootPath: '/Users/me/project',
+    });
+  });
+
+  it('does not attach a path fallback for same-named active FSA roots', () => {
+    const handles = [
+      { name: 'project', path: 'project', rootId: 'adapter-a' },
+      { name: 'project', path: 'project', rootId: 'adapter-b' },
+    ] as DirectoryHandle[];
+
+    expect(resolveRootDataDeletionSelector('adapter-a', handles, new Map())).toEqual({
+      rootId: 'adapter-a',
+    });
   });
 });
