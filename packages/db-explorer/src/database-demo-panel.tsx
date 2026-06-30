@@ -241,7 +241,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const models = useModelRegistryStore((s) => s.models);
   const providers = useModelRegistryStore((s) => s.providers);
   const isRegistryLoading = useModelRegistryStore((s) => s.isLoading);
-  useEnsureModelRegistry({ db: dbContext });
+  useEnsureModelRegistry();
   const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
     useLocalRuntimeEmbeddingModelCatalog({
       verifyEmbeddingDimensions: true,
@@ -560,7 +560,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <CardDescription className="text-xs">Database is initializing...</CardDescription>
         </CardHeader>
         <CardContent className="flex h-32 items-center justify-center">
-          <div className="text-muted-foreground text-sm">Loading PGlite database...</div>
+          <div className="text-muted-foreground text-sm">Loading database...</div>
         </CardContent>
       </Card>
     );

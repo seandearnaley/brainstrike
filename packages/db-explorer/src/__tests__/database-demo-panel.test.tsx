@@ -60,6 +60,7 @@ const mockRepository = {
   update: vi.fn(),
   delete: vi.fn(),
 };
+let mockCurrentRepository: typeof mockRepository | null = mockRepository;
 
 const mockChunkRepository = {
   findAll: vi.fn(),
@@ -164,7 +165,12 @@ const mockCollectionLiveQueryResult = {
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
+const mockModelRegistryDatabase = {
+  query: vi.fn().mockResolvedValue({ rows: [] }),
+};
 let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
+let mockModelRegistryDatabaseClient: typeof mockModelRegistryDatabase | null =
+  mockModelRegistryDatabase;
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
 let mockProfileBootstrapReport: { runtime: { engine: string } } | null = {
   runtime: { engine: 'pglite' },
@@ -200,8 +206,9 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
           .brainstrikeRepositoryKind === TURSO_FILE_CHUNK_REPOSITORY_MARKER
     ),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useFileRecordRepository: () => mockRepository,
+    useFileRecordRepository: () => mockCurrentRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
+    useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
     useOptionalPGliteDatabase: () =>
       mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
@@ -467,6 +474,8 @@ describe('DatabaseDemoPanel', () => {
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
+    mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
+    mockCurrentRepository = mockRepository;
     mockCurrentChunkRepository = mockChunkRepository;
     mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
 
@@ -625,14 +634,34 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
     });
 
-    it('fetches model registry on mount', async () => {
+    it('uses storage-neutral copy while database repositories initialize', () => {
+      mockCurrentRepository = null;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(screen.getByText('Loading database...')).toBeInTheDocument();
+      expect(screen.queryByText(/PGlite database/i)).not.toBeInTheDocument();
+    });
+
+    it('delegates model registry hydration to the runtime-aware hook on mount', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
-          expect.objectContaining({ db: mockDatabase })
-        );
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith();
       });
+    });
+
+    it('does not pass a null PGlite client to model registry hydration in Turso mode', async () => {
+      mockDatabaseClient = null;
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
   });
 
