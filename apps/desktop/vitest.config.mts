@@ -65,6 +65,23 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/platform-utils/src'
       ),
+      '@brainstrike/db/turso/owner-client': path.resolve(
+        import.meta.dirname,
+        '../../packages/db/src/turso/owner-client.ts'
+      ),
+      '@brainstrike/db/turso/schema-baseline': path.resolve(
+        import.meta.dirname,
+        '../../packages/db/src/turso/schema-baseline.ts'
+      ),
+      '@brainstrike/db/bootstrap/turso-profile-bootstrap': path.resolve(
+        import.meta.dirname,
+        '../../packages/db/src/bootstrap/turso-profile-bootstrap.ts'
+      ),
+      '@brainstrike/db/browser-pglite-storage': path.resolve(
+        import.meta.dirname,
+        '../../packages/db/src/browser-pglite-storage.ts'
+      ),
+      '@brainstrike/db': path.resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         import.meta.dirname,
         '../../packages/embeddings/src/runtime-config.ts'
