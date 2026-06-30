@@ -43,9 +43,14 @@ vi.mock('electron', () => ({
 // Fake main-process PGlite whose transaction() runs the callback against a tx that
 // echoes the statements, so the db:transaction success path can be exercised without
 // a real database.
-const { createDefaultMockDatabase, getDatabaseMock, transactionSpy } = vi.hoisted(() => {
+const { createDefaultMockDatabase, getDatabaseMock, querySpy, transactionSpy } = vi.hoisted(() => {
+  const querySpy = vi.fn();
   const transactionSpy = vi.fn();
   const createDefaultMockDatabase = () => ({
+    query: async (sql: string, params?: unknown[]) => {
+      querySpy({ params, sql });
+      return { rows: [{ id: 'deleted-job-1' }] };
+    },
     transaction: async (
       fn: (tx: {
         exec?: (sql: string, params?: unknown[]) => Promise<void>;
@@ -117,6 +122,18 @@ const { createDefaultMockDatabase, getDatabaseMock, transactionSpy } = vi.hoiste
               ],
             };
           }
+          if (sql.includes('SELECT id') && sql.includes("state = 'failed'")) {
+            return { rows: [{ id: 'failed-job-1' }] };
+          }
+          if (
+            sql.includes('SELECT id') &&
+            sql.includes("state = 'queued' AND attempts >= max_attempts")
+          ) {
+            return { rows: [{ id: 'blocked-queued-job-1' }] };
+          }
+          if (sql.includes('SET state =') && sql.includes('WHERE id IN')) {
+            return { rows: [{ id: String(params?.[2] ?? 'reset-job-1') }] };
+          }
           return { rows: [{ sql }] };
         },
       });
@@ -127,6 +144,7 @@ const { createDefaultMockDatabase, getDatabaseMock, transactionSpy } = vi.hoiste
   return {
     createDefaultMockDatabase,
     getDatabaseMock: vi.fn(async () => createDefaultMockDatabase()),
+    querySpy,
     transactionSpy,
   };
 });
@@ -152,6 +170,7 @@ describe('database IPC domain', () => {
     removeHandler.mockClear();
     getDatabaseMock.mockReset();
     getDatabaseMock.mockImplementation(async () => createDefaultMockDatabase());
+    querySpy.mockClear();
     transactionSpy.mockClear();
     dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
     registerDatabaseIpcHandlers({});
@@ -330,6 +349,50 @@ describe('database IPC domain', () => {
       expect.stringContaining('SELECT *'),
       expect.stringContaining('UPDATE job_queue'),
     ]);
+  });
+
+  it('runs Turso vector queue action operations against the owner DB client', async () => {
+    const result = await handlers.get('db:turso-vector-queue:action')?.(
+      {} as IpcMainInvokeEvent,
+      'retryFailed',
+      { limit: 5 },
+      { label: 'turso.vector-queue.action.retryFailed', priority: 'normal' }
+    );
+
+    expect(result).toEqual({
+      repairedQueued: 1,
+      requeuedFailed: 1,
+    });
+    expect(transactionSpy).toHaveBeenCalledTimes(2);
+    const ranSql = transactionSpy.mock.calls.flatMap((call) =>
+      call[0].map((statement: { sql: string }) => statement.sql)
+    );
+    expect(ranSql).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("state = 'queued' AND attempts >= max_attempts"),
+        expect.stringContaining("state = 'failed'"),
+        expect.stringContaining('UPDATE job_queue'),
+      ])
+    );
+  });
+
+  it('clears the Turso vector queue without serializing an absent state filter', async () => {
+    const result = await handlers.get('db:turso-vector-queue:action')?.(
+      {} as IpcMainInvokeEvent,
+      'clearQueue',
+      {},
+      { label: 'turso.vector-queue.action.clearQueue', priority: 'normal' }
+    );
+
+    expect(result).toEqual({ cleared: 1 });
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(transactionSpy).not.toHaveBeenCalled();
+    const statement = querySpy.mock.calls[0]?.[0];
+    expect(statement).toMatchObject({
+      params: ['embeddings'],
+      sql: expect.stringContaining('WHERE queue = ?'),
+    });
+    expect(statement?.sql).not.toContain('state IN');
   });
 
   it('drives Turso embedding worker queue and stats IPC through a real owner client', async () => {

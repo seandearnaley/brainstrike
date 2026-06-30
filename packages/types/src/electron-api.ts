@@ -394,6 +394,15 @@ export interface ElectronDatabaseAPI {
     embeddingSetIds: readonly string[],
     options?: DatabaseWorkOptions
   ) => Promise<void>;
+
+  /**
+   * Desktop Turso vector queue user actions that need owner-client write support.
+   */
+  tursoVectorQueueAction?: (
+    operation: string,
+    payload: unknown,
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
 }
 
 /**

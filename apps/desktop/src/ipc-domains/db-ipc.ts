@@ -19,12 +19,15 @@ import {
   DB_INVALIDATE_MANAGED_CACHE_ENTRIES_BY_IDENTITY_CHANNEL,
   DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
   DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
+  DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL,
   type ParsedTursoEmbeddingWorkerQueueRequest,
   type ParsedTursoEmbeddingWorkerStatsRequest,
+  type ParsedTursoVectorQueueActionRequest,
   parseInsertChunksAndEnqueueEmbeddingJobsArgs,
   parseManagedCacheInvalidationsArgs,
   parseTursoEmbeddingWorkerQueueArgs,
   parseTursoEmbeddingWorkerStatsArgs,
+  parseTursoVectorQueueActionArgs,
 } from '../db-shared';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
@@ -93,6 +96,7 @@ const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const MAX_RENDERER_SQL_BYTES = 1_000_000;
+const EMBEDDINGS_QUEUE = 'embeddings';
 const logger = createLogger('DatabaseIpc');
 const DESTRUCTIVE_SCHEMA_SQL_PATTERN =
   /(?:^|;)\s*(?:drop\s+\w+|truncate(?:\s+table)?\b|alter\s+table\b[^;]*\bdrop\s+(?:column|constraint|index|primary\s+key|foreign\s+key|unique|check|not\s+null|default|identity|expression)\b)/iu;
@@ -338,6 +342,38 @@ async function executeTursoEmbeddingWorkerStatsOperation(
 
 function assertNeverTursoStatsOperation(_operation: never): never {
   throw new Error('Unsupported Turso embedding worker stats operation.');
+}
+
+async function executeTursoVectorQueueAction(
+  db: BrainstrikeDbExecutionClient,
+  request: ParsedTursoVectorQueueActionRequest
+): Promise<unknown> {
+  const queue = new TursoJobQueue(db);
+  switch (request.operation) {
+    case 'clearQueue':
+      return {
+        cleared: await queue.clear(
+          EMBEDDINGS_QUEUE,
+          request.payload.states ? [...request.payload.states] : undefined
+        ),
+      };
+    case 'retryFailed': {
+      const repairedQueued = await queue.repairUnclaimableQueued(
+        EMBEDDINGS_QUEUE,
+        request.payload.limit
+      );
+      const requeuedFailed = await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.limit);
+      return { repairedQueued, requeuedFailed };
+    }
+    case 'wipeQueue':
+      return { cleared: await queue.clear(EMBEDDINGS_QUEUE) };
+    default:
+      return assertNeverTursoVectorQueueAction(request);
+  }
+}
+
+function assertNeverTursoVectorQueueAction(_request: never): never {
+  throw new Error('Unsupported Turso vector queue action operation.');
 }
 
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
@@ -733,6 +769,33 @@ export function registerDatabaseIpcHandlers(
               parsedRequest
             );
           }, DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL)
+      );
+    }
+  );
+
+  registry.registerInvoke(
+    'db',
+    DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL,
+    async (
+      event: IpcMainInvokeEvent,
+      operation: unknown,
+      payload: unknown,
+      workOptions?: DatabaseWorkOptions
+    ) => {
+      const parsedRequest = parseTursoVectorQueueActionArgs(operation, payload);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDatabase } = await import('../db-main');
+            return await executeTursoVectorQueueAction(
+              (await getDatabase()) as BrainstrikeDbExecutionClient,
+              parsedRequest
+            );
+          }, DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL)
       );
     }
   );

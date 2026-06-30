@@ -30,6 +30,7 @@ const DB_TEST_CHANNEL = 'db:test' as const;
 const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
 const DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL = 'db:turso-embedding-worker:queue' as const;
 const DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL = 'db:turso-embedding-worker:stats' as const;
+const DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL = 'db:turso-vector-queue:action' as const;
 const FILE_SYSTEM_ADD_ROOT_CHANNEL = 'fs:addRoot' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
@@ -597,6 +598,11 @@ if (shouldExposeBridge('electronAPI')) {
           embeddingSetIds,
           options
         ),
+      tursoVectorQueueAction: (
+        operation: string,
+        payload: unknown,
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke(DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL, operation, payload, options),
       test: () => ipcRenderer.invoke(DB_TEST_CHANNEL),
       clearAll: (confirmationToken?: string) =>
         ipcRenderer.invoke(DB_CLEAR_ALL_CHANNEL, confirmationToken),
