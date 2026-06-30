@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-06-29 on `feature/turso-migration`.
+Last updated: 2026-06-30 on `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -67,10 +67,10 @@ as the implementation backlog.
 - #1361 `Fix Turso baseline seed upgrades`
 - #1362 `Fix Turso queue write contention retries`
 - #1363 `Fix Turso embedding-set delete file metadata`
-- Current slice: expose read-only Turso owner-client QoS diagnostics for
-  queued and active exclusive operations, including slow queued operation
-  counts. This is intentionally diagnostic-only: it does not add timeouts,
-  retries, or change write serialization behavior.
+- #1364 `Add Turso owner client QoS diagnostics`
+- Current slice: surface the Turso owner-client QoS snapshot through desktop
+  database diagnostics and DB-host IPC, with explicit unavailable states for
+  non-Turso runtimes and not-yet-open owner handles.
 
 ## Turso Docs Guardrail
 
@@ -108,8 +108,12 @@ The branch currently has a real Turso runtime seam:
 - The desktop DB host can open a long-lived Turso owner client.
 - The Turso owner client exposes read-only QoS snapshots for its exclusive
   operation queue: active operation, queued operations, slow queued operation
-  count, and queued/started/completed/failed totals. This is package-local
-  diagnostic data and does not alter timeout or retry policy.
+  count, and queued/started/completed/failed totals. Desktop
+  `DatabaseDiagnosticsSnapshot` now carries that snapshot through the DB host
+  IPC surface when Turso is active, returns explicit unavailable reasons for
+  non-Turso or not-yet-open states, and throws if an active Turso owner handle
+  lacks the diagnostics method. This is diagnostic-only and does not alter
+  timeout, retry, or write serialization policy.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.
@@ -401,8 +405,8 @@ Concrete blockers:
   table-targeted `VACUUM`), and dimension-index maintenance still builds
   pgvector HNSW SQL. Neither path is translated inline for Turso.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout policy, desktop surfacing for owner-client QoS diagnostics,
-  and Turso corruption diagnostics/recovery.
+  client timeout/watchdog policy, QoS/connection-model decision, and Turso
+  corruption diagnostics/recovery.
 
 Preferred next slice: add a Turso maintenance implementation only for
 operations that are meaningful under SQLite/Turso, then wire that implementation

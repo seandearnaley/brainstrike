@@ -90,9 +90,21 @@ const tursoOwnerQueryMock = vi.fn(async (sql: string, params?: readonly unknown[
 }));
 const tursoOwnerExecMock = vi.fn(async () => {});
 const tursoOwnerCloseMock = vi.fn(async () => {});
+const tursoOwnerQoSDiagnosticsMock = vi.fn(() => ({
+  activeOperation: null,
+  queuedOperationCount: 0,
+  queuedOperations: [],
+  slowQueuedOperationCount: 0,
+  slowQueueThresholdMs: 1000,
+  totalCompletedOperations: 0,
+  totalFailedOperations: 0,
+  totalQueuedOperations: 0,
+  totalStartedOperations: 0,
+}));
 const createTursoOwnerClientMock = vi.fn(async () => ({
   close: tursoOwnerCloseMock,
   exec: tursoOwnerExecMock,
+  getQoSDiagnostics: tursoOwnerQoSDiagnosticsMock,
   query: tursoOwnerQueryMock,
 }));
 const closeMock = vi.fn(async () => {});
@@ -433,6 +445,47 @@ describe('initializeMainDatabase', () => {
       runtime: { engine: 'turso' },
       search: { ownershipMode: 'split-search-index-store' },
     });
+  });
+
+  it('surfaces Turso owner-client QoS diagnostics without reinitializing the owner handle', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { getDatabaseDiagnostics, initializeMainDatabaseWithBootstrapReport } = await import(
+      '../../db-main'
+    );
+    await initializeMainDatabaseWithBootstrapReport();
+
+    const firstDiagnostics = getDatabaseDiagnostics();
+    const secondDiagnostics = getDatabaseDiagnostics();
+
+    expect(firstDiagnostics).toMatchObject({
+      hasDatabaseHandle: true,
+      profileBootstrapReport: {
+        ready: true,
+        runtime: { engine: 'turso' },
+      },
+      tursoOwnerClientQoS: {
+        activeOperation: null,
+        available: true,
+        queuedOperationCount: 0,
+        queuedOperations: [],
+        slowQueuedOperationCount: 0,
+        slowQueueThresholdMs: 1000,
+        totalCompletedOperations: 0,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 0,
+        totalStartedOperations: 0,
+      },
+    });
+    expect(secondDiagnostics.tursoOwnerClientQoS).toEqual(firstDiagnostics.tursoOwnerClientQoS);
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(1);
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(tursoOwnerQoSDiagnosticsMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {

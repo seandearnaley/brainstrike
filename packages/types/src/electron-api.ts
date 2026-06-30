@@ -112,6 +112,50 @@ export interface DatabaseProfileBootstrapReportSnapshot {
   updatedAt: string;
 }
 
+export type DatabaseTursoOwnerClientOperationKind =
+  | 'close'
+  | 'exec'
+  | 'exclusiveTransaction'
+  | 'query'
+  | 'transaction';
+
+export interface DatabaseTursoOwnerClientActiveOperationDiagnostic {
+  readonly activeDurationMs: number;
+  readonly id: number;
+  readonly kind: DatabaseTursoOwnerClientOperationKind;
+  readonly label: string;
+  readonly queuedAt: number;
+  readonly queueWaitMs: number;
+  readonly startedAt: number;
+}
+
+export interface DatabaseTursoOwnerClientQueuedOperationDiagnostic {
+  readonly id: number;
+  readonly kind: DatabaseTursoOwnerClientOperationKind;
+  readonly label: string;
+  readonly queuedAt: number;
+  readonly queuedForMs: number;
+}
+
+export interface DatabaseTursoOwnerClientQoSSnapshot {
+  readonly activeOperation: DatabaseTursoOwnerClientActiveOperationDiagnostic | null;
+  readonly queuedOperationCount: number;
+  readonly queuedOperations: readonly DatabaseTursoOwnerClientQueuedOperationDiagnostic[];
+  readonly slowQueuedOperationCount: number;
+  readonly slowQueueThresholdMs: number;
+  readonly totalCompletedOperations: number;
+  readonly totalFailedOperations: number;
+  readonly totalQueuedOperations: number;
+  readonly totalStartedOperations: number;
+}
+
+export type DatabaseTursoOwnerClientQoSDiagnostics =
+  | ({ readonly available: true } & DatabaseTursoOwnerClientQoSSnapshot)
+  | {
+      readonly available: false;
+      readonly reason: 'owner-client-not-open' | 'runtime-not-turso';
+    };
+
 export interface DatabaseDiagnosticsSnapshot {
   appDataDir: string;
   databaseLockHeld: boolean;
@@ -129,6 +173,7 @@ export interface DatabaseDiagnosticsSnapshot {
   nodeEnv: string | null;
   profileBootstrapReport?: DatabaseProfileBootstrapReportSnapshot | null;
   runtimeCorruptionRecoveryCount: number;
+  tursoOwnerClientQoS: DatabaseTursoOwnerClientQoSDiagnostics;
 }
 
 /**
