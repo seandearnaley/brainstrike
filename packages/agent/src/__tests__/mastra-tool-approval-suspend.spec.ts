@@ -3,17 +3,18 @@
  * "'ask' suspends for approval" PR).
  *
  * These drive the REAL Mastra agent loop (no agent mock — only the language
- * model is a scripted fake) with REAL PGlite-backed workflow storage. A tool the
- * permission gate resolves to `'ask'` must:
+ * model is a scripted fake) with REAL workflow storage. A tool the permission
+ * gate resolves to `'ask'` must:
  *   - SUSPEND the run (emit `tool-approval-required`, execute NOT called), then
  *     via `streamMastraToolApprovalAction`:
  *       - approve → the tool EXECUTES and the run continues to a final answer,
  *       - decline → the tool is SKIPPED (never executes) and the run continues.
  *
  * This lives in its OWN file (not bundled with mastra-tool-execution.spec.ts) so
- * the heavy real-PGlite suspend/resume runs are isolated from the stall/timeout
- * tests in that file, which mutate `BRAINSTRIKE_*` env vars and add log
- * listeners — interleaving them in one module made the Mastra resume stall.
+ * the heavy real workflow-storage suspend/resume runs are isolated from the
+ * stall/timeout tests in that file, which mutate `BRAINSTRIKE_*` env vars and
+ * add log listeners — interleaving them in one module made the Mastra resume
+ * stall.
  */
 import { ReadableStream } from 'node:stream/web';
 import type { LanguageModelV2, LanguageModelV2StreamPart } from '@ai-sdk/provider';
@@ -22,6 +23,10 @@ import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
+import {
+  createTursoTestClient,
+  type TursoTestClient,
+} from '../turso-mastra-memory/__tests__/turso-test-client';
 import type { StreamChunk } from '../types';
 
 // vi.mock factories are hoisted above imports, so the model the fake provider
@@ -50,6 +55,7 @@ const { streamMastraAgent, streamMastraToolApprovalAction } = await import(
   '../mastra/agent-runtime'
 );
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
+const { createTursoMastraMemory } = await import('../turso-mastra-memory');
 // The DESKTOP initial-turn path: maps runtime.mastraTools -> options.tools. The
 // regression test below uses it so the wiring matches production exactly.
 const { toAiSdkStyleStream } = await import('../message-utils');
@@ -138,6 +144,10 @@ function makeMemory(database: PGlite) {
   return createPgliteMastraMemory(options);
 }
 
+function makeTursoMemory(runtime: TursoTestClient) {
+  return createTursoMastraMemory({ database: runtime.client });
+}
+
 function findApprovalChunk(chunks: StreamChunk[]) {
   return chunks.find(
     (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
@@ -149,8 +159,8 @@ function findApprovalChunk(chunks: StreamChunk[]) {
  * Drain an async chunk iterator into an array, yielding a macrotask after each
  * chunk. The scripted model delivers its stream synchronously, so without an
  * explicit yield the consumer loop can starve the event loop and the
- * PGlite-backed approval RESUME (whose snapshot restore is async) never gets a
- * turn — wedging the run in this synthetic harness. A real streaming provider
+ * workflow-storage approval RESUME (whose snapshot restore is async) never gets
+ * a turn — wedging the run in this synthetic harness. A real streaming provider
  * yields naturally over network I/O, so production never hits this. The
  * `setImmediate` yield mirrors that.
  */
@@ -499,5 +509,257 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
 
     await database.close();
+  });
+});
+
+describe("'ask' suspends for approval and resumes (real @mastra/core/agent + real Turso)", () => {
+  beforeEach(() => {
+    modelHolder.current = undefined;
+  });
+
+  it('suspends, then APPROVE executes the tool and completes with Turso workflow storage', async () => {
+    const runtime = await createTursoTestClient('brainstrike-turso-approval-approve-');
+    try {
+      const { memory, storage } = await makeTursoMemory(runtime);
+      const askExecute = vi.fn((inputData: { command: string }) =>
+        Promise.resolve({ ran: inputData.command })
+      );
+      const askTool = makeAskTool(askExecute);
+      const thread = {
+        threadId: 'thread-turso-approve-1',
+        resourceId: 'resource-turso-approve-1',
+      } as const;
+
+      modelHolder.current = createTurnCountedToolCallModel({
+        toolName: 'shell_tool',
+        toolCallId: 'call-turso-ask-approve-1',
+        input: JSON.stringify({ command: 'echo approved from turso' }),
+        finalText: 'Turso command finished.',
+      });
+
+      const suspendIterator = await streamMastraAgent(
+        [{ id: 'u-ta-1', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+        {
+          memory,
+          storage,
+          runtime: {
+            provider: 'openai',
+            apiKey: 'test-key',
+            permissionPolicy: ASK_POLICY,
+            memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          },
+          tools: { shell_tool: askTool },
+        }
+      );
+      const suspendChunks = await drainYielding(suspendIterator);
+
+      const approval = findApprovalChunk(suspendChunks);
+      expect(approval).toBeDefined();
+      expect(approval?.toolName).toBe('shell_tool');
+      expect(approval?.riskCategory).toBe('execute');
+      expect(approval?.policyDecision).toBe('ask');
+      expect(askExecute).not.toHaveBeenCalled();
+
+      const resumeIterator = await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          storage,
+          requireToolApproval: true,
+          runtime: {
+            provider: 'openai',
+            apiKey: 'test-key',
+            permissionPolicy: ASK_POLICY,
+            memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          },
+          tools: { shell_tool: askTool },
+        }
+      );
+      const resumeChunks = await drainYielding(resumeIterator);
+
+      expect(askExecute).toHaveBeenCalledTimes(1);
+      expect(askExecute.mock.calls[0]?.[0]).toMatchObject({
+        command: 'echo approved from turso',
+      });
+      const resumeRunEventKinds = resumeChunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .map((chunk) => chunk.event.kind);
+      expect(resumeRunEventKinds).toContain('tool.completed');
+      expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+      expect(runtime.queries.join('\n')).not.toMatch(/\$1|::|JSONB|TIMESTAMPTZ/);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it('suspends, then DECLINE skips the tool and completes with Turso workflow storage', async () => {
+    const runtime = await createTursoTestClient('brainstrike-turso-approval-decline-');
+    try {
+      const { memory, storage } = await makeTursoMemory(runtime);
+      const askExecute = vi.fn((inputData: { command: string }) =>
+        Promise.resolve({ ran: inputData.command })
+      );
+      const askTool = makeAskTool(askExecute);
+      const thread = {
+        threadId: 'thread-turso-decline-1',
+        resourceId: 'resource-turso-decline-1',
+      } as const;
+
+      modelHolder.current = createTurnCountedToolCallModel({
+        toolName: 'shell_tool',
+        toolCallId: 'call-turso-ask-decline-1',
+        input: JSON.stringify({ command: 'echo declined from turso' }),
+        finalText: 'Turso command declined.',
+      });
+
+      const suspendIterator = await streamMastraAgent(
+        [{ id: 'u-td-1', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+        {
+          memory,
+          storage,
+          runtime: {
+            provider: 'openai',
+            apiKey: 'test-key',
+            permissionPolicy: ASK_POLICY,
+            memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          },
+          tools: { shell_tool: askTool },
+        }
+      );
+      const suspendChunks = await drainYielding(suspendIterator);
+
+      const approval = findApprovalChunk(suspendChunks);
+      expect(approval).toBeDefined();
+      expect(askExecute).not.toHaveBeenCalled();
+
+      const resumeIterator = await streamMastraToolApprovalAction(
+        {
+          action: 'decline',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          storage,
+          requireToolApproval: true,
+          runtime: {
+            provider: 'openai',
+            apiKey: 'test-key',
+            permissionPolicy: ASK_POLICY,
+            memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          },
+          tools: { shell_tool: askTool },
+        }
+      );
+      const resumeChunks = await drainYielding(resumeIterator);
+
+      expect(askExecute).not.toHaveBeenCalled();
+      expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+      const declineText = resumeChunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'text-delta' }> =>
+            chunk.type === 'text-delta'
+        )
+        .map((chunk) => chunk.value)
+        .join('');
+      expect(declineText).toContain('Turso command declined');
+      expect(runtime.queries.join('\n')).not.toMatch(/\$1|::|JSONB|TIMESTAMPTZ/);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it('DESKTOP wiring: runtime.mastraTools survive approval resume with Turso workflow storage', async () => {
+    const runtime = await createTursoTestClient('brainstrike-turso-approval-desktop-');
+    try {
+      const { memory, storage } = await makeTursoMemory(runtime);
+      const writeExecute = vi.fn((inputData: { path: string; content: string }) =>
+        Promise.resolve({ ok: true, path: inputData.path })
+      );
+      const writeTool = createTool({
+        id: 'write_tool',
+        description: 'An edit-risk write tool gated to ask.',
+        inputSchema: z.object({ path: z.string(), content: z.string() }),
+        outputSchema: z.object({ ok: z.boolean(), path: z.string() }),
+        execute: writeExecute,
+      });
+      const thread = {
+        threadId: 'thread-turso-desktop-1',
+        resourceId: 'resource-turso-desktop-1',
+      } as const;
+      const policy = {
+        policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' },
+        yolo: false,
+        riskByTool: { write_tool: 'edit' },
+      } as const;
+      const desktopRuntime = {
+        provider: 'openai',
+        apiKey: 'test-key',
+        permissionPolicy: policy,
+        memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+        mastraTools: { write_tool: writeTool },
+      } as const;
+
+      modelHolder.current = createTurnCountedToolCallModel({
+        toolName: 'write_tool',
+        toolCallId: 'call-turso-desktop-write-1',
+        input: JSON.stringify({ path: 'brainblog/turso.txt', content: 'hello Turso' }),
+        finalText: 'Created brainblog/turso.txt.',
+      });
+
+      const suspendIterator = await toAiSdkStyleStream(
+        [{ id: 'u-turso-desk-1', role: 'user', parts: [{ type: 'text', text: 'write turso' }] }],
+        desktopRuntime,
+        { memory, storage }
+      );
+      const suspendChunks = await drainYielding(suspendIterator);
+      const approval = findApprovalChunk(suspendChunks);
+      expect(approval).toBeDefined();
+      expect(approval?.toolName).toBe('write_tool');
+      expect(approval?.riskCategory).toBe('edit');
+      expect(writeExecute).not.toHaveBeenCalled();
+
+      const resumeIterator = await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'write_tool',
+        },
+        {
+          memory,
+          storage,
+          requireToolApproval: true,
+          runtime: desktopRuntime,
+        }
+      );
+      const resumeChunks = await drainYielding(resumeIterator);
+
+      expect(writeExecute).toHaveBeenCalledTimes(1);
+      expect(writeExecute.mock.calls[0]?.[0]).toMatchObject({
+        path: 'brainblog/turso.txt',
+        content: 'hello Turso',
+      });
+      const resumeRunEventKinds = resumeChunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .map((chunk) => chunk.event.kind);
+      expect(resumeRunEventKinds).toContain('tool.completed');
+      expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+      expect(runtime.queries.join('\n')).not.toMatch(/\$1|::|JSONB|TIMESTAMPTZ/);
+    } finally {
+      await runtime.close();
+    }
   });
 });

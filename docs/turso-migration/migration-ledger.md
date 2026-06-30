@@ -71,15 +71,14 @@ as the implementation backlog.
 - #1365 `Surface Turso owner QoS diagnostics in desktop`
 - #1366 `Persist desktop assistant run data on Turso`
 - #1367 `Share assistant run persistence SQL`
-- Current slice: add a Turso/SQLite scheduled database maintenance
-  implementation for old terminal job pruning plus `ANALYZE`, selected through
-  an explicit desktop maintenance capability. Dimension-index maintenance
-  remains PGlite/pgvector-only.
+- #1368 `Add Turso scheduled database maintenance`
+- #1369 `Fix Turso profile reset recreation`
+- Current slice: prove Turso-backed Mastra tool approval suspend/resume through
+  the real agent loop and workflow storage.
 
-Recently completed diagnostics slice: surface the Turso owner-client QoS snapshot through desktop
-  database diagnostics and DB-host IPC, with explicit unavailable states for
-  non-Turso runtimes, not-yet-open owner handles, and unsupported owner-handle
-  diagnostics.
+Recently completed reset slice: desktop reset now removes the whole active
+  profile directory for both runtimes, then recreates the runtime-owned empty
+  directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
 
 ## Turso Docs Guardrail
 
@@ -185,6 +184,12 @@ Current Turso repository/runtime coverage:
   `brainstrike_assistant_thread_runs`. Those write queries are now built by
   shared `@brainstrike/assistant-contract/assistant-run-persistence` helpers
   used by both the desktop assistant server and app-shell thread repositories.
+- Turso-backed Mastra workflow storage supports the same per-tool approval
+  suspend/resume contract as PGlite: ask-gated tools suspend without executing,
+  approve resumes and executes the tool, and decline resumes without executing.
+  The proof uses the real `@mastra/core/agent` loop, real Turso workflow
+  storage, the production `streamMastraToolApprovalAction` resume path, and the
+  desktop `runtime.mastraTools` wiring used by native tools.
 - Desktop assistant `brainstrike.grepSearch` is available under Turso only when
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses
