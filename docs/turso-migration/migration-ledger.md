@@ -68,7 +68,12 @@ as the implementation backlog.
 - #1362 `Fix Turso queue write contention retries`
 - #1363 `Fix Turso embedding-set delete file metadata`
 - #1364 `Add Turso owner client QoS diagnostics`
-- Current slice: surface the Turso owner-client QoS snapshot through desktop
+- #1365 `Surface Turso owner QoS diagnostics in desktop`
+- Current slice: persist desktop assistant run events and run status with
+  runtime-specific SQL so Turso profiles do not receive Postgres placeholders or
+  casts.
+
+Recently completed diagnostics slice: surface the Turso owner-client QoS snapshot through desktop
   database diagnostics and DB-host IPC, with explicit unavailable states for
   non-Turso runtimes, not-yet-open owner handles, and unsupported owner-handle
   diagnostics.
@@ -170,6 +175,11 @@ Current Turso repository/runtime coverage:
 - Desktop Turso assistant memory is wired through the ready runtime/bootstrap
   verdict. The renderer thread repository, OM meter, and cross-root usage reads
   now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
+  Desktop assistant run-event and run-status writes now also select SQL by the
+  ready runtime: PGlite keeps the existing Postgres-shaped statements, while
+  Turso uses `?` placeholders, SQLite timestamps, and `excluded.*` conflict
+  updates for `brainstrike_assistant_run_events` and
+  `brainstrike_assistant_thread_runs`.
 - Desktop assistant `brainstrike.grepSearch` is available under Turso only when
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses

@@ -88,6 +88,7 @@ type DesktopMastraMemoryResult =
   | import('@brainstrike/agent/turso-mastra-memory').TursoMastraMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
 type DesktopMastraMemoryRuntimeEngine = 'pglite' | 'turso';
+type DesktopAssistantPersistenceRuntimeEngine = 'pglite' | 'turso';
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Fully resolved memory instances are keyed by provider/model plus hashed API
@@ -351,7 +352,8 @@ async function streamAssistantPostResponse({
 async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
-  queuedEvents: AssistantRunEvent[]
+  queuedEvents: AssistantRunEvent[],
+  runtimeEngine: DesktopAssistantPersistenceRuntimeEngine
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
   let persistenceErrorCount = 0;
@@ -359,7 +361,7 @@ async function* observeDesktopAssistantRunEvents(
   let persistenceQueue: Promise<void> = Promise.resolve();
   const persistEvent = (event: AssistantRunEvent): void => {
     persistenceQueue = persistenceQueue
-      .then(() => recordDesktopAssistantRunEvent(runId, event))
+      .then(() => recordDesktopAssistantRunEvent(runId, event, runtimeEngine))
       .catch((error: unknown) => {
         persistenceErrorCount += 1;
         persistenceError ??= error;
@@ -445,6 +447,18 @@ async function* observeDesktopAssistantRunEvents(
   }
 }
 
+async function wrapDesktopAssistantRunEventPersistence(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string | undefined,
+  queuedEvents: AssistantRunEvent[]
+): Promise<AsyncIterable<StreamChunk>> {
+  if (!runId) {
+    return stream;
+  }
+  const runtimeEngine = await resolveDesktopAssistantPersistenceRuntimeEngine();
+  return observeDesktopAssistantRunEvents(stream, runId, queuedEvents, runtimeEngine);
+}
+
 async function recordDesktopAssistantThreadRunStatus(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',
@@ -468,6 +482,22 @@ async function completeDesktopAssistantThreadRun(
 ): Promise<void> {
   const now = new Date();
   const database = await getDatabase();
+  const runtimeEngine = await resolveDesktopAssistantPersistenceRuntimeEngine();
+  if (runtimeEngine === 'turso') {
+    await database.query(
+      `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+       SET status = ?, error = ?, completed_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        status,
+        error,
+        toDesktopAssistantSqliteTimestamp(now),
+        toDesktopAssistantSqliteTimestamp(now),
+        runId,
+      ]
+    );
+    return;
+  }
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
@@ -478,11 +508,75 @@ async function completeDesktopAssistantThreadRun(
 
 async function recordDesktopAssistantRunEvent(
   runId: string,
-  event: AssistantRunEvent
+  event: AssistantRunEvent,
+  runtimeEngine: DesktopAssistantPersistenceRuntimeEngine
 ): Promise<void> {
   const now = new Date();
   const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
   const database = await getDatabase();
+  if (runtimeEngine === 'turso') {
+    await database.query(
+      `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+        (
+          id,
+          run_id,
+          resource_id,
+          thread_id,
+          sequence,
+          kind,
+          status,
+          label,
+          detail,
+          metadata,
+          duration_ms,
+          occurred_at,
+          created_at,
+          updated_at
+        )
+       SELECT
+          ?,
+          runs.id,
+          runs.resource_id,
+          runs.thread_id,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+       FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+       WHERE runs.id = ?
+       ON CONFLICT (id) DO UPDATE SET
+          sequence = excluded.sequence,
+          kind = excluded.kind,
+          status = excluded.status,
+          label = excluded.label,
+          detail = excluded.detail,
+          metadata = excluded.metadata,
+          duration_ms = excluded.duration_ms,
+          occurred_at = excluded.occurred_at,
+          updated_at = excluded.updated_at`,
+      [
+        event.id,
+        event.sequence ?? 0,
+        event.kind,
+        event.status,
+        event.label,
+        event.detail ?? null,
+        metadata ? JSON.stringify(metadata) : null,
+        event.durationMs ?? null,
+        toDesktopAssistantSqliteTimestamp(new Date(event.timestamp)),
+        toDesktopAssistantSqliteTimestamp(now),
+        toDesktopAssistantSqliteTimestamp(now),
+        runId,
+      ]
+    );
+    return;
+  }
   await database.query(
     `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
       (
@@ -543,6 +637,29 @@ async function recordDesktopAssistantRunEvent(
       now,
     ]
   );
+}
+
+async function resolveDesktopAssistantPersistenceRuntimeEngine(): Promise<DesktopAssistantPersistenceRuntimeEngine> {
+  const diagnostics = await getDatabaseRuntimeDiagnostics();
+  const report = diagnostics.profileBootstrapReport;
+  if (!report) {
+    throw new Error('Desktop assistant persistence requires database bootstrap diagnostics.');
+  }
+  if (!report.ready) {
+    throw new Error(
+      `Desktop assistant persistence requires a ready database bootstrap report; current phase is "${report.phase}".`
+    );
+  }
+  if (report.runtime.engine === 'pglite' || report.runtime.engine === 'turso') {
+    return report.runtime.engine;
+  }
+  throw new Error(
+    `Desktop assistant persistence does not support database runtime "${report.runtime.engine}".`
+  );
+}
+
+function toDesktopAssistantSqliteTimestamp(value: Date): string {
+  return value.toISOString();
 }
 
 interface PreparedAssistantPostRequest {
@@ -1178,7 +1295,7 @@ async function initializeAgentStream(
     logger.info('Assistant stream initialized');
     return {
       ok: true,
-      stream: runId ? observeDesktopAssistantRunEvents(stream, runId, queuedRunEvents) : stream,
+      stream: await wrapDesktopAssistantRunEventPersistence(stream, runId, queuedRunEvents),
     };
   } catch (error) {
     logger.error('Failed to initialize assistant stream', { error });
