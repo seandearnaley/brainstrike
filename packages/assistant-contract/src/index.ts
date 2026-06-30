@@ -1,3 +1,4 @@
+export * from './assistant-run-persistence.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
 export * from './file-mention-directive.js';

@@ -1,4 +1,10 @@
 import {
+  ASSISTANT_RUN_EVENTS_TABLE,
+  ASSISTANT_THREAD_RUNS_TABLE,
+  buildAppendAssistantRunEventQuery,
+  buildCompleteAssistantThreadRunQuery,
+} from '@brainstrike/assistant-contract/assistant-run-persistence';
+import {
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
   SQLITE_MASTRA_MEMORY_SCHEMA_SQL,
@@ -246,8 +252,6 @@ export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
 export type AssistantThreadRepositoryRuntimeEngine = 'pglite' | 'turso';
 
-const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
-const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
@@ -1526,76 +1530,33 @@ export function createTursoAssistantThreadRepository(
       const occurredAt = normalizeDate(event.timestamp);
       const sanitizedMetadata = sanitizeAssistantRunEventMetadata(event.metadata);
       const now = new Date();
-      await database.query(
-        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
-          (
-            id,
-            run_id,
-            resource_id,
-            thread_id,
-            sequence,
-            kind,
-            status,
-            label,
-            detail,
-            metadata,
-            duration_ms,
-            occurred_at,
-            created_at,
-            updated_at
-          )
-         SELECT
-            ?,
-            runs.id,
-            runs.resource_id,
-            runs.thread_id,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?
-         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-         WHERE runs.id = ?
-         ON CONFLICT (id) DO UPDATE SET
-            sequence = excluded.sequence,
-            kind = excluded.kind,
-            status = excluded.status,
-            label = excluded.label,
-            detail = excluded.detail,
-            metadata = excluded.metadata,
-            duration_ms = excluded.duration_ms,
-            occurred_at = excluded.occurred_at,
-            updated_at = excluded.updated_at`,
-        [
-          event.id,
-          sequence,
-          event.kind,
-          event.status,
-          event.label,
-          event.detail ?? null,
-          sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
-          event.durationMs ?? null,
-          toSqliteTimestamp(occurredAt),
-          toSqliteTimestamp(now),
-          toSqliteTimestamp(now),
-          runId,
-        ]
-      );
+      const query = buildAppendAssistantRunEventQuery({
+        detail: event.detail ?? null,
+        durationMs: event.durationMs ?? null,
+        eventId: event.id,
+        kind: event.kind,
+        label: event.label,
+        metadataJson: sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
+        now,
+        occurredAt,
+        runId,
+        runtimeEngine: 'turso',
+        sequence,
+        status: event.status,
+      });
+      await database.query(query.sql, query.params);
     },
     async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
       await initialize();
       const now = new Date();
-      await database.query(
-        `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
-         SET status = ?, error = ?, completed_at = ?, updated_at = ?
-         WHERE id = ?`,
-        [input.status, input.error ?? null, toSqliteTimestamp(now), toSqliteTimestamp(now), runId]
-      );
+      const query = buildCompleteAssistantThreadRunQuery({
+        error: input.error ?? null,
+        now,
+        runId,
+        runtimeEngine: 'turso',
+        status: input.status,
+      });
+      await database.query(query.sql, query.params);
     },
     async createThread(resourceId: string): Promise<AssistantMemoryThread> {
       await initialize();
@@ -1975,75 +1936,32 @@ export function createPgliteAssistantThreadRepository(
       const occurredAt = normalizeDate(event.timestamp);
       const sanitizedMetadata = sanitizeAssistantRunEventMetadata(event.metadata);
       const now = new Date();
-      await database.query(
-        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
-          (
-            id,
-            run_id,
-            resource_id,
-            thread_id,
-            sequence,
-            kind,
-            status,
-            label,
-            detail,
-            metadata,
-            duration_ms,
-            occurred_at,
-            created_at,
-            updated_at
-          )
-         SELECT
-            $1,
-            runs.id,
-            runs.resource_id,
-            runs.thread_id,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8::jsonb,
-            $9,
-            $10,
-            $11,
-            $12
-         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-         WHERE runs.id = $2
-         ON CONFLICT (id) DO UPDATE SET
-            sequence = EXCLUDED.sequence,
-            kind = EXCLUDED.kind,
-            status = EXCLUDED.status,
-            label = EXCLUDED.label,
-            detail = EXCLUDED.detail,
-            metadata = EXCLUDED.metadata,
-            duration_ms = EXCLUDED.duration_ms,
-            occurred_at = EXCLUDED.occurred_at,
-            updated_at = EXCLUDED.updated_at`,
-        [
-          event.id,
-          runId,
-          sequence,
-          event.kind,
-          event.status,
-          event.label,
-          event.detail ?? null,
-          sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
-          event.durationMs ?? null,
-          occurredAt,
-          now,
-          now,
-        ]
-      );
+      const query = buildAppendAssistantRunEventQuery({
+        detail: event.detail ?? null,
+        durationMs: event.durationMs ?? null,
+        eventId: event.id,
+        kind: event.kind,
+        label: event.label,
+        metadataJson: sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
+        now,
+        occurredAt,
+        runId,
+        runtimeEngine: 'pglite',
+        sequence,
+        status: event.status,
+      });
+      await database.query(query.sql, query.params);
     },
     async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
       await initialize();
-      await database.query(
-        `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
-         SET status = $2, error = $3, completed_at = $4, updated_at = $5
-         WHERE id = $1`,
-        [runId, input.status, input.error ?? null, new Date(), new Date()]
-      );
+      const query = buildCompleteAssistantThreadRunQuery({
+        error: input.error ?? null,
+        now: new Date(),
+        runId,
+        runtimeEngine: 'pglite',
+        status: input.status,
+      });
+      await database.query(query.sql, query.params);
     },
     async createThread(resourceId: string): Promise<AssistantMemoryThread> {
       await initialize();

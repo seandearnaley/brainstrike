@@ -3,6 +3,7 @@ import http from 'node:http';
 import type {
   AgentMessage,
   AssistantRunEvent,
+  AssistantRunPersistenceRuntimeEngine,
   AssistantToolApprovalAction,
   AssistantUiMessageStrict,
   McpConfig,
@@ -15,6 +16,8 @@ import {
   AssistantInvalidJsonError,
   AssistantRequestBodyTooLargeError,
   assistantDataStreamSessions,
+  buildAppendAssistantRunEventQuery,
+  buildCompleteAssistantThreadRunQuery,
   convertAssistantUiMessages,
   createEmbeddingProvider,
   createLocalHostEmbeddingModel,
@@ -88,7 +91,7 @@ type DesktopMastraMemoryResult =
   | import('@brainstrike/agent/turso-mastra-memory').TursoMastraMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
 type DesktopMastraMemoryRuntimeEngine = 'pglite' | 'turso';
-type DesktopAssistantPersistenceRuntimeEngine = 'pglite' | 'turso';
+type DesktopAssistantPersistenceRuntimeEngine = AssistantRunPersistenceRuntimeEngine;
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // Fully resolved memory instances are keyed by provider/model plus hashed API
@@ -116,9 +119,6 @@ const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   // (no API key); requires the embedding host manager.
   'local',
 ]);
-
-const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
-const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 
 interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
@@ -483,27 +483,14 @@ async function completeDesktopAssistantThreadRun(
   const now = new Date();
   const database = await getDatabase();
   const runtimeEngine = await resolveDesktopAssistantPersistenceRuntimeEngine();
-  if (runtimeEngine === 'turso') {
-    await database.query(
-      `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
-       SET status = ?, error = ?, completed_at = ?, updated_at = ?
-       WHERE id = ?`,
-      [
-        status,
-        error,
-        toDesktopAssistantSqliteTimestamp(now),
-        toDesktopAssistantSqliteTimestamp(now),
-        runId,
-      ]
-    );
-    return;
-  }
-  await database.query(
-    `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
-     SET status = $2, error = $3, completed_at = $4, updated_at = $5
-     WHERE id = $1`,
-    [runId, status, error, now, now]
-  );
+  const query = buildCompleteAssistantThreadRunQuery({
+    error,
+    now,
+    runId,
+    runtimeEngine,
+    status,
+  });
+  await database.query(query.sql, query.params);
 }
 
 async function recordDesktopAssistantRunEvent(
@@ -514,129 +501,21 @@ async function recordDesktopAssistantRunEvent(
   const now = new Date();
   const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
   const database = await getDatabase();
-  if (runtimeEngine === 'turso') {
-    await database.query(
-      `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
-        (
-          id,
-          run_id,
-          resource_id,
-          thread_id,
-          sequence,
-          kind,
-          status,
-          label,
-          detail,
-          metadata,
-          duration_ms,
-          occurred_at,
-          created_at,
-          updated_at
-        )
-       SELECT
-          ?,
-          runs.id,
-          runs.resource_id,
-          runs.thread_id,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?
-       FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-       WHERE runs.id = ?
-       ON CONFLICT (id) DO UPDATE SET
-          sequence = excluded.sequence,
-          kind = excluded.kind,
-          status = excluded.status,
-          label = excluded.label,
-          detail = excluded.detail,
-          metadata = excluded.metadata,
-          duration_ms = excluded.duration_ms,
-          occurred_at = excluded.occurred_at,
-          updated_at = excluded.updated_at`,
-      [
-        event.id,
-        event.sequence ?? 0,
-        event.kind,
-        event.status,
-        event.label,
-        event.detail ?? null,
-        metadata ? JSON.stringify(metadata) : null,
-        event.durationMs ?? null,
-        toDesktopAssistantSqliteTimestamp(new Date(event.timestamp)),
-        toDesktopAssistantSqliteTimestamp(now),
-        toDesktopAssistantSqliteTimestamp(now),
-        runId,
-      ]
-    );
-    return;
-  }
-  await database.query(
-    `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
-      (
-        id,
-        run_id,
-        resource_id,
-        thread_id,
-        sequence,
-        kind,
-        status,
-        label,
-        detail,
-        metadata,
-        duration_ms,
-        occurred_at,
-        created_at,
-        updated_at
-      )
-     SELECT
-        $1,
-        runs.id,
-        runs.resource_id,
-        runs.thread_id,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7,
-        $8::jsonb,
-        $9,
-        $10,
-        $11,
-        $12
-     FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
-     WHERE runs.id = $2
-     ON CONFLICT (id) DO UPDATE SET
-        sequence = EXCLUDED.sequence,
-        kind = EXCLUDED.kind,
-        status = EXCLUDED.status,
-        label = EXCLUDED.label,
-        detail = EXCLUDED.detail,
-        metadata = EXCLUDED.metadata,
-        duration_ms = EXCLUDED.duration_ms,
-        occurred_at = EXCLUDED.occurred_at,
-        updated_at = EXCLUDED.updated_at`,
-    [
-      event.id,
-      runId,
-      event.sequence ?? 0,
-      event.kind,
-      event.status,
-      event.label,
-      event.detail ?? null,
-      metadata ? JSON.stringify(metadata) : null,
-      event.durationMs ?? null,
-      new Date(event.timestamp),
-      now,
-      now,
-    ]
-  );
+  const query = buildAppendAssistantRunEventQuery({
+    detail: event.detail ?? null,
+    durationMs: event.durationMs ?? null,
+    eventId: event.id,
+    kind: event.kind,
+    label: event.label,
+    metadataJson: metadata ? JSON.stringify(metadata) : null,
+    now,
+    occurredAt: new Date(event.timestamp),
+    runId,
+    runtimeEngine,
+    sequence: event.sequence ?? 0,
+    status: event.status,
+  });
+  await database.query(query.sql, query.params);
 }
 
 async function resolveDesktopAssistantPersistenceRuntimeEngine(): Promise<DesktopAssistantPersistenceRuntimeEngine> {
@@ -656,10 +535,6 @@ async function resolveDesktopAssistantPersistenceRuntimeEngine(): Promise<Deskto
   throw new Error(
     `Desktop assistant persistence does not support database runtime "${report.runtime.engine}".`
   );
-}
-
-function toDesktopAssistantSqliteTimestamp(value: Date): string {
-  return value.toISOString();
 }
 
 interface PreparedAssistantPostRequest {

@@ -10,6 +10,17 @@ export {
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
 export {
+  ASSISTANT_RUN_EVENTS_TABLE,
+  ASSISTANT_THREAD_RUNS_TABLE,
+  type AssistantRunPersistenceQuery,
+  type AssistantRunPersistenceRuntimeEngine,
+  type AssistantThreadRunTerminalStatus,
+  type BuildAppendAssistantRunEventQueryInput,
+  type BuildCompleteAssistantThreadRunQueryInput,
+  buildAppendAssistantRunEventQuery,
+  buildCompleteAssistantThreadRunQuery,
+} from '@brainstrike/assistant-contract/assistant-run-persistence';
+export {
   type AssistantToolApprovalAction,
   type AssistantToolApprovalDecision,
   type AssistantToolApprovalRequest,
