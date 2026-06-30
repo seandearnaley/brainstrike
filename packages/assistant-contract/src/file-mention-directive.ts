@@ -19,9 +19,11 @@
  * is the DB `roots.id` (the same id `file_records.root_id` references and the
  * desktop tools resolve against) and `path` is the workspace-relative path. We
  * split on the FIRST `::` only, so a path that itself contains `:` or `::`
- * survives the round-trip, and the path's `{`/`}`/`%` are percent-encoded inside
- * the id so a path containing `}` cannot truncate the directive's `{name=…}`
- * attribute at parse time (see {@link encodeFileMentionPathSegment}).
+ * survives the round-trip. Paths that contain `{`/`}`/`%` are version-marked and
+ * percent-encoded inside the id so a path containing `}` cannot truncate the
+ * directive's `{name=…}` attribute at parse time (see
+ * {@link encodeFileMentionPathSegment}) while legacy unmarked percent sequences
+ * remain raw path text.
  */
 
 /** The mention `type` for a file reference directive (`:file[…]{…}`). */
@@ -31,26 +33,53 @@ export const FILE_MENTION_DIRECTIVE_TYPE = 'file' as const;
 const FILE_MENTION_ID_SEPARATOR = '::';
 
 /**
+ * Version marker for encoded path segments. It starts with `/`, which is not a
+ * valid prefix for workspace-relative paths, so legacy raw ids cannot collide.
+ */
+const FILE_MENTION_ENCODED_PATH_PREFIX = '/.brainstrike-file-path-v1/';
+
+/** Characters that need an encoded path segment inside the directive id. */
+const FILE_MENTION_PATH_ESCAPE_RE = /[{}%]/;
+
+/**
  * Percent-encode the characters that would otherwise corrupt a mention id inside
  * the directive's `{name=…}` attribute. A literal `}` ends the attribute early at
  * parse time ({@link DIRECTIVE_RE}'s `[^}]+`), truncating the id; we also encode
  * `{` so the encoded id is brace-free, and `%` so the encoding is reversible (a
  * path literally containing `%7D` must not decode to `}`). `%` is escaped FIRST
- * so already-present `%` sequences are not conflated with our escapes.
+ * so already-present `%` sequences are not conflated with our escapes. The
+ * marker gates decoding so legacy unmarked `%7D` remains literal path text.
  */
 function encodeFileMentionPathSegment(path: string): string {
-  return path.replaceAll('%', '%25').replaceAll('{', '%7B').replaceAll('}', '%7D');
+  const shouldEncodePath =
+    FILE_MENTION_PATH_ESCAPE_RE.test(path) || path.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX);
+  if (!shouldEncodePath) {
+    return path;
+  }
+  return `${FILE_MENTION_ENCODED_PATH_PREFIX}${path
+    .replaceAll('%', '%25')
+    .replaceAll('{', '%7B')
+    .replaceAll('}', '%7D')}`;
 }
 
 /**
- * Reverse {@link encodeFileMentionPathSegment}. Braces are decoded before `%25`
- * is restored to `%`: because every literal `%` was encoded to `%25`, a bare `%`
- * in the encoded text only ever begins one of our escapes, so the brace passes
- * can never consume an escaped percent and the final `%25`→`%` pass can never
- * forge a new brace escape. The result equals a single left-to-right decode.
+ * Reverse {@link encodeFileMentionPathSegment} only when the encoded-path marker
+ * is present. Unmarked ids are legacy raw path text. For marked ids, braces are
+ * decoded before `%25` is restored to `%`: because every literal `%` was encoded
+ * to `%25`, a bare `%` in the encoded text only ever begins one of our escapes,
+ * so the brace passes can never consume an escaped percent and the final
+ * `%25`→`%` pass can never forge a new brace escape. The result equals a single
+ * left-to-right decode.
  */
 function decodeFileMentionPathSegment(encodedPath: string): string {
-  return encodedPath.replaceAll('%7B', '{').replaceAll('%7D', '}').replaceAll('%25', '%');
+  if (!encodedPath.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX)) {
+    return encodedPath;
+  }
+  return encodedPath
+    .slice(FILE_MENTION_ENCODED_PATH_PREFIX.length)
+    .replaceAll('%7B', '{')
+    .replaceAll('%7D', '}')
+    .replaceAll('%25', '%');
 }
 
 /**

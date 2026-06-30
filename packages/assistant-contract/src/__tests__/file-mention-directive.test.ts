@@ -41,13 +41,19 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
 
   it('percent-encodes `}` in the path so it cannot truncate the `{name=…}` id', () => {
     // A literal `}` in the id would end the directive's `{name=…}` attribute early
-    // at parse time; encoding it keeps the id brace-free.
-    expect(encodeFileMentionId('root-1', 'src/a}b.ts')).toBe('root-1::src/a%7Db.ts');
+    // at parse time; the marker gates decoding while encoding keeps the id brace-free.
+    expect(encodeFileMentionId('root-1', 'src/a}b.ts')).toBe(
+      'root-1::/.brainstrike-file-path-v1/src/a%7Db.ts'
+    );
   });
 
   it('percent-encodes `{` and `%` in the path (id has no raw brace, `%` unambiguous)', () => {
-    expect(encodeFileMentionId('root-1', 'src/a{b}c.ts')).toBe('root-1::src/a%7Bb%7Dc.ts');
-    expect(encodeFileMentionId('root-1', 'a%b.ts')).toBe('root-1::a%25b.ts');
+    expect(encodeFileMentionId('root-1', 'src/a{b}c.ts')).toBe(
+      'root-1::/.brainstrike-file-path-v1/src/a%7Bb%7Dc.ts'
+    );
+    expect(encodeFileMentionId('root-1', 'a%b.ts')).toBe(
+      'root-1::/.brainstrike-file-path-v1/a%25b.ts'
+    );
   });
 
   it('round-trips a path containing `{`, `}`, and `%` exactly', () => {
@@ -62,8 +68,16 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     const path = 'a%7Db.ts';
     const id = encodeFileMentionId('root-1', path);
     // Literal `%` is escaped to `%25` first, so decode reverses to the literal text.
-    expect(id).toBe('root-1::a%257Db.ts');
+    expect(id).toBe('root-1::/.brainstrike-file-path-v1/a%257Db.ts');
     expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+  });
+
+  it('preserves legacy unmarked percent sequences as raw path text', () => {
+    const legacyDirective = ':file[a%7Db.ts]{name=root-1::src/a%7Db.ts}';
+
+    expect(parseFileMentionDirectives(legacyDirective)).toEqual([
+      { label: 'a%7Db.ts', id: 'root-1::src/a%7Db.ts', rootId: 'root-1', path: 'src/a%7Db.ts' },
+    ]);
   });
 
   it('preserves `::` in a path alongside an encoded brace', () => {
@@ -149,7 +163,12 @@ describe('parseFileMentionDirectives', () => {
       id: encodeFileMentionId('root-1', path),
     });
     expect(parseFileMentionDirectives(`open ${directive} now`)).toEqual([
-      { label: 'a}b.ts', id: 'root-1::dir/a%7Db.ts', rootId: 'root-1', path },
+      {
+        label: 'a}b.ts',
+        id: 'root-1::/.brainstrike-file-path-v1/dir/a%7Db.ts',
+        rootId: 'root-1',
+        path,
+      },
     ]);
   });
 });
