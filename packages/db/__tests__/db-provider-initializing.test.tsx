@@ -905,7 +905,7 @@ describe('DbProvider initializing state', () => {
       test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
     });
 
-    const { result } = renderHook(
+    const { rerender, result } = renderHook(
       () => ({
         chunkRepository: useFileChunkRepository(),
         assistantMemoryDb: useAssistantMemoryDbClient(),
@@ -936,6 +936,9 @@ describe('DbProvider initializing state', () => {
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
+    const querySelectionSnapshotDb = result.current.querySelectionSnapshotDb;
+    rerender();
+    expect(result.current.querySelectionSnapshotDb).toBe(querySelectionSnapshotDb);
     expect(result.current.modelRegistryDb).not.toBeNull();
     expect(databaseModule.extractDbExecutionClient(result.current.modelRegistryDb)).toEqual(
       expect.objectContaining({

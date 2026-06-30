@@ -1869,17 +1869,22 @@ export function useQuerySelectionSnapshotDbClient(): QuerySelectionSnapshotDbCli
     }
   }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
+  const runtimeEngine = ctx?.profileBootstrapReport.runtime.engine;
+  const ready = ctx?.ready;
+  const client = useMemo<QuerySelectionSnapshotDbClient | null>(() => {
+    if (!((runtimeEngine === 'pglite' || runtimeEngine === 'turso') && ready) || error || !db) {
+      return null;
+    }
+
+    return { db, runtimeEngine };
+  }, [db, error, ready, runtimeEngine]);
+
   if (!ctx) {
     logger.warn('useQuerySelectionSnapshotDbClient must be used within a DbProvider');
     return null;
   }
 
-  const runtimeEngine = ctx.profileBootstrapReport.runtime.engine;
-  if (!(runtimeEngine === 'pglite' || runtimeEngine === 'turso')) {
-    return null;
-  }
-
-  return ctx.ready && !ctx.error && ctx.db ? { db: ctx.db, runtimeEngine } : null;
+  return client;
 }
 
 export function useOptionalPGliteDatabase(): DbHandle | null {

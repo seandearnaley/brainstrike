@@ -210,16 +210,19 @@ async function createTursoQuerySelectionSnapshot(
     const expiresAt = createTursoSnapshotExpiresAt();
 
     await runTransaction(async (tx) => {
-      await tx.query(
+      const transactionDb = tx as DbHandle;
+      await execTursoSnapshotMutation(
+        transactionDb,
         `DELETE FROM selection_snapshots
          WHERE expires_at IS NOT NULL
            AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
       );
 
-      await tx.query('INSERT INTO selection_snapshots (id, expires_at) VALUES (?, ?)', [
-        snapshotId,
-        expiresAt,
-      ]);
+      await execTursoSnapshotMutation(
+        transactionDb,
+        'INSERT INTO selection_snapshots (id, expires_at) VALUES (?, ?)',
+        [snapshotId, expiresAt]
+      );
 
       for (
         let index = 0;
@@ -229,7 +232,8 @@ async function createTursoQuerySelectionSnapshot(
         const batch = filePaths.slice(index, index + TURSO_SELECTION_SNAPSHOT_INSERT_BATCH_SIZE);
         const values = batch.map(() => '(?, ?)').join(', ');
         const params = batch.flatMap((filePath) => [snapshotId, filePath]);
-        await tx.query(
+        await execTursoSnapshotMutation(
+          transactionDb,
           `INSERT OR IGNORE INTO selection_snapshot_files (snapshot_id, file_path)
            VALUES ${values}`,
           params
@@ -239,6 +243,18 @@ async function createTursoQuerySelectionSnapshot(
 
     return snapshotId;
   });
+}
+
+async function execTursoSnapshotMutation(
+  tx: DbHandle,
+  sql: string,
+  params?: unknown[]
+): Promise<void> {
+  if (typeof tx.exec !== 'function') {
+    throw new Error('Turso query selection snapshot transactions require exec support');
+  }
+
+  await tx.exec(sql, params);
 }
 
 export async function loadQuerySelectionSnapshot(

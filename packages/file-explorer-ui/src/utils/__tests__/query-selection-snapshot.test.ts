@@ -292,13 +292,16 @@ describe('query-selection-snapshot', () => {
       randomUUID: vi.fn(() => 'snapshot-turso-1'),
     });
 
-    const txQuery = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
+    const txExec = vi.fn(async (_sql: string, _params?: unknown[]) => undefined);
+    const txQuery = vi.fn(async () => {
+      throw new Error('Desktop Turso transaction adapter only supports exec statements.');
+    });
     const db = {
       query: vi.fn(async () => {
         throw new Error('Turso snapshot writes must use the transaction client');
       }),
       transaction: vi.fn(async (operation: (tx: DbHandle) => Promise<unknown>) =>
-        operation({ query: txQuery } as unknown as DbHandle)
+        operation({ exec: txExec, query: txQuery } as unknown as DbHandle)
       ),
     } as unknown as DbHandle;
 
@@ -310,13 +313,14 @@ describe('query-selection-snapshot', () => {
     expect(snapshotId).toBe('snapshot-turso-1');
     expect(db.query).not.toHaveBeenCalled();
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    const sqls = txQuery.mock.calls.map(([sql]) => sql).join('\n');
+    expect(txQuery).not.toHaveBeenCalled();
+    const sqls = txExec.mock.calls.map(([sql]) => sql).join('\n');
     expect(sqls).toContain("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
     expect(sqls).toContain('INSERT INTO selection_snapshots (id, expires_at)');
     expect(sqls).toContain('INSERT OR IGNORE INTO selection_snapshot_files');
     expect(sqls).not.toMatch(/\$1|::|UNNEST|NOW\(\)|INTERVAL|BEGIN|COMMIT|ROLLBACK/);
-    expect(txQuery.mock.calls[1]?.[1]).toEqual(['snapshot-turso-1', '2026-07-01T12:00:00.000Z']);
-    expect(txQuery.mock.calls[2]?.[1]).toEqual([
+    expect(txExec.mock.calls[1]?.[1]).toEqual(['snapshot-turso-1', '2026-07-01T12:00:00.000Z']);
+    expect(txExec.mock.calls[2]?.[1]).toEqual([
       'snapshot-turso-1',
       '/src/index.ts',
       'snapshot-turso-1',
