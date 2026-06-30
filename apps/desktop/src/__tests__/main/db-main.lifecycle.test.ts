@@ -167,6 +167,7 @@ describe('db-main lifecycle', () => {
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
     runPgliteBootstrapCapabilityProbeMock.mockReturnValue(createReadyBootstrapProbeReport());
