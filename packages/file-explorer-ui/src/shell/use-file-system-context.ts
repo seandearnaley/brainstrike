@@ -21,7 +21,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
-import { useOptionalRootDataDeletion } from './root-data-deletion-context';
+import { type DeleteRootData, useOptionalRootDataDeletion } from './root-data-deletion-context';
 
 const logger = createLogger('FileSystemContext');
 
@@ -111,7 +111,7 @@ async function selectDirectoryWithErrorMapping(
  * indexer stayed idle until the next app launch re-restored every instance).
  * Consumers use useFileSystem() below, which reads the shared instance.
  */
-export function useFileSystemInstance() {
+export function useFileSystemInstance(deleteRootDataOverride?: DeleteRootData | undefined) {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
   const hydrateFolderState = useFileExplorerStoreSelector((s) => s.hydrateFolderState);
@@ -128,7 +128,10 @@ export function useFileSystemInstance() {
   // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
   // disconnect wrapper aborts (with a toast) when deletion is requested but
   // fails or no provider is mounted — never a silent no-op.
-  const deleteRootData = useOptionalRootDataDeletion();
+  const contextDeleteRootData = useOptionalRootDataDeletion();
+  const deleteRootData = deleteRootDataOverride ?? contextDeleteRootData;
+  const deleteRootDataRef = useRef<DeleteRootData | null>(deleteRootData);
+  deleteRootDataRef.current = deleteRootData;
   const { showToast: showToastRaw } = useToastManager();
   const showToast = useCallback(
     (description: string) => {
@@ -257,10 +260,14 @@ export function useFileSystemInstance() {
   ): Promise<void> => {
     if (options?.deleteData) {
       try {
-        if (!deleteRootData) {
+        const currentDeleteRootData = deleteRootDataRef.current;
+        if (!currentDeleteRootData) {
           throw new Error('Root data deletion is not available in this environment.');
         }
-        await deleteRootData(rootId);
+        await currentDeleteRootData(rootId, {
+          rootDirectoryHandles: coreApi.rootDirectoryHandles,
+          rootIdByPath: coreApi.rootIdByPath,
+        });
       } catch (error) {
         logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
           error,

@@ -1,4 +1,10 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createContext, type ReactNode, useContext } from 'react';
+
+export interface DeleteRootDataContext {
+  readonly rootDirectoryHandles: readonly DirectoryHandle[];
+  readonly rootIdByPath: ReadonlyMap<string, string>;
+}
 
 /**
  * Deletes a root's indexed DB rows (DELETE FROM roots → ON DELETE CASCADE to
@@ -7,7 +13,7 @@ import { createContext, type ReactNode, useContext } from 'react';
  * retry; a swallowed failure here would disconnect the UI while the rows
  * silently survive.
  */
-export type DeleteRootData = (rootId: string) => Promise<void>;
+export type DeleteRootData = (rootId: string, context: DeleteRootDataContext) => Promise<void>;
 
 /**
  * Optional seam (Phase 6 cascade delete): file-explorer-ui does not own the

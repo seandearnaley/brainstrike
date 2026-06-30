@@ -1,8 +1,8 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { useWorkspaceRootsDbClient } from '@brainstrike/db';
 import {
+  type DeleteRootData,
   FileExplorerPanel,
-  RootDataDeletionProvider,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
@@ -56,7 +56,7 @@ interface DebouncedPanelLayoutState {
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
-  const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } = useFileSystem();
+  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
   // Prefer the stamped handle.rootId — the path→id map collides for same-named
@@ -64,31 +64,12 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const rootId = rootDirectoryHandle
     ? (rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path))
     : undefined;
-  const dbClient = useWorkspaceRootsDbClient();
-  // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
-  // app-shell injects the deletion. Migration 039: file_records.root_id →
-  // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw
-  // on failure — the disconnect flow aborts and keeps the root connected.
-  const deleteRootData = useCallback(
-    async (rootIdToDelete: string) => {
-      if (!dbClient) {
-        throw new Error('Cannot delete root data: database is not ready.');
-      }
-      await deleteRootDataFromDb(
-        dbClient,
-        resolveRootDataDeletionSelector(rootIdToDelete, rootDirectoryHandles, rootIdByPath)
-      );
-    },
-    [dbClient, rootDirectoryHandles, rootIdByPath]
-  );
   return (
     <FileTreeProvider
       rootDirectoryHandle={rootDirectoryHandle}
       {...(rootId !== undefined && { rootId })}
     >
-      <RootDataDeletionProvider deleteRootData={deleteRootData}>
-        <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
-      </RootDataDeletionProvider>
+      <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
     </FileTreeProvider>
   );
 }
@@ -324,6 +305,28 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
+  const dbClient = useWorkspaceRootsDbClient();
+  // Cascade-delete seam (Phase 6): file-explorer-ui owns the root handles but
+  // not the database, so app-shell injects the DB deletion before AppLayout
+  // mounts the shared FileSystemProvider. Migration 039: file_records.root_id →
+  // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw on
+  // failure — the disconnect flow aborts and keeps the root connected.
+  const deleteRootData = useCallback<DeleteRootData>(
+    async (rootIdToDelete, context) => {
+      if (!dbClient) {
+        throw new Error('Cannot delete root data: database is not ready.');
+      }
+      await deleteRootDataFromDb(
+        dbClient,
+        resolveRootDataDeletionSelector(
+          rootIdToDelete,
+          context.rootDirectoryHandles,
+          context.rootIdByPath
+        )
+      );
+    },
+    [dbClient]
+  );
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {
@@ -362,6 +365,7 @@ export function RootLayoutContent({
     <AppLayout
       config={appConfig}
       currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
+      deleteRootData={deleteRootData}
       onNavigationClick={handleNavigationClick}
     >
       {/* These providers now intentionally stay app-wide so background chunking and embedding

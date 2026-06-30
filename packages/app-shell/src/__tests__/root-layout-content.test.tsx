@@ -36,6 +36,7 @@ vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
 }));
 
 const mockHandlers = {
+  deleteRootData: undefined as unknown,
   onNavigationClick: (_path: string) => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
 };
@@ -43,11 +44,14 @@ const mockHandlers = {
 vi.mock('../app-layout', () => ({
   AppLayout: ({
     children,
+    deleteRootData,
     onNavigationClick,
   }: {
     children: React.ReactNode;
+    deleteRootData?: unknown;
     onNavigationClick: (path: string) => void;
   }) => {
+    mockHandlers.deleteRootData = deleteRootData;
     mockHandlers.onNavigationClick = onNavigationClick;
     return <div data-testid="app-layout">{children}</div>;
   },
@@ -140,6 +144,7 @@ vi.mock('../database-panel', () => ({
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
+    mockHandlers.deleteRootData = undefined;
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.panelLayoutChanges = [];
     usePanelLayoutStore.setState({
@@ -202,6 +207,12 @@ describe('RootLayoutContent', () => {
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
+  });
+
+  it('provides root data deletion to AppLayout before FileSystemProvider captures it', () => {
+    renderComponent();
+
+    expect(mockHandlers.deleteRootData).toEqual(expect.any(Function));
   });
 
   it('renders settings as a full-frame route without the agent shell', () => {

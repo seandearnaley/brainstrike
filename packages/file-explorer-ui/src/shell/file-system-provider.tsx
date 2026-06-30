@@ -11,14 +11,19 @@
  */
 
 import { createContext, type ReactNode, useContext } from 'react';
+import type { DeleteRootData } from './root-data-deletion-context';
 import { useFileSystemInstance } from './use-file-system-context';
 
 type FileSystemContextValue = ReturnType<typeof useFileSystemInstance>;
+interface FileSystemProviderProps {
+  readonly children: ReactNode;
+  readonly deleteRootData?: DeleteRootData | undefined;
+}
 
 const FileSystemSharedContext = createContext<FileSystemContextValue | null>(null);
 
-export function FileSystemProvider({ children }: { children: ReactNode }) {
-  const value = useFileSystemInstance();
+export function FileSystemProvider({ children, deleteRootData }: FileSystemProviderProps) {
+  const value = useFileSystemInstance(deleteRootData);
   return (
     <FileSystemSharedContext.Provider value={value}>{children}</FileSystemSharedContext.Provider>
   );

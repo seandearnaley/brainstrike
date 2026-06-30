@@ -71,6 +71,58 @@ describe('FileSystemProvider (single shared instance)', () => {
     });
   });
 
+  it('uses the provider deleteRootData prop for delete-with-data disconnects', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      'cccccccc-dddd-eeee-ffff-000000000010' as ReturnType<typeof crypto.randomUUID>
+    );
+    const storage = new MemoryStorageAdapter();
+    const fsAdapter = new MockFileSystemAdapter(MockFileSystemAdapter.createSimpleFileSystem());
+    const deleteRootData = vi.fn().mockResolvedValue(undefined);
+    let fsValue: FsValue | null = null;
+
+    render(
+      <AdaptersProvider fileSystemAdapter={fsAdapter} storageAdapter={storage}>
+        <FileExplorerProvider storageAdapter={storage}>
+          <FileSystemProvider deleteRootData={deleteRootData}>
+            <Exposer
+              onReady={(fs) => {
+                fsValue = fs;
+              }}
+            />
+          </FileSystemProvider>
+        </FileExplorerProvider>
+      </AdaptersProvider>
+    );
+
+    await waitFor(() => {
+      expect(fsValue).not.toBeNull();
+    });
+
+    await act(async () => {
+      await (fsValue as unknown as FsValue).selectRootDirectory();
+    });
+    const rootId = (fsValue as unknown as FsValue).rootDirectoryHandles[0]?.rootId;
+    expect(rootId).toBe('cccccccc-dddd-eeee-ffff-000000000010');
+    if (!rootId) {
+      throw new Error('Expected selected root to have a rootId');
+    }
+
+    await act(async () => {
+      await (fsValue as unknown as FsValue).removeRootDirectory(rootId, { deleteData: true });
+    });
+
+    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(
+      rootId,
+      expect.objectContaining({
+        rootDirectoryHandles: expect.arrayContaining([
+          expect.objectContaining({ path: 'mock-root', rootId }),
+        ]),
+        rootIdByPath: expect.any(Map),
+      })
+    );
+    expect((fsValue as unknown as FsValue).rootDirectoryHandles).toHaveLength(0);
+  });
+
   it('throws without a FileSystemProvider (no silent per-call fallback instance)', () => {
     function Bare() {
       useFileSystem();
