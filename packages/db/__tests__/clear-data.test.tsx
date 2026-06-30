@@ -177,6 +177,7 @@ describe('Database clearing functionality', () => {
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
     });
 
     it('should handle transaction errors gracefully', async () => {
@@ -211,6 +212,54 @@ describe('Database clearing functionality', () => {
         throw new Error('Clear function is null');
       }
       await expect(result.current.clearData()).rejects.toThrow('Transaction failed');
+    });
+
+    it('fails when assistant run usage cannot be purged', async () => {
+      const queryMock = vi.fn<[string], Promise<{ rows: unknown[] } | undefined>>(
+        async (sql: string) => {
+          if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'DELETE FROM brainstrike_assistant_run_usage') {
+            throw new Error('assistant usage purge failed');
+          }
+          return { rows: [] };
+        }
+      );
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository();
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
+
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
+
+      if (!result.current.clearData) {
+        throw new Error('Clear function is null');
+      }
+      await expect(result.current.clearData()).rejects.toThrow('assistant usage purge failed');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
     });
 
     it('should throw error when repositories are not available', async () => {

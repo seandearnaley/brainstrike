@@ -86,6 +86,33 @@ async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): 
   }
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = (error as { code?: string }).code;
+  if (code === '42P01') {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('relation') && message.includes('does not exist');
+}
+
+async function clearAssistantRunUsage(
+  tx: { query: (sql: string) => Promise<unknown> },
+  context: string
+): Promise<void> {
+  try {
+    await tx.query('DELETE FROM brainstrike_assistant_run_usage');
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      return;
+    }
+    logger.warn(`[DbProvider] Failed to clear assistant run usage ${context}:`, error);
+    throw error;
+  }
+}
+
 async function purgeAndCloseDirectDb(
   db: PGliteRuntimeClient,
   dataDir: string,
@@ -97,6 +124,7 @@ async function purgeAndCloseDirectDb(
     });
   } catch (error) {
     logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+    throw error;
   }
   try {
     await db.exec('VACUUM');
@@ -1371,6 +1399,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Tables may not exist in older schema versions - log but don't fail
         logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
       }
+      await clearAssistantRunUsage(tx, 'during clearAll');
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
@@ -1445,6 +1474,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('Failed to clear roots during reset:', err);
     }
+    // Durable per-thread token usage has no FK, so it must be explicitly
+    // purged to preserve the factory-reset fresh-start contract.
+    await clearAssistantRunUsage(tx, 'during reset');
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
