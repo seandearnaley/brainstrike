@@ -23,7 +23,9 @@
  * percent-encoded inside the id so a path containing `}` cannot truncate the
  * directive's `{name=…}` attribute at parse time (see
  * {@link encodeFileMentionPathSegment}) while legacy unmarked percent sequences
- * remain raw path text.
+ * remain raw path text. A short-lived pre-marker encoding existed for these
+ * characters; the parser recognizes it only when the directive label proves the
+ * decoded basename, never by guessing.
  */
 
 /** The mention `type` for a file reference directive (`:file[…]{…}`). */
@@ -40,6 +42,9 @@ const FILE_MENTION_ENCODED_PATH_PREFIX = '/.brainstrike-file-path-v1/';
 
 /** Characters that need an encoded path segment inside the directive id. */
 const FILE_MENTION_PATH_ESCAPE_RE = /[{}%]/;
+
+/** Percent sequences emitted by the pre-marker encoder from PR #1303. */
+const PRE_MARKER_FILE_MENTION_ESCAPE_RE = /%(?:25|7B|7D)/;
 
 /**
  * Percent-encode the characters that would otherwise corrupt a mention id inside
@@ -80,6 +85,38 @@ function decodeFileMentionPathSegment(encodedPath: string): string {
     .replaceAll('%7B', '{')
     .replaceAll('%7D', '}')
     .replaceAll('%25', '%');
+}
+
+/** Decode only the uppercase escapes emitted by the short-lived pre-marker encoder. */
+function decodePreMarkerFileMentionPathSegment(encodedPath: string): string {
+  return encodedPath.replaceAll('%7B', '{').replaceAll('%7D', '}').replaceAll('%25', '%');
+}
+
+function getWorkspacePathBasename(path: string): string {
+  const slashIndex = path.lastIndexOf('/');
+  return slashIndex === -1 ? path : path.slice(slashIndex + 1);
+}
+
+/**
+ * Parse-time compatibility for ids produced by the short-lived unmarked encoder.
+ *
+ * Pre-marker encoded ids and old raw ids are wire-ambiguous: `src/a%7Db.ts`
+ * could mean a literal `%7D` filename or an encoded `}`. The directive label is
+ * the selected file basename, so use it as proof only when it distinguishes the
+ * two forms. If the label does not prove the decoded form, preserve the raw path
+ * rather than guessing and risking wrong-file injection.
+ */
+function decodeFileMentionPathSegmentForLabel(encodedPath: string, label: string): string {
+  if (
+    encodedPath.startsWith(FILE_MENTION_ENCODED_PATH_PREFIX) ||
+    !PRE_MARKER_FILE_MENTION_ESCAPE_RE.test(encodedPath)
+  ) {
+    return decodeFileMentionPathSegment(encodedPath);
+  }
+  const rawBasename = getWorkspacePathBasename(encodedPath);
+  const preMarkerDecodedPath = decodePreMarkerFileMentionPathSegment(encodedPath);
+  const decodedBasename = getWorkspacePathBasename(preMarkerDecodedPath);
+  return rawBasename !== label && decodedBasename === label ? preMarkerDecodedPath : encodedPath;
 }
 
 /**
@@ -142,6 +179,22 @@ export function decodeFileMentionId(id: string): { rootId: string; path: string 
   return { rootId, path: decodeFileMentionPathSegment(encodedPath) };
 }
 
+function decodeFileMentionIdForLabel(
+  id: string,
+  label: string
+): { rootId: string; path: string } | null {
+  const separatorIndex = id.indexOf(FILE_MENTION_ID_SEPARATOR);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const rootId = id.slice(0, separatorIndex);
+  const encodedPath = id.slice(separatorIndex + FILE_MENTION_ID_SEPARATOR.length);
+  if (!(rootId && encodedPath)) {
+    return null;
+  }
+  return { rootId, path: decodeFileMentionPathSegmentForLabel(encodedPath, label) };
+}
+
 /**
  * Serialize a file mention into its directive string. Mirrors
  * `unstable_defaultDirectiveFormatter.serialize`: the `{name=id}` attribute is
@@ -173,7 +226,7 @@ export function parseFileMentionDirectives(text: string): ParsedFileMention[] {
     const label = match[2] ?? '';
     const id = match[3] ?? label;
     if (type === FILE_MENTION_DIRECTIVE_TYPE && !seen.has(id)) {
-      const decoded = decodeFileMentionId(id);
+      const decoded = decodeFileMentionIdForLabel(id, label);
       if (decoded) {
         seen.add(id);
         mentions.push({ label, id, rootId: decoded.rootId, path: decoded.path });

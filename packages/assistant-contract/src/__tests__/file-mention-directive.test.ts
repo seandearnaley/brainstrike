@@ -80,6 +80,31 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     ]);
   });
 
+  it('decodes pre-marker encoded ids when the label proves the basename', () => {
+    const preMarkerBraceDirective = ':file[a}b.ts]{name=root-1::src/a%7Db.ts}';
+    const preMarkerPercentDirective = ':file[a%b.ts]{name=root-1::src/a%25b.ts}';
+
+    expect(
+      parseFileMentionDirectives(`${preMarkerBraceDirective} ${preMarkerPercentDirective}`)
+    ).toEqual([
+      { label: 'a}b.ts', id: 'root-1::src/a%7Db.ts', rootId: 'root-1', path: 'src/a}b.ts' },
+      { label: 'a%b.ts', id: 'root-1::src/a%25b.ts', rootId: 'root-1', path: 'src/a%b.ts' },
+    ]);
+  });
+
+  it('preserves ambiguous pre-marker directory escapes as raw path text', () => {
+    const ambiguousDirective = ':file[b.ts]{name=root-1::src/a%7Ddir/b.ts}';
+
+    expect(parseFileMentionDirectives(ambiguousDirective)).toEqual([
+      {
+        label: 'b.ts',
+        id: 'root-1::src/a%7Ddir/b.ts',
+        rootId: 'root-1',
+        path: 'src/a%7Ddir/b.ts',
+      },
+    ]);
+  });
+
   it('preserves `::` in a path alongside an encoded brace', () => {
     const path = 'a}::b.ts';
     const id = encodeFileMentionId('root-1', path);
