@@ -77,8 +77,11 @@ as the implementation backlog.
 - #1372 `feat(db-explorer): activate Turso collection snapshots`
 - #1373 `Extract embedding worker storage port`
 - #1374 `Add Turso embedding worker storage adapter`
-- Current slice: wire the hidden renderer embedding host to Turso worker
-  storage without handing the worker a PGlite handle or silently falling back.
+- #1375 `Wire Turso embedding host storage`
+- #1376 `Prove Turso worker IPC owner path`
+- Current slice: add the explicit Turso vector queue service adapter seam while
+  keeping renderer queue actions fail-closed until a desktop owner-client
+  adapter can provide the mutation surface safely.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -166,9 +169,14 @@ Current Turso repository/runtime coverage:
   profiles
 - embedding runtime queue service construction now keys off the bootstrap
   runtime. PGlite still constructs the legacy Postgres-shaped
-  `VectorQueueService`; Turso returns an explicit
-  `turso-vector-backfill-not-migrated` unavailable result so old PGlite SQL does
-  not run under Turso.
+  `VectorQueueService`; Turso now has an explicit adapter seam but the renderer
+  provider deliberately returns no action service and reports
+  `missing-turso-vector-queue-adapter`. The provider still exposes Turso queue
+  snapshots through `createTursoVectorQueueSnapshotReader()` when the ready DB
+  client and coverage repository are present. Do not construct `TursoJobQueue`
+  or the Turso backfill/metrics repositories directly in the visible renderer:
+  the current renderer transaction facade is not the query-capable owner-client
+  surface required by those mutation paths.
 - Turso file chunks expose SQLite-compatible embedding backfill candidate
   counting, diagnostics, and cursor-batched candidate selection. These methods
   exclude active queued/running deduped jobs, include inherited
@@ -182,14 +190,15 @@ Current Turso repository/runtime coverage:
   without raw DB queries.
 - Turso has a concrete `EmbeddingBackfillRepository` adapter that composes the
   Turso file-chunk candidate methods, embedding-set metadata repository, and
-  Turso job-queue per-set state counts. It is exported for future wiring, but
-  runtime selection still returns `turso-vector-backfill-not-migrated` until the
-  hidden worker, Electron IPC, and Turso claim/load/complete path are migrated.
+  Turso job-queue per-set state counts. Runtime selection does not wire this
+  adapter into the visible-renderer vector queue action service yet; that needs
+  a desktop owner-client adapter rather than a raw renderer transaction facade.
 - `VectorQueueService.refresh()` now reads queue throughput, latest failure, and
   latency samples through a storage-neutral `VectorQueueMetricsRepository`.
   PGlite keeps the existing PostgreSQL-shaped SQL behind the default repository;
   Turso exposes the same metrics through `TursoJobQueue.getQueueMetrics()` and a
-  vector-management adapter. This is intentionally not runtime wiring yet.
+  vector-management snapshot adapter. Action-service wiring remains pending on
+  the owner-client adapter seam.
 - Desktop Turso assistant memory is wired through the ready runtime/bootstrap
   verdict. The renderer thread repository, OM meter, and cross-root usage reads
   now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
@@ -338,7 +347,12 @@ Completed low-risk queue UI slices:
 - `EmbeddingRuntimeProvider` no longer calls the PGlite-only database hook to
   construct its vector queue service. It uses the generic ready DB client and
   the bootstrap runtime, constructs `JobQueue` only for PGlite, and keeps Turso
-  service-null with an explicit unavailable reason.
+  service-null with the explicit `missing-turso-vector-queue-adapter`
+  unavailable reason while still exposing Turso queue snapshots.
+- `useEmbeddingRuntimeController()` now treats Electron as a host-required
+  runtime: if `window.electronAPI` exists but `window.embeddingHost` is missing,
+  backfill/start/status/reset/stop operations fail closed instead of falling
+  through to the browser/local worker path.
 - `startEmbeddingWorker()` now accepts an `EmbeddingWorkerStorage` port for
   queue claim/heartbeat/complete/fail, chunk loading, model config lookup,
   embedding-set dimension lookup, and stats refresh scheduling. The default
@@ -346,12 +360,11 @@ Completed low-risk queue UI slices:
   worker test proves the worker can process a job through injected storage with
   no raw PGlite database handle.
 
-Remaining slice: implement the Turso `EmbeddingWorkerStorage` adapter and wire
-it only in the hidden embedding host after runtime-specific tests prove the
-Turso claim/load/complete path end-to-end. Preserve the hidden-renderer worker
-boundary. Do not enable Turso backfill through `vector-queue-service.ts` until
-the Turso worker adapter, Electron transaction/query support, and
-runtime-specific worker tests prove the full path.
+Remaining vector-queue action slice: implement a Turso `VectorQueueService`
+adapter that runs against the desktop owner-client surface and only then pass it
+through the explicit Turso factory seam. Preserve the hidden-renderer worker
+boundary. Do not enable Turso backfill, clear, wipe, or re-embed actions by
+constructing `TursoJobQueue` in the visible renderer.
 
 ### 4. Assistant Search And Retrieval
 
@@ -483,9 +496,8 @@ Concrete blockers:
   claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
   owner client instead of the renderer's exec-only transaction adapter.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout/watchdog policy, full IPC-to-real-owner-client integration
-  coverage for the embedding worker bridge, and Turso corruption
-  diagnostics/recovery.
+  client timeout/watchdog policy, the vector queue action adapter described
+  above, and Turso corruption diagnostics/recovery.
 
 ### 7. Factory Reset And Profile Cleanup
 

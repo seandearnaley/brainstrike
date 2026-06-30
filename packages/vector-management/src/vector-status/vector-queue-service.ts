@@ -116,6 +116,7 @@ type VectorQueueRuntimeEngine = ProfileBootstrapRuntime['engine'];
 
 export type VectorQueueServiceUnavailableReason =
   | 'missing-db-or-coverage-repository'
+  | 'missing-turso-vector-queue-adapter'
   | 'turso-vector-backfill-not-migrated'
   | 'unsupported-db-runtime';
 
@@ -134,6 +135,10 @@ export type VectorQueueServiceRuntimeResolution =
 export interface VectorQueueServiceRuntimeDependencies {
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'> | null;
   createPGliteJobQueue: (db: VectorQueueDatabase) => VectorQueueServiceDependencies['jobQueue'];
+  createTursoVectorQueueService?: (dependencies: {
+    chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
+    db: VectorQueueDatabase;
+  }) => VectorQueueService | null;
   db: VectorQueueDatabase | null;
   runtimeEngine: VectorQueueRuntimeEngine;
 }
@@ -143,6 +148,9 @@ export function formatVectorQueueServiceUnavailableReason(
 ): string {
   if (reason === 'missing-db-or-coverage-repository') {
     return 'Embedding queue actions are unavailable until the database and chunk coverage repository are ready.';
+  }
+  if (reason === 'missing-turso-vector-queue-adapter') {
+    return 'Embedding queue actions require the desktop Turso vector queue adapter.';
   }
   if (reason === 'turso-vector-backfill-not-migrated') {
     return 'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.';
@@ -645,7 +653,13 @@ export function createVectorQueueService(
 export function createVectorQueueServiceForRuntime(
   dependencies: VectorQueueServiceRuntimeDependencies
 ): VectorQueueServiceRuntimeResolution {
-  const { chunkRepository, createPGliteJobQueue, db, runtimeEngine } = dependencies;
+  const {
+    chunkRepository,
+    createPGliteJobQueue,
+    createTursoVectorQueueService,
+    db,
+    runtimeEngine,
+  } = dependencies;
   if (!(db && chunkRepository)) {
     return {
       available: false,
@@ -667,6 +681,21 @@ export function createVectorQueueServiceForRuntime(
   }
 
   if (runtimeEngine === 'turso') {
+    if (createTursoVectorQueueService) {
+      const service = createTursoVectorQueueService({ db, chunkRepository });
+      if (service) {
+        return {
+          available: true,
+          reason: null,
+          service,
+        };
+      }
+      return {
+        available: false,
+        reason: 'missing-turso-vector-queue-adapter',
+        service: null,
+      };
+    }
     return {
       available: false,
       reason: 'turso-vector-backfill-not-migrated',

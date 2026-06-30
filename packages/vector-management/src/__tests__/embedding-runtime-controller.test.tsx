@@ -137,6 +137,34 @@ describe('useEmbeddingRuntimeController', () => {
     });
   });
 
+  it('fails closed in Electron when the embedding host bridge is missing', async () => {
+    Object.defineProperty(window, 'embeddingHost', {
+      configurable: true,
+      value: undefined,
+    });
+    const backfillMock = vi.fn(async () => ({
+      failed: 0,
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+    }));
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: { backfill: backfillMock } as never,
+      })
+    );
+
+    await expect(result.current.enqueueBackfill('set-1')).rejects.toThrow(
+      'Desktop embedding host bridge is unavailable.'
+    );
+    expect(backfillMock).not.toHaveBeenCalled();
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+  });
+
   it('forwards desktop backfill cancellation requests through the host bridge', async () => {
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({

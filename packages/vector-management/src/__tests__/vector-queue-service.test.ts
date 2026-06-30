@@ -115,6 +115,68 @@ describe('vector-queue-service', () => {
     expect(dependencies.jobQueue.enqueueBatch).not.toHaveBeenCalled();
   });
 
+  it('creates the Turso vector queue service through an explicit Turso factory', async () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const dependencies = createMinimalDependencies(db);
+    const createPGliteJobQueue = vi.fn(() => dependencies.jobQueue);
+    const tursoService = createVectorQueueService({
+      ...dependencies,
+      db,
+    });
+    const createTursoVectorQueueService = vi.fn(() => tursoService);
+
+    const result = createVectorQueueServiceForRuntime({
+      chunkRepository: dependencies.chunkRepository,
+      createPGliteJobQueue,
+      createTursoVectorQueueService,
+      db,
+      runtimeEngine: 'turso',
+    });
+
+    expect(result).toEqual({
+      available: true,
+      reason: null,
+      service: tursoService,
+    });
+    expect(createTursoVectorQueueService).toHaveBeenCalledWith({
+      chunkRepository: dependencies.chunkRepository,
+      db,
+    });
+    expect(createPGliteJobQueue).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the explicit Turso factory cannot create an adapter', () => {
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const dependencies = createMinimalDependencies(db);
+    const createPGliteJobQueue = vi.fn(() => dependencies.jobQueue);
+    const createTursoVectorQueueService = vi.fn(() => null);
+
+    const result = createVectorQueueServiceForRuntime({
+      chunkRepository: dependencies.chunkRepository,
+      createPGliteJobQueue,
+      createTursoVectorQueueService,
+      db,
+      runtimeEngine: 'turso',
+    });
+
+    expect(result).toEqual({
+      available: false,
+      reason: 'missing-turso-vector-queue-adapter',
+      service: null,
+    });
+    expect(createTursoVectorQueueService).toHaveBeenCalledWith({
+      chunkRepository: dependencies.chunkRepository,
+      db,
+    });
+    expect(createPGliteJobQueue).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
   it('refresh aggregates queue metrics and latency', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       enqueueBatch: vi.fn(),

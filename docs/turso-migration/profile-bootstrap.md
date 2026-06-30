@@ -108,11 +108,14 @@ search indexing.
 Vector-management queue status and retry controls now resolve their durable
 queue adapter through a runtime-keyed hook. PGlite profiles still construct the
 existing `JobQueue`; ready Turso profiles construct `TursoJobQueue` for queue
-stats, failed-job retry, and unclaimable queued-job repair. This only covers
-the read/repair surfaces used by the queue HUD and durable queue tracker. The
-embedding runtime provider and vector backfill service still remain PGlite-only
-because their candidate-selection SQL and batch enqueue transaction semantics
-have not been converted to Turso-compatible repository calls.
+stats, failed-job retry, unclaimable queued-job repair, and explicit queue
+clear operations exposed by that hook. The embedding runtime provider does not
+construct a Turso `VectorQueueService` in the visible renderer. It exposes Turso
+queue snapshots through the storage-neutral snapshot reader, keeps queue actions
+unavailable with `missing-turso-vector-queue-adapter`, and requires a future
+desktop owner-client adapter before backfill, clear, wipe, or re-embed actions
+can be enabled through the shared action service. Desktop embedding execution
+still runs through the hidden embedding host.
 
 Turso managed-cache apply/invalidation is now staged for the desktop DB host.
 `applyTursoManagedCacheBatch()` writes imported file records, replaces stale
