@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import type {
   EmbeddingWorkerJobLeaseRef,
+  EmbeddingWorkerQueuePort,
   EmbeddingWorkerStorage,
 } from '../worker/embedding-worker-storage';
 
@@ -121,10 +122,23 @@ function createClaimedJob(): Job & { lease_token: string } {
   };
 }
 
+function createUnleasedJob(): Job {
+  const { lease_token: _leaseToken, ...job } = createClaimedJob();
+  return job;
+}
+
+// @ts-expect-error claimed queue jobs must expose a non-null lease token
+const rejectsUnleasedClaimMany: EmbeddingWorkerQueuePort['claimMany'] = async () => [
+  createUnleasedJob(),
+];
+void rejectsUnleasedClaimMany;
+
 describe('embedding worker storage port', () => {
   it('can process a claimed job through injected storage without a raw PGlite db handle', async () => {
     const claimedJob = createClaimedJob();
     let claimed = false;
+    let getModelConfigCalls = 0;
+    let loadChunksByIdsCalls = 0;
     const completeEmbeddingChunkBatch = vi.fn(async () => [
       { ...claimedJob, state: 'succeeded' as const },
     ]);
@@ -135,24 +149,34 @@ describe('embedding worker storage port', () => {
         flushIfDue: vi.fn(async () => {}),
         recordCompletions: vi.fn(async () => {}),
       })),
-      getModelConfig: vi.fn(async () => ({
-        description: 'Fake model for storage-port tests',
-        dimensions: 3,
-        id: 'fake-model',
-        name: 'Fake Model',
-        origin: 'local',
-        quantized: false,
-        tags: ['local', 'embedding'],
-      })),
-      loadChunksByIds: vi.fn(async (ids: readonly string[]) =>
-        ids.map((id) => ({
+      async getModelConfig(this: EmbeddingWorkerStorage) {
+        if (this !== storage) {
+          throw new Error('storage.getModelConfig lost its receiver');
+        }
+        getModelConfigCalls += 1;
+        return {
+          description: 'Fake model for storage-port tests',
+          dimensions: 3,
+          id: 'fake-model',
+          name: 'Fake Model',
+          origin: 'local',
+          quantized: false,
+          tags: ['local', 'embedding'],
+        };
+      },
+      async loadChunksByIds(this: EmbeddingWorkerStorage, ids: readonly string[]) {
+        if (this !== storage) {
+          throw new Error('storage.loadChunksByIds lost its receiver');
+        }
+        loadChunksByIdsCalls += 1;
+        return ids.map((id) => ({
           content: 'export const value = 1;',
           contentHash: 'chunk-hash',
           embeddingHash: null,
           embeddingSetId: 'set-1',
           id,
-        }))
-      ),
+        }));
+      },
       queue: {
         claimMany: vi.fn(async () => {
           if (claimed) {
@@ -190,7 +214,8 @@ describe('embedding worker storage port', () => {
     await controller.stop();
 
     expect(storage.assertEmbeddingStorageReady).toHaveBeenCalledTimes(1);
-    expect(storage.loadChunksByIds).toHaveBeenCalledWith(['chunk-1']);
+    expect(getModelConfigCalls).toBeGreaterThan(0);
+    expect(loadChunksByIdsCalls).toBe(1);
     expect(storage.resolveEmbeddingSetDimension).toHaveBeenCalledWith('set-1');
     expect(completeEmbeddingChunkBatch).toHaveBeenCalledWith([
       expect.objectContaining({

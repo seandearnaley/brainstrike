@@ -59,6 +59,7 @@ import {
   shouldLogIdleBackoff,
 } from './embedding-worker-scheduler';
 import {
+  type EmbeddingWorkerClaimedJob,
   type EmbeddingWorkerStorage,
   resolveEmbeddingWorkerStorage,
 } from './embedding-worker-storage';
@@ -72,6 +73,7 @@ export type {
 } from './embedding-stats-refresh-controller';
 export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 export type {
+  EmbeddingWorkerClaimedJob,
   EmbeddingWorkerClaimParams,
   EmbeddingWorkerCompleteEmbeddingChunkParams,
   EmbeddingWorkerFailBatchParams,
@@ -413,7 +415,7 @@ export async function startEmbeddingWorker(
     });
   } else {
     const initializedService = await initializeEmbeddingService(
-      { ...options, getModelConfig: storage.getModelConfig },
+      { ...options, getModelConfig: (modelId) => storage.getModelConfig(modelId) },
       activeCompositeKey,
       {
         initializeLocalService: true,
@@ -797,8 +799,7 @@ export async function startEmbeddingWorker(
     scheduledReinitPending = false;
   }
 
-  // biome-ignore lint/style/useNamingConvention: DB field name
-  type ClaimedJob = Job & { lease_token: string };
+  type ClaimedJob = EmbeddingWorkerClaimedJob;
 
   async function generateLocalEmbeddings(
     chunks: LoadedChunkItem['chunk'][],
@@ -1508,7 +1509,7 @@ export async function startEmbeddingWorker(
         await jq.failBatch({ jobs: orphanJobs, error, terminal: true });
       },
       hashExpectedEmbedding: sha256Hex,
-      loadChunksByIds: storage.loadChunksByIds,
+      loadChunksByIds: (ids) => storage.loadChunksByIds(ids),
       logWarn: (message, meta) => workerLogger.warn(message, meta),
     });
     metrics.jobsFailed += orphanCount;
@@ -1799,12 +1800,12 @@ export async function startEmbeddingWorker(
         return;
       }
       // Claim a batch of jobs
-      const jobs = (await jq.claimMany({
+      const jobs = await jq.claimMany({
         queue: queueName,
         leaseMs,
         workerId,
         limit: effectiveClaimBatchSize,
-      })) as ClaimedJob[];
+      });
 
       if (jobs.length === 0) {
         await handleIdleBatch();

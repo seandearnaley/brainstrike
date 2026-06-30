@@ -25,6 +25,9 @@ export interface EmbeddingWorkerJobLeaseRef {
   leaseToken: string;
 }
 
+// biome-ignore lint/style/useNamingConvention: lease_token is a database field name.
+export type EmbeddingWorkerClaimedJob = Job & { lease_token: string };
+
 export interface EmbeddingWorkerCompleteEmbeddingChunkParams extends EmbeddingWorkerJobLeaseRef {
   chunkId: string;
   embedding: number[];
@@ -46,7 +49,7 @@ export interface EmbeddingWorkerFailParams extends EmbeddingWorkerJobLeaseRef {
 }
 
 export interface EmbeddingWorkerQueuePort {
-  claimMany(params: EmbeddingWorkerClaimParams): Promise<Job[]>;
+  claimMany(params: EmbeddingWorkerClaimParams): Promise<EmbeddingWorkerClaimedJob[]>;
   completeBatch(jobs: EmbeddingWorkerJobLeaseRef[]): Promise<Job[]>;
   completeEmbeddingChunkBatch(jobs: EmbeddingWorkerCompleteEmbeddingChunkParams[]): Promise<Job[]>;
   fail(params: EmbeddingWorkerFailParams): Promise<Job | null>;
@@ -72,6 +75,15 @@ export interface EmbeddingWorkerStorage {
   resolveEmbeddingSetDimension(embeddingSetId: string): Promise<number>;
 }
 
+function assertClaimedJobs(jobs: Job[]): EmbeddingWorkerClaimedJob[] {
+  for (const job of jobs) {
+    if (!(typeof job.lease_token === 'string' && job.lease_token.length > 0)) {
+      throw new Error(`Embedding worker queue claimed job '${job.id}' without a lease token.`);
+    }
+  }
+  return jobs as EmbeddingWorkerClaimedJob[];
+}
+
 export async function createPGliteEmbeddingWorkerStorage(
   db: IDatabase
 ): Promise<EmbeddingWorkerStorage> {
@@ -90,7 +102,14 @@ export async function createPGliteEmbeddingWorkerStorage(
       }),
     getModelConfig: (modelId) => getModelConfigFromDb(db, modelId),
     loadChunksByIds: (ids) => loadChunksBatch(db, [...ids], fileChunkIdType),
-    queue,
+    queue: {
+      claimMany: async (params) => assertClaimedJobs(await queue.claimMany(params)),
+      completeBatch: (jobs) => queue.completeBatch(jobs),
+      completeEmbeddingChunkBatch: (jobs) => queue.completeEmbeddingChunkBatch(jobs),
+      fail: (params) => queue.fail(params),
+      failBatch: (params) => queue.failBatch(params),
+      heartbeatBatch: (jobs, extendMs) => queue.heartbeatBatch(jobs, extendMs),
+    },
     resolveEmbeddingSetDimension: (embeddingSetId) =>
       resolveEmbeddingSetDimension(db, embeddingSetId),
   };
