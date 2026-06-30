@@ -108,7 +108,7 @@ export interface FileCollectionStatusSnapshot {
  * This is a subset of PGlite's full interface to support both implementations
  */
 export interface IDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query<T = unknown>(sql: string, params?: unknown[], options?: unknown): Promise<{ rows: T[] }>;
   transaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
 }
 

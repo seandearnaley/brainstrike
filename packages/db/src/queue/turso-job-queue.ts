@@ -4,6 +4,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbQueryResult,
   BrainstrikeDbTransactionClient,
+  BrainstrikeDbWorkOptions,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { TursoFileChunkRepository } from '../repositories/turso-file-chunk-repository.js';
 import type {
@@ -33,17 +34,22 @@ const logger = createLogger('TursoJobQueue');
 export interface TursoJobQueueQueryClient {
   readonly query: <TRecord = unknown>(
     sql: string,
-    params?: unknown[]
+    params?: unknown[],
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<BrainstrikeDbQueryResult<TRecord>>;
 }
 
 export interface TursoJobQueueReadModel {
   getCountsByState(
-    queue?: string
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
   ): Promise<Array<{ queue: string; state: JobState; count: number }>>;
   getEmbeddingSetQueueCounts(queue: string, embeddingSetId: string): Promise<JobQueueStateCounts>;
   getQueueMetrics(queue: string, options: JobQueueMetricsOptions): Promise<JobQueueMetricsSnapshot>;
-  getQueueStats(queue?: string): Promise<
+  getQueueStats(
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<
     Array<{
       failed: number;
       nextRunnableAt?: string | null;
@@ -57,11 +63,11 @@ export interface TursoJobQueueReadModel {
 
 export function createTursoJobQueueReadModel(db: TursoJobQueueQueryClient): TursoJobQueueReadModel {
   return {
-    getCountsByState: (queue) => getCountsByState(db, queue),
+    getCountsByState: (queue, options) => getCountsByState(db, queue, options),
     getEmbeddingSetQueueCounts: (queue, embeddingSetId) =>
       getEmbeddingSetQueueCounts(db, queue, embeddingSetId),
     getQueueMetrics: (queue, options) => getQueueMetrics(db, queue, options),
-    getQueueStats: (queue) => getQueueStats(db, queue),
+    getQueueStats: (queue, options) => getQueueStats(db, queue, options),
   };
 }
 
@@ -456,9 +462,10 @@ export class TursoJobQueue {
   }
 
   async getCountsByState(
-    queue?: string
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
   ): Promise<Array<{ queue: string; state: JobState; count: number }>> {
-    return this.readModel.getCountsByState(queue);
+    return this.readModel.getCountsByState(queue, options);
   }
 
   async getEmbeddingSetQueueCounts(
@@ -475,7 +482,10 @@ export class TursoJobQueue {
     return this.readModel.getQueueMetrics(queue, options);
   }
 
-  async getQueueStats(queue?: string): Promise<
+  async getQueueStats(
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<
     Array<{
       queue: string;
       queued: number;
@@ -485,7 +495,7 @@ export class TursoJobQueue {
       nextRunnableAt?: string | null;
     }>
   > {
-    return this.readModel.getQueueStats(queue);
+    return this.readModel.getQueueStats(queue, options);
   }
 
   async clear(queue?: string, states?: JobState[]): Promise<number> {
@@ -539,7 +549,8 @@ export class TursoJobQueue {
 
 async function getCountsByState(
   db: TursoJobQueueQueryClient,
-  queue?: string
+  queue?: string,
+  options?: BrainstrikeDbWorkOptions
 ): Promise<Array<{ queue: string; state: JobState; count: number }>> {
   const result = await db.query<{ count: number | string; queue: string; state: JobState }>(
     `SELECT queue, state, COUNT(*) AS count
@@ -547,7 +558,8 @@ async function getCountsByState(
        ${queue ? 'WHERE queue = ?' : ''}
       GROUP BY queue, state
       ORDER BY queue, state`,
-    queue ? [queue] : []
+    queue ? [queue] : [],
+    options
   );
   return result.rows.map((row) => ({
     queue: row.queue,
@@ -677,7 +689,8 @@ async function getQueueMetrics(
 
 async function getQueueStats(
   db: TursoJobQueueQueryClient,
-  queue?: string
+  queue?: string,
+  options?: BrainstrikeDbWorkOptions
 ): Promise<
   Array<{
     queue: string;
@@ -688,7 +701,7 @@ async function getQueueStats(
     nextRunnableAt?: string | null;
   }>
 > {
-  const counts = await getCountsByState(db, queue);
+  const counts = await getCountsByState(db, queue, options);
   const queues = new Map<
     string,
     { queued: number; running: number; failed: number; succeeded: number }
@@ -712,10 +725,11 @@ async function getQueueStats(
 
   const nextRunnable = await db.query<{ queue: string; run_at: string }>(
     `SELECT queue, MIN(run_at) AS run_at
-       FROM job_queue
+      FROM job_queue
       WHERE state = 'queued' ${queue ? 'AND queue = ?' : ''}
       GROUP BY queue`,
-    queue ? [queue] : []
+    queue ? [queue] : [],
+    options
   );
   const nextByQueue = new Map(nextRunnable.rows.map((row) => [row.queue, row.run_at]));
 

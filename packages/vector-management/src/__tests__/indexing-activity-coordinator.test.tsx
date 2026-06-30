@@ -305,7 +305,10 @@ describe('IndexingActivityCoordinator', () => {
       });
     });
 
-    expect(getQueueStats).toHaveBeenCalledWith('embeddings');
+    expect(getQueueStats).toHaveBeenCalledWith('embeddings', {
+      label: 'indexing activity queue snapshot',
+      priority: 'background',
+    });
     expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       queued: 4,
@@ -315,6 +318,41 @@ describe('IndexingActivityCoordinator', () => {
       nextRunnableAt: '2026-04-25T12:05:00.000Z',
     });
     expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(true);
+  });
+
+  it('routes runtime queue stats polling through the background database lane', async () => {
+    const getQueueStats = vi.fn(async () => []);
+    usePGliteDatabaseMock.mockReturnValue(null);
+    useEmbeddingJobQueueMock.mockReturnValue({ getQueueStats });
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(getQueueStats).toHaveBeenCalledWith('embeddings', {
+        label: 'indexing activity queue snapshot',
+        priority: 'background',
+      });
+    });
+
+    expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+      status: 'idle',
+      phase: null,
+      queue: {
+        queued: 0,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+        nextRunnableAt: null,
+      },
+    });
+    expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+      nextRunnableAt: null,
+    });
+    expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(false);
   });
 
   it('keeps backfills visible across collections through runtime in-flight state', async () => {

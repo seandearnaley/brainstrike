@@ -35,6 +35,10 @@ const QUEUE_AGGREGATE_QUERY = `
 `.trim();
 const DATABASE_WORK_SNAPSHOT_POLL_MS = 500;
 const QUEUE_SNAPSHOT_POLL_MS = 1000;
+const QUEUE_STATS_WORK_OPTIONS = {
+  label: 'indexing activity queue snapshot',
+  priority: 'background',
+} as const;
 
 interface QueueAggregateRow {
   readonly failed: number | string | null;
@@ -116,7 +120,7 @@ async function readQueueSnapshotFromJobQueue(
   if (!jobQueue) {
     return null;
   }
-  const row = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE))[0] ?? {
+  const row = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE, QUEUE_STATS_WORK_OPTIONS))[0] ?? {
     queued: 0,
     running: 0,
     failed: 0,

@@ -733,6 +733,30 @@ describe('TursoJobQueue runtime operations', () => {
     });
   });
 
+  it('forwards work options to read-only queue stats queries', async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const queryOnlyQueue = createTursoJobQueueReadModel({ query });
+    const options = {
+      label: 'indexing activity queue snapshot',
+      priority: 'background',
+    } as const;
+
+    await expect(queryOnlyQueue.getQueueStats('embeddings', options)).resolves.toEqual([]);
+
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('COUNT(*) AS count'),
+      ['embeddings'],
+      options
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('MIN(run_at) AS run_at'),
+      ['embeddings'],
+      options
+    );
+  });
+
   async function readJobStates(): Promise<Array<{ id: string; state: string }>> {
     const result = await client.query<{ id: string; state: string }>(
       'SELECT id, state FROM job_queue ORDER BY id'

@@ -1,5 +1,6 @@
 import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/queue';
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import type { BrainstrikeDbWorkOptions } from '../architecture/brainstrike-db-client-contract.js';
 import type { IDatabase } from '../repositories/interfaces.js';
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -1293,7 +1294,8 @@ export class JobQueue {
 
   // Stats helpers
   async getCountsByState(
-    queue?: string
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
   ): Promise<Array<{ queue: string; state: JobState; count: number }>> {
     const res = await this.db.query<{ queue: string; state: JobState; count: string }>(
       `SELECT queue, state, COUNT(*)::text as count
@@ -1301,12 +1303,16 @@ export class JobQueue {
        ${queue ? 'WHERE queue = $1' : ''}
        GROUP BY queue, state
        ORDER BY queue, state`,
-      queue ? [queue] : []
+      queue ? [queue] : [],
+      options
     );
     return res.rows.map((r) => ({ queue: r.queue, state: r.state, count: Number(r.count) }));
   }
 
-  async getQueueStats(queue?: string): Promise<
+  async getQueueStats(
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<
     {
       queue: string;
       queued: number;
@@ -1316,7 +1322,7 @@ export class JobQueue {
       nextRunnableAt?: string | null;
     }[]
   > {
-    const counts = await this.getCountsByState(queue);
+    const counts = await this.getCountsByState(queue, options);
     const queues = new Map<
       string,
       { queued: number; running: number; failed: number; succeeded: number }
@@ -1343,7 +1349,8 @@ export class JobQueue {
        FROM job_queue
        WHERE state = 'queued' ${queue ? 'AND queue = $1' : ''}
        GROUP BY queue`,
-      queue ? [queue] : []
+      queue ? [queue] : [],
+      options
     );
     const minRunAt = new Map<string, string>();
     for (const row of res.rows) {
