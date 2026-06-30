@@ -164,7 +164,12 @@ const mockCollectionLiveQueryResult = {
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
+const mockModelRegistryDatabase = {
+  query: vi.fn().mockResolvedValue({ rows: [] }),
+};
 let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
+let mockModelRegistryDatabaseClient: typeof mockModelRegistryDatabase | null =
+  mockModelRegistryDatabase;
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
 let mockProfileBootstrapReport: { runtime: { engine: string } } | null = {
   runtime: { engine: 'pglite' },
@@ -202,6 +207,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
+    useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
     useOptionalPGliteDatabase: () =>
       mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
@@ -467,6 +473,7 @@ describe('DatabaseDemoPanel', () => {
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
+    mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
     mockCurrentChunkRepository = mockChunkRepository;
     mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
 
@@ -633,6 +640,21 @@ describe('DatabaseDemoPanel', () => {
           expect.objectContaining({ db: mockDatabase })
         );
       });
+    });
+
+    it('fetches model registry through the Turso runtime DB when the PGlite client is unavailable', async () => {
+      mockDatabaseClient = null;
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
+          expect.objectContaining({ db: mockModelRegistryDatabase })
+        );
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
   });
 
