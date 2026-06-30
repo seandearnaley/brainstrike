@@ -20,6 +20,11 @@ export interface EmbeddingStatsRefreshController {
   ) => Promise<void>;
 }
 
+export interface EmbeddingStatsRefreshControllerOperations {
+  markDirty: (embeddingSetIds: readonly string[]) => Promise<void>;
+  refresh: (embeddingSetIds: readonly string[]) => Promise<void>;
+}
+
 export function createEmbeddingStatsRefreshController({
   completedChunkThreshold,
   db,
@@ -27,6 +32,33 @@ export function createEmbeddingStatsRefreshController({
   minIntervalMs,
   now,
 }: EmbeddingStatsRefreshControllerOptions): EmbeddingStatsRefreshController {
+  return createEmbeddingStatsRefreshControllerWithOperations(
+    { completedChunkThreshold, log, minIntervalMs, now },
+    {
+      markDirty: (embeddingSetIds) =>
+        markCollectionIndexingStatsDirty(db, embeddingSetIds, {
+          label: 'embedding completion stats dirty',
+          priority: 'background',
+        }),
+      refresh: async (embeddingSetIds) => {
+        await refreshCollectionIndexingStats(db, embeddingSetIds, {
+          label: 'embedding stats refresh',
+          priority: 'background',
+        });
+      },
+    }
+  );
+}
+
+export function createEmbeddingStatsRefreshControllerWithOperations(
+  {
+    completedChunkThreshold,
+    log,
+    minIntervalMs,
+    now,
+  }: Omit<EmbeddingStatsRefreshControllerOptions, 'db'>,
+  operations: EmbeddingStatsRefreshControllerOperations
+): EmbeddingStatsRefreshController {
   const pendingEmbeddingSetIds = new Set<string>();
   let completedSinceRefresh = 0;
   let lastRefreshAt = now();
@@ -44,10 +76,7 @@ export function createEmbeddingStatsRefreshController({
     completedSinceRefresh = 0;
 
     try {
-      await refreshCollectionIndexingStats(db, embeddingSetIds, {
-        label: 'embedding stats refresh',
-        priority: 'background',
-      });
+      await operations.refresh(embeddingSetIds);
       lastRefreshAt = now();
       log('embedding_stats_refresh', {
         completedChunkCount,
@@ -110,10 +139,7 @@ export function createEmbeddingStatsRefreshController({
       }
       completedSinceRefresh += completedChunkCount;
       if (newlyPendingIds.length > 0) {
-        await markCollectionIndexingStatsDirty(db, newlyPendingIds, {
-          label: 'embedding completion stats dirty',
-          priority: 'background',
-        });
+        await operations.markDirty(newlyPendingIds);
       }
     },
   };

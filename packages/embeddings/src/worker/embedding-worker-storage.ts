@@ -1,18 +1,20 @@
 import {
   type BrainstrikeDbExecutionClient,
-  type BrainstrikeDbTransactionClient,
   type IDatabase,
   type Job,
   JobQueue,
+  markTursoCollectionIndexingStatsDirty,
+  refreshTursoCollectionIndexingStats,
   TursoJobQueue,
 } from '@brainstrike/db';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import type { ModelConfig } from '../types';
 import { getModelConfigFromDb } from './embedding-model-config';
 import {
   createEmbeddingStatsRefreshController,
+  createEmbeddingStatsRefreshControllerWithOperations,
   type EmbeddingStatsRefreshController,
-  type StatsRefreshReason,
 } from './embedding-stats-refresh-controller';
 import {
   assertVectorEmbeddingColumn,
@@ -98,6 +100,8 @@ interface TursoTableColumnRow {
   readonly type: string;
 }
 
+const tursoStorageLogger = createLogger('TursoEmbeddingWorkerStorage');
+
 function assertClaimedJobs(jobs: Job[]): EmbeddingWorkerClaimedJob[] {
   for (const job of jobs) {
     if (!(typeof job.lease_token === 'string' && job.lease_token.length > 0)) {
@@ -123,11 +127,18 @@ function parseTursoJsonObject(raw: string | null, label: string): Record<string,
   if (raw === null) {
     return {};
   }
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${label} must be a JSON object.`);
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      return {};
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    tursoStorageLogger.warn(`${label}: failed to parse JSON`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
   }
-  return parsed as Record<string, unknown>;
 }
 
 function readTursoModelCapabilities(raw: string | null): {
@@ -162,175 +173,13 @@ function readTursoModelParameters(raw: string | null): {
 
 function createTursoEmbeddingStatsRefreshController(
   db: BrainstrikeDbExecutionClient,
-  { completedChunkThreshold, log, minIntervalMs, now }: EmbeddingWorkerStatsControllerOptions
+  options: EmbeddingWorkerStatsControllerOptions
 ): EmbeddingStatsRefreshController {
-  const pendingEmbeddingSetIds = new Set<string>();
-  let completedSinceRefresh = 0;
-  let lastRefreshAt = now();
-  let flushInFlight: Promise<void> | null = null;
-
-  const flushPending = async (reason: StatsRefreshReason): Promise<void> => {
-    if (pendingEmbeddingSetIds.size === 0) {
-      return;
-    }
-
-    const embeddingSetIds = [...pendingEmbeddingSetIds];
-    const completedChunkCount = completedSinceRefresh;
-    const startedAt = now();
-    pendingEmbeddingSetIds.clear();
-    completedSinceRefresh = 0;
-
-    try {
-      await db.transaction(async (tx: BrainstrikeDbTransactionClient) => {
-        for (const embeddingSetId of embeddingSetIds) {
-          await refreshTursoCollectionIndexingStatsForSet(tx, embeddingSetId);
-        }
-      });
-      lastRefreshAt = now();
-      log('embedding_stats_refresh', {
-        completedChunkCount,
-        durationMs: Math.round(now() - startedAt),
-        embeddingSetCount: embeddingSetIds.length,
-        reason,
-      });
-    } catch (error) {
-      for (const embeddingSetId of embeddingSetIds) {
-        pendingEmbeddingSetIds.add(embeddingSetId);
-      }
-      completedSinceRefresh += completedChunkCount;
-      throw error;
-    }
-  };
-
-  const flush = async (reason: StatsRefreshReason): Promise<void> => {
-    while (flushInFlight) {
-      try {
-        await flushInFlight;
-      } catch {
-        // The in-flight flush restored pending state before rejecting; this caller can retry it.
-      }
-    }
-    const nextFlush = flushPending(reason);
-    flushInFlight = nextFlush;
-    try {
-      await nextFlush;
-    } finally {
-      if (flushInFlight === nextFlush) {
-        flushInFlight = null;
-      }
-    }
-  };
-
-  return {
-    flush,
-    flushIfDue: async () => {
-      if (pendingEmbeddingSetIds.size === 0) {
-        return;
-      }
-      if (completedSinceRefresh >= completedChunkThreshold) {
-        await flush('threshold');
-        return;
-      }
-      if (now() - lastRefreshAt >= minIntervalMs) {
-        await flush('interval');
-      }
-    },
-    recordCompletions: async (embeddingSetIds, completedChunkCount) => {
-      if (embeddingSetIds.length === 0 || completedChunkCount <= 0) {
-        return;
-      }
-      const uniqueIds = [...new Set(embeddingSetIds)];
-      const newlyPendingIds = uniqueIds.filter(
-        (embeddingSetId) => !pendingEmbeddingSetIds.has(embeddingSetId)
-      );
-      for (const embeddingSetId of newlyPendingIds) {
-        pendingEmbeddingSetIds.add(embeddingSetId);
-      }
-      completedSinceRefresh += completedChunkCount;
-      if (newlyPendingIds.length > 0) {
-        await markTursoCollectionIndexingStatsDirty(db, newlyPendingIds);
-      }
-    },
-  };
-}
-
-async function markTursoCollectionIndexingStatsDirty(
-  db: BrainstrikeDbExecutionClient,
-  embeddingSetIds: readonly string[]
-): Promise<void> {
-  const uniqueIds = [...new Set(embeddingSetIds)];
-  if (uniqueIds.length === 0) {
-    return;
-  }
-  await db.exec(
-    `UPDATE collection_indexing_stats
-        SET dirty = 1
-      WHERE embedding_set_id IN (${createPlaceholders(uniqueIds.length)})`,
-    uniqueIds
-  );
-}
-
-async function refreshTursoCollectionIndexingStatsForSet(
-  db: BrainstrikeDbTransactionClient,
-  embeddingSetId: string
-): Promise<void> {
-  await db.exec(
-    `INSERT INTO collection_indexing_stats (
-       embedding_set_id,
-       file_count,
-       chunk_count,
-       embedded_chunk_count,
-       pending_chunk_count,
-       dirty,
-       last_refreshed_at
-     )
-     SELECT
-       s.id,
-       (
-         SELECT COUNT(*)
-           FROM file_records fr
-          WHERE fr.embedding_set_id = s.id
-       ),
-       (
-         SELECT COUNT(*)
-           FROM file_chunks c
-           JOIN file_records fr ON fr.id = c.file_record_id
-          WHERE c.embedding_set_id = s.id
-             OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
-       ),
-       (
-         SELECT COUNT(*)
-           FROM file_chunks c
-           JOIN file_records fr ON fr.id = c.file_record_id
-          WHERE (
-                  c.embedding_set_id = s.id
-                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
-                )
-            AND c.embedding IS NOT NULL
-       ),
-       (
-         SELECT COUNT(*)
-           FROM file_chunks c
-           JOIN file_records fr ON fr.id = c.file_record_id
-          WHERE (
-                  c.embedding_set_id = s.id
-                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = s.id)
-                )
-            AND c.embedding IS NULL
-       ),
-       0,
-       strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-       FROM embedding_sets s
-      WHERE s.id = ?
-     ON CONFLICT (embedding_set_id) DO UPDATE SET
-       file_count = excluded.file_count,
-       chunk_count = excluded.chunk_count,
-       embedded_chunk_count = excluded.embedded_chunk_count,
-       pending_chunk_count = excluded.pending_chunk_count,
-       dirty = 0,
-       last_refreshed_at = excluded.last_refreshed_at`,
-    [embeddingSetId]
-  );
+  return createEmbeddingStatsRefreshControllerWithOperations(options, {
+    markDirty: (embeddingSetIds) => markTursoCollectionIndexingStatsDirty(db, embeddingSetIds),
+    refresh: (embeddingSetIds) =>
+      db.transaction((tx) => refreshTursoCollectionIndexingStats(tx, embeddingSetIds)),
+  });
 }
 
 async function assertTursoEmbeddingStorageReady(db: BrainstrikeDbExecutionClient): Promise<void> {
@@ -341,42 +190,67 @@ async function assertTursoEmbeddingStorageReady(db: BrainstrikeDbExecutionClient
   if (!embeddingColumn) {
     throw new Error('Turso file_chunks.embedding column is missing.');
   }
+  if (embeddingColumn.type.toUpperCase() !== 'BLOB') {
+    throw new Error(
+      `Turso file_chunks.embedding column must be BLOB, received ${embeddingColumn.type}.`
+    );
+  }
   await db.query('SELECT vector32(?) AS embedding', [JSON.stringify([0])]);
 }
 
 async function getTursoModelConfig(
   db: BrainstrikeDbExecutionClient,
-  modelId: string
+  modelId: string,
+  cache: Map<string, ModelConfig | null>
 ): Promise<ModelConfig | null> {
-  const result = await db.query<TursoModelRow>(
-    `SELECT id,
-            provider_id AS "providerId",
-            name,
-            description,
-            capabilities,
-            parameters
-       FROM models
-      WHERE id = ?
-      LIMIT 1`,
-    [modelId]
-  );
-  const row = result.rows[0];
-  if (!row) {
+  const cached = cache.get(modelId);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  try {
+    const result = await db.query<TursoModelRow>(
+      `SELECT id,
+              provider_id AS "providerId",
+              name,
+              description,
+              capabilities,
+              parameters
+         FROM models
+        WHERE id = ?
+        LIMIT 1`,
+      [modelId]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      cache.set(modelId, null);
+      return null;
+    }
+    const capabilities = readTursoModelCapabilities(row.capabilities);
+    const parameters = readTursoModelParameters(row.parameters);
+    const modelConfig: ModelConfig = {
+      id: row.id,
+      name: row.name,
+      dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
+      quantized: false,
+      description: row.description ?? '',
+      tags: [row.providerId, capabilities.type ?? 'embedding'].filter(Boolean),
+      origin: row.providerId,
+      ...(parameters.size === undefined ? {} : { size: parameters.size }),
+      ...(parameters.contextWindow === undefined
+        ? {}
+        : { contextWindow: parameters.contextWindow }),
+    };
+    cache.set(modelId, modelConfig);
+    return modelConfig;
+  } catch (error) {
+    tursoStorageLogger.error('getTursoModelConfig: query failed', {
+      error: error instanceof Error ? error.message : String(error),
+      modelId,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
-  const capabilities = readTursoModelCapabilities(row.capabilities);
-  const parameters = readTursoModelParameters(row.parameters);
-  return {
-    id: row.id,
-    name: row.name,
-    dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-    quantized: false,
-    description: row.description ?? '',
-    tags: [row.providerId, capabilities.type ?? 'embedding'].filter(Boolean),
-    origin: row.providerId,
-    ...(parameters.size === undefined ? {} : { size: parameters.size }),
-    ...(parameters.contextWindow === undefined ? {} : { contextWindow: parameters.contextWindow }),
-  };
 }
 
 async function loadTursoChunksByIds(
@@ -450,11 +324,12 @@ export function createTursoEmbeddingWorkerStorage(
   db: BrainstrikeDbExecutionClient
 ): EmbeddingWorkerStorage {
   const queue = new TursoJobQueue(db);
+  const modelConfigCache = new Map<string, ModelConfig | null>();
   return {
     assertEmbeddingStorageReady: () => assertTursoEmbeddingStorageReady(db),
     createStatsRefreshController: (options) =>
       createTursoEmbeddingStatsRefreshController(db, options),
-    getModelConfig: (modelId) => getTursoModelConfig(db, modelId),
+    getModelConfig: (modelId) => getTursoModelConfig(db, modelId, modelConfigCache),
     loadChunksByIds: (ids) => loadTursoChunksByIds(db, ids),
     queue: {
       claimMany: async (params) => assertClaimedJobs(await queue.claimMany(params)),

@@ -461,9 +461,9 @@ Concrete blockers:
   jobs carry non-empty lease tokens before the worker sees them, loads chunks
   and model metadata with SQLite-shaped SQL, resolves embedding-set dimensions,
   verifies Turso vector readiness with `vector32`, and refreshes
-  `collection_indexing_stats` with Turso-compatible SQL. The hidden renderer
-  host is not switched to this adapter yet; that remains the runtime wiring
-  slice.
+  `collection_indexing_stats` through the shared `@brainstrike/db` Turso stats
+  service. The hidden renderer host is not switched to this adapter yet; that
+  remains the runtime wiring slice.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
   client timeout/watchdog policy, QoS/connection-model decision, and Turso
   corruption diagnostics/recovery.

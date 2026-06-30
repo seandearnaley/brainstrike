@@ -5,6 +5,7 @@ import type {
 import type { IDatabase } from '../repositories/interfaces.js';
 import { replaceQuickOpenNameGrams } from '../search/quick-open-name-grams.js';
 import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
+import { refreshTursoCollectionIndexingStats } from '../services/turso-collection-indexing-stats.js';
 import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
 interface ManagedCacheRecordBase {
@@ -1101,72 +1102,4 @@ export async function applyTursoManagedCacheBatch(
     await insertTursoManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
     await refreshTursoCollectionIndexingStats(tx, [args.embeddingSetId]);
   });
-}
-
-async function refreshTursoCollectionIndexingStats(
-  tx: BrainstrikeDbTransactionClient,
-  embeddingSetIds: readonly string[]
-): Promise<void> {
-  const uniqueIds = [...new Set(embeddingSetIds)];
-  if (uniqueIds.length === 0) {
-    return;
-  }
-
-  const refreshedAt = new Date().toISOString();
-  for (const embeddingSetId of uniqueIds) {
-    const setResult = await tx.query<{ id: string }>('SELECT id FROM embedding_sets WHERE id = ?', [
-      embeddingSetId,
-    ]);
-    if (!setResult.rows[0]) {
-      continue;
-    }
-
-    const fileCountResult = await tx.query<{ count: number | string }>(
-      'SELECT COUNT(*) AS count FROM file_records WHERE embedding_set_id = ?',
-      [embeddingSetId]
-    );
-    const chunkCountResult = await tx.query<{
-      chunk_count: number | string;
-      embedded_chunk_count: number | string;
-      pending_chunk_count: number | string;
-    }>(
-      `SELECT
-          COUNT(*) AS chunk_count,
-          SUM(CASE WHEN c.embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded_chunk_count,
-          SUM(CASE WHEN c.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
-         FROM file_chunks c
-         JOIN file_records fr ON fr.id = c.file_record_id
-        WHERE c.embedding_set_id = ?
-           OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)`,
-      [embeddingSetId, embeddingSetId]
-    );
-    const chunkCounts = chunkCountResult.rows[0];
-    await tx.exec(
-      `INSERT INTO collection_indexing_stats (
-         embedding_set_id,
-         file_count,
-         chunk_count,
-         embedded_chunk_count,
-         pending_chunk_count,
-         dirty,
-         last_refreshed_at
-       )
-       VALUES (?, ?, ?, ?, ?, 0, ?)
-       ON CONFLICT (embedding_set_id) DO UPDATE SET
-         file_count = excluded.file_count,
-         chunk_count = excluded.chunk_count,
-         embedded_chunk_count = excluded.embedded_chunk_count,
-         pending_chunk_count = excluded.pending_chunk_count,
-         dirty = 0,
-         last_refreshed_at = excluded.last_refreshed_at`,
-      [
-        embeddingSetId,
-        Number(fileCountResult.rows[0]?.count ?? 0),
-        Number(chunkCounts?.chunk_count ?? 0),
-        Number(chunkCounts?.embedded_chunk_count ?? 0),
-        Number(chunkCounts?.pending_chunk_count ?? 0),
-        refreshedAt,
-      ]
-    );
-  }
 }

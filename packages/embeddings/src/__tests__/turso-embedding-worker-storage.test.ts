@@ -2,16 +2,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  applyTursoSchemaBaseline,
-  createTursoOwnerClient,
   type FileChunkInsert,
   type FileRecord,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
   TursoJobQueue,
-  type TursoOwnerClient,
 } from '@brainstrike/db';
+import { createTursoOwnerClient, type TursoOwnerClient } from '@brainstrike/db/turso/owner-client';
+import { applyTursoSchemaBaseline } from '@brainstrike/db/turso/schema-baseline';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTursoEmbeddingWorkerStorage } from '../worker/embedding-worker-storage';
 
@@ -60,6 +60,25 @@ describe('Turso embedding worker storage', () => {
     await expect(storage.getModelConfig('Xenova/all-MiniLM-L6-v2')).resolves.toMatchObject({
       dimensions: 384,
       id: 'Xenova/all-MiniLM-L6-v2',
+      origin: 'local',
+    });
+    await client.exec(
+      `INSERT INTO models (
+         id,
+         provider_id,
+         name,
+         description,
+         is_enabled,
+         capabilities,
+         parameters,
+         sort_order
+       )
+         VALUES (?, 'local', 'Non-object local embedder', 'non-object metadata fixture', 1, ?, ?, 999)`,
+      ['local::non-object-embedder', '[]', '"not-an-object"']
+    );
+    await expect(storage.getModelConfig('local::non-object-embedder')).resolves.toMatchObject({
+      dimensions: DEFAULT_EMBEDDING_DIMENSION,
+      id: 'local::non-object-embedder',
       origin: 'local',
     });
     await expect(storage.resolveEmbeddingSetDimension(embeddingSet.id)).resolves.toBe(3);
