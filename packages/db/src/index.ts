@@ -163,10 +163,12 @@ export {
   runNextDimensionIndexMaintenance,
 } from './services/dimension-index-maintenance.js';
 export {
+  DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
   DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES,
   runScheduledDatabaseMaintenance,
+  runTursoScheduledDatabaseMaintenance,
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
   type ScheduledDatabaseMaintenanceSkipReason,

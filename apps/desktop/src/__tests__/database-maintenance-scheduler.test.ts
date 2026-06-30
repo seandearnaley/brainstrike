@@ -16,6 +16,17 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   vacuumedTables: ['job_queue'],
 };
 
+const TURSO_COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
+  activeJobs: 0,
+  analyzedTables: ['job_queue'],
+  completedAt: '2026-05-01T12:00:00.080Z',
+  durationMs: 80,
+  prunedTerminalJobs: 1,
+  startedAt: '2026-05-01T12:00:00.000Z',
+  status: 'completed',
+  vacuumedTables: [],
+};
+
 function createQueuedCounts(
   overrides: Partial<Record<DatabaseWorkPriority, number>> = {}
 ): Record<DatabaseWorkPriority, number> {
@@ -26,8 +37,8 @@ function createQueuedCounts(
   };
 }
 
-async function resolvePgliteRuntimeEngine(): Promise<'pglite'> {
-  return 'pglite';
+async function resolvePgliteMaintenanceCapability(): Promise<'pglite-postgres'> {
+  return 'pglite-postgres';
 }
 
 describe('DesktopDatabaseMaintenanceScheduler', () => {
@@ -37,7 +48,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     const runMaintenance = vi.fn();
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase,
-      getRuntimeEngine: resolvePgliteRuntimeEngine,
+      getMaintenanceCapability: resolvePgliteMaintenanceCapability,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts({ foreground: 1 }),
         runningPriority: null,
@@ -62,10 +73,21 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     expect(runMaintenance).not.toHaveBeenCalled();
   });
 
-  it('skips before entering the database lane when scheduled maintenance is unsupported for Turso', async () => {
-    const getDatabase = vi.fn(async () => ({ query: vi.fn() }));
-    const runScheduledWork = vi.fn();
-    const runMaintenance = vi.fn();
+  it('runs Turso maintenance through the background database lane when the scheduler is idle', async () => {
+    const db = { exec: vi.fn(), query: vi.fn() };
+    const getDatabase = vi.fn(async () => db);
+    let capturedOptions: DatabaseWorkOptions | null = null;
+    const runScheduledWork = vi.fn(
+      async <TResult>(
+        options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> => {
+        capturedOptions = options;
+        return await work();
+      }
+    );
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const runTursoMaintenance = vi.fn(async () => TURSO_COMPLETED_MAINTENANCE_RESULT);
     const getSchedulerSnapshot = vi.fn(() => ({
       queued: createQueuedCounts(),
       runningPriority: null,
@@ -77,35 +99,41 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     };
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase,
-      getRuntimeEngine: vi.fn(async () => 'turso'),
+      getMaintenanceCapability: vi.fn(async () => 'turso-sqlite'),
       getSchedulerSnapshot,
       logger,
       runMaintenance,
+      runTursoMaintenance,
       runScheduledWork,
     });
 
     const result = await scheduler.runOnce();
 
-    expect(result).toMatchObject({
-      reason: 'unsupported-runtime',
-      status: 'skipped',
+    expect(result).toBe(TURSO_COMPLETED_MAINTENANCE_RESULT);
+    expect(capturedOptions).toEqual({
+      label: 'scheduled-db-maintenance',
+      priority: 'background',
     });
-    expect(getDatabase).not.toHaveBeenCalled();
-    expect(getSchedulerSnapshot).not.toHaveBeenCalled();
-    expect(runScheduledWork).not.toHaveBeenCalled();
+    expect(getDatabase).toHaveBeenCalledTimes(1);
+    expect(getSchedulerSnapshot).toHaveBeenCalledTimes(1);
     expect(runMaintenance).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      { runtimeEngine: 'turso' },
-      'Skipped scheduled database maintenance because the runtime does not support it'
+    expect(runTursoMaintenance).toHaveBeenCalledWith(db, expect.any(Object));
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyzedTables: ['job_queue'],
+        prunedTerminalJobs: 1,
+        vacuumedTables: [],
+      }),
+      'Scheduled database maintenance completed'
     );
   });
 
   it('prevents overlap while async runtime resolution is still pending', async () => {
-    const runtimeResolvers: Array<(runtimeEngine: 'pglite') => void> = [];
-    const getRuntimeEngine = vi.fn(
+    const capabilityResolvers: Array<(capability: 'pglite-postgres') => void> = [];
+    const getMaintenanceCapability = vi.fn(
       async () =>
-        await new Promise<'pglite'>((resolve) => {
-          runtimeResolvers.push(resolve);
+        await new Promise<'pglite-postgres'>((resolve) => {
+          capabilityResolvers.push(resolve);
         })
     );
     const runScheduledWork = vi.fn(
@@ -116,7 +144,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     );
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-      getRuntimeEngine,
+      getMaintenanceCapability,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -135,14 +163,14 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     const secondRun = scheduler.runOnce();
     await Promise.resolve();
 
-    expect(getRuntimeEngine).toHaveBeenCalledTimes(1);
+    expect(getMaintenanceCapability).toHaveBeenCalledTimes(1);
     expect(await secondRun).toMatchObject({
       reason: 'already-running',
       status: 'skipped',
     });
 
-    for (const resolve of runtimeResolvers) {
-      resolve('pglite');
+    for (const resolve of capabilityResolvers) {
+      resolve('pglite-postgres');
     }
     await expect(firstRun).resolves.toBe(COMPLETED_MAINTENANCE_RESULT);
     expect(runScheduledWork).toHaveBeenCalledTimes(1);
@@ -169,7 +197,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase,
-      getRuntimeEngine: resolvePgliteRuntimeEngine,
+      getMaintenanceCapability: resolvePgliteMaintenanceCapability,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -212,7 +240,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     );
     const scheduler = createDesktopDatabaseMaintenanceScheduler({
       getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-      getRuntimeEngine: resolvePgliteRuntimeEngine,
+      getMaintenanceCapability: resolvePgliteMaintenanceCapability,
       getSchedulerSnapshot: () => ({
         queued: createQueuedCounts(),
         runningPriority: null,
@@ -252,7 +280,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       );
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
         getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-        getRuntimeEngine: resolvePgliteRuntimeEngine,
+        getMaintenanceCapability: resolvePgliteMaintenanceCapability,
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
@@ -292,7 +320,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       );
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
         getDatabase: vi.fn(async () => ({ query: vi.fn() })),
-        getRuntimeEngine: resolvePgliteRuntimeEngine,
+        getMaintenanceCapability: resolvePgliteMaintenanceCapability,
         getSchedulerSnapshot: () => ({
           queued: createQueuedCounts(),
           runningPriority: null,
