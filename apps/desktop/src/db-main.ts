@@ -1641,6 +1641,21 @@ function assertUnreachableDbRuntimeEngine(value: never): never {
   throw new Error(`Unhandled Brainstrike DB runtime engine: ${String(value)}`);
 }
 
+function getRuntimeDirectoryToCreate(
+  runtimeEngine: BrainstrikeDbRuntimeSelection['engine'],
+  appDataDir: string,
+  dataDir: string
+): string {
+  switch (runtimeEngine) {
+    case 'pglite':
+      return dataDir;
+    case 'turso':
+      return appDataDir;
+    default:
+      return assertUnreachableDbRuntimeEngine(runtimeEngine);
+  }
+}
+
 export async function initializeMainDatabaseWithBootstrapReport(
   retryAfterCorruption = true
 ): Promise<MainDatabaseBootstrapInitResult> {
@@ -1666,7 +1681,11 @@ export async function initializeMainDatabaseWithBootstrapReport(
   const appDataDir = getAppDataPath();
   const runtimeStorePath =
     runtimeSelection.engine === 'turso' ? getTursoPrimaryDatabasePath() : dataDir;
-  const directoryToCreate = runtimeSelection.engine === 'turso' ? appDataDir : dataDir;
+  const directoryToCreate = getRuntimeDirectoryToCreate(
+    runtimeSelection.engine,
+    appDataDir,
+    dataDir
+  );
   if (!existsSync(directoryToCreate)) {
     mkdirSync(directoryToCreate, { recursive: true });
     logger.debug(`Created database directory: ${directoryToCreate}`);
@@ -1851,6 +1870,12 @@ async function resetLocalDatabaseInternal(): Promise<void> {
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
+  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection();
+  const directoryToCreate = getRuntimeDirectoryToCreate(
+    runtimeSelection.engine,
+    appDataDir,
+    dataDir
+  );
   let backupDir: string | null = null;
 
   try {
@@ -1875,10 +1900,10 @@ async function resetLocalDatabaseInternal(): Promise<void> {
     throw err;
   }
 
-  // Recreate empty pgdata dir to avoid first-run permission flakiness
+  // Recreate the runtime-owned empty directory to avoid first-run permission flakiness.
   try {
-    mkdirSync(dataDir, { recursive: true });
-    logger.info(`Recreated database directory: ${dataDir}`);
+    mkdirSync(directoryToCreate, { recursive: true });
+    logger.info(`Recreated database directory: ${directoryToCreate}`);
   } catch (err) {
     logger.error('Failed to recreate database directory:', err);
     throw err;
