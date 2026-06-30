@@ -1,12 +1,20 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { BrainstrikeRuntimeDbClient, DbHandle } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 
 import { defaultCollator } from './file-node-collator';
 
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
+const TURSO_SELECTION_SNAPSHOT_INSERT_BATCH_SIZE = 250;
 const SNAPSHOT_WRITE_TIMEOUT_MS = 30_000;
 const logger = createLogger('QuerySelectionSnapshot');
 const snapshotWriteLocks = new WeakMap<object, { tail: Promise<void> }>();
+
+type QuerySelectionSnapshotDatabase = DbHandle | BrainstrikeRuntimeDbClient | null;
+
+interface ResolvedSnapshotClient {
+  readonly db: DbHandle;
+  readonly runtimeEngine: 'pglite' | 'turso';
+}
 
 interface QueryResultRow {
   filePath?: string;
@@ -26,6 +34,50 @@ function normalizeSnapshotRows(rows: unknown[]): string[] {
 
 function createTimeoutError(message: string): Error {
   return new Error(message);
+}
+
+function isRuntimeDbClient(value: unknown): value is BrainstrikeRuntimeDbClient {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'db' in value &&
+    'runtimeEngine' in value &&
+    ((value as { runtimeEngine?: unknown }).runtimeEngine === 'pglite' ||
+      (value as { runtimeEngine?: unknown }).runtimeEngine === 'turso')
+  );
+}
+
+function resolveSnapshotClient(
+  database: QuerySelectionSnapshotDatabase
+): ResolvedSnapshotClient | null {
+  if (!database) {
+    return null;
+  }
+
+  if (isRuntimeDbClient(database)) {
+    return {
+      db: database.db,
+      runtimeEngine: database.runtimeEngine,
+    };
+  }
+
+  return {
+    db: database,
+    runtimeEngine: 'pglite',
+  };
+}
+
+function createSnapshotId(): string {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID !== 'function') {
+    throw new Error('Selection snapshot id generation is unavailable');
+  }
+  return randomUUID.call(globalThis.crypto);
+}
+
+function createTursoSnapshotExpiresAt(): string {
+  const ttlMs = QUERY_SELECTION_SNAPSHOT_TTL_HOURS * 60 * 60 * 1000;
+  return new Date(Date.now() + ttlMs).toISOString();
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -84,11 +136,17 @@ export async function withSerializedSnapshotWrite<T>(
 }
 
 export async function createQuerySelectionSnapshot(
-  db: DbHandle | null,
+  database: QuerySelectionSnapshotDatabase,
   filePaths: readonly string[]
 ): Promise<string | null> {
-  if (!(db && filePaths.length > 0)) {
+  const client = resolveSnapshotClient(database);
+  if (!(client && filePaths.length > 0)) {
     return null;
+  }
+  const { db, runtimeEngine } = client;
+
+  if (runtimeEngine === 'turso') {
+    return createTursoQuerySelectionSnapshot(db, filePaths);
   }
 
   return withSerializedSnapshotWrite(db, async () => {
@@ -138,12 +196,92 @@ export async function createQuerySelectionSnapshot(
   });
 }
 
+async function createTursoQuerySelectionSnapshot(
+  db: DbHandle,
+  filePaths: readonly string[]
+): Promise<string> {
+  if (typeof db.transaction !== 'function') {
+    throw new Error('Turso query selection snapshots require transaction support');
+  }
+  const runTransaction = db.transaction.bind(db);
+
+  return withSerializedSnapshotWrite(db, async () => {
+    const snapshotId = createSnapshotId();
+    const expiresAt = createTursoSnapshotExpiresAt();
+
+    await runTransaction(async (tx) => {
+      const transactionDb = tx as DbHandle;
+      await execTursoSnapshotMutation(
+        transactionDb,
+        `DELETE FROM selection_snapshots
+         WHERE expires_at IS NOT NULL
+           AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
+      );
+
+      await execTursoSnapshotMutation(
+        transactionDb,
+        'INSERT INTO selection_snapshots (id, expires_at) VALUES (?, ?)',
+        [snapshotId, expiresAt]
+      );
+
+      for (
+        let index = 0;
+        index < filePaths.length;
+        index += TURSO_SELECTION_SNAPSHOT_INSERT_BATCH_SIZE
+      ) {
+        const batch = filePaths.slice(index, index + TURSO_SELECTION_SNAPSHOT_INSERT_BATCH_SIZE);
+        const values = batch.map(() => '(?, ?)').join(', ');
+        const params = batch.flatMap((filePath) => [snapshotId, filePath]);
+        await execTursoSnapshotMutation(
+          transactionDb,
+          `INSERT OR IGNORE INTO selection_snapshot_files (snapshot_id, file_path)
+           VALUES ${values}`,
+          params
+        );
+      }
+    });
+
+    return snapshotId;
+  });
+}
+
+async function execTursoSnapshotMutation(
+  tx: DbHandle,
+  sql: string,
+  params?: unknown[]
+): Promise<void> {
+  if (typeof tx.exec !== 'function') {
+    throw new Error('Turso query selection snapshot transactions require exec support');
+  }
+
+  await tx.exec(sql, params);
+}
+
 export async function loadQuerySelectionSnapshot(
-  db: DbHandle | null,
+  database: QuerySelectionSnapshotDatabase,
   snapshotId: string
 ): Promise<string[]> {
-  if (!db) {
+  const client = resolveSnapshotClient(database);
+  if (!client) {
     return [];
+  }
+  const { db, runtimeEngine } = client;
+
+  if (runtimeEngine === 'turso') {
+    const result = (await db.query(
+      `SELECT ssf.file_path
+       FROM selection_snapshot_files ssf
+       JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id
+       WHERE ssf.snapshot_id = ?
+         AND (
+           ss.expires_at IS NULL
+           OR ss.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         )
+       ORDER BY file_path ASC`,
+      [snapshotId]
+    )) as { rows: QueryResultRow[] };
+
+    return normalizeSnapshotRows(result.rows);
   }
 
   const result = (await db.query(

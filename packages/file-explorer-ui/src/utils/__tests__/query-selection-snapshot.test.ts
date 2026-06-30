@@ -27,6 +27,7 @@ function createMockDb(
 describe('query-selection-snapshot', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('creates snapshots transactionally with TTL cleanup before insert', async () => {
@@ -282,5 +283,66 @@ describe('query-selection-snapshot', () => {
       '/src/index.ts',
       '/src/utils.ts',
     ]);
+  });
+
+  it('creates Turso snapshots with SQLite transaction SQL and explicit ids', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-30T12:00:00.000Z'));
+    vi.stubGlobal('crypto', {
+      randomUUID: vi.fn(() => 'snapshot-turso-1'),
+    });
+
+    const txExec = vi.fn(async (_sql: string, _params?: unknown[]) => undefined);
+    const txQuery = vi.fn(async () => {
+      throw new Error('Desktop Turso transaction adapter only supports exec statements.');
+    });
+    const db = {
+      query: vi.fn(async () => {
+        throw new Error('Turso snapshot writes must use the transaction client');
+      }),
+      transaction: vi.fn(async (operation: (tx: DbHandle) => Promise<unknown>) =>
+        operation({ exec: txExec, query: txQuery } as unknown as DbHandle)
+      ),
+    } as unknown as DbHandle;
+
+    const snapshotId = await createQuerySelectionSnapshot({ db, runtimeEngine: 'turso' } as never, [
+      '/src/index.ts',
+      '/src/utils.ts',
+    ]);
+
+    expect(snapshotId).toBe('snapshot-turso-1');
+    expect(db.query).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(txQuery).not.toHaveBeenCalled();
+    const sqls = txExec.mock.calls.map(([sql]) => sql).join('\n');
+    expect(sqls).toContain("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    expect(sqls).toContain('INSERT INTO selection_snapshots (id, expires_at)');
+    expect(sqls).toContain('INSERT OR IGNORE INTO selection_snapshot_files');
+    expect(sqls).not.toMatch(/\$1|::|UNNEST|NOW\(\)|INTERVAL|BEGIN|COMMIT|ROLLBACK/);
+    expect(txExec.mock.calls[1]?.[1]).toEqual(['snapshot-turso-1', '2026-07-01T12:00:00.000Z']);
+    expect(txExec.mock.calls[2]?.[1]).toEqual([
+      'snapshot-turso-1',
+      '/src/index.ts',
+      'snapshot-turso-1',
+      '/src/utils.ts',
+    ]);
+  });
+
+  it('loads Turso snapshots with SQLite timestamp checks', async () => {
+    const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({
+      rows: [{ file_path: '/src/utils.ts' }, { file_path: '/src/index.ts' }],
+    }));
+    const db = {
+      query,
+    } as unknown as DbHandle;
+
+    await expect(
+      loadQuerySelectionSnapshot({ db, runtimeEngine: 'turso' } as never, 'snapshot-1')
+    ).resolves.toEqual(['/src/index.ts', '/src/utils.ts']);
+
+    const [sql, params] = query.mock.calls[0] ?? [];
+    expect(sql).toContain("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+    expect(sql).not.toMatch(/\$1|::|NOW\(\)/);
+    expect(params).toEqual(['snapshot-1']);
   });
 });

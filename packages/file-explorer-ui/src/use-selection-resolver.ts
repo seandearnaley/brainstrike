@@ -1,4 +1,4 @@
-import { useOptionalBrainstrikeDbClient } from '@brainstrike/db';
+import { useQuerySelectionSnapshotDbClient } from '@brainstrike/db';
 import {
   buildQuerySelectionManifest,
   createErroredQuerySelectionManifest,
@@ -179,7 +179,7 @@ function ensureLoadingManifest(args: {
 }
 
 export function useSelectionResolver(): SelectionResolverState {
-  const db = useOptionalBrainstrikeDbClient();
+  const db = useQuerySelectionSnapshotDbClient();
   const store = useFileExplorerStoreContext();
   const [selectedFilePaths, selectionModel, currentFolderId, querySelectionManifest, setManifest] =
     useFileExplorerStoreSelector(
