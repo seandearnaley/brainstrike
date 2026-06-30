@@ -55,7 +55,7 @@ async function resolveEmbeddingSetModelKey(
   }>(
     `SELECT model_key AS "modelKey"
        FROM embedding_sets
-      WHERE id = $1
+      WHERE id = ?
       LIMIT 1`,
     [embeddingSetId]
   );

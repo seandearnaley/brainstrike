@@ -69,6 +69,8 @@ describe('createDesktopTursoVectorQueueService', () => {
     await expect(service?.refresh('set-1')).resolves.toMatchObject({ throughput: 5 });
     expect(snapshotReader.refresh).toHaveBeenCalledWith('set-1');
     await expect(service?.validateApiKeyForSet('set-1')).resolves.toEqual({ valid: true });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('WHERE id = ?'), ['set-1']);
+    expect(db.query).toHaveBeenCalledWith(expect.not.stringContaining('$1'), ['set-1']);
     expect(db.query).toHaveBeenCalledWith(expect.not.stringContaining('dimensions'), ['set-1']);
     expect(checkApiKeyAvailability).toHaveBeenCalledWith('openai::text-embedding-3-small');
 
