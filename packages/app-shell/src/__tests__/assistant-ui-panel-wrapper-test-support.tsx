@@ -449,6 +449,10 @@ vi.mock('@brainstrike/db', () => ({
   useBrainstrikeDbClient: vi.fn(() =>
     dbClientState.brainstrikeDb === undefined ? mockDb : dbClientState.brainstrikeDb
   ),
+  useOptionalPGliteDatabase: vi.fn(() =>
+    dbClientState.brainstrikeDb === undefined ? mockDb : dbClientState.brainstrikeDb
+  ),
+  useFileRecordRepository: vi.fn(() => null),
   useModelRegistryDbClient: vi.fn(() =>
     dbClientState.modelRegistryDb === undefined ? mockDb : dbClientState.modelRegistryDb
   ),
