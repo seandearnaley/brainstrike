@@ -9,6 +9,10 @@ import {
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 import { TursoFileRecordRepository } from '../src/repositories/turso-file-record-repository.js';
+import {
+  markTursoCollectionIndexingStatsDirty,
+  refreshTursoCollectionIndexingStats,
+} from '../src/services/turso-collection-indexing-stats.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import { applyTursoSchemaBaseline } from '../src/turso/schema-baseline.js';
 
@@ -154,6 +158,97 @@ describe('Turso managed-cache batch', () => {
       chunk_count: 2,
       embedded_chunk_count: 1,
       file_count: 2,
+      pending_chunk_count: 1,
+    });
+  });
+
+  it('marks unique Turso collection stats rows dirty', async () => {
+    const embeddingSets = new TursoEmbeddingSetsRepository(client);
+    const otherSet = await embeddingSets.getOrCreateSet(
+      'local::managed-cache-other',
+      'managed-cache-other',
+      384,
+      'cosine'
+    );
+
+    await markTursoCollectionIndexingStatsDirty(client, []);
+    await markTursoCollectionIndexingStatsDirty(client, [
+      embeddingSetId,
+      embeddingSetId,
+      otherSet.id,
+    ]);
+
+    await expect(readStats()).resolves.toMatchObject({ dirty: 1 });
+    await expect(readStatsForSet(otherSet.id)).resolves.toMatchObject({ dirty: 1 });
+  });
+
+  it('refreshes Turso collection stats directly and recreates missing rows', async () => {
+    await refreshTursoCollectionIndexingStats(client, []);
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'file-1', path: 'src/file-1.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+    const chunks = new TursoFileChunkRepository(client);
+    await chunks.insert({
+      chunkIndex: 0,
+      chunkSize: 24,
+      chunkType: 'text',
+      content: 'export const pending = 1;',
+      contentHash: 'chunk-hash-pending',
+      createdAt: '2026-06-23T12:00:00.000Z',
+      fileRecordId: 'file-1',
+      id: 'chunk-pending',
+      tokenCount: 5,
+      updatedAt: '2026-06-23T12:00:00.000Z',
+    });
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         embedding,
+         embedding_set_id,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, vector32(?), ?, ?, ?)`,
+      [
+        'chunk-embedded',
+        'file-1',
+        1,
+        'export const embedded = 1;',
+        'chunk-hash-embedded',
+        7,
+        'text',
+        26,
+        '[0.1,0.2,0.3]',
+        embeddingSetId,
+        '2026-06-23T12:00:00.000Z',
+        '2026-06-23T12:00:00.000Z',
+      ]
+    );
+    await client.exec('DELETE FROM collection_indexing_stats WHERE embedding_set_id = ?', [
+      embeddingSetId,
+    ]);
+
+    await refreshTursoCollectionIndexingStats(client, [embeddingSetId, embeddingSetId]);
+
+    await expect(readStats()).resolves.toMatchObject({
+      chunk_count: 2,
+      dirty: 0,
+      embedded_chunk_count: 1,
+      file_count: 1,
       pending_chunk_count: 1,
     });
   });
@@ -425,9 +520,13 @@ describe('Turso managed-cache batch', () => {
   }
 
   async function readStats(): Promise<Record<string, unknown> | undefined> {
+    return readStatsForSet(embeddingSetId);
+  }
+
+  async function readStatsForSet(setId: string): Promise<Record<string, unknown> | undefined> {
     const result = await client.query<Record<string, unknown>>(
       'SELECT * FROM collection_indexing_stats WHERE embedding_set_id = ?',
-      [embeddingSetId]
+      [setId]
     );
     return result.rows[0];
   }
