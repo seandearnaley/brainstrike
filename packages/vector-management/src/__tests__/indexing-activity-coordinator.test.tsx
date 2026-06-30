@@ -32,6 +32,7 @@ const {
   makeLiveQueryKeyMock,
   usePGliteDatabaseMock,
   useBrainstrikeLiveQueryMock,
+  useEmbeddingJobQueueMock,
   useSharedEmbeddingRuntimeMock,
 } = vi.hoisted(() => {
   const databaseWorkSchedulerState = {
@@ -47,6 +48,7 @@ const {
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
     usePGliteDatabaseMock: vi.fn((): unknown => null),
     useBrainstrikeLiveQueryMock: vi.fn(),
+    useEmbeddingJobQueueMock: vi.fn((): unknown => null),
     useSharedEmbeddingRuntimeMock: vi.fn(),
   };
 });
@@ -141,6 +143,10 @@ vi.mock('../embedding-runtime-provider', () => ({
   useSharedEmbeddingRuntime: useSharedEmbeddingRuntimeMock,
 }));
 
+vi.mock('../use-embedding-job-queue', () => ({
+  useEmbeddingJobQueue: useEmbeddingJobQueueMock,
+}));
+
 function createRuntimeStatus(
   state: EmbeddingRuntimeStatus['state'],
   lastError: string | null = null
@@ -208,6 +214,7 @@ describe('IndexingActivityCoordinator', () => {
     liveQueryState.error = null;
     databaseWorkSchedulerState.current = null;
     usePGliteDatabaseMock.mockReturnValue(null);
+    useEmbeddingJobQueueMock.mockReturnValue(null);
     useBrainstrikeLiveQueryMock.mockImplementation(() => ({
       rows: liveQueryState.rows,
       loading: liveQueryState.loading,
@@ -263,6 +270,49 @@ describe('IndexingActivityCoordinator', () => {
       failed: 0,
       succeeded: 23,
       nextRunnableAt: '2026-04-25T12:00:00.000Z',
+    });
+    expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(true);
+  });
+
+  it('samples queue state from the runtime job queue when PGlite is unavailable', async () => {
+    const getQueueStats = vi.fn(async () => [
+      {
+        queue: 'embeddings',
+        queued: 4,
+        running: 2,
+        failed: 1,
+        succeeded: 12,
+        nextRunnableAt: '2026-04-25T12:05:00.000Z',
+      },
+    ]);
+    usePGliteDatabaseMock.mockReturnValue(null);
+    useEmbeddingJobQueueMock.mockReturnValue({ getQueueStats });
+
+    render(<IndexingActivityCoordinator />);
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+        status: 'error',
+        phase: 'queue',
+        lastError: '1 embedding job failed',
+        queue: {
+          queued: 4,
+          running: 2,
+          failed: 1,
+          succeeded: 12,
+          nextRunnableAt: '2026-04-25T12:05:00.000Z',
+        },
+      });
+    });
+
+    expect(getQueueStats).toHaveBeenCalledWith('embeddings');
+    expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
+    expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
+      queued: 4,
+      running: 2,
+      failed: 1,
+      succeeded: 12,
+      nextRunnableAt: '2026-04-25T12:05:00.000Z',
     });
     expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(true);
   });
