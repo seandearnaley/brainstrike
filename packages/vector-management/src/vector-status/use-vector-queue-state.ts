@@ -29,6 +29,12 @@ export interface UseVectorQueueStateParams {
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
+  /**
+   * True only when the current runtime exposes PGlite live-query metrics.
+   * Queue actions may be available for other runtimes while metrics still come
+   * from an explicit snapshot reader.
+   */
+  liveQueryMetricsEnabled?: boolean;
   service: VectorQueueService | null;
   shouldAutoBackfill: boolean;
   snapshotReader?: VectorQueueSnapshotReader | null;
@@ -332,6 +338,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const metrics = embeddingQueueContext?.metrics ?? DEFAULT_METRICS;
   const service = params.service;
   const snapshotReader = params.snapshotReader ?? null;
+  const liveQueryMetricsAvailable = params.liveQueryMetricsEnabled ?? Boolean(service);
   const controller = params.controller;
   const activeBackfill = useVectorStatusUIStore((s) => s.activeBackfill);
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
@@ -389,7 +396,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   // possible signal to suppress live queries. This closes the race window
   // between the Zustand state update and React's async re-render cycle.
   const liveQueryEnabled =
-    Boolean(service) &&
+    liveQueryMetricsAvailable &&
     !isImporting &&
     !isEmbeddingActive &&
     !isBackfillActive &&

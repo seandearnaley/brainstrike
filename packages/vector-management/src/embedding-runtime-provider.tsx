@@ -28,6 +28,7 @@ interface EmbeddingCoverageRepository {
 
 interface EmbeddingRuntimeContextValue {
   controller: EmbeddingRuntimeController;
+  liveQueryMetricsEnabled: boolean;
   service: VectorQueueService | null;
   serviceUnavailableReason: VectorQueueServiceUnavailableReason | null;
   snapshotReader: VectorQueueSnapshotReader | null;
@@ -88,6 +89,7 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     });
   }, [coverageRepository, db, runtimeEngine, service]);
   const controllerDb = runtimeEngine === 'pglite' ? db : null;
+  const liveQueryMetricsEnabled = runtimeEngine === 'pglite' && Boolean(service);
 
   const controller = useEmbeddingRuntimeController({
     db: controllerDb,
@@ -99,11 +101,12 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
   const value = useMemo<EmbeddingRuntimeContextValue>(
     () => ({
       controller,
+      liveQueryMetricsEnabled,
       service,
       serviceUnavailableReason,
       snapshotReader,
     }),
-    [controller, service, serviceUnavailableReason, snapshotReader]
+    [controller, liveQueryMetricsEnabled, service, serviceUnavailableReason, snapshotReader]
   );
 
   return (

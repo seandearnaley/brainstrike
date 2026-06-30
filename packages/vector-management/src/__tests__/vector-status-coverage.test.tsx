@@ -239,8 +239,10 @@ vi.mock('../embedding-runtime-provider', () => ({
         lastError: null,
       })),
     },
+    liveQueryMetricsEnabled: true,
     service: mockRuntimeService,
     serviceUnavailableReason: mockRuntimeServiceUnavailableReason,
+    snapshotReader: null,
   }),
 }));
 
