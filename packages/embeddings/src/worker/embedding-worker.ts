@@ -1,5 +1,4 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -21,7 +20,6 @@ import type {
 } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 import type { EmbeddingCacheInterface } from './embedding-cache-types';
-import { getModelConfigFromDb } from './embedding-model-config';
 import {
   buildHostedProviderConfig,
   createHostedProviderInstance,
@@ -38,7 +36,6 @@ import {
   validateHostedEmbeddingDimensions,
   WorkerRateLimitError,
 } from './embedding-provider-runtime';
-import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 import {
   filterCacheMisses,
   lookupCacheHits,
@@ -46,11 +43,6 @@ import {
   storeToCacheAsync,
 } from './embedding-worker-cache-io';
 import { type LoadedChunkItem, loadAndFilterChunks } from './embedding-worker-chunk-filter';
-import {
-  assertVectorEmbeddingColumn,
-  resolveEmbeddingSetDimension,
-  resolveIdType,
-} from './embedding-worker-db-io';
 import { classifyFailure, JobProcessingError } from './embedding-worker-failures';
 import {
   assertEmbedChunkJob,
@@ -66,6 +58,11 @@ import {
   resolvePositiveIntegerOption,
   shouldLogIdleBackoff,
 } from './embedding-worker-scheduler';
+import {
+  type EmbeddingWorkerClaimedJob,
+  type EmbeddingWorkerStorage,
+  resolveEmbeddingWorkerStorage,
+} from './embedding-worker-storage';
 
 export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
 export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config';
@@ -75,6 +72,18 @@ export type {
   StatsRefreshReason,
 } from './embedding-stats-refresh-controller';
 export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
+export type {
+  EmbeddingWorkerClaimedJob,
+  EmbeddingWorkerClaimParams,
+  EmbeddingWorkerCompleteEmbeddingChunkParams,
+  EmbeddingWorkerFailBatchParams,
+  EmbeddingWorkerFailParams,
+  EmbeddingWorkerJobLeaseRef,
+  EmbeddingWorkerQueuePort,
+  EmbeddingWorkerStatsControllerOptions,
+  EmbeddingWorkerStorage,
+} from './embedding-worker-storage';
+export { createPGliteEmbeddingWorkerStorage } from './embedding-worker-storage';
 
 const workerLogger = createLogger('EmbeddingWorker');
 
@@ -91,7 +100,7 @@ export interface EmbeddingWorkerOptions {
   cacheDir?: string;
   claimBatchSize?: number;
   concurrency?: number;
-  db: IDatabase;
+  db?: IDatabase;
   device?: 'webgpu' | 'wasm';
   distance?: Distance;
   embeddingCache?: EmbeddingCacheInterface;
@@ -129,6 +138,7 @@ export interface EmbeddingWorkerOptions {
    * This is intended for desktop hidden-host mode to avoid renderer churn.
    */
   stopOnFatalLocalError?: boolean;
+  storage?: EmbeddingWorkerStorage;
   streamBatchSize?: number;
   streamingWorkerUrl?: string;
   waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
@@ -361,9 +371,12 @@ export async function startEmbeddingWorker(
   const reinitEveryN = resolveReinitEveryN(options.reinitEveryN);
   const metricsInterval = resolveMetricsIntervalMs(options.metricsIntervalMs);
   const now = options.now ?? Date.now;
-  const statsRefreshController = createEmbeddingStatsRefreshController({
-    completedChunkThreshold: statsRefreshCompletedChunkThreshold,
+  const storage = await resolveEmbeddingWorkerStorage({
     db: options.db,
+    storage: options.storage,
+  });
+  const statsRefreshController = storage.createStatsRefreshController({
+    completedChunkThreshold: statsRefreshCompletedChunkThreshold,
     log,
     minIntervalMs: statsRefreshMinIntervalMs,
     now,
@@ -401,9 +414,13 @@ export async function startEmbeddingWorker(
       serviceReady: localServiceInitialized,
     });
   } else {
-    const initializedService = await initializeEmbeddingService(options, activeCompositeKey, {
-      initializeLocalService: true,
-    });
+    const initializedService = await initializeEmbeddingService(
+      { ...options, getModelConfig: (modelId) => storage.getModelConfig(modelId) },
+      activeCompositeKey,
+      {
+        initializeLocalService: true,
+      }
+    );
     service = initializedService.service;
     modelConfig = initializedService.modelConfig;
     if (isLocalProviderType(modelResolution.provider)) {
@@ -412,14 +429,11 @@ export async function startEmbeddingWorker(
     ensureModelDimension(initializedService.modelConfig, activeCompositeKey, log);
   }
 
-  // Determine ID column type for file_chunks to support both UUID (Prod) and TEXT (Test/Electron) schemas
-  const fileChunkIdType = await resolveIdType(options.db, 'file_chunks');
-
   // REMOVED: Worker no longer auto-creates embedding sets on startup
   // Collections should ONLY be created by the user via the Create Collection dialog
   // The worker will use embeddingSetId from job payloads (see resolveTargetSetId function)
 
-  const jq = new JobQueue(options.db);
+  const jq = storage.queue;
   let running = true;
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
@@ -488,7 +502,7 @@ export async function startEmbeddingWorker(
     };
   }
 
-  await assertVectorEmbeddingColumn(options.db);
+  await storage.assertEmbeddingStorageReady();
 
   // Lightweight metrics for observability
   const metrics = {
@@ -595,7 +609,7 @@ export async function startEmbeddingWorker(
       return cachedConfig;
     }
 
-    const loadedConfig = await getModelConfigFromDb(options.db, targetModelId);
+    const loadedConfig = await storage.getModelConfig(targetModelId);
     if (!loadedConfig) {
       throw new Error(
         `Model '${targetModelId}' not found in database. Add it via Settings > Models.`
@@ -785,8 +799,7 @@ export async function startEmbeddingWorker(
     scheduledReinitPending = false;
   }
 
-  // biome-ignore lint/style/useNamingConvention: DB field name
-  type ClaimedJob = Job & { lease_token: string };
+  type ClaimedJob = EmbeddingWorkerClaimedJob;
 
   async function generateLocalEmbeddings(
     chunks: LoadedChunkItem['chunk'][],
@@ -882,7 +895,7 @@ export async function startEmbeddingWorker(
     targetSetId: string,
     payload: EmbedChunkPayload
   ): Promise<number> {
-    const setDimension = await resolveEmbeddingSetDimension(options.db, targetSetId);
+    const setDimension = await storage.resolveEmbeddingSetDimension(targetSetId);
     if (payload.expectedDimension !== setDimension) {
       log('worker_expected_dimension_mismatch', {
         chunkId: payload.chunkId,
@@ -1492,12 +1505,11 @@ export async function startEmbeddingWorker(
     onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
     const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, jobModel, {
-      db: options.db,
       failOrphanJobs: async (orphanJobs, error) => {
         await jq.failBatch({ jobs: orphanJobs, error, terminal: true });
       },
-      fileChunkIdType,
       hashExpectedEmbedding: sha256Hex,
+      loadChunksByIds: (ids) => storage.loadChunksByIds(ids),
       logWarn: (message, meta) => workerLogger.warn(message, meta),
     });
     metrics.jobsFailed += orphanCount;
@@ -1788,12 +1800,12 @@ export async function startEmbeddingWorker(
         return;
       }
       // Claim a batch of jobs
-      const jobs = (await jq.claimMany({
+      const jobs = await jq.claimMany({
         queue: queueName,
         leaseMs,
         workerId,
         limit: effectiveClaimBatchSize,
-      })) as ClaimedJob[];
+      });
 
       if (jobs.length === 0) {
         await handleIdleBatch();

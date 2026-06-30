@@ -74,10 +74,10 @@ as the implementation backlog.
 - #1368 `Add Turso scheduled database maintenance`
 - #1369 `Fix Turso profile reset recreation`
 - #1371 `test(agent): prove Turso tool approval resume`
-- Current slice: activate DB Explorer selected-collection repository snapshots
-  when the Turso runtime has no raw PGlite database handle, and let
-  `DbSchemaVerifier` mark the existing `schemaVerified` UI flag from the ready
-  Turso bootstrap report without exposing Turso through `useBrainstrikeDbClient()`.
+- #1372 `feat(db-explorer): activate Turso collection snapshots`
+- Current slice: extract a storage-neutral embedding worker port so the hidden
+  worker can later receive Turso queue/chunk/model/stats operations without
+  constructing PGlite `JobQueue` and PGlite helper queries internally.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -326,11 +326,18 @@ Completed low-risk queue UI slices:
   construct its vector queue service. It uses the generic ready DB client and
   the bootstrap runtime, constructs `JobQueue` only for PGlite, and keeps Turso
   service-null with an explicit unavailable reason.
+- `startEmbeddingWorker()` now accepts an `EmbeddingWorkerStorage` port for
+  queue claim/heartbeat/complete/fail, chunk loading, model config lookup,
+  embedding-set dimension lookup, and stats refresh scheduling. The default
+  storage remains PGlite-backed and preserves the current behavior; a focused
+  worker test proves the worker can process a job through injected storage with
+  no raw PGlite database handle.
 
-Remaining slice: wire the Turso `EmbeddingBackfillRepository` only after the
-hidden embedding host can run the Turso claim/load/complete path end-to-end.
-Preserve the hidden-renderer worker boundary. Do not enable Turso backfill
-through `vector-queue-service.ts` until Electron transaction/query support and
+Remaining slice: implement the Turso `EmbeddingWorkerStorage` adapter and wire
+it only in the hidden embedding host after runtime-specific tests prove the
+Turso claim/load/complete path end-to-end. Preserve the hidden-renderer worker
+boundary. Do not enable Turso backfill through `vector-queue-service.ts` until
+the Turso worker adapter, Electron transaction/query support, and
 runtime-specific worker tests prove the full path.
 
 ### 4. Assistant Search And Retrieval

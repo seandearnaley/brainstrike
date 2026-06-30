@@ -6,6 +6,17 @@ export type {
 } from './worker/embedding-worker';
 export { startEmbeddingWorker } from './worker/embedding-worker';
 export type {
+  EmbeddingWorkerClaimParams,
+  EmbeddingWorkerCompleteEmbeddingChunkParams,
+  EmbeddingWorkerFailBatchParams,
+  EmbeddingWorkerFailParams,
+  EmbeddingWorkerJobLeaseRef,
+  EmbeddingWorkerQueuePort,
+  EmbeddingWorkerStatsControllerOptions,
+  EmbeddingWorkerStorage,
+} from './worker/embedding-worker-storage';
+export { createPGliteEmbeddingWorkerStorage } from './worker/embedding-worker-storage';
+export type {
   ForegroundEmbeddingGate,
   ForegroundEmbeddingGateOptions,
   RunCoordinatedQueryEmbeddingOptions,

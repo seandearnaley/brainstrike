@@ -1,5 +1,5 @@
-import type { IDatabase, Job } from '@brainstrike/db';
-import { type loadChunk, loadChunksBatch } from './embedding-worker-db-io';
+import type { Job } from '@brainstrike/db';
+import type { EmbedChunkRow } from './embedding-worker-db-io';
 import type { EmbedChunkPayload, EmbeddingJobModel } from './embedding-worker-job-payload';
 import { assertEmbedChunkJob } from './embedding-worker-job-payload';
 
@@ -7,24 +7,20 @@ import { assertEmbedChunkJob } from './embedding-worker-job-payload';
 export type ClaimedEmbeddingJob = Job & { lease_token: string };
 
 export interface LoadedChunkItem {
-  chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
+  chunk: EmbedChunkRow;
   expectedHash: string;
   job: ClaimedEmbeddingJob;
   payload: EmbedChunkPayload;
 }
 
 export interface LoadAndFilterChunksOptions {
-  db: IDatabase;
   failOrphanJobs: (jobs: Array<{ id: string; leaseToken: string }>, error: string) => Promise<void>;
-  fileChunkIdType: string;
   hashExpectedEmbedding: (input: string) => Promise<string>;
+  loadChunksByIds: (ids: readonly string[]) => Promise<EmbedChunkRow[]>;
   logWarn: (message: string, meta?: unknown) => void;
 }
 
-function isEmbeddingUpToDate(
-  chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
-  expectedHash: string
-): boolean {
+function isEmbeddingUpToDate(chunk: EmbedChunkRow, expectedHash: string): boolean {
   return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
 }
 
@@ -38,7 +34,7 @@ export async function loadAndFilterChunks(
   toProcess: LoadedChunkItem[];
 }> {
   const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
-  const loadedChunks = await loadChunksBatch(options.db, chunkIds, options.fileChunkIdType);
+  const loadedChunks = await options.loadChunksByIds(chunkIds);
   const chunkMap = new Map(loadedChunks.map((chunk) => [chunk.id, chunk]));
 
   const found: Array<{
