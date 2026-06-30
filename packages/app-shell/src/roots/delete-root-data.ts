@@ -11,24 +11,6 @@ interface RootDeleteRow {
   readonly path: string | null;
 }
 
-/**
- * Reads the affected-row count from a DML query result across driver shapes:
- * PGlite populates `affectedRows`; node-pg-style bridges use `rowCount`.
- * Returns `null` when neither is present so callers can distinguish
- * "positively zero rows" from "the driver did not report a count" and avoid a
- * false abort on a bridge that strips the field.
- */
-function readAffectedRows(result: unknown): number | null {
-  const shaped = result as { affectedRows?: unknown; rowCount?: unknown };
-  if (typeof shaped.affectedRows === 'number') {
-    return shaped.affectedRows;
-  }
-  if (typeof shaped.rowCount === 'number') {
-    return shaped.rowCount;
-  }
-  return null;
-}
-
 function isRootDeleteRow(row: unknown): row is RootDeleteRow {
   return (
     typeof row === 'object' &&
@@ -103,25 +85,17 @@ async function deleteRootByResolvedId(
   rootId: string,
   errorIdentity: string
 ): Promise<void> {
-  if (dbClient.runtimeEngine === 'turso') {
-    const result = await dbClient.db.query('DELETE FROM roots WHERE id = ? RETURNING id', [rootId]);
-    const rows = (result as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) {
-      throw new Error(
-        `Turso root data deletion did not return deleted rows for "${errorIdentity}" - refusing to report a silent success.`
-      );
-    }
-    if (rows.length === 0) {
-      throw new Error(
-        `Root data deletion matched no rows for "${errorIdentity}" - refusing to report a silent success.`
-      );
-    }
-    return;
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? RETURNING id', [rootId])
+      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 RETURNING id', [rootId]);
+  const rows = (result as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) {
+    throw new Error(
+      `Root data deletion did not return deleted rows for "${errorIdentity}" - refusing to report a silent success.`
+    );
   }
-
-  const result = await dbClient.db.query('DELETE FROM roots WHERE id = $1', [rootId]);
-  const affectedRows = readAffectedRows(result);
-  if (affectedRows === 0) {
+  if (rows.length === 0) {
     throw new Error(
       `Root data deletion matched no rows for "${errorIdentity}" - refusing to report a silent success.`
     );
@@ -149,30 +123,22 @@ export async function deleteRootDataFromDb(
   }
 
   const rootIdOrPath = target;
-  if (dbClient.runtimeEngine === 'turso') {
-    const result = await dbClient.db.query(
-      'DELETE FROM roots WHERE id = ? OR path = ? RETURNING id',
-      [rootIdOrPath, rootIdOrPath]
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? OR path = ? RETURNING id', [
+          rootIdOrPath,
+          rootIdOrPath,
+        ])
+      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1 RETURNING id', [
+          rootIdOrPath,
+        ]);
+  const rows = (result as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) {
+    throw new Error(
+      `Root data deletion did not return deleted rows for "${rootIdOrPath}" - refusing to report a silent success.`
     );
-    const rows = (result as { rows?: unknown }).rows;
-    if (!Array.isArray(rows)) {
-      throw new Error(
-        `Turso root data deletion did not return deleted rows for "${rootIdOrPath}" - refusing to report a silent success.`
-      );
-    }
-    if (rows.length === 0) {
-      throw new Error(
-        `Root data deletion matched no rows for "${rootIdOrPath}" - refusing to report a silent success.`
-      );
-    }
-    return;
   }
-
-  const result = await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [
-    rootIdOrPath,
-  ]);
-  const affectedRows = readAffectedRows(result);
-  if (affectedRows === 0) {
+  if (rows.length === 0) {
     throw new Error(
       `Root data deletion matched no rows for "${rootIdOrPath}" - refusing to report a silent success.`
     );

@@ -13,7 +13,9 @@ function makeDb(queryImpl: (sql: string, params?: unknown[]) => unknown): {
 
 describe('deleteRootDataFromDb', () => {
   it('matches the row by id OR path (so a UUID rootId deletes its row)', async () => {
-    const { db, query } = makeDb(() => ({ rows: [], affectedRows: 1 }));
+    const { db, query } = makeDb(() => ({
+      rows: [{ id: 'aaaaaaaa-0000-0000-0000-000000000001' }],
+    }));
 
     await deleteRootDataFromDb(
       { db, runtimeEngine: 'pglite' },
@@ -24,6 +26,7 @@ describe('deleteRootDataFromDb', () => {
     const [sql, params] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('DELETE FROM roots');
     expect(sql).toContain('id = $1 OR path = $1');
+    expect(sql).toContain('RETURNING id');
     expect(params).toEqual(['aaaaaaaa-0000-0000-0000-000000000001']);
   });
 
@@ -107,7 +110,7 @@ describe('deleteRootDataFromDb', () => {
     // roots.id is always a uuidv7, so `id = '<path>'` alone matched zero rows
     // and silently "succeeded" while the UUID-keyed row + cascade survived.
     const { db } = makeDb((_sql, params) =>
-      (params as string[])[0] === '/Users/me/project' ? { rows: [], affectedRows: 1 } : { rows: [] }
+      (params as string[])[0] === '/Users/me/project' ? { rows: [{ id: 'root-id' }] } : { rows: [] }
     );
 
     await expect(
@@ -116,29 +119,19 @@ describe('deleteRootDataFromDb', () => {
   });
 
   it('THROWS when the delete positively affects zero rows (no silent success)', async () => {
-    const { db } = makeDb(() => ({ rows: [], affectedRows: 0 }));
+    const { db } = makeDb(() => ({ rows: [] }));
 
     await expect(
       deleteRootDataFromDb({ db, runtimeEngine: 'pglite' }, 'no-such-root')
     ).rejects.toThrow(/matched no rows/);
   });
 
-  it('reads node-pg-style rowCount when affectedRows is absent', async () => {
-    const { db } = makeDb(() => ({ rows: [], rowCount: 0 }));
-
-    await expect(
-      deleteRootDataFromDb({ db, runtimeEngine: 'pglite' }, 'no-such-root')
-    ).rejects.toThrow(/matched no rows/);
-  });
-
-  it('does NOT throw when the driver reports no count at all (cannot assert)', async () => {
-    // A bridge that strips both affectedRows and rowCount: we must not false-
-    // abort a delete we cannot measure. Old behavior preserved for that case.
+  it('THROWS when the PGlite bridge strips affected-row counts and returns no rows', async () => {
     const { db } = makeDb(() => ({ rows: [] }));
 
     await expect(
       deleteRootDataFromDb({ db, runtimeEngine: 'pglite' }, 'some-root')
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow(/matched no rows/);
   });
 
   it('resolves a unique mounted adapter root to its handle path for DB deletion', () => {
