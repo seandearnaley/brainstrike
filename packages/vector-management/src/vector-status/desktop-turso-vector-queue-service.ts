@@ -51,10 +51,9 @@ async function resolveEmbeddingSetModelKey(
   embeddingSetId: string
 ): Promise<string> {
   const result = await db.query<{
-    dimensions: number | string | null;
     modelKey: string | null;
   }>(
-    `SELECT model_key AS "modelKey", dimensions
+    `SELECT model_key AS "modelKey"
        FROM embedding_sets
       WHERE id = $1
       LIMIT 1`,
@@ -71,10 +70,6 @@ async function resolveEmbeddingSetModelKey(
   const canonical = canonicalizeEmbeddingProviderModelKey(rawKey);
   if (!canonical) {
     throw new Error(`Embedding set ${embeddingSetId} has invalid model_key metadata`);
-  }
-  const expectedDimension = Number(row.dimensions ?? Number.NaN);
-  if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
-    throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata`);
   }
   return canonical.composite;
 }

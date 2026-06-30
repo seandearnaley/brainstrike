@@ -489,9 +489,18 @@ describe('useVectorQueueState', () => {
     });
     expect(result.current.throughput).toBe(7);
     expect(result.current.lastError).toBe('snapshot-owned failure');
+    vi.mocked(snapshotReader.refresh).mockClear();
     await expect(result.current.validateApiKey()).resolves.toEqual({ valid: true });
     await result.current.retryFailed(12);
+    await result.current.clearQueue();
+    await result.current.wipeQueue();
     expect(service.retryFailed).toHaveBeenCalledWith(12);
+    expect(service.clearQueue).toHaveBeenCalledWith(['failed']);
+    expect(service.wipeQueue).toHaveBeenCalledTimes(1);
+    expect(snapshotReader.refresh).toHaveBeenCalledTimes(3);
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(1, 'set-1');
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(2, 'set-1');
+    expect(snapshotReader.refresh).toHaveBeenNthCalledWith(3, 'set-1');
     const liveQueryCallsForRender = vi
       .mocked(useBrainstrikeLiveQuery)
       .mock.calls.slice(liveQueryCallStart);

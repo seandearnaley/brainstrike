@@ -852,11 +852,12 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       }
       try {
         await service.retryFailed(limit);
+        await refreshCoverageAndQueueState();
       } catch {
         // ignore errors from manual retries
       }
     },
-    [service]
+    [refreshCoverageAndQueueState, service]
   );
 
   const clearQueue = useCallback(async () => {
@@ -865,10 +866,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     try {
       await service.clearQueue(['failed']);
+      await refreshCoverageAndQueueState();
     } catch {
       // ignore errors when clearing queue
     }
-  }, [service]);
+  }, [refreshCoverageAndQueueState, service]);
 
   const wipeQueue = useCallback(async () => {
     if (!service) {
@@ -878,10 +880,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       await controller.cancelAllBackfills();
       await service.wipeQueue();
       clearTransientBackfillState();
+      await refreshCoverageAndQueueState();
     } catch {
       // ignore errors when wiping queue
     }
-  }, [clearTransientBackfillState, controller, service]);
+  }, [clearTransientBackfillState, controller, refreshCoverageAndQueueState, service]);
 
   return useMemo(
     () => ({
