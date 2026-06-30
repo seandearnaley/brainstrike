@@ -15,7 +15,13 @@ import { DatabaseStatusItem } from './status-items/database-status-item';
 import { IndexingStatusItem } from './status-items/indexing-status-item';
 import type { AppLayoutProps } from './types';
 
-export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
+export function AppLayout({
+  children,
+  config,
+  currentPath,
+  deleteRootData,
+  onNavigationClick,
+}: AppLayoutProps) {
   useDatabaseStatusSync();
   const { fileSystemAdapter, storageAdapter } = useAdapters();
 
@@ -30,7 +36,7 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
           {/* ONE shared file-system instance for the entire app surface
               (explorer, database panel, assistant, settings). MUST mount
               BELOW FileExplorerProvider — the instance reads the store. */}
-          <FileSystemProvider>
+          <FileSystemProvider {...(deleteRootData ? { deleteRootData } : {})}>
             <div className="flex h-screen flex-col">
               {/* Main content area */}
               <div className="flex min-h-0 flex-1">

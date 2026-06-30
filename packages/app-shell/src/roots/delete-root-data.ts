@@ -1,0 +1,146 @@
+import type { WorkspaceRootsDbClient } from '@brainstrike/db';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+
+export interface RootDataDeletionSelector {
+  readonly rootId: string;
+  readonly rootPath?: string | undefined;
+}
+
+interface RootDeleteRow {
+  readonly id: string;
+  readonly path: string | null;
+}
+
+function isRootDeleteRow(row: unknown): row is RootDeleteRow {
+  return (
+    typeof row === 'object' &&
+    row !== null &&
+    typeof (row as RootDeleteRow).id === 'string' &&
+    ((row as RootDeleteRow).path === null || typeof (row as RootDeleteRow).path === 'string')
+  );
+}
+
+function handleIdentity(
+  handle: DirectoryHandle,
+  rootIdByPath: ReadonlyMap<string, string>
+): string {
+  return handle.rootId ?? rootIdByPath.get(handle.path) ?? handle.path;
+}
+
+export function resolveRootDataDeletionSelector(
+  rootIdToDelete: string,
+  rootDirectoryHandles: readonly DirectoryHandle[],
+  rootIdByPath: ReadonlyMap<string, string>
+): RootDataDeletionSelector {
+  const handle = rootDirectoryHandles.find(
+    (candidate) =>
+      handleIdentity(candidate, rootIdByPath) === rootIdToDelete ||
+      candidate.path === rootIdToDelete
+  );
+  if (!handle) {
+    return { rootId: rootIdToDelete };
+  }
+  const samePathCount = rootDirectoryHandles.filter(
+    (candidate) => candidate.path === handle.path
+  ).length;
+  if (samePathCount !== 1) {
+    return { rootId: rootIdToDelete };
+  }
+  return { rootId: rootIdToDelete, rootPath: handle.path };
+}
+
+async function resolveRootDeleteId(
+  dbClient: WorkspaceRootsDbClient,
+  selector: RootDataDeletionSelector
+): Promise<string> {
+  if (!selector.rootPath) {
+    return selector.rootId;
+  }
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('SELECT id, path FROM roots WHERE id = ? OR path = ?', [
+          selector.rootId,
+          selector.rootPath,
+        ])
+      : await dbClient.db.query('SELECT id, path FROM roots WHERE id = $1 OR path = $2', [
+          selector.rootId,
+          selector.rootPath,
+        ]);
+  const rows = result.rows.filter(isRootDeleteRow);
+  const idMatch = rows.find((row) => row.id === selector.rootId);
+  if (idMatch) {
+    return idMatch.id;
+  }
+  const pathMatches = rows.filter((row) => row.path === selector.rootPath);
+  if (pathMatches.length > 1) {
+    throw new Error(
+      `Root data deletion matched ambiguous root path "${selector.rootPath}" - refusing to delete by path.`
+    );
+  }
+  return pathMatches[0]?.id ?? selector.rootId;
+}
+
+async function deleteRootByResolvedId(
+  dbClient: WorkspaceRootsDbClient,
+  rootId: string,
+  errorIdentity: string
+): Promise<void> {
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? RETURNING id', [rootId])
+      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 RETURNING id', [rootId]);
+  const rows = (result as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) {
+    throw new Error(
+      `Root data deletion did not return deleted rows for "${errorIdentity}" - refusing to report a silent success.`
+    );
+  }
+  if (rows.length === 0) {
+    throw new Error(
+      `Root data deletion matched no rows for "${errorIdentity}" - refusing to report a silent success.`
+    );
+  }
+}
+
+/**
+ * Deletes a root's `roots` row (cascading file_records + chunks via migration
+ * 039's ON DELETE CASCADE). `roots.id` is a uuidv7, but the disconnect flow
+ * passes a path as the id for legacy/unregistered roots (the sidebar falls
+ * back to `handle.path` when `rootIdByPath` has no entry), so the row must be
+ * matched by `id` OR `path` - `path` is uniquely indexed. A delete that
+ * positively affects zero rows THROWS: the seam's contract is "never a silent
+ * no-op", so an unconfirmed delete must abort the disconnect rather than let
+ * the user believe data was removed while UUID-keyed rows survive.
+ */
+export async function deleteRootDataFromDb(
+  dbClient: WorkspaceRootsDbClient,
+  target: RootDataDeletionSelector | string
+): Promise<void> {
+  if (typeof target !== 'string') {
+    const rootId = await resolveRootDeleteId(dbClient, target);
+    await deleteRootByResolvedId(dbClient, rootId, target.rootId);
+    return;
+  }
+
+  const rootIdOrPath = target;
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? OR path = ? RETURNING id', [
+          rootIdOrPath,
+          rootIdOrPath,
+        ])
+      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1 RETURNING id', [
+          rootIdOrPath,
+        ]);
+  const rows = (result as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) {
+    throw new Error(
+      `Root data deletion did not return deleted rows for "${rootIdOrPath}" - refusing to report a silent success.`
+    );
+  }
+  if (rows.length === 0) {
+    throw new Error(
+      `Root data deletion matched no rows for "${rootIdOrPath}" - refusing to report a silent success.`
+    );
+  }
+}

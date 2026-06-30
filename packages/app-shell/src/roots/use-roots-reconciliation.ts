@@ -1,4 +1,4 @@
-import type { DbHandle } from '@brainstrike/db';
+import type { WorkspaceRootsDbClient } from '@brainstrike/db';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -27,7 +27,7 @@ function createSettlingMapPromise(): SettlingMapPromise {
 
 export interface UseRootsReconciliationArgs {
   adapter: FileSystemAdapter;
-  db: DbHandle | null;
+  dbClient: WorkspaceRootsDbClient | null;
 }
 
 export interface UseRootsReconciliationResult {
@@ -61,7 +61,7 @@ export interface UseRootsReconciliationResult {
 
 interface PerformRootRegistrationArgs {
   adapter: FileSystemAdapter;
-  db: DbHandle | null;
+  dbClient: WorkspaceRootsDbClient | null;
   dbRootIdMap: DbRootIdMap;
   descriptor: RootDescriptor;
   /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
@@ -74,7 +74,7 @@ interface PerformRootRegistrationArgs {
  */
 async function performRootRegistration({
   adapter,
-  db,
+  dbClient,
   descriptor,
   dbRootIdMap,
   publishCanonicalMapping,
@@ -102,7 +102,7 @@ async function performRootRegistration({
     // Already mapped — the boot reconcile (or an earlier registerRoot) won.
     return;
   }
-  if (!db) {
+  if (!dbClient) {
     logger.warn('registerRoot skipped: db handle unavailable', {
       rootId: descriptor.rootId,
     });
@@ -112,8 +112,10 @@ async function performRootRegistration({
     const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
     const result = await reconcileRoots({
       adapterRoots: [descriptor],
+      exec: dbClient.db.exec,
       platformKind,
-      query: db.query,
+      query: dbClient.db.query,
+      runtimeEngine: dbClient.runtimeEngine,
     });
     const dbRootId = result.dbRootIdByAdapterRootId.get(descriptor.rootId);
     if (dbRootId !== undefined) {
@@ -144,7 +146,7 @@ async function performRootRegistration({
  */
 export function useRootsReconciliation({
   adapter,
-  db,
+  dbClient,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
 
@@ -187,8 +189,8 @@ export function useRootsReconciliation({
   // registerRoot stays identity-stable without stale captures.
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
-  const dbRef = useRef(db);
-  dbRef.current = db;
+  const dbClientRef = useRef(dbClient);
+  dbClientRef.current = dbClient;
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map
@@ -238,7 +240,7 @@ export function useRootsReconciliation({
       settlingRef.current = settling;
       settledWithoutRestoreRef.current = false;
     }
-    if (!db) {
+    if (!dbClient) {
       // Deliberately NOT settled: db is not ready YET and the effect re-runs
       // when it arrives. Settling empty here would be permanent (promises
       // resolve once), silently dropping the later real mapping. No consumer
@@ -256,8 +258,10 @@ export function useRootsReconciliation({
       .then(async (adapterRoots) => {
         const result = await reconcileRoots({
           adapterRoots,
+          exec: dbClient.db.exec,
           platformKind,
-          query: db.query,
+          query: dbClient.db.query,
+          runtimeEngine: dbClient.runtimeEngine,
         });
         // Build adapterRootId → dbRootId map from the descriptors + registry result.
         // Descriptors the registry skipped (not in the mapping) are simply absent.
@@ -289,7 +293,7 @@ export function useRootsReconciliation({
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
       });
-  }, [adapter, db, publishCanonicalMapping]);
+  }, [adapter, dbClient, publishCanonicalMapping]);
 
   // Reads the settling ref at call time (the effect may have re-keyed it when
   // a restoreRoots-capable adapter replaced an incapable one). The null case
@@ -311,7 +315,7 @@ export function useRootsReconciliation({
         await awaitBootSettle();
         await performRootRegistration({
           adapter: adapterRef.current,
-          db: dbRef.current,
+          dbClient: dbClientRef.current,
           descriptor,
           dbRootIdMap: dbRootIdMapRef.current,
           publishCanonicalMapping,

@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
+const mockFileSystemProvider = {
+  deleteRootData: undefined as unknown,
+};
+
 vi.mock('@brainstrike/preferences', () => ({
   useDatabaseStatusSync: () => {},
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
@@ -14,7 +18,16 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-explorer-provider">{children}</div>
   ),
-  FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
+  FileSystemProvider: ({
+    children,
+    deleteRootData,
+  }: {
+    children: React.ReactNode;
+    deleteRootData?: unknown;
+  }) => {
+    mockFileSystemProvider.deleteRootData = deleteRootData;
+    return children;
+  },
 }));
 
 // Mock the file-explorer-hooks package
@@ -111,6 +124,10 @@ const mockConfig: AppShellConfig = {
 };
 
 describe('AppLayout', () => {
+  beforeEach(() => {
+    mockFileSystemProvider.deleteRootData = undefined;
+  });
+
   it('should render the main components', () => {
     render(
       <AppLayout config={mockConfig} currentPath="/">
@@ -148,5 +165,22 @@ describe('AppLayout', () => {
 
     expect(screen.getByTestId('nav-path')).toHaveTextContent('/settings');
     expect(screen.getByTestId('nav-click-handler')).toBeInTheDocument();
+  });
+
+  it('passes root data deletion through to the shared file-system provider', () => {
+    const deleteRootData = vi.fn();
+    const props = {
+      config: mockConfig,
+      currentPath: '/',
+      deleteRootData,
+    } as React.ComponentProps<typeof AppLayout> & { deleteRootData: typeof deleteRootData };
+
+    render(
+      <AppLayout {...props}>
+        <div />
+      </AppLayout>
+    );
+
+    expect(mockFileSystemProvider.deleteRootData).toBe(deleteRootData);
   });
 });

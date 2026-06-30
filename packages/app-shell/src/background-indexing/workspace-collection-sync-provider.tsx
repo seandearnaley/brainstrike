@@ -11,6 +11,7 @@ import {
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
   usePGliteDatabase,
+  useWorkspaceRootsDbClient,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import {
@@ -1096,6 +1097,7 @@ export function WorkspaceCollectionSyncProvider({
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
     useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
+  const workspaceRootsDbClient = useWorkspaceRootsDbClient();
   const db = usePGliteDatabase();
 
   // Root registry: ensure a DB roots row exists for every adapter root.
@@ -1105,7 +1107,7 @@ export function WorkspaceCollectionSyncProvider({
   // reconciliation map resolves, so the service useMemo is not reconstructed.
   const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId } = useRootsReconciliation({
     adapter: fileSystemAdapter,
-    db,
+    dbClient: workspaceRootsDbClient,
   });
 
   // Mid-session root registration (phase 5): roots added via Add Folder get

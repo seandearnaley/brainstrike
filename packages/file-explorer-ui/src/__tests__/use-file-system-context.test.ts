@@ -1022,7 +1022,15 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
       await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
     });
 
-    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
+    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(
+      rootId,
+      expect.objectContaining({
+        rootDirectoryHandles: expect.arrayContaining([
+          expect.objectContaining({ path: 'mock-root', rootId }),
+        ]),
+        rootIdByPath: expect.any(Map),
+      })
+    );
     expect(result.current.fs.rootDirectoryHandles).toHaveLength(0);
     expect(result.current.store.getState().activeRootIds).not.toContain(rootId);
   });
@@ -1038,7 +1046,15 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
       await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
     });
 
-    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
+    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(
+      rootId,
+      expect.objectContaining({
+        rootDirectoryHandles: expect.arrayContaining([
+          expect.objectContaining({ path: 'mock-root', rootId }),
+        ]),
+        rootIdByPath: expect.any(Map),
+      })
+    );
     // Disconnect ABORTED: the handle and store registration both survive.
     expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
     expect(result.current.store.getState().activeRootIds).toContain(rootId);

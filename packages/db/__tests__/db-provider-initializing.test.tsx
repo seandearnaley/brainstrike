@@ -18,6 +18,7 @@ import {
   useQuerySelectionSnapshotDbClient,
   useTokenCacheStore,
   useViewFilterPresetsRepository,
+  useWorkspaceRootsDbClient,
 } from '../src/db-provider';
 import { clearDbProviderRepositoryStateForError } from '../src/db-provider-state-reset';
 import * as databaseModule from '../src/drizzle/database';
@@ -915,6 +916,7 @@ describe('DbProvider initializing state', () => {
         pgliteDb: usePGliteDatabase(),
         querySelectionSnapshotDb: useQuerySelectionSnapshotDbClient(),
         tokenCacheStore: useTokenCacheStore(),
+        workspaceRootsDb: useWorkspaceRootsDbClient(),
       }),
       { wrapper: electronIpcWrapper }
     );
@@ -936,9 +938,15 @@ describe('DbProvider initializing state', () => {
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
+    expect(result.current.workspaceRootsDb).toEqual({
+      db: result.current.modelRegistryDb,
+      runtimeEngine: 'turso',
+    });
     const querySelectionSnapshotDb = result.current.querySelectionSnapshotDb;
+    const workspaceRootsDb = result.current.workspaceRootsDb;
     rerender();
     expect(result.current.querySelectionSnapshotDb).toBe(querySelectionSnapshotDb);
+    expect(result.current.workspaceRootsDb).toBe(workspaceRootsDb);
     expect(result.current.modelRegistryDb).not.toBeNull();
     expect(databaseModule.extractDbExecutionClient(result.current.modelRegistryDb)).toEqual(
       expect.objectContaining({

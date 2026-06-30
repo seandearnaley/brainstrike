@@ -57,7 +57,9 @@ describe('useRootsReconciliation', () => {
     const adapter = makeAdapter();
     const { db, query } = makeDb();
 
-    renderHook(() => useRootsReconciliation({ adapter, db }));
+    renderHook(() =>
+      useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+    );
 
     await Promise.resolve();
     expect(query).not.toHaveBeenCalled();
@@ -67,7 +69,7 @@ describe('useRootsReconciliation', () => {
     const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
     const adapter = makeAdapter({ restoreRoots });
 
-    renderHook(() => useRootsReconciliation({ adapter, db: null }));
+    renderHook(() => useRootsReconciliation({ adapter, dbClient: null }));
 
     await Promise.resolve();
     expect(restoreRoots).not.toHaveBeenCalled();
@@ -80,7 +82,9 @@ describe('useRootsReconciliation', () => {
     const adapter = makeAdapter({ restoreRoots });
     const { db, query } = makeDb();
 
-    renderHook(() => useRootsReconciliation({ adapter, db }));
+    renderHook(() =>
+      useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+    );
 
     await waitFor(() => {
       expect(restoreRoots).toHaveBeenCalledTimes(1);
@@ -96,7 +100,8 @@ describe('useRootsReconciliation', () => {
     const { db } = makeDb();
 
     const { rerender } = renderHook(
-      ({ adapter }: { adapter: FileSystemAdapter }) => useRootsReconciliation({ adapter, db }),
+      ({ adapter }: { adapter: FileSystemAdapter }) =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } }),
       { initialProps: { adapter: makeAdapter({ restoreRoots: firstRestoreRoots }) } }
     );
 
@@ -127,7 +132,9 @@ describe('useRootsReconciliation', () => {
       const adapter = makeAdapter({ restoreRoots });
       const { db, query } = makeDb();
 
-      renderHook(() => useRootsReconciliation({ adapter, db }));
+      renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       await waitFor(() => {
         expect(captured.some((record) => record.message === 'Root reconciliation failed')).toBe(
@@ -152,7 +159,9 @@ describe('useRootsReconciliation', () => {
     const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
     const { db } = makeDbWithRootRow(rootPath, dbId);
 
-    const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+    const { result } = renderHook(() =>
+      useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+    );
 
     // Wait for reconciliation to complete
     await waitFor(() => {
@@ -173,7 +182,9 @@ describe('useRootsReconciliation', () => {
     const adapter = makeAdapter({ restoreRoots, platform: 'web' as const });
     const { db } = makeDb();
 
-    const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+    const { result } = renderHook(() =>
+      useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+    );
 
     await waitFor(() => {
       expect(restoreRoots).toHaveBeenCalledTimes(1);
@@ -206,7 +217,9 @@ describe('useRootsReconciliation', () => {
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db } = makeDbWithRootRow('/workspace/docs', 'db-root-id');
 
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       await waitFor(() => {
         expect(restoreRoots).toHaveBeenCalledTimes(1);
@@ -234,7 +247,9 @@ describe('useRootsReconciliation', () => {
     const adapter = makeAdapter({ restoreRoots });
     const { db } = makeDb();
 
-    const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+    const { result } = renderHook(() =>
+      useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+    );
 
     // Even when reconciliation fails, this must resolve (not hang)
     const resolved = await result.current.resolveDbRootId('/some/path');
@@ -258,7 +273,10 @@ describe('useRootsReconciliation', () => {
 
     const { rerender, result } = renderHook(
       ({ currentDb }: { currentDb: DbHandle | null }) =>
-        useRootsReconciliation({ adapter, db: currentDb }),
+        useRootsReconciliation({
+          adapter,
+          dbClient: currentDb ? { db: currentDb, runtimeEngine: 'pglite' } : null,
+        }),
       { initialProps: { currentDb: null as DbHandle | null } }
     );
 
@@ -294,7 +312,10 @@ describe('useRootsReconciliation', () => {
 
     const { rerender, result } = renderHook(
       ({ currentAdapter }: { currentAdapter: FileSystemAdapter }) =>
-        useRootsReconciliation({ adapter: currentAdapter, db }),
+        useRootsReconciliation({
+          adapter: currentAdapter,
+          dbClient: { db, runtimeEngine: 'pglite' },
+        }),
       { initialProps: { currentAdapter: incapableAdapter } }
     );
 
@@ -324,7 +345,9 @@ describe('useRootsReconciliation', () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db } = makeDb();
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
 
@@ -336,7 +359,9 @@ describe('useRootsReconciliation', () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db, query } = makeDb();
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
       const descriptor = grantedRootWithPath('root-new', 'docs', '/workspace/new');
 
       await result.current.registerRoot(descriptor);
@@ -351,7 +376,9 @@ describe('useRootsReconciliation', () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db, query } = makeDb();
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       const sessionOnly: RootDescriptor = {
         ...grantedRootWithPath('root-session', 'session', '/workspace/session'),
@@ -382,7 +409,9 @@ describe('useRootsReconciliation', () => {
       );
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db, query } = makeDbWithRootRow(rootPath, dbId);
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       await result.current.registerRoot(grantedRootWithPath('other-id', 'docs', rootPath));
 
@@ -397,7 +426,9 @@ describe('useRootsReconciliation', () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
       const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
       const { db } = makeDb();
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       void result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
 
@@ -409,7 +440,9 @@ describe('useRootsReconciliation', () => {
     it('no-ops on adapters without restoreRoots', async () => {
       const adapter = makeAdapter();
       const { db, query } = makeDb();
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, dbClient: { db, runtimeEngine: 'pglite' } })
+      );
 
       await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
 
