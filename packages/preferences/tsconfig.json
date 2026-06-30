@@ -17,6 +17,9 @@
       "@brainstrike/db": [
         "../db/src"
       ],
+      "@brainstrike/db/*": [
+        "../db/src/*"
+      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ]
