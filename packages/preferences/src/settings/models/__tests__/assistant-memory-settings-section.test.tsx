@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEnsureModelRegistry } from '../../../hooks/use-model-registry';
 import {
   __resetAssistantMemoryPreferencesStoreForTests,
   useAssistantMemoryPreferencesStore,
@@ -14,7 +15,8 @@ import { AssistantMemorySettingsSection } from '../assistant-memory-settings-sec
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  useBrainstrikeDbClient: vi.fn(() => ({})),
+  useBrainstrikeDbClient: vi.fn(() => ({ runtime: 'pglite-only' })),
+  useModelRegistryDbClient: vi.fn(() => ({ runtime: 'turso-registry' })),
 }));
 
 vi.mock('../../../hooks/use-model-registry', () => ({
@@ -120,7 +122,16 @@ describe('AssistantMemorySettingsSection', () => {
   beforeEach(() => {
     __resetAssistantMemoryPreferencesStoreForTests();
     __resetModelRegistryStoreForTests();
+    vi.mocked(useEnsureModelRegistry).mockClear();
     seedRegistry();
+  });
+
+  it('loads the model registry through the runtime-aware DB client', () => {
+    render(<AssistantMemorySettingsSection />);
+
+    expect(useEnsureModelRegistry).toHaveBeenCalledWith({
+      db: { runtime: 'turso-registry' },
+    });
   });
 
   it('lists only enabled hosted LLM models for observational memory', () => {

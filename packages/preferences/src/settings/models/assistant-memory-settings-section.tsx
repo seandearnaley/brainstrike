@@ -2,7 +2,7 @@ import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
 } from '@brainstrike/assistant-contract/memory-settings';
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import { useModelRegistryDbClient } from '@brainstrike/db';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
@@ -44,7 +44,7 @@ function parseNumberInput(value: string): number {
 }
 
 export function AssistantMemorySettingsSection() {
-  const db = useBrainstrikeDbClient();
+  const db = useModelRegistryDbClient();
   useEnsureModelRegistry({ db });
 
   const { models, providers } = useModelRegistryStore();
