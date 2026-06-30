@@ -142,6 +142,18 @@ describe('DbProvider factoryReset', () => {
     if (!initialDb) {
       throw new Error('Expected initial DB to be created');
     }
+    let resetTx: MockTx | null = null;
+    initialDb.transaction.mockImplementation(async (callback: TransactionCallback) => {
+      resetTx = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
+          return { rows: [] };
+        }),
+      };
+      return await callback(resetTx);
+    });
 
     await act(async () => {
       const reset = result.current.reset;
@@ -155,10 +167,57 @@ describe('DbProvider factoryReset', () => {
     // PGlite before that reload can leave the reset UI waiting on database
     // readiness instead of reaching the reload path.
     expect(initialDb.close).toHaveBeenCalledTimes(1);
+    expect(resetTx?.query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
     expect(createPGliteSpy).toHaveBeenCalledTimes(1);
     expect(createdDbs).toHaveLength(1);
     expect(result.current.repo).toBeNull();
     expect(result.current.reset).toBeNull();
+  });
+
+  it('rejects direct factory reset when assistant run usage cannot be purged', async () => {
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.reset).not.toBeNull();
+      },
+      { timeout: 5000 }
+    );
+
+    expect(createdDbs).toHaveLength(1);
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+    const usagePurgeError = new Error('assistant usage purge failed');
+    initialDb.transaction.mockImplementation(async (callback: TransactionCallback) => {
+      const resetTx: MockTx = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
+          if (sql === 'DELETE FROM brainstrike_assistant_run_usage') {
+            throw usagePurgeError;
+          }
+          return { rows: [] };
+        }),
+      };
+      return await callback(resetTx);
+    });
+
+    await expect(result.current.reset?.()).rejects.toThrow('assistant usage purge failed');
+    expect(initialDb.close).not.toHaveBeenCalled();
+    expect(createPGliteSpy).toHaveBeenCalledTimes(1);
+    expect(createdDbs).toHaveLength(1);
+    expect(result.current.repo).not.toBeNull();
+    expect(result.current.reset).not.toBeNull();
   });
 
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {

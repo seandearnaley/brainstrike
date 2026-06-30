@@ -127,17 +127,20 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear database with data', async () => {
-      const queryMock = vi
-        .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
-        .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
-        .mockResolvedValueOnce(undefined) // DELETE chunks
-        .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
-        .mockResolvedValueOnce(undefined) // DELETE selection_snapshots
-        .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
-        .mockResolvedValueOnce(undefined) // DELETE files
-        .mockResolvedValueOnce(undefined) // DELETE roots
-        .mockResolvedValueOnce(undefined) // DELETE embedding_sets
-        .mockResolvedValueOnce(undefined); // DELETE job_queue
+      const queryMock = vi.fn<[string], Promise<{ rows: unknown[] } | undefined>>(
+        async (sql: string) => {
+          if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+            return { rows: [{ count: '10' }] };
+          }
+          if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+            return { rows: [{ count: '5' }] };
+          }
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
+          return { rows: [] };
+        }
+      );
       const mockTransaction: TransactionMock = vi.fn(
         async (callback: TransactionCallback) => await callback({ query: queryMock })
       );
@@ -177,6 +180,7 @@ describe('Database clearing functionality', () => {
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
     });
 
     it('should handle transaction errors gracefully', async () => {
@@ -211,6 +215,105 @@ describe('Database clearing functionality', () => {
         throw new Error('Clear function is null');
       }
       await expect(result.current.clearData()).rejects.toThrow('Transaction failed');
+    });
+
+    it('skips assistant run usage purge when the legacy table is absent', async () => {
+      const queryMock = vi.fn<[string], Promise<{ rows: unknown[] } | undefined>>(
+        async (sql: string) => {
+          if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: false }] };
+          }
+          return { rows: [] };
+        }
+      );
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository();
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
+
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
+
+      await expect(result.current.clearData?.()).resolves.toEqual({
+        deletedChunks: 0,
+        deletedFiles: 0,
+      });
+      expect(queryMock).not.toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
+    });
+
+    it('fails when assistant run usage cannot be purged', async () => {
+      const queryMock = vi.fn<[string], Promise<{ rows: unknown[] } | undefined>>(
+        async (sql: string) => {
+          if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+            return { rows: [{ count: '0' }] };
+          }
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
+          if (sql === 'DELETE FROM brainstrike_assistant_run_usage') {
+            throw new Error('assistant usage purge failed');
+          }
+          return { rows: [] };
+        }
+      );
+      const mockTransaction: TransactionMock = vi.fn(
+        async (callback: TransactionCallback) => await callback({ query: queryMock })
+      );
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
+
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository();
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
+
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
+
+      if (!result.current.clearData) {
+        throw new Error('Clear function is null');
+      }
+      await expect(result.current.clearData()).rejects.toThrow('assistant usage purge failed');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
     });
 
     it('should throw error when repositories are not available', async () => {
