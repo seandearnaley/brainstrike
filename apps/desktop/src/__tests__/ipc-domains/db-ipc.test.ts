@@ -334,8 +334,9 @@ describe('database IPC domain', () => {
 
   it('drives Turso embedding worker queue and stats IPC through a real owner client', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-worker-ipc-'));
-    const client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+    let client: TursoOwnerClient | undefined;
     try {
+      client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
       await applyTursoSchemaBaseline(client);
       const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
       const fileRecordsRepository = new TursoFileRecordRepository(client);
@@ -436,7 +437,7 @@ describe('database IPC domain', () => {
         pending_chunk_count: 0,
       });
     } finally {
-      await client.close();
+      await client?.close();
       await rm(tempDir, { force: true, recursive: true });
     }
   });
