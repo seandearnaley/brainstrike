@@ -85,14 +85,27 @@ vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 const migrateMock = vi.fn();
 const runPgliteBootstrapCapabilityProbeMock = vi.fn();
 const runTursoProfileBootstrapMock = vi.fn();
+const loggerErrorMock = vi.fn();
 const tursoOwnerQueryMock = vi.fn(async (sql: string, params?: readonly unknown[]) => ({
   rows: [{ sql, params, value: 'ok' }],
 }));
 const tursoOwnerExecMock = vi.fn(async () => {});
 const tursoOwnerCloseMock = vi.fn(async () => {});
+const tursoOwnerQoSDiagnosticsMock = vi.fn(() => ({
+  activeOperation: null,
+  queuedOperationCount: 0,
+  queuedOperations: [],
+  slowQueuedOperationCount: 0,
+  slowQueueThresholdMs: 1000,
+  totalCompletedOperations: 0,
+  totalFailedOperations: 0,
+  totalQueuedOperations: 0,
+  totalStartedOperations: 0,
+}));
 const createTursoOwnerClientMock = vi.fn(async () => ({
   close: tursoOwnerCloseMock,
   exec: tursoOwnerExecMock,
+  getQoSDiagnostics: tursoOwnerQoSDiagnosticsMock,
   query: tursoOwnerQueryMock,
 }));
 const closeMock = vi.fn(async () => {});
@@ -144,11 +157,19 @@ vi.mock('@brainstrike/utils', async () => {
     createLogger: () => ({
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
+      error: loggerErrorMock,
       debug: vi.fn(),
     }),
   };
 });
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: loggerErrorMock,
+    debug: vi.fn(),
+  }),
+}));
 
 describe('initializeMainDatabase', () => {
   const originalArgv = [...process.argv];
@@ -433,6 +454,69 @@ describe('initializeMainDatabase', () => {
       runtime: { engine: 'turso' },
       search: { ownershipMode: 'split-search-index-store' },
     });
+  });
+
+  it('surfaces Turso owner-client QoS diagnostics without reinitializing the owner handle', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { getDatabaseDiagnostics, initializeMainDatabaseWithBootstrapReport } = await import(
+      '../../db-main'
+    );
+    await initializeMainDatabaseWithBootstrapReport();
+
+    const firstDiagnostics = getDatabaseDiagnostics();
+    const secondDiagnostics = getDatabaseDiagnostics();
+
+    expect(firstDiagnostics).toMatchObject({
+      hasDatabaseHandle: true,
+      profileBootstrapReport: {
+        ready: true,
+        runtime: { engine: 'turso' },
+      },
+      tursoOwnerClientQoS: {
+        activeOperation: null,
+        available: true,
+        queuedOperationCount: 0,
+        queuedOperations: [],
+        slowQueuedOperationCount: 0,
+        slowQueueThresholdMs: 1000,
+        totalCompletedOperations: 0,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 0,
+        totalStartedOperations: 0,
+      },
+    });
+    expect(secondDiagnostics.tursoOwnerClientQoS).toEqual(firstDiagnostics.tursoOwnerClientQoS);
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(1);
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(tursoOwnerQoSDiagnosticsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps diagnostics available when a Turso owner handle lacks QoS diagnostics', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+    createTursoOwnerClientMock.mockResolvedValueOnce({
+      close: tursoOwnerCloseMock,
+      exec: tursoOwnerExecMock,
+      query: tursoOwnerQueryMock,
+    });
+
+    const { getDatabaseDiagnostics, initializeMainDatabaseWithBootstrapReport } = await import(
+      '../../db-main'
+    );
+    await initializeMainDatabaseWithBootstrapReport();
+
+    expect(getDatabaseDiagnostics().tursoOwnerClientQoS).toEqual({
+      available: false,
+      reason: 'diagnostics-unsupported',
+    });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Turso owner handle is missing getQoSDiagnostics');
   });
 
   it('does not reacquire the serialized initialization lock during recovery retry', async () => {

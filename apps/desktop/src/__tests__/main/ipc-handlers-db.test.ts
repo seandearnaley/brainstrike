@@ -856,6 +856,7 @@ describe('database IPC handlers', () => {
       runtimeCorruptionRecoveryCount: 0,
       lastRuntimeCorruptionAt: null,
       lastRuntimeCorruptionContext: null,
+      tursoOwnerClientQoS: { available: false, reason: 'runtime-not-turso' },
     });
   });
 

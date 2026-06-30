@@ -25,6 +25,8 @@ import type {
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
   DatabaseInitStage,
+  DatabaseTursoOwnerClientQoSDiagnostics,
+  DatabaseTursoOwnerClientQoSSnapshot,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -60,6 +62,10 @@ interface ExtensionModuleShape {
   live?: unknown;
   pg_trgm?: unknown;
   vector?: unknown;
+}
+
+interface TursoOwnerClientQoSProvider {
+  readonly getQoSDiagnostics: () => DatabaseTursoOwnerClientQoSSnapshot;
 }
 
 interface GitProfileContext {
@@ -1083,6 +1089,30 @@ function formatOpenDatabaseFailureMessage(
   return `Desktop database failed to initialize via PGlite: ${details}.`;
 }
 
+function hasTursoOwnerClientQoSProvider(value: unknown): value is TursoOwnerClientQoSProvider {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { readonly getQoSDiagnostics?: unknown }).getQoSDiagnostics === 'function'
+  );
+}
+
+function getTursoOwnerClientQoSDiagnostics(
+  profileBootstrapReport: ProfileBootstrapReport | null
+): DatabaseTursoOwnerClientQoSDiagnostics {
+  if (profileBootstrapReport?.runtime.engine !== 'turso') {
+    return { available: false, reason: 'runtime-not-turso' };
+  }
+  if (!db) {
+    return { available: false, reason: 'owner-client-not-open' };
+  }
+  if (!hasTursoOwnerClientQoSProvider(db)) {
+    logger.error('Turso owner handle is missing getQoSDiagnostics');
+    return { available: false, reason: 'diagnostics-unsupported' };
+  }
+  return { available: true, ...db.getQoSDiagnostics() };
+}
+
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   const profileBootstrapReport = mutableState.lastProfileBootstrapReport;
   return {
@@ -1104,6 +1134,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
     lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
     lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
+    tursoOwnerClientQoS: getTursoOwnerClientQoSDiagnostics(profileBootstrapReport),
     profileBootstrapReport: profileBootstrapReport
       ? {
           ...profileBootstrapReport,

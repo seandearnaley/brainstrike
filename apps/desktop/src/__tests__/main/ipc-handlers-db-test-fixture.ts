@@ -161,6 +161,7 @@ const {
     runtimeCorruptionRecoveryCount: 0,
     lastRuntimeCorruptionAt: null,
     lastRuntimeCorruptionContext: null,
+    tursoOwnerClientQoS: { available: false, reason: 'runtime-not-turso' },
   }));
   const getDbHostManagerMock = vi.fn(() => ({
     applyManagedCacheBatch: applyManagedCacheBatchMock,
