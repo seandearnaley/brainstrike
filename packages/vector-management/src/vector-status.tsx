@@ -1,4 +1,4 @@
-import { useBrainstrikeDbClient, useVectorEnabled } from '@brainstrike/db';
+import { type DbHandle, useModelRegistryDbClient, useVectorEnabled } from '@brainstrike/db';
 import { TransformersBackend } from '@brainstrike/embeddings/backend';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
@@ -174,7 +174,7 @@ function WorkerControls({
   onStopWorker,
   onResetWorker,
 }: {
-  db: NonNullable<ReturnType<typeof useBrainstrikeDbClient>> | null;
+  db: DbHandle | null;
   workerLocalRunning: boolean;
   startingWorker: boolean;
   onStartWorker: () => Promise<void>;
@@ -616,7 +616,7 @@ interface VectorStatusWithDbContentProps {
 
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
-  const db = useBrainstrikeDbClient();
+  const db = useModelRegistryDbClient();
   const { toast } = useToast();
 
   // Self-contained collection selection - no longer depends on Database Explorer
