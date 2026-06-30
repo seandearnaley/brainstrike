@@ -145,7 +145,12 @@ describe('DbProvider factoryReset', () => {
     let resetTx: MockTx | null = null;
     initialDb.transaction.mockImplementation(async (callback: TransactionCallback) => {
       resetTx = {
-        query: vi.fn(async () => ({ rows: [] })),
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
+          return { rows: [] };
+        }),
       };
       return await callback(resetTx);
     });
@@ -195,6 +200,9 @@ describe('DbProvider factoryReset', () => {
     initialDb.transaction.mockImplementation(async (callback: TransactionCallback) => {
       const resetTx: MockTx = {
         query: vi.fn(async (sql: string) => {
+          if (sql.includes('information_schema.tables')) {
+            return { rows: [{ exists: true }] };
+          }
           if (sql === 'DELETE FROM brainstrike_assistant_run_usage') {
             throw usagePurgeError;
           }
@@ -208,6 +216,8 @@ describe('DbProvider factoryReset', () => {
     expect(initialDb.close).not.toHaveBeenCalled();
     expect(createPGliteSpy).toHaveBeenCalledTimes(1);
     expect(createdDbs).toHaveLength(1);
+    expect(result.current.repo).not.toBeNull();
+    expect(result.current.reset).not.toBeNull();
   });
 
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {

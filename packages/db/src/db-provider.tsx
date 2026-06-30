@@ -86,28 +86,29 @@ async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): 
   }
 }
 
-function isMissingRelationError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const code = (error as { code?: string }).code;
-  if (code === '42P01') {
-    return true;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('relation') && message.includes('does not exist');
-}
-
 async function clearAssistantRunUsage(
   tx: { query: (sql: string) => Promise<unknown> },
   context: string
 ): Promise<void> {
+  const relation = await tx.query(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'brainstrike_assistant_run_usage'
+    ) AS exists
+  `);
+  const relationRow = (relation as { rows?: Array<{ exists?: boolean | string | number }> })
+    .rows?.[0];
+  const exists =
+    relationRow?.exists === true || relationRow?.exists === 'true' || relationRow?.exists === 1;
+  if (!exists) {
+    return;
+  }
+
   try {
     await tx.query('DELETE FROM brainstrike_assistant_run_usage');
   } catch (error) {
-    if (isMissingRelationError(error)) {
-      return;
-    }
     logger.warn(`[DbProvider] Failed to clear assistant run usage ${context}:`, error);
     throw error;
   }
@@ -1532,14 +1533,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [resolvedPath]);
 
   const resetPGliteState = useCallback(async () => {
-    resetPendingReloadRef.current = true;
-
     if (connectionRef.current) {
       await purgeAndClosePGlite();
     } else {
       logger.warn('[DbProvider] No active database to purge during factory reset');
     }
 
+    resetPendingReloadRef.current = true;
     connectionRef.current = null;
     setExposedDb(null);
     setDrizzleDb(null);
