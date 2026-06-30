@@ -44,6 +44,10 @@ function toEmbeddingCoverageRepository(
   return null;
 }
 
+function createUnavailableTursoVectorQueueService(): VectorQueueService | null {
+  return null;
+}
+
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
   const db = useModelRegistryDbClient();
   const bootstrapReport = useOptionalProfileBootstrapReport();
@@ -63,6 +67,7 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
         db,
         chunkRepository: coverageRepository,
         createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
+        createTursoVectorQueueService: createUnavailableTursoVectorQueueService,
         runtimeEngine,
       }),
     [coverageRepository, db, runtimeEngine]
