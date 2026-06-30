@@ -5,6 +5,8 @@ import {
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
   useBrainstrikeLiveQuery,
+  useFileRecordRepository,
+  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
@@ -77,6 +79,10 @@ export interface UseFileMentionsResult {
   readonly loading: boolean;
 }
 
+interface FileMentionRepository {
+  findByNameSubstring(query: string, limit: number): Promise<readonly QuickOpenFileRow[]>;
+}
+
 /**
  * Reactive "@" file-mention candidate list. Reuses the ⌘P quick-open file query
  * (`QUICK_OPEN_NAME_SEARCH_SQL`) — debounced, live, bounded — and maps each DB
@@ -99,11 +105,29 @@ export function useFileMentions(query: string): UseFileMentionsResult {
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const rootIdentity = useOptionalRootIdentity();
+  const pgliteDb = useOptionalPGliteDatabase();
+  const fileRecordRepository = useFileRecordRepository();
 
   const trimmed = query.trim();
   const debounced = useDebouncedQuery(trimmed, FILE_MENTION_DEBOUNCE_MS);
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
+  const liveQueryEnabled = enabled && Boolean(pgliteDb);
+
+  const repositorySearch = useMemo(() => {
+    if (pgliteDb || !hasFileMentionRepositorySearch(fileRecordRepository)) {
+      return null;
+    }
+    return fileRecordRepository.findByNameSubstring.bind(fileRecordRepository);
+  }, [fileRecordRepository, pgliteDb]);
+
+  const [repositorySnapshot, setRepositorySnapshot] = useState<{
+    readonly query: string;
+    readonly rows: readonly QuickOpenFileRow[];
+  } | null>(null);
+  const [repositoryError, setRepositoryError] = useState<Error | null>(null);
+  const [repositoryLoading, setRepositoryLoading] = useState(false);
+  const [repositoryRefreshVersion, setRepositoryRefreshVersion] = useState(0);
 
   const { rows, loading, error } = useBrainstrikeLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('file-mention', debounced),
@@ -111,12 +135,80 @@ export function useFileMentions(query: string): UseFileMentionsResult {
     params: [debounced, QUICK_OPEN_MAX_LIMIT],
     mode: 'incremental',
     key: 'id',
-    enabled,
+    enabled: liveQueryEnabled,
   });
+
+  useEffect(() => {
+    if (!enabled || liveQueryEnabled) {
+      setRepositorySnapshot(null);
+      setRepositoryError(null);
+      setRepositoryLoading(false);
+      return;
+    }
+
+    if (!repositorySearch) {
+      setRepositorySnapshot(null);
+      setRepositoryError(new Error('File-mention repository search is unavailable.'));
+      setRepositoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRepositoryError(null);
+    setRepositoryLoading(true);
+    repositorySearch(debounced, QUICK_OPEN_MAX_LIMIT)
+      .then((nextRows) => {
+        if (cancelled) {
+          return;
+        }
+        setRepositorySnapshot({ query: debounced, rows: nextRows });
+        setRepositoryLoading(false);
+      })
+      .catch((nextError: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setRepositorySnapshot(null);
+        setRepositoryError(
+          nextError instanceof Error
+            ? nextError
+            : new Error('File-mention repository search failed.')
+        );
+        setRepositoryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced, enabled, liveQueryEnabled, repositorySearch, repositoryRefreshVersion]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !enabled || liveQueryEnabled || !repositorySearch) {
+      return;
+    }
+
+    const refreshSnapshot = () => {
+      setRepositoryRefreshVersion((version) => version + 1);
+    };
+    window.addEventListener('brainstrike:queue-drained', refreshSnapshot);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', refreshSnapshot);
+    };
+  }, [enabled, liveQueryEnabled, repositorySearch]);
+
+  const sourceRows = liveQueryEnabled
+    ? rows
+    : repositorySnapshot?.query === debounced
+      ? repositorySnapshot.rows
+      : [];
+  const sourceLoading = liveQueryEnabled
+    ? loading
+    : repositoryLoading || (Boolean(repositorySearch) && repositorySnapshot?.query !== debounced);
+  const sourceError = liveQueryEnabled ? error : repositoryError;
 
   // Rows from a prior query (debounce pending or subscription loading) belong to
   // a different query — never expose them as candidates.
-  const rowsAreStale = debouncePending || loading;
+  const rowsAreStale = debouncePending || sourceLoading;
 
   const fileMentions = useMemo<readonly FileMention[]>(() => {
     if (!enabled || rowsAreStale) {
@@ -124,7 +216,7 @@ export function useFileMentions(query: string): UseFileMentionsResult {
     }
     const activeRootIdSet = new Set(activeRootIds);
     const items: FileMention[] = [];
-    for (const row of rows) {
+    for (const row of sourceRows) {
       if (row.root_id === null) {
         continue;
       }
@@ -145,9 +237,18 @@ export function useFileMentions(query: string): UseFileMentionsResult {
       });
     }
     return items;
-  }, [enabled, rowsAreStale, rows, activeRootIds, rootDescriptors, rootIdentity]);
+  }, [enabled, rowsAreStale, sourceRows, activeRootIds, rootDescriptors, rootIdentity]);
 
-  return { error, fileMentions, loading: trimmed.length > 0 && (rowsAreStale || loading) };
+  return { error: sourceError, fileMentions, loading: trimmed.length > 0 && rowsAreStale };
+}
+
+function hasFileMentionRepositorySearch(value: unknown): value is FileMentionRepository {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'findByNameSubstring' in value &&
+    typeof value.findByNameSubstring === 'function'
+  );
 }
 
 /**
