@@ -12,6 +12,7 @@ interface MockDb {
 }
 
 let mockDb: MockDb | null = { query: vi.fn() };
+let mockPgliteOnlyDb: MockDb | null = mockDb;
 let mockChunkRepository: object | null = {
   getCoverageForSet: vi.fn().mockResolvedValue({ totalChunks: 10, chunksWithEmbeddingsForSet: 5 }),
   clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
@@ -161,7 +162,8 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...(actual as object),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClient: () => mockDb,
+    useBrainstrikeDbClient: () => mockPgliteOnlyDb,
+    useModelRegistryDbClient: () => mockDb,
     useFileChunkRepository: () => mockChunkRepository,
     useVectorEnabled: () => mockVectorEnabled,
     JobQueue: class MockJobQueue {},
@@ -248,13 +250,17 @@ vi.mock('../embedding-runtime-provider', () => ({
 
 vi.mock('../vector-status/embedding-set-selector', () => ({
   EmbeddingSetSelector: ({
+    db,
     onSelectionChange,
   }: {
     onSelectionChange: (id: string | null) => void;
     selectedId: string | null;
     db: unknown;
   }) => (
-    <div data-testid="embedding-set-selector">
+    <div
+      data-db-kind={(db as { kind?: string } | null)?.kind ?? 'none'}
+      data-testid="embedding-set-selector"
+    >
       <button onClick={() => onSelectionChange('set-1')} type="button">
         Select Set 1
       </button>
@@ -295,6 +301,7 @@ function resetMockState(): void {
   mockToast.mockReset();
   mockVectorEnabled = false;
   mockDb = { query: vi.fn() };
+  mockPgliteOnlyDb = mockDb;
   mockChunkRepository = {
     getCoverageForSet: vi.fn().mockResolvedValue({
       totalChunks: 10,
@@ -390,6 +397,21 @@ describe('VectorStatusWithDb', () => {
   it('renders EmbeddingSetSelector', () => {
     render(<VectorStatusWithDb />);
     expect(screen.getByTestId('embedding-set-selector')).toBeInTheDocument();
+  });
+
+  it('passes the runtime-aware DB client to the embedding set selector when PGlite is not exposed', () => {
+    mockPgliteOnlyDb = null;
+    mockDb = {
+      kind: 'turso-runtime',
+      query: vi.fn(),
+    } as MockDb & { kind: string };
+
+    render(<VectorStatusWithDb />);
+
+    expect(screen.getByTestId('embedding-set-selector')).toHaveAttribute(
+      'data-db-kind',
+      'turso-runtime'
+    );
   });
 
   it('renders Active Collection label', () => {
@@ -530,6 +552,7 @@ describe('VectorStatusWithDb', () => {
 
     it('Start button is disabled when db is null', () => {
       mockDb = null;
+      mockPgliteOnlyDb = null;
       render(<VectorStatusWithDb />);
       const startBtn = screen.getByRole('button', { name: 'Start embedding worker' });
       expect(startBtn).toBeDisabled();

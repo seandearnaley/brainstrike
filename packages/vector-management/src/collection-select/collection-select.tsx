@@ -1,8 +1,4 @@
-import type {
-  EmbeddingSetSystemRole,
-  EmbeddingSpaceListing,
-  useBrainstrikeDbClient,
-} from '@brainstrike/db';
+import type { DbHandle, EmbeddingSetSystemRole, EmbeddingSpaceListing } from '@brainstrike/db';
 import {
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
@@ -137,7 +133,7 @@ export interface CollectionSelectProps {
    * Required if collections/loading/error are not provided (will fetch internally).
    * Ignored if collections are provided externally.
    */
-  db?: ReturnType<typeof useBrainstrikeDbClient>;
+  db?: DbHandle | null;
 
   /**
    * Custom empty state to render when no collections exist
@@ -214,7 +210,7 @@ function useErrorReporting(error: Error | null | undefined, onError?: (error: Er
  * Hook to resolve collection data from either external props or internal fetch
  */
 function useResolvedCollectionData(
-  db: ReturnType<typeof useBrainstrikeDbClient> | undefined,
+  db: DbHandle | null | undefined,
   externalCollections?: CollectionWithDocCount[],
   externalLoading?: boolean,
   externalError?: Error | null
@@ -388,7 +384,7 @@ function areCollectionsEqual(
   return true;
 }
 
-export function useCollections(db: ReturnType<typeof useBrainstrikeDbClient> | null | undefined) {
+export function useCollections(db: DbHandle | null | undefined) {
   const pgliteDb = useOptionalPGliteDatabase();
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
