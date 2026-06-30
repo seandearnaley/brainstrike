@@ -70,10 +70,11 @@ as the implementation backlog.
 - #1364 `Add Turso owner client QoS diagnostics`
 - #1365 `Surface Turso owner QoS diagnostics in desktop`
 - #1366 `Persist desktop assistant run data on Turso`
-- Current slice: centralize Brainstrike-owned assistant run-event and run-status
-  write SQL behind shared assistant-contract query builders so desktop server
-  persistence and app-shell thread repositories cannot drift between
-  PGlite/Postgres and Turso/SQLite dialects.
+- #1367 `Share assistant run persistence SQL`
+- Current slice: add a Turso/SQLite scheduled database maintenance
+  implementation for old terminal job pruning plus `ANALYZE`, selected through
+  an explicit desktop maintenance capability. Dimension-index maintenance
+  remains PGlite/pgvector-only.
 
 Recently completed diagnostics slice: surface the Turso owner-client QoS snapshot through desktop
   database diagnostics and DB-host IPC, with explicit unavailable states for
@@ -418,18 +419,21 @@ Concrete blockers:
 - There is no production PGlite-to-Turso data migration path. This is
   acceptable only while the project remains greenfield and the bootstrap path
   continues to reject PGlite migration ledgers in Turso profiles.
-- Scheduled DB maintenance and dimension-index maintenance now run only for the
-  PGlite runtime. The existing scheduled maintenance service remains
-  Postgres-shaped (`COUNT(*)::text`, `$n` parameters, data-modifying CTE delete,
-  table-targeted `VACUUM`), and dimension-index maintenance still builds
-  pgvector HNSW SQL. Neither path is translated inline for Turso.
+- Scheduled DB maintenance now has two explicit implementations:
+  PGlite/Postgres prunes terminal `job_queue` rows with the existing
+  Postgres-shaped SQL and table-targeted `VACUUM`, while Turso/SQLite prunes
+  terminal `job_queue` rows with `?` placeholders and runs validated
+  `ANALYZE job_queue`. The desktop scheduler selects the implementation through
+  an explicit maintenance capability (`pglite-postgres`, `turso-sqlite`, or
+  `false`) rather than treating the raw runtime as a SQL capability.
+  Dimension-index maintenance remains PGlite/pgvector-only because it still
+  builds pgvector HNSW SQL.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
   client timeout/watchdog policy, QoS/connection-model decision, and Turso
   corruption diagnostics/recovery.
 
-Preferred next slice: add a Turso maintenance implementation only for
-operations that are meaningful under SQLite/Turso, then wire that implementation
-through an explicit runtime capability instead of broadening the PGlite service.
+Preferred next slice: add Turso profile store deletion to desktop reset once
+the final Turso store paths and sync metadata paths are stable.
 
 ### 7. Factory Reset And Profile Cleanup
 

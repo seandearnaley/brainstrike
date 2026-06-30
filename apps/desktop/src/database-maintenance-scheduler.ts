@@ -4,6 +4,7 @@ import {
   type DatabaseWorkRunOptions,
   DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
   runScheduledDatabaseMaintenance,
+  runTursoScheduledDatabaseMaintenance,
   type ScheduledDatabaseMaintenanceOptions,
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
@@ -33,7 +34,7 @@ interface MaintenanceLogger {
   readonly info: (context: Record<string, unknown>, message: string) => void;
 }
 
-export type DesktopDatabaseMaintenanceRuntimeEngine = BrainstrikeDbRuntimeEngine;
+export type DesktopDatabaseMaintenanceCapability = 'pglite-postgres' | 'turso-sqlite' | false;
 
 export type DesktopDatabaseMaintenanceSkipReason =
   | 'already-running'
@@ -61,7 +62,7 @@ export interface DesktopDatabaseMaintenanceScheduler {
 
 export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<MaintenanceDb>;
-  readonly getRuntimeEngine: () => Promise<DesktopDatabaseMaintenanceRuntimeEngine>;
+  readonly getMaintenanceCapability: () => Promise<DesktopDatabaseMaintenanceCapability>;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
   readonly initialDelayMs?: number;
   readonly intervalMs?: number;
@@ -70,6 +71,7 @@ export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly now?: () => Date;
   readonly runMaintenance?: RunMaintenance;
   readonly runScheduledWork: RunScheduledWork;
+  readonly runTursoMaintenance?: RunMaintenance;
 }
 
 const MAINTENANCE_WORK_OPTIONS: DatabaseWorkRunOptions = {
@@ -99,10 +101,30 @@ function hasQueuedDatabaseWork(snapshot: SchedulerSnapshot): boolean {
   );
 }
 
-function isMaintenanceSupportedRuntime(
-  runtimeEngine: DesktopDatabaseMaintenanceRuntimeEngine
-): boolean {
-  return runtimeEngine === 'pglite';
+export function resolveDesktopDatabaseMaintenanceCapability(
+  runtimeEngine: BrainstrikeDbRuntimeEngine
+): DesktopDatabaseMaintenanceCapability {
+  if (runtimeEngine === 'pglite') {
+    return 'pglite-postgres';
+  }
+  if (runtimeEngine === 'turso') {
+    return 'turso-sqlite';
+  }
+  return false;
+}
+
+function isMaintenanceSupportedCapability(
+  capability: DesktopDatabaseMaintenanceCapability
+): capability is Exclude<DesktopDatabaseMaintenanceCapability, false> {
+  return capability !== false;
+}
+
+function selectRunMaintenance(
+  capability: Exclude<DesktopDatabaseMaintenanceCapability, false>,
+  pgliteMaintenance: RunMaintenance,
+  tursoMaintenance: RunMaintenance
+): RunMaintenance {
+  return capability === 'turso-sqlite' ? tursoMaintenance : pgliteMaintenance;
 }
 
 function createSkippedResult(
@@ -129,6 +151,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
   const intervalMs = resolveIntervalMs(options.intervalMs);
   const now = options.now ?? (() => new Date());
   const runMaintenance = options.runMaintenance ?? runScheduledDatabaseMaintenance;
+  const runTursoMaintenance = options.runTursoMaintenance ?? runTursoScheduledDatabaseMaintenance;
   let maintenanceInFlight: Promise<DesktopDatabaseMaintenanceRunResult> | null = null;
   let initialTimer: ReturnType<typeof setTimeout> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -139,15 +162,20 @@ export function createDesktopDatabaseMaintenanceScheduler(
     }
 
     maintenanceInFlight = (async () => {
-      const runtimeEngine = await options.getRuntimeEngine();
-      if (!isMaintenanceSupportedRuntime(runtimeEngine)) {
+      const maintenanceCapability = await options.getMaintenanceCapability();
+      if (!isMaintenanceSupportedCapability(maintenanceCapability)) {
         options.logger.debug(
-          { runtimeEngine },
-          'Skipped scheduled database maintenance because the runtime does not support it'
+          { maintenanceCapability },
+          'Skipped scheduled database maintenance because the runtime has no scheduled maintenance capability'
         );
         return createSkippedResult('unsupported-runtime', now);
       }
 
+      const selectedRunMaintenance = selectRunMaintenance(
+        maintenanceCapability,
+        runMaintenance,
+        runTursoMaintenance
+      );
       const snapshot = options.getSchedulerSnapshot();
       if (snapshot.runningPriority !== null || hasQueuedDatabaseWork(snapshot)) {
         options.logger.debug(
@@ -162,7 +190,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
 
       const result = await options.runScheduledWork(MAINTENANCE_WORK_OPTIONS, async () => {
         const db = await options.getDatabase();
-        return await runMaintenance(db, {
+        return await selectedRunMaintenance(db, {
           ...options.maintenanceOptions,
           now,
         });
@@ -172,6 +200,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
         options.logger.info(
           {
             activeJobs: result.activeJobs,
+            analyzedTables: result.analyzedTables,
             durationMs: result.durationMs,
             prunedTerminalJobs: result.prunedTerminalJobs,
             vacuumedTables: result.vacuumedTables,

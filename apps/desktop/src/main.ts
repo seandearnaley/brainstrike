@@ -25,6 +25,7 @@ import { createWindow, noteNextWindowReload } from './create-window';
 import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceScheduler,
+  resolveDesktopDatabaseMaintenanceCapability,
 } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
 import {
@@ -882,7 +883,8 @@ const handleResetLocal = createDesktopFactoryResetHandler({
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
-  getRuntimeEngine: resolveCurrentDesktopDbRuntimeEngine,
+  getMaintenanceCapability: async () =>
+    resolveDesktopDatabaseMaintenanceCapability(await resolveCurrentDesktopDbRuntimeEngine()),
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,

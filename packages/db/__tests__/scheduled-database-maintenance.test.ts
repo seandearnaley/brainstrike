@@ -5,6 +5,7 @@ import { JobQueue, type JobState } from '../src/queue/job-queue.js';
 import {
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
   runScheduledDatabaseMaintenance,
+  runTursoScheduledDatabaseMaintenance,
 } from '../src/services/scheduled-database-maintenance.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
@@ -147,5 +148,39 @@ describe('scheduled database maintenance', () => {
     ).rejects.toThrow('vacuum exploded after prune');
 
     expect(await countJobs(db)).toBe(1);
+  });
+
+  it('prunes old terminal jobs and analyzes SQLite tables without unsupported maintenance SQL', async () => {
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      expect(sql).not.toMatch(/\$[0-9]|::text|WITH\s+del|VACUUM\s+[a-z_]|PRAGMA\s+optimize/i);
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [{ count: 8, state: 'succeeded' }] };
+      }
+      if (sql.startsWith('DELETE FROM job_queue')) {
+        expect(params).toEqual(['2026-05-01T11:00:00.000Z', 'succeeded', 'failed', 'canceled']);
+        return { rows: [{ deleted: 1 }, { deleted: 1 }] };
+      }
+      throw new Error(`Unexpected Turso maintenance query: ${sql}`);
+    });
+    const exec = vi.fn(async (sql: string) => {
+      expect(sql).toBe('ANALYZE job_queue');
+    });
+
+    const result = await runTursoScheduledDatabaseMaintenance(
+      { exec, query },
+      {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: 60 * 60 * 1000,
+      }
+    );
+
+    expect(result).toMatchObject({
+      activeJobs: 0,
+      analyzedTables: ['job_queue'],
+      prunedTerminalJobs: 2,
+      status: 'completed',
+      vacuumedTables: [],
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });
