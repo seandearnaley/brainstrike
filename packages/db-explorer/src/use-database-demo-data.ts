@@ -299,6 +299,8 @@ export function useDatabaseDemoData({
     repository,
     _chunkRepository
   );
+  const usesRepositoryCollectionSnapshots =
+    !supportsPGliteCollectionQueries && supportsRepositoryCollectionSnapshots;
   const supportsCollectionSnapshots =
     supportsPGliteCollectionQueries || supportsRepositoryCollectionSnapshots;
   const collectionBrowserUnavailableReason = resolveCollectionBrowserUnavailableReason({
@@ -308,12 +310,12 @@ export function useDatabaseDemoData({
   });
 
   useEffect(() => {
-    if (!database) {
+    if (!(database || usesRepositoryCollectionSnapshots)) {
       setSchemaReady(false);
       return;
     }
     setSchemaReady(globalSchemaVerified);
-  }, [database, globalSchemaVerified]);
+  }, [database, globalSchemaVerified, usesRepositoryCollectionSnapshots]);
 
   // Restore cached data from global store on mount
   useEffect(() => {
@@ -590,7 +592,7 @@ export function useDatabaseDemoData({
 
   const fetchSnapshot = useCallback(
     async (options: SnapshotLoadOptions) => {
-      if (!(database && schemaReady && activeCollectionId && recordPageCacheKey)) {
+      if (!(schemaReady && activeCollectionId && recordPageCacheKey)) {
         return;
       }
       const cache = {
@@ -601,6 +603,9 @@ export function useDatabaseDemoData({
       };
       let didLoad = false;
       if (supportsPGliteCollectionQueries) {
+        if (!database) {
+          return;
+        }
         didLoad = await cachePGliteCollectionSnapshot({
           activeCollectionId,
           cache,
@@ -669,7 +674,7 @@ export function useDatabaseDemoData({
     if (liveQueryEnabled) {
       return;
     }
-    if (!(database && schemaReady && activeCollectionId)) {
+    if (!(schemaReady && activeCollectionId)) {
       return;
     }
     if (!supportsCollectionSnapshots) {
@@ -717,7 +722,6 @@ export function useDatabaseDemoData({
     };
   }, [
     activeCollectionId,
-    database,
     liveQueryEnabled,
     recordPageCacheKey,
     schemaReady,
@@ -757,7 +761,7 @@ export function useDatabaseDemoData({
       if (!recordPageCacheKey) {
         throw new Error('Chunk summary requests require an active collection page.');
       }
-      if (!(database && schemaReady)) {
+      if (!schemaReady || (supportsPGliteCollectionQueries && !database)) {
         throw new Error('Chunk summary requests require an initialized database.');
       }
       if (!supportsCollectionSnapshots) {
@@ -812,7 +816,10 @@ export function useDatabaseDemoData({
   );
 
   const loadRecords = useCallback(async () => {
-    if (!(database && schemaReady && activeCollectionId)) {
+    if (!(schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (supportsPGliteCollectionQueries && !database) {
       return;
     }
     if (!supportsCollectionSnapshots) {
@@ -957,7 +964,10 @@ export function useDatabaseDemoData({
   ]);
 
   const refreshVisibleData = useCallback(async () => {
-    if (!(database && schemaReady && activeCollectionId)) {
+    if (!(schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (supportsPGliteCollectionQueries && !database) {
       return;
     }
     if (!supportsCollectionSnapshots) {
@@ -987,6 +997,7 @@ export function useDatabaseDemoData({
     runManualRefresh,
     schemaReady,
     supportsCollectionSnapshots,
+    supportsPGliteCollectionQueries,
   ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);

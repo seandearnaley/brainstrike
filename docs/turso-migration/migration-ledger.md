@@ -73,8 +73,11 @@ as the implementation backlog.
 - #1367 `Share assistant run persistence SQL`
 - #1368 `Add Turso scheduled database maintenance`
 - #1369 `Fix Turso profile reset recreation`
-- Current slice: prove Turso-backed Mastra tool approval suspend/resume through
-  the real agent loop and workflow storage.
+- #1371 `test(agent): prove Turso tool approval resume`
+- Current slice: activate DB Explorer selected-collection repository snapshots
+  when the Turso runtime has no raw PGlite database handle, and let
+  `DbSchemaVerifier` mark the existing `schemaVerified` UI flag from the ready
+  Turso bootstrap report without exposing Turso through `useBrainstrikeDbClient()`.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -190,6 +193,16 @@ Current Turso repository/runtime coverage:
   The proof uses the real `@mastra/core/agent` loop, real Turso workflow
   storage, the production `streamMastraToolApprovalAction` resume path, and the
   desktop `runtime.mastraTools` wiring used by native tools.
+- DB Explorer selected-collection browsing can load repository snapshots under
+  Turso even when the raw PGlite database handle is null. The hook keeps PGlite
+  live queries disabled, uses the Turso-capable file-record/file-chunk
+  repositories for records, totals, collection counts, chunk summaries, and
+  export data, and preserves the explicit unavailable message when neither
+  PGlite collection SQL nor repository snapshots are available.
+- `DbSchemaVerifier` still treats `useBrainstrikeDbClient()` as PGlite-only, but
+  now also marks the existing vector-status `schemaVerified` compatibility flag
+  from a ready Turso bootstrap report (`initializationStatus=ready`,
+  `report.ready=true`, `runtime.engine=turso`).
 - Desktop assistant `brainstrike.grepSearch` is available under Turso only when
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses
@@ -277,7 +290,9 @@ Known production touchpoints:
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
 chunk count, requested file status lookups, and collection embedding coverage
-banner snapshots. Quick-open now has a repository-snapshot hook seam for runtimes
+banner snapshots. Selected collection browsing now uses repository snapshots
+under Turso without requiring a raw PGlite database handle. Quick-open now has a
+repository-snapshot hook seam for runtimes
 that expose an indexed `findByNameSubstring` repository capability. Turso
 implements that seam with a primary-store `file_record_name_grams` table indexed
 by `(gram, file_record_id)` plus a `file_record_name_index` normalized-name
@@ -437,9 +452,10 @@ Concrete blockers:
   client timeout/watchdog policy, QoS/connection-model decision, and Turso
   corruption diagnostics/recovery.
 
-Preferred next slice: add the Turso tool-approval suspend/resume live-loop
-proof so assistant approval workflows are covered against the Turso workflow
-store, not only PGlite.
+Preferred next slice: wire the Turso-capable embedding worker storage/queue
+runtime behind focused hidden-renderer tests, keeping Turso vector backfill
+disabled until claim/load/complete and Electron transaction/query support are
+proven end-to-end.
 
 ### 7. Factory Reset And Profile Cleanup
 
