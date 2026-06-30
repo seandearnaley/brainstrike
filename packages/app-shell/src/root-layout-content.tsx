@@ -1,5 +1,5 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { type DbHandle, useBrainstrikeDbClient } from '@brainstrike/db';
+import { useWorkspaceRootsDbClient, type WorkspaceRootsDbClient } from '@brainstrike/db';
 import {
   FileExplorerPanel,
   RootDataDeletionProvider,
@@ -82,9 +82,22 @@ function readAffectedRows(result: unknown): number | null {
  * no-op", so an unconfirmed delete must abort the disconnect rather than let
  * the user believe data was removed while UUID-keyed rows survive.
  */
-export async function deleteRootDataFromDb(db: DbHandle, rootIdOrPath: string): Promise<void> {
-  const result = await db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
-  if (readAffectedRows(result) === 0) {
+export async function deleteRootDataFromDb(
+  dbClient: WorkspaceRootsDbClient,
+  rootIdOrPath: string
+): Promise<void> {
+  const result =
+    dbClient.runtimeEngine === 'turso'
+      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? OR path = ? RETURNING id', [
+          rootIdOrPath,
+          rootIdOrPath,
+        ])
+      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
+  const affectedRows =
+    dbClient.runtimeEngine === 'turso' && Array.isArray(result.rows)
+      ? result.rows.length
+      : readAffectedRows(result);
+  if (affectedRows === 0) {
     throw new Error(
       `Root data deletion matched no rows for "${rootIdOrPath}" — refusing to report a silent success.`
     );
@@ -100,19 +113,19 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const rootId = rootDirectoryHandle
     ? (rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path))
     : undefined;
-  const db = useBrainstrikeDbClient();
+  const dbClient = useWorkspaceRootsDbClient();
   // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
   // app-shell injects the deletion. Migration 039: file_records.root_id →
   // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw
   // on failure — the disconnect flow aborts and keeps the root connected.
   const deleteRootData = useCallback(
     async (rootIdToDelete: string) => {
-      if (!db) {
+      if (!dbClient) {
         throw new Error('Cannot delete root data: database is not ready.');
       }
-      await deleteRootDataFromDb(db, rootIdToDelete);
+      await deleteRootDataFromDb(dbClient, rootIdToDelete);
     },
-    [db]
+    [dbClient]
   );
   return (
     <FileTreeProvider

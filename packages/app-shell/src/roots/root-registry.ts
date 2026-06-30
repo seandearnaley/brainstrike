@@ -1,14 +1,19 @@
+import type { BrainstrikeDbRuntimeEngine } from '@brainstrike/db';
 import type { RootDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('RootRegistry');
 
+export type RootRegistryRuntimeEngine = Extract<BrainstrikeDbRuntimeEngine, 'pglite' | 'turso'>;
+export type RootsExecFn = (sql: string, params?: unknown[]) => Promise<unknown>;
 export type RootsQueryFn = (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 
 export interface ReconcileRootsArgs {
   adapterRoots: readonly RootDescriptor[];
+  exec?: RootsExecFn | undefined;
   platformKind: 'fsa' | 'path';
   query: RootsQueryFn;
+  runtimeEngine: RootRegistryRuntimeEngine;
 }
 
 export interface ReconcileRootsResult {
@@ -67,10 +72,25 @@ function findExistingRootMatch(args: {
 }
 
 async function insertRoot(args: {
+  exec?: RootsExecFn | undefined;
   platformKind: ReconcileRootsArgs['platformKind'];
   query: RootsQueryFn;
+  runtimeEngine: RootRegistryRuntimeEngine;
   root: RootDescriptor;
 }): Promise<void> {
+  if (args.runtimeEngine === 'turso') {
+    if (!args.exec) {
+      throw new Error('Turso root registration requires exec support.');
+    }
+    await args.exec(
+      `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
+       VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       ON CONFLICT (id) DO NOTHING`,
+      [args.root.rootId, args.platformKind, args.root.displayName, args.root.handle.path]
+    );
+    return;
+  }
+
   await args.query(
     `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
      VALUES ($1, $2, $3, $4, NOW())
@@ -82,11 +102,17 @@ async function insertRoot(args: {
 async function resolvePathUniqueRace(args: {
   error: unknown;
   query: RootsQueryFn;
+  runtimeEngine: RootRegistryRuntimeEngine;
   root: RootDescriptor;
 }): Promise<DbRootRow & { path: string }> {
-  const existing = await args.query('SELECT id, kind, path FROM roots WHERE path = $1 LIMIT 1', [
-    args.root.handle.path,
-  ]);
+  const existing =
+    args.runtimeEngine === 'turso'
+      ? await args.query('SELECT id, kind, path FROM roots WHERE path = ? LIMIT 1', [
+          args.root.handle.path,
+        ])
+      : await args.query('SELECT id, kind, path FROM roots WHERE path = $1 LIMIT 1', [
+          args.root.handle.path,
+        ]);
   const existingRow = existing.rows.filter(isDbRootRow)[0];
   if (!existingRow) {
     // Not the path race — surface the real failure.
@@ -110,7 +136,7 @@ async function resolvePathUniqueRace(args: {
  * restoreRoots(), so registering them would orphan DB rows.
  */
 export async function reconcileRoots(args: ReconcileRootsArgs): Promise<ReconcileRootsResult> {
-  const { adapterRoots, platformKind, query } = args;
+  const { adapterRoots, exec, platformKind, query, runtimeEngine } = args;
   const mapping = new Map<string, string>();
 
   const result = await query('SELECT id, kind, path FROM roots');
@@ -145,7 +171,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       continue;
     }
     try {
-      await insertRoot({ platformKind, query, root });
+      await insertRoot({ exec, platformKind, query, root, runtimeEngine });
     } catch (error) {
       if (platformKind !== 'path') {
         throw error;
@@ -154,7 +180,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       // concurrent writer (another window racing this reconcile) can land a
       // same-path row between our SELECT and this INSERT. Converge on the
       // existing row instead of aborting the remaining roots.
-      const existingRow = await resolvePathUniqueRace({ error, query, root });
+      const existingRow = await resolvePathUniqueRace({ error, query, root, runtimeEngine });
       mapping.set(root.rootId, existingRow.id);
       dbByPath.set(root.handle.path, existingRow);
       logger.warn('Root path registered by a concurrent writer — converged on existing row', {

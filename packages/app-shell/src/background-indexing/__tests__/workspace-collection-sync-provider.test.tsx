@@ -77,6 +77,7 @@ const {
   enqueueBackfillMock,
   cancelBackfillMock,
   dbState,
+  workspaceRootsDbClientState,
   vectorQueueServiceState,
   fileSystemState,
   fileTreeContextState,
@@ -84,8 +85,10 @@ const {
   resolveWorkspaceIndexingQosPolicyMock,
   registerRootMock,
   resolveDbRootIdMock,
+  useRootsReconciliationArgsMock,
 } = vi.hoisted(() => ({
   registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
+  useRootsReconciliationArgsMock: vi.fn(),
   // Non-null by default: managed-cache identity is root_id (source_root_path
   // retired); a null dbRootId now skips the import, which would stall these
   // integration tests that assert the full sync runs.
@@ -172,6 +175,16 @@ const {
       exec: ReturnType<typeof vi.fn>;
       query: ReturnType<typeof vi.fn>;
       transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  workspaceRootsDbClientState: {
+    current: null as {
+      readonly db: {
+        exec: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        transaction: ReturnType<typeof vi.fn>;
+      };
+      readonly runtimeEngine: 'pglite' | 'turso';
     } | null,
   },
   vectorQueueServiceState: {
@@ -353,6 +366,9 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   usePGliteDatabase: () => dbState.current,
+  useWorkspaceRootsDbClient: () =>
+    workspaceRootsDbClientState.current ??
+    (dbState.current ? { db: dbState.current, runtimeEngine: 'pglite' as const } : null),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -377,11 +393,14 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 
 vi.mock('../../roots/use-roots-reconciliation', () => ({
-  useRootsReconciliation: () => ({
-    registerRoot: registerRootMock,
-    resolveDbRootId: resolveDbRootIdMock,
-    dbRootIdByAdapterRootId: new Map<string, string>(),
-  }),
+  useRootsReconciliation: (args: unknown) => {
+    useRootsReconciliationArgsMock(args);
+    return {
+      registerRoot: registerRootMock,
+      resolveDbRootId: resolveDbRootIdMock,
+      dbRootIdByAdapterRootId: new Map<string, string>(),
+    };
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
@@ -481,6 +500,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
+    workspaceRootsDbClientState.current = null;
     vectorQueueServiceState.current = {
       validateApiKeyForSet: validateApiKeyForSetMock,
     };
@@ -2661,6 +2681,32 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   // ─── Task 4 (phase 5): mid-session root registration ───────────────────────
+
+  it('passes the Turso workspace roots client to reconciliation when PGlite is unavailable', async () => {
+    const tursoDb = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    dbState.current = null;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useRootsReconciliationArgsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dbClient: { db: tursoDb, runtimeEngine: 'turso' },
+        })
+      )
+    );
+  });
 
   it('registers only the newly added root when rootDirectoryHandles grows mid-session', async () => {
     const { rerender } = render(
