@@ -596,7 +596,7 @@ async function startEmbeddingHostWorkerRuntime({
     const controller = await startEmbeddingWorker({
       ...workerConfig,
       device: hydratedDevicePref,
-      embeddingCache: createEmbeddingCacheRepository(workerConfig.db),
+      embeddingCache: createEmbeddingCacheRepository(db),
       initializeLocalModelOnStart: false,
       onFatalError,
       onRuntimeMetadataChange: (metadata) => {

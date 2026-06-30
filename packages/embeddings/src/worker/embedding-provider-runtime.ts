@@ -45,8 +45,9 @@ export interface WorkerModelResolution {
 
 export interface EmbeddingServiceInitializationOptions {
   cacheDir?: string;
-  db: IDatabase;
+  db?: IDatabase;
   device?: 'webgpu' | 'wasm';
+  getModelConfig?: (modelId: string) => Promise<ModelConfig | null>;
   onDownloadProgress?: (modelId: string, progress: number) => void;
   service?: EmbeddingService;
   streamBatchSize?: number;
@@ -327,7 +328,8 @@ export async function initializeEmbeddingService(
     parsedProvider: parsedForRegistry?.provider,
   });
 
-  let modelConfig = await getModelConfigFromDb(options.db, registryModelKey);
+  const getModelConfig = options.getModelConfig ?? createDbModelConfigLoader(options.db);
+  let modelConfig = await getModelConfig(registryModelKey);
 
   runtimeLogger.info('initializeEmbeddingService: DB query complete', {
     registryModelKey,
@@ -381,6 +383,17 @@ export async function initializeEmbeddingService(
   }
 
   return { service, modelConfig };
+}
+
+function createDbModelConfigLoader(
+  db: IDatabase | undefined
+): (modelId: string) => Promise<ModelConfig | null> {
+  if (!db) {
+    throw new Error(
+      'Embedding service initialization requires either a database handle or a model config loader.'
+    );
+  }
+  return (modelId) => getModelConfigFromDb(db, modelId);
 }
 
 export function ensureModelDimension(
