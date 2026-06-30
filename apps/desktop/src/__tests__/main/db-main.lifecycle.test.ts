@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+const originalDbRuntime = process.env['BRAINSTRIKE_DB_RUNTIME'];
 const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
 function installUtilityProcessParentPort(): void {
@@ -184,6 +185,7 @@ describe('db-main lifecycle', () => {
   afterEach(() => {
     restoreParentPort();
     restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnvValue('BRAINSTRIKE_DB_RUNTIME', originalDbRuntime);
     restoreEnvValue('BRAINSTRIKE_SERIALIZE_PGLITE_INIT', originalSerializePgliteInit);
   });
 
@@ -784,6 +786,34 @@ describe('db-main lifecycle', () => {
       })
     );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
+    expect(mkdirSyncMock).toHaveBeenCalledWith(path.join(expectedAppDataPath, 'pgdata'), {
+      recursive: true,
+    });
+  });
+
+  it('resetLocalDatabase recreates the Turso profile directory without pgdata', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    vi.resetModules();
+
+    const { resetLocalDatabase } = await import('../../db-main');
+    await resetLocalDatabase();
+
+    const expectedProfilePath = path.join(
+      '/mock/documents',
+      'BrainStrike-dev',
+      'profiles',
+      'test-profile'
+    );
+    const expectedPgDataPath = path.join(expectedProfilePath, 'pgdata');
+
+    expect(rmSyncMock).toHaveBeenCalledWith(expectedProfilePath, {
+      recursive: true,
+      force: true,
+    });
+    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedProfilePath, { recursive: true });
+    expect(mkdirSyncMock).not.toHaveBeenCalledWith(expectedPgDataPath, { recursive: true });
   });
 
   it('prunes stale profile backups during reset', async () => {

@@ -432,23 +432,35 @@ Concrete blockers:
   client timeout/watchdog policy, QoS/connection-model decision, and Turso
   corruption diagnostics/recovery.
 
-Preferred next slice: add Turso profile store deletion to desktop reset once
-the final Turso store paths and sync metadata paths are stable.
+Preferred next slice: add the Turso tool-approval suspend/resume live-loop
+proof so assistant approval workflows are covered against the Turso workflow
+store, not only PGlite.
 
 ### 7. Factory Reset And Profile Cleanup
 
-Factory reset still contains PGlite IndexedDB/OPFS cleanup details. Turso adds
-filesystem profile stores and, depending on final sync mode, may add local sync
-metadata.
+Factory reset still contains PGlite IndexedDB/OPFS cleanup details for the
+renderer/browser storage path. Desktop Turso state is currently filesystem
+profile state: `<dbRoot>/profiles/<profile>/turso-primary.db`. The main-process
+DB reset deletes the whole active profile directory, which removes the Turso
+primary store and any profile-local sidecars. After deletion, reset now
+recreates the runtime-owned empty directory: PGlite recreates `<profile>/pgdata`,
+while Turso recreates only `<profile>` so a Turso reset does not leave a
+misleading PGlite-shaped `pgdata` directory.
+
+No production Turso sync/search metadata path currently exists outside the
+profile directory. Future out-of-profile sync or search stores must be added as
+explicit named reset targets with tests; do not delete guessed names such as
+`.sync`, `sync`, or `${primary}.fts.db`.
 
 Known production touchpoints:
 
 - `packages/preferences/src/settings/system/factory-reset-helpers.ts`
 - `packages/preferences/src/settings/system/factory-reset-panel.tsx`
+- `apps/desktop/src/db-main.ts`
 - `apps/desktop/src/desktop-reset-platform.ts`
 
-Preferred next slice: add Turso profile store deletion to desktop reset once
-the final Turso store paths and sync metadata paths are stable.
+Remaining reset follow-up: add explicit reset targets if a future Turso sync or
+split-search implementation creates stores outside the active profile directory.
 
 ### 8. Dependency And Build Cleanup
 
