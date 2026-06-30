@@ -174,6 +174,10 @@ export {
   type ScheduledDatabaseMaintenanceSkipReason,
   type ScheduledDatabaseMaintenanceStatus,
 } from './services/scheduled-database-maintenance.js';
+export {
+  markTursoCollectionIndexingStatsDirty,
+  refreshTursoCollectionIndexingStats,
+} from './services/turso-collection-indexing-stats.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';

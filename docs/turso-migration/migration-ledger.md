@@ -455,14 +455,23 @@ Concrete blockers:
   `false`) rather than treating the raw runtime as a SQL capability.
   Dimension-index maintenance remains PGlite/pgvector-only because it still
   builds pgvector HNSW SQL.
+- Embedding worker storage now has a Turso adapter that satisfies the
+  storage-neutral worker port created in the previous slice. It composes
+  `TursoJobQueue` for claim/heartbeat/complete/fail semantics, asserts claimed
+  jobs carry non-empty lease tokens before the worker sees them, loads chunks
+  and model metadata with SQLite-shaped SQL, resolves embedding-set dimensions,
+  verifies Turso vector readiness with `vector32`, and refreshes
+  `collection_indexing_stats` through the shared `@brainstrike/db` Turso stats
+  service. The hidden renderer host is not switched to this adapter yet; that
+  remains the runtime wiring slice.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
   client timeout/watchdog policy, QoS/connection-model decision, and Turso
   corruption diagnostics/recovery.
 
-Preferred next slice: wire the Turso-capable embedding worker storage/queue
-runtime behind focused hidden-renderer tests, keeping Turso vector backfill
-disabled until claim/load/complete and Electron transaction/query support are
-proven end-to-end.
+Preferred next slice: wire the hidden renderer embedding host to select
+`createTursoEmbeddingWorkerStorage` only when the DB provider exposes a ready
+Turso execution client, with focused runtime tests proving the host never hands
+the Turso worker a PGlite handle or silently falls back.
 
 ### 7. Factory Reset And Profile Cleanup
 
