@@ -1912,6 +1912,91 @@ describe('assistant-server', () => {
       );
     });
 
+    it('uses Turso-compatible SQL when persisting desktop run events and status for Turso runtime', async () => {
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      mockGetDatabaseRuntimeDiagnostics.mockResolvedValue(createMockDatabaseDiagnostics('turso'));
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-turso-1',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              metadata: { toolName: 'brainstrike.grepSearch' },
+              status: 'running',
+              sequence: 3,
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          yield { type: 'text-delta', value: 'Response' };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream to trigger run-event persistence
+        }
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-turso',
+              resourceId: 'workspace-turso',
+              runId: 'run-turso',
+            },
+          },
+        }),
+      });
+
+      const writeSql = mockDesktopDatabase.query.mock.calls
+        .map(([sql]) => String(sql))
+        .filter(
+          (sql) =>
+            sql.includes('brainstrike_assistant_run_events') ||
+            sql.includes('brainstrike_assistant_thread_runs')
+        );
+
+      expect(writeSql).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+          expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        ])
+      );
+      expect(writeSql.join('\n')).not.toMatch(/\$\d|::jsonb|EXCLUDED\./);
+      expect(writeSql.join('\n')).toContain('?');
+    });
+
     it('streams run-event chunks before desktop persistence settles', async () => {
       const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
         await import('@brainstrike/agent');
