@@ -15,6 +15,7 @@ import {
   useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
   useProfileBootstrapReport,
+  useQuerySelectionSnapshotDbClient,
   useTokenCacheStore,
   useViewFilterPresetsRepository,
 } from '../src/db-provider';
@@ -912,6 +913,7 @@ describe('DbProvider initializing state', () => {
         initializationStatus: useDbInitializationStatus(),
         modelRegistryDb: useModelRegistryDbClient(),
         pgliteDb: usePGliteDatabase(),
+        querySelectionSnapshotDb: useQuerySelectionSnapshotDbClient(),
         tokenCacheStore: useTokenCacheStore(),
       }),
       { wrapper: electronIpcWrapper }
@@ -927,6 +929,10 @@ describe('DbProvider initializing state', () => {
     expect(result.current.db).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.assistantMemoryDb).toEqual({
+      db: result.current.modelRegistryDb,
+      runtimeEngine: 'turso',
+    });
+    expect(result.current.querySelectionSnapshotDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });

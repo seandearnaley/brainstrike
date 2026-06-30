@@ -187,10 +187,14 @@ export interface DbHandle extends IDatabase {
   readonly syncToFs?: () => Promise<void>;
 }
 
-export interface AssistantMemoryDbClient {
+export interface BrainstrikeRuntimeDbClient {
   readonly db: DbHandle;
   readonly runtimeEngine: BrainstrikeDbRuntimeEngine;
 }
+
+export interface AssistantMemoryDbClient extends BrainstrikeRuntimeDbClient {}
+
+export interface QuerySelectionSnapshotDbClient extends BrainstrikeRuntimeDbClient {}
 
 interface QueryExecutor {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
@@ -1837,6 +1841,36 @@ export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {
 
   if (!ctx) {
     logger.warn('useAssistantMemoryDbClient must be used within a DbProvider');
+    return null;
+  }
+
+  const runtimeEngine = ctx.profileBootstrapReport.runtime.engine;
+  if (!(runtimeEngine === 'pglite' || runtimeEngine === 'turso')) {
+    return null;
+  }
+
+  return ctx.ready && !ctx.error && ctx.db ? { db: ctx.db, runtimeEngine } : null;
+}
+
+export function useQuerySelectionSnapshotDbClient(): QuerySelectionSnapshotDbClient | null {
+  const ctx = useContext(DbContext);
+
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx) {
+    logger.warn('useQuerySelectionSnapshotDbClient must be used within a DbProvider');
     return null;
   }
 

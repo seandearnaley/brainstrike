@@ -2,12 +2,12 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionResolver } from '../use-selection-resolver';
 
-const useOptionalBrainstrikeDbClientMock = vi.fn();
+const useQuerySelectionSnapshotDbClientMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
 const loadQuerySelectionSnapshotMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  useOptionalBrainstrikeDbClient: () => useOptionalBrainstrikeDbClientMock(),
+  useQuerySelectionSnapshotDbClient: () => useQuerySelectionSnapshotDbClientMock(),
 }));
 
 vi.mock('../shell/file-explorer-provider', () => ({
@@ -24,7 +24,7 @@ vi.mock('../utils/query-selection-snapshot', () => ({
 
 describe('useSelectionResolver', () => {
   beforeEach(() => {
-    useOptionalBrainstrikeDbClientMock.mockReset();
+    useQuerySelectionSnapshotDbClientMock.mockReset();
     useFileExplorerStoreContextMock.mockReset();
     loadQuerySelectionSnapshotMock.mockReset();
   });
@@ -72,7 +72,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     renderHook(() => useSelectionResolver());
@@ -114,7 +114,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result } = renderHook(() => useSelectionResolver());
@@ -160,7 +160,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result } = renderHook(() => useSelectionResolver());
@@ -205,7 +205,10 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'pglite',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -262,7 +265,10 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'pglite',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -316,14 +322,20 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'turso',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockResolvedValue(['/src/utils.ts', '/src/index.ts']);
 
     renderHook(() => useSelectionResolver());
 
     await waitFor(() => {
-      expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledWith(expect.any(Object), 'snapshot-1');
+      expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledWith(
+        { db: expect.any(Object), runtimeEngine: 'turso' },
+        'snapshot-1'
+      );
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 'ready',
@@ -363,7 +375,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalBrainstrikeDbClientMock.mockReturnValue(null);
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result, rerender } = renderHook(() => useSelectionResolver());
@@ -415,7 +427,10 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'pglite',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockRejectedValue(new Error('snapshot broken'));
 
@@ -466,7 +481,10 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'pglite',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockImplementation((_: unknown, snapshotId: string) => {
       if (snapshotId === 'snapshot-1') {
@@ -551,7 +569,10 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    useOptionalBrainstrikeDbClientMock.mockReturnValue({ query: vi.fn() });
+    useQuerySelectionSnapshotDbClientMock.mockReturnValue({
+      db: { query: vi.fn() },
+      runtimeEngine: 'pglite',
+    });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockImplementation(
       () =>
