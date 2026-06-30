@@ -32,17 +32,29 @@ export async function deleteRootDataFromDb(
   dbClient: WorkspaceRootsDbClient,
   rootIdOrPath: string
 ): Promise<void> {
-  const result =
-    dbClient.runtimeEngine === 'turso'
-      ? await dbClient.db.query('DELETE FROM roots WHERE id = ? OR path = ? RETURNING id', [
-          rootIdOrPath,
-          rootIdOrPath,
-        ])
-      : await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
-  const affectedRows =
-    dbClient.runtimeEngine === 'turso' && Array.isArray(result.rows)
-      ? result.rows.length
-      : readAffectedRows(result);
+  if (dbClient.runtimeEngine === 'turso') {
+    const result = await dbClient.db.query(
+      'DELETE FROM roots WHERE id = ? OR path = ? RETURNING id',
+      [rootIdOrPath, rootIdOrPath]
+    );
+    const rows = (result as { rows?: unknown }).rows;
+    if (!Array.isArray(rows)) {
+      throw new Error(
+        `Turso root data deletion did not return deleted rows for "${rootIdOrPath}" - refusing to report a silent success.`
+      );
+    }
+    if (rows.length === 0) {
+      throw new Error(
+        `Root data deletion matched no rows for "${rootIdOrPath}" - refusing to report a silent success.`
+      );
+    }
+    return;
+  }
+
+  const result = await dbClient.db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [
+    rootIdOrPath,
+  ]);
+  const affectedRows = readAffectedRows(result);
   if (affectedRows === 0) {
     throw new Error(
       `Root data deletion matched no rows for "${rootIdOrPath}" - refusing to report a silent success.`

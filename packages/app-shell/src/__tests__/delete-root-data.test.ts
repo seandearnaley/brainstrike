@@ -48,6 +48,14 @@ describe('deleteRootDataFromDb', () => {
     ).rejects.toThrow(/matched no rows/);
   });
 
+  it('throws when Turso root deletion does not return row data', async () => {
+    const { db } = makeDb(() => ({}));
+
+    await expect(
+      deleteRootDataFromDb({ db, runtimeEngine: 'turso' }, 'untrusted-root')
+    ).rejects.toThrow(/did not return deleted rows/);
+  });
+
   it('deletes a legacy root passed by PATH (the silent-no-op regression)', async () => {
     // The sidebar falls back to handle.path when rootIdByPath has no entry.
     // roots.id is always a uuidv7, so `id = '<path>'` alone matched zero rows
