@@ -1,7 +1,7 @@
 /**
  * DbSchemaVerifier Component
  *
- * Sets schemaVerified flag when the PGlite database is ready.
+ * Sets schemaVerified flag when the selected database runtime is ready.
  * This ensures Vector Status collections can load regardless of
  * which panel opens first.
  *
@@ -17,7 +17,13 @@
  * ```
  */
 
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import {
+  type DbInitializationStatus,
+  type ProfileBootstrapReport,
+  useBrainstrikeDbClient,
+  useOptionalDbInitializationStatus,
+  useOptionalProfileBootstrapReport,
+} from '@brainstrike/db';
 import type React from 'react';
 import { useEffect } from 'react';
 import { useVectorStatusUIStore } from '../stores/vector-status-ui-store';
@@ -26,15 +32,28 @@ export interface DbSchemaVerifierProps {
   children: React.ReactNode;
 }
 
+function isTursoSchemaReady(
+  initializationStatus: DbInitializationStatus,
+  report: ProfileBootstrapReport | null
+): boolean {
+  return (
+    initializationStatus === 'ready' && report?.ready === true && report.runtime.engine === 'turso'
+  );
+}
+
 export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.ReactElement {
   const db = useBrainstrikeDbClient();
+  const initializationStatus = useOptionalDbInitializationStatus();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
   const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
+  const schemaReady =
+    Boolean(db) || isTursoSchemaReady(initializationStatus, profileBootstrapReport);
 
   useEffect(() => {
-    if (!db) {
+    if (!schemaReady) {
       return;
     }
-    // Database is ready (migrations have run in DbProvider), set schemaVerified
+    // Database runtime is ready (migrations have run in DbProvider), set schemaVerified.
     // Defer to avoid synchronous setState in effect body (React Compiler requirement)
     const timer = setTimeout(() => {
       setSchemaVerified(true);
@@ -42,7 +61,7 @@ export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.Rea
     return () => {
       clearTimeout(timer);
     };
-  }, [db, setSchemaVerified]);
+  }, [schemaReady, setSchemaVerified]);
 
   return <>{children}</>;
 }
