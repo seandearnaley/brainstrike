@@ -808,14 +808,14 @@ describe('CollectionBrowserView', () => {
       <CollectionBrowserView
         activeCollectionId="collection-a"
         chunks={[]}
-        collectionBrowserUnavailableReason="Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated."
+        collectionBrowserUnavailableReason="Collection file browsing requires collection snapshot support for the Turso database runtime."
         height={500}
         records={[]}
       />
     );
 
     expect(screen.getByTestId('empty-message')).toHaveTextContent(
-      'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
+      'Collection file browsing requires collection snapshot support for the Turso database runtime.'
     );
     expect(screen.queryByText(/No files in this collection/i)).not.toBeInTheDocument();
   });

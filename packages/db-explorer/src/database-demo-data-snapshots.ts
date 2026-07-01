@@ -125,9 +125,9 @@ export function resolveCollectionBrowserUnavailableReason({
   if (!(activeCollectionId && !supportsCollectionSnapshots)) {
     return;
   }
-  return `Collection file browsing is unavailable for the ${formatDatabaseRuntimeLabel(
+  return `Collection file browsing requires collection snapshot support for the ${formatDatabaseRuntimeLabel(
     databaseRuntimeEngine
-  )} database runtime until selected-collection record queries are migrated.`;
+  )} database runtime.`;
 }
 
 export function resolveCachedCollectionCountsStatus(
