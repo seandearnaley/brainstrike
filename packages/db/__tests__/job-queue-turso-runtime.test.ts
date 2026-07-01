@@ -647,6 +647,38 @@ describe('TursoJobQueue runtime operations', () => {
     });
   });
 
+  it('reports embedding set queue counts updated after a run boundary', async () => {
+    await insertRawJob({
+      id: 'old-failed',
+      state: 'failed',
+      embeddingSetId,
+      updatedAt: '2026-06-23T08:00:00.000Z',
+    });
+    await insertRawJob({
+      id: 'new-failed',
+      state: 'failed',
+      embeddingSetId,
+      updatedAt: '2026-06-23T09:00:00.000Z',
+    });
+    await insertRawJob({
+      id: 'new-queued',
+      state: 'queued',
+      embeddingSetId,
+      updatedAt: '2026-06-23T09:00:00.000Z',
+    });
+
+    await expect(
+      queue.getEmbeddingSetQueueCounts('embeddings', embeddingSetId, {
+        updatedAfter: '2026-06-23T08:30:00.000Z',
+      })
+    ).resolves.toEqual({
+      failed: 1,
+      queued: 1,
+      running: 0,
+      succeeded: 0,
+    });
+  });
+
   it('reports queue metrics for recent completed and failed jobs', async () => {
     await insertRawJob({
       id: 'recent-succeeded-a',

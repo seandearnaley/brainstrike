@@ -13,7 +13,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
-import { getDatabase } from './db-main';
+import { getDatabase, resolveCurrentDesktopDbRuntimeEngine } from './db-main';
 import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import {
   type EnqueueEmbeddingBackfillOptions,
@@ -25,6 +25,7 @@ import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
   type EmbeddingBackfillSource,
 } from './embedding-host-shared';
+import { enqueueTursoEmbeddingBackfill } from './turso-embedding-backfill';
 
 const logger = createLogger('DesktopEmbeddingBackfillIpc');
 
@@ -389,44 +390,60 @@ export async function runDesktopEmbeddingBackfill(params: {
       databaseWorkScheduler,
       EMBEDDING_BACKFILL_DATABASE_PRIORITY
     );
-    const jobQueue = new JobQueue(scheduledDb);
-    const backgroundIndexingOptions: Partial<EnqueueEmbeddingBackfillOptions> =
-      source === 'background-indexing'
-        ? {
-            dimensionIndexMaintenanceStrategy: resolveBackgroundDimensionIndexMaintenanceStrategy(
-              getDimensionIndexMaintenanceStrategy
-            ),
-            drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
-            queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
-            rebuildDimensionIndexOnCompletion: false,
-          }
-        : {};
-
-    await enqueueEmbeddingBackfill(
-      scheduledDb,
-      jobQueue,
+    const runtimeEngine = await resolveCurrentDesktopDbRuntimeEngine();
+    const commonBackfillOptions = {
+      assertCanContinue: () => {
+        if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+          throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+        }
+        maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
+      },
+      onDrainTick: async (completedSinceLastTick: number) => {
+        maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
+        await maintenanceCoordinator.runRequestedMaintenance();
+      },
+      progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+      progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+    };
+    const progressReporter = createDesktopBackfillProgressReporter({
+      backfillRequestId,
       normalizedEmbeddingSetId,
-      createDesktopBackfillProgressReporter({
-        backfillRequestId,
+      source,
+    });
+
+    if (runtimeEngine === 'turso') {
+      await enqueueTursoEmbeddingBackfill(scheduledDb, normalizedEmbeddingSetId, progressReporter, {
+        ...commonBackfillOptions,
+        ...(source === 'background-indexing'
+          ? {
+              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
+              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+            }
+          : {}),
+      });
+    } else if (runtimeEngine === 'pglite') {
+      const backgroundIndexingOptions: Partial<EnqueueEmbeddingBackfillOptions> =
+        source === 'background-indexing'
+          ? {
+              dimensionIndexMaintenanceStrategy: resolveBackgroundDimensionIndexMaintenanceStrategy(
+                getDimensionIndexMaintenanceStrategy
+              ),
+              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
+              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+              rebuildDimensionIndexOnCompletion: false,
+            }
+          : {};
+      const jobQueue = new JobQueue(scheduledDb);
+      await enqueueEmbeddingBackfill(
+        scheduledDb,
+        jobQueue,
         normalizedEmbeddingSetId,
-        source,
-      }),
-      {
-        assertCanContinue: () => {
-          if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
-            throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
-          }
-          maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
-        },
-        onDrainTick: async (completedSinceLastTick: number) => {
-          maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
-          await maintenanceCoordinator.runRequestedMaintenance();
-        },
-        progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
-        progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-        ...backgroundIndexingOptions,
-      }
-    );
+        progressReporter,
+        { ...commonBackfillOptions, ...backgroundIndexingOptions }
+      );
+    } else {
+      throw new Error(`Unsupported desktop DB runtime for embedding backfill: ${runtimeEngine}`);
+    }
     logger.info('Desktop embedding backfill completed', {
       embeddingSetId: normalizedEmbeddingSetId,
       requestId: backfillRequestId,

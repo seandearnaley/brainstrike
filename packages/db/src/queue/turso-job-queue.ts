@@ -44,7 +44,11 @@ export interface TursoJobQueueReadModel {
     queue?: string,
     options?: BrainstrikeDbWorkOptions
   ): Promise<Array<{ queue: string; state: JobState; count: number }>>;
-  getEmbeddingSetQueueCounts(queue: string, embeddingSetId: string): Promise<JobQueueStateCounts>;
+  getEmbeddingSetQueueCounts(
+    queue: string,
+    embeddingSetId: string,
+    options?: TursoEmbeddingSetQueueCountsOptions
+  ): Promise<JobQueueStateCounts>;
   getQueueMetrics(queue: string, options: JobQueueMetricsOptions): Promise<JobQueueMetricsSnapshot>;
   getQueueStats(
     queue?: string,
@@ -61,11 +65,15 @@ export interface TursoJobQueueReadModel {
   >;
 }
 
+export interface TursoEmbeddingSetQueueCountsOptions {
+  readonly updatedAfter?: string;
+}
+
 export function createTursoJobQueueReadModel(db: TursoJobQueueQueryClient): TursoJobQueueReadModel {
   return {
     getCountsByState: (queue, options) => getCountsByState(db, queue, options),
-    getEmbeddingSetQueueCounts: (queue, embeddingSetId) =>
-      getEmbeddingSetQueueCounts(db, queue, embeddingSetId),
+    getEmbeddingSetQueueCounts: (queue, embeddingSetId, options) =>
+      getEmbeddingSetQueueCounts(db, queue, embeddingSetId, options),
     getQueueMetrics: (queue, options) => getQueueMetrics(db, queue, options),
     getQueueStats: (queue, options) => getQueueStats(db, queue, options),
   };
@@ -470,9 +478,10 @@ export class TursoJobQueue {
 
   async getEmbeddingSetQueueCounts(
     queue: string,
-    embeddingSetId: string
+    embeddingSetId: string,
+    options?: TursoEmbeddingSetQueueCountsOptions
   ): Promise<JobQueueStateCounts> {
-    return this.readModel.getEmbeddingSetQueueCounts(queue, embeddingSetId);
+    return this.readModel.getEmbeddingSetQueueCounts(queue, embeddingSetId, options);
   }
 
   async getQueueMetrics(
@@ -571,7 +580,8 @@ async function getCountsByState(
 async function getEmbeddingSetQueueCounts(
   db: TursoJobQueueQueryClient,
   queue: string,
-  embeddingSetId: string
+  embeddingSetId: string,
+  options: TursoEmbeddingSetQueueCountsOptions = {}
 ): Promise<JobQueueStateCounts> {
   const queueName = queue.trim();
   if (!queueName) {
@@ -581,6 +591,14 @@ async function getEmbeddingSetQueueCounts(
   if (!targetEmbeddingSetId) {
     throw new Error('embeddingSetId is required');
   }
+  const updatedAfter = options.updatedAfter?.trim();
+  if (options.updatedAfter !== undefined && !updatedAfter) {
+    throw new Error('updatedAfter must be a non-empty timestamp when configured');
+  }
+  const updatedAfterClause = updatedAfter ? 'AND updated_at >= ?' : '';
+  const params = updatedAfter
+    ? [queueName, targetEmbeddingSetId, updatedAfter]
+    : [queueName, targetEmbeddingSetId];
 
   const result = await db.query<{ count: number | string; state: JobState }>(
     `SELECT state, COUNT(*) AS count
@@ -588,9 +606,10 @@ async function getEmbeddingSetQueueCounts(
       WHERE queue = ?
         AND job_type = 'embed_chunk'
         AND embedding_set_id = ?
+        ${updatedAfterClause}
         AND state IN ('queued', 'running', 'failed', 'succeeded')
       GROUP BY state`,
-    [queueName, targetEmbeddingSetId]
+    params
   );
   const counts: JobQueueStateCounts = {
     failed: 0,
