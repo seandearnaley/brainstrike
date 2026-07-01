@@ -92,12 +92,16 @@ export const ACTIVE_COLLECTION_LIVE_COUNTS_QUERY = `
   WITH target AS (SELECT $1::text AS embedding_set_id),
   chunk_counts AS (
     SELECT
-      fc.embedding_set_id,
+      target.embedding_set_id,
       COUNT(*)::int AS chunks,
       COUNT(*) FILTER (WHERE fc.embedding IS NOT NULL)::int AS embeddings
     FROM file_chunks fc
-    JOIN target ON fc.embedding_set_id = target.embedding_set_id
-    GROUP BY fc.embedding_set_id
+    JOIN file_records fr ON fr.id = fc.file_record_id
+    JOIN target ON (
+      fc.embedding_set_id::text = target.embedding_set_id
+      OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id::text = target.embedding_set_id)
+    )
+    GROUP BY target.embedding_set_id
   )
   SELECT
     target.embedding_set_id AS embeddingsetid,
@@ -183,13 +187,17 @@ export async function refreshCollectionIndexingStats(
       ),
       aggregated_chunks AS (
         SELECT
-          c.embedding_set_id::text AS embedding_set_id,
+          r.embedding_set_id AS embedding_set_id,
           COUNT(*)::int AS chunk_count,
           COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::int AS embedded_chunk_count,
           COUNT(*) FILTER (WHERE c.embedding IS NULL)::int AS pending_chunk_count
         FROM file_chunks c
-        JOIN requested r ON r.embedding_set_id = c.embedding_set_id::text
-        GROUP BY c.embedding_set_id::text
+        JOIN file_records fr ON fr.id = c.file_record_id
+        JOIN requested r ON (
+          r.embedding_set_id = c.embedding_set_id::text
+          OR (c.embedding_set_id IS NULL AND r.embedding_set_id = fr.embedding_set_id::text)
+        )
+        GROUP BY r.embedding_set_id
       ),
       refreshed AS (
         INSERT INTO collection_indexing_stats (

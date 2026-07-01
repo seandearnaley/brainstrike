@@ -49,7 +49,7 @@ describe('ACTIVE_COLLECTION_LIVE_COUNTS_QUERY', () => {
       await db.query(
         `INSERT INTO file_chunks (id, file_record_id, embedding_set_id, embedding) VALUES
           ('c1', 'f1', 'set-1', 'vector-present'),
-          ('c2', 'f1', 'set-1', NULL),
+          ('c2', 'f1', NULL, NULL),
           ('c3', 'f2', 'set-1', 'vector-present'),
           ('c4', 'f2', 'set-1', NULL),
           ('c5', 'f3', 'set-1', NULL)`

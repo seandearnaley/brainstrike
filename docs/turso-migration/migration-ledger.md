@@ -372,6 +372,9 @@ Completed low-risk queue UI slices:
   clear-then-backfill re-embed composition. All repository clear paths now
   fail before clearing chunks when the requested embedding set does not exist,
   instead of reporting a clear with no refreshed stats row.
+- Shared PGlite collection stats refresh and active live-count queries use the
+  same effective membership predicate, so later background refreshes cannot
+  overwrite repository-correct inherited chunk counts with direct-only zeroes.
 
 Remaining vector-queue action slice: compose a user-visible Turso re-embed flow
 as clear-embeddings through the DB owner IPC followed by backfill through the
