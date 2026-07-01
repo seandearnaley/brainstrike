@@ -438,11 +438,44 @@ export class EmbeddingSetsRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx): Promise<{ rows: { id: string }[] }> => {
+      const existing = await tx.query<{ id: string }>(
+        'SELECT id FROM embedding_sets WHERE id = $1',
+        [id]
+      );
+      if (existing.rows.length === 0) {
+        return { rows: [] };
+      }
+
       await tx.query('DELETE FROM job_queue WHERE embedding_set_id = $1', [id]);
       await tx.query('DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', [id]);
-      await tx.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [id]);
-      return await tx.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [id]);
+      await tx.query(
+        `DELETE FROM file_chunks
+          WHERE embedding_set_id = $1
+             OR (
+               embedding_set_id IS NULL
+               AND EXISTS (
+                 SELECT 1
+                   FROM file_records fr
+                  WHERE fr.id = file_chunks.file_record_id
+                    AND fr.embedding_set_id = $1
+               )
+             )`,
+        [id]
+      );
+      await tx.query(
+        `UPDATE file_records
+            SET embedding_set_id = NULL,
+                chunks_processed_at = NULL,
+                chunks_count = NULL,
+                chunking_strategy = NULL
+          WHERE embedding_set_id = $1`,
+        [id]
+      );
+      return await tx.query<{ id: string }>(
+        'DELETE FROM embedding_sets WHERE id = $1 RETURNING id',
+        [id]
+      );
     });
     return result.rows.length > 0;
   }

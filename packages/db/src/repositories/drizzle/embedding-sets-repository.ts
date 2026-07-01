@@ -6,7 +6,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import {
   createDeferredDimensionIndexBuilder,
@@ -18,12 +18,7 @@ import {
   WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
   WORKSPACE_INDEX_SYSTEM_ROLE,
 } from '../../models/embedding-set.js';
-import {
-  collectionIndexingStats,
-  embeddingSets,
-  fileChunks,
-  jobQueue,
-} from '../../schema/index.js';
+import { collectionIndexingStats, embeddingSets, jobQueue } from '../../schema/index.js';
 import {
   normalizeEmbeddingSetInputMetadata,
   repairPersistedEmbeddingSetMetadata,
@@ -265,11 +260,40 @@ export class DrizzleEmbeddingSetsRepository {
 
   async delete(id: string): Promise<boolean> {
     const result = await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: embeddingSets.id })
+        .from(embeddingSets)
+        .where(eq(embeddingSets.id, id))
+        .limit(1);
+      if (existing.length === 0) {
+        return [];
+      }
+
       await tx.delete(jobQueue).where(eq(jobQueue.embeddingSetId, id));
       await tx
         .delete(collectionIndexingStats)
         .where(eq(collectionIndexingStats.embeddingSetId, id));
-      await tx.delete(fileChunks).where(eq(fileChunks.embeddingSetId, id));
+      await tx.execute(sql`
+        DELETE FROM file_chunks
+          WHERE embedding_set_id = ${id}
+             OR (
+               embedding_set_id IS NULL
+               AND EXISTS (
+                 SELECT 1
+                   FROM file_records fr
+                  WHERE fr.id = file_chunks.file_record_id
+                    AND fr.embedding_set_id = ${id}
+               )
+             )
+      `);
+      await tx.execute(sql`
+        UPDATE file_records
+           SET embedding_set_id = NULL,
+               chunks_processed_at = NULL,
+               chunks_count = NULL,
+               chunking_strategy = NULL
+         WHERE embedding_set_id = ${id}
+      `);
       return await tx.delete(embeddingSets).where(eq(embeddingSets.id, id)).returning();
     });
 

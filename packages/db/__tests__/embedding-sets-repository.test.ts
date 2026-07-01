@@ -401,7 +401,7 @@ describe('EmbeddingSetsRepository', () => {
     expect(fetched?.systemRole).toBeUndefined();
   });
 
-  it('deletes chunks and the embedding set in one database transaction', async () => {
+  it('deletes direct and inherited chunks while clearing file record embedding metadata', async () => {
     const created = await repo.getOrCreateSet(
       'openai::text-embedding-3-small',
       'text-embedding-3-small',
@@ -409,14 +409,23 @@ describe('EmbeddingSetsRepository', () => {
       'cosine'
     );
     await db.query(
-      `INSERT INTO file_records (id, name, path, size, embedding_set_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      ['file-1', 'file.md', '/file.md', 12, created.id]
+      `INSERT INTO file_records (
+         id,
+         name,
+         path,
+         size,
+         embedding_set_id,
+         chunks_processed_at,
+         chunks_count,
+         chunking_strategy
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      ['file-1', 'file.md', '/file.md', 12, created.id, '2026-06-29T18:00:00.000Z', 2, 'sentence']
     );
     await db.query(
       `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      ['chunk-1', 'file-1', 0, 'hello', created.id]
+       VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)`,
+      ['chunk-1', 'file-1', 0, 'hello', created.id, 'chunk-2', 'file-1', 1, 'inherited', null]
     );
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
@@ -428,14 +437,32 @@ describe('EmbeddingSetsRepository', () => {
     await expect(repo.delete(created.id)).resolves.toBe(true);
 
     expect(transaction).toHaveBeenCalledTimes(1);
-    const chunkRows = await db.query<{ id: string }>('SELECT id FROM file_chunks WHERE id = $1', [
-      'chunk-1',
-    ]);
+    const chunkRows = await db.query<{ id: string }>(
+      'SELECT id FROM file_chunks WHERE file_record_id = $1 ORDER BY id',
+      ['file-1']
+    );
     expect(chunkRows.rows).toEqual([]);
-    const fileRows = await db.query<{ id: string }>('SELECT id FROM file_records WHERE id = $1', [
-      'file-1',
+    const fileRows = await db.query<{
+      chunking_strategy: string | null;
+      chunks_count: number | null;
+      chunks_processed_at: string | null;
+      embedding_set_id: string | null;
+      id: string;
+    }>(
+      `SELECT id, embedding_set_id, chunks_processed_at, chunks_count, chunking_strategy
+         FROM file_records
+        WHERE id = $1`,
+      ['file-1']
+    );
+    expect(fileRows.rows).toEqual([
+      {
+        chunking_strategy: null,
+        chunks_count: null,
+        chunks_processed_at: null,
+        embedding_set_id: null,
+        id: 'file-1',
+      },
     ]);
-    expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
     const jobRows = await db.query<{ id: string }>('SELECT id FROM job_queue WHERE id = $1', [
       'job-1',
     ]);
@@ -638,7 +665,7 @@ describe('ElectronEmbeddingSetsRepository', () => {
     const transaction = vi.fn(async () => ({ rows: [{ id: 'set-1' }] }));
     const repository = new ElectronEmbeddingSetsRepository({
       exec: vi.fn(),
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(async () => ({ rows: [{ id: 'set-1' }] })),
       transaction,
     });
 
@@ -651,11 +678,46 @@ describe('ElectronEmbeddingSetsRepository', () => {
           sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1',
           params: ['set-1'],
         },
-        { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: ['set-1'] },
+        {
+          sql: `DELETE FROM file_chunks
+          WHERE embedding_set_id = $1
+             OR (
+               embedding_set_id IS NULL
+               AND EXISTS (
+                 SELECT 1
+                   FROM file_records fr
+                  WHERE fr.id = file_chunks.file_record_id
+                    AND fr.embedding_set_id = $1
+               )
+             )`,
+          params: ['set-1'],
+        },
+        {
+          sql: `UPDATE file_records
+            SET embedding_set_id = NULL,
+                chunks_processed_at = NULL,
+                chunks_count = NULL,
+                chunking_strategy = NULL
+          WHERE embedding_set_id = $1`,
+          params: ['set-1'],
+        },
         { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: ['set-1'] },
       ],
-      3
+      4
     );
+  });
+
+  it('returns false without cleanup when the embedding set does not exist', async () => {
+    const transaction = vi.fn(async () => ({ rows: [{ id: 'set-1' }] }));
+    const repository = new ElectronEmbeddingSetsRepository({
+      exec: vi.fn(),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction,
+    });
+
+    await expect(repository.delete('missing-set')).resolves.toBe(false);
+
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('fails closed when the atomic IPC transaction channel is unavailable', async () => {
