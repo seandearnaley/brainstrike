@@ -241,11 +241,18 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     expect(onDisk).toBe(newContent);
   });
 
-  it('routes re-index managed-cache mutations through the injected DB-host applier', async () => {
+  it('routes re-index managed-cache mutations through the injected DB-host applier without requiring db.transaction', async () => {
     await fsPromises.mkdir(path.join(rootPath, 'src'), { recursive: true });
     await fsPromises.writeFile(path.join(rootPath, 'src', 'indexed.ts'), 'old', 'utf8');
     await seedIndexedFile('export const value = 1;\n');
 
+    const transaction = vi.fn(async () => {
+      throw new Error('DB-host applier path must not require db.transaction');
+    });
+    dbHolder.db = {
+      query: db.query.bind(db),
+      transaction,
+    };
     const dbHostManagedCacheApplier = vi.fn(async () => undefined);
     const tools = buildDesktopAssistantTools(runtime(), {
       managedCacheBatchApplier: { applyManagedCacheBatch: dbHostManagedCacheApplier },
@@ -259,6 +266,7 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     })) as { bytesWritten: number } | undefined;
 
     expect(result?.bytesWritten).toBe(Buffer.byteLength(newContent, 'utf8'));
+    expect(transaction).not.toHaveBeenCalled();
     expect(dbHostManagedCacheApplier).toHaveBeenCalledTimes(1);
     expect(dbHostManagedCacheApplier).toHaveBeenCalledWith({
       embeddingSetId: EMBEDDING_SET_ID,
@@ -273,6 +281,7 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
         }),
       ],
     });
+    dbHolder.db = db;
   });
 });
 
