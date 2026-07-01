@@ -163,6 +163,7 @@ describe('workspace collection sync large import verification', () => {
         importBatchSize: VALID_FILE_COUNT + 1,
       },
       rootId: ROOT_ID,
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: async () => {},
     });

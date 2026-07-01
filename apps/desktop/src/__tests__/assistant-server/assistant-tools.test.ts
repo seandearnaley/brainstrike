@@ -18,8 +18,15 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
+const {
+  getDatabaseMock,
+  getDatabaseRuntimeDiagnosticsMock,
+  getAllWindowsMock,
+  loggerErrorMock,
+  loggerWarnMock,
+} = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
+  getDatabaseRuntimeDiagnosticsMock: vi.fn(),
   getAllWindowsMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
@@ -27,6 +34,7 @@ const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = 
 
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
+  getDatabaseRuntimeDiagnostics: getDatabaseRuntimeDiagnosticsMock,
 }));
 
 vi.mock('electron', () => ({
@@ -50,6 +58,15 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 
 describe('assistant-tools', () => {
   const trackedWindowIds: number[] = [];
+
+  function createRuntimeDiagnostics(engine: 'pglite' | 'turso') {
+    return {
+      profileBootstrapReport: {
+        ready: true,
+        runtime: { engine },
+      },
+    };
+  }
 
   function createMockWindow({
     destroyed = false,
@@ -98,6 +115,7 @@ describe('assistant-tools', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValue(createRuntimeDiagnostics('pglite'));
     for (const id of trackedWindowIds) {
       clearWindowRoleByWebContentsId(id);
     }
@@ -1169,8 +1187,8 @@ describe('assistant-tools', () => {
       }
       return { rows: [] };
     });
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValue(createRuntimeDiagnostics('turso'));
     getDatabaseMock.mockResolvedValue({
-      capabilities: { liveQuery: false },
       query: queryMock,
     });
     const tools = buildDesktopAssistantTools({
@@ -1195,6 +1213,21 @@ describe('assistant-tools', () => {
       fileCount: 2,
       totalChunks: 5,
     });
+  });
+
+  it('fails listEmbeddingSpaces instead of falling back when runtime diagnostics are unsupported', async () => {
+    getDatabaseRuntimeDiagnosticsMock.mockResolvedValue({
+      profileBootstrapReport: {
+        ready: true,
+        runtime: { engine: 'sqlite' },
+      },
+    });
+    getDatabaseMock.mockResolvedValue({ query: vi.fn() });
+    const tools = buildDesktopAssistantTools(undefined);
+
+    await expect(tools['brainstrike.listEmbeddingSpaces'].execute({ context: {} })).rejects.toThrow(
+      'Desktop listEmbeddingSpaces does not support database runtime "sqlite".'
+    );
   });
 
   it('preserves nullable embedding space names in tool output', async () => {

@@ -103,6 +103,7 @@ export function createDeps(
     // as the dbRootId so existing-entry fixtures dedup against the scan.
     resolveDbRootId: vi.fn().mockResolvedValue(ROOT_PATH),
     resolveQosPolicy: vi.fn(async () => BALANCED_QOS_POLICY),
+    runtimeEngine: 'pglite',
     setImporting: vi.fn(),
     setStatus: vi.fn(),
     subscribeToBackfillProgress: vi.fn(() => () => {}),

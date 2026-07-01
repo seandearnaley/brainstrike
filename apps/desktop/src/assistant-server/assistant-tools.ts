@@ -57,7 +57,7 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import type { z } from 'zod';
-import { getDatabase } from '../db-main';
+import { getDatabase, getDatabaseRuntimeDiagnostics } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
@@ -131,9 +131,18 @@ const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
 
-function isTursoEmbeddingSetsDatabase(db: unknown): boolean {
-  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
-  return capabilities?.liveQuery === false;
+type AssistantEmbeddingSetsRuntimeEngine = 'pglite' | 'turso';
+
+async function resolveEmbeddingSetsRuntimeEngine(): Promise<AssistantEmbeddingSetsRuntimeEngine> {
+  const diagnostics = await getDatabaseRuntimeDiagnostics();
+  const report = diagnostics.profileBootstrapReport;
+  const engine = report?.runtime.engine;
+  if (report?.ready === true && (engine === 'pglite' || engine === 'turso')) {
+    return engine;
+  }
+  throw new Error(
+    `Desktop listEmbeddingSpaces does not support database runtime "${String(engine ?? 'unknown')}".`
+  );
 }
 
 type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
@@ -1866,9 +1875,11 @@ async function runListEmbeddingSpaces(
 }> {
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
-  const embeddingSetsRepository = isTursoEmbeddingSetsDatabase(db)
-    ? new TursoEmbeddingSetsRepository(db)
-    : new EmbeddingSetsRepository(db);
+  const runtimeEngine = await resolveEmbeddingSetsRuntimeEngine();
+  const embeddingSetsRepository =
+    runtimeEngine === 'turso'
+      ? new TursoEmbeddingSetsRepository(db)
+      : new EmbeddingSetsRepository(db);
   const listings = await embeddingSetsRepository.listEmbeddingSpaces({
     includeStats: input.includeStats === true,
   });

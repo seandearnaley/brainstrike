@@ -638,6 +638,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       })
@@ -687,6 +688,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -716,10 +718,6 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     );
     const change = makeMinimalChange();
     const collection = makeMinimalCollection();
-    const tursoDb = {
-      ...makeMinimalDb(),
-      capabilities: { liveQuery: false },
-    };
 
     await runRootFolderCacheImport({
       applyManagedCacheBatch,
@@ -738,7 +736,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: tursoDb as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         findByCollectionId: vi.fn().mockResolvedValue([]),
@@ -752,6 +750,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'turso',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -791,10 +790,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection: makeMinimalCollection(),
-      db: {
-        ...makeMinimalDb(),
-        capabilities: { liveQuery: false },
-      } as never,
+      db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         findByCollectionId: vi.fn().mockResolvedValue([]),
@@ -808,6 +804,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'turso',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -910,6 +907,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1009,6 +1007,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1097,6 +1096,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1174,6 +1174,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       })
@@ -1248,6 +1249,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1309,6 +1311,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -1357,6 +1360,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       // rootId deliberately absent
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });

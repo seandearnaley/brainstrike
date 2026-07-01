@@ -44,6 +44,8 @@ const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
 const TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR =
   'Workspace Index Turso background import does not support inline chunk embedding repository writes; use durable embed_chunk jobs through the Turso owner client.';
 
+export type BackgroundImportRuntimeEngine = 'pglite' | 'turso';
+
 interface FirstEmbedChunkJobEnqueueMarker {
   batchNumber: number;
   chunkCount: number;
@@ -57,20 +59,15 @@ function hasTransactionalChunkJobEnqueueSupport(db: DbHandle): boolean {
   );
 }
 
-function isTursoDbHandle(db: DbHandle): boolean {
-  const capabilities = (db as { capabilities?: { liveQuery?: unknown } }).capabilities;
-  return capabilities?.liveQuery === false;
-}
-
 function rejectTursoInlineEmbeddingWrite(): Promise<never> {
   return Promise.reject(new Error(TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR));
 }
 
 function createEmbeddingChunkRepositoryForRuntime(
   chunkRepository: FileImportChunkRepository,
-  db: DbHandle
+  runtimeEngine: BackgroundImportRuntimeEngine
 ): FileImportChunkRepository {
-  if (!isTursoDbHandle(db)) {
+  if (runtimeEngine !== 'turso') {
     return chunkRepository;
   }
 
@@ -779,6 +776,7 @@ export async function runRootFolderCacheImport(args: {
   onProgress: (progress: EnhancedImportProgress) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   rootId?: string | null;
+  runtimeEngine: BackgroundImportRuntimeEngine;
   setImporting: (importing: boolean) => void;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<void> {
@@ -795,6 +793,7 @@ export async function runRootFolderCacheImport(args: {
     onProgress,
     qosPolicy,
     rootId,
+    runtimeEngine,
     setImporting,
     waitForBackgroundPermit,
   } = args;
@@ -843,7 +842,7 @@ export async function runRootFolderCacheImport(args: {
   let activeBatchNumber = 0;
   const sql = {
     query: db.query.bind(db),
-    ...(isTursoDbHandle(db) ? { runtimeEngine: 'turso' as const } : {}),
+    ...(runtimeEngine === 'turso' ? { runtimeEngine } : {}),
     ...(insertChunksAndEnqueueEmbeddingJobs
       ? {
           insertChunksAndEnqueueEmbeddingJobs: (async (chunks, fileRecordId, options) => {
@@ -879,7 +878,7 @@ export async function runRootFolderCacheImport(args: {
     enabled: true,
     model: collection.modelKey,
     service: null,
-    chunkRepository: createEmbeddingChunkRepositoryForRuntime(chunkRepository, db),
+    chunkRepository: createEmbeddingChunkRepositoryForRuntime(chunkRepository, runtimeEngine),
     resolveTargetEmbeddingSetId: () => collection.id,
     targetDimension: collection.dimensions,
   };
