@@ -82,10 +82,10 @@ as the implementation backlog.
 - #1403 `Fix inherited embedding set delete cleanup`
 - #1404 `Compose Turso re-embed flow`
 - #1405 `Terminate Turso DB host on request timeout`
-- Current slice: recover from narrow Turso/SQLite bootstrap corruption signals
-  by resetting the active profile and retrying bootstrap before opening the
-  long-lived owner client, including corruption discovered during Turso
-  capability probing.
+- #1406 `Recover Turso bootstrap corruption`
+- Current slice: route DB Explorer semantic-search model resolution through the
+  Turso-capable embedding-set repository before falling back to the raw
+  PGlite-only DB handle.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -247,6 +247,10 @@ Current Turso repository/runtime coverage:
   repositories for records, totals, collection counts, chunk summaries, and
   export data, and preserves the explicit unavailable message when neither
   PGlite collection SQL nor repository snapshots are available.
+- DB Explorer semantic search resolves the active embedding set's model through
+  `useEmbeddingSetsRepository()` before falling back to the raw PGlite-only DB
+  handle, so Turso repository mode can generate query embeddings without
+  requiring a PGlite client.
 - `DbSchemaVerifier` still treats `useBrainstrikeDbClient()` as PGlite-only, but
   now also marks the existing vector-status `schemaVerified` compatibility flag
   from a ready Turso bootstrap report (`initializationStatus=ready`,
@@ -339,9 +343,11 @@ Known production touchpoints:
 Completed UI snapshot slices now cover selected collection browsing, indexed
 chunk count, requested file status lookups, and collection embedding coverage
 banner snapshots. Selected collection browsing now uses repository snapshots
-under Turso without requiring a raw PGlite database handle. Quick-open now has a
-repository-snapshot hook seam for runtimes
-that expose an indexed `findByNameSubstring` repository capability. Turso
+under Turso without requiring a raw PGlite database handle. DB Explorer semantic
+search now also resolves the active set's model through the repository path
+before the PGlite-only raw DB fallback. Quick-open now has a repository-snapshot
+hook seam for runtimes that expose an indexed `findByNameSubstring` repository
+capability. Turso
 implements that seam with a primary-store `file_record_name_grams` table indexed
 by `(gram, file_record_id)` plus a `file_record_name_index` normalized-name
 sidecar: the gram index produces candidates, SQLite's `instr` applies the exact

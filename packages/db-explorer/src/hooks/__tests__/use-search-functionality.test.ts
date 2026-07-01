@@ -3,6 +3,7 @@ import type {
   FileChunkRepository,
   FileRecord,
   FileRecordRepository,
+  IEmbeddingSetsRepository,
 } from '@brainstrike/db';
 import { EmbeddingProviderFactory } from '@brainstrike/embeddings/factory';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -14,13 +15,20 @@ import { useSearchFunctionality } from '../use-search-functionality';
 const mockDb = {
   query: vi.fn(),
 };
+type MockDbClient = typeof mockDb | null;
+const mockUseBrainstrikeDbClient = vi.fn<() => MockDbClient>(() => mockDb);
+const mockEmbeddingSetsRepository = {
+  getById: vi.fn(),
+};
+const mockUseEmbeddingSetsRepository = vi.fn<() => IEmbeddingSetsRepository | null>(() => null);
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
   return {
     ...mod,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClient: () => mockDb,
+    useBrainstrikeDbClient: () => mockUseBrainstrikeDbClient(),
+    useEmbeddingSetsRepository: () => mockUseEmbeddingSetsRepository(),
   };
 });
 
@@ -84,6 +92,13 @@ describe('useSearchFunctionality', () => {
           dimensions: 768,
         },
       ],
+    });
+    mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
+    mockUseEmbeddingSetsRepository.mockReturnValue(null);
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'jinaai/jina-embeddings-v3',
+      dimensions: 768,
     });
     initializeWithModel.mockResolvedValue(undefined);
     generateQueryEmbedding.mockResolvedValue({ embedding: new Float32Array([0.1, 0.2, 0.3]) });
@@ -218,6 +233,111 @@ describe('useSearchFunctionality', () => {
       expect(res.fileRecord.name).toBe('app.tsx');
       expect(typeof res.similarity).toBe('number');
     }
+  });
+
+  it('resolves the active embedding-set model through the repository when no raw DB client is available', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    mockUseBrainstrikeDbClient.mockReturnValue(null);
+    mockUseEmbeddingSetsRepository.mockReturnValue(
+      mockEmbeddingSetsRepository as unknown as IEmbeddingSetsRepository
+    );
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'jinaai/jina-embeddings-v3',
+      dimensions: '768',
+    });
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('turso semantic search');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(mockEmbeddingSetsRepository.getById).toHaveBeenCalledWith('set-1');
+    expect(mockDb.query).not.toHaveBeenCalled();
+    expect(generateQueryEmbedding).toHaveBeenCalledWith('turso semantic search');
+    expect(searchSimilar).toHaveBeenCalledWith(
+      [expect.closeTo(0.1), expect.closeTo(0.2), expect.closeTo(0.3)],
+      {
+        limit: 20,
+        threshold: 0.5,
+        embeddingSetId: 'set-1',
+      }
+    );
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['zero', 0],
+    ['non-numeric string', 'not-a-number'],
+    ['blank string', ''],
+  ])('surfaces invalid repository embedding-set dimensions for %s', async (_label, dimensions) => {
+    const toast = vi.fn() as unknown as ToastFn;
+    mockUseBrainstrikeDbClient.mockReturnValue(null);
+    mockUseEmbeddingSetsRepository.mockReturnValue(
+      mockEmbeddingSetsRepository as unknown as IEmbeddingSetsRepository
+    );
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'jinaai/jina-embeddings-v3',
+      dimensions,
+    });
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('invalid dimensions');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(generateQueryEmbedding).not.toHaveBeenCalled();
+    expect(searchSimilar).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Search Failed',
+        description: 'Select an active embedding set in Vector Status, then retry.',
+        variant: 'destructive',
+      })
+    );
+  });
+
+  it('fails closed when neither an embedding-set repository nor raw DB client is available', async () => {
+    const toast = vi.fn() as unknown as ToastFn;
+    mockUseBrainstrikeDbClient.mockReturnValue(null);
+    mockUseEmbeddingSetsRepository.mockReturnValue(null);
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+
+    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+
+    act(() => {
+      result.current.setSearchQuery('unavailable database');
+    });
+
+    await act(async () => {
+      await result.current.handleSearch();
+    });
+
+    expect(generateQueryEmbedding).not.toHaveBeenCalled();
+    expect(searchSimilar).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Search Failed',
+        description: 'Select an active embedding set in Vector Status, then retry.',
+        variant: 'destructive',
+      })
+    );
   });
 
   it('passes code-query search options and uses fallback file records when metadata is missing', async () => {
