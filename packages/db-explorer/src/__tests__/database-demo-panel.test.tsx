@@ -71,6 +71,11 @@ const mockChunkRepository = {
   findByFileRecordId: vi.fn(),
   searchSimilar: vi.fn(),
 };
+const mockEmbeddingSetsRepository = {
+  getById: vi.fn(),
+};
+let mockEmbeddingSetsRepositoryClient: typeof mockEmbeddingSetsRepository | null =
+  mockEmbeddingSetsRepository;
 
 const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-repository';
 
@@ -97,6 +102,23 @@ const mockToast = vi.fn();
 const mockImportFiles = vi.fn();
 
 const TEST_COLLECTION_ID = 'test-collection-id';
+
+const { mockUseSemanticSearchExecutor } = vi.hoisted(() => ({
+  mockUseSemanticSearchExecutor: vi.fn(),
+}));
+
+vi.mock('../hooks/use-semantic-search-executor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/use-semantic-search-executor')>();
+  return {
+    ...actual,
+    useSemanticSearchExecutor: (
+      options: Parameters<typeof actual.useSemanticSearchExecutor>[0]
+    ) => {
+      mockUseSemanticSearchExecutor(options);
+      return actual.useSemanticSearchExecutor(options);
+    },
+  };
+});
 
 vi.mock('@brainstrike/embeddings', async () => {
   const actual =
@@ -209,6 +231,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useFileRecordRepository: () => mockCurrentRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
     useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
+    useEmbeddingSetsRepository: () => mockEmbeddingSetsRepositoryClient,
     useOptionalPGliteDatabase: () =>
       mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
@@ -471,10 +494,12 @@ describe('DatabaseDemoPanel', () => {
     vi.clearAllMocks();
     ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
+    mockUseSemanticSearchExecutor.mockClear();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
     mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
+    mockEmbeddingSetsRepositoryClient = mockEmbeddingSetsRepository;
     mockCurrentRepository = mockRepository;
     mockCurrentChunkRepository = mockChunkRepository;
     mockProfileBootstrapReport = { runtime: { engine: 'pglite' } };
@@ -484,6 +509,7 @@ describe('DatabaseDemoPanel', () => {
     mockRepository.findAllWithContent.mockResolvedValue([]);
     mockRepository.count.mockResolvedValue(0);
     mockChunkRepository.findAll.mockResolvedValue([]);
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(null);
 
     // Reset live query mock results
     mockRecordLiveQueryResult.rows = [];
@@ -882,6 +908,26 @@ describe('DatabaseDemoPanel', () => {
       });
 
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
+    it('passes Turso chunk storage to semantic search while keeping manual import disabled', async () => {
+      const tursoRepository =
+        new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
+      mockCurrentChunkRepository = tursoRepository;
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(mockUseSemanticSearchExecutor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chunkRepository: tursoRepository,
+        })
+      );
     });
 
     it('disables manual import for marked Turso chunk storage when class names are mangled', async () => {

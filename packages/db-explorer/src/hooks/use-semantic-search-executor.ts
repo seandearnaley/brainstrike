@@ -10,14 +10,17 @@ import type {
   ChunkSearchResult,
   DrizzleFileChunkRepository,
   ElectronFileChunkRepository,
+  HybridSearchRepository,
   HybridSearchResult,
   IFileRecordRepository,
 } from '@brainstrike/db';
 import {
   createHybridSearchService,
   DEFAULT_HYBRID_SOURCE_LIMIT,
+  isTursoFileChunkRepository,
   normalizeRRFScores,
   useBrainstrikeDbClient,
+  useEmbeddingSetsRepository,
 } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
@@ -71,9 +74,14 @@ type EmbedderError =
   | { type: string };
 
 interface UseSemanticSearchExecutorOptions {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: SemanticSearchChunkRepository | null;
   fileRepository: IFileRecordRepository | null;
 }
+
+export type SemanticSearchChunkRepository =
+  | DrizzleFileChunkRepository
+  | ElectronFileChunkRepository
+  | HybridSearchRepository;
 
 function parseStrictEmbeddingDimensions(value: unknown): number {
   if (typeof value === 'number') {
@@ -368,7 +376,7 @@ async function executeHybridSearch(
   config: SearchConfig,
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  chunkRepository: HybridSearchRepository,
   fileRepository: IFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
@@ -436,7 +444,7 @@ async function executeVectorSearch(
   config: SearchConfig,
   embeddingSetId: string,
   filterOptions: RetrievalFilterOptions,
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  chunkRepository: SemanticSearchChunkRepository,
   fileRepository: IFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   const searchResults = await chunkRepository.searchSimilar(embedding, {
@@ -480,6 +488,7 @@ export function useSemanticSearchExecutor({
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = useBrainstrikeDbClient();
+  const embeddingSetsRepository = useEmbeddingSetsRepository();
   // Selector-scoped subscription: this hook only consumes `models`. A bare
   // useModelRegistryStore() would re-render the host component (the whole
   // collection-browser panel) on every store update — including per-tick
@@ -554,8 +563,24 @@ export function useSemanticSearchExecutor({
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const getEmbeddingSetModelInfo = useCallback(
     async (embeddingSetId: string): Promise<EffectiveModelInfo> => {
+      if (embeddingSetsRepository) {
+        const set = await embeddingSetsRepository.getById(embeddingSetId);
+        if (set) {
+          return resolveEmbeddingSetModelInfo(
+            {
+              modelKey: set.modelKey,
+              dimensions: parseStrictEmbeddingDimensions(set.dimensions),
+            },
+            modelConfigMap
+          );
+        }
+        throw new Error('Active embedding set is missing a model.');
+      }
+
       if (!db) {
-        throw new Error('Database is not available to resolve the active embedding set.');
+        throw new Error(
+          'Embedding set repository is not available to resolve the active embedding set.'
+        );
       }
       const res = await db.query<{ modelKey: string; dimensions: number }>(
         'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
@@ -573,7 +598,7 @@ export function useSemanticSearchExecutor({
         modelConfigMap
       );
     },
-    [db, modelConfigMap]
+    [db, embeddingSetsRepository, modelConfigMap]
   );
 
   /**
@@ -722,6 +747,22 @@ export function useSemanticSearchExecutor({
         throw new Error('Select an active embedding set to perform semantic search');
       }
 
+      // Defense-in-depth: the result-limit ceiling is enforced in the UI input,
+      // but a persisted or programmatic resultLimit must not size the hybrid
+      // source-pool fan-out unbounded here, where the cost is actually paid.
+      // Clamp at the source of truth so the bound lives where it matters.
+      const safeConfig: SearchConfig = {
+        ...config,
+        resultLimit: clampResultLimit(config.resultLimit),
+      };
+      const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
+
+      if (retrievalMode === 'hybrid' && isTursoFileChunkRepository(chunkRepository)) {
+        throw new Error(
+          'Turso hybrid search requires the Turso FTS search slice. Use Vector mode.'
+        );
+      }
+
       // Get model info for the embedding set
       logger.info('Getting model info for embedding set...');
       const modelInfo = await getModelInfo(embeddingSetId);
@@ -757,18 +798,8 @@ export function useSemanticSearchExecutor({
       }
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
-      // Defense-in-depth: the result-limit ceiling is enforced in the UI input,
-      // but a persisted or programmatic resultLimit must not size the hybrid
-      // source-pool fan-out unbounded here, where the cost is actually paid.
-      // Clamp at the source of truth so the bound lives where it matters.
-      const safeConfig: SearchConfig = {
-        ...config,
-        resultLimit: clampResultLimit(config.resultLimit),
-      };
-
       // Build retrieval filter options (BST-172, BST-175)
       const filterOptions = buildRetrievalFilterOptions(safeConfig);
-      const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
 
       logger.info('Searching for similar chunks...', {
         retrievalMode,
