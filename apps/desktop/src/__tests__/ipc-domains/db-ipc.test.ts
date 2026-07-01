@@ -395,6 +395,71 @@ describe('database IPC domain', () => {
     expect(statement?.sql).not.toContain('state IN');
   });
 
+  it('clears Turso embeddings for a set through the owner vector queue action IPC', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-vector-action-ipc-'));
+    let client: TursoOwnerClient | undefined;
+    try {
+      client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+      await applyTursoSchemaBaseline(client);
+      const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
+      const fileRecordsRepository = new TursoFileRecordRepository(client);
+      const chunkRepository = new TursoFileChunkRepository(client);
+      const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+        'local::test-model',
+        'test-model',
+        3,
+        'cosine'
+      );
+      await fileRecordsRepository.createWithContent(
+        createRecord({ embeddingSetId: embeddingSet.id })
+      );
+      await chunkRepository.insertMany([
+        createChunk({
+          chunkIndex: 0,
+          embedding: [0.1, 0.2, 0.3],
+          embeddingHash: 'direct-embedding-hash',
+          embeddingSetId: embeddingSet.id,
+          id: 'chunk-direct',
+        }),
+        createChunk({
+          chunkIndex: 1,
+          embedding: [0.3, 0.2, 0.1],
+          embeddingHash: 'inherited-embedding-hash',
+          id: 'chunk-inherited',
+        }),
+      ]);
+      getDatabaseMock.mockResolvedValue(client);
+
+      const result = await handlers.get('db:turso-vector-queue:action')?.(
+        {} as IpcMainInvokeEvent,
+        'clearEmbeddingsForSet',
+        { embeddingSetId: embeddingSet.id },
+        { label: 'turso.vector-queue.action.clearEmbeddingsForSet', priority: 'normal' }
+      );
+
+      expect(result).toEqual({ cleared: 2 });
+      await expect(chunkRepository.findById('chunk-direct')).resolves.toMatchObject({
+        embeddingSetId: embeddingSet.id,
+      });
+      await expect(chunkRepository.findById('chunk-direct')).resolves.not.toHaveProperty(
+        'embedding'
+      );
+      await expect(chunkRepository.findById('chunk-inherited')).resolves.not.toHaveProperty(
+        'embedding'
+      );
+      await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({
+        chunk_count: 2,
+        dirty: 0,
+        embedded_chunk_count: 0,
+        file_count: 1,
+        pending_chunk_count: 2,
+      });
+    } finally {
+      await client?.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it('drives Turso embedding worker queue and stats IPC through a real owner client', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-worker-ipc-'));
     let client: TursoOwnerClient | undefined;

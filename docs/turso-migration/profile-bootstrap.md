@@ -107,17 +107,14 @@ of the Postgres `JobQueue` batch SQL. This is only the import write-side
 primitive; it does not port job claiming, heartbeats, completion, retries, or
 search indexing.
 
-Vector-management queue status and retry controls now resolve their durable
-queue adapter through a runtime-keyed hook. PGlite profiles still construct the
-existing `JobQueue`; ready Turso profiles construct `TursoJobQueue` for queue
-stats, failed-job retry, unclaimable queued-job repair, and explicit queue
-clear operations exposed by that hook. The embedding runtime provider does not
-construct a Turso `VectorQueueService` in the visible renderer. It exposes Turso
-queue snapshots through the storage-neutral snapshot reader, keeps queue actions
-unavailable with `missing-turso-vector-queue-adapter`, and requires a future
-desktop owner-client adapter before backfill, clear, wipe, or re-embed actions
-can be enabled through the shared action service. Desktop embedding execution
-still runs through the hidden embedding host.
+Vector-management queue status resolves through runtime-keyed snapshot readers.
+PGlite profiles still construct the existing `JobQueue`; ready Turso profiles
+read queue snapshots through the Turso read model and route retry/repair,
+queue clear, queue wipe, and embedding clearing through explicit desktop owner
+IPC. The visible renderer must not construct `TursoJobQueue` for Turso
+mutations. Desktop embedding execution and backfill orchestration still run
+through the hidden embedding host; a future slice should compose user-visible
+re-embed as owner-IPC embedding clearing followed by embedding-host backfill.
 
 Turso managed-cache apply/invalidation is now staged for the desktop DB host.
 `applyTursoManagedCacheBatch()` writes imported file records, replaces stale
