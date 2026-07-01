@@ -10,6 +10,14 @@ import { QueueHud } from '../queue-hud';
 import { useEmbeddingJobQueue } from '../use-embedding-job-queue';
 
 vi.mock('../use-embedding-job-queue', () => ({
+  hasEmbeddingJobQueueRetryActions: (
+    jobQueue: {
+      repairUnclaimableQueued?: unknown;
+      requeueFailed?: unknown;
+    } | null
+  ) =>
+    typeof jobQueue?.repairUnclaimableQueued === 'function' &&
+    typeof jobQueue.requeueFailed === 'function',
   useEmbeddingJobQueue: vi.fn(),
 }));
 
@@ -138,6 +146,25 @@ describe('QueueHud', () => {
 
     const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
+  });
+
+  it('disables retry button when queue stats are read-only', async () => {
+    const user = userEvent.setup();
+    const readOnlyQueue = {
+      getQueueStats: vi.fn(),
+    };
+    vi.mocked(useEmbeddingJobQueue).mockReturnValue(readOnlyQueue as never);
+    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
+
+    render(<QueueHud />);
+
+    const retryButton = screen.getByRole('button', { name: 'Retry 3 failed jobs' });
+    expect(retryButton).toBeDisabled();
+
+    await user.click(retryButton);
+
+    expect(mockRepairUnclaimableQueued).not.toHaveBeenCalled();
+    expect(mockRequeueFailed).not.toHaveBeenCalled();
   });
 
   it('disables button during retry and optimistically zeroes failed count', async () => {

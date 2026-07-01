@@ -1,7 +1,6 @@
 import {
-  extractDbExecutionClient,
+  createTursoJobQueueReadModel,
   JobQueue,
-  TursoJobQueue,
   useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
@@ -14,14 +13,11 @@ vi.mock('@brainstrike/db', () => ({
     this.db = db;
     this.kind = 'pglite';
   }),
-  TursoJobQueue: vi.fn(function MockTursoJobQueue(
-    this: { db: unknown; kind: string },
-    db: unknown
-  ) {
-    this.db = db;
-    this.kind = 'turso';
-  }),
-  extractDbExecutionClient: vi.fn((db: { raw?: unknown }) => db.raw ?? null),
+  createTursoJobQueueReadModel: vi.fn((db: unknown) => ({
+    db,
+    getQueueStats: vi.fn(),
+    kind: 'turso-read',
+  })),
   useModelRegistryDbClient: vi.fn(),
   useOptionalProfileBootstrapReport: vi.fn(),
 }));
@@ -44,34 +40,31 @@ describe('useEmbeddingJobQueue', () => {
     const { result } = renderHook(() => useEmbeddingJobQueue());
 
     expect(JobQueue).toHaveBeenCalledWith({ query: expect.any(Function) });
-    expect(TursoJobQueue).not.toHaveBeenCalled();
+    expect(createTursoJobQueueReadModel).not.toHaveBeenCalled();
     expect(result.current).toEqual(expect.objectContaining({ kind: 'pglite' }));
   });
 
-  it('uses the Turso job queue for Turso profiles', () => {
+  it('uses the Turso read model without exposing retry mutations for Turso profiles', () => {
     mockReport('turso');
-    const rawClient = { exec: vi.fn(), query: vi.fn(), transaction: vi.fn() };
-    vi.mocked(useModelRegistryDbClient).mockReturnValue({
-      query: vi.fn(),
-      raw: rawClient,
-    } as never);
+    const db = { query: vi.fn() };
+    vi.mocked(useModelRegistryDbClient).mockReturnValue(db as never);
 
     const { result } = renderHook(() => useEmbeddingJobQueue());
 
-    expect(extractDbExecutionClient).toHaveBeenCalledWith(
-      expect.objectContaining({ raw: rawClient })
-    );
-    expect(TursoJobQueue).toHaveBeenCalledWith(rawClient);
+    expect(createTursoJobQueueReadModel).toHaveBeenCalledWith(db);
     expect(JobQueue).not.toHaveBeenCalled();
-    expect(result.current).toEqual(expect.objectContaining({ kind: 'turso' }));
+    expect(result.current).toEqual(expect.objectContaining({ kind: 'turso-read' }));
+    expect('repairUnclaimableQueued' in (result.current ?? {})).toBe(false);
+    expect('requeueFailed' in (result.current ?? {})).toBe(false);
   });
 
-  it('returns null for Turso profiles without a runtime execution client', () => {
+  it('returns null for Turso profiles without a db client', () => {
     mockReport('turso');
+    vi.mocked(useModelRegistryDbClient).mockReturnValue(null);
 
     const { result } = renderHook(() => useEmbeddingJobQueue());
 
-    expect(TursoJobQueue).not.toHaveBeenCalled();
+    expect(createTursoJobQueueReadModel).not.toHaveBeenCalled();
     expect(JobQueue).not.toHaveBeenCalled();
     expect(result.current).toBeNull();
   });
@@ -82,7 +75,7 @@ describe('useEmbeddingJobQueue', () => {
     const { result } = renderHook(() => useEmbeddingJobQueue());
 
     expect(JobQueue).not.toHaveBeenCalled();
-    expect(TursoJobQueue).not.toHaveBeenCalled();
+    expect(createTursoJobQueueReadModel).not.toHaveBeenCalled();
     expect(result.current).toBeNull();
   });
 });

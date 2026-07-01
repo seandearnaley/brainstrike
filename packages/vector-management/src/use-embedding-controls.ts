@@ -170,62 +170,78 @@ export function useEmbeddingControls({
   const dropdownStartingWorker =
     !(queueState.backfilling || isDesktopPlatform) && workerControls.startingWorker;
 
-  const prepareEmbeddingAction = useCallback(async (): Promise<boolean> => {
-    if (!service) {
-      toast({
-        title: 'Vector Queue Unavailable',
-        description: queueUnavailableReasonText,
-        variant: 'destructive',
-      });
-      return false;
-    }
+  const ensureWorkerRunning = useCallback(
+    async (actionDescription: string): Promise<void> => {
+      if (workerControls.workerLocalRunning) {
+        return;
+      }
 
-    if (!activeId) {
-      toast({
-        title: 'No Collection Selected',
-        description: 'Please select an embedding collection before backfilling.',
-        variant: 'destructive',
-      });
-      return false;
-    }
-
-    const validation = await validateApiKeyRef.current();
-    if (!validation.valid) {
-      toast({
-        title: 'API Key Required',
-        description: validation.message ?? 'Please configure your API key before embedding.',
-        variant: 'destructive',
-      });
-      return false;
-    }
-
-    if (isWebPlatform && !workerControls.workerLocalRunning) {
       await workerControls.startWorker();
       const runtimeStatus = await runtimeController.getStatus();
       if (runtimeStatus.state !== 'running') {
         throw new Error(
           runtimeStatus.lastError ??
-            'Embedding worker did not enter the running state before backfill.'
+            `Embedding worker did not enter the running state before ${actionDescription}.`
         );
       }
-    }
+    },
+    [runtimeController, workerControls.startWorker, workerControls.workerLocalRunning]
+  );
 
-    return true;
-  }, [
-    activeId,
-    isWebPlatform,
-    queueUnavailableReasonText,
-    runtimeController,
-    service,
-    toast,
-    workerControls.startWorker,
-    workerControls.workerLocalRunning,
-  ]);
+  const prepareEmbeddingAction = useCallback(
+    async ({
+      startWorkerWhenStopped,
+      workerReadinessDescription,
+    }: {
+      startWorkerWhenStopped: boolean;
+      workerReadinessDescription: string;
+    }): Promise<boolean> => {
+      if (!service) {
+        toast({
+          title: 'Vector Queue Unavailable',
+          description: queueUnavailableReasonText,
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      if (!activeId) {
+        toast({
+          title: 'No Collection Selected',
+          description: 'Please select an embedding collection before backfilling.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      const validation = await validateApiKeyRef.current();
+      if (!validation.valid) {
+        toast({
+          title: 'API Key Required',
+          description: validation.message ?? 'Please configure your API key before embedding.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      if (startWorkerWhenStopped) {
+        await ensureWorkerRunning(workerReadinessDescription);
+      }
+
+      return true;
+    },
+    [activeId, ensureWorkerRunning, queueUnavailableReasonText, service, toast]
+  );
 
   // Combined backfill handler that auto-starts worker on web
   const handleBackfillWithWorkerStart = useCallback(async () => {
     try {
-      if (!(await prepareEmbeddingAction())) {
+      if (
+        !(await prepareEmbeddingAction({
+          startWorkerWhenStopped: isWebPlatform,
+          workerReadinessDescription: 'backfill',
+        }))
+      ) {
         return;
       }
 
@@ -239,11 +255,16 @@ export function useEmbeddingControls({
       });
       throw error;
     }
-  }, [prepareEmbeddingAction, toast]);
+  }, [isWebPlatform, prepareEmbeddingAction, toast]);
 
   const handleReembedWithWorkerStart = useCallback(async () => {
     try {
-      if (!(await prepareEmbeddingAction())) {
+      if (
+        !(await prepareEmbeddingAction({
+          startWorkerWhenStopped: true,
+          workerReadinessDescription: 'clearing embeddings for re-embed',
+        }))
+      ) {
         return;
       }
 

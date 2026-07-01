@@ -14,7 +14,11 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import { RotateCw } from 'lucide-react';
 import { type ReactElement, useCallback, useState } from 'react';
-import { type EmbeddingJobQueue, useEmbeddingJobQueue } from './use-embedding-job-queue';
+import {
+  type EmbeddingJobQueueWithRetryActions,
+  hasEmbeddingJobQueueRetryActions,
+  useEmbeddingJobQueue,
+} from './use-embedding-job-queue';
 
 type QueueHudVariant = 'card' | 'status-bar';
 
@@ -69,7 +73,7 @@ function getRetryLabel(failed: number): string {
 }
 
 function useQueueRetry(
-  jobQueue: EmbeddingJobQueue | null,
+  jobQueue: EmbeddingJobQueueWithRetryActions | null,
   toast: ToastFn
 ): { busy: boolean; handleRetry: () => Promise<void> } {
   const [busy, setBusy] = useState(false);
@@ -264,10 +268,11 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
   const { toast } = useToast();
 
   const jobQueue = useEmbeddingJobQueue();
+  const retryJobQueue = hasEmbeddingJobQueueRetryActions(jobQueue) ? jobQueue : null;
 
   // BST-359: Read stats from the shared store (written by EmbeddingJobQueueTracker)
   const durableStats = useVectorStatusUIStore((s) => s.durableQueueStats);
-  const { busy, handleRetry } = useQueueRetry(jobQueue, toast);
+  const { busy, handleRetry } = useQueueRetry(retryJobQueue, toast);
   const metrics: QueueMetrics = durableStats ?? {
     queued: 0,
     running: 0,
@@ -280,7 +285,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
     return null;
   }
 
-  const retryDisabled = busy || !jobQueue || metrics.failed === 0;
+  const retryDisabled = busy || !retryJobQueue || metrics.failed === 0;
   const retryLabel = getRetryLabel(metrics.failed);
 
   return variant === 'status-bar' ? (

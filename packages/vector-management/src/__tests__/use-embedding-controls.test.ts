@@ -820,6 +820,68 @@ describe('useEmbeddingControls', () => {
       );
     });
 
+    it('starts the desktop host before re-embed clears embeddings', async () => {
+      testWindow.electronAPI = {} as ElectronAPI;
+      const startWorker = vi.fn(async () => {});
+      const getStatus = vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS);
+      const reembedActiveSet = vi.fn(async () => {});
+
+      vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
+        controller: {
+          cancelAllBackfills: vi.fn(async () => {}),
+          cancelBackfill: vi.fn(async () => {}),
+          enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+          ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          getBackfillsInFlight: vi.fn(async () => []),
+          getStatus,
+          onBackfillProgress: vi.fn(() => () => {}),
+          onStatus: vi.fn(() => () => {}),
+          reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+          start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        },
+        liveQueryMetricsEnabled: true,
+        service: createMockVectorQueueService(),
+        serviceUnavailableReason: null,
+        snapshotReader: null,
+      });
+
+      vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
+        workerLocalRunning: false,
+        startingWorker: false,
+        startWorkerError: null,
+        startWorker,
+        stopWorker: vi.fn(async () => {}),
+        resetWorker: vi.fn(async () => {}),
+        clearWorkerError: vi.fn(),
+      });
+
+      vi.mocked(useVectorQueueState).mockReturnValue(
+        createQueueStateMock({
+          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+          throughput: 0,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          reembedActiveSet,
+        })
+      );
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      await act(async () => {
+        await result.current.dropdownProps.onReembed();
+      });
+
+      expect(startWorker).toHaveBeenCalledTimes(1);
+      expect(getStatus).toHaveBeenCalledTimes(1);
+      expect(reembedActiveSet).toHaveBeenCalledTimes(1);
+      expect(startWorker.mock.invocationCallOrder[0]!).toBeLessThan(
+        reembedActiveSet.mock.invocationCallOrder[0]!
+      );
+      expect(getStatus.mock.invocationCallOrder[0]!).toBeLessThan(
+        reembedActiveSet.mock.invocationCallOrder[0]!
+      );
+    });
+
     it('shows toast when backfill fails after worker startup', async () => {
       const startWorker = vi.fn(async () => {});
       const backfillActiveSet = vi.fn(async () => {
