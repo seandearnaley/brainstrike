@@ -5,6 +5,123 @@ import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/brow
 import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+const assistantContractDir = path.resolve(import.meta.dirname, '../../packages/assistant-contract');
+const assistantContractAliases = {
+  '@brainstrike/assistant-contract/assistant-run-persistence': path.resolve(
+    assistantContractDir,
+    'src/assistant-run-persistence.ts'
+  ),
+  '@brainstrike/assistant-contract/context-budget': path.resolve(
+    assistantContractDir,
+    'src/context-budget.ts'
+  ),
+  '@brainstrike/assistant-contract/context-packer': path.resolve(
+    assistantContractDir,
+    'src/context-packer.ts'
+  ),
+  '@brainstrike/assistant-contract/file-mention-directive': path.resolve(
+    assistantContractDir,
+    'src/file-mention-directive.ts'
+  ),
+  '@brainstrike/assistant-contract/local-llm': path.resolve(
+    assistantContractDir,
+    'src/local-llm.ts'
+  ),
+  '@brainstrike/assistant-contract/local-llm-artifacts': path.resolve(
+    assistantContractDir,
+    'src/local-llm-artifacts.ts'
+  ),
+  '@brainstrike/assistant-contract/local-llm-device': path.resolve(
+    assistantContractDir,
+    'src/local-llm-device.ts'
+  ),
+  '@brainstrike/assistant-contract/local-llm-model-specs': path.resolve(
+    assistantContractDir,
+    'src/local-llm-model-specs.ts'
+  ),
+  '@brainstrike/assistant-contract/local-runtime': path.resolve(
+    assistantContractDir,
+    'src/local-runtime.ts'
+  ),
+  '@brainstrike/assistant-contract/mastra-memory-schema': path.resolve(
+    assistantContractDir,
+    'src/mastra-memory-schema.ts'
+  ),
+  '@brainstrike/assistant-contract/memory-settings': path.resolve(
+    assistantContractDir,
+    'src/memory-settings.ts'
+  ),
+  '@brainstrike/assistant-contract/provider-metadata': path.resolve(
+    assistantContractDir,
+    'src/provider-metadata.ts'
+  ),
+  '@brainstrike/assistant-contract/provider-registry': path.resolve(
+    assistantContractDir,
+    'src/provider-registry.ts'
+  ),
+  '@brainstrike/assistant-contract/run-events': path.resolve(
+    assistantContractDir,
+    'src/run-events.ts'
+  ),
+  '@brainstrike/assistant-contract/runtime-data': path.resolve(
+    assistantContractDir,
+    'src/runtime-data.ts'
+  ),
+  '@brainstrike/assistant-contract/tool-approval': path.resolve(
+    assistantContractDir,
+    'src/tool-approval.ts'
+  ),
+  '@brainstrike/assistant-contract/tool-metadata': path.resolve(
+    assistantContractDir,
+    'src/tool-metadata.ts'
+  ),
+  '@brainstrike/assistant-contract': path.resolve(assistantContractDir, 'src/index.ts'),
+};
+const utilsDir = path.resolve(import.meta.dirname, '../../packages/utils');
+const utilsAliases = {
+  '@brainstrike/utils/bulk-operation-context': path.resolve(
+    utilsDir,
+    'src/bulk-operation-context.ts'
+  ),
+  '@brainstrike/utils/collator': path.resolve(utilsDir, 'src/collator.ts'),
+  '@brainstrike/utils/console-guard': path.resolve(utilsDir, 'src/console-guard.ts'),
+  '@brainstrike/utils/crypto': path.resolve(utilsDir, 'src/crypto.ts'),
+  '@brainstrike/utils/install-renderer-error-hooks': path.resolve(
+    utilsDir,
+    'src/install-renderer-error-hooks.ts'
+  ),
+  '@brainstrike/utils/log-buffer': path.resolve(utilsDir, 'src/log-buffer.ts'),
+  '@brainstrike/utils/logger': path.resolve(utilsDir, 'src/logger.ts'),
+  '@brainstrike/utils/logging-initializer': path.resolve(utilsDir, 'src/logging-initializer.ts'),
+  '@brainstrike/utils/logging-preferences': path.resolve(utilsDir, 'src/logging-preferences.ts'),
+  '@brainstrike/utils/performance-measure-guard': path.resolve(
+    utilsDir,
+    'src/performance-measure-guard.ts'
+  ),
+  '@brainstrike/utils/string-utils': path.resolve(utilsDir, 'src/string-utils.ts'),
+  '@brainstrike/utils/token-constants': path.resolve(utilsDir, 'src/token-constants.ts'),
+  '@brainstrike/utils/token-counting-heuristics': path.resolve(
+    utilsDir,
+    'src/token-counting-heuristics.ts'
+  ),
+  '@brainstrike/utils/token-counting-runtime': path.resolve(
+    utilsDir,
+    'src/token-counting-runtime.ts'
+  ),
+  '@brainstrike/utils/token-utils-accurate-lite': path.resolve(
+    utilsDir,
+    'src/token-utils-accurate-lite.ts'
+  ),
+  '@brainstrike/utils/workspace-indexing-power-snapshot': path.resolve(
+    utilsDir,
+    'src/workspace-indexing-power-snapshot.ts'
+  ),
+  '@brainstrike/utils/workspace-indexing-qos': path.resolve(
+    utilsDir,
+    'src/workspace-indexing-qos.ts'
+  ),
+  '@brainstrike/utils': path.resolve(utilsDir, 'src/index.ts'),
+};
 
 export default defineConfig({
   plugins: [react()],
@@ -61,6 +178,14 @@ export default defineConfig({
       electron: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
       '@': path.resolve(import.meta.dirname, './src/renderer'),
       ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
+      '@brainstrike/agent': path.resolve(import.meta.dirname, '../../packages/agent/src/index.ts'),
+      ...assistantContractAliases,
+      ...utilsAliases,
+      '@brainstrike/types': path.resolve(import.meta.dirname, '../../packages/types/src/index.ts'),
+      '@brainstrike/indexing-contract': path.resolve(
+        import.meta.dirname,
+        '../../packages/indexing-contract/src/index.ts'
+      ),
       '@brainstrike/platform-utils': path.resolve(
         import.meta.dirname,
         '../../packages/platform-utils/src'
@@ -106,10 +231,7 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/embeddings/src/worker-entry.ts'
       ),
-      '@brainstrike/utils/workspace-indexing-power-snapshot': path.resolve(
-        import.meta.dirname,
-        '../../packages/utils/src/workspace-indexing-power-snapshot.ts'
-      ),
+      '@brainstrike/queue': path.resolve(import.meta.dirname, '../../packages/queue/src/index.ts'),
       '@brainstrike/queue/browser': path.resolve(
         import.meta.dirname,
         '../../packages/queue/src/browser.ts'
