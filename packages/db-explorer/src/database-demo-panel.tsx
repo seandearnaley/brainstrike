@@ -408,10 +408,17 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     embeddingQueue,
     resolveActiveCollectionId,
   });
+  const manualImportChunkingReady =
+    !importSettings.enableChunking ||
+    Boolean(
+      importFlow.chunkRepository &&
+        (manualImportDbClient?.runtimeEngine !== 'turso' ||
+          typeof manualImportDbClient.db.insertChunksAndEnqueueEmbeddingJobs === 'function')
+    );
   const manualImportStorageUnavailable = !(
     manualImportDbClient &&
     repository &&
-    (!importSettings.enableChunking || (importFlow.chunkRepository && !tursoChunkRepository))
+    manualImportChunkingReady
   );
 
   // Sync import state to Zustand store to pause live queries during bulk operations

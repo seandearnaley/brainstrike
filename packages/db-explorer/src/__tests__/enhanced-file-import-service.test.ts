@@ -197,7 +197,7 @@ describe('useEnhancedFileImportService', () => {
       expect(result.current.chunkRepository).toBeDefined();
     });
 
-    it('does not expose marked Turso chunk repositories to the manual import path', () => {
+    it('exposes marked Turso chunk repositories to the manual import path', () => {
       mockUseFileChunkRepository.mockReturnValue({
         brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
         insertMany: vi.fn(),
@@ -206,7 +206,11 @@ describe('useEnhancedFileImportService', () => {
 
       const { result } = renderHook(() => useEnhancedFileImportService());
 
-      expect(result.current.chunkRepository).toBeNull();
+      expect(result.current.chunkRepository).toEqual(
+        expect.objectContaining({
+          brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        })
+      );
     });
 
     it('should accept options parameter', () => {
@@ -401,7 +405,11 @@ describe('useEnhancedFileImportService', () => {
         expect.objectContaining({
           chunking: expect.objectContaining({
             enabled: false,
-            deps: expect.objectContaining({ chunkRepository: null }),
+            deps: expect.objectContaining({
+              chunkRepository: expect.objectContaining({
+                brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+              }),
+            }),
           }),
         })
       );
@@ -416,6 +424,131 @@ describe('useEnhancedFileImportService', () => {
           chunksCreated: 0,
         }),
       ]);
+    });
+
+    it('runs chunked Turso imports through the runtime manual import client and atomic chunk enqueue bridge', async () => {
+      const onComplete = vi.fn();
+      const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+      const tursoChunkRepository = {
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        insertMany: vi.fn(),
+        update: vi.fn(),
+      };
+      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { query: dbQuery, insertChunksAndEnqueueEmbeddingJobs },
+        runtimeEngine: 'turso',
+      } as never);
+      mockUseFileChunkRepository.mockReturnValue(tursoChunkRepository as never);
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file-turso', imported: true, existed: false, chunksCreated: 2 },
+      ]);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          enableChunking: true,
+          onComplete,
+          resolveTargetEmbeddingSetId: () => 'set-turso',
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chunking: expect.objectContaining({
+            enabled: true,
+            deps: expect.objectContaining({ chunkRepository: tursoChunkRepository }),
+          }),
+          embedding: expect.objectContaining({
+            enabled: true,
+          }),
+          ports: expect.objectContaining({
+            sql: expect.objectContaining({
+              insertChunksAndEnqueueEmbeddingJobs: expect.any(Function),
+              runtimeEngine: 'turso',
+            }),
+          }),
+        })
+      );
+      expect(onComplete).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'file-turso',
+          chunksCreated: 2,
+        }),
+      ]);
+    });
+
+    it('rejects chunked Turso imports when the atomic chunk enqueue bridge is unavailable', async () => {
+      const onError = vi.fn();
+      const tursoChunkRepository = {
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        insertMany: vi.fn(),
+        update: vi.fn(),
+      };
+      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+        runtimeEngine: 'turso',
+      } as never);
+      mockUseFileChunkRepository.mockReturnValue(tursoChunkRepository as never);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          enableChunking: true,
+          onError,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Manual imports with Turso chunking require atomic chunk/job enqueue support.',
+        })
+      );
+    });
+
+    it('rejects marked Turso chunk storage that does not implement the manual import chunk port', async () => {
+      const onError = vi.fn();
+      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+        runtimeEngine: 'turso',
+      } as never);
+      mockUseFileChunkRepository.mockReturnValue({
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+      } as never);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          enableChunking: true,
+          onError,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Manual imports require compatible chunk storage.',
+        })
+      );
     });
 
     it('rejects before the enhanced import runner when chunk storage is unavailable', async () => {

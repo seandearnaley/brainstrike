@@ -975,12 +975,14 @@ describe('runEnhancedImport', () => {
 
     // Verify SQL port is used to query embedding sets
     expect(sqlPortQuery).toHaveBeenCalled();
-    // Verify that a model key lookup query was made
+    // Verify that selected-set metadata was looked up from the SQL port.
     const calls = sqlPortQuery.mock.calls as [string, unknown[]?][];
     const lookupCall = calls.find(
       ([statement]) =>
         typeof statement === 'string' &&
-        statement.includes('SELECT model_key AS "modelKey" FROM embedding_sets')
+        statement.includes(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets'
+        )
     );
     expect(lookupCall).toBeDefined();
     // Verify embeddings implementation was called with expected parameters
@@ -1713,5 +1715,195 @@ describe('runEnhancedImport', () => {
       })
     );
     expect(queuePort.enqueueBatch).not.toHaveBeenCalled();
+  });
+
+  it('uses desktop atomic chunk/job enqueue when no callback queue port is available', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const sqlPort = {
+      query: vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('FROM models')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'atomic-model',
+                providerId: 'transformers',
+                capabilities: { type: 'embedding', defaultDimension: 384 },
+              },
+            ],
+          });
+        }
+        if (
+          sql.startsWith(
+            'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+          )
+        ) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      insertChunksAndEnqueueEmbeddingJobs,
+    } as SqlExecutorPort & {
+      insertChunksAndEnqueueEmbeddingJobs: typeof insertChunksAndEnqueueEmbeddingJobs;
+    };
+    const chunk = {
+      id: 'chunk-atomic',
+      fileRecordId: '1',
+      content: 'atomic content',
+      contentHash: 'hash-atomic',
+    } as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      expect(options).toEqual(
+        expect.objectContaining({
+          embedQueueEnabled: true,
+          insertChunksAndEnqueueEmbeddingJobs: expect.any(Function),
+        })
+      );
+      await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::atomic-model',
+        service: null,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'atomic-set',
+      },
+      ports: {
+        sql: sqlPort,
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [chunk],
+      '1',
+      expect.objectContaining({
+        model: 'local::atomic-model',
+        targetEmbeddingSetId: null,
+        provider: 'local',
+        targetDimension: 384,
+      })
+    );
+  });
+
+  it('preserves the selected hosted collection dimension for atomic chunk enqueue', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const onResolvedTargetSetId = vi.fn();
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'hosted-set',
+              modelKey: 'openai::text-embedding-3-large',
+              dimensions: 1536,
+              distance: 'cosine',
+            },
+          ],
+        });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const chunk = {
+      id: 'chunk-hosted',
+      fileRecordId: '1',
+      content: 'hosted content',
+      contentHash: 'hash-hosted',
+    } as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        service: null,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'hosted-set',
+        onResolvedTargetSetId,
+      },
+      ports: {
+        sql: {
+          query: sqlPortQuery,
+          insertChunksAndEnqueueEmbeddingJobs,
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [chunk],
+      '1',
+      expect.objectContaining({
+        model: 'openai::text-embedding-3-large',
+        targetEmbeddingSetId: 'hosted-set',
+        provider: 'openai',
+        targetDimension: 1536,
+      })
+    );
+    expect(onResolvedTargetSetId).toHaveBeenCalledWith('hosted-set');
+    expect(
+      sqlPortQuery.mock.calls.some(
+        ([statement]) =>
+          typeof statement === 'string' && statement.startsWith('INSERT INTO embedding_sets')
+      )
+    ).toBe(false);
   });
 });

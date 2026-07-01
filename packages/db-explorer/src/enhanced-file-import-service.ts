@@ -5,7 +5,6 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import {
-  isTursoFileChunkRepository,
   JobQueue,
   useFileChunkRepository,
   useFileRecordRepository,
@@ -84,16 +83,24 @@ type ManualImportDbClient = ReturnType<typeof useManualImportDbClient>;
 type DbChunkRepository = ReturnType<typeof useFileChunkRepository>;
 type FileRecordRepository = ReturnType<typeof useFileRecordRepository>;
 
+function isManualImportChunkRepository(
+  repository: unknown
+): repository is FileImportChunkRepository {
+  return Boolean(
+    repository &&
+      typeof repository === 'object' &&
+      typeof (repository as FileImportChunkRepository).insertMany === 'function' &&
+      typeof (repository as FileImportChunkRepository).update === 'function'
+  );
+}
+
 function toManualImportChunkRepository(
   repository: DbChunkRepository
 ): FileImportChunkRepository | null {
-  if (!repository) {
+  if (!isManualImportChunkRepository(repository)) {
     return null;
   }
-  if (isTursoFileChunkRepository(repository)) {
-    return null;
-  }
-  return repository as FileImportChunkRepository;
+  return repository;
 }
 
 function getManualImportCapabilityError({
@@ -116,22 +123,30 @@ function getManualImportCapabilityError({
     return new Error('Manual imports require file record storage.');
   }
   if (enableChunking && !chunkRepository) {
-    if (isTursoFileChunkRepository(rawChunkRepository)) {
-      return new Error(
-        'Manual imports with chunking require a Turso-compatible chunk import path.'
-      );
+    if (rawChunkRepository) {
+      return new Error('Manual imports require compatible chunk storage.');
     }
     return new Error('Manual imports require chunk storage.');
+  }
+  if (
+    enableChunking &&
+    manualImportDbClient.runtimeEngine === 'turso' &&
+    typeof manualImportDbClient.db.insertChunksAndEnqueueEmbeddingJobs !== 'function'
+  ) {
+    return new Error(
+      'Manual imports with Turso chunking require atomic chunk/job enqueue support.'
+    );
   }
   return null;
 }
 
 function createEmbeddingConfig(
   chunkRepository: FileImportChunkRepository | null,
-  resolveTargetEmbeddingSetId: () => string | null
+  resolveTargetEmbeddingSetId: () => string | null,
+  enableEmbeddingQueue: boolean
 ): EmbeddingConfig {
   return {
-    enabled: false,
+    enabled: enableEmbeddingQueue,
     service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId,
@@ -242,9 +257,15 @@ async function runImportFlow({
     logger.info('Preparing embedding config for enhanced import', {
       activeSetId: activeSetIdRef.current,
     });
+    const useAtomicChunkEnqueueBridge = Boolean(
+      options.enableChunking &&
+        sqlPort?.runtimeEngine === 'turso' &&
+        sqlPort.insertChunksAndEnqueueEmbeddingJobs
+    );
     const embeddingConfig = createEmbeddingConfig(
       chunkRepository,
-      () => activeSetIdRef.current ?? null
+      () => activeSetIdRef.current ?? null,
+      useAtomicChunkEnqueueBridge
     );
     logger.debug('Embedding config created', { embeddingConfig });
     const ports = createPorts(queuePort, sqlPort);
@@ -527,16 +548,26 @@ export function useEnhancedFileImportService(
 
     const { db, runtimeEngine } = manualImportDbClient;
     const baseQuery: SqlExecutorPort['query'] = (sql, params) => db.query(sql, params);
+    const insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs
+      ? {
+          insertChunksAndEnqueueEmbeddingJobs: db.insertChunksAndEnqueueEmbeddingJobs.bind(db),
+        }
+      : {};
 
     const transactionFn = db.transaction;
     if (typeof transactionFn === 'function') {
       const runInTransaction: SqlExecutorPort['runInTransaction'] = async <T>(
         fn: (tx: IDatabase) => Promise<T>
       ) => transactionFn((tx) => fn(tx as IDatabase));
-      return { query: baseQuery, runInTransaction, runtimeEngine };
+      return {
+        query: baseQuery,
+        runInTransaction,
+        runtimeEngine,
+        ...insertChunksAndEnqueueEmbeddingJobs,
+      };
     }
 
-    return { query: baseQuery, runtimeEngine };
+    return { query: baseQuery, runtimeEngine, ...insertChunksAndEnqueueEmbeddingJobs };
   }, [manualImportDbClient]);
 
   const baseImportRunner = useCallback<BaseImportRunner<IFileNode>>(

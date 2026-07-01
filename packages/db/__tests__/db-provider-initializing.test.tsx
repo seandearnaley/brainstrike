@@ -881,6 +881,7 @@ describe('DbProvider initializing state', () => {
       }
       return { rows: [] };
     });
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -902,6 +903,7 @@ describe('DbProvider initializing state', () => {
     } as const;
     setWindowElectronDbBridge({
       exec: vi.fn(async () => {}),
+      insertChunksAndEnqueueEmbeddingJobs,
       query,
       runTransaction: vi.fn(async () => ({ rows: [] })),
       test: vi.fn(async () => ({ success: true, message: 'ok', profileBootstrapReport })),
@@ -966,6 +968,28 @@ describe('DbProvider initializing state', () => {
     await expect(result.current.modelRegistryDb?.query('SELECT 1 AS ok')).resolves.toEqual({
       rows: [{ ok: 1 }],
     });
+    expect(result.current.manualImportDb?.db.insertChunksAndEnqueueEmbeddingJobs).toEqual(
+      expect.any(Function)
+    );
+    await result.current.manualImportDb?.db.insertChunksAndEnqueueEmbeddingJobs?.(
+      [],
+      'file-turso',
+      {
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        signal: new AbortController().signal,
+        targetDimension: 384,
+      },
+      { label: 'manual turso import', priority: 'foreground' }
+    );
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [],
+      'file-turso',
+      {
+        model: 'local::Xenova/all-MiniLM-L6-v2',
+        targetDimension: 384,
+      },
+      { label: 'manual turso import', priority: 'foreground' }
+    );
     expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
     expect(result.current.chunkRepository?.constructor.name).toBe(
       'ElectronProviderTursoFileChunkRepository'

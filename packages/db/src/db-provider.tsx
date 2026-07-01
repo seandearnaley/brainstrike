@@ -713,7 +713,7 @@ async function createElectronTursoViewFilterPresetsRepository(
 
 interface ElectronTursoRuntimeRepositories {
   readonly embeddingSetsRepository: EmbeddingSetsRepo;
-  readonly executionClient: BrainstrikeDbExecutionClient;
+  readonly executionClient: ElectronTursoExecutionClient;
   readonly fileChunkRepository: TursoFileChunkRepository | null;
   readonly fileRecordRepository: FileRecordRepo;
   readonly report: ProfileBootstrapReport;
@@ -721,12 +721,16 @@ interface ElectronTursoRuntimeRepositories {
   readonly viewFilterPresetsRepository: ViewFilterPresetsRepo;
 }
 
+type ElectronTursoExecutionClient = BrainstrikeDbExecutionClient &
+  Pick<QueryExecutor, 'insertChunksAndEnqueueEmbeddingJobs'>;
+
 interface ElectronTursoRepositoryDb {
   readonly exec: (
     sql: string,
     params?: readonly unknown[],
     options?: DatabaseWorkOptions
   ) => Promise<void>;
+  readonly insertChunksAndEnqueueEmbeddingJobs?: QueryExecutor['insertChunksAndEnqueueEmbeddingJobs'];
   readonly query: <T = unknown>(
     sql: string,
     params?: readonly unknown[],
@@ -752,6 +756,12 @@ function createElectronTursoRepositoryDb(
     exec: async (sql, params, options) => {
       await electronExec(sql, params ? [...params] : undefined, options);
     },
+    ...(typeof electronDB.insertChunksAndEnqueueEmbeddingJobs === 'function'
+      ? {
+          insertChunksAndEnqueueEmbeddingJobs:
+            electronDB.insertChunksAndEnqueueEmbeddingJobs.bind(electronDB),
+        }
+      : {}),
     query: async (sql, params, options) =>
       await electronDB.query(sql, params ? [...params] : undefined, options),
     ...(electronRunTransaction
@@ -766,11 +776,12 @@ function createElectronTursoRepositoryDb(
 
 function createElectronTursoExecutionClient(
   repositoryDb: ElectronTursoRepositoryDb
-): BrainstrikeDbExecutionClient {
+): ElectronTursoExecutionClient {
   if (!repositoryDb.runTransaction) {
     throw new Error('Desktop Turso token cache store requires db:transaction IPC support.');
   }
   const runTransaction = repositoryDb.runTransaction;
+  const insertChunksAndEnqueueEmbeddingJobs = repositoryDb.insertChunksAndEnqueueEmbeddingJobs;
 
   const transactionClient: BrainstrikeDbTransactionClient = {
     exec: repositoryDb.exec,
@@ -778,6 +789,7 @@ function createElectronTursoExecutionClient(
   };
   return {
     ...transactionClient,
+    ...(insertChunksAndEnqueueEmbeddingJobs ? { insertChunksAndEnqueueEmbeddingJobs } : {}),
     transaction: async (callback) => {
       const statements: { params?: unknown[]; sql: string }[] = [];
       const batchClient: BrainstrikeDbTransactionClient = {
