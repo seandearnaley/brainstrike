@@ -80,8 +80,12 @@ as the implementation backlog.
 - #1375 `Wire Turso embedding host storage`
 - #1376 `Prove Turso worker IPC owner path`
 - #1403 `Fix inherited embedding set delete cleanup`
-- Current slice: compose the user-visible Turso re-embed action as an
-  owner-client embedding clear followed by hidden-host backfill.
+- #1404 `Compose Turso re-embed flow`
+- #1405 `Terminate Turso DB host on request timeout`
+- Current slice: recover from narrow Turso/SQLite bootstrap corruption signals
+  by resetting the active profile and retrying bootstrap before opening the
+  long-lived owner client, including corruption discovered during Turso
+  capability probing.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -121,6 +125,12 @@ The branch currently has a real Turso runtime seam:
 - The Turso primary store uses a greenfield baseline ledger rather than the
   PGlite/Postgres migration chain.
 - The desktop DB host can open a long-lived Turso owner client.
+- Turso bootstrap now treats explicit SQLite/libSQL corruption signals
+  (`SQLITE_CORRUPT`, `SQLITE_NOTADB`, `database disk image is malformed`, and
+  `file is not a database`) as recoverable during `opening-store` and
+  `migrating-schema`, plus Turso-only `probing-capabilities`: the active
+  profile is backed up/reset, the process lock is reacquired, bootstrap is
+  retried once, and the owner client is opened only after a ready report.
 - The Turso owner client exposes read-only QoS snapshots for its exclusive
   operation queue: active operation, queued operations, slow queued operation
   count, and queued/started/completed/failed totals. Desktop
@@ -500,6 +510,7 @@ Known production touchpoints:
 - `packages/db/src/migrations/index.ts`
 - `packages/db/src/architecture/db-runtime-baseline.ts`
 - `packages/db/src/services/scheduled-database-maintenance.ts`
+- `apps/desktop/src/db-main.ts`
 - `apps/desktop/src/main.ts`
 
 Concrete blockers:
@@ -533,8 +544,9 @@ Concrete blockers:
   mutations are delegated to the main DB host over explicit IPC operations so
   claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
   owner client instead of the renderer's exec-only transaction adapter.
-- Post-merge retrospective follow-ups still need a focused Turso corruption
-  diagnostics/recovery slice.
+- Turso bootstrap recovery now matches the existing PGlite recovery boundary
+  for narrow corruption signals without widening internal/I/O failures into
+  profile resets.
 
 ### 7. Factory Reset And Profile Cleanup
 

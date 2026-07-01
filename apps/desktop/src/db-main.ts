@@ -897,10 +897,10 @@ function releaseDatabaseProcessLock(): void {
 }
 
 /**
- * Known PostgreSQL error codes that indicate index/data corruption requiring full reset.
+ * Known database error codes that indicate index/data corruption requiring full reset.
  *
- * NOTE: We intentionally exclude XX000 (internal_error) as it's too broad and used for
- * many non-corruption failures (e.g., internal bugs, unsupported features). Including it
+ * NOTE: We intentionally exclude broad internal/I/O classes such as PostgreSQL XX000 and
+ * SQLite SQLITE_IOERR. They are used for many non-corruption failures, and including them
  * would cause false positives that wipe user data unnecessarily.
  *
  * We rely on specific error codes and message pattern matching to identify true corruption.
@@ -910,6 +910,8 @@ const CORRUPTION_ERROR_CODES = [
   // XX000 deliberately excluded - too generic, causes false positives
   // XX001 (data_corrupted) is rare but specific enough to include
   'XX001', // Data corruption
+  'SQLITE_CORRUPT', // SQLite/libSQL database file corruption
+  'SQLITE_NOTADB', // SQLite/libSQL file exists but is not a valid database
 ] as const;
 
 /**
@@ -922,6 +924,8 @@ const CORRUPTION_ERROR_PATTERNS = [
   'database system was interrupted',
   'invalid page in block',
   'page verification failed',
+  'database disk image is malformed',
+  'file is not a database',
 ] as const;
 
 const WASM_ABORT_ERROR_PATTERNS = [
@@ -939,11 +943,15 @@ export function isCorruptionError(error: unknown): boolean {
     return false;
   }
 
-  const errorObj = error as { code?: string; message?: string };
+  const errorObj = error as { code?: number | string; message?: string };
   const code = errorObj.code;
   const message = errorObj.message ?? String(error);
 
-  if (code && CORRUPTION_ERROR_CODES.includes(code as (typeof CORRUPTION_ERROR_CODES)[number])) {
+  const normalizedCode = code === undefined || code === null ? null : String(code).toUpperCase();
+  if (
+    normalizedCode &&
+    CORRUPTION_ERROR_CODES.includes(normalizedCode as (typeof CORRUPTION_ERROR_CODES)[number])
+  ) {
     return true;
   }
 
@@ -1055,12 +1063,23 @@ function recordInitializationSuccess(): void {
   mutableState.lastInitializationFailure = null;
 }
 
-function shouldRecoverAfterBootstrapProbeFailure(report: BootstrapCapabilityProbeReport): boolean {
+function shouldRecoverAfterBootstrapProbeFailure(
+  report: {
+    readonly bootstrapReport: ProfileBootstrapReport;
+  },
+  options: { readonly recoverCapabilityProbeCorruption?: boolean } = {}
+): boolean {
   const failure = report.bootstrapReport.failure;
   if (!failure) {
     return false;
   }
-  if (!(failure.phase === 'opening-store' || failure.phase === 'migrating-schema')) {
+  if (
+    !(
+      failure.phase === 'opening-store' ||
+      failure.phase === 'migrating-schema' ||
+      (options.recoverCapabilityProbeCorruption && failure.phase === 'probing-capabilities')
+    )
+  ) {
     return false;
   }
   return isCorruptionError({
@@ -1611,6 +1630,12 @@ interface PgliteBootstrapCapabilityProbeWithRecoveryResult {
   readonly movedAsideBackup: string | null;
 }
 
+interface TursoProfileBootstrapWithRecoveryInput {
+  readonly appDataDir: string;
+  readonly retryAfterCorruption: boolean;
+  readonly runtimeSelection: BrainstrikeDbRuntimeSelection;
+}
+
 async function runPgliteBootstrapCapabilityProbeWithRecovery(
   input: PgliteBootstrapCapabilityProbeWithRecoveryInput
 ): Promise<PgliteBootstrapCapabilityProbeWithRecoveryResult> {
@@ -1635,6 +1660,30 @@ async function runPgliteBootstrapCapabilityProbeWithRecovery(
   }
 
   return { capabilityProbeReport, movedAsideBackup };
+}
+
+async function runTursoProfileBootstrapWithRecovery(
+  input: TursoProfileBootstrapWithRecoveryInput
+): Promise<DesktopProfileBootstrapProbeReport> {
+  let capabilityProbeReport = await runCurrentTursoProfileBootstrap(input.runtimeSelection);
+  if (
+    !capabilityProbeReport.bootstrapReport.ready &&
+    input.retryAfterCorruption &&
+    shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport, {
+      recoverCapabilityProbeCorruption: true,
+    })
+  ) {
+    recordInitializationFailure('open-database', capabilityProbeReport.bootstrapReport.failure);
+    await attemptCorruptionRecovery('turso profile bootstrap');
+    acquireDatabaseProcessLock(input.appDataDir);
+    if (!existsSync(input.appDataDir)) {
+      mkdirSync(input.appDataDir, { recursive: true });
+      logger.debug(`Created database directory: ${input.appDataDir}`);
+    }
+    capabilityProbeReport = await runCurrentTursoProfileBootstrap(input.runtimeSelection);
+  }
+
+  return capabilityProbeReport;
 }
 
 function assertUnreachableDbRuntimeEngine(value: never): never {
@@ -1727,7 +1776,11 @@ export async function initializeMainDatabaseWithBootstrapReport(
         break;
       }
       case 'turso':
-        capabilityProbeReport = await runCurrentTursoProfileBootstrap(runtimeSelection);
+        capabilityProbeReport = await runTursoProfileBootstrapWithRecovery({
+          appDataDir,
+          retryAfterCorruption,
+          runtimeSelection,
+        });
         break;
       default:
         return assertUnreachableDbRuntimeEngine(runtimeSelection.engine);
