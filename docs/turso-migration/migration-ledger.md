@@ -164,19 +164,18 @@ Current Turso repository/runtime coverage:
   requested file status lookups through repository-backed Turso paths
 - quick-open filename lookup through an indexed Turso name-gram table maintained
   by Turso file-record and managed-cache writes
-- vector-management durable queue stats and retry/repair controls through a
-  runtime-keyed queue hook that constructs `TursoJobQueue` only for ready Turso
-  profiles
+- vector-management durable queue snapshots through Turso read models, with
+  retry/repair, clear, wipe, and clear-embeddings routed through the desktop
+  owner-client action IPC rather than renderer-owned `TursoJobQueue` mutation
 - embedding runtime queue service construction now keys off the bootstrap
   runtime. PGlite still constructs the legacy Postgres-shaped
-  `VectorQueueService`; Turso now has an explicit adapter seam but the renderer
-  provider deliberately returns no action service and reports
-  `missing-turso-vector-queue-adapter`. The provider still exposes Turso queue
-  snapshots through `createTursoVectorQueueSnapshotReader()` when the ready DB
+  `VectorQueueService`; desktop Turso constructs an explicit bridge-backed
+  action service when the preload exposes `tursoVectorQueueAction`, while queue
+  snapshots come from `createTursoVectorQueueSnapshotReader()` when the ready DB
   client and coverage repository are present. Do not construct `TursoJobQueue`
-  or the Turso backfill/metrics repositories directly in the visible renderer:
-  the current renderer transaction facade is not the query-capable owner-client
-  surface required by those mutation paths.
+  or Turso mutation repositories directly in the visible renderer: mutation
+  paths that need transactions or query-capable writes must stay on the desktop
+  owner-client IPC surface.
 - Turso file chunks expose SQLite-compatible embedding backfill candidate
   counting, diagnostics, and cursor-batched candidate selection. These methods
   exclude active queued/running deduped jobs, include inherited
@@ -352,9 +351,9 @@ Completed low-risk queue UI slices:
   failed-job retry/repair controls without opening a PGlite handle.
 - `EmbeddingRuntimeProvider` no longer calls the PGlite-only database hook to
   construct its vector queue service. It uses the generic ready DB client and
-  the bootstrap runtime, constructs `JobQueue` only for PGlite, and keeps Turso
-  service-null with the explicit `missing-turso-vector-queue-adapter`
-  unavailable reason while still exposing Turso queue snapshots.
+  the bootstrap runtime, constructs `JobQueue` only for PGlite, exposes Turso
+  queue snapshots, and wires the desktop Turso action service only when the
+  owner-IPC bridge is present.
 - `useEmbeddingRuntimeController()` now treats Electron as a host-required
   runtime: if `window.electronAPI` exists but `window.embeddingHost` is missing,
   backfill/start/status/reset/stop operations fail closed instead of falling
