@@ -1,6 +1,8 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   applyTursoManagedCacheBatch,
+  type BrainstrikeDbExecutionClient,
+  type BrainstrikeDbTransactionClient,
   createDatabasePressureController,
   createPriorityDbHandle,
   type DatabaseWorkSchedulerSnapshot,
@@ -133,6 +135,15 @@ const TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR =
 
 type BackgroundIndexingRuntimeEngine = 'pglite' | 'turso';
 type BootstrapRuntimeEngine = 'libsql' | 'pglite' | 'turso' | 'unknown';
+interface BackgroundTursoTransactionStatement {
+  params?: unknown[];
+  sql: string;
+}
+type BackgroundTursoRunTransaction = (
+  statements: BackgroundTursoTransactionStatement[],
+  resultIndex: number,
+  options?: typeof BACKGROUND_DATABASE_WORK_OPTIONS
+) => Promise<unknown>;
 
 function isBackgroundIndexingRuntimeEngine(
   runtimeEngine: BootstrapRuntimeEngine
@@ -320,6 +331,66 @@ function createTursoBackgroundChunkRepository(
       throw new Error(TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR);
     },
     update: (chunk) => repository.update(chunk),
+  };
+}
+
+function getBackgroundTursoRunTransaction(): BackgroundTursoRunTransaction | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const runTransaction = (
+    window.electronAPI?.db as
+      | { readonly runTransaction?: BackgroundTursoRunTransaction }
+      | undefined
+  )?.runTransaction;
+  return typeof runTransaction === 'function' ? runTransaction : null;
+}
+
+function createBackgroundTursoExecutionClient(db: DbHandle): BrainstrikeDbExecutionClient {
+  if (typeof db.exec !== 'function') {
+    throw new Error('Workspace Index Turso background repositories require db.exec support.');
+  }
+  const query = db.query.bind(db);
+  const exec = db.exec.bind(db);
+  const transactionClient: BrainstrikeDbTransactionClient = {
+    exec: async (sql, params, options) => {
+      await exec(sql, params ? [...params] : undefined, options);
+    },
+    query: async (sql, params, options) =>
+      await query(sql, params ? [...params] : undefined, options),
+  };
+  return {
+    ...transactionClient,
+    transaction: async (callback) => {
+      const runTransaction = getBackgroundTursoRunTransaction();
+      if (!runTransaction) {
+        throw new Error(
+          'Workspace Index Turso background repository transactions require desktop transaction IPC support.'
+        );
+      }
+      const statements: BackgroundTursoTransactionStatement[] = [];
+      const batchClient: BrainstrikeDbTransactionClient = {
+        exec: async (sql, params, options) => {
+          if (options) {
+            throw new Error(
+              'Workspace Index Turso background transaction adapter does not support per-statement work options.'
+            );
+          }
+          statements.push({ sql, ...(params ? { params: [...params] } : {}) });
+        },
+        query: async () => {
+          throw new Error(
+            'Workspace Index Turso background transaction adapter only supports exec statements.'
+          );
+        },
+      };
+
+      const result = await callback(batchClient);
+      if (statements.length > 0) {
+        await runTransaction(statements, 0, BACKGROUND_DATABASE_WORK_OPTIONS);
+      }
+      return result;
+    },
   };
 }
 
@@ -1361,11 +1432,12 @@ export function WorkspaceCollectionSyncProvider({
       if (!tursoExecutionClient) {
         return null;
       }
-      const tursoChunkRepository = new TursoFileChunkRepository(tursoExecutionClient);
+      const backgroundTursoExecutionClient = createBackgroundTursoExecutionClient(backgroundDb);
+      const tursoChunkRepository = new TursoFileChunkRepository(backgroundTursoExecutionClient);
       return {
         chunkRepository: createTursoBackgroundChunkRepository(tursoChunkRepository),
-        embeddingSetsRepository: new TursoEmbeddingSetsRepository(tursoExecutionClient),
-        fileRecordRepository: new TursoFileRecordRepository(tursoExecutionClient),
+        embeddingSetsRepository: new TursoEmbeddingSetsRepository(backgroundTursoExecutionClient),
+        fileRecordRepository: new TursoFileRecordRepository(backgroundTursoExecutionClient),
       };
     }
     if (runtimeEngine !== 'pglite') {

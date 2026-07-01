@@ -446,9 +446,22 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
-  TursoEmbeddingSetsRepository: vi.fn(function MockTursoEmbeddingSetsRepository() {
+  TursoEmbeddingSetsRepository: vi.fn(function MockTursoEmbeddingSetsRepository(db: {
+    query: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<unknown>;
+    transaction: <TResult>(
+      callback: (tx: {
+        exec: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<void>;
+      }) => Promise<TResult>
+    ) => Promise<TResult>;
+  }) {
     return {
-      getById: tursoGetByIdMock,
+      getById: async (embeddingSetId: string) => {
+        await db.query('SELECT 1 FROM embedding_sets WHERE id = ?', [embeddingSetId]);
+        await db.transaction(async (tx) => {
+          await tx.exec('UPDATE embedding_sets SET id = id WHERE id = ?', [embeddingSetId]);
+        });
+        return await tursoGetByIdMock(embeddingSetId);
+      },
       getOrCreateWorkspaceIndexSet: tursoGetOrCreateWorkspaceIndexSetMock,
     };
   }),
@@ -717,6 +730,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       deletedChunkIds: [],
       deletedFileRecordIds: [],
     }));
+    const electronRunTransaction = vi.fn(async () => ({ rows: [] }));
     const tursoExecutionClient = {
       query: vi.fn(async () => ({ rows: [] })),
       exec: vi.fn(async () => undefined),
@@ -741,6 +755,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         db: {
           applyManagedCacheBatch: electronApplyManagedCacheBatch,
           invalidateManagedCacheEntriesByIdentity: electronInvalidateManagedCacheEntriesByIdentity,
+          runTransaction: electronRunTransaction,
         },
       },
     });
@@ -775,6 +790,26 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(applyManagedCacheBatchTursoMock).not.toHaveBeenCalled();
       expect(electronApplyManagedCacheBatch).toHaveBeenCalledWith(
         expect.any(Object),
+        expect.objectContaining({
+          label: 'background indexing',
+          priority: 'background',
+        })
+      );
+      expect(tursoExecutionClient.query).toHaveBeenCalledWith(
+        'SELECT 1 FROM embedding_sets WHERE id = ?',
+        ['00000000-0000-0000-0000-000000000101'],
+        expect.objectContaining({
+          priority: 'background',
+        })
+      );
+      expect(electronRunTransaction).toHaveBeenCalledWith(
+        [
+          {
+            params: ['00000000-0000-0000-0000-000000000101'],
+            sql: 'UPDATE embedding_sets SET id = id WHERE id = ?',
+          },
+        ],
+        0,
         expect.objectContaining({
           label: 'background indexing',
           priority: 'background',
