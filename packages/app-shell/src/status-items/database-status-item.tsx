@@ -27,7 +27,7 @@ export function DatabaseStatusItem() {
   }
 
   // Shorten display text for status bar
-  const displayLocation = location === 'Main Process' ? 'IPC' : (location ?? 'PGlite');
+  const displayLocation = location === 'Main Process' ? 'IPC' : (location ?? 'Local DB');
 
   return (
     <StatusBarItem

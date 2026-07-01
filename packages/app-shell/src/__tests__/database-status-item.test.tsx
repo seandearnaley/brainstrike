@@ -46,7 +46,7 @@ describe('DatabaseStatusItem', () => {
     expect(screen.getByTestId('status-bar-db-disconnected')).toBeInTheDocument();
   });
 
-  it('uses PGlite as fallback when location is null', () => {
+  it('uses storage-neutral fallback copy when location is null', () => {
     // Manually set a connected state with null location
     useDatabaseStatusStore.setState({
       connected: true,
@@ -57,7 +57,8 @@ describe('DatabaseStatusItem', () => {
 
     render(<DatabaseStatusItem />);
 
-    expect(screen.getByText('Storage: PGlite')).toBeInTheDocument();
+    expect(screen.getByText('Storage: Local DB')).toBeInTheDocument();
+    expect(screen.queryByText('Storage: PGlite')).not.toBeInTheDocument();
   });
 
   it('renders database icon', () => {
