@@ -588,6 +588,77 @@ describe('initializeMainDatabase', () => {
     expect(PGliteMock).toHaveBeenCalledTimes(1);
   });
 
+  it('recovers a corrupt Turso bootstrap before opening the owner client', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(true);
+    runTursoProfileBootstrapMock
+      .mockResolvedValueOnce(
+        createFailedTursoProfileBootstrapReport({
+          message: 'database disk image is malformed',
+          phase: 'opening-store',
+        })
+      )
+      .mockResolvedValueOnce(createReadyTursoProfileBootstrapReport());
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(result).toEqual({
+      bootstrapReport: expect.objectContaining({
+        phase: 'ready',
+        ready: true,
+        runtime: expect.objectContaining({ engine: 'turso' }),
+      }),
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(2);
+    expect(rmSyncMock).toHaveBeenCalledWith('/mock/userData/profiles/test', {
+      recursive: true,
+      force: true,
+    });
+    expect(mkdirSyncMock).toHaveBeenCalledWith('/mock/userData/profiles/test', {
+      recursive: true,
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+  });
+
+  it('recovers a non-database Turso file before opening the owner client', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(true);
+    runTursoProfileBootstrapMock
+      .mockResolvedValueOnce(
+        createFailedTursoProfileBootstrapReport({
+          code: 'SQLITE_NOTADB',
+          message: 'file is not a database',
+          phase: 'opening-store',
+        })
+      )
+      .mockResolvedValueOnce(createReadyTursoProfileBootstrapReport());
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(result.initialized).toBe(true);
+    expect(result.bootstrapReport).toMatchObject({
+      phase: 'ready',
+      ready: true,
+      runtime: { engine: 'turso' },
+    });
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(2);
+    expect(rmSyncMock).toHaveBeenCalledWith('/mock/userData/profiles/test', {
+      recursive: true,
+      force: true,
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves the same-boot engine-upgrade backup prune exclusion through owner-owned init', async () => {
     const dataDir = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
     const backupDir = `${dataDir}.pre-pg18-from-pg17.bak`;
@@ -758,6 +829,41 @@ function createFailedBootstrapProbeReport(input: {
       checks,
       failure: {
         code: 'bootstrap_capability_probe_failed',
+        message: input.message,
+        phase: input.phase,
+        timestamp: '2026-06-22T00:00:00.500Z',
+      },
+      phase: 'failed',
+      ready: false,
+    },
+    checks,
+  };
+}
+
+function createFailedTursoProfileBootstrapReport(input: {
+  readonly code?: string;
+  readonly message: string;
+  readonly phase: 'opening-store' | 'migrating-schema' | 'probing-capabilities';
+}) {
+  const readyReport = createReadyTursoProfileBootstrapReport();
+  const checks = readyReport.checks.map((check) =>
+    check.id === 'store.open' ? { ...check, status: 'failed', message: input.message } : check
+  );
+  return {
+    ...readyReport,
+    blockingIssues: [
+      {
+        checkId: 'store.open',
+        message: `Bootstrap failed during ${input.phase}: ${input.message}`,
+        phase: 'failed',
+        severity: 'blocking',
+      },
+    ],
+    bootstrapReport: {
+      ...readyReport.bootstrapReport,
+      checks,
+      failure: {
+        code: input.code ?? 'SQLITE_CORRUPT',
         message: input.message,
         phase: input.phase,
         timestamp: '2026-06-22T00:00:00.500Z',
