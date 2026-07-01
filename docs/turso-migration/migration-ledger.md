@@ -190,15 +190,20 @@ Current Turso repository/runtime coverage:
   without raw DB queries.
 - Turso has a concrete `EmbeddingBackfillRepository` adapter that composes the
   Turso file-chunk candidate methods, embedding-set metadata repository, and
-  Turso job-queue per-set state counts. Runtime selection does not wire this
-  adapter into the visible-renderer vector queue action service yet; that needs
-  a desktop owner-client adapter rather than a raw renderer transaction facade.
+  Turso job-queue per-set state counts. Runtime selection keeps desktop
+  backfill orchestration in the hidden embedding host; the visible renderer
+  must not call these mutation paths through its raw transaction facade.
 - `VectorQueueService.refresh()` now reads queue throughput, latest failure, and
   latency samples through a storage-neutral `VectorQueueMetricsRepository`.
   PGlite keeps the existing PostgreSQL-shaped SQL behind the default repository;
   Turso exposes the same metrics through `TursoJobQueue.getQueueMetrics()` and a
-  vector-management snapshot adapter. Action-service wiring remains pending on
-  the owner-client adapter seam.
+  vector-management snapshot adapter.
+- Desktop Turso vector queue actions now run through explicit owner-client IPC:
+  retry/repair, queue clear, queue wipe, and embedding clearing for one
+  embedding set. The clear-embeddings path calls
+  `TursoFileChunkRepository.clearEmbeddingsForSet()` in the main DB owner
+  process, so stats refresh and SQLite transaction semantics stay in the
+  query-capable Turso owner client rather than the visible renderer.
 - Desktop Turso assistant memory is wired through the ready runtime/bootstrap
   verdict. The renderer thread repository, OM meter, and cross-root usage reads
   now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
@@ -361,11 +366,11 @@ Completed low-risk queue UI slices:
   worker test proves the worker can process a job through injected storage with
   no raw PGlite database handle.
 
-Remaining vector-queue action slice: implement a Turso `VectorQueueService`
-adapter that runs against the desktop owner-client surface and only then pass it
-through the explicit Turso factory seam. Preserve the hidden-renderer worker
-boundary. Do not enable Turso backfill, clear, wipe, or re-embed actions by
-constructing `TursoJobQueue` in the visible renderer.
+Remaining vector-queue action slice: compose a user-visible Turso re-embed flow
+as clear-embeddings through the DB owner IPC followed by backfill through the
+existing embedding runtime controller. Preserve the hidden-renderer worker
+boundary. Do not move backfill into the vector queue DB action channel, and do
+not construct `TursoJobQueue` in the visible renderer.
 
 ### 4. Assistant Search And Retrieval
 
@@ -503,7 +508,7 @@ Concrete blockers:
   claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
   owner client instead of the renderer's exec-only transaction adapter.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout/watchdog policy, the vector queue action adapter described
+  client timeout/watchdog policy, the re-embed composition slice described
   above, and Turso corruption diagnostics/recovery.
 
 ### 7. Factory Reset And Profile Cleanup
@@ -554,8 +559,8 @@ advancing Turso parity.
 
 1. Collection/import slice: make db-explorer manual import and collection
    browser snapshot paths work without live query.
-2. Vector queue slice: wire `TursoJobQueue` into vector-management status and
-   actions with polling snapshots.
+2. Vector queue slice: finish the Turso re-embed composition without moving
+   hidden-host backfill ownership into visible-renderer DB actions.
 3. Assistant memory slice: add Turso Mastra storage/workflow memory and prove
    the live Mastra loop against it.
 4. Search slice: add Turso grep/vector repository methods, then semantic search

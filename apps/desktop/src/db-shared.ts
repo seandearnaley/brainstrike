@@ -86,9 +86,19 @@ export interface ParsedTursoEmbeddingWorkerStatsRequest {
   readonly operation: TursoEmbeddingWorkerStatsOperation;
 }
 
-export type TursoVectorQueueActionOperation = 'clearQueue' | 'retryFailed' | 'wipeQueue';
+export type TursoVectorQueueActionOperation =
+  | 'clearEmbeddingsForSet'
+  | 'clearQueue'
+  | 'retryFailed'
+  | 'wipeQueue';
 
 export type ParsedTursoVectorQueueActionRequest =
+  | {
+      readonly operation: 'clearEmbeddingsForSet';
+      readonly payload: {
+        readonly embeddingSetId: string;
+      };
+    }
   | {
       readonly operation: 'clearQueue';
       readonly payload: {
@@ -581,6 +591,18 @@ export function parseTursoVectorQueueActionArgs(
   payload: unknown
 ): ParsedTursoVectorQueueActionRequest {
   switch (operation) {
+    case 'clearEmbeddingsForSet': {
+      const candidate = parseVectorQueueActionPayloadObject(payload, operation);
+      return {
+        operation,
+        payload: {
+          embeddingSetId: requireNonEmptyString(
+            candidate['embeddingSetId'],
+            'Turso vector queue clearEmbeddingsForSet requires an embeddingSetId.'
+          ),
+        },
+      };
+    }
     case 'clearQueue': {
       const candidate = parseVectorQueueActionPayloadObject(payload, operation);
       const states = parseVectorQueueClearStates(candidate['states']);

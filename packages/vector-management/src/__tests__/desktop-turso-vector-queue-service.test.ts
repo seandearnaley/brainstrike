@@ -134,4 +134,29 @@ describe('createDesktopTursoVectorQueueService', () => {
     );
     expect(actionBridge).not.toHaveBeenCalled();
   });
+
+  it('fails closed for direct re-embed calls that must coordinate through clear plus host backfill', async () => {
+    const actionBridge = vi.fn(async () => undefined);
+    Object.defineProperty(testWindow, 'electronAPI', {
+      configurable: true,
+      writable: true,
+      value: {
+        db: {
+          tursoVectorQueueAction: actionBridge,
+        },
+      },
+    });
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
+    };
+    const snapshotReader: VectorQueueSnapshotReader = {
+      refresh: vi.fn(),
+    };
+    const service = createDesktopTursoVectorQueueService({ db, snapshotReader });
+
+    await expect(service?.reembedSet('set-1', vi.fn())).rejects.toThrow(
+      'Desktop Turso re-embed must be coordinated through the embedding runtime controller.'
+    );
+    expect(actionBridge).not.toHaveBeenCalled();
+  });
 });

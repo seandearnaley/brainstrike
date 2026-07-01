@@ -7,6 +7,7 @@ import {
   refreshTursoCollectionIndexingStats,
   runStatementsInTransaction,
   type TransactionStatement,
+  TursoFileChunkRepository,
   TursoJobQueue,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -348,25 +349,36 @@ async function executeTursoVectorQueueAction(
   db: BrainstrikeDbExecutionClient,
   request: ParsedTursoVectorQueueActionRequest
 ): Promise<unknown> {
-  const queue = new TursoJobQueue(db);
   switch (request.operation) {
-    case 'clearQueue':
+    case 'clearEmbeddingsForSet': {
+      const chunkRepository = new TursoFileChunkRepository(db);
+      return {
+        cleared: await chunkRepository.clearEmbeddingsForSet(request.payload.embeddingSetId),
+      };
+    }
+    case 'clearQueue': {
+      const queue = new TursoJobQueue(db);
       return {
         cleared: await queue.clear(
           EMBEDDINGS_QUEUE,
           request.payload.states ? [...request.payload.states] : undefined
         ),
       };
-    case 'retryFailed': {
-      const repairedQueued = await queue.repairUnclaimableQueued(
-        EMBEDDINGS_QUEUE,
-        request.payload.limit
-      );
-      const requeuedFailed = await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.limit);
-      return { repairedQueued, requeuedFailed };
     }
-    case 'wipeQueue':
+    case 'retryFailed': {
+      const queue = new TursoJobQueue(db);
+      return {
+        repairedQueued: await queue.repairUnclaimableQueued(
+          EMBEDDINGS_QUEUE,
+          request.payload.limit
+        ),
+        requeuedFailed: await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.limit),
+      };
+    }
+    case 'wipeQueue': {
+      const queue = new TursoJobQueue(db);
       return { cleared: await queue.clear(EMBEDDINGS_QUEUE) };
+    }
     default:
       return assertNeverTursoVectorQueueAction(request);
   }
