@@ -84,7 +84,8 @@ as the implementation backlog.
 - #1405 `Terminate Turso DB host on request timeout`
 - Current slice: recover from narrow Turso/SQLite bootstrap corruption signals
   by resetting the active profile and retrying bootstrap before opening the
-  long-lived owner client.
+  long-lived owner client, including corruption discovered during Turso
+  capability probing.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -127,9 +128,9 @@ The branch currently has a real Turso runtime seam:
 - Turso bootstrap now treats explicit SQLite/libSQL corruption signals
   (`SQLITE_CORRUPT`, `SQLITE_NOTADB`, `database disk image is malformed`, and
   `file is not a database`) as recoverable during `opening-store` and
-  `migrating-schema`: the active profile is backed up/reset, the process lock is
-  reacquired, bootstrap is retried once, and the owner client is opened only
-  after a ready report.
+  `migrating-schema`, plus Turso-only `probing-capabilities`: the active
+  profile is backed up/reset, the process lock is reacquired, bootstrap is
+  retried once, and the owner client is opened only after a ready report.
 - The Turso owner client exposes read-only QoS snapshots for its exclusive
   operation queue: active operation, queued operations, slow queued operation
   count, and queued/started/completed/failed totals. Desktop

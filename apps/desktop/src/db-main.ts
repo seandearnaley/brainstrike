@@ -1063,14 +1063,23 @@ function recordInitializationSuccess(): void {
   mutableState.lastInitializationFailure = null;
 }
 
-function shouldRecoverAfterBootstrapProbeFailure(report: {
-  readonly bootstrapReport: ProfileBootstrapReport;
-}): boolean {
+function shouldRecoverAfterBootstrapProbeFailure(
+  report: {
+    readonly bootstrapReport: ProfileBootstrapReport;
+  },
+  options: { readonly recoverCapabilityProbeCorruption?: boolean } = {}
+): boolean {
   const failure = report.bootstrapReport.failure;
   if (!failure) {
     return false;
   }
-  if (!(failure.phase === 'opening-store' || failure.phase === 'migrating-schema')) {
+  if (
+    !(
+      failure.phase === 'opening-store' ||
+      failure.phase === 'migrating-schema' ||
+      (options.recoverCapabilityProbeCorruption && failure.phase === 'probing-capabilities')
+    )
+  ) {
     return false;
   }
   return isCorruptionError({
@@ -1660,7 +1669,9 @@ async function runTursoProfileBootstrapWithRecovery(
   if (
     !capabilityProbeReport.bootstrapReport.ready &&
     input.retryAfterCorruption &&
-    shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport)
+    shouldRecoverAfterBootstrapProbeFailure(capabilityProbeReport, {
+      recoverCapabilityProbeCorruption: true,
+    })
   ) {
     recordInitializationFailure('open-database', capabilityProbeReport.bootstrapReport.failure);
     await attemptCorruptionRecovery('turso profile bootstrap');

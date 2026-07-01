@@ -588,6 +588,37 @@ describe('initializeMainDatabase', () => {
     expect(PGliteMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not recover PGlite corruption reported while probing capabilities', async () => {
+    existsSyncMock.mockReturnValue(true);
+    runPgliteBootstrapCapabilityProbeMock
+      .mockResolvedValueOnce(
+        createFailedBootstrapProbeReport({
+          message: 'invalid page in block 7',
+          phase: 'probing-capabilities',
+        })
+      )
+      .mockResolvedValueOnce(createReadyBootstrapProbeReport());
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(result).toMatchObject({
+      bootstrapReport: {
+        phase: 'failed',
+        ready: false,
+        runtime: { engine: 'pglite' },
+      },
+      capabilities: { liveQuery: true },
+      initialized: false,
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledTimes(1);
+    expect(rmSyncMock).not.toHaveBeenCalledWith('/mock/userData/profiles/test', {
+      recursive: true,
+      force: true,
+    });
+    expect(PGliteMock).not.toHaveBeenCalled();
+  });
+
   it('recovers a corrupt Turso bootstrap before opening the owner client', async () => {
     process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
     existsSyncMock.mockReturnValue(true);
@@ -635,9 +666,37 @@ describe('initializeMainDatabase', () => {
     runTursoProfileBootstrapMock
       .mockResolvedValueOnce(
         createFailedTursoProfileBootstrapReport({
-          code: 'SQLITE_NOTADB',
           message: 'file is not a database',
           phase: 'opening-store',
+        })
+      )
+      .mockResolvedValueOnce(createReadyTursoProfileBootstrapReport());
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(result.initialized).toBe(true);
+    expect(result.bootstrapReport).toMatchObject({
+      phase: 'ready',
+      ready: true,
+      runtime: { engine: 'turso' },
+    });
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledTimes(2);
+    expect(rmSyncMock).toHaveBeenCalledWith('/mock/userData/profiles/test', {
+      recursive: true,
+      force: true,
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers Turso corruption reported while probing capabilities', async () => {
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    existsSyncMock.mockReturnValue(true);
+    runTursoProfileBootstrapMock
+      .mockResolvedValueOnce(
+        createFailedTursoProfileBootstrapReport({
+          message: 'database disk image is malformed',
+          phase: 'probing-capabilities',
         })
       )
       .mockResolvedValueOnce(createReadyTursoProfileBootstrapReport());
@@ -841,7 +900,6 @@ function createFailedBootstrapProbeReport(input: {
 }
 
 function createFailedTursoProfileBootstrapReport(input: {
-  readonly code?: string;
   readonly message: string;
   readonly phase: 'opening-store' | 'migrating-schema' | 'probing-capabilities';
 }) {
@@ -863,7 +921,7 @@ function createFailedTursoProfileBootstrapReport(input: {
       ...readyReport.bootstrapReport,
       checks,
       failure: {
-        code: input.code ?? 'SQLITE_CORRUPT',
+        code: 'turso_profile_bootstrap_failed',
         message: input.message,
         phase: input.phase,
         timestamp: '2026-06-22T00:00:00.500Z',
