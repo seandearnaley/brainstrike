@@ -32,9 +32,14 @@ import type { FileImportChunkRepository, FileImportFileRecordRepository } from '
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
+type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
+
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
-const embeddingSetCache = new Map<string, { modelKey: string }>();
+const embeddingSetCache = new Map<
+  string,
+  { dimensions?: number; distance?: EmbeddingDistance; modelKey: string }
+>();
 const MODEL_CONFIG_CACHE_LIMIT = 200;
 const modelConfigCache = new Map<
   string,
@@ -113,8 +118,12 @@ function getModelKeyVariants(
   return Array.from(variants).filter((value) => value.trim().length > 0);
 }
 
-function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
-  embeddingSetCache.set(targetSetId, { modelKey });
+function cacheEmbeddingSet(
+  targetSetId: string,
+  modelKey: string,
+  metadata: { dimensions?: number; distance?: EmbeddingDistance } = {}
+): void {
+  embeddingSetCache.set(targetSetId, { modelKey, ...metadata });
   if (embeddingSetCache.size > EMBEDDING_SET_CACHE_LIMIT) {
     const oldestKey = embeddingSetCache.keys().next().value;
     if (oldestKey) {
@@ -211,8 +220,6 @@ interface EmbeddingConfiguration {
   targetDimension?: number;
 }
 
-type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
-
 interface ProgressHandlers {
   emit?: (progress: EnhancedImportProgress) => void;
   update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) => void;
@@ -292,6 +299,83 @@ async function resolveModelKeyFromTargetSet(
     return canonical.composite;
   } catch (error) {
     logger.warn('Failed to resolve embedding set model key', {
+      targetSetId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+interface TargetEmbeddingSetMetadata {
+  dimensions: number;
+  distance: EmbeddingDistance;
+  modelKey: string;
+}
+
+function parseTargetEmbeddingSetDimensions(value: unknown, targetSetId: string): number {
+  const dimensions = Number(value);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(`Embedding set ${targetSetId} has invalid dimensions "${String(value)}".`);
+  }
+  if (dimensions > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Embedding set ${targetSetId} dimensions ${dimensions} exceed maximum supported dimension ${MAX_EMBEDDING_DIMENSION}.`
+    );
+  }
+  return dimensions;
+}
+
+function parseTargetEmbeddingSetDistance(value: unknown, targetSetId: string): EmbeddingDistance {
+  if (value === 'cosine' || value === 'l2' || value === 'ip') {
+    return value;
+  }
+  throw new Error(`Embedding set ${targetSetId} has invalid distance "${String(value)}".`);
+}
+
+async function resolveTargetEmbeddingSetMetadata(
+  targetSetId: string,
+  sql: SqlExecutorPort | null | undefined,
+  providerHint: EmbeddingProviderType | undefined
+): Promise<TargetEmbeddingSetMetadata | undefined> {
+  if (!sql) {
+    return;
+  }
+
+  const cachedEntry = embeddingSetCache.get(targetSetId);
+  if (cachedEntry?.dimensions !== undefined && cachedEntry.distance !== undefined) {
+    return {
+      modelKey: cachedEntry.modelKey,
+      dimensions: cachedEntry.dimensions,
+      distance: cachedEntry.distance,
+    };
+  }
+
+  try {
+    const result = await sql.query<{
+      dimensions?: number | string;
+      distance?: string;
+      modelKey?: string;
+    }>(
+      'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+      [targetSetId]
+    );
+    const row = result.rows[0];
+    const fetchedModelKey = row?.modelKey;
+    if (!fetchedModelKey) {
+      return;
+    }
+
+    const canonical = canonicalizeProviderModelKey(fetchedModelKey, providerHint);
+    if (!canonical) {
+      throw new Error(`Embedding set ${targetSetId} has invalid model key "${fetchedModelKey}".`);
+    }
+
+    const dimensions = parseTargetEmbeddingSetDimensions(row.dimensions, targetSetId);
+    const distance = parseTargetEmbeddingSetDistance(row.distance, targetSetId);
+    cacheEmbeddingSet(targetSetId, canonical.composite, { dimensions, distance });
+    return { modelKey: canonical.composite, dimensions, distance };
+  } catch (error) {
+    logger.warn('Failed to resolve embedding set metadata', {
       targetSetId,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -496,6 +580,7 @@ async function insertEmbeddingSet(
 
 interface ResolvedEmbeddingModel {
   dimensionParameter?: ProviderDimensionParameter;
+  distance?: EmbeddingDistance;
   modelId?: string;
   modelKey?: string;
   provider?: EmbeddingProviderType;
@@ -516,13 +601,19 @@ async function resolveEnabledEmbeddingModel(
   ports: RunEnhancedImportPorts | undefined
 ): Promise<ResolvedEmbeddingModel> {
   const resolved = createResolvedEmbeddingModelState(config);
+  const targetMetadata =
+    !config.model && resolved.targetSetId
+      ? await resolveTargetEmbeddingSetMetadata(resolved.targetSetId, ports?.sql, config.provider)
+      : undefined;
 
-  const compositeKey = await determineCompositeModelKey(
-    config.model,
-    config.model ? undefined : (resolved.targetSetId ?? undefined),
-    ports?.sql,
-    config.provider
-  );
+  const compositeKey =
+    targetMetadata?.modelKey ??
+    (await determineCompositeModelKey(
+      config.model,
+      config.model ? undefined : (resolved.targetSetId ?? undefined),
+      ports?.sql,
+      config.provider
+    ));
 
   const parsed = parseProviderModelKey(compositeKey);
   const provider: EmbeddingProviderType = parsed?.provider ?? config.provider ?? 'local';
@@ -531,6 +622,10 @@ async function resolveEnabledEmbeddingModel(
   resolved.modelKey = compositeKey;
   resolved.modelId = modelId;
   resolved.provider = provider;
+  if (targetMetadata) {
+    resolved.targetDimension = targetMetadata.dimensions;
+    resolved.distance = targetMetadata.distance;
+  }
 
   if (config.model && resolved.targetSetId && ports?.sql) {
     const preferredRow = await ports.sql.query<{ modelKey?: string }>(
@@ -569,7 +664,9 @@ async function attachLocalModelMetadata(
 
   const modelEntry = await resolveLocalModelEntry(resolved.modelId, ports?.sql);
   assertValidDimensions(modelEntry.dimensions);
-  resolved.targetDimension = resolveConfiguredTargetDimension(config) ?? modelEntry.dimensions;
+  resolved.targetDimension =
+    resolveConfiguredTargetDimension(config) ?? resolved.targetDimension ?? modelEntry.dimensions;
+  assertValidDimensions(resolved.targetDimension);
 
   await ensureAndEmitEmbeddingSet({
     sql: ports?.sql,
@@ -597,14 +694,17 @@ async function attachHostedModelMetadata(
   );
 
   if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {
-    resolved.targetDimension = pickHostedTargetDimension(modelDefinition);
+    if (resolved.targetDimension === undefined) {
+      resolved.targetDimension = pickHostedTargetDimension(modelDefinition);
+    }
     if (modelDefinition.supportsCustomDimensions && modelDefinition.dimensionParameter) {
       resolved.dimensionParameter = modelDefinition.dimensionParameter;
     }
-  } else {
+  } else if (resolved.targetDimension === undefined) {
     resolved.targetDimension = DEFAULT_EMBEDDING_DIMENSION;
   }
   resolved.targetDimension = resolveConfiguredTargetDimension(config) ?? resolved.targetDimension;
+  assertValidDimensions(resolved.targetDimension);
 
   await ensureHostedApiKey(supported);
   await ensureAndEmitEmbeddingSet({
@@ -700,7 +800,7 @@ async function ensureAndEmitEmbeddingSet(params: {
     modelKey: resolved.modelKey,
     modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
     dimensions: resolved.targetDimension,
-    distance: 'cosine',
+    distance: resolved.distance ?? 'cosine',
     preferredId: resolved.targetSetId ?? undefined,
     provider: resolved.provider ?? 'local',
   });
@@ -829,7 +929,8 @@ function buildChunkingOptions(
     targetSetId,
   });
 
-  const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
+  const hasQueueSink = Boolean(queuePort || insertChunksAndEnqueueEmbeddingJobs);
+  const queueActive = Boolean(hasQueueSink && embedding?.enabled && embeddingModelKey);
   if (queueActive) {
     options.embedQueueEnabled = true;
   }
@@ -900,7 +1001,7 @@ function attachQueueOptions(
     targetDimension,
     dimensionParameter,
   } = params;
-  if (!queueActive || queuePort === null) {
+  if (!queueActive) {
     if (embedding?.enabled && !embeddingModelKey) {
       logger.warn('Embedding queue requested without a resolved model, skipping enqueue phase');
     }
@@ -921,6 +1022,12 @@ function attachQueueOptions(
         dimensionParameter: dimensionParameter ?? null,
       });
     return;
+  }
+
+  if (queuePort === null) {
+    throw new Error(
+      'Embedding queue requested without a queue port or atomic chunk enqueue bridge.'
+    );
   }
 
   options.enqueueJobsForChunks = (chunks, fileRecordId) =>

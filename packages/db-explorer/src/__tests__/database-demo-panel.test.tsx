@@ -210,7 +210,14 @@ let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
 let mockModelRegistryDatabaseClient: typeof mockModelRegistryDatabase | null =
   mockModelRegistryDatabase;
 let mockManualImportDatabaseClient: {
-  db: typeof mockDatabase & { exec?: (sql: string, params?: unknown[]) => Promise<unknown> };
+  db: typeof mockDatabase & {
+    exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+    insertChunksAndEnqueueEmbeddingJobs?: (
+      chunks: readonly unknown[],
+      fileRecordId: string,
+      options: unknown
+    ) => Promise<void>;
+  };
   runtimeEngine: 'pglite' | 'turso';
 } | null = { db: mockDatabase, runtimeEngine: 'pglite' };
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
@@ -928,6 +935,22 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
 
+    it('disables manual import when Turso chunking lacks the atomic chunk enqueue bridge', async () => {
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'turso' };
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+      mockCurrentChunkRepository =
+        new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+    });
+
     it('enables manual import for Turso chunk storage when chunking is disabled', async () => {
       useImportSettingsStore.getState().setEnableChunking(false);
       mockDatabaseClient = null;
@@ -976,9 +999,15 @@ describe('DatabaseDemoPanel', () => {
       expect(mockRefreshCollectionIndexingStats).not.toHaveBeenCalled();
     });
 
-    it('passes Turso chunk storage to semantic search while keeping manual import disabled', async () => {
+    it('passes Turso chunk storage to semantic search and keeps manual import enabled', async () => {
       const tursoRepository =
         new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
+      const tursoManualImportDb = {
+        ...mockDatabase,
+        insertChunksAndEnqueueEmbeddingJobs: vi.fn().mockResolvedValue(undefined),
+      };
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: tursoManualImportDb, runtimeEngine: 'turso' };
       mockCurrentChunkRepository = tursoRepository;
       mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
 
@@ -988,7 +1017,7 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeEnabled();
       expect(mockUseSemanticSearchExecutor).toHaveBeenCalledWith(
         expect.objectContaining({
           chunkRepository: tursoRepository,
@@ -996,13 +1025,22 @@ describe('DatabaseDemoPanel', () => {
       );
     });
 
-    it('disables manual import for marked Turso chunk storage when class names are mangled', async () => {
+    it('enables manual import for marked Turso chunk storage when class names are mangled', async () => {
+      const tursoManualImportDb = {
+        ...mockDatabase,
+        insertChunksAndEnqueueEmbeddingJobs: vi.fn().mockResolvedValue(undefined),
+      };
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: tursoManualImportDb, runtimeEngine: 'turso' };
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
       mockCurrentChunkRepository = {
         brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
         findAll: vi.fn(),
         findByFileRecordId: vi.fn(),
         findById: vi.fn(),
+        insertMany: vi.fn(),
         searchSimilar: vi.fn(),
+        update: vi.fn(),
       } as unknown as typeof mockChunkRepository;
 
       renderWithProviders(<DatabaseDemoPanel />);
@@ -1011,7 +1049,7 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeEnabled();
     });
 
     it('attempts to call import function when import button is clicked', async () => {
