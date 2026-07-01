@@ -1535,10 +1535,184 @@ describe('TursoFileChunkRepository', () => {
     expect(results[2]?.similarity).toEqual(expect.closeTo(0.119_203, 6));
   });
 
-  it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
-    await expect(repository.fullTextSearch('answer')).rejects.toThrow(
-      'TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.'
+  it('runs indexed lexical search over Turso chunk content', async () => {
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-auth',
+        name: 'auth.ts',
+        path: 'src/auth.ts',
+      })
     );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-avatar',
+        name: 'avatar.ts',
+        path: 'src/avatar.ts',
+      })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkType: 'code',
+        content:
+          'export function authenticateLoginToken() { return "<script> login authentication"; }',
+        fileRecordId: 'file-auth',
+        id: 'chunk-auth',
+      }),
+      createChunk({
+        chunkType: 'code',
+        content: 'export function renderAvatar() { return "profile image"; }',
+        fileRecordId: 'file-avatar',
+        id: 'chunk-avatar',
+      }),
+    ]);
+
+    const results = await repository.fullTextSearch('authentication login', {
+      chunkType: 'code',
+      filePaths: ['src/auth.ts'],
+      includeHeadline: true,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        chunk: expect.objectContaining({
+          fileRecordId: 'file-auth',
+          id: 'chunk-auth',
+        }),
+        headline: expect.stringContaining('<mark>authentication</mark>'),
+        position: 1,
+        rank: expect.any(Number),
+      }),
+    ]);
+    expect(results[0]?.chunk.embedding).toBeUndefined();
+    expect(results[0]?.headline).toContain('&lt;script&gt;');
+    expect(results[0]?.headline).not.toContain('<script>');
+  });
+
+  it('scopes Turso lexical search to the requested embedding set', async () => {
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-auth-a',
+        name: 'auth-a.ts',
+        path: 'src/auth-a.ts',
+      })
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-b',
+        id: 'file-auth-b',
+        name: 'auth-b.ts',
+        path: 'src/auth-b.ts',
+      })
+    );
+    await repository.insertMany([
+      createChunk({
+        content: 'shared authentication login result',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-auth-a',
+        id: 'chunk-auth-a',
+      }),
+      createChunk({
+        content: 'shared authentication login result',
+        embeddingSetId: 'set-b',
+        fileRecordId: 'file-auth-b',
+        id: 'chunk-auth-b',
+      }),
+    ]);
+
+    const results = await repository.fullTextSearch('authentication login', {
+      embeddingSetId: 'set-a',
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results.map((result) => result.chunk.id)).toEqual(['chunk-auth-a']);
+  });
+
+  it('preserves embedding dimensions for Turso lexical results without embedding payloads', async () => {
+    const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
+      'test:fts-dimensions',
+      'fts dimensions',
+      3,
+      'cosine'
+    );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: embeddingSet.id,
+        id: 'file-fts-dimensions',
+        name: 'fts-dimensions.ts',
+        path: 'src/fts-dimensions.ts',
+      })
+    );
+    await repository.insert(
+      createChunk({
+        content: 'lexical dimensions authentication',
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-fts-dimensions',
+        id: 'chunk-fts-dimensions',
+      })
+    );
+
+    const results = await repository.fullTextSearch('lexical dimensions', {
+      embeddingSetId: embeddingSet.id,
+      includeEmbedding: false,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        chunk: expect.objectContaining({
+          embeddingDimensions: 3,
+          id: 'chunk-fts-dimensions',
+        }),
+      }),
+    ]);
+    expect(results[0]?.chunk.embedding).toBeUndefined();
+  });
+
+  it('keeps default websearch parsing lenient for natural language and partial quotes', async () => {
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-errors',
+        name: 'errors.ts',
+        path: 'src/errors.ts',
+      })
+    );
+    await repository.insertMany([
+      createChunk({
+        content: 'error found in authentication login',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-errors',
+        id: 'chunk-found',
+      }),
+      createChunk({
+        content: 'error missing from authentication',
+        embeddingSetId: 'set-a',
+        fileRecordId: 'file-errors',
+        id: 'chunk-missing',
+      }),
+    ]);
+
+    const naturalLanguageResults = await repository.fullTextSearch('error not found', {
+      embeddingSetId: 'set-a',
+      limit: 5,
+      threshold: 0,
+    });
+    const partialQuoteResults = await repository.fullTextSearch('authentication "login', {
+      embeddingSetId: 'set-a',
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(naturalLanguageResults.map((result) => result.chunk.id)).toEqual(['chunk-found']);
+    expect(partialQuoteResults.map((result) => result.chunk.id)).toEqual(['chunk-found']);
   });
 });
 

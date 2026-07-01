@@ -82,6 +82,7 @@ interface TursoFileChunkRow {
   readonly content_hash: string | null;
   readonly created_at: string;
   readonly embedding: ArrayBuffer | Uint8Array | string | null;
+  readonly embedding_dims?: number | string | null;
   readonly embedding_hash: string | null;
   readonly embedding_set_id: string | null;
   readonly embedding_updated_at: string | null;
@@ -99,6 +100,11 @@ interface TursoFileChunkSearchRow extends TursoFileChunkRow {
   readonly distance: number | string;
   readonly rank: number | string;
   readonly similarity: number | string;
+}
+
+interface TursoFileChunkFtsRow extends TursoFileChunkRow {
+  readonly fts_rank: number | string;
+  readonly position: number | string;
 }
 
 interface TursoStatsRow {
@@ -145,6 +151,13 @@ interface TursoGrepCandidateRow {
 interface TursoEmbeddingSetSearchConfigRow {
   readonly dimensions: number | string | null;
   readonly distance: string | null;
+}
+
+interface TursoLexicalSearchPlan {
+  readonly excludedTerms: readonly string[];
+  readonly grams: readonly string[];
+  readonly groups: ReadonlyArray<readonly string[]>;
+  readonly headlineTerms: readonly string[];
 }
 
 export interface TursoEmbeddingBackfillCandidate {
@@ -434,11 +447,123 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       .slice(0, limit);
   }
 
-  async fullTextSearch(
-    _query: string,
-    _options: FTSSearchOptions = {}
-  ): Promise<FTSSearchResult[]> {
-    throw new Error('TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.');
+  async fullTextSearch(query: string, options: FTSSearchOptions = {}): Promise<FTSSearchResult[]> {
+    const {
+      chunkType,
+      embeddingSetId,
+      filePaths,
+      fileRecordId,
+      includeEmbedding = false,
+      includeHeadline = true,
+      language = 'english',
+      limit = 10,
+      queryMode = 'websearch',
+      rankNormalization = 0,
+      selectionSnapshotId,
+      threshold = 0,
+    } = options;
+
+    if (language !== 'english') {
+      throw new Error(
+        `Turso lexical fullTextSearch supports only the default english language, received ${language}.`
+      );
+    }
+    if (rankNormalization !== 0) {
+      throw new Error(
+        `Turso lexical fullTextSearch does not support PostgreSQL rankNormalization (${rankNormalization}).`
+      );
+    }
+
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    const boundedLimit = readPositiveInteger(limit, 'fullTextSearch limit');
+    const minimumRank = readFiniteNumber(threshold, 'fullTextSearch threshold');
+    const normalizedFilePaths = normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+    const searchPlan = buildTursoLexicalSearchPlan(trimmedQuery, queryMode);
+    if (searchPlan.grams.length === 0) {
+      return [];
+    }
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    appendTursoLexicalSearchConditions(conditions, params, searchPlan);
+    if (embeddingSetId !== undefined) {
+      conditions.push(
+        '(fc.embedding_set_id = ? OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id = ?))'
+      );
+      params.push(embeddingSetId, embeddingSetId);
+    }
+    appendOptionalCondition(conditions, params, 'fc.file_record_id', fileRecordId);
+    appendOptionalCondition(conditions, params, 'fc.chunk_type', chunkType);
+    if (normalizedFilePaths) {
+      conditions.push(`fr.path IN (${createPlaceholders(normalizedFilePaths.length)})`);
+      params.push(...normalizedFilePaths);
+    }
+    if (normalizedSnapshotId) {
+      conditions.push(`EXISTS (
+          SELECT 1
+            FROM selection_snapshot_files ssf
+            JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id
+           WHERE ssf.snapshot_id = ?
+             AND ssf.file_path = fr.path
+             AND (ss.expires_at IS NULL OR ss.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        )`);
+      params.push(normalizedSnapshotId);
+    }
+
+    const requestedGrams = searchPlan.grams.map(() => '(?)').join(', ');
+    const result = await this.db.query<TursoFileChunkFtsRow>(
+      `WITH requested_grams(gram) AS (VALUES ${requestedGrams}),
+       candidate_chunks AS (
+         SELECT gc.file_chunk_id,
+                COUNT(DISTINCT gc.gram) AS matched_grams
+           FROM file_chunk_content_grams gc
+           JOIN requested_grams rg ON rg.gram = gc.gram
+          WHERE gc.case_sensitive = 0
+          GROUP BY gc.file_chunk_id
+       ),
+       scored_chunks AS (
+         SELECT ${prefixFileChunkColumns(
+           'fc',
+           includeEmbedding,
+           'CASE WHEN fc.embedding IS NULL THEN NULL ELSE es.dimensions END'
+         )},
+                (
+                  (CAST(candidate_chunks.matched_grams AS REAL) / ?)
+                  + (1.0 / (1.0 + (length(fci.normalized_content) / 1000.0)))
+                ) AS fts_rank
+           FROM candidate_chunks
+           JOIN file_chunk_content_index fci ON fci.file_chunk_id = candidate_chunks.file_chunk_id
+           JOIN file_chunks fc ON fc.id = candidate_chunks.file_chunk_id
+           JOIN file_records fr ON fr.id = fc.file_record_id
+           LEFT JOIN embedding_sets es ON es.id = COALESCE(fc.embedding_set_id, fr.embedding_set_id)
+          WHERE ${conditions.join(' AND ')}
+       )
+       SELECT *,
+              ROW_NUMBER() OVER (ORDER BY fts_rank DESC, id ASC) AS position
+         FROM scored_chunks
+        WHERE fts_rank >= ?
+        ORDER BY fts_rank DESC, id ASC
+        LIMIT ?`,
+      [...searchPlan.grams, searchPlan.grams.length, ...params, minimumRank, boundedLimit]
+    );
+
+    return result.rows.map((row) =>
+      mapRowToFTSResult(row, {
+        headlineTerms: searchPlan.headlineTerms,
+        includeHeadline,
+      })
+    );
   }
 
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
@@ -1121,21 +1246,32 @@ function buildInsertValueSql(chunk: FileChunkInsert): string {
   }).join(', ')})`;
 }
 
-function buildFileChunkProjection(tableAlias?: string, includeEmbeddingPayload = true): string {
+function buildFileChunkProjection(
+  tableAlias?: string,
+  includeEmbeddingPayload = true,
+  embeddingDimsExpression?: string
+): string {
   return FILE_CHUNK_COLUMN_NAMES.map((column) => {
     const qualifiedColumn = tableAlias ? `${tableAlias}.${column}` : column;
     if (column !== 'embedding') {
       return qualifiedColumn;
     }
     if (!includeEmbeddingPayload) {
+      if (embeddingDimsExpression) {
+        return `NULL AS embedding, ${embeddingDimsExpression} AS embedding_dims`;
+      }
       return 'NULL AS embedding';
     }
     return qualifiedColumn;
   }).join(', ');
 }
 
-function prefixFileChunkColumns(tableAlias: string, includeEmbeddingPayload = true): string {
-  return buildFileChunkProjection(tableAlias, includeEmbeddingPayload);
+function prefixFileChunkColumns(
+  tableAlias: string,
+  includeEmbeddingPayload = true,
+  embeddingDimsExpression?: string
+): string {
+  return buildFileChunkProjection(tableAlias, includeEmbeddingPayload, embeddingDimsExpression);
 }
 
 async function resolveTursoDistanceConfig(
@@ -1190,6 +1326,183 @@ function normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined
   return Array.from(new Set(trimmed));
 }
 
+function buildTursoLexicalSearchPlan(
+  query: string,
+  queryMode: FTSSearchOptions['queryMode']
+): TursoLexicalSearchPlan {
+  if (queryMode === 'phrase') {
+    return buildTursoLexicalSearchPlanFromGroups([[normalizeGrepContentText(query)]], []);
+  }
+  if (queryMode === 'plain') {
+    return buildTursoLexicalSearchPlanFromGroups([tokenizePlainLexicalQuery(query)], []);
+  }
+  if (queryMode === 'websearch' || queryMode === undefined) {
+    return parseTursoWebsearchLexicalQuery(query);
+  }
+  throw new Error(`Unsupported Turso fullTextSearch queryMode: ${String(queryMode)}`);
+}
+
+function parseTursoWebsearchLexicalQuery(query: string): TursoLexicalSearchPlan {
+  const tokens = tokenizeWebsearchLexicalQuery(query);
+  const groups: string[][] = [[]];
+  const excludedTerms: string[] = [];
+  let excludeNext = false;
+
+  for (const token of tokens) {
+    const upperValue = token.quoted ? '' : token.value.toUpperCase();
+    if (upperValue === 'OR') {
+      groups.push([]);
+      excludeNext = false;
+      continue;
+    }
+
+    let value = token.value;
+    let excluded = excludeNext;
+    excludeNext = false;
+    if (value.startsWith('-')) {
+      excluded = true;
+      value = value.slice(1);
+    }
+    const normalized = normalizeGrepContentText(value.trim());
+    if (!normalized) {
+      continue;
+    }
+    if (!token.quoted && isEnglishWebsearchStopWord(normalized)) {
+      continue;
+    }
+    if (excluded) {
+      excludedTerms.push(normalized);
+      continue;
+    }
+    groups.at(-1)?.push(normalized);
+  }
+
+  return buildTursoLexicalSearchPlanFromGroups(groups, excludedTerms);
+}
+
+function isEnglishWebsearchStopWord(value: string): boolean {
+  return value === 'and' || value === 'not';
+}
+
+function tokenizePlainLexicalQuery(query: string): readonly string[] {
+  return query
+    .split(/\s+/)
+    .map((token) => normalizeGrepContentText(token.trim()))
+    .filter((token) => token.length > 0);
+}
+
+function tokenizeWebsearchLexicalQuery(query: string): readonly TursoWebsearchToken[] {
+  const tokens: Array<{ quoted: boolean; value: string }> = [];
+  let current = '';
+  let quoted = false;
+  let quotePrefix = '';
+
+  for (const char of query) {
+    if (char === '"') {
+      if (quoted) {
+        appendWebsearchToken(tokens, current, true, quotePrefix);
+        current = '';
+        quoted = false;
+        quotePrefix = '';
+        continue;
+      }
+      const pendingToken = current.trim();
+      if (pendingToken === '-') {
+        quotePrefix = '-';
+      } else if (pendingToken) {
+        appendWebsearchToken(tokens, pendingToken, false);
+      }
+      current = '';
+      quoted = true;
+      continue;
+    }
+    if (!quoted && /\s/.test(char)) {
+      appendWebsearchToken(tokens, current, false);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  appendWebsearchToken(tokens, current, quoted, quotePrefix);
+
+  return tokens;
+}
+
+interface TursoWebsearchToken {
+  readonly quoted: boolean;
+  readonly value: string;
+}
+
+function appendWebsearchToken(
+  tokens: TursoWebsearchToken[],
+  value: string,
+  quoted: boolean,
+  quotePrefix = ''
+): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return;
+  }
+  tokens.push({ quoted, value: `${quotePrefix}${trimmed}` });
+}
+
+function buildTursoLexicalSearchPlanFromGroups(
+  groups: ReadonlyArray<readonly string[]>,
+  excludedTerms: readonly string[]
+): TursoLexicalSearchPlan {
+  const positiveGroups = groups
+    .map((group) => uniqueNonEmptyTerms(group))
+    .filter((group) => group.length > 0);
+  if (positiveGroups.length === 0) {
+    return { excludedTerms: [], grams: [], groups: [], headlineTerms: [] };
+  }
+
+  const headlineTerms = uniqueNonEmptyTerms(positiveGroups.flat()).sort(
+    (left, right) => right.length - left.length
+  );
+  const grams = [
+    ...new Set(headlineTerms.flatMap((term) => createGrepContentCandidateGrams(term, false))),
+  ].sort();
+
+  return {
+    excludedTerms: uniqueNonEmptyTerms(excludedTerms),
+    grams,
+    groups: positiveGroups,
+    headlineTerms,
+  };
+}
+
+function uniqueNonEmptyTerms(terms: readonly string[]): string[] {
+  const unique = new Set<string>();
+  for (const term of terms) {
+    const normalized = term.trim();
+    if (normalized) {
+      unique.add(normalized);
+    }
+  }
+  return [...unique];
+}
+
+function appendTursoLexicalSearchConditions(
+  conditions: string[],
+  params: unknown[],
+  searchPlan: TursoLexicalSearchPlan
+): void {
+  const groupClauses: string[] = [];
+  for (const group of searchPlan.groups) {
+    const termClauses = group.map(() => 'instr(fci.normalized_content, ?) > 0');
+    groupClauses.push(`(${termClauses.join(' AND ')})`);
+    params.push(...group);
+  }
+  conditions.push(`(${groupClauses.join(' OR ')})`);
+
+  for (const excludedTerm of searchPlan.excludedTerms) {
+    conditions.push('instr(fci.normalized_content, ?) = 0');
+    params.push(excludedTerm);
+  }
+}
+
 function mapRowToSearchResult(
   row: TursoFileChunkSearchRow,
   config: {
@@ -1216,6 +1529,27 @@ function mapRowToSearchResult(
       `Turso vector search similarity for chunk ${row.id}`
     ),
   };
+}
+
+function mapRowToFTSResult(
+  row: TursoFileChunkFtsRow,
+  options: {
+    readonly headlineTerms: readonly string[];
+    readonly includeHeadline: boolean;
+  }
+): FTSSearchResult {
+  const result: FTSSearchResult = {
+    chunk: mapRowToChunk(row),
+    position: readPositiveInteger(
+      row.position,
+      `Turso fullTextSearch position for chunk ${row.id}`
+    ),
+    rank: readFiniteNumber(row.fts_rank, `Turso fullTextSearch rank for chunk ${row.id}`),
+  };
+  if (options.includeHeadline) {
+    result.headline = buildTursoLexicalHeadline(row.content, options.headlineTerms);
+  }
+  return result;
 }
 
 function omitEmbeddingPayload(chunk: FileChunk, dimension: number): FileChunk {
@@ -1391,6 +1725,11 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     `file chunk ${row.id} chunk_size`
   );
   const embedding = decodeEmbeddingBlob(row.embedding, row.id);
+  const embeddingDimensions = resolveTursoEmbeddingDimensions(
+    embedding,
+    row.embedding_dims,
+    `file chunk ${row.id} embedding_dims`
+  );
   return {
     chunkIndex: readNonNegativeInteger(row.chunk_index, `file chunk ${row.id} chunk_index`),
     chunkSize,
@@ -1398,7 +1737,8 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     content: row.content,
     contentHash,
     createdAt: row.created_at,
-    ...(embedding && { embedding, embeddingDimensions: embedding.length }),
+    ...(embedding && { embedding }),
+    ...(embeddingDimensions !== undefined && { embeddingDimensions }),
     ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),
     ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
     ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
@@ -1419,6 +1759,20 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     tokenCount,
     updatedAt: row.updated_at,
   };
+}
+
+function resolveTursoEmbeddingDimensions(
+  embedding: readonly number[] | undefined,
+  projectedDims: number | string | null | undefined,
+  fieldName: string
+): number | undefined {
+  if (embedding) {
+    return embedding.length;
+  }
+  if (projectedDims === null || projectedDims === undefined) {
+    return;
+  }
+  return readPositiveInteger(projectedDims, fieldName);
 }
 
 function encodeEmbeddingVectorParam(embedding: readonly number[] | undefined): string | null {
@@ -1576,6 +1930,75 @@ function unescapeLikeLiteral(likePattern: string): string {
     literal += char;
   }
   return escaping ? `${literal}\\` : literal;
+}
+
+function buildTursoLexicalHeadline(content: string, terms: readonly string[]): string {
+  const uniqueTerms = uniqueNonEmptyTerms(terms);
+  if (uniqueTerms.length === 0) {
+    return escapeHtml(sliceHeadlineWindow(content, 0));
+  }
+
+  const normalizedContent = normalizeGrepContentText(content);
+  const firstMatchIndex = uniqueTerms.reduce<number | null>((earliest, term) => {
+    const index = normalizedContent.indexOf(term);
+    if (index === -1) {
+      return earliest;
+    }
+    return earliest === null ? index : Math.min(earliest, index);
+  }, null);
+  const snippet = sliceHeadlineWindow(content, firstMatchIndex ?? 0);
+  return highlightEscapedSnippet(snippet, uniqueTerms);
+}
+
+function sliceHeadlineWindow(content: string, matchIndex: number): string {
+  const maxLength = 240;
+  if (content.length <= maxLength) {
+    return content;
+  }
+  const halfWindow = Math.floor(maxLength / 2);
+  const start = Math.max(0, matchIndex - halfWindow);
+  const end = Math.min(content.length, start + maxLength);
+  const prefix = start > 0 ? '...' : '';
+  const suffix = end < content.length ? '...' : '';
+  return `${prefix}${content.slice(start, end)}${suffix}`;
+}
+
+function highlightEscapedSnippet(snippet: string, terms: readonly string[]): string {
+  const escapedPatterns = terms
+    .map((term) => escapeRegExp(term))
+    .sort((left, right) => right.length - left.length);
+  if (escapedPatterns.length === 0) {
+    return escapeHtml(snippet);
+  }
+
+  const pattern = new RegExp(escapedPatterns.join('|'), 'gi');
+  let cursor = 0;
+  let highlighted = '';
+  for (const match of snippet.matchAll(pattern)) {
+    const matchText = match[0];
+    if (!matchText) {
+      continue;
+    }
+    const index = match.index ?? 0;
+    highlighted += escapeHtml(snippet.slice(cursor, index));
+    highlighted += `<mark>${escapeHtml(matchText)}</mark>`;
+    cursor = index + matchText.length;
+  }
+  highlighted += escapeHtml(snippet.slice(cursor));
+  return highlighted;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function readNullableFiniteNumber(

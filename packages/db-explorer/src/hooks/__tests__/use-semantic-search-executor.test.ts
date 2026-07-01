@@ -535,14 +535,19 @@ describe('useSemanticSearchExecutor', () => {
     expect(fullTextSearch).not.toHaveBeenCalled();
   });
 
-  it('fails explicitly instead of downgrading Turso hybrid search to vector search', async () => {
+  it('runs Turso hybrid search through vector and FTS repository sources', async () => {
     mockDbClient = null;
-    mockEmbeddingSetsRepository.getById.mockRejectedValue(
-      new Error('Turso hybrid mode should fail before resolving model metadata')
-    );
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(createMockEmbeddingSet());
     const chunk = createMockChunk('chunk-1', 'file-1');
     const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.82, rank: 1 }]);
-    const fullTextSearch = vi.fn().mockRejectedValue(new Error('Turso FTS is not migrated'));
+    const fullTextSearch = vi.fn().mockResolvedValue([
+      {
+        chunk,
+        headline: '<mark>turso</mark> hybrid query',
+        position: 1,
+        rank: 0.91,
+      },
+    ]);
     const tursoChunkRepo = {
       brainstrikeRepositoryKind: 'brainstrike:turso-file-chunk-repository',
       searchSimilar,
@@ -564,12 +569,28 @@ describe('useSemanticSearchExecutor', () => {
         createSearchConfig({ retrievalMode: 'hybrid' }),
         'set-1'
       )
-    ).rejects.toThrow('Turso hybrid search requires the Turso FTS search slice. Use Vector mode.');
+    ).resolves.toEqual([
+      expect.objectContaining({
+        chunkId: 'chunk-1',
+        embeddingSetId: 'set-1',
+        fileRecordId: 'file-1',
+        ftsRank: 0.91,
+        headline: '<mark>turso</mark> hybrid query',
+        sourceCount: 2,
+        vectorSimilarity: 0.82,
+      }),
+    ]);
 
-    expect(mockEmbeddingSetsRepository.getById).not.toHaveBeenCalled();
-    expect(MockSimpleEmbeddingService).not.toHaveBeenCalled();
-    expect(searchSimilar).not.toHaveBeenCalled();
-    expect(fullTextSearch).not.toHaveBeenCalled();
+    expect(mockDb.query).not.toHaveBeenCalled();
+    expect(mockEmbeddingSetsRepository.getById).toHaveBeenCalledWith('set-1');
+    expect(searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ embeddingSetId: 'set-1', includeEmbedding: false })
+    );
+    expect(fullTextSearch).toHaveBeenCalledWith(
+      'turso hybrid query',
+      expect.objectContaining({ embeddingSetId: 'set-1', includeHeadline: false })
+    );
   });
 
   it('retries local embedder initialization after an earlier failure for the same model', async () => {

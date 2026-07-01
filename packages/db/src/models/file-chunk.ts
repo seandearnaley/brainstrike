@@ -115,6 +115,8 @@ export type FTSQueryMode = 'plain' | 'websearch' | 'phrase';
 export interface FTSSearchOptions {
   /** Filter by chunk type */
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
+  /** Optional embedding-set scope. Hybrid search passes this to keep lexical and vector sources aligned. */
+  embeddingSetId?: string;
   /** Optional allowlist of file paths to scope results */
   filePaths?: readonly string[];
   /** Filter by specific file record ID */

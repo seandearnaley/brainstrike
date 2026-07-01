@@ -241,6 +241,7 @@ export class HybridSearchService {
     }
 
     const ftsSearchOptions: FTSSearchOptions = {
+      embeddingSetId,
       limit: ftsLimit,
       threshold: ftsThreshold,
       queryMode: ftsQueryMode,

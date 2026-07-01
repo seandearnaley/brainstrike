@@ -7,8 +7,10 @@ The Turso capability spike is ready for the next migration phase only if Brainst
 This readiness is a capability and planning checkpoint. The current migration
 branch now exposes the selected search ownership mode in the Turso bootstrap
 report and has primary-store implementations for bounded grep candidates and
-native vector similarity. It does not mean FTS snippets or hybrid search are
-implemented yet.
+native vector similarity. It also has a primary-store lexical implementation
+for repository `fullTextSearch()` that can feed hybrid search without native
+Turso FTS custom indexes. It does not mean Tantivy/native FTS snippets or
+ranking are implemented in the primary store.
 
 The verified capabilities are:
 
@@ -35,7 +37,10 @@ Do not silently replace indexed search with an unbounded scan. If a search index
 ## Migration Touchpoints
 
 - `packages/db/src/bootstrap/turso-capability-spike.ts`: source of truth for current Turso runtime capability evidence.
-- `packages/db/src/search/hybrid-search-service.ts`: currently models FTS and vector as repository-provided sources; keep this shape, but Turso repositories must report whether FTS snippets/ranking are available.
+- `packages/db/src/search/hybrid-search-service.ts`: currently models lexical
+  and vector sources as repository-provided inputs; keep this shape, but Turso
+  repositories must be explicit about whether they provide primary-store lexical
+  scoring or native Tantivy FTS ranking/snippets.
 - `packages/db/src/search/grep-search-service.ts`: current PGlite path relies on trigram candidate prefilter plus authoritative JavaScript matching. Turso must provide an indexed candidate source or expose bounded scan limits explicitly.
 - `packages/db/src/repositories/drizzle/*`: current repositories are Postgres/PGlite Drizzle shaped. Turso will need dialect-specific repositories rather than SQL string compatibility.
 - `packages/db/src/drizzle/migrate.ts`: current migration runner is PGlite/Postgres specific. Turso migration work should add a separate migration ledger instead of forcing existing generated SQL through libSQL.
@@ -52,6 +57,8 @@ ready Turso report:
 - `search.vector32-functions` for native `vector32(?)` similarity retrieval.
 
 Desktop assistant grep and semantic vector retrieval are routed through those
-proofs. FTS snippets and hybrid retrieval remain split-index work: do not route
-them through Turso until their owning search store and capability checks are
-implemented.
+proofs. Hybrid retrieval can use the repository lexical source backed by
+`file_chunk_content_grams` and `file_chunk_content_index`, which satisfies the
+"Turso-compatible non-FTS search implementation" ownership path above. Do not
+route native Tantivy FTS through the primary MVCC store until a split
+search-index owner or a future MVCC-compatible Turso FTS runtime is proven.

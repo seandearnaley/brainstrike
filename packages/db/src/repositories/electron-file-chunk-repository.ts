@@ -492,6 +492,7 @@ export class ElectronFileChunkRepository {
       threshold = 0,
       fileRecordId,
       chunkType,
+      embeddingSetId,
       filePaths,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -527,6 +528,13 @@ export class ElectronFileChunkRepository {
       `content_tsvector @@ ${tsqueryFunc}($1::regconfig, $2)`,
     ];
 
+    paramIndex = this.appendFilterClause(
+      whereParts,
+      params,
+      paramIndex,
+      embeddingSetId,
+      'embedding_set_id'
+    );
     paramIndex = this.appendFilterClause(
       whereParts,
       params,
