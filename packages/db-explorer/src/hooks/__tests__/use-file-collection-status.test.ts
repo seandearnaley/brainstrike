@@ -250,6 +250,20 @@ describe('useFileCollectionStatus', () => {
         },
       ]);
     });
+
+    it('uses storage-neutral error copy when no file status backend is available', async () => {
+      useOptionalPGliteDatabaseMock.mockReturnValue(null);
+      useFileRecordRepositoryMock.mockReturnValue({});
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      await expect(result.current.getFileStatus(['file-1'])).rejects.toThrow(
+        'File collection status requires live query support or repository status snapshots.'
+      );
+      await expect(result.current.getFileStatus(['file-1'])).rejects.not.toThrow(
+        'PGlite live query support'
+      );
+    });
   });
 
   describe('Hook re-renders', () => {
