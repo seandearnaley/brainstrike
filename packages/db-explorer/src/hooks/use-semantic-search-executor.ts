@@ -17,7 +17,6 @@ import type {
 import {
   createHybridSearchService,
   DEFAULT_HYBRID_SOURCE_LIMIT,
-  isTursoFileChunkRepository,
   normalizeRRFScores,
   useBrainstrikeDbClient,
   useEmbeddingSetsRepository,
@@ -756,12 +755,6 @@ export function useSemanticSearchExecutor({
         resultLimit: clampResultLimit(config.resultLimit),
       };
       const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
-
-      if (retrievalMode === 'hybrid' && isTursoFileChunkRepository(chunkRepository)) {
-        throw new Error(
-          'Turso hybrid search requires the Turso FTS search slice. Use Vector mode.'
-        );
-      }
 
       // Get model info for the embedding set
       logger.info('Getting model info for embedding set...');

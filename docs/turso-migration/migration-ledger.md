@@ -289,8 +289,8 @@ Many UI blockers are now centralized at the shared DB provider layer:
 
 Remaining provider work: add a generic execution-client hook with capability
 metadata so callers stop treating "raw DB handle" as "PGlite". Vector, FTS, and
-grep methods on the chunk repository remain explicitly unsupported until their
-search slices land.
+grep methods on the chunk repository must stay capability-gated by the concrete
+repository and bootstrap proofs instead of a raw database-handle assumption.
 
 ### 2. UI Snapshot Replacements For Live Queries
 
@@ -321,9 +321,10 @@ by `(gram, file_record_id)` plus a `file_record_name_index` normalized-name
 sidecar: the gram index produces candidates, SQLite's `instr` applies the exact
 substring guard, and ordering remains the same shortest-name-then-path ordering
 used by the PGlite query. Schema upgrades backfill both sidecar tables from
-existing `file_records`. This is intentionally not a general FTS replacement;
-grep, full-text snippets, and hybrid search still need the split search-index
-work below.
+existing `file_records`. This is intentionally not a general native-FTS
+replacement; grep and hybrid search now use primary-store gram indexes, while a
+separate native FTS search-index store remains a future option if Tantivy
+ranking/snippet semantics become required.
 
 ### 3. Background Indexing And Embedding Host
 
@@ -399,16 +400,22 @@ Concrete status:
   primitives (`vector_distance_cos`, `vector_distance_l2`, `vector_distance_dot`),
   preserves the PGlite similarity formulas, and supports embedding-set, root,
   file-record, chunk-type, inline file-path, and selection-snapshot filters.
-- `TursoFileChunkRepository.fullTextSearch()` still throws until the Turso FTS
-  slice lands.
+- `TursoFileChunkRepository.fullTextSearch()` now provides a Turso-compatible
+  lexical source for hybrid search and DB Explorer search by querying
+  `file_chunk_content_grams` plus `file_chunk_content_index`. It is not native
+  Tantivy FTS: it uses indexed gram candidates, exact normalized substring
+  checks, deterministic relevance scoring, optional HTML-escaped `<mark>`
+  snippets, and explicit errors for unsupported PostgreSQL-only language or
+  rank-normalization options.
 
 Preferred implementation order:
 
 1. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
    and bootstrap reports.
-2. Implement FTS snippets and hybrid ranking through the split search-index
-   owner once `docs/turso-migration/search-index-architecture.md` is
-   implemented.
+2. Decide whether the current primary-store lexical implementation is enough
+   for product search quality, or whether native Tantivy FTS ranking/snippets
+   still justify a split search-index owner described in
+   `docs/turso-migration/search-index-architecture.md`.
 
 ### 5. Mastra Memory And Assistant Persistence
 

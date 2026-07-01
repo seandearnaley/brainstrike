@@ -1535,10 +1535,61 @@ describe('TursoFileChunkRepository', () => {
     expect(results[2]?.similarity).toEqual(expect.closeTo(0.119_203, 6));
   });
 
-  it('throws explicit unsupported errors for search methods not yet ported to Turso', async () => {
-    await expect(repository.fullTextSearch('answer')).rejects.toThrow(
-      'TursoFileChunkRepository.fullTextSearch requires the Turso FTS search slice.'
+  it('runs indexed lexical search over Turso chunk content', async () => {
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-auth',
+        name: 'auth.ts',
+        path: 'src/auth.ts',
+      })
     );
+    await fileRecordsRepository.createWithContent(
+      createRecord({
+        embeddingSetId: 'set-a',
+        id: 'file-avatar',
+        name: 'avatar.ts',
+        path: 'src/avatar.ts',
+      })
+    );
+    await repository.insertMany([
+      createChunk({
+        chunkType: 'code',
+        content:
+          'export function authenticateLoginToken() { return "<script> login authentication"; }',
+        fileRecordId: 'file-auth',
+        id: 'chunk-auth',
+      }),
+      createChunk({
+        chunkType: 'code',
+        content: 'export function renderAvatar() { return "profile image"; }',
+        fileRecordId: 'file-avatar',
+        id: 'chunk-avatar',
+      }),
+    ]);
+
+    const results = await repository.fullTextSearch('authentication login', {
+      chunkType: 'code',
+      filePaths: ['src/auth.ts'],
+      includeHeadline: true,
+      limit: 5,
+      threshold: 0,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        chunk: expect.objectContaining({
+          fileRecordId: 'file-auth',
+          id: 'chunk-auth',
+        }),
+        headline: expect.stringContaining('<mark>authentication</mark>'),
+        position: 1,
+        rank: expect.any(Number),
+      }),
+    ]);
+    expect(results[0]?.chunk.embedding).toBeUndefined();
+    expect(results[0]?.headline).toContain('&lt;script&gt;');
+    expect(results[0]?.headline).not.toContain('<script>');
   });
 });
 
