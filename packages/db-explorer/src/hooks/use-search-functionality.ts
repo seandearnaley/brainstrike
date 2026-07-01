@@ -5,7 +5,7 @@ import type {
   FileRecord,
   IFileRecordRepository,
 } from '@brainstrike/db';
-import { useBrainstrikeDbClient } from '@brainstrike/db';
+import { useBrainstrikeDbClient, useEmbeddingSetsRepository } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
@@ -30,6 +30,22 @@ interface SearchEmbedder {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
 }
 
+function parseStrictEmbeddingDimensions(value: unknown): number {
+  if (typeof value === 'number') {
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    throw new Error('Active embedding set dimensions are missing or invalid.');
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  throw new Error('Active embedding set dimensions are missing or invalid.');
+}
+
 export function useSearchFunctionality(
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
   repository: IFileRecordRepository | null,
@@ -41,6 +57,7 @@ export function useSearchFunctionality(
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
   const db = useBrainstrikeDbClient();
+  const embeddingSetsRepository = useEmbeddingSetsRepository();
   // Selector-scoped: only `models` is consumed; a bare store call would
   // re-render the host on every registry update (e.g. download progress).
   const models = useModelRegistryStore((state) => state.models);
@@ -269,8 +286,24 @@ export function useSearchFunctionality(
   async function getEffectiveModelInfo(): Promise<EffectiveModelInfo> {
     const activeSetId = getActiveEmbeddingSetOrThrow();
 
+    if (embeddingSetsRepository) {
+      const set = await embeddingSetsRepository.getById(activeSetId);
+      if (!set?.modelKey) {
+        throw new Error('Active embedding set is missing a model.');
+      }
+      return resolveEmbeddingSetModelInfo(
+        {
+          modelKey: set.modelKey,
+          dimensions: parseStrictEmbeddingDimensions(set.dimensions),
+        },
+        modelConfigMap
+      );
+    }
+
     if (!db) {
-      throw new Error('Database is not available to resolve the active embedding set.');
+      throw new Error(
+        'Embedding set repository is not available to resolve the active embedding set.'
+      );
     }
 
     const res = await db.query<{ modelKey: string; dimensions: number }>(
@@ -282,7 +315,7 @@ export function useSearchFunctionality(
       throw new Error('Active embedding set is missing a model.');
     }
     return resolveEmbeddingSetModelInfo(
-      { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+      { modelKey: row.modelKey, dimensions: parseStrictEmbeddingDimensions(row.dimensions) },
       modelConfigMap
     );
   }
@@ -417,7 +450,15 @@ export function useSearchFunctionality(
       // already set to true at start; keep for symmetry
       setHasSearched(true);
     }
-  }, [searchQuery, chunkRepository, db, searchThreshold, enrichChunkResults]);
+  }, [
+    searchQuery,
+    chunkRepository,
+    db,
+    embeddingSetsRepository,
+    modelConfigMap,
+    searchThreshold,
+    enrichChunkResults,
+  ]);
 
   return {
     searchQuery,
