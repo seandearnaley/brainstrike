@@ -888,7 +888,7 @@ function ThreadsPanelContent({
   if (!repository) {
     return (
       <ThreadStateCard
-        description="The assistant is unavailable until PGlite memory initializes."
+        description="The assistant is unavailable until memory initializes."
         testId="threads-error-card"
         title="Assistant memory database unavailable"
         variant="error"
@@ -908,7 +908,7 @@ function ThreadsPanelContent({
   if (loadState?.status === 'loading' && threads.length === 0) {
     return (
       <ThreadStateCard
-        description="Reading Mastra memory from PGlite."
+        description="Reading Mastra memory from the database."
         testId="threads-loading-card"
         title="Loading threads..."
       />
