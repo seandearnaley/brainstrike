@@ -665,7 +665,7 @@ test.describe('Database Persistence', () => {
     }
     await activePage.waitForTimeout(1000);
 
-    const loadingMessage = activePage.locator('text=Loading PGlite database...');
+    const loadingMessage = activePage.getByText(/^Loading database\.\.\.$/i);
     if (await loadingMessage.isVisible().catch(() => false)) {
       await loadingMessage.waitFor({ state: 'hidden', timeout: 10_000 });
     }

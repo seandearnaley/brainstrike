@@ -2,6 +2,8 @@ import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { loadElectronHelpers } from './load-electron-helpers';
 
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+const DATABASE_PANEL_LOADING_TEXT = /^Loading database\.\.\.$/i;
+const DATABASE_TAB_LOADING_TEST_ID = 'database-tab-loading';
 
 function verboseLog(...args: unknown[]): void {
   if (!isVerboseE2eLoggingEnabled) {
@@ -163,8 +165,8 @@ export async function showDatabaseDemoPanel(
 
     // Wait for either the database demo panel OR the database error to be visible
     verboseLog('⏳ Waiting for database panel or error to be visible...');
-    const loadingDatabaseCard = activePage.getByText(/Loading PGlite database/i);
-    const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
+    const loadingDatabaseCard = activePage.getByText(DATABASE_PANEL_LOADING_TEXT);
+    const loadingTabFallback = activePage.getByTestId(DATABASE_TAB_LOADING_TEST_ID);
 
     // Wait for either the success state or error state
     // Increased timeout for fresh Electron restarts where database may take longer to initialize
@@ -242,7 +244,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   await waitForAppReadyInHelpers(activePage);
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
   const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
-  const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
+  const loadingTabFallback = activePage.getByTestId(DATABASE_TAB_LOADING_TEST_ID);
   // Check if we're in error state or success state
   const hasErrorPanel = await errorPanel.isVisible().catch(() => false);
   const hasSuccessPanel = await successPanel.isVisible().catch(() => false);
@@ -279,7 +281,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   }
 
   // Wait for any loading states to complete
-  const loadingIndicator = activePage.locator('text=Loading PGlite database...');
+  const loadingIndicator = activePage.getByText(DATABASE_PANEL_LOADING_TEXT);
   try {
     // If loading indicator is visible, wait for it to disappear
     if (await loadingIndicator.isVisible({ timeout: 1000 })) {
@@ -382,8 +384,8 @@ export async function resolveRefreshButton(
 
   const resolveButton = () => activePage.locator('button:has-text("Refresh")').first();
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
-  const loadingIndicator = activePage.getByText(/Loading PGlite database/i);
-  const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
+  const loadingIndicator = activePage.getByText(DATABASE_PANEL_LOADING_TEXT);
+  const loadingTabFallback = activePage.getByTestId(DATABASE_TAB_LOADING_TEST_ID);
 
   const waitForButton = async (): Promise<Locator> => {
     const refreshButton = resolveButton();
