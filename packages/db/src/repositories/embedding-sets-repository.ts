@@ -383,15 +383,16 @@ export class EmbeddingSetsRepository {
              ),
              chunk_stats AS (
                SELECT
-                 embedding_set_id,
+                 COALESCE(c.embedding_set_id, fr.embedding_set_id) AS embedding_set_id,
                  COUNT(*)::text AS total_chunks,
-                 COUNT(*) FILTER (WHERE embedding IS NOT NULL)::text AS embedded_chunks,
-                 COUNT(token_count)::text AS tokenized_chunk_count,
-                 COALESCE(SUM(token_count), 0)::text AS total_tokens,
-                 COALESCE(AVG(token_count), 0)::text AS average_tokens_per_chunk
-               FROM file_chunks
-               WHERE embedding_set_id IS NOT NULL
-               GROUP BY embedding_set_id
+                 COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::text AS embedded_chunks,
+                 COUNT(c.token_count)::text AS tokenized_chunk_count,
+                 COALESCE(SUM(c.token_count), 0)::text AS total_tokens,
+                 COALESCE(AVG(c.token_count), 0)::text AS average_tokens_per_chunk
+               FROM file_chunks c
+               JOIN file_records fr ON fr.id = c.file_record_id
+               WHERE COALESCE(c.embedding_set_id, fr.embedding_set_id) IS NOT NULL
+               GROUP BY COALESCE(c.embedding_set_id, fr.embedding_set_id)
              )
              SELECT
                es.id,

@@ -450,6 +450,9 @@ describe('TursoFileChunkRepository', () => {
     await fileRecordsRepository.createWithContent(
       createRecord({ embeddingSetId: embeddingSet.id, id: 'file-1' })
     );
+    await fileRecordsRepository.createWithContent(
+      createRecord({ id: 'file-direct-only', path: 'src/direct-only.ts' })
+    );
     await repository.insertMany([
       createChunk({
         chunkIndex: 0,
@@ -472,12 +475,22 @@ describe('TursoFileChunkRepository', () => {
       chunksWithEmbeddings: 2,
       totalChunks: 2,
     });
+    await repository.insert(
+      createChunk({
+        chunkIndex: 0,
+        embedding: [0.4, 0.5, 0.6],
+        embeddingSetId: embeddingSet.id,
+        fileRecordId: 'file-direct-only',
+        id: 'chunk-direct-under-unassigned-file',
+        tokenCount: 11,
+      })
+    );
     await expect(repository.getCoverageForSet(embeddingSet.id)).resolves.toEqual({
-      chunksWithEmbeddingsForSet: 2,
-      totalChunks: 2,
+      chunksWithEmbeddingsForSet: 3,
+      totalChunks: 3,
     });
 
-    await expect(repository.clearEmbeddingsForSet(embeddingSet.id)).resolves.toBe(2);
+    await expect(repository.clearEmbeddingsForSet(embeddingSet.id)).resolves.toBe(3);
     const clearedChunk = await repository.findById('chunk-1');
     expect(clearedChunk).toMatchObject({ embeddingSetId: embeddingSet.id });
     expect(clearedChunk).not.toHaveProperty('embedding');
@@ -489,6 +502,15 @@ describe('TursoFileChunkRepository', () => {
     expect(inheritedClearedChunk).not.toHaveProperty('embedding');
     expect(inheritedClearedChunk).not.toHaveProperty('embeddingHash');
     expect(inheritedClearedChunk).not.toHaveProperty('embeddingUpdatedAt');
+    const directOnlyClearedChunk = await repository.findById('chunk-direct-under-unassigned-file');
+    expect(directOnlyClearedChunk).toMatchObject({
+      embeddingSetId: embeddingSet.id,
+      fileRecordId: 'file-direct-only',
+      id: 'chunk-direct-under-unassigned-file',
+    });
+    expect(directOnlyClearedChunk).not.toHaveProperty('embedding');
+    expect(directOnlyClearedChunk).not.toHaveProperty('embeddingHash');
+    expect(directOnlyClearedChunk).not.toHaveProperty('embeddingUpdatedAt');
     await expect(
       client.query<{
         chunk_count: number;
@@ -505,13 +527,61 @@ describe('TursoFileChunkRepository', () => {
     ).resolves.toEqual({
       rows: [
         {
-          chunk_count: 2,
+          chunk_count: 3,
           dirty: 0,
           embedded_chunk_count: 0,
           file_count: 1,
-          pending_chunk_count: 2,
+          pending_chunk_count: 3,
         },
       ],
+    });
+  });
+
+  it('does not clear legacy chunks for a missing embedding set', async () => {
+    await fileRecordsRepository.createWithContent(createRecord({ id: 'file-missing-set' }));
+    await client.exec(
+      `INSERT INTO file_chunks (
+         id,
+         file_record_id,
+         chunk_index,
+         content,
+         content_hash,
+         token_count,
+         chunk_type,
+         chunk_size,
+         embedding,
+         embedding_set_id,
+         embedding_updated_at,
+         embedding_hash,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, vector32(?), ?, ?, ?, ?, ?)`,
+      [
+        'chunk-missing-set',
+        'file-missing-set',
+        0,
+        'legacy orphan embedding',
+        'hash-missing-set',
+        3,
+        'code',
+        25,
+        '[0.7,0.8,0.9]',
+        'missing-set',
+        '2026-06-23T08:15:00.000Z',
+        'hash-embedding-missing-set',
+        '2026-06-23T08:10:00.000Z',
+        '2026-06-23T08:10:00.000Z',
+      ]
+    );
+
+    await expect(repository.clearEmbeddingsForSet('missing-set')).rejects.toThrow(
+      "Embedding set 'missing-set' does not exist."
+    );
+
+    await expect(repository.findById('chunk-missing-set')).resolves.toMatchObject({
+      embedding: [0.7, 0.8, 0.9],
+      embeddingSetId: 'missing-set',
     });
   });
 

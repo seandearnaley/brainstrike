@@ -694,16 +694,13 @@ export class ElectronFileChunkRepository {
       `WITH target AS (SELECT $1::text AS embedding_set_id)
        SELECT
          COUNT(*)::text AS "totalChunks",
-         COUNT(*) FILTER (
-           WHERE (
-             c.embedding_set_id = target.embedding_set_id
-             OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
-           )
-           AND c.embedding IS NOT NULL
-         )::text AS "chunksWithEmbeddingsForSet"
+         COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::text AS "chunksWithEmbeddingsForSet"
        FROM file_chunks c
        JOIN file_records fr ON fr.id = c.file_record_id
-       JOIN target ON fr.embedding_set_id = target.embedding_set_id`,
+       JOIN target ON (
+         c.embedding_set_id = target.embedding_set_id
+         OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+       )`,
       [embeddingSetId]
     );
 
@@ -731,18 +728,31 @@ export class ElectronFileChunkRepository {
 
     const result = await this.db.query(
       `WITH requested AS (
-         SELECT $1::text AS embedding_set_id
+         SELECT s.id::text AS embedding_set_id
+           FROM embedding_sets s
+          WHERE s.id::text = $1::text
        ),
        cleared AS (
-         UPDATE file_chunks
+         UPDATE file_chunks AS c
             SET embedding = NULL,
                 embedding_updated_at = NULL,
                 embedding_hash = NULL,
                 updated_at = NOW()
            FROM requested
-          WHERE file_chunks.embedding_set_id::text = requested.embedding_set_id
-            AND file_chunks.embedding IS NOT NULL
-          RETURNING file_chunks.id
+          WHERE (
+                  c.embedding_set_id::text = requested.embedding_set_id
+                  OR (
+                    c.embedding_set_id IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                        FROM file_records fr
+                       WHERE fr.id = c.file_record_id
+                         AND fr.embedding_set_id::text = requested.embedding_set_id
+                    )
+                  )
+                )
+            AND c.embedding IS NOT NULL
+          RETURNING c.id
        ),
        aggregated_files AS (
          SELECT
@@ -754,14 +764,18 @@ export class ElectronFileChunkRepository {
        ),
        aggregated_chunks AS (
          SELECT
-           c.embedding_set_id::text AS embedding_set_id,
+           r.embedding_set_id AS embedding_set_id,
            COUNT(*)::int AS chunk_count,
            COUNT(*) FILTER (WHERE c.embedding IS NOT NULL AND cleared.id IS NULL)::int AS embedded_chunk_count,
            COUNT(*) FILTER (WHERE c.embedding IS NULL OR cleared.id IS NOT NULL)::int AS pending_chunk_count
          FROM file_chunks c
-         JOIN requested r ON r.embedding_set_id = c.embedding_set_id::text
+         JOIN file_records fr ON fr.id = c.file_record_id
+         JOIN requested r ON (
+           r.embedding_set_id = c.embedding_set_id::text
+           OR (c.embedding_set_id IS NULL AND r.embedding_set_id = fr.embedding_set_id::text)
+         )
          LEFT JOIN cleared ON cleared.id = c.id
-         GROUP BY c.embedding_set_id::text
+         GROUP BY r.embedding_set_id
        ),
        refreshed AS (
          INSERT INTO collection_indexing_stats (
@@ -795,13 +809,26 @@ export class ElectronFileChunkRepository {
          RETURNING embedding_set_id
        )
        SELECT
+         (SELECT COUNT(*)::int FROM requested) AS "requestedCount",
          COUNT(*)::int AS "clearedCount",
          (SELECT COUNT(*)::int FROM refreshed) AS "refreshedCount"
        FROM cleared`,
       [embeddingSetId]
     );
 
-    const row = result.rows[0] as { clearedCount?: number | string } | undefined;
+    const row = result.rows[0] as
+      | {
+          clearedCount?: number | string;
+          refreshedCount?: number | string;
+          requestedCount?: number | string;
+        }
+      | undefined;
+    if (Number(row?.requestedCount ?? 0) !== 1) {
+      throw new Error(`Embedding set '${embeddingSetId}' does not exist.`);
+    }
+    if (Number(row?.refreshedCount ?? 0) !== 1) {
+      throw new Error(`Embedding set '${embeddingSetId}' stats refresh failed.`);
+    }
     return Number(row?.clearedCount ?? 0);
   }
 

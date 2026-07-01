@@ -708,19 +708,24 @@ export class DrizzleFileChunkRepository {
       throw new Error('embeddingSetId is required');
     }
 
-    const [totalResult] = await this.db.select({ count: count() }).from(fileChunks);
-
     const result = await this.db.execute(sql`
-      SELECT COUNT(*)::text as count
-      FROM file_chunks
-      WHERE embedding_set_id = ${embeddingSetId} AND embedding IS NOT NULL
+      WITH target AS (SELECT ${embeddingSetId}::text AS embedding_set_id)
+      SELECT
+        COUNT(*)::text AS "totalChunks",
+        COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::text AS "chunksWithEmbeddingsForSet"
+      FROM file_chunks c
+      JOIN file_records fr ON fr.id = c.file_record_id
+      JOIN target ON (
+        c.embedding_set_id = target.embedding_set_id
+        OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+      )
     `);
 
     const countRow = (result.rows as Record<string, unknown>[])[0];
 
     return {
-      totalChunks: totalResult?.count ?? 0,
-      chunksWithEmbeddingsForSet: Number(countRow?.['count'] ?? 0),
+      totalChunks: Number(countRow?.['totalChunks'] ?? 0),
+      chunksWithEmbeddingsForSet: Number(countRow?.['chunksWithEmbeddingsForSet'] ?? 0),
     };
   }
 
@@ -737,17 +742,102 @@ export class DrizzleFileChunkRepository {
     }
 
     const result = await this.db.execute(sql`
-      UPDATE file_chunks
-      SET embedding = NULL,
-          embedding_updated_at = NULL,
-          embedding_hash = NULL,
-          updated_at = NOW()
-      WHERE embedding_set_id = ${embeddingSetId}
-        AND embedding IS NOT NULL
-      RETURNING id
+      WITH requested AS (
+        SELECT s.id::text AS embedding_set_id
+          FROM embedding_sets s
+         WHERE s.id::text = ${embeddingSetId}::text
+      ),
+      cleared AS (
+        UPDATE file_chunks AS c
+           SET embedding = NULL,
+               embedding_updated_at = NULL,
+               embedding_hash = NULL,
+               updated_at = NOW()
+          FROM requested
+         WHERE (
+                 c.embedding_set_id::text = requested.embedding_set_id
+                 OR (
+                   c.embedding_set_id IS NULL
+                   AND EXISTS (
+                     SELECT 1
+                       FROM file_records fr
+                      WHERE fr.id = c.file_record_id
+                        AND fr.embedding_set_id::text = requested.embedding_set_id
+                   )
+                 )
+               )
+           AND c.embedding IS NOT NULL
+         RETURNING c.id
+      ),
+      aggregated_files AS (
+        SELECT
+          fr.embedding_set_id::text AS embedding_set_id,
+          COUNT(*)::int AS file_count
+        FROM file_records fr
+        JOIN requested r ON r.embedding_set_id = fr.embedding_set_id::text
+        GROUP BY fr.embedding_set_id::text
+      ),
+      aggregated_chunks AS (
+        SELECT
+          r.embedding_set_id AS embedding_set_id,
+          COUNT(*)::int AS chunk_count,
+          COUNT(*) FILTER (WHERE c.embedding IS NOT NULL AND cleared.id IS NULL)::int AS embedded_chunk_count,
+          COUNT(*) FILTER (WHERE c.embedding IS NULL OR cleared.id IS NOT NULL)::int AS pending_chunk_count
+        FROM file_chunks c
+        JOIN file_records fr ON fr.id = c.file_record_id
+        JOIN requested r ON (
+          r.embedding_set_id = c.embedding_set_id::text
+          OR (c.embedding_set_id IS NULL AND r.embedding_set_id = fr.embedding_set_id::text)
+        )
+        LEFT JOIN cleared ON cleared.id = c.id
+        GROUP BY r.embedding_set_id
+      ),
+      refreshed AS (
+        INSERT INTO collection_indexing_stats (
+          embedding_set_id,
+          file_count,
+          chunk_count,
+          embedded_chunk_count,
+          pending_chunk_count,
+          dirty,
+          last_refreshed_at
+        )
+        SELECT
+          s.id,
+          COALESCE(af.file_count, 0) AS file_count,
+          COALESCE(ac.chunk_count, 0) AS chunk_count,
+          COALESCE(ac.embedded_chunk_count, 0) AS embedded_chunk_count,
+          COALESCE(ac.pending_chunk_count, 0) AS pending_chunk_count,
+          FALSE,
+          NOW()
+        FROM embedding_sets s
+        JOIN requested r ON r.embedding_set_id = s.id::text
+        LEFT JOIN aggregated_files af ON af.embedding_set_id = s.id::text
+        LEFT JOIN aggregated_chunks ac ON ac.embedding_set_id = s.id::text
+        ON CONFLICT (embedding_set_id) DO UPDATE SET
+          file_count = EXCLUDED.file_count,
+          chunk_count = EXCLUDED.chunk_count,
+          embedded_chunk_count = EXCLUDED.embedded_chunk_count,
+          pending_chunk_count = EXCLUDED.pending_chunk_count,
+          dirty = FALSE,
+          last_refreshed_at = EXCLUDED.last_refreshed_at
+        RETURNING embedding_set_id
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM requested) AS "requestedCount",
+        COUNT(*)::int AS "clearedCount",
+        (SELECT COUNT(*)::int FROM refreshed) AS "refreshedCount"
+      FROM cleared
     `);
 
-    return (result.rows as unknown[]).length;
+    const row = (result.rows as Record<string, unknown>[])[0];
+    if (Number(row?.['requestedCount'] ?? 0) !== 1) {
+      throw new Error(`Embedding set '${embeddingSetId}' does not exist.`);
+    }
+    if (Number(row?.['refreshedCount'] ?? 0) !== 1) {
+      throw new Error(`Embedding set '${embeddingSetId}' stats refresh failed.`);
+    }
+    return Number(row?.['clearedCount'] ?? 0);
   }
 
   async clearAll(): Promise<number> {

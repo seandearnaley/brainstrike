@@ -492,6 +492,10 @@ describe('DrizzleFileChunkRepository', () => {
   describe('getCoverageForSet', () => {
     it('should return coverage for an embedding set', async () => {
       const now = new Date().toISOString();
+      await fileRecordRepository.update(testFileRecordId, {
+        embeddingSetId: testEmbeddingSetId,
+        updatedAt: now,
+      });
 
       await repository.insert({
         id: '00000000-0000-0000-0000-000000000010',
@@ -520,6 +524,121 @@ describe('DrizzleFileChunkRepository', () => {
 
     it('should throw error when embeddingSetId is not provided', async () => {
       await expect(repository.getCoverageForSet('')).rejects.toThrow('embeddingSetId is required');
+    });
+  });
+
+  describe('clearEmbeddingsForSet', () => {
+    it('clears direct and file-record-inherited embeddings for the target set', async () => {
+      const now = new Date().toISOString();
+      await fileRecordRepository.update(testFileRecordId, {
+        embeddingSetId: testEmbeddingSetId,
+        updatedAt: now,
+      });
+      await fileRecordRepository.create({
+        id: '00000000-0000-0000-0000-000000000002',
+        name: 'other.ts',
+        path: '/src/other.ts',
+        size: 1024,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000020',
+        fileRecordId: testFileRecordId,
+        chunkIndex: 0,
+        content: 'direct embedding',
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: testEmbeddingSetId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000021',
+        fileRecordId: testFileRecordId,
+        chunkIndex: 1,
+        content: 'inherited embedding',
+        embedding: [0.2, 0.3, 0.4],
+        createdAt: now,
+        updatedAt: now,
+      });
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000022',
+        fileRecordId: '00000000-0000-0000-0000-000000000002',
+        chunkIndex: 0,
+        content: 'direct embedding under parent without set',
+        embedding: [0.4, 0.5, 0.6],
+        embeddingSetId: testEmbeddingSetId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(repository.getCoverageForSet(testEmbeddingSetId)).resolves.toEqual({
+        totalChunks: 3,
+        chunksWithEmbeddingsForSet: 3,
+      });
+
+      await expect(repository.clearEmbeddingsForSet(testEmbeddingSetId)).resolves.toBe(3);
+
+      expect(
+        (await repository.findById('00000000-0000-0000-0000-000000000020'))?.embedding
+      ).toBeUndefined();
+      expect(
+        (await repository.findById('00000000-0000-0000-0000-000000000021'))?.embedding
+      ).toBeUndefined();
+      expect(
+        (await repository.findById('00000000-0000-0000-0000-000000000022'))?.embedding
+      ).toBeUndefined();
+
+      const stats = await client.query<{
+        chunk_count: string;
+        embedded_chunk_count: string;
+        pending_chunk_count: string;
+      }>(
+        `SELECT chunk_count, embedded_chunk_count, pending_chunk_count
+           FROM collection_indexing_stats
+          WHERE embedding_set_id = $1`,
+        [testEmbeddingSetId]
+      );
+      expect(stats.rows[0]).toMatchObject({
+        chunk_count: 3,
+        embedded_chunk_count: 0,
+        pending_chunk_count: 3,
+      });
+    });
+
+    it('does not clear legacy chunks for a missing embedding set', async () => {
+      const now = new Date().toISOString();
+      await client.query(
+        `INSERT INTO file_chunks (
+          id,
+          file_record_id,
+          chunk_index,
+          content,
+          embedding,
+          embedding_set_id,
+          created_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          '00000000-0000-0000-0000-000000000023',
+          testFileRecordId,
+          2,
+          'legacy orphan embedding',
+          '[0.7,0.8,0.9]',
+          'missing-set',
+          now,
+          now,
+        ]
+      );
+
+      await expect(repository.clearEmbeddingsForSet('missing-set')).rejects.toThrow(
+        "Embedding set 'missing-set' does not exist."
+      );
+
+      expect(
+        (await repository.findById('00000000-0000-0000-0000-000000000023'))?.embedding
+      ).toEqual([0.7, 0.8, 0.9]);
     });
   });
 

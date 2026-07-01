@@ -248,14 +248,39 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   });
 
   it('clears embeddings and refreshes stats in one atomic query', async () => {
-    query.mockResolvedValueOnce({ rows: [{ clearedCount: 3 }] });
+    query.mockResolvedValueOnce({
+      rows: [{ clearedCount: 3, refreshedCount: 1, requestedCount: 1 }],
+    });
 
     const cleared = await repo.clearEmbeddingsForSet('set-1');
 
     expect(cleared).toBe(3);
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[0]).toContain('UPDATE file_chunks');
+    expect(query.mock.calls[0]?.[0]).toContain('FROM embedding_sets s');
+    expect(query.mock.calls[0]?.[0]).toContain('JOIN file_records fr');
+    expect(query.mock.calls[0]?.[0]).toContain('c.embedding_set_id IS NULL');
+    expect(query.mock.calls[0]?.[0]).toContain('requestedCount');
+    expect(query.mock.calls[0]?.[0]).toContain('refreshedCount');
     expect(query.mock.calls[0]?.[0]).toContain('collection_indexing_stats');
+    expect(query.mock.calls[0]?.[1]).toEqual(['set-1']);
+  });
+
+  it('builds coverage with direct-or-inherited effective membership', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ chunksWithEmbeddingsForSet: '3', totalChunks: '3' }],
+    });
+
+    const coverage = await repo.getCoverageForSet('set-1');
+
+    expect(coverage).toEqual({ chunksWithEmbeddingsForSet: 3, totalChunks: 3 });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[0]).toContain('JOIN target ON (');
+    expect(query.mock.calls[0]?.[0]).toContain('c.embedding_set_id = target.embedding_set_id');
+    expect(query.mock.calls[0]?.[0]).toContain('c.embedding_set_id IS NULL');
+    expect(query.mock.calls[0]?.[0]).not.toContain(
+      'JOIN target ON fr.embedding_set_id = target.embedding_set_id'
+    );
     expect(query.mock.calls[0]?.[1]).toEqual(['set-1']);
   });
 

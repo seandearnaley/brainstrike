@@ -722,6 +722,32 @@ describe('useVectorQueueState', () => {
     expect(coverageCall).not.toHaveProperty('mode', 'incremental');
   });
 
+  it('uses effective chunk-or-file membership for the live coverage query', () => {
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    const coverageCall = vi
+      .mocked(useBrainstrikeLiveQuery)
+      .mock.calls.map(([options]) => options)
+      .find((options) => options.query.includes('chunksWithEmbeddingsForSet'));
+
+    expect(coverageCall).toBeDefined();
+    expect(coverageCall?.query).toContain('JOIN target ON (');
+    expect(coverageCall?.query).toContain('c.embedding_set_id = target.embedding_set_id');
+    expect(coverageCall?.query).toContain(
+      'c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id'
+    );
+    expect(coverageCall?.query).not.toContain(
+      'JOIN target ON fr.embedding_set_id = target.embedding_set_id'
+    );
+  });
+
   it('uses the controller for backfill progress and clears queue-active state afterwards', async () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {

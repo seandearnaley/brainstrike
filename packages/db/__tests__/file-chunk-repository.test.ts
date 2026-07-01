@@ -567,6 +567,118 @@ describe('FileChunkRepository', () => {
   });
 
   describe('clearEmbeddingsForSet', () => {
+    it('clears direct and file-record-inherited embeddings for the target set', async () => {
+      const now = new Date().toISOString();
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['set-1', 'local::model-a', 'model-a', 768, 'cosine', now]
+      );
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['set-2', 'local::model-b', 'model-b', 768, 'cosine', now]
+      );
+      await fileRepository.update('file1', {
+        embeddingSetId: 'set-1',
+        updatedAt: now,
+      });
+      await fileRepository.update('file2', {
+        embeddingSetId: 'set-2',
+        updatedAt: now,
+      });
+
+      await repository.insertMany([
+        {
+          id: 'clear-direct-chunk',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Direct set chunk',
+          contentHash: 'clear-direct-hash',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.1]]),
+          embeddingSetId: 'set-1',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'clear-inherited-chunk',
+          fileRecordId: 'file1',
+          chunkIndex: 1,
+          content: 'Inherited set chunk',
+          contentHash: 'clear-inherited-hash',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.2]]),
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'clear-direct-under-other-file-chunk',
+          fileRecordId: 'file2',
+          chunkIndex: 1,
+          content: 'Direct set chunk under other file set',
+          contentHash: 'clear-direct-other-file-hash',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.4]]),
+          embeddingSetId: 'set-1',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'clear-other-set-chunk',
+          fileRecordId: 'file2',
+          chunkIndex: 0,
+          content: 'Other set chunk',
+          contentHash: 'clear-other-hash',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.3]]),
+          embeddingSetId: 'set-2',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      await expect(repository.getCoverageForSet('set-1')).resolves.toEqual({
+        totalChunks: 3,
+        chunksWithEmbeddingsForSet: 3,
+      });
+
+      await expect(repository.clearEmbeddingsForSet('set-1')).resolves.toBe(3);
+
+      expect((await repository.findById('clear-direct-chunk'))?.embedding).toBeUndefined();
+      expect((await repository.findById('clear-inherited-chunk'))?.embedding).toBeUndefined();
+      expect(
+        (await repository.findById('clear-direct-under-other-file-chunk'))?.embedding
+      ).toBeUndefined();
+      await expect(repository.findById('clear-other-set-chunk')).resolves.toMatchObject({
+        embedding: makeVector(768, [[0, 0.3]]),
+      });
+
+      const stats = await db.query<{
+        chunk_count: string;
+        embedded_chunk_count: string;
+        pending_chunk_count: string;
+      }>(
+        `SELECT chunk_count, embedded_chunk_count, pending_chunk_count
+           FROM collection_indexing_stats
+          WHERE embedding_set_id = $1`,
+        ['set-1']
+      );
+      expect(stats.rows[0]).toMatchObject({
+        chunk_count: 3,
+        embedded_chunk_count: 0,
+        pending_chunk_count: 3,
+      });
+    });
+
     it('does not clear embeddings when the stats refresh statement fails', async () => {
       const now = new Date().toISOString();
       await db.query(
@@ -613,6 +725,38 @@ describe('FileChunkRepository', () => {
 
       const chunk = await repository.findById('clear-failure-chunk');
       expect(chunk?.embedding).toEqual(makeVector(768, [[0, 0.1]]));
+    });
+
+    it('does not clear legacy chunks for a missing embedding set', async () => {
+      const now = new Date().toISOString();
+      const embedding = makeVector(768, [[0, 0.41]]);
+      await db.query(
+        `INSERT INTO file_chunks (
+          id, file_record_id, chunk_index, content, content_hash,
+          token_count, chunk_type, chunk_size, embedding, embedding_set_id, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          'clear-missing-set-chunk',
+          'file1',
+          0,
+          'Legacy orphan embedding',
+          'clear-missing-set-hash',
+          3,
+          'text',
+          100,
+          `[${embedding.join(',')}]`,
+          'missing-set',
+          now,
+          now,
+        ]
+      );
+
+      await expect(repository.clearEmbeddingsForSet('missing-set')).rejects.toThrow(
+        "Embedding set 'missing-set' does not exist."
+      );
+
+      const chunk = await repository.findById('clear-missing-set-chunk');
+      expect(chunk?.embedding).toEqual(embedding);
     });
   });
 
