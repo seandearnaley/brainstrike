@@ -68,7 +68,7 @@ function buildResponseHeaders(upstream: Response): Record<string, string> {
       headers[name] = value;
     }
   }
-  if (!upstream.ok) {
+  if (!upstream.ok && upstream.status !== 304) {
     headers['cache-control'] = 'no-store';
     return headers;
   }

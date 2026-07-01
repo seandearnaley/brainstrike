@@ -357,11 +357,11 @@ describe('hf dev proxy', () => {
       expect(res.headers['cache-control']).toBe('no-store');
     });
 
-    it('preserves existing cache-control from upstream', async () => {
+    it('preserves existing cache-control from upstream not-modified responses', async () => {
       fetchMock.mockResolvedValue(
-        new Response('ok', {
-          status: 200,
-          headers: { 'cache-control': 'public, max-age=60' },
+        new Response(null, {
+          status: 304,
+          headers: { 'cache-control': 'public, max-age=60', etag: '"cached"' },
         })
       );
       vi.stubGlobal('fetch', fetchMock);
@@ -372,6 +372,7 @@ describe('hf dev proxy', () => {
       const res = new ResponseSink();
       await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
 
+      expect(res.statusCode).toBe(304);
       expect(res.headers['cache-control']).toBe('public, max-age=60');
     });
 

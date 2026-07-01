@@ -82,7 +82,7 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
       headers.set(headerName, value);
     }
   }
-  if (!upstream.ok) {
+  if (!upstream.ok && upstream.status !== 304) {
     headers.set('cache-control', 'no-store');
     return headers;
   }
