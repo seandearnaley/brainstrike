@@ -364,6 +364,14 @@ Completed low-risk queue UI slices:
   storage remains PGlite-backed and preserves the current behavior; a focused
   worker test proves the worker can process a job through injected storage with
   no raw PGlite database handle.
+- PGlite-family clear/re-embed prerequisites are aligned with Turso effective
+  embedding-set membership: direct chunk set IDs still win, and chunks with
+  null `file_chunks.embedding_set_id` inherit from `file_records.embedding_set_id`
+  for PGlite, Electron IPC, and Drizzle `clearEmbeddingsForSet()` coverage/stats
+  paths. This prevents stale inherited embeddings from surviving the upcoming
+  clear-then-backfill re-embed composition. All repository clear paths now
+  fail before clearing chunks when the requested embedding set does not exist,
+  instead of reporting a clear with no refreshed stats row.
 
 Remaining vector-queue action slice: compose a user-visible Turso re-embed flow
 as clear-embeddings through the DB owner IPC followed by backfill through the

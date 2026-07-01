@@ -722,18 +722,18 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
          COUNT(*) AS totalChunks,
          SUM(
            CASE
-             WHEN (
-               (c.embedding_set_id = ? OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?))
-               AND c.embedding IS NOT NULL
-             )
+             WHEN c.embedding IS NOT NULL
              THEN 1
              ELSE 0
            END
          ) AS chunksWithEmbeddingsForSet
        FROM file_chunks c
        JOIN file_records fr ON fr.id = c.file_record_id
-       WHERE fr.embedding_set_id = ?`,
-      [embeddingSetId, embeddingSetId, embeddingSetId]
+       WHERE (
+         c.embedding_set_id = ?
+         OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = ?)
+       )`,
+      [embeddingSetId, embeddingSetId]
     );
     const row = result.rows[0];
     return {
@@ -1089,6 +1089,14 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       throw new Error('embeddingSetId is required');
     }
     const cleared = await this.db.transaction(async (tx) => {
+      const targetResult = await tx.query<{ id: string }>(
+        'SELECT id FROM embedding_sets WHERE id = ?',
+        [embeddingSetId]
+      );
+      if (targetResult.rows.length !== 1) {
+        throw new Error(`Embedding set '${embeddingSetId}' does not exist.`);
+      }
+
       const clearedResult = await tx.query<{ id: string }>(
         `UPDATE file_chunks
             SET embedding = NULL,
