@@ -1,5 +1,8 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
+  applyTursoManagedCacheBatch,
+  type BrainstrikeDbExecutionClient,
+  type BrainstrikeDbTransactionClient,
   createDatabasePressureController,
   createPriorityDbHandle,
   type DatabaseWorkSchedulerSnapshot,
@@ -7,10 +10,15 @@ import {
   ElectronEmbeddingSetsRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  extractDbExecutionClient,
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
-  usePGliteDatabase,
+  TursoEmbeddingSetsRepository,
+  TursoFileChunkRepository,
+  TursoFileRecordRepository,
+  useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
   useWorkspaceRootsDbClient,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
@@ -67,7 +75,10 @@ import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { boundBackgroundPermitWait } from './background-permit-wait';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
-import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
+import {
+  WorkspaceCollectionSyncService,
+  type WorkspaceCollectionSyncServiceDependencies,
+} from './workspace-collection-sync-service';
 import {
   isWorkspaceIndexBlockedError,
   WorkspaceIndexBlockedError,
@@ -119,6 +130,26 @@ const TREE_RESTORATION_GRACE_MS = 5000;
 const QUEUE_DRAINED_EVENT = 'brainstrike:queue-drained' as const;
 const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
+const TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index Turso background import requires atomic chunk/job enqueue support.';
+
+type BackgroundIndexingRuntimeEngine = 'pglite' | 'turso';
+type BootstrapRuntimeEngine = 'libsql' | 'pglite' | 'turso' | 'unknown';
+interface BackgroundTursoTransactionStatement {
+  params?: unknown[];
+  sql: string;
+}
+type BackgroundTursoRunTransaction = (
+  statements: BackgroundTursoTransactionStatement[],
+  resultIndex: number,
+  options?: typeof BACKGROUND_DATABASE_WORK_OPTIONS
+) => Promise<unknown>;
+
+function isBackgroundIndexingRuntimeEngine(
+  runtimeEngine: BootstrapRuntimeEngine
+): runtimeEngine is BackgroundIndexingRuntimeEngine {
+  return runtimeEngine === 'pglite' || runtimeEngine === 'turso';
+}
 
 interface BackgroundIndexingPreferencesPersistApi {
   readonly hasHydrated?: () => boolean;
@@ -156,6 +187,47 @@ function createRuntimeUnavailableMessage(missingDependencies: string[]): string 
     return 'Background indexing runtime is unavailable.';
   }
   return `Background indexing runtime is unavailable: ${missingDependencies.join(', ')}.`;
+}
+
+interface BackgroundRepositorySet {
+  readonly chunkRepository: unknown;
+  readonly embeddingSetsRepository: unknown;
+  readonly fileRecordRepository: unknown;
+}
+
+function collectMissingBackgroundRepositoryDependencies(
+  backgroundRepositories: BackgroundRepositorySet | null
+): string[] {
+  if (!backgroundRepositories) {
+    return ['backgroundRepositories'];
+  }
+  return [
+    ...(backgroundRepositories.fileRecordRepository ? [] : ['fileRecordRepository']),
+    ...(backgroundRepositories.chunkRepository ? [] : ['chunkRepository']),
+    ...(backgroundRepositories.embeddingSetsRepository ? [] : ['embeddingSetsRepository']),
+  ];
+}
+
+function collectMissingRuntimeDependencies(args: {
+  backgroundDb: unknown;
+  backgroundRepositories: BackgroundRepositorySet | null;
+  db: unknown;
+  fileSystemAdapter: unknown;
+  runtimeEngine: BootstrapRuntimeEngine;
+  tursoExecutionClient: unknown;
+  waitForBackgroundPermit: unknown;
+}): string[] {
+  return [
+    ...(args.db ? [] : ['db']),
+    ...(args.backgroundDb ? [] : ['backgroundDb']),
+    ...(args.waitForBackgroundPermit ? [] : ['waitForBackgroundPermit']),
+    ...(isBackgroundIndexingRuntimeEngine(args.runtimeEngine) ? [] : ['runtimeEngine']),
+    ...(args.runtimeEngine === 'turso' && !args.tursoExecutionClient
+      ? ['tursoExecutionClient']
+      : []),
+    ...collectMissingBackgroundRepositoryDependencies(args.backgroundRepositories),
+    ...(args.fileSystemAdapter ? [] : ['fileSystemAdapter']),
+  ];
 }
 
 function createClearedProgressPatch(): Pick<
@@ -249,6 +321,79 @@ function readFileCountFromCountRow(row: unknown): number {
   return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
 }
 
+function createTursoBackgroundChunkRepository(
+  repository: TursoFileChunkRepository
+): WorkspaceCollectionSyncServiceDependencies['chunkRepository'] {
+  return {
+    deleteByFileRecordId: (fileRecordId) => repository.deleteByFileRecordId(fileRecordId),
+    getCoverageForSet: (embeddingSetId) => repository.getCoverageForSet(embeddingSetId),
+    insertMany: async () => {
+      throw new Error(TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR);
+    },
+    update: (chunk) => repository.update(chunk),
+  };
+}
+
+function getBackgroundTursoRunTransaction(): BackgroundTursoRunTransaction | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const runTransaction = (
+    window.electronAPI?.db as
+      | { readonly runTransaction?: BackgroundTursoRunTransaction }
+      | undefined
+  )?.runTransaction;
+  return typeof runTransaction === 'function' ? runTransaction : null;
+}
+
+function createBackgroundTursoExecutionClient(db: DbHandle): BrainstrikeDbExecutionClient {
+  if (typeof db.exec !== 'function') {
+    throw new Error('Workspace Index Turso background repositories require db.exec support.');
+  }
+  const query = db.query.bind(db);
+  const exec = db.exec.bind(db);
+  const transactionClient: BrainstrikeDbTransactionClient = {
+    exec: async (sql, params, options) => {
+      await exec(sql, params ? [...params] : undefined, options);
+    },
+    query: async (sql, params, options) =>
+      await query(sql, params ? [...params] : undefined, options),
+  };
+  return {
+    ...transactionClient,
+    transaction: async (callback) => {
+      const runTransaction = getBackgroundTursoRunTransaction();
+      if (!runTransaction) {
+        throw new Error(
+          'Workspace Index Turso background repository transactions require desktop transaction IPC support.'
+        );
+      }
+      const statements: BackgroundTursoTransactionStatement[] = [];
+      const batchClient: BrainstrikeDbTransactionClient = {
+        exec: async (sql, params, options) => {
+          if (options) {
+            throw new Error(
+              'Workspace Index Turso background transaction adapter does not support per-statement work options.'
+            );
+          }
+          statements.push({ sql, ...(params ? { params: [...params] } : {}) });
+        },
+        query: async () => {
+          throw new Error(
+            'Workspace Index Turso background transaction adapter only supports exec statements.'
+          );
+        },
+      };
+
+      const result = await callback(batchClient);
+      if (statements.length > 0) {
+        await runTransaction(statements, 0, BACKGROUND_DATABASE_WORK_OPTIONS);
+      }
+      return result;
+    },
+  };
+}
+
 function isUnresolvedRootAuditOutcome(
   value: WorkspaceCoverageAuditTargetResult
 ): value is Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }> {
@@ -265,16 +410,21 @@ async function readIndexedFileCountsByRoot(args: {
   collectionId: string;
   db: DbHandle;
   rootIds: readonly string[];
+  runtimeEngine: 'pglite' | 'turso';
 }): Promise<Map<string, number>> {
   if (args.rootIds.length === 0) {
     return new Map();
   }
-  const rootPlaceholders = args.rootIds.map((_, index) => `$${index + 2}`).join(', ');
+  const rootPlaceholders =
+    args.runtimeEngine === 'pglite'
+      ? args.rootIds.map((_, index) => `$${index + 2}`).join(', ')
+      : args.rootIds.map(() => '?').join(', ');
+  const collectionPlaceholder = args.runtimeEngine === 'pglite' ? '$1' : '?';
   const result = await args.db.query(
     `
       SELECT root_id, COUNT(*) AS file_count
       FROM file_records
-      WHERE embedding_set_id = $1
+      WHERE embedding_set_id = ${collectionPlaceholder}
         AND root_id IN (${rootPlaceholders})
       GROUP BY root_id
     `,
@@ -348,6 +498,75 @@ function createCoverageStatusPatch(args: {
   };
 }
 
+interface IdleCoverageAuditRequest {
+  readonly activeRootPath: string | null;
+  readonly auditKey: string;
+  readonly collectionId: string;
+  readonly db: DbHandle;
+  readonly fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+  readonly handles: readonly DirectoryHandle[];
+  readonly runtimeEngine: BackgroundIndexingRuntimeEngine;
+}
+
+function shouldResetCoverageAuditTracking(
+  status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
+): boolean {
+  return status.state !== 'idle' && status.state !== 'waiting';
+}
+
+function createIdleCoverageAuditRequest(args: {
+  backgroundDb: DbHandle | null;
+  enabled: boolean;
+  fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']> | null;
+  indexingPolicyPreset: BackgroundIndexingPolicyPreset;
+  managedCollectionId: string | null;
+  rootDirectoryHandle: DirectoryHandle | null;
+  rootDirectoryHandles: readonly DirectoryHandle[];
+  rootIdByPath: ReadonlyMap<string, string>;
+  runtimeEngine: BootstrapRuntimeEngine;
+  status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>;
+}): IdleCoverageAuditRequest | null {
+  if (args.status.state !== 'idle') {
+    return null;
+  }
+  const collectionId = args.status.managedCollectionId ?? args.managedCollectionId;
+  const auditRuntimeEngine = isBackgroundIndexingRuntimeEngine(args.runtimeEngine)
+    ? args.runtimeEngine
+    : null;
+  if (
+    !(
+      args.enabled &&
+      collectionId &&
+      args.backgroundDb &&
+      args.fileSystemAdapter &&
+      auditRuntimeEngine
+    )
+  ) {
+    return null;
+  }
+  const handles = getActiveRootHandles({
+    rootDirectoryHandle: args.rootDirectoryHandle,
+    rootDirectoryHandles: args.rootDirectoryHandles,
+  });
+  if (handles.length === 0) {
+    return null;
+  }
+  return {
+    activeRootPath: args.rootDirectoryHandle?.path ?? handles[0]?.path ?? null,
+    auditKey: createCoverageAuditKey({
+      collectionId,
+      handles,
+      policyPreset: args.indexingPolicyPreset,
+      rootIdByPath: args.rootIdByPath,
+    }),
+    collectionId,
+    db: args.backgroundDb,
+    fileSystemAdapter: args.fileSystemAdapter,
+    handles,
+    runtimeEngine: auditRuntimeEngine,
+  };
+}
+
 async function buildCoverageAuditTargets(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
@@ -401,6 +620,7 @@ async function runWorkspaceCoverageAudit(args: {
   policyPreset: BackgroundIndexingPolicyPreset;
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
+  runtimeEngine: 'pglite' | 'turso';
 }): Promise<WorkspaceCoverageAuditOutcome | null> {
   if (!args.isCurrent()) {
     return null;
@@ -420,6 +640,7 @@ async function runWorkspaceCoverageAudit(args: {
     collectionId: args.collectionId,
     db: args.db,
     rootIds: targets.map((target) => target.dbRootId),
+    runtimeEngine: args.runtimeEngine,
   });
   if (args.isCurrent()) {
     const missingTargets = targets.filter(
@@ -514,6 +735,7 @@ function startWorkspaceCoverageAudit(args: {
   policyPreset: BackgroundIndexingPolicyPreset;
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
+  runtimeEngine: 'pglite' | 'turso';
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
 }): Promise<boolean> {
   return runWorkspaceCoverageAudit({
@@ -525,6 +747,7 @@ function startWorkspaceCoverageAudit(args: {
     policyPreset: args.policyPreset,
     resolveDbRootId: args.resolveDbRootId,
     rootIdByPath: args.rootIdByPath,
+    runtimeEngine: args.runtimeEngine,
   })
     .then((outcome) => {
       if (!outcome) {
@@ -710,16 +933,22 @@ function orderTargetsByIndexedCoverage(
 async function loadOrderedSyncTargets(args: {
   backgroundDb: DbHandle | null;
   managedCollectionId: string | null;
+  runtimeEngine: BootstrapRuntimeEngine;
   syncableTargets: readonly ResolvedSyncLoopTarget[];
 }): Promise<ResolvedSyncLoopTarget[]> {
-  const { backgroundDb, managedCollectionId, syncableTargets } = args;
-  if (syncableTargets.length <= 1 || !(managedCollectionId && backgroundDb)) {
+  const { backgroundDb, managedCollectionId, runtimeEngine, syncableTargets } = args;
+  if (
+    syncableTargets.length <= 1 ||
+    !(managedCollectionId && backgroundDb) ||
+    !isBackgroundIndexingRuntimeEngine(runtimeEngine)
+  ) {
     return orderTargetsByIndexedCoverage(syncableTargets, new Map());
   }
   const indexedCounts = await readIndexedFileCountsByRoot({
     collectionId: managedCollectionId,
     db: backgroundDb,
     rootIds: syncableTargets.map((target) => target.dbRootId),
+    runtimeEngine,
   }).catch((error) => {
     logger.warn('Coverage-based root ordering query failed; using discovery order', { error });
     return new Map<string, number>();
@@ -964,15 +1193,24 @@ function readRendererMemoryPressure(): WorkspaceIndexingPipelineInputs['memory']
   };
 }
 
-function createReadPipelineInputs(db: DbHandle): () => Promise<WorkspaceIndexingPipelineInputs> {
+function createReadPipelineInputs(
+  db: DbHandle,
+  runtimeEngine: 'pglite' | 'turso'
+): () => Promise<WorkspaceIndexingPipelineInputs> {
   return async () => {
-    const result = await db.query<{ count: number | string }>(
-      `SELECT COUNT(*)::int AS count
-         FROM job_queue
-        WHERE queue = 'embeddings'
-          AND job_type = 'embed_chunk'
-          AND state IN ('queued', 'running')`
-    );
+    const sql =
+      runtimeEngine === 'pglite'
+        ? `SELECT COUNT(*)::int AS count
+             FROM job_queue
+            WHERE queue = 'embeddings'
+              AND job_type = 'embed_chunk'
+              AND state IN ('queued', 'running')`
+        : `SELECT COUNT(*) AS count
+             FROM job_queue
+            WHERE queue = 'embeddings'
+              AND job_type = 'embed_chunk'
+              AND state IN ('queued', 'running')`;
+    const result = await db.query<{ count: number | string }>(sql);
     const rawCount = result.rows[0]?.count;
     const activeEmbeddingJobs = typeof rawCount === 'number' ? rawCount : Number(rawCount ?? 0);
     if (!Number.isFinite(activeEmbeddingJobs) || activeEmbeddingJobs < 0) {
@@ -1098,7 +1336,15 @@ export function WorkspaceCollectionSyncProvider({
     useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const workspaceRootsDbClient = useWorkspaceRootsDbClient();
-  const db = usePGliteDatabase();
+  const db = useModelRegistryDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
+  const runtimeEngine: BootstrapRuntimeEngine = profileBootstrapReport?.runtime.engine ?? 'unknown';
+  const pgliteDb = runtimeEngine === 'pglite' ? db : null;
+  const tursoDb = runtimeEngine === 'turso' ? db : null;
+  const tursoExecutionClient = useMemo(
+    () => (runtimeEngine === 'turso' && db ? extractDbExecutionClient(db) : null),
+    [db, runtimeEngine]
+  );
 
   // Root registry: ensure a DB roots row exists for every adapter root.
   // Runs once per boot, before the first sync cycle writes file records.
@@ -1158,7 +1404,10 @@ export function WorkspaceCollectionSyncProvider({
     }
   }, [fileSystemAdapter, registerRoot, rootDirectoryHandles, rootIdByPath]);
 
-  const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
+  const backgroundDb = useMemo(() => {
+    const runtimeDb = pgliteDb ?? tursoDb;
+    return runtimeDb ? createPriorityDbHandle(runtimeDb, 'background') : null;
+  }, [pgliteDb, tursoDb]);
   const waitForBackgroundPermit = useMemo(
     () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
     [backgroundDb]
@@ -1168,12 +1417,30 @@ export function WorkspaceCollectionSyncProvider({
     [backgroundDb]
   );
   const readPipelineInputs = useMemo(
-    () => (backgroundDb ? createReadPipelineInputs(backgroundDb) : null),
-    [backgroundDb]
+    () =>
+      backgroundDb && isBackgroundIndexingRuntimeEngine(runtimeEngine)
+        ? createReadPipelineInputs(backgroundDb, runtimeEngine)
+        : null,
+    [backgroundDb, runtimeEngine]
   );
   const readPowerSnapshot = useMemo(() => createReadPowerSnapshot(), []);
   const backgroundRepositories = useMemo(() => {
     if (!backgroundDb) {
+      return null;
+    }
+    if (runtimeEngine === 'turso') {
+      if (!tursoExecutionClient) {
+        return null;
+      }
+      const backgroundTursoExecutionClient = createBackgroundTursoExecutionClient(backgroundDb);
+      const tursoChunkRepository = new TursoFileChunkRepository(backgroundTursoExecutionClient);
+      return {
+        chunkRepository: createTursoBackgroundChunkRepository(tursoChunkRepository),
+        embeddingSetsRepository: new TursoEmbeddingSetsRepository(backgroundTursoExecutionClient),
+        fileRecordRepository: new TursoFileRecordRepository(backgroundTursoExecutionClient),
+      };
+    }
+    if (runtimeEngine !== 'pglite') {
       return null;
     }
     const repositoryDb = createBackgroundRepositoryDb(backgroundDb);
@@ -1182,7 +1449,7 @@ export function WorkspaceCollectionSyncProvider({
       embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
       fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
     };
-  }, [backgroundDb]);
+  }, [backgroundDb, runtimeEngine, tursoExecutionClient]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const storeHasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
@@ -1366,35 +1633,27 @@ export function WorkspaceCollectionSyncProvider({
     ]
   );
 
-  const missingRuntimeDependencies = useMemo(() => {
-    const missing: string[] = [];
-    if (!db) {
-      missing.push('db');
-    }
-    if (!backgroundDb) {
-      missing.push('backgroundDb');
-    }
-    if (!waitForBackgroundPermit) {
-      missing.push('waitForBackgroundPermit');
-    }
-    if (backgroundRepositories) {
-      if (!backgroundRepositories.fileRecordRepository) {
-        missing.push('fileRecordRepository');
-      }
-      if (!backgroundRepositories.chunkRepository) {
-        missing.push('chunkRepository');
-      }
-      if (!backgroundRepositories.embeddingSetsRepository) {
-        missing.push('embeddingSetsRepository');
-      }
-    } else {
-      missing.push('backgroundRepositories');
-    }
-    if (!fileSystemAdapter) {
-      missing.push('fileSystemAdapter');
-    }
-    return missing;
-  }, [backgroundDb, backgroundRepositories, db, fileSystemAdapter, waitForBackgroundPermit]);
+  const missingRuntimeDependencies = useMemo(
+    () =>
+      collectMissingRuntimeDependencies({
+        backgroundDb,
+        backgroundRepositories,
+        db,
+        fileSystemAdapter,
+        runtimeEngine,
+        tursoExecutionClient,
+        waitForBackgroundPermit,
+      }),
+    [
+      backgroundDb,
+      backgroundRepositories,
+      db,
+      fileSystemAdapter,
+      runtimeEngine,
+      tursoExecutionClient,
+      waitForBackgroundPermit,
+    ]
+  );
 
   const service = useMemo(() => {
     if (
@@ -1455,6 +1714,9 @@ export function WorkspaceCollectionSyncProvider({
           await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
         }
+        if (runtimeEngine === 'turso') {
+          throw new Error('Turso background indexing requires desktop managed-cache IPC support.');
+        }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       },
       invalidateManagedCacheEntriesByIdentity: async (args) => {
@@ -1464,6 +1726,11 @@ export function WorkspaceCollectionSyncProvider({
           return await electronInvalidateManagedCacheEntries(
             args,
             BACKGROUND_DATABASE_WORK_OPTIONS
+          );
+        }
+        if (runtimeEngine === 'turso') {
+          throw new Error(
+            'Turso background indexing requires desktop managed-cache invalidation IPC support.'
           );
         }
         return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
@@ -1544,6 +1811,7 @@ export function WorkspaceCollectionSyncProvider({
     fileSystemAdapter,
     resolveDbRootId,
     resolveQosPolicy,
+    runtimeEngine,
     runtimeController,
     setManagedCollectionId,
     setSyncStatus,
@@ -1834,6 +2102,7 @@ export function WorkspaceCollectionSyncProvider({
         const orderedTargets = await loadOrderedSyncTargets({
           backgroundDb,
           managedCollectionId,
+          runtimeEngine,
           syncableTargets,
         });
         if (syncLoopGenerationRef.current !== myGeneration) {
@@ -1944,6 +2213,7 @@ export function WorkspaceCollectionSyncProvider({
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
+      runtimeEngine,
       service,
       setSyncStatus,
       treeRestorationSettled,
@@ -2000,61 +2270,39 @@ export function WorkspaceCollectionSyncProvider({
     let inFlightAuditKey: string | null = null;
     let verifiedAuditKey: string | null = null;
 
-    const maybeAuditIdleCoverage = (
-      status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
-    ): void => {
-      if (status.state !== 'idle') {
-        if (status.state !== 'waiting') {
-          activeAuditToken = null;
-          inFlightAuditKey = null;
-          verifiedAuditKey = null;
-        }
-        return;
-      }
-      const collectionId = status.managedCollectionId ?? managedCollectionId;
-      if (!(enabled && collectionId && backgroundDb && fileSystemAdapter)) {
-        return;
-      }
-      const handles = getActiveRootHandles({ rootDirectoryHandle, rootDirectoryHandles });
-      if (handles.length === 0) {
-        return;
-      }
-
-      const auditKey = createCoverageAuditKey({
-        collectionId,
-        handles,
-        policyPreset: indexingPolicyPreset,
-        rootIdByPath,
-      });
-      if (verifiedAuditKey === auditKey || inFlightAuditKey === auditKey) {
-        return;
-      }
-
+    const launchCoverageAudit = (args: {
+      activeRootPath: string | null;
+      auditKey: string;
+      collectionId: string;
+      db: DbHandle;
+      fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
+      handles: readonly DirectoryHandle[];
+      runtimeEngine: BackgroundIndexingRuntimeEngine;
+    }): void => {
       const auditToken = Symbol('workspace-coverage-audit');
       activeAuditToken = auditToken;
-      inFlightAuditKey = auditKey;
-      const activeRootPath = rootDirectoryHandle?.path ?? handles[0]?.path ?? null;
+      inFlightAuditKey = args.auditKey;
       setSyncStatus(
         createCoverageStatusPatch({
-          activeRootPath,
-          collectionId,
+          activeRootPath: args.activeRootPath,
+          collectionId: args.collectionId,
           lastError: WORKSPACE_COVERAGE_AUDIT_MESSAGE,
           state: 'waiting',
         })
       );
 
       void startWorkspaceCoverageAudit({
-        activeRootPath,
-        auditKey,
+        activeRootPath: args.activeRootPath,
+        auditKey: args.auditKey,
         clearInFlightAudit: (completedAuditKey) => {
           if (!(disposed || inFlightAuditKey !== completedAuditKey)) {
             inFlightAuditKey = null;
           }
         },
-        collectionId,
-        db: backgroundDb,
-        fileSystemAdapter,
-        handles,
+        collectionId: args.collectionId,
+        db: args.db,
+        fileSystemAdapter: args.fileSystemAdapter,
+        handles: args.handles,
         isCurrent: () => !disposed && activeAuditToken === auditToken,
         markAuditVerified: (verifiedKey) => {
           if (!disposed) {
@@ -2064,12 +2312,47 @@ export function WorkspaceCollectionSyncProvider({
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
         rootIdByPath,
+        runtimeEngine: args.runtimeEngine,
         setStatus: setSyncStatus,
       }).then((requiresRecoverySync) => {
         if (!disposed && requiresRecoverySync) {
           triggerSyncFromEvent({ mode: 'full' });
         }
       });
+    };
+
+    const maybeAuditIdleCoverage = (
+      status: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
+    ): void => {
+      if (shouldResetCoverageAuditTracking(status)) {
+        activeAuditToken = null;
+        inFlightAuditKey = null;
+        verifiedAuditKey = null;
+        return;
+      }
+      const auditRequest = createIdleCoverageAuditRequest({
+        backgroundDb,
+        enabled,
+        fileSystemAdapter,
+        indexingPolicyPreset,
+        managedCollectionId,
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+        rootIdByPath,
+        runtimeEngine,
+        status,
+      });
+      if (!auditRequest) {
+        return;
+      }
+      if (
+        verifiedAuditKey === auditRequest.auditKey ||
+        inFlightAuditKey === auditRequest.auditKey
+      ) {
+        return;
+      }
+
+      launchCoverageAudit(auditRequest);
     };
 
     maybeAuditIdleCoverage(useWorkspaceCollectionSyncStatusStore.getState());
@@ -2088,6 +2371,7 @@ export function WorkspaceCollectionSyncProvider({
     rootDirectoryHandle,
     rootDirectoryHandles,
     rootIdByPath,
+    runtimeEngine,
     setSyncStatus,
   ]);
 
@@ -2593,6 +2877,13 @@ export function WorkspaceCollectionSyncProvider({
         if (!backgroundDb) {
           throw new Error('Workspace Index stage benchmark requires managed-cache apply support.');
         }
+        if (runtimeEngine === 'turso') {
+          if (!tursoExecutionClient) {
+            throw new Error('Turso stage benchmark requires an execution client.');
+          }
+          await applyTursoManagedCacheBatch(tursoExecutionClient, args);
+          return;
+        }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       };
       if (request.mode === 'db-completion-ceiling' && !(backgroundDb || electronRunTransaction)) {
@@ -2608,7 +2899,7 @@ export function WorkspaceCollectionSyncProvider({
         request,
       });
     },
-    [backgroundDb]
+    [backgroundDb, runtimeEngine, tursoExecutionClient]
   );
 
   useEffect(() => {

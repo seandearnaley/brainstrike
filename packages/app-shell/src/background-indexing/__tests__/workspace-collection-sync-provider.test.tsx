@@ -64,11 +64,19 @@ const {
   processFilesMock,
   listManagedCacheEntryMetadataMock,
   applyManagedCacheBatchLocalMock,
+  applyManagedCacheBatchTursoMock,
   invalidateManagedCacheEntriesByIdentityLocalMock,
+  invalidateManagedCacheEntriesByIdentityTursoMock,
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
   getOrCreateWorkspaceIndexSetMock,
+  tursoGetByIdMock,
+  tursoGetOrCreateWorkspaceIndexSetMock,
+  tursoListManagedCacheEntryMetadataMock,
+  tursoUpdateMock,
+  tursoDeleteByFileRecordIdMock,
+  tursoChunkUpdateMock,
   createPriorityDbHandleMock,
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
@@ -77,6 +85,8 @@ const {
   enqueueBackfillMock,
   cancelBackfillMock,
   dbState,
+  modelRegistryDbClientState,
+  profileBootstrapReportState,
   workspaceRootsDbClientState,
   vectorQueueServiceState,
   fileSystemState,
@@ -106,7 +116,13 @@ const {
       await db.transaction?.(async () => undefined);
     }
   ),
+  applyManagedCacheBatchTursoMock: vi.fn(async () => undefined),
   invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
+  invalidateManagedCacheEntriesByIdentityTursoMock: vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
     deletedFileRecordIds: [],
@@ -115,47 +131,87 @@ const {
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
   getOrCreateWorkspaceIndexSetMock: vi.fn(),
+  tursoListManagedCacheEntryMetadataMock: vi.fn(),
+  tursoUpdateMock: vi.fn(),
+  tursoDeleteByFileRecordIdMock: vi.fn(),
+  tursoChunkUpdateMock: vi.fn(),
+  tursoGetByIdMock: vi.fn(),
+  tursoGetOrCreateWorkspaceIndexSetMock: vi.fn(),
   createPriorityDbHandleMock: vi.fn(
     (
       db: {
         exec?: ReturnType<typeof vi.fn>;
+        insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
         query: ReturnType<typeof vi.fn>;
+        raw?: unknown;
         transaction?: ReturnType<typeof vi.fn>;
       },
       priority: 'foreground' | 'normal' | 'background'
-    ) => ({
-      exec: vi.fn(async (sql: string, params?: unknown[]) =>
-        db.exec
-          ? await (db.exec as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+    ) => {
+      const handle: {
+        exec?: ReturnType<typeof vi.fn>;
+        insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        raw?: unknown;
+        transaction: ReturnType<typeof vi.fn>;
+      } = {
+        exec: vi.fn(async (sql: string, params?: unknown[]) =>
+          db.exec
+            ? await (db.exec as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+                priority,
+              })
+            : undefined
+        ),
+        query: vi.fn(
+          async (sql: string, params?: unknown[]) =>
+            await (db.query as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
               priority,
             })
-          : undefined
-      ),
-      query: vi.fn(
-        async (sql: string, params?: unknown[]) =>
-          await (db.query as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
-            priority,
-          })
-      ),
-      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) => {
-        if (!db.transaction) {
-          return;
-        }
-        return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
-          async (tx: { query: ReturnType<typeof vi.fn> }) =>
-            fn({
-              query: vi.fn(
-                async (sql: string, params?: unknown[]) =>
-                  await (tx.query as unknown as (...args: unknown[]) => Promise<unknown>)(
-                    sql,
-                    params,
-                    { priority }
-                  )
-              ),
-            })
+        ),
+        transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) => {
+          if (!db.transaction) {
+            return;
+          }
+          return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
+            async (tx: { query: ReturnType<typeof vi.fn> }) =>
+              fn({
+                query: vi.fn(
+                  async (sql: string, params?: unknown[]) =>
+                    await (tx.query as unknown as (...args: unknown[]) => Promise<unknown>)(
+                      sql,
+                      params,
+                      { priority }
+                    )
+                ),
+              })
+          );
+        }),
+      };
+      if (db.insertChunksAndEnqueueEmbeddingJobs) {
+        handle.insertChunksAndEnqueueEmbeddingJobs = vi.fn(
+          async (
+            chunks: unknown,
+            fileRecordId: unknown,
+            options: unknown,
+            workOptions?: unknown
+          ) => {
+            const mergedWorkOptions =
+              workOptions && typeof workOptions === 'object'
+                ? { ...workOptions, priority }
+                : { priority };
+            return await (
+              db.insertChunksAndEnqueueEmbeddingJobs as unknown as (
+                ...args: unknown[]
+              ) => Promise<unknown>
+            )(chunks, fileRecordId, options, mergedWorkOptions);
+          }
         );
-      }),
-    })
+      }
+      if ('raw' in db) {
+        handle.raw = db.raw;
+      }
+      return handle;
+    }
   ),
   validateApiKeyForSetMock: vi.fn(),
   ensureChunkingWorkerMock: vi.fn(),
@@ -175,6 +231,28 @@ const {
       exec: ReturnType<typeof vi.fn>;
       query: ReturnType<typeof vi.fn>;
       transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  modelRegistryDbClientState: {
+    current: null as {
+      exec?: ReturnType<typeof vi.fn>;
+      insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
+      query: ReturnType<typeof vi.fn>;
+      raw?: unknown;
+      transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  profileBootstrapReportState: {
+    current: {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'desktop-ipc', persistence: 'filesystem' },
+    } as {
+      readonly ready: boolean;
+      readonly runtime: {
+        readonly engine: 'pglite' | 'turso' | 'unknown';
+        readonly host: string;
+        readonly persistence: string;
+      };
     } | null,
   },
   workspaceRootsDbClientState: {
@@ -332,11 +410,14 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  applyTursoManagedCacheBatch: applyManagedCacheBatchTursoMock,
   invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
+  invalidateTursoManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityTursoMock,
   createDatabasePressureController: vi.fn(() => ({
     waitForBackgroundPermit: vi.fn(async () => undefined),
   })),
   createPriorityDbHandle: createPriorityDbHandleMock,
+  extractDbExecutionClient: (db: { raw?: unknown } | null) => db?.raw ?? null,
   getDatabasePressureWaitingReason: vi.fn(() => null),
   getDatabaseWorkScheduler: vi.fn(() => ({
     getSnapshot: vi.fn(() => idleSchedulerSnapshot),
@@ -365,6 +446,43 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
+  TursoEmbeddingSetsRepository: vi.fn(function MockTursoEmbeddingSetsRepository(db: {
+    query: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<unknown>;
+    transaction: <TResult>(
+      callback: (tx: {
+        exec: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<void>;
+      }) => Promise<TResult>
+    ) => Promise<TResult>;
+  }) {
+    return {
+      getById: async (embeddingSetId: string) => {
+        await db.query('SELECT 1 FROM embedding_sets WHERE id = ?', [embeddingSetId]);
+        await db.transaction(async (tx) => {
+          await tx.exec('UPDATE embedding_sets SET id = id WHERE id = ?', [embeddingSetId]);
+        });
+        return await tursoGetByIdMock(embeddingSetId);
+      },
+      getOrCreateWorkspaceIndexSet: tursoGetOrCreateWorkspaceIndexSetMock,
+    };
+  }),
+  TursoFileChunkRepository: vi.fn(function MockTursoFileChunkRepository() {
+    return {
+      deleteByFileRecordId: tursoDeleteByFileRecordIdMock,
+      getCoverageForSet: vi.fn(async () => ({
+        chunksWithEmbeddingsForSet: 0,
+        totalChunks: 0,
+      })),
+      update: tursoChunkUpdateMock,
+    };
+  }),
+  TursoFileRecordRepository: vi.fn(function MockTursoFileRecordRepository() {
+    return {
+      listManagedCacheEntryMetadata: tursoListManagedCacheEntryMetadataMock,
+      update: tursoUpdateMock,
+    };
+  }),
+  useModelRegistryDbClient: () => modelRegistryDbClientState.current ?? dbState.current,
+  useOptionalProfileBootstrapReport: () => profileBootstrapReportState.current,
   usePGliteDatabase: () => dbState.current,
   useWorkspaceRootsDbClient: () =>
     workspaceRootsDbClientState.current ??
@@ -500,6 +618,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
+    modelRegistryDbClientState.current = null;
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     workspaceRootsDbClientState.current = null;
     vectorQueueServiceState.current = {
       validateApiKeyForSet: validateApiKeyForSetMock,
@@ -526,6 +649,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     getByIdMock.mockResolvedValue(collection);
     getOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
+    tursoGetByIdMock.mockResolvedValue(collection);
+    tursoGetOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
     resolveDbRootIdMock.mockImplementation(
       async (_rootPath: string): Promise<string | null> => 'db-root-id'
     );
@@ -557,6 +682,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
     });
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
+    tursoListManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
       await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,
@@ -594,6 +720,112 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('starts background indexing with Turso runtime repositories when PGlite is unavailable', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    const electronInvalidateManagedCacheEntriesByIdentity = vi.fn(async () => ({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    }));
+    const electronRunTransaction = vi.fn(async () => ({ rows: [] }));
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    const tursoDb = {
+      ...tursoExecutionClient,
+      insertChunksAndEnqueueEmbeddingJobs,
+      raw: tursoExecutionClient,
+    };
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+          invalidateManagedCacheEntriesByIdentity: electronInvalidateManagedCacheEntriesByIdentity,
+          runTransaction: electronRunTransaction,
+        },
+      },
+    });
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      const insertChunks = params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs;
+      if (typeof insertChunks !== 'function') {
+        throw new Error('Turso background import requires atomic chunk/job enqueue support.');
+      }
+      await insertChunks([], 'file-record-id');
+      return [];
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(electronApplyManagedCacheBatch).toHaveBeenCalledTimes(1));
+
+      expect(createPriorityDbHandleMock).toHaveBeenCalledWith(tursoDb, 'background');
+      expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+      expect(applyManagedCacheBatchTursoMock).not.toHaveBeenCalled();
+      expect(electronApplyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          label: 'background indexing',
+          priority: 'background',
+        })
+      );
+      expect(tursoExecutionClient.query).toHaveBeenCalledWith(
+        'SELECT 1 FROM embedding_sets WHERE id = ?',
+        ['00000000-0000-0000-0000-000000000101'],
+        expect.objectContaining({
+          priority: 'background',
+        })
+      );
+      expect(electronRunTransaction).toHaveBeenCalledWith(
+        [
+          {
+            params: ['00000000-0000-0000-0000-000000000101'],
+            sql: 'UPDATE embedding_sets SET id = id WHERE id = ?',
+          },
+        ],
+        0,
+        expect.objectContaining({
+          label: 'background indexing',
+          priority: 'background',
+        })
+      );
+      expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+        [],
+        'file-record-id',
+        undefined,
+        expect.objectContaining({
+          priority: 'background',
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
   });
 
   it('coalesces refresh events while a background sync is already importing', async () => {
