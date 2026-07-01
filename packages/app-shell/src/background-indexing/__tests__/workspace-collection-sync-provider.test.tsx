@@ -64,11 +64,19 @@ const {
   processFilesMock,
   listManagedCacheEntryMetadataMock,
   applyManagedCacheBatchLocalMock,
+  applyManagedCacheBatchTursoMock,
   invalidateManagedCacheEntriesByIdentityLocalMock,
+  invalidateManagedCacheEntriesByIdentityTursoMock,
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
   getOrCreateWorkspaceIndexSetMock,
+  tursoGetByIdMock,
+  tursoGetOrCreateWorkspaceIndexSetMock,
+  tursoListManagedCacheEntryMetadataMock,
+  tursoUpdateMock,
+  tursoDeleteByFileRecordIdMock,
+  tursoChunkUpdateMock,
   createPriorityDbHandleMock,
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
@@ -77,6 +85,8 @@ const {
   enqueueBackfillMock,
   cancelBackfillMock,
   dbState,
+  modelRegistryDbClientState,
+  profileBootstrapReportState,
   workspaceRootsDbClientState,
   vectorQueueServiceState,
   fileSystemState,
@@ -106,7 +116,13 @@ const {
       await db.transaction?.(async () => undefined);
     }
   ),
+  applyManagedCacheBatchTursoMock: vi.fn(async () => undefined),
   invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
+  invalidateManagedCacheEntriesByIdentityTursoMock: vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
     deletedFileRecordIds: [],
@@ -115,6 +131,12 @@ const {
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
   getOrCreateWorkspaceIndexSetMock: vi.fn(),
+  tursoListManagedCacheEntryMetadataMock: vi.fn(),
+  tursoUpdateMock: vi.fn(),
+  tursoDeleteByFileRecordIdMock: vi.fn(),
+  tursoChunkUpdateMock: vi.fn(),
+  tursoGetByIdMock: vi.fn(),
+  tursoGetOrCreateWorkspaceIndexSetMock: vi.fn(),
   createPriorityDbHandleMock: vi.fn(
     (
       db: {
@@ -175,6 +197,28 @@ const {
       exec: ReturnType<typeof vi.fn>;
       query: ReturnType<typeof vi.fn>;
       transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  modelRegistryDbClientState: {
+    current: null as {
+      exec?: ReturnType<typeof vi.fn>;
+      insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
+      query: ReturnType<typeof vi.fn>;
+      raw?: unknown;
+      transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  profileBootstrapReportState: {
+    current: {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'desktop-ipc', persistence: 'filesystem' },
+    } as {
+      readonly ready: boolean;
+      readonly runtime: {
+        readonly engine: 'pglite' | 'turso' | 'unknown';
+        readonly host: string;
+        readonly persistence: string;
+      };
     } | null,
   },
   workspaceRootsDbClientState: {
@@ -332,11 +376,14 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  applyTursoManagedCacheBatch: applyManagedCacheBatchTursoMock,
   invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
+  invalidateTursoManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityTursoMock,
   createDatabasePressureController: vi.fn(() => ({
     waitForBackgroundPermit: vi.fn(async () => undefined),
   })),
   createPriorityDbHandle: createPriorityDbHandleMock,
+  extractDbExecutionClient: (db: { raw?: unknown } | null) => db?.raw ?? null,
   getDatabasePressureWaitingReason: vi.fn(() => null),
   getDatabaseWorkScheduler: vi.fn(() => ({
     getSnapshot: vi.fn(() => idleSchedulerSnapshot),
@@ -365,6 +412,30 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
+  TursoEmbeddingSetsRepository: vi.fn(function MockTursoEmbeddingSetsRepository() {
+    return {
+      getById: tursoGetByIdMock,
+      getOrCreateWorkspaceIndexSet: tursoGetOrCreateWorkspaceIndexSetMock,
+    };
+  }),
+  TursoFileChunkRepository: vi.fn(function MockTursoFileChunkRepository() {
+    return {
+      deleteByFileRecordId: tursoDeleteByFileRecordIdMock,
+      getCoverageForSet: vi.fn(async () => ({
+        chunksWithEmbeddingsForSet: 0,
+        totalChunks: 0,
+      })),
+      update: tursoChunkUpdateMock,
+    };
+  }),
+  TursoFileRecordRepository: vi.fn(function MockTursoFileRecordRepository() {
+    return {
+      listManagedCacheEntryMetadata: tursoListManagedCacheEntryMetadataMock,
+      update: tursoUpdateMock,
+    };
+  }),
+  useModelRegistryDbClient: () => modelRegistryDbClientState.current ?? dbState.current,
+  useOptionalProfileBootstrapReport: () => profileBootstrapReportState.current,
   usePGliteDatabase: () => dbState.current,
   useWorkspaceRootsDbClient: () =>
     workspaceRootsDbClientState.current ??
@@ -500,6 +571,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
+    modelRegistryDbClientState.current = null;
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     workspaceRootsDbClientState.current = null;
     vectorQueueServiceState.current = {
       validateApiKeyForSet: validateApiKeyForSetMock,
@@ -526,6 +602,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     getByIdMock.mockResolvedValue(collection);
     getOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
+    tursoGetByIdMock.mockResolvedValue(collection);
+    tursoGetOrCreateWorkspaceIndexSetMock.mockResolvedValue(collection);
     resolveDbRootIdMock.mockImplementation(
       async (_rootPath: string): Promise<string | null> => 'db-root-id'
     );
@@ -557,6 +635,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
     });
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
+    tursoListManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
       await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,
@@ -594,6 +673,61 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('starts background indexing with Turso runtime repositories when PGlite is unavailable', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    const tursoDb = {
+      ...tursoExecutionClient,
+      insertChunksAndEnqueueEmbeddingJobs,
+      raw: tursoExecutionClient,
+    };
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      const insertChunks = params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs;
+      if (typeof insertChunks !== 'function') {
+        throw new Error('Turso background import requires atomic chunk/job enqueue support.');
+      }
+      await insertChunks([], 'file-record-id');
+      return [];
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledTimes(1));
+
+    expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledWith(
+      tursoExecutionClient,
+      expect.any(Object)
+    );
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalled();
   });
 
   it('coalesces refresh events while a background sync is already importing', async () => {
