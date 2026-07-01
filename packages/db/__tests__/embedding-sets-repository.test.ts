@@ -161,14 +161,14 @@ describe('EmbeddingSetsRepository', () => {
         'three',
         13,
         '[0.3,0.2,0.1]',
-        embeddingSet.id,
+        null,
         'chunk-4',
         'file-2',
         1,
         'untokenized',
         null,
         null,
-        embeddingSet.id,
+        null,
       ]
     );
 
@@ -258,7 +258,10 @@ describe('EmbeddingSetsRepository', () => {
       }),
     ]);
     expect(statements).toHaveLength(1);
-    expect(statements[0]).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
+    expect(statements[0]).toContain('COUNT(c.token_count)::text AS tokenized_chunk_count');
+    expect(statements[0]).toContain(
+      'COALESCE(c.embedding_set_id, fr.embedding_set_id) AS embedding_set_id'
+    );
   });
 
   it('creates one protected workspace index set with the default local embedding model', async () => {
