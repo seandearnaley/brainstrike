@@ -1,6 +1,7 @@
 import {
   type BrainstrikeDbExecutionClient,
   createEmbeddingCacheRepository,
+  createTursoEmbeddingCacheRepository,
   type DbHandle,
   getMissingBrainstrikeDbExecutionClientCapabilities,
   type ProfileBootstrapRuntime,
@@ -620,15 +621,16 @@ function createEmbeddingHostWorkerStorage(
 function createEmbeddingHostWorkerCache(
   db: DbHandle,
   runtimeEngine: EmbeddingHostRuntimeEngine
-): ReturnType<typeof createEmbeddingCacheRepository> | undefined {
+):
+  | ReturnType<typeof createEmbeddingCacheRepository>
+  | ReturnType<typeof createTursoEmbeddingCacheRepository>
+  | undefined {
   if (runtimeEngine === 'pglite') {
     return createEmbeddingCacheRepository(db);
   }
   if (runtimeEngine === 'turso') {
-    logger.warn(
-      'Turso embedding host worker cache is not enabled because the embedding cache repository is not migrated to Turso SQL.'
-    );
-    return;
+    assertTursoExecutionClient(db);
+    return createTursoEmbeddingCacheRepository(db);
   }
   return unsupportedEmbeddingHostRuntime(runtimeEngine);
 }

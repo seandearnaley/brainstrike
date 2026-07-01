@@ -10,10 +10,12 @@ const {
   dbHandle,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
+  tursoEmbeddingCacheRepository,
   getEmbeddingQueueMock,
   createEmbeddingWorkerConfigMock,
   createDesktopTursoEmbeddingWorkerStorageMock,
   createEmbeddingCacheRepositoryMock,
+  createTursoEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
@@ -49,6 +51,12 @@ const {
     set: vi.fn(),
     setBatch: vi.fn(),
   },
+  tursoEmbeddingCacheRepository: {
+    get: vi.fn(),
+    getBatch: vi.fn(),
+    set: vi.fn(),
+    setBatch: vi.fn(),
+  },
   embeddingQueueBootstrapMock: vi.fn(),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   createEmbeddingWorkerConfigMock: vi.fn(
@@ -62,6 +70,7 @@ const {
     id: 'turso-embedding-worker-storage',
   })),
   createEmbeddingCacheRepositoryMock: vi.fn(),
+  createTursoEmbeddingCacheRepositoryMock: vi.fn(),
   detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   generateQueryEmbeddingMock: vi.fn(async () => ({
@@ -95,6 +104,7 @@ const {
 
 vi.mock('@brainstrike/db', () => ({
   createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
+  createTursoEmbeddingCacheRepository: createTursoEmbeddingCacheRepositoryMock,
   getMissingBrainstrikeDbExecutionClientCapabilities: (candidate: unknown) => {
     if (!(candidate && typeof candidate === 'object')) {
       return ['query', 'exec', 'transaction'];
@@ -190,6 +200,7 @@ describe('EmbeddingHostRuntime', () => {
       return storeState;
     });
     createEmbeddingCacheRepositoryMock.mockReturnValue(embeddingCacheRepository);
+    createTursoEmbeddingCacheRepositoryMock.mockReturnValue(tursoEmbeddingCacheRepository);
     startEmbeddingWorkerMock.mockResolvedValue({
       stop: stopMock,
     });
@@ -306,7 +317,7 @@ describe('EmbeddingHostRuntime', () => {
     expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
   });
 
-  it('starts Turso host workers with explicit storage and no PGlite cache repository', async () => {
+  it('starts Turso host workers with explicit storage and a Turso cache repository', async () => {
     storeState.hasHydrated = true;
     currentRuntimeEngineRef.current = 'turso';
     const tursoStorage = { id: 'turso-storage' };
@@ -317,6 +328,7 @@ describe('EmbeddingHostRuntime', () => {
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
         expect.objectContaining({
+          embeddingCache: tursoEmbeddingCacheRepository,
           storage: tursoStorage,
         })
       );
@@ -333,6 +345,7 @@ describe('EmbeddingHostRuntime', () => {
     );
     expect(startEmbeddingWorkerMock.mock.calls[0]?.[0]).not.toHaveProperty('db');
     expect(createEmbeddingCacheRepositoryMock).not.toHaveBeenCalled();
+    expect(createTursoEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
   });
 
   it('reports unsupported ready runtimes without throwing during render', async () => {
