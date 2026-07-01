@@ -128,6 +128,21 @@ describe('assistant runtime helpers', () => {
     ).toBe('Assistant memory for hosted providers requires the desktop assistant backend.');
   });
 
+  it('describes assistant memory loading without naming a specific database engine', () => {
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        assistantThreadRepository: null,
+      })
+    ).toBe('Assistant memory is loading from the database.');
+    expect(
+      resolveAssistantMemoryDisabledReason({
+        ...baseMemoryReasonArgs,
+        memoryLoadState: { status: 'loading' },
+      })
+    ).toBe('Assistant memory is loading from the database.');
+  });
+
   it('blocks unsupported semantic recall embedding providers', () => {
     expect(
       resolveAssistantMemoryDisabledReason({

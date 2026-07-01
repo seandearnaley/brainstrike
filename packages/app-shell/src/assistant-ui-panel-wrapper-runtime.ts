@@ -140,7 +140,7 @@ export function resolveAssistantMemoryDisabledReason(args: {
     !args.assistantThreadRepository ||
     args.memoryLoadState?.status === 'loading'
   ) {
-    return 'Assistant memory is loading from PGlite.';
+    return 'Assistant memory is loading from the database.';
   }
   if (args.memoryLoadState?.status === 'error') {
     return `Assistant memory failed to load: ${args.memoryLoadState.error}`;

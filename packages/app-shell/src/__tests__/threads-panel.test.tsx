@@ -238,7 +238,28 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Assistant memory database unavailable')).toBeVisible();
     });
+    expect(
+      screen.getByText('The assistant is unavailable until memory initializes.')
+    ).toBeVisible();
     expect(screen.queryByText('Loading threads...')).not.toBeInTheDocument();
+  });
+
+  it('describes thread loading without naming a specific database engine', () => {
+    threadRows.splice(0, threadRows.length);
+    useAssistantThreadStore.setState({
+      loadStateByResourceId: {
+        [WORKSPACE_MEMORY_RESOURCE_ID]: { status: 'loading' },
+      },
+      threadsByResourceId: {
+        [WORKSPACE_MEMORY_RESOURCE_ID]: [],
+      },
+    });
+
+    render(<ThreadsPanel />);
+
+    expect(screen.getByTestId('threads-loading-card')).toBeVisible();
+    expect(screen.getByText('Reading Mastra memory from the database.')).toBeVisible();
+    expect(screen.queryByText('Reading Mastra memory from PGlite.')).not.toBeInTheDocument();
   });
 
   it('shows the database provider error after initialization fails', () => {
