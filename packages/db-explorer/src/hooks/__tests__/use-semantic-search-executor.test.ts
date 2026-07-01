@@ -499,7 +499,7 @@ describe('useSemanticSearchExecutor', () => {
     mockEmbeddingSetsRepository.getById.mockResolvedValue(createMockEmbeddingSet());
     const chunk = createMockChunk('chunk-1', 'file-1');
     const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.82, rank: 1 }]);
-    const fullTextSearch = vi.fn().mockRejectedValue(new Error('Turso FTS is not migrated'));
+    const fullTextSearch = vi.fn().mockRejectedValue(new Error('unexpected FTS call'));
     const tursoChunkRepo = {
       brainstrikeRepositoryKind: 'brainstrike:turso-file-chunk-repository',
       searchSimilar,

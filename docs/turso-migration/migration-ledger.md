@@ -79,13 +79,43 @@ as the implementation backlog.
 - #1374 `Add Turso embedding worker storage adapter`
 - #1375 `Wire Turso embedding host storage`
 - #1376 `Prove Turso worker IPC owner path`
+- #1377 `Gate Turso vector queue actions on adapter`
+- #1378 `Wire Turso vector queue actions through owner IPC`
+- #1379 `Wire query selection snapshots to Turso`
+- #1380 `Make workspace roots runtime-aware for Turso`
+- #1381 `Fix Turso vector queue model lookup placeholder`
+- #1382 `Clear assistant usage in direct reset paths`
+- #1383 `Use Turso-ready model registry in memory settings`
+- #1384 `Use runtime DB in vector status selector`
+- #1385 `Fix Turso model registry toggles`
+- #1386 `Use runtime registry DB in database demo`
+- #1387 `Use Turso snapshots for file mentions`
+- #1388 `Add Turso queue activity snapshot fallback`
+- #1389 `Enable Turso vector search in DB Explorer`
+- #1390 `Enable non-chunked Turso manual imports`
+- #1391 `Enable Turso chunked manual imports`
+- #1392 `Use runtime DB client for indexing activity`
+- #1393 `Wire background indexing to Turso runtime`
+- #1396 `Run embedding backfill on Turso`
+- #1397 `Fail closed on Turso background chunk updates`
+- #1398 `Enable Turso lexical hybrid search`
+- #1399 `Fix Turso runtime follow-up seams`
+- #1400 `Enable Turso embedding cache`
+- #1401 `Add Turso embedding clear owner action`
+- #1402 `Align embedding clear set membership`
 - #1403 `Fix inherited embedding set delete cleanup`
 - #1404 `Compose Turso re-embed flow`
 - #1405 `Terminate Turso DB host on request timeout`
 - #1406 `Recover Turso bootstrap corruption`
-- Current slice: route DB Explorer semantic-search model resolution through the
-  Turso-capable embedding-set repository before falling back to the raw
-  PGlite-only DB handle.
+- #1407 `Resolve DB Explorer semantic search sets via repository`
+- #1408 `Prove assistant reindex DB-host applier path`
+- #1409 `Prefer Turso collection repository snapshots`
+- #1410 `Remove PGlite-specific assistant memory copy`
+- #1411 `Remove PGlite-specific desktop database copy`
+- #1412 `Neutralize database status fallback copy`
+- #1413 `Neutralize file status backend error copy`
+- #1414 `Remove stale Turso queue boundary`
+- #1415 `Neutralize collection browser snapshot copy`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -360,8 +390,10 @@ ranking/snippet semantics become required.
 
 ### 3. Background Indexing And Embedding Host
 
-The hidden embedding host still uses PGlite-oriented runtime access even though
-Turso has file/chunk/job primitives.
+The hidden embedding host now reaches Turso through the desktop embedding worker
+storage adapter and owner IPC paths. Keep new work on that owner-mediated path:
+renderer workers must not construct independent Turso job queues or bypass the
+DB host.
 
 Known production touchpoints:
 
@@ -416,10 +448,10 @@ not move backfill into the vector queue DB action channel, and do not construct
 
 ### 4. Assistant Search And Retrieval
 
-The assistant's grep, retrieval, and hybrid search surfaces remain the largest
-PGlite capability gap. The current architecture deliberately separates primary
-state from search ownership because Turso custom FTS indexes do not work in the
-same MVCC primary store in the current capability spike.
+The assistant's grep, vector retrieval, and lexical hybrid search surfaces now
+have Turso runtime paths. The remaining search work is narrower: keep native
+Tantivy-style FTS snippets/ranking as a separate search-index-store decision
+instead of treating it as a blocker for current primary-store search parity.
 
 Known production touchpoints:
 
@@ -455,10 +487,10 @@ Concrete status:
   snippets, and explicit errors for unsupported PostgreSQL-only language or
   rank-normalization options.
 
-Preferred implementation order:
+Remaining search decisions:
 
-1. Re-enable remaining assistant retrieval tools only for capabilities proven by the repository
-   and bootstrap reports.
+1. Keep assistant retrieval tools gated by the repository capabilities and
+   bootstrap reports that now prove Turso grep/vector support.
 2. Decide whether the current primary-store lexical implementation is enough
    for product search quality, or whether native Tantivy FTS ranking/snippets
    still justify a split search-index owner described in
@@ -466,10 +498,11 @@ Preferred implementation order:
 
 ### 5. Mastra Memory And Assistant Persistence
 
-The desktop assistant server still initializes PGlite Mastra memory on the
-hosted-provider path. This is not just a SQL swap: tool approval suspend/resume,
-message hydration, run events, local-provider desktop persistence, and stream
-resilience all depend on the live Mastra loop.
+The desktop assistant server now selects Turso Mastra memory when the ready
+runtime/bootstrap verdict is Turso. This path preserves the live Mastra loop:
+tool approval suspend/resume, message hydration, run events, local-provider
+desktop persistence, and stream resilience stay on the same server-side runtime
+contract.
 
 Known production touchpoints:
 
@@ -543,8 +576,7 @@ Concrete blockers:
   and model metadata with SQLite-shaped SQL, resolves embedding-set dimensions,
   verifies Turso vector readiness with `vector32`, and refreshes
   `collection_indexing_stats` through the shared `@brainstrike/db` Turso stats
-  service. The hidden renderer host is not switched to this adapter yet; that
-  remains the runtime wiring slice.
+  service.
 - The hidden renderer embedding host now selects desktop Turso worker storage
   when the DB provider exposes a ready Turso execution client. Queue and stats
   mutations are delegated to the main DB host over explicit IPC operations so
@@ -594,24 +626,17 @@ Known production touchpoints:
 - `packages/build-utils`
 - `apps/desktop/src/types/pglite*.d.ts`
 
-Preferred next slice: keep these until the final runtime removal pass;
-premature cleanup would break current PGlite-mode tests and web paths without
-advancing Turso parity.
+Preferred next slice: keep PGlite-specific files until the final runtime removal
+pass; premature cleanup would break current PGlite-mode tests and web paths
+without advancing Turso parity.
 
-## Suggested Implementation Order
+## Historical Implementation Order
 
-1. Collection/import slice: make db-explorer manual import and collection
-   browser snapshot paths work without live query.
-2. Assistant memory slice: add Turso Mastra storage/workflow memory and prove
-   the live Mastra loop against it.
-3. Search slice: add Turso grep/vector repository methods, then semantic search
-   and assistant retrieval.
-4. Live-query strategy slice: either implement a Turso live-query source over
-   IPC or formalize snapshot+refresh alternatives per UI surface.
-5. Reset/maintenance slice: Turso-aware factory reset, profile cleanup, and
-   scheduled maintenance gates.
-6. Final runtime audit: remove or isolate leftover PGlite-only production
-   imports, dependencies, Vite aliases, and type shims.
+The original implementation order was collection/import, assistant memory,
+search, live-query strategy, reset/maintenance, then final runtime audit. Most
+of those slices have landed. Keep the remaining work focused on runtime-removal
+audits, web/runtime ownership decisions, native FTS snippet/ranking decisions,
+and stale PGlite-only surfaces that no longer serve a supported runtime.
 
 ## Verification Policy
 

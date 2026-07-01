@@ -937,7 +937,7 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
 
-    it('disables manual import when Turso chunking lacks the atomic chunk enqueue bridge', async () => {
+    it('disables manual import when the Turso manual-import client omits the atomic chunk enqueue bridge', async () => {
       mockDatabaseClient = null;
       mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'turso' };
       mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
