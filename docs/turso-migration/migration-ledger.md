@@ -128,8 +128,13 @@ The branch currently has a real Turso runtime seam:
   IPC surface when Turso is active, returns explicit unavailable reasons for
   non-Turso, not-yet-open, or unsupported owner-handle diagnostics states, and
   logs an error when an active Turso owner handle lacks the diagnostics method.
-  This is diagnostic-only and does not alter timeout, retry, or write
-  serialization policy.
+  This is diagnostic-only and does not alter retry or write serialization
+  policy. Turso request timeouts are enforced at the DB utility-host boundary:
+  once a host has initialized a ready Turso runtime, any request timeout
+  terminates the utility host instead of leaving the serialized owner client
+  wedged behind a timed-out operation. PGlite keeps the existing policy where
+  plain query/exec timeouts do not kill the host, while transaction timeouts
+  remain process-poisoning for both runtimes.
 - Connection-model decision for the hidden embedding worker: desktop Turso
   worker DB mutations use the shared main-process owner client through explicit
   command-style IPC and the existing database work scheduler's `background`
@@ -528,8 +533,8 @@ Concrete blockers:
   mutations are delegated to the main DB host over explicit IPC operations so
   claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
   owner client instead of the renderer's exec-only transaction adapter.
-- Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout/watchdog policy and Turso corruption diagnostics/recovery.
+- Post-merge retrospective follow-ups still need a focused Turso corruption
+  diagnostics/recovery slice.
 
 ### 7. Factory Reset And Profile Cleanup
 

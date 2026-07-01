@@ -254,6 +254,13 @@ function getRequiredBootstrapCheckIds(engine: string): readonly string[] | null 
   }
 }
 
+function normalizeRuntimeEngineForTimeoutPolicy(engine: string): 'pglite' | 'turso' | null {
+  if (engine === 'pglite' || engine === 'turso') {
+    return engine;
+  }
+  return null;
+}
+
 function assertReadyDbHostInitResult(result: DbHostInitResult): void {
   if (!result.bootstrapReport) {
     throw new Error('DB host init completed without a bootstrap report.');
@@ -268,7 +275,13 @@ function createTransactionId(): string {
   return `tx:${randomUUID()}`;
 }
 
-function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
+function requiresHostTerminationOnTimeout(
+  request: DbHostRequest,
+  runtimeEngine: 'pglite' | 'turso' | null
+): boolean {
+  if (runtimeEngine === 'turso') {
+    return request.kind !== 'init';
+  }
   return (
     request.kind === 'transaction:start' ||
     request.kind === 'transaction:query' ||
@@ -487,6 +500,7 @@ class DefaultDbHostManager implements DbHostManager {
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
   #initialization: Promise<RemoteDbClient> | null = null;
+  #runtimeEngine: 'pglite' | 'turso' | null = null;
 
   constructor(options: DbHostManagerOptions = {}) {
     this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
@@ -527,6 +541,7 @@ class DefaultDbHostManager implements DbHostManager {
   async reset(): Promise<void> {
     await this.send({ kind: 'reset' });
     this.#client = null;
+    this.#runtimeEngine = null;
   }
 
   async close(): Promise<void> {
@@ -540,6 +555,7 @@ class DefaultDbHostManager implements DbHostManager {
       this.#host.kill();
       this.#host = null;
       this.#client = null;
+      this.#runtimeEngine = null;
       this.#failAllLiveQueries(new Error('DB host closed.'));
     }
   }
@@ -563,15 +579,25 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async applyManagedCacheBatch(payload: unknown): Promise<void> {
+    await this.#ensureRuntimeInitialized();
     await this.send({ kind: 'managed-cache:apply-batch', payload });
   }
 
   async invalidateManagedCacheEntriesByIdentity(payload: unknown): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
     return await this.send({ kind: 'managed-cache:invalidate-by-identity', payload });
   }
 
   async insertChunksAndEnqueueEmbeddingJobs(payload: unknown): Promise<void> {
+    await this.#ensureRuntimeInitialized();
     await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
+  }
+
+  async #ensureRuntimeInitialized(): Promise<void> {
+    if (this.#runtimeEngine !== null) {
+      return;
+    }
+    await this.getDatabase();
   }
 
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
@@ -584,6 +610,7 @@ class DefaultDbHostManager implements DbHostManager {
       const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
         const error = new Error(`DB host request timed out: ${request.kind}`);
+        const willTerminateHost = requiresHostTerminationOnTimeout(request, this.#runtimeEngine);
         logger.warn(
           {
             ...timeoutDiagnostics,
@@ -592,13 +619,13 @@ class DefaultDbHostManager implements DbHostManager {
             pendingCount: this.#pending.size,
             requestId: id,
             timeoutMs,
-            willTerminateHost: requiresHostTerminationOnTimeout(request),
+            willTerminateHost,
           },
           'DB host request timed out'
         );
         this.#pending.delete(id);
         reject(error);
-        if (requiresHostTerminationOnTimeout(request)) {
+        if (willTerminateHost) {
           this.#terminateHost(error);
         }
       }, timeoutMs);
@@ -655,6 +682,7 @@ class DefaultDbHostManager implements DbHostManager {
       const error = new Error(`DB host exited with code ${code}.`);
       this.#host = null;
       this.#client = null;
+      this.#runtimeEngine = null;
       this.#failAllLiveQueries(error);
       this.#rejectAll(error);
     });
@@ -674,6 +702,9 @@ class DefaultDbHostManager implements DbHostManager {
       this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
+    this.#runtimeEngine = normalizeRuntimeEngineForTimeoutPolicy(
+      result.bootstrapReport.runtime.engine
+    );
     this.#client = this.#createClient(result);
     return this.#client;
   }
@@ -898,6 +929,7 @@ class DefaultDbHostManager implements DbHostManager {
     }
     this.#host = null;
     this.#client = null;
+    this.#runtimeEngine = null;
     this.#failAllLiveQueries(error);
     this.#rejectAll(error);
     host.kill();
