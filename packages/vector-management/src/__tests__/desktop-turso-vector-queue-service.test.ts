@@ -37,7 +37,9 @@ describe('createDesktopTursoVectorQueueService', () => {
   });
 
   it('routes Turso queue actions through the desktop owner bridge while snapshots stay read-only', async () => {
-    const actionBridge = vi.fn(async () => undefined);
+    const actionBridge = vi.fn(async (operation: string) =>
+      operation === 'clearEmbeddingsForSet' ? { cleared: 7 } : undefined
+    );
     Object.defineProperty(testWindow, 'electronAPI', {
       configurable: true,
       writable: true,
@@ -77,6 +79,7 @@ describe('createDesktopTursoVectorQueueService', () => {
     await service?.retryFailed(12);
     await service?.clearQueue(['failed']);
     await service?.wipeQueue();
+    await expect(service?.clearEmbeddingsForSet('set-1')).resolves.toBe(7);
 
     expect(actionBridge).toHaveBeenCalledWith(
       'retryFailed',
@@ -92,6 +95,11 @@ describe('createDesktopTursoVectorQueueService', () => {
       label: 'turso.vector-queue.action.wipeQueue',
       priority: 'normal',
     });
+    expect(actionBridge).toHaveBeenCalledWith(
+      'clearEmbeddingsForSet',
+      { embeddingSetId: 'set-1' },
+      { label: 'turso.vector-queue.action.clearEmbeddingsForSet', priority: 'normal' }
+    );
   });
 
   it('returns null when the desktop owner bridge is unavailable', () => {

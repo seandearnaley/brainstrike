@@ -29,12 +29,16 @@ export interface EmbeddingActionsDropdownProps {
   /** Number of failed jobs in queue */
   failedCount: number;
 
+  /** Whether an active embedding set is selected */
+  hasActiveSet: boolean;
   /** Whether database is available */
   hasDb: boolean;
   /** Handler for backfill action */
   onBackfill: () => Promise<void>;
   /** Handler for clear queue (failed/queued items) */
   onClearQueue: () => Promise<void>;
+  /** Handler for re-embedding the active collection */
+  onReembed: () => Promise<void>;
   /** Handler for retry failed jobs */
   onRetryFailed: () => Promise<void>;
   /** Handler for wipe queue (all items) */
@@ -82,7 +86,7 @@ function getBackfillButtonText(
  * EmbeddingActionsDropdown - Split button for embedding queue actions.
  *
  * Primary action: Backfill (creates embedding jobs for unprocessed chunks)
- * Secondary actions: Retry failed, Clear queue, Wipe queue
+ * Secondary actions: Retry failed, Re-embed collection, Clear queue, Wipe queue
  *
  * The split button pattern keeps the most common action (Backfill) immediately
  * accessible while hiding destructive/less common actions in a dropdown.
@@ -107,6 +111,7 @@ function getBackfillButtonText(
  */
 export function EmbeddingActionsDropdown({
   onBackfill,
+  onReembed,
   onRetryFailed,
   onClearQueue,
   onWipeQueue,
@@ -116,6 +121,7 @@ export function EmbeddingActionsDropdown({
   failedCount,
   coverage,
   queueCounts,
+  hasActiveSet,
   startingWorker = false,
   willAutoStartWorker = false,
   disabled = false,
@@ -124,6 +130,12 @@ export function EmbeddingActionsDropdown({
 }: EmbeddingActionsDropdownProps) {
   const isBackfillDisabled = disabled || !hasDb || backfilling || startingWorker;
   const isRetryDisabled = !hasDb || failedCount === 0;
+  const isReembedDisabled =
+    !(hasDb && hasActiveSet) ||
+    backfilling ||
+    startingWorker ||
+    queueCounts.queued > 0 ||
+    queueCounts.running > 0;
   const isClearDisabled = !hasDb;
   const isWipeDisabled = !hasDb;
   const retryLabel =
@@ -221,6 +233,14 @@ export function EmbeddingActionsDropdown({
                 {failedCount > 0 && (
                   <span className="ml-auto text-muted-foreground text-xs">({failedCount})</span>
                 )}
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                disabled={isReembedDisabled}
+                onClick={() => invokeAsyncAction(onReembed)}
+              >
+                <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                <span>Re-embed Collection</span>
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />

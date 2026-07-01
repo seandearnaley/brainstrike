@@ -62,6 +62,7 @@ const mockQueueState = {
   }>,
   lastError: null as string | null,
   backfillActiveSet: vi.fn().mockResolvedValue(undefined),
+  reembedActiveSet: vi.fn().mockResolvedValue(undefined),
   retryFailed: vi.fn().mockResolvedValue(undefined),
   clearQueue: vi.fn().mockResolvedValue(undefined),
   wipeQueue: vi.fn().mockResolvedValue(undefined),
@@ -76,6 +77,7 @@ function createMockVectorQueueService(): VectorQueueService {
       failed: 0,
       succeeded: 0,
     })),
+    clearEmbeddingsForSet: vi.fn(async () => 0),
     clearQueue: vi.fn(async () => undefined),
     reembedSet: vi.fn(async () => ({
       clearedCount: 0,

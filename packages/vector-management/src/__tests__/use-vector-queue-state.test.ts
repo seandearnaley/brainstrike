@@ -177,6 +177,7 @@ function createRuntimeStatus(
 function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
+    clearEmbeddingsForSet: vi.fn(async () => 0),
     validateApiKeyForSet: vi.fn(async () => ({ valid: true as const })),
     reembedSet: vi.fn(async () => ({
       clearedCount: 0,
@@ -396,6 +397,7 @@ describe('useVectorQueueState', () => {
     await expect(result.current.clearQueue()).resolves.toBeUndefined();
     await expect(result.current.wipeQueue()).resolves.toBeUndefined();
     await expect(result.current.backfillActiveSet()).rejects.toThrow('No active embedding set');
+    await expect(result.current.reembedActiveSet()).rejects.toThrow('No active embedding set');
     expect(controller.cancelAllBackfillsMock).not.toHaveBeenCalled();
   });
 
@@ -799,6 +801,45 @@ describe('useVectorQueueState', () => {
 
     rerender();
     expect(result.current.backfillProgress).toEqual({ done: 5, total: 5 });
+  });
+
+  it('composes re-embed as service-owned clear followed by controller-owned backfill', async () => {
+    const controller = createMockController();
+    const clearEmbeddingsForSet = vi.fn(async () => 4);
+    const directBackfill = vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 }));
+    const directReembed = vi.fn(async () => ({
+      clearedCount: 4,
+      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+    }));
+    const service = createMockService({
+      backfill: directBackfill,
+      clearEmbeddingsForSet,
+      reembedSet: directReembed,
+    });
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service,
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      await result.current.reembedActiveSet();
+    });
+
+    expect(clearEmbeddingsForSet).toHaveBeenCalledWith('set-1');
+    expect(controller.enqueueBackfillMock).toHaveBeenCalledWith(
+      'set-1',
+      expect.objectContaining({ source: 'manual' })
+    );
+    expect(clearEmbeddingsForSet.mock.invocationCallOrder[0]!).toBeLessThan(
+      controller.enqueueBackfillMock.mock.invocationCallOrder[0]!
+    );
+    expect(directBackfill).not.toHaveBeenCalled();
+    expect(directReembed).not.toHaveBeenCalled();
   });
 
   it('ignores backfill progress for other embedding sets', async () => {
