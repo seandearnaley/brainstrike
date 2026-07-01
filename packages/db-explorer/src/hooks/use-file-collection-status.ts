@@ -163,7 +163,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
       if (!liveQueryEnabled) {
         if (!repositoryStatusLoader) {
           throw new Error(
-            'File collection status requires PGlite live query support or repository status snapshots.'
+            'File collection status requires live query support or repository status snapshots.'
           );
         }
         return [...(await repositoryStatusLoader(activeCollectionId, fileIds))];
