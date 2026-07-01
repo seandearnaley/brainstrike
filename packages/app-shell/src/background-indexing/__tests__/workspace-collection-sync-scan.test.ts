@@ -19,4 +19,20 @@ describe('workspace collection sync scan path helpers', () => {
       expect(__workspaceCollectionSyncScanInternalsForTests.getPathName(path), path).toBe(name);
     }
   });
+
+  it('iterates relative path segments without materializing split/filter arrays', () => {
+    const cases = [
+      { path: 'src/components/Button.tsx', segments: ['src', 'components', 'Button.tsx'] },
+      { path: '/src//components/Button.tsx/', segments: ['src', 'components', 'Button.tsx'] },
+      { path: 'README.md', segments: ['README.md'] },
+      { path: '', segments: [] },
+      { path: '///', segments: [] },
+    ];
+
+    for (const { path, segments } of cases) {
+      expect([
+        ...__workspaceCollectionSyncScanInternalsForTests.iterRelativePathSegments(path),
+      ]).toEqual(segments);
+    }
+  });
 });
