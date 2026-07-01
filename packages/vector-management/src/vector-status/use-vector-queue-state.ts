@@ -141,16 +141,13 @@ const COVERAGE_QUERY = `
   WITH target AS (SELECT $1::text AS embedding_set_id)
   SELECT
     COUNT(*)::int AS "totalChunks",
-    COUNT(*) FILTER (
-      WHERE (
-        c.embedding_set_id = target.embedding_set_id
-        OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
-      )
-      AND c.embedding IS NOT NULL
-    )::int AS "chunksWithEmbeddingsForSet"
+    COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::int AS "chunksWithEmbeddingsForSet"
   FROM file_chunks c
   JOIN file_records fr ON fr.id = c.file_record_id
-  JOIN target ON fr.embedding_set_id = target.embedding_set_id
+  JOIN target ON (
+    c.embedding_set_id = target.embedding_set_id
+    OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+  )
 `.trim();
 
 interface QueueCountsRow {
