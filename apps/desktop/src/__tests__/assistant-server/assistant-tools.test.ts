@@ -1143,8 +1143,7 @@ describe('assistant-tools', () => {
     });
   });
 
-  it('executes listEmbeddingSpaces with Turso-compatible stats SQL when Turso runtime is selected', async () => {
-    vi.stubEnv('BRAINSTRIKE_DB_RUNTIME', 'turso');
+  it('executes listEmbeddingSpaces with Turso-compatible stats SQL when the database handle is Turso', async () => {
     const queryMock = vi.fn(async (sql: string) => {
       if (sql.includes('FROM embedding_sets')) {
         return {
@@ -1170,7 +1169,10 @@ describe('assistant-tools', () => {
       }
       return { rows: [] };
     });
-    getDatabaseMock.mockResolvedValue({ query: queryMock });
+    getDatabaseMock.mockResolvedValue({
+      capabilities: { liveQuery: false },
+      query: queryMock,
+    });
     const tools = buildDesktopAssistantTools({
       workspaceIndexEmbeddingSetId: 'set-1',
       workspaceIndexingEnabled: true,

@@ -91,11 +91,13 @@ embedding-clearing stats refresh, trigram-backed grep candidates, and native
 Turso vector blobs and decoded from the raw BLOB on reads, so ordinary reads do
 not depend on vector SQL functions. Legacy JSON embedding blobs from the
 pre-vector Turso slice remain readable for cleanup or re-embedding, but new
-writes use native Turso vector storage. `fullTextSearch` still fails loudly until
-the split FTS owner is wired. Repository-authored chunks must also carry the non-null
-`FileChunk` identity/type fields (`contentHash`, `chunkType`); if another raw
-Turso path writes nullable baseline rows that violate that contract, repository
-reads fail loudly instead of coalescing malformed data.
+writes use native Turso vector storage. `fullTextSearch` is backed by the
+primary-store gram/content index for lexical hybrid retrieval, while a split
+Tantivy/native FTS owner remains a future search-quality option.
+Repository-authored chunks must also carry the non-null `FileChunk`
+identity/type fields (`contentHash`, `chunkType`); if another raw Turso path
+writes nullable baseline rows that violate that contract, repository reads fail
+loudly instead of coalescing malformed data.
 
 The first Turso-native chunk/job orchestration seam is also staged:
 `insertTursoChunksAndEnqueueEmbeddingJobs()` inserts chunks through the Turso

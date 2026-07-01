@@ -58,7 +58,6 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import type { z } from 'zod';
 import { getDatabase } from '../db-main';
-import { DB_RUNTIME_ENV } from '../db-runtime-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
@@ -132,8 +131,9 @@ const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
 
-function isTursoRuntimeSelected(): boolean {
-  return process.env[DB_RUNTIME_ENV]?.trim().toLowerCase() === 'turso';
+function isTursoEmbeddingSetsDatabase(db: unknown): boolean {
+  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
+  return capabilities?.liveQuery === false;
 }
 
 type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
@@ -1866,7 +1866,7 @@ async function runListEmbeddingSpaces(
 }> {
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
-  const embeddingSetsRepository = isTursoRuntimeSelected()
+  const embeddingSetsRepository = isTursoEmbeddingSetsDatabase(db)
     ? new TursoEmbeddingSetsRepository(db)
     : new EmbeddingSetsRepository(db);
   const listings = await embeddingSetsRepository.listEmbeddingSpaces({

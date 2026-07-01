@@ -41,6 +41,8 @@ import {
 const logger = createLogger('WorkspaceCollectionSyncImport');
 const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index background import requires transactional chunk/job enqueue support.';
+const TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR =
+  'Workspace Index Turso background import does not support inline chunk embedding repository writes; use durable embed_chunk jobs through the Turso owner client.';
 
 interface FirstEmbedChunkJobEnqueueMarker {
   batchNumber: number;
@@ -53,6 +55,30 @@ function hasTransactionalChunkJobEnqueueSupport(db: DbHandle): boolean {
     typeof db.transaction === 'function' ||
     typeof db.insertChunksAndEnqueueEmbeddingJobs === 'function'
   );
+}
+
+function isTursoDbHandle(db: DbHandle): boolean {
+  const capabilities = (db as { capabilities?: { liveQuery?: unknown } }).capabilities;
+  return capabilities?.liveQuery === false;
+}
+
+function rejectTursoInlineEmbeddingWrite(): Promise<never> {
+  return Promise.reject(new Error(TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR));
+}
+
+function createEmbeddingChunkRepositoryForRuntime(
+  chunkRepository: FileImportChunkRepository,
+  db: DbHandle
+): FileImportChunkRepository {
+  if (!isTursoDbHandle(db)) {
+    return chunkRepository;
+  }
+
+  return {
+    insertMany: rejectTursoInlineEmbeddingWrite,
+    insertManyWithTx: rejectTursoInlineEmbeddingWrite,
+    update: rejectTursoInlineEmbeddingWrite,
+  };
 }
 
 type WorkspaceIndexingImportQosPolicy = Pick<
@@ -817,6 +843,7 @@ export async function runRootFolderCacheImport(args: {
   let activeBatchNumber = 0;
   const sql = {
     query: db.query.bind(db),
+    ...(isTursoDbHandle(db) ? { runtimeEngine: 'turso' as const } : {}),
     ...(insertChunksAndEnqueueEmbeddingJobs
       ? {
           insertChunksAndEnqueueEmbeddingJobs: (async (chunks, fileRecordId, options) => {
@@ -852,7 +879,7 @@ export async function runRootFolderCacheImport(args: {
     enabled: true,
     model: collection.modelKey,
     service: null,
-    chunkRepository,
+    chunkRepository: createEmbeddingChunkRepositoryForRuntime(chunkRepository, db),
     resolveTargetEmbeddingSetId: () => collection.id,
     targetDimension: collection.dimensions,
   };
