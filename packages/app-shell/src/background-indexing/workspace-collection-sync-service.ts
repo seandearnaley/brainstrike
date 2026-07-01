@@ -36,6 +36,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
+  type BackgroundImportRuntimeEngine,
   type PreparedChangesSummary,
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
@@ -126,6 +127,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   resolveQosPolicy: (options?: {
     foregroundDbPressureStarvationBypass?: boolean;
   }) => Promise<WorkspaceIndexingQosPolicy> | WorkspaceIndexingQosPolicy;
+  runtimeEngine: BackgroundImportRuntimeEngine;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
@@ -941,6 +943,7 @@ export class WorkspaceCollectionSyncService {
         : {}),
       fileRecordRepository: this.deps.fileRecordRepository,
       rootId: args.context.dbRootId,
+      runtimeEngine: this.deps.runtimeEngine,
       onProgress: (progress) => {
         latestImportProgress = progress;
         this.deps.setStatus(

@@ -4,7 +4,7 @@ import type {
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
-import { runEnhancedImport } from '@brainstrike/file-import';
+import { backfillEmbeddingSetAssignments, runEnhancedImport } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
@@ -547,6 +547,8 @@ function makeMinimalIpcDbWithoutCallbackTransaction() {
 
 const TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index background import requires transactional chunk/job enqueue support.';
+const TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR =
+  'Workspace Index Turso background import does not support inline chunk embedding repository writes; use durable embed_chunk jobs through the Turso owner client.';
 
 function makeMinimalChange(): PreparedCacheChange {
   return {
@@ -636,6 +638,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       })
@@ -685,6 +688,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -706,6 +710,120 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         }),
       })
     );
+  });
+
+  it('passes the Turso runtime marker to assignment backfill for Turso background imports', async () => {
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection,
+      db: makeMinimalDb() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      runtimeEngine: 'turso',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(vi.mocked(backfillEmbeddingSetAssignments)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.any(Function),
+        runtimeEngine: 'turso',
+      }),
+      collection.id,
+      ['file-id-a']
+    );
+  });
+
+  it('fails closed if Turso background imports try inline chunk embedding writes', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const updateChunk = vi.fn().mockResolvedValue(null);
+    const insertMany = vi.fn().mockResolvedValue([]);
+    const change = makeMinimalChange();
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch: vi.fn(async () => {}),
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+        insertMany,
+        update: updateChunk,
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection: makeMinimalCollection(),
+      db: makeMinimalDb() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      runtimeEngine: 'turso',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const enhancedImportCall = vi.mocked(runEnhancedImport).mock.calls[0]?.[0];
+    const embeddingChunkRepository = enhancedImportCall?.embedding?.chunkRepository;
+    expect(embeddingChunkRepository).toBeDefined();
+    await expect(
+      embeddingChunkRepository?.update({
+        embedding: [0.1, 0.2, 0.3],
+        id: 'chunk-1',
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      })
+    ).rejects.toThrow(TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR);
+    await expect(embeddingChunkRepository?.insertMany([])).rejects.toThrow(
+      TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR
+    );
+    expect(updateChunk).not.toHaveBeenCalled();
+    expect(insertMany).not.toHaveBeenCalled();
   });
 
   it('logs the managed import batch lifecycle and first durable enqueue marker', async () => {
@@ -789,6 +907,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -888,6 +1007,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -976,6 +1096,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1053,6 +1174,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       })
@@ -1127,6 +1249,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           importBatchSize: 10,
         },
         rootId: 'root-db-1',
+        runtimeEngine: 'pglite',
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       });
@@ -1188,6 +1311,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       rootId: 'root-db-1',
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
@@ -1236,6 +1360,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         importBatchSize: 10,
       },
       // rootId deliberately absent
+      runtimeEngine: 'pglite',
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });

@@ -1669,7 +1669,8 @@ export function WorkspaceCollectionSyncProvider({
         fileSystemAdapter &&
         backgroundRepositories.fileRecordRepository &&
         backgroundRepositories.chunkRepository &&
-        backgroundRepositories.embeddingSetsRepository
+        backgroundRepositories.embeddingSetsRepository &&
+        isBackgroundIndexingRuntimeEngine(runtimeEngine)
       )
     ) {
       return null;
@@ -1795,6 +1796,7 @@ export function WorkspaceCollectionSyncProvider({
       },
       resolveDbRootId,
       resolveQosPolicy,
+      runtimeEngine,
       // Background indexing must NOT raise the foreground `isImporting` pause flag:
       // that flag gates the collection selector + count live queries
       // (liveQueryEnabled = !isImporting), so toggling it freezes the file/chunk
