@@ -747,6 +747,84 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('terminates the Turso utility DB host when an owner-client request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult({
+          bootstrapReport: createReadyTursoBootstrapReport(),
+          capabilities: { liveQuery: false },
+        })
+      );
+      const database = await databasePromise;
+
+      const queryPromise = database.query('SELECT * FROM file_chunks WHERE embedding IS NULL');
+      const timeoutAssertion = expect(queryPromise).rejects.toThrow(
+        'DB host request timed out: query'
+      );
+      const firstHost = latestProcess();
+
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+
+      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+
+      const nextDiagnosticsPromise = manager.getDiagnostics();
+      expect(forkMock).toHaveBeenCalledTimes(2);
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        hasDatabaseHandle: true,
+      });
+      await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('initializes Turso before a first-touch managed-cache request can time out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+
+      const requestPromise = manager.applyManagedCacheBatch({ operations: [] });
+      const firstHost = latestProcess();
+      const initialMessage = firstHost.messages.at(-1) as PostedMessage;
+
+      if (initialMessage.request.kind === 'init') {
+        firstHost.reply(
+          initialMessage,
+          createReadyInitResult({
+            bootstrapReport: createReadyTursoBootstrapReport(),
+            capabilities: { liveQuery: false },
+          })
+        );
+        await flushMicrotasks();
+      }
+
+      const timeoutAssertion = expect(requestPromise).rejects.toThrow(
+        'DB host request timed out: managed-cache:apply-batch'
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await timeoutAssertion;
+
+      expect(firstHost.messages[0]?.request.kind).toBe('init');
+      expect(firstHost.messages[1]?.request.kind).toBe('managed-cache:apply-batch');
+      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('logs request context when a query request times out', async () => {
     vi.useFakeTimers();
     try {
