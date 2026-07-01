@@ -9,6 +9,7 @@ import type {
   EmbeddingCacheStats,
 } from './drizzle/embedding-cache-repository.js';
 import {
+  FAILURE_ALERT_THRESHOLD,
   MAX_BATCH_SIZE,
   RECOMMENDED_MAX_CACHE_ENTRIES,
 } from './drizzle/embedding-cache-repository.js';
@@ -305,7 +306,7 @@ export class TursoEmbeddingCacheRepository {
           return '(?, ?, ?, ?, ?, ?, ?, 1)';
         });
 
-        const result = await tx.query<{ id: string }>(
+        await tx.exec(
           `INSERT INTO embedding_cache (
              id, content_hash, model_key, embedding, dimensions, created_at, accessed_at, access_count
            )
@@ -313,11 +314,10 @@ export class TursoEmbeddingCacheRepository {
            ON CONFLICT(content_hash, model_key)
            DO UPDATE SET
              accessed_at = excluded.accessed_at,
-             access_count = embedding_cache.access_count + 1
-           RETURNING id`,
+             access_count = embedding_cache.access_count + 1`,
           params
         );
-        stored += result.rows.length;
+        stored += chunk.length;
       }
       return stored;
     });
@@ -410,18 +410,39 @@ export class TursoEmbeddingCacheRepository {
   ): void {
     const tracked = update
       .catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         if (context.mode === 'batch') {
           this.metrics.failedBatchAccessTimeUpdates += 1;
+          if (this.metrics.failedBatchAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+            this.logger.error('Turso batch cache access time update failures exceeded threshold', {
+              lastBatchSize: context.count,
+              lastError: errorMessage,
+              threshold: FAILURE_ALERT_THRESHOLD,
+              totalFailures: this.metrics.failedBatchAccessTimeUpdates,
+            });
+            return;
+          }
           this.logger.warn('Failed to update Turso embedding cache batch access times', {
             count: context.count,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage,
+            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
           });
           return;
         }
         this.metrics.failedAccessTimeUpdates += 1;
+        if (this.metrics.failedAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+          this.logger.error('Turso cache access time update failures exceeded threshold', {
+            id: context.id,
+            lastError: errorMessage,
+            threshold: FAILURE_ALERT_THRESHOLD,
+            totalFailures: this.metrics.failedAccessTimeUpdates,
+          });
+          return;
+        }
         this.logger.warn('Failed to update Turso embedding cache access time', {
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
           id: context.id,
+          totalFailures: this.metrics.failedAccessTimeUpdates,
         });
       })
       .finally(() => {
