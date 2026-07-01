@@ -399,8 +399,8 @@ export function useCollections(db: DbHandle | null | undefined) {
   cachedCollectionsRef.current = cachedCollections;
   const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
   const canListFromRepository = Boolean(embeddingSetsRepository?.listEmbeddingSpaces);
-  const canUseSqlSnapshot = schemaVerified && canQuery;
-  const canUseRepositorySnapshot = !(canQuery || pgliteDb) && canListFromRepository;
+  const canUseRepositorySnapshot = !pgliteDb && canListFromRepository;
+  const canUseSqlSnapshot = schemaVerified && canQuery && !canUseRepositorySnapshot;
   const canUseSnapshot = canUseSqlSnapshot || canUseRepositorySnapshot;
   // Only enable live queries when:
   // 1. Generic database and PGlite live-query source are both available
