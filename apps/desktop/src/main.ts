@@ -618,6 +618,26 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   try {
+    const runtimeEngine = await resolveCurrentDesktopDbRuntimeEngine();
+
+    switch (runtimeEngine) {
+      case 'turso':
+        desktopDimensionIndexStrategySelection = null;
+        logger.info('Dimension index maintenance capability probe skipped', {
+          reason: 'unsupported-runtime',
+          runtimeEngine,
+        });
+        return;
+      case 'pglite':
+        break;
+      default: {
+        const unsupportedRuntime: never = runtimeEngine;
+        throw new Error(
+          `Unsupported dimension index maintenance startup runtime: ${String(unsupportedRuntime)}`
+        );
+      }
+    }
+
     const capabilities = await probeDimensionIndexRuntimeCapabilities({
       db: await getDatabase(),
       foregroundHealthProbe: async () => {
@@ -636,6 +656,7 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
       hnswIndexBuild: capabilities.hnswIndexBuild,
       maintenanceSettings: capabilities.maintenanceSettings,
       progressReporting: capabilities.progressReporting,
+      runtimeEngine,
       strategyReason: desktopDimensionIndexStrategySelection.reason,
       strategy: desktopDimensionIndexStrategySelection.strategy,
     });

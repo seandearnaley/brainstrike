@@ -109,10 +109,46 @@ const {
   applyLoggingPreferencesMock,
   createDefaultLoggingPreferencesMock,
   createLoggerMock,
+  getDatabaseMock,
   initializeLoggingMock,
   isDevEnvMock,
+  probeDimensionIndexRuntimeCapabilitiesMock,
+  resolveCurrentDesktopDbRuntimeEngineMock,
+  selectDimensionIndexStrategyMock,
 } = vi.hoisted(() => ({
   isDevEnvMock: vi.fn(),
+  getDatabaseMock: vi.fn(async () => ({
+    maintenance: {
+      exec: vi.fn(),
+    },
+    query: vi.fn(async () => ({ rows: [] })),
+  })),
+  resolveCurrentDesktopDbRuntimeEngineMock: vi.fn(async () => 'pglite' as const),
+  probeDimensionIndexRuntimeCapabilitiesMock: vi.fn(async () => ({
+    concurrentIndexBuild: {
+      error: null,
+      foregroundProbeP95Ms: null,
+      supported: true,
+    },
+    hnswIndexBuild: {
+      error: null,
+      supported: true,
+    },
+    maintenanceSettings: {
+      initialMemoryBytes: null,
+      maintenanceWorkMem: null,
+      maxParallelMaintenanceWorkers: null,
+      maxParallelWorkers: null,
+    },
+    progressReporting: {
+      error: null,
+      pgStatProgressCreateIndexReadable: false,
+    },
+  })),
+  selectDimensionIndexStrategyMock: vi.fn(() => ({
+    reason: 'concurrent-index-build-unmeasured' as const,
+    strategy: 'regular' as const,
+  })),
   createLoggerMock: vi.fn(() => ({
     info: vi.fn(),
     debug: vi.fn(),
@@ -159,6 +195,24 @@ vi.mock('@brainstrike/utils', async () => {
       FATAL: 'fatal',
       SILENT: 'silent',
     },
+  };
+});
+
+vi.mock('../../db-main', () => ({
+  closeDatabase: vi.fn(),
+  getDatabase: getDatabaseMock,
+  resetLocalDatabase: vi.fn(),
+  resolveCurrentDesktopDbRuntimeEngine: resolveCurrentDesktopDbRuntimeEngineMock,
+}));
+
+vi.mock('../../dimension-index-maintenance-capabilities', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../dimension-index-maintenance-capabilities')
+  >('../../dimension-index-maintenance-capabilities');
+  return {
+    ...actual,
+    probeDimensionIndexRuntimeCapabilities: probeDimensionIndexRuntimeCapabilitiesMock,
+    selectDimensionIndexStrategy: selectDimensionIndexStrategyMock,
   };
 });
 
@@ -221,6 +275,38 @@ describe('window setup', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    getDatabaseMock.mockResolvedValue({
+      maintenance: {
+        exec: vi.fn(),
+      },
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+    probeDimensionIndexRuntimeCapabilitiesMock.mockResolvedValue({
+      concurrentIndexBuild: {
+        error: null,
+        foregroundProbeP95Ms: null,
+        supported: true,
+      },
+      hnswIndexBuild: {
+        error: null,
+        supported: true,
+      },
+      maintenanceSettings: {
+        initialMemoryBytes: null,
+        maintenanceWorkMem: null,
+        maxParallelMaintenanceWorkers: null,
+        maxParallelWorkers: null,
+      },
+      progressReporting: {
+        error: null,
+        pgStatProgressCreateIndexReadable: false,
+      },
+    });
+    resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValue('pglite');
+    selectDimensionIndexStrategyMock.mockReturnValue({
+      reason: 'concurrent-index-build-unmeasured',
+      strategy: 'regular',
+    });
     mockApp.getPath.mockReturnValue('/tmp/brainstrike-test-logs');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
@@ -268,6 +354,22 @@ describe('window setup', () => {
         }),
       })
     );
+  });
+
+  it('skips the dimension index startup probe before touching the database for Turso', async () => {
+    mockApp.isPackaged = false;
+    isDevEnvMock.mockReturnValue(false);
+    resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValue('turso');
+
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(onHeadersReceivedMock).toHaveBeenCalled();
+    });
+    expect(resolveCurrentDesktopDbRuntimeEngineMock).toHaveBeenCalled();
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(probeDimensionIndexRuntimeCapabilitiesMock).not.toHaveBeenCalled();
+    expect(selectDimensionIndexStrategyMock).not.toHaveBeenCalled();
   });
 
   it('setupSecurity prod mode sets restrictive CSP', async () => {
