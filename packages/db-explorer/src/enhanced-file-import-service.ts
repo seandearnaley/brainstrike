@@ -7,9 +7,9 @@ import type {
 import {
   isTursoFileChunkRepository,
   JobQueue,
-  useBrainstrikeDbClient,
   useFileChunkRepository,
   useFileRecordRepository,
+  useManualImportDbClient,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import type {
@@ -80,7 +80,7 @@ interface EnhancedFileImportServiceReturn {
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
 type ChunkingWorkerPort = import('@brainstrike/file-import').ChunkingWorkerPort;
-type BrainstrikeDbClient = ReturnType<typeof useBrainstrikeDbClient>;
+type ManualImportDbClient = ReturnType<typeof useManualImportDbClient>;
 type DbChunkRepository = ReturnType<typeof useFileChunkRepository>;
 type FileRecordRepository = ReturnType<typeof useFileRecordRepository>;
 
@@ -97,25 +97,29 @@ function toManualImportChunkRepository(
 }
 
 function getManualImportCapabilityError({
-  db,
+  enableChunking,
+  manualImportDbClient,
   repository,
   chunkRepository,
   rawChunkRepository,
 }: {
   chunkRepository: FileImportChunkRepository | null;
-  db: BrainstrikeDbClient;
+  enableChunking: boolean;
+  manualImportDbClient: ManualImportDbClient;
   rawChunkRepository: DbChunkRepository;
   repository: FileRecordRepository;
 }): Error | null {
-  if (!db) {
+  if (!manualImportDbClient) {
     return new Error('Manual imports require an initialized database.');
   }
   if (!repository) {
     return new Error('Manual imports require file record storage.');
   }
-  if (!chunkRepository) {
+  if (enableChunking && !chunkRepository) {
     if (isTursoFileChunkRepository(rawChunkRepository)) {
-      return new Error('Manual imports require a Turso-compatible import path.');
+      return new Error(
+        'Manual imports with chunking require a Turso-compatible chunk import path.'
+      );
     }
     return new Error('Manual imports require chunk storage.');
   }
@@ -201,7 +205,7 @@ interface ImportFlowDeps {
   activeSetIdRef: { current: string | null };
   baseImportRunner: BaseImportRunner<IFileNode>;
   chunkingWorkerPort: ChunkingWorkerPort | null;
-  chunkRepository: FileImportChunkRepository;
+  chunkRepository: FileImportChunkRepository | null;
   controller: AbortController;
   fileContents: Record<string, string>;
   fileTree: IFileNode[];
@@ -321,7 +325,7 @@ export function useEnhancedFileImportService(
     () => toManualImportChunkRepository(dbChunkRepository),
     [dbChunkRepository]
   );
-  const db = useBrainstrikeDbClient();
+  const manualImportDbClient = useManualImportDbClient();
   const pgliteDb = usePGliteDatabase();
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
@@ -517,10 +521,11 @@ export function useEnhancedFileImportService(
   const queuePort = browserQueuePort ?? jobQueuePort;
 
   const sqlPort = useMemo<SqlExecutorPort | null>(() => {
-    if (!db) {
+    if (!manualImportDbClient) {
       return null;
     }
 
+    const { db, runtimeEngine } = manualImportDbClient;
     const baseQuery: SqlExecutorPort['query'] = (sql, params) => db.query(sql, params);
 
     const transactionFn = db.transaction;
@@ -528,11 +533,11 @@ export function useEnhancedFileImportService(
       const runInTransaction: SqlExecutorPort['runInTransaction'] = async <T>(
         fn: (tx: IDatabase) => Promise<T>
       ) => transactionFn((tx) => fn(tx as IDatabase));
-      return { query: baseQuery, runInTransaction };
+      return { query: baseQuery, runInTransaction, runtimeEngine };
     }
 
-    return { query: baseQuery };
-  }, [db]);
+    return { query: baseQuery, runtimeEngine };
+  }, [manualImportDbClient]);
 
   const baseImportRunner = useCallback<BaseImportRunner<IFileNode>>(
     ({ selectedFilePaths, fileTree, fileContents, onProgress }) =>
@@ -570,7 +575,8 @@ export function useEnhancedFileImportService(
       abortSignal?: AbortSignal
     ) => {
       const capabilityError = getManualImportCapabilityError({
-        db,
+        enableChunking: Boolean(options.enableChunking),
+        manualImportDbClient,
         repository,
         chunkRepository,
         rawChunkRepository: dbChunkRepository,
@@ -582,7 +588,7 @@ export function useEnhancedFileImportService(
         options.onError?.(capabilityError);
         return;
       }
-      if (!(repository && chunkRepository)) {
+      if (!(repository && (!options.enableChunking || chunkRepository))) {
         throw new Error('Manual import capability check passed without required repositories.');
       }
 
@@ -651,8 +657,8 @@ export function useEnhancedFileImportService(
       chunkRepository,
       chunkingWorkerPort,
       dbChunkRepository,
-      db,
       ensureChunkingWorkerStarted,
+      manualImportDbClient,
       options,
       queuePort,
       repository,

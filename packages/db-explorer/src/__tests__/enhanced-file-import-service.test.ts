@@ -9,6 +9,7 @@ const {
   ensureStartedMock,
   runEnhancedImportMock,
   mockUseBrainstrikeDbClient,
+  mockUseManualImportDbClient,
   mockUsePGliteDatabase,
   mockUseFileChunkRepository,
   mockUseFileRecordRepository,
@@ -37,6 +38,10 @@ const {
     })),
     runEnhancedImportMock: vi.fn(),
     mockUseBrainstrikeDbClient: vi.fn(() => mockDb),
+    mockUseManualImportDbClient: vi.fn(() => ({
+      db: mockDb,
+      runtimeEngine: 'pglite' as const,
+    })),
     mockUsePGliteDatabase: vi.fn(() => mockDb),
     mockUseFileRecordRepository: vi.fn(() => mockFileRecordRepository),
     mockUseFileChunkRepository: vi.fn(() => mockFileChunkRepository),
@@ -85,6 +90,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: mockUseFileRecordRepository,
   useFileChunkRepository: mockUseFileChunkRepository,
   useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
+  useManualImportDbClient: mockUseManualImportDbClient,
   usePGliteDatabase: mockUsePGliteDatabase,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
@@ -157,6 +163,11 @@ describe('useEnhancedFileImportService', () => {
     bulkOperationState.active = false;
     mockUseBrainstrikeDbClient.mockReset();
     mockUseBrainstrikeDbClient.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [] }) });
+    mockUseManualImportDbClient.mockReset();
+    mockUseManualImportDbClient.mockReturnValue({
+      db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+      runtimeEngine: 'pglite',
+    });
     mockUseFileRecordRepository.mockClear();
     mockUseFileRecordRepository.mockReturnValue({ findById: vi.fn(), update: vi.fn() });
     mockUseFileChunkRepository.mockClear();
@@ -331,12 +342,12 @@ describe('useEnhancedFileImportService', () => {
         isImporting: false,
         progress: null,
       });
-      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+      mockUseManualImportDbClient.mockReturnValue(null as never);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
           onError,
-          enableChunking: false,
+          enableChunking: true,
         })
       );
 
@@ -355,6 +366,58 @@ describe('useEnhancedFileImportService', () => {
       );
     });
 
+    it('runs non-chunked Turso imports through the runtime manual import client', async () => {
+      const onComplete = vi.fn();
+      const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      mockUseBrainstrikeDbClient.mockReturnValue(null as never);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { query: dbQuery },
+        runtimeEngine: 'turso',
+      } as never);
+      mockUseFileChunkRepository.mockReturnValue({
+        brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
+        insertMany: vi.fn(),
+        update: vi.fn(),
+      } as never);
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file-turso', imported: true, existed: false, chunksCreated: 0 },
+      ]);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          enableChunking: false,
+          onComplete,
+          resolveTargetEmbeddingSetId: () => 'set-turso',
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chunking: expect.objectContaining({
+            enabled: false,
+            deps: expect.objectContaining({ chunkRepository: null }),
+          }),
+        })
+      );
+      expect(dbQuery).toHaveBeenCalledWith(expect.stringContaining('WHERE id IN (?)'), [
+        'set-turso',
+        'file-turso',
+        'set-turso',
+      ]);
+      expect(onComplete).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: 'file-turso',
+          chunksCreated: 0,
+        }),
+      ]);
+    });
+
     it('rejects before the enhanced import runner when chunk storage is unavailable', async () => {
       const onError = vi.fn();
       const mockBaseImport = vi.fn();
@@ -370,7 +433,7 @@ describe('useEnhancedFileImportService', () => {
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
           onError,
-          enableChunking: false,
+          enableChunking: true,
         })
       );
 
@@ -466,7 +529,10 @@ describe('useEnhancedFileImportService', () => {
 
     it('backfills records missing embedding_set_id after import', async () => {
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
-      mockUseBrainstrikeDbClient.mockReturnValue({ query: dbQuery } as never);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { query: dbQuery },
+        runtimeEngine: 'pglite',
+      } as never);
       runEnhancedImportMock.mockResolvedValueOnce([
         { id: 'file-assign', imported: true, existed: false, chunksCreated: 2 },
       ]);

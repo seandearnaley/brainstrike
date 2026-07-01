@@ -166,6 +166,7 @@ export interface SqlExecutorPort {
   ) => Promise<void>;
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   runInTransaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
+  readonly runtimeEngine?: 'pglite' | 'turso';
 }
 
 export interface BaseImportRunnerRequest<TFileNode = unknown> {

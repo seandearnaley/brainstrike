@@ -1,5 +1,34 @@
 export interface EmbeddingSetAssignmentSqlPort {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  readonly runtimeEngine?: 'pglite' | 'turso';
+}
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => '?').join(', ');
+}
+
+async function backfillTursoEmbeddingSetAssignments(
+  sql: EmbeddingSetAssignmentSqlPort,
+  embeddingSetId: string,
+  uniqueIds: readonly string[]
+): Promise<void> {
+  const idPlaceholders = placeholders(uniqueIds.length);
+
+  await sql.query(
+    `UPDATE file_records
+       SET embedding_set_id = ?
+     WHERE id IN (${idPlaceholders})
+       AND (embedding_set_id IS NULL OR embedding_set_id <> ?)`,
+    [embeddingSetId, ...uniqueIds, embeddingSetId]
+  );
+
+  await sql.query(
+    `UPDATE file_chunks
+       SET embedding_set_id = ?
+     WHERE file_record_id IN (${idPlaceholders})
+       AND embedding_set_id IS NULL`,
+    [embeddingSetId, ...uniqueIds]
+  );
 }
 
 export async function backfillEmbeddingSetAssignments(
@@ -13,6 +42,11 @@ export async function backfillEmbeddingSetAssignments(
 
   const uniqueIds = Array.from(new Set(fileIds.filter((id): id is string => Boolean(id))));
   if (uniqueIds.length === 0) {
+    return;
+  }
+
+  if (sql.runtimeEngine === 'turso') {
+    await backfillTursoEmbeddingSetAssignments(sql, embeddingSetId, uniqueIds);
     return;
   }
 
