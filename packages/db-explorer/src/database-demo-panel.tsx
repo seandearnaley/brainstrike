@@ -1,6 +1,4 @@
 import {
-  type DrizzleFileChunkRepository,
-  type ElectronFileChunkRepository,
   type EmbeddingSet,
   isTursoFileChunkRepository,
   refreshCollectionIndexingStats,
@@ -53,28 +51,23 @@ import {
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { ClearDatabaseDialog } from './components/clear-database-dialog';
+import { CollectionBrowserView } from './components/collection-browser-view';
+import { ExportDropdown } from './components/export-dropdown';
+import { ImportProgressBar } from './components/import-progress-bar';
+import { SearchCollectionSelector } from './components/search-collection-selector';
+import { SettingsPanel } from './components/settings-panel';
+import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
+import { useAvailableModels, useAvailableProviders } from './hooks/use-available-models';
+import { useCollectionDialogs } from './hooks/use-collection-dialogs';
+import { useDatabaseErrorBoundary } from './hooks/use-database-error-boundary';
+import { useExportHandlers } from './hooks/use-export-handlers';
+import { createImportCompletionHandler } from './hooks/use-import-completion';
+import { useImportSettings } from './hooks/use-import-settings';
 import {
-  ClearDatabaseDialog,
-  CollectionBrowserView,
-  ExportDropdown,
-  ImportProgressBar,
-  SearchCollectionSelector,
-  SettingsPanel,
-} from './components';
-import {
-  createImportCompletionHandler,
-  useAvailableModels,
-  useAvailableProviders,
-  useCollectionDialogs,
-  useDatabaseErrorBoundary,
-  useExportHandlers,
-  useImportSettings,
-} from './hooks';
-import {
-  SemanticSearchProvider,
-  useSemanticSearch,
+  type SemanticSearchChunkRepository,
   useSemanticSearchExecutor,
-} from './semantic-search';
+} from './hooks/use-semantic-search-executor';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
@@ -147,11 +140,11 @@ const logger = createLogger('DatabaseDemoPanel');
 
 function toSemanticSearchChunkRepository(
   repository: ReturnType<typeof useFileChunkRepository>
-): DrizzleFileChunkRepository | ElectronFileChunkRepository | null {
-  if (!repository || isTursoFileChunkRepository(repository)) {
+): SemanticSearchChunkRepository | null {
+  if (!repository) {
     return null;
   }
-  return repository as DrizzleFileChunkRepository | ElectronFileChunkRepository;
+  return repository as SemanticSearchChunkRepository;
 }
 
 function DatabaseDemoSemanticSearchTestHookBridge() {
@@ -185,9 +178,10 @@ function DatabaseDemoSemanticSearchTestHookBridge() {
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbChunkRepository = useFileChunkRepository();
-  const semanticSearchChunkRepository = useMemo<
-    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
-  >(() => toSemanticSearchChunkRepository(dbChunkRepository), [dbChunkRepository]);
+  const semanticSearchChunkRepository = useMemo<SemanticSearchChunkRepository | null>(
+    () => toSemanticSearchChunkRepository(dbChunkRepository),
+    [dbChunkRepository]
+  );
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();

@@ -22,6 +22,12 @@ import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
 const mockDb = {
   query: vi.fn(),
 };
+let mockDbClient: typeof mockDb | null = mockDb;
+const mockEmbeddingSetsRepository = {
+  getById: vi.fn(),
+};
+let mockEmbeddingSetsRepositoryClient: typeof mockEmbeddingSetsRepository | null =
+  mockEmbeddingSetsRepository;
 
 const { MockSimpleEmbeddingService } = vi.hoisted(() => ({
   MockSimpleEmbeddingService: vi.fn(),
@@ -33,7 +39,8 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClient: vi.fn(() => mockDb),
+    useBrainstrikeDbClient: vi.fn(() => mockDbClient),
+    useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepositoryClient),
   };
 });
 
@@ -131,6 +138,20 @@ const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig
   ...overrides,
 });
 
+const createMockEmbeddingSet = (overrides: Record<string, unknown> = {}) => ({
+  id: 'set-1',
+  modelKey: 'jinaai/jina-embeddings-v3',
+  modelId: 'jinaai/jina-embeddings-v3',
+  dimensions: 1024,
+  distance: 'cosine',
+  createdAt: '2026-06-01T00:00:00.000Z',
+  name: null,
+  description: null,
+  tags: null,
+  category: null,
+  ...overrides,
+});
+
 interface AvailabilityHookProps {
   chunkRepository: DrizzleFileChunkRepository | null;
   fileRepository: DrizzleFileRecordRepository | null;
@@ -139,6 +160,8 @@ interface AvailabilityHookProps {
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbClient = mockDb;
+    mockEmbeddingSetsRepositoryClient = mockEmbeddingSetsRepository;
     configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.DEBUG);
     mockDb.query.mockResolvedValue({
@@ -149,6 +172,7 @@ describe('useSemanticSearchExecutor', () => {
         },
       ],
     });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(createMockEmbeddingSet());
     useModelRegistryStore.setState({
       models: [
         {
@@ -351,9 +375,9 @@ describe('useSemanticSearchExecutor', () => {
   });
 
   it('throws when the embedding set dimensions are missing', async () => {
-    mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: null }],
-    });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(
+      createMockEmbeddingSet({ dimensions: null })
+    );
 
     const { result } = renderHook(() =>
       useSemanticSearchExecutor({
@@ -368,9 +392,9 @@ describe('useSemanticSearchExecutor', () => {
   });
 
   it('accepts positive numeric string embedding dimensions from the active embedding set', async () => {
-    mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: '1024' }],
-    });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(
+      createMockEmbeddingSet({ dimensions: '1024' })
+    );
     const chunk = createMockChunk('chunk-1', 'file-1');
     const chunkRepo = createMockChunkRepository([chunk]);
     const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
@@ -385,9 +409,9 @@ describe('useSemanticSearchExecutor', () => {
   });
 
   it('rejects non-numeric string embedding dimensions from the active embedding set', async () => {
-    mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: 'not-a-number' }],
-    });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(
+      createMockEmbeddingSet({ dimensions: 'not-a-number' })
+    );
 
     const { result } = renderHook(() =>
       useSemanticSearchExecutor({
@@ -402,9 +426,13 @@ describe('useSemanticSearchExecutor', () => {
   });
 
   it('creates a hosted OpenAI embedder from hosted model keys without initializing a local model', async () => {
-    mockDb.query.mockResolvedValue({
-      rows: [{ modelKey: 'openai::text-embedding-3-small', dimensions: 1536 }],
-    });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(
+      createMockEmbeddingSet({
+        modelKey: 'openai::text-embedding-3-small',
+        modelId: 'text-embedding-3-small',
+        dimensions: 1536,
+      })
+    );
     const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
     const createProvider = vi.mocked(EmbeddingProviderFactory.createProvider);
     const chunk = createMockChunk('chunk-1', 'file-1');
@@ -428,6 +456,120 @@ describe('useSemanticSearchExecutor', () => {
       })
     );
     expect(MockSimpleEmbeddingService).not.toHaveBeenCalled();
+  });
+
+  it('uses the raw DB query path when the embedding-set repository is unavailable', async () => {
+    mockEmbeddingSetsRepositoryClient = null;
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const chunkRepo = createMockChunkRepository([chunk]);
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: chunkRepo, fileRepository: fileRepo })
+    );
+
+    await expect(
+      result.current!('legacy query', createSearchConfig({ retrievalMode: 'vector' }), 'set-1')
+    ).resolves.toHaveLength(1);
+
+    expect(mockDb.query).toHaveBeenCalledWith(
+      'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+      ['set-1']
+    );
+  });
+
+  it('reports a missing active embedding set when the runtime repository returns no row', async () => {
+    mockDbClient = null;
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(null);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(
+      result.current!('stale set query', createSearchConfig({ retrievalMode: 'vector' }), 'set-1')
+    ).rejects.toThrow('Active embedding set is missing a model.');
+  });
+
+  it('uses the runtime embedding-set repository for Turso vector search when the raw DB client is unavailable', async () => {
+    mockDbClient = null;
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(createMockEmbeddingSet());
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.82, rank: 1 }]);
+    const fullTextSearch = vi.fn().mockRejectedValue(new Error('Turso FTS is not migrated'));
+    const tursoChunkRepo = {
+      brainstrikeRepositoryKind: 'brainstrike:turso-file-chunk-repository',
+      searchSimilar,
+      fullTextSearch,
+      findAll: vi.fn().mockResolvedValue([chunk]),
+      findById: vi.fn().mockResolvedValue(chunk),
+    } as unknown as DrizzleFileChunkRepository;
+    const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({ chunkRepository: tursoChunkRepo, fileRepository: fileRepo })
+    );
+
+    await expect(
+      result.current!(
+        'turso vector query',
+        createSearchConfig({ retrievalMode: 'vector' }),
+        'set-1'
+      )
+    ).resolves.toHaveLength(1);
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+    expect(mockEmbeddingSetsRepository.getById).toHaveBeenCalledWith('set-1');
+    expect(searchSimilar).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        embeddingSetId: 'set-1',
+        includeEmbedding: false,
+        limit: 10,
+        threshold: 0.5,
+      })
+    );
+    expect(fullTextSearch).not.toHaveBeenCalled();
+  });
+
+  it('fails explicitly instead of downgrading Turso hybrid search to vector search', async () => {
+    mockDbClient = null;
+    mockEmbeddingSetsRepository.getById.mockRejectedValue(
+      new Error('Turso hybrid mode should fail before resolving model metadata')
+    );
+    const chunk = createMockChunk('chunk-1', 'file-1');
+    const searchSimilar = vi.fn().mockResolvedValue([{ chunk, similarity: 0.82, rank: 1 }]);
+    const fullTextSearch = vi.fn().mockRejectedValue(new Error('Turso FTS is not migrated'));
+    const tursoChunkRepo = {
+      brainstrikeRepositoryKind: 'brainstrike:turso-file-chunk-repository',
+      searchSimilar,
+      fullTextSearch,
+      findAll: vi.fn().mockResolvedValue([chunk]),
+      findById: vi.fn().mockResolvedValue(chunk),
+    } as unknown as DrizzleFileChunkRepository;
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: tursoChunkRepo,
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(
+      result.current!(
+        'turso hybrid query',
+        createSearchConfig({ retrievalMode: 'hybrid' }),
+        'set-1'
+      )
+    ).rejects.toThrow('Turso hybrid search requires the Turso FTS search slice. Use Vector mode.');
+
+    expect(mockEmbeddingSetsRepository.getById).not.toHaveBeenCalled();
+    expect(MockSimpleEmbeddingService).not.toHaveBeenCalled();
+    expect(searchSimilar).not.toHaveBeenCalled();
+    expect(fullTextSearch).not.toHaveBeenCalled();
   });
 
   it('retries local embedder initialization after an earlier failure for the same model', async () => {
