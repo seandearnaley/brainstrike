@@ -54,6 +54,11 @@ export type {
 } from './interfaces.js';
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
+export {
+  type CreateTursoEmbeddingCacheRepositoryOptions,
+  createTursoEmbeddingCacheRepository,
+  TursoEmbeddingCacheRepository,
+} from './turso-embedding-cache-repository.js';
 export { TursoEmbeddingSetsRepository } from './turso-embedding-sets-repository.js';
 export {
   isTursoFileChunkRepository,
