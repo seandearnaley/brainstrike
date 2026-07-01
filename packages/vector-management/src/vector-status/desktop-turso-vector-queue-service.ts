@@ -8,7 +8,11 @@ import type {
   VectorQueueSnapshotReader,
 } from './vector-queue-service';
 
-type TursoVectorQueueActionOperation = 'clearQueue' | 'retryFailed' | 'wipeQueue';
+type TursoVectorQueueActionOperation =
+  | 'clearEmbeddingsForSet'
+  | 'clearQueue'
+  | 'retryFailed'
+  | 'wipeQueue';
 
 type TursoVectorQueueActionBridge = (
   operation: TursoVectorQueueActionOperation,
@@ -44,6 +48,17 @@ function actionWorkOptions(operation: TursoVectorQueueActionOperation): Database
     label: `turso.vector-queue.action.${operation}`,
     priority: 'normal',
   };
+}
+
+function parseClearEmbeddingsForSetResult(result: unknown): number {
+  const cleared =
+    result && typeof result === 'object' && 'cleared' in result
+      ? (result as { cleared: unknown }).cleared
+      : undefined;
+  if (!(typeof cleared === 'number' && Number.isInteger(cleared) && cleared >= 0)) {
+    throw new Error('Desktop Turso clearEmbeddingsForSet returned an invalid cleared count.');
+  }
+  return cleared;
 }
 
 async function resolveEmbeddingSetModelKey(
@@ -112,6 +127,15 @@ export function createDesktopTursoVectorQueueService(
         states ? { states: [...states] } : {},
         actionWorkOptions('clearQueue')
       );
+    },
+
+    async clearEmbeddingsForSet(embeddingSetId) {
+      const result = await bridge(
+        'clearEmbeddingsForSet',
+        { embeddingSetId },
+        actionWorkOptions('clearEmbeddingsForSet')
+      );
+      return parseClearEmbeddingsForSetResult(result);
     },
 
     async wipeQueue() {

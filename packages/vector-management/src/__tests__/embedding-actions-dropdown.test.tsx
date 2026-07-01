@@ -13,9 +13,11 @@ describe('EmbeddingActionsDropdown', () => {
 
   const defaultProps: EmbeddingActionsDropdownProps = {
     onBackfill: vi.fn(),
+    onReembed: vi.fn(),
     onRetryFailed: vi.fn(),
     onClearQueue: vi.fn(),
     onWipeQueue: vi.fn(),
+    hasActiveSet: true,
     hasDb: true,
     backfilling: false,
     backfillProgress: null,
@@ -232,6 +234,41 @@ describe('EmbeddingActionsDropdown', () => {
   });
 
   describe('Clear Queue action', () => {
+    it('calls onReembed when clicked', async () => {
+      const user = userEvent.setup();
+      const onReembed = vi.fn().mockResolvedValue(undefined);
+      renderDropdown({ onReembed });
+
+      await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+
+      const menuItem = await screen.findByRole('menuitem', { name: /re-embed collection/i });
+      await user.click(menuItem);
+
+      await waitFor(() => {
+        expect(onReembed).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('disables re-embed while queue jobs are queued or running', async () => {
+      const user = userEvent.setup();
+      renderDropdown({ queueCounts: { queued: 1, running: 1 } });
+
+      await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+
+      const menuItem = await screen.findByRole('menuitem', { name: /re-embed collection/i });
+      expect(menuItem).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('disables re-embed without an active collection', async () => {
+      const user = userEvent.setup();
+      renderDropdown({ hasActiveSet: false });
+
+      await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+
+      const menuItem = await screen.findByRole('menuitem', { name: /re-embed collection/i });
+      expect(menuItem).toHaveAttribute('aria-disabled', 'true');
+    });
+
     it('calls onClearQueue when clicked', async () => {
       const user = userEvent.setup();
       const onClearQueue = vi.fn().mockResolvedValue(undefined);

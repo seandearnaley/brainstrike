@@ -65,6 +65,7 @@ export interface UseVectorQueueStateResult {
   latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
   queueCounts: QueueCounts;
   recentErrorCount: number;
+  reembedActiveSet: () => Promise<void>;
   retryFailed: (limit?: number) => Promise<void>;
   telemetryTrend: readonly TelemetryTrendPoint[];
   throughput: number;
@@ -837,6 +838,21 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     return service.validateApiKeyForSet(activeEmbeddingSetId);
   }, [service, activeEmbeddingSetId]);
 
+  const reembedActiveSet = useCallback(async () => {
+    if (!activeEmbeddingSetId) {
+      throw new Error('No active embedding set selected.');
+    }
+    if (!service) {
+      throw new Error('Embedding queue service is unavailable.');
+    }
+
+    logger.info('reembedActiveSet: clearing embeddings before backfill', {
+      activeEmbeddingSetId,
+    });
+    await service.clearEmbeddingsForSet(activeEmbeddingSetId);
+    await backfillActiveSet();
+  }, [activeEmbeddingSetId, backfillActiveSet, service]);
+
   // Note: Auto-backfill effect was removed - backfill must be triggered manually
   // via the Backfill button in Vector Status. This gives users explicit control
   // over when embedding jobs are enqueued. The shouldAutoBackfill parameter is
@@ -894,6 +910,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       latencyStats,
       lastError,
       recentErrorCount,
+      reembedActiveSet,
       backfilling: isBackfillActive,
       backfillProgress,
       telemetryTrend,
@@ -913,6 +930,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       latencyStats,
       lastError,
       recentErrorCount,
+      reembedActiveSet,
       isBackfillActive,
       backfillProgress,
       telemetryTrend,

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-06-30 on `feature/turso-migration`.
+Last updated: 2026-07-01 on `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -79,9 +79,9 @@ as the implementation backlog.
 - #1374 `Add Turso embedding worker storage adapter`
 - #1375 `Wire Turso embedding host storage`
 - #1376 `Prove Turso worker IPC owner path`
-- Current slice: add the explicit Turso vector queue service adapter seam while
-  keeping renderer queue actions fail-closed until a desktop owner-client
-  adapter can provide the mutation surface safely.
+- #1403 `Fix inherited embedding set delete cleanup`
+- Current slice: compose the user-visible Turso re-embed action as an
+  owner-client embedding clear followed by hidden-host backfill.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -203,6 +203,13 @@ Current Turso repository/runtime coverage:
   `TursoFileChunkRepository.clearEmbeddingsForSet()` in the main DB owner
   process, so stats refresh and SQLite transaction semantics stay in the
   query-capable Turso owner client rather than the visible renderer.
+- Vector-management now exposes a user-visible re-embed action under Turso by
+  composing that owner-client clear-embeddings action with the existing
+  embedding runtime controller's backfill path. The visible renderer does not
+  construct `TursoJobQueue` and does not move hidden-host worker ownership into
+  the DB action channel. The controls validate embedding credentials and start
+  the worker before clearing embeddings, so a startup/configuration failure does
+  not empty the active collection.
 - Desktop Turso assistant memory is wired through the ready runtime/bootstrap
   verdict. The renderer thread repository, OM meter, and cross-root usage reads
   now select PGlite live queries or Turso/SQLite snapshot reads by runtime.
@@ -380,11 +387,11 @@ Completed low-risk queue UI slices:
   record points at the deleted set, clears the file-record embedding metadata,
   and refuses cleanup when the set does not exist.
 
-Remaining vector-queue action slice: compose a user-visible Turso re-embed flow
-as clear-embeddings through the DB owner IPC followed by backfill through the
-existing embedding runtime controller. Preserve the hidden-renderer worker
-boundary. Do not move backfill into the vector queue DB action channel, and do
-not construct `TursoJobQueue` in the visible renderer.
+User-visible Turso re-embed is now composed as clear-embeddings through the DB
+owner IPC followed by backfill through the existing embedding runtime
+controller. Keep that split: preserve the hidden-renderer worker boundary, do
+not move backfill into the vector queue DB action channel, and do not construct
+`TursoJobQueue` in the visible renderer.
 
 ### 4. Assistant Search And Retrieval
 
@@ -522,8 +529,7 @@ Concrete blockers:
   claim/heartbeat/complete/fail and stats refresh run on the query-capable Turso
   owner client instead of the renderer's exec-only transaction adapter.
 - Post-merge retrospective follow-ups still need focused slices: Turso owner
-  client timeout/watchdog policy, the re-embed composition slice described
-  above, and Turso corruption diagnostics/recovery.
+  client timeout/watchdog policy and Turso corruption diagnostics/recovery.
 
 ### 7. Factory Reset And Profile Cleanup
 
@@ -573,17 +579,15 @@ advancing Turso parity.
 
 1. Collection/import slice: make db-explorer manual import and collection
    browser snapshot paths work without live query.
-2. Vector queue slice: finish the Turso re-embed composition without moving
-   hidden-host backfill ownership into visible-renderer DB actions.
-3. Assistant memory slice: add Turso Mastra storage/workflow memory and prove
+2. Assistant memory slice: add Turso Mastra storage/workflow memory and prove
    the live Mastra loop against it.
-4. Search slice: add Turso grep/vector repository methods, then semantic search
+3. Search slice: add Turso grep/vector repository methods, then semantic search
    and assistant retrieval.
-5. Live-query strategy slice: either implement a Turso live-query source over
+4. Live-query strategy slice: either implement a Turso live-query source over
    IPC or formalize snapshot+refresh alternatives per UI surface.
-6. Reset/maintenance slice: Turso-aware factory reset, profile cleanup, and
+5. Reset/maintenance slice: Turso-aware factory reset, profile cleanup, and
    scheduled maintenance gates.
-7. Final runtime audit: remove or isolate leftover PGlite-only production
+6. Final runtime audit: remove or isolate leftover PGlite-only production
    imports, dependencies, Vite aliases, and type shims.
 
 ## Verification Policy

@@ -112,8 +112,9 @@ export function useEmbeddingControls({
   const queueUnavailableReasonText =
     formatVectorQueueServiceUnavailableReason(serviceUnavailableReason);
 
-  // Refs for backfill and validation callbacks
+  // Refs for backfill, re-embed, and validation callbacks
   const backfillRef = useRef<() => Promise<void>>(async () => {});
+  const reembedRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
     async () => ({ valid: true })
   );
@@ -155,6 +156,7 @@ export function useEmbeddingControls({
 
   // Update refs
   backfillRef.current = queueState.backfillActiveSet;
+  reembedRef.current = queueState.reembedActiveSet;
   validateApiKeyRef.current = queueState.validateApiKey;
 
   // Determine if we need to auto-start worker (web platform only)
@@ -168,15 +170,14 @@ export function useEmbeddingControls({
   const dropdownStartingWorker =
     !(queueState.backfilling || isDesktopPlatform) && workerControls.startingWorker;
 
-  // Combined backfill handler that auto-starts worker on web
-  const handleBackfillWithWorkerStart = useCallback(async () => {
+  const prepareEmbeddingAction = useCallback(async (): Promise<boolean> => {
     if (!service) {
       toast({
         title: 'Vector Queue Unavailable',
         description: queueUnavailableReasonText,
         variant: 'destructive',
       });
-      return;
+      return false;
     }
 
     if (!activeId) {
@@ -185,10 +186,9 @@ export function useEmbeddingControls({
         description: 'Please select an embedding collection before backfilling.',
         variant: 'destructive',
       });
-      return;
+      return false;
     }
 
-    // Validate API key
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
       toast({
@@ -196,23 +196,39 @@ export function useEmbeddingControls({
         description: validation.message ?? 'Please configure your API key before embedding.',
         variant: 'destructive',
       });
-      return;
+      return false;
     }
 
+    if (isWebPlatform && !workerControls.workerLocalRunning) {
+      await workerControls.startWorker();
+      const runtimeStatus = await runtimeController.getStatus();
+      if (runtimeStatus.state !== 'running') {
+        throw new Error(
+          runtimeStatus.lastError ??
+            'Embedding worker did not enter the running state before backfill.'
+        );
+      }
+    }
+
+    return true;
+  }, [
+    activeId,
+    isWebPlatform,
+    queueUnavailableReasonText,
+    runtimeController,
+    service,
+    toast,
+    workerControls.startWorker,
+    workerControls.workerLocalRunning,
+  ]);
+
+  // Combined backfill handler that auto-starts worker on web
+  const handleBackfillWithWorkerStart = useCallback(async () => {
     try {
-      // Auto-start worker on web if not running
-      if (isWebPlatform && !workerControls.workerLocalRunning) {
-        await workerControls.startWorker();
-        const runtimeStatus = await runtimeController.getStatus();
-        if (runtimeStatus.state !== 'running') {
-          throw new Error(
-            runtimeStatus.lastError ??
-              'Embedding worker did not enter the running state before backfill.'
-          );
-        }
+      if (!(await prepareEmbeddingAction())) {
+        return;
       }
 
-      // Run backfill
       await backfillRef.current();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -223,15 +239,25 @@ export function useEmbeddingControls({
       });
       throw error;
     }
-  }, [
-    toast,
-    isWebPlatform,
-    workerControls,
-    service,
-    activeId,
-    queueUnavailableReasonText,
-    runtimeController,
-  ]);
+  }, [prepareEmbeddingAction, toast]);
+
+  const handleReembedWithWorkerStart = useCallback(async () => {
+    try {
+      if (!(await prepareEmbeddingAction())) {
+        return;
+      }
+
+      await reembedRef.current();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Re-embed Failed',
+        description: message,
+        variant: 'destructive',
+      });
+      throw error;
+    }
+  }, [prepareEmbeddingAction, toast]);
 
   // Get disabled state for backfill button
   const { disabled: backfillDisabled, title: disabledReason } = getBackfillDisabledState({
@@ -260,9 +286,11 @@ export function useEmbeddingControls({
     disabled: backfillDisabled,
     disabledReason,
     failedCount: queueState.queueCounts.failed,
+    hasActiveSet: Boolean(activeId),
     hasDb: hasQueueService,
     onBackfill: handleBackfillWithWorkerStart,
     onClearQueue: queueState.clearQueue,
+    onReembed: handleReembedWithWorkerStart,
     onRetryFailed: queueState.retryFailed,
     onWipeQueue: queueState.wipeQueue,
     queueCounts: queueState.queueCounts,

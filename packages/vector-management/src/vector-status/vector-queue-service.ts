@@ -439,6 +439,7 @@ export function createVectorQueueSnapshotReader({
 
 export interface VectorQueueService extends VectorQueueSnapshotReader {
   backfill(activeSetId: string, options: BackfillOptions): Promise<QueueCounts>;
+  clearEmbeddingsForSet(embeddingSetId: string): Promise<number>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   /**
    * Re-embed workflow: clears existing embeddings and triggers backfill.
@@ -625,6 +626,10 @@ export function createVectorQueueService(
       await jobQueue.clear(EMBEDDINGS_QUEUE, states);
     },
 
+    async clearEmbeddingsForSet(embeddingSetId) {
+      return chunkRepository.clearEmbeddingsForSet(embeddingSetId);
+    },
+
     async wipeQueue() {
       await jobQueue.clear(EMBEDDINGS_QUEUE);
     },
@@ -633,7 +638,7 @@ export function createVectorQueueService(
       logger.info('Re-embed workflow started', { embeddingSetId });
 
       // Step 1: Clear existing embeddings for this set
-      const clearedCount = await chunkRepository.clearEmbeddingsForSet(embeddingSetId);
+      const clearedCount = await this.clearEmbeddingsForSet(embeddingSetId);
       logger.info('Cleared existing embeddings', { embeddingSetId, clearedCount });
 
       // Step 2: Trigger backfill to regenerate embeddings
