@@ -828,6 +828,74 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('fails closed before Turso background chunk updates reach the repository adapter', async () => {
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    const electronInvalidateManagedCacheEntriesByIdentity = vi.fn(async () => ({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    }));
+    const electronRunTransaction = vi.fn(async () => ({ rows: [] }));
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    const tursoDb = {
+      ...tursoExecutionClient,
+      insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+      raw: tursoExecutionClient,
+    };
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+          invalidateManagedCacheEntriesByIdentity: electronInvalidateManagedCacheEntriesByIdentity,
+          runTransaction: electronRunTransaction,
+        },
+      },
+    });
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      const update = params.chunking?.deps.chunkRepository.update;
+      if (typeof update !== 'function') {
+        throw new Error('Turso background chunk repository did not expose update.');
+      }
+      await update({
+        content: 'changed',
+        id: 'chunk-1',
+        updatedAt: '2026-07-01T07:15:00.000Z',
+      });
+      return [];
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
+          'Workspace Index Turso background import does not support chunk updates; use the atomic chunk/job enqueue path instead.'
+        )
+      );
+      expect(tursoChunkUpdateMock).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
   it('coalesces refresh events while a background sync is already importing', async () => {
     const resolveImportRef: { current: (() => void) | null } = { current: null };
     const importStarted = new Promise<void>((resolve) => {

@@ -132,6 +132,8 @@ const WORKSPACE_COVERAGE_AUDIT_MESSAGE =
   'Verifying Workspace Index coverage before reporting idle.';
 const TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index Turso background import requires atomic chunk/job enqueue support.';
+const TURSO_BACKGROUND_CHUNK_UPDATE_UNSUPPORTED_ERROR =
+  'Workspace Index Turso background import does not support chunk updates; use the atomic chunk/job enqueue path instead.';
 
 type BackgroundIndexingRuntimeEngine = 'pglite' | 'turso';
 type BootstrapRuntimeEngine = 'libsql' | 'pglite' | 'turso' | 'unknown';
@@ -330,7 +332,9 @@ function createTursoBackgroundChunkRepository(
     insertMany: async () => {
       throw new Error(TURSO_BACKGROUND_CHUNK_ENQUEUE_REQUIRED_ERROR);
     },
-    update: (chunk) => repository.update(chunk),
+    update: async () => {
+      throw new Error(TURSO_BACKGROUND_CHUNK_UPDATE_UNSUPPORTED_ERROR);
+    },
   };
 }
 
