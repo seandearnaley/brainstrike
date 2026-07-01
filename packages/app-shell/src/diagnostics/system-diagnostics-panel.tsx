@@ -229,7 +229,7 @@ function DatabaseStatusSection(): ReactElement {
 
   return (
     <DiagnosticCard
-      description="PGlite database connection"
+      description="Local database connection"
       icon={<Database className="h-4 w-4 text-primary" />}
       status={variant}
       statusLabel={label}
