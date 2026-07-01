@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/preferences';
 import { useEffect, useMemo } from 'react';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
+import { type EmbeddingJobQueue, useEmbeddingJobQueue } from './use-embedding-job-queue';
 import type {
   EmbeddingRuntimeBackfillInfo,
   EmbeddingRuntimeBackfillProgress,
@@ -34,10 +35,14 @@ const QUEUE_AGGREGATE_QUERY = `
 `.trim();
 const DATABASE_WORK_SNAPSHOT_POLL_MS = 500;
 const QUEUE_SNAPSHOT_POLL_MS = 1000;
+const QUEUE_STATS_WORK_OPTIONS = {
+  label: 'indexing activity queue snapshot',
+  priority: 'background',
+} as const;
 
 interface QueueAggregateRow {
   readonly failed: number | string | null;
-  readonly nextRunnableAt: string | null;
+  readonly nextRunnableAt?: string | null;
   readonly queued: number | string | null;
   readonly running: number | string | null;
   readonly succeeded: number | string | null;
@@ -109,6 +114,22 @@ async function readQueueSnapshot(
   return row ? toQueueSnapshot(row) : null;
 }
 
+async function readQueueSnapshotFromJobQueue(
+  jobQueue: EmbeddingJobQueue | null
+): Promise<IndexingQueueSnapshot | null> {
+  if (!jobQueue) {
+    return null;
+  }
+  const row = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE, QUEUE_STATS_WORK_OPTIONS))[0] ?? {
+    queued: 0,
+    running: 0,
+    failed: 0,
+    succeeded: 0,
+    nextRunnableAt: null,
+  };
+  return toQueueSnapshot(row);
+}
+
 function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkSnapshot>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -118,6 +139,7 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 
 export function IndexingActivityCoordinator(): null {
   const db = usePGliteDatabase();
+  const jobQueue = useEmbeddingJobQueue();
   const backgroundDb = useMemo(
     () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
     [db]
@@ -208,7 +230,10 @@ export function IndexingActivityCoordinator(): null {
 
     const refresh = async (): Promise<void> => {
       try {
-        const queue = await readQueueSnapshot(backgroundDb);
+        const queue =
+          backgroundDb && typeof backgroundDb.query === 'function'
+            ? await readQueueSnapshot(backgroundDb)
+            : await readQueueSnapshotFromJobQueue(jobQueue);
         if (disposed) {
           return;
         }
@@ -225,7 +250,7 @@ export function IndexingActivityCoordinator(): null {
     };
 
     void refresh();
-    if (!backgroundDb || typeof backgroundDb.query !== 'function') {
+    if (!((backgroundDb && typeof backgroundDb.query === 'function') || jobQueue)) {
       return () => {
         disposed = true;
       };
@@ -241,6 +266,7 @@ export function IndexingActivityCoordinator(): null {
     };
   }, [
     backgroundDb,
+    jobQueue,
     setDurableQueueStats,
     setIndexingActivityError,
     setIsJobQueueActive,

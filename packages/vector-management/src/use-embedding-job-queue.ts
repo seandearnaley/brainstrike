@@ -1,4 +1,5 @@
 import {
+  type BrainstrikeDbWorkOptions,
   extractDbExecutionClient,
   JobQueue,
   TursoJobQueue,
@@ -9,8 +10,13 @@ import { useMemo } from 'react';
 
 export type EmbeddingJobQueue = Pick<
   JobQueue | TursoJobQueue,
-  'clear' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
->;
+  'clear' | 'repairUnclaimableQueued' | 'requeueFailed'
+> & {
+  readonly getQueueStats: (
+    queue?: string,
+    options?: BrainstrikeDbWorkOptions
+  ) => ReturnType<JobQueue['getQueueStats']>;
+};
 
 export function useEmbeddingJobQueue(): EmbeddingJobQueue | null {
   const db = useModelRegistryDbClient();
