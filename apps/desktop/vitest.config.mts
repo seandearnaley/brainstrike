@@ -1,127 +1,111 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+interface VitestAliasEntry {
+  find: string | RegExp;
+  replacement: string;
+}
+
+type PackageExportTarget =
+  | string
+  | {
+      import?: string;
+      require?: string;
+      types?: string;
+    };
+
+interface PackageJsonWithExports {
+  exports?: Record<string, PackageExportTarget>;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sourcePathFromExportTarget(
+  packageName: string,
+  subpath: string,
+  target: PackageExportTarget
+) {
+  const targetPath =
+    typeof target === 'string' ? target : (target.import ?? target.require ?? target.types);
+  if (!targetPath) {
+    throw new Error(`${packageName}${subpath} has no import, require, or types export target`);
+  }
+
+  const distPath = targetPath.replace(/^\.\//, '');
+  if (!distPath.startsWith('dist/')) {
+    throw new Error(`${packageName}${subpath} export must point at dist, got ${targetPath}`);
+  }
+
+  return distPath
+    .replace(/^dist\//, 'src/')
+    .replace(/\.d\.ts$/, '.ts')
+    .replace(/\.(mjs|cjs|js)$/, '.ts');
+}
+
+function createPackageSourceAliasEntries(
+  packageName: string,
+  packageDir: string
+): VitestAliasEntry[] {
+  const packageJson = JSON.parse(
+    readFileSync(path.resolve(packageDir, 'package.json'), 'utf8')
+  ) as PackageJsonWithExports;
+
+  if (!packageJson.exports) {
+    throw new Error(`${packageName} must declare package.json exports for source aliases`);
+  }
+
+  return Object.entries(packageJson.exports).map(([subpath, target]) => {
+    const importSpecifier =
+      subpath === '.' ? packageName : `${packageName}/${subpath.replace(/^\.\//, '')}`;
+
+    return {
+      find: new RegExp(`^${escapeRegExp(importSpecifier)}$`),
+      replacement: path.resolve(
+        packageDir,
+        sourcePathFromExportTarget(packageName, subpath, target)
+      ),
+    };
+  });
+}
+
+const agentDir = path.resolve(import.meta.dirname, '../../packages/agent');
 const assistantContractDir = path.resolve(import.meta.dirname, '../../packages/assistant-contract');
-const assistantContractAliases = {
-  '@brainstrike/assistant-contract/assistant-run-persistence': path.resolve(
-    assistantContractDir,
-    'src/assistant-run-persistence.ts'
-  ),
-  '@brainstrike/assistant-contract/context-budget': path.resolve(
-    assistantContractDir,
-    'src/context-budget.ts'
-  ),
-  '@brainstrike/assistant-contract/context-packer': path.resolve(
-    assistantContractDir,
-    'src/context-packer.ts'
-  ),
-  '@brainstrike/assistant-contract/file-mention-directive': path.resolve(
-    assistantContractDir,
-    'src/file-mention-directive.ts'
-  ),
-  '@brainstrike/assistant-contract/local-llm': path.resolve(
-    assistantContractDir,
-    'src/local-llm.ts'
-  ),
-  '@brainstrike/assistant-contract/local-llm-artifacts': path.resolve(
-    assistantContractDir,
-    'src/local-llm-artifacts.ts'
-  ),
-  '@brainstrike/assistant-contract/local-llm-device': path.resolve(
-    assistantContractDir,
-    'src/local-llm-device.ts'
-  ),
-  '@brainstrike/assistant-contract/local-llm-model-specs': path.resolve(
-    assistantContractDir,
-    'src/local-llm-model-specs.ts'
-  ),
-  '@brainstrike/assistant-contract/local-runtime': path.resolve(
-    assistantContractDir,
-    'src/local-runtime.ts'
-  ),
-  '@brainstrike/assistant-contract/mastra-memory-schema': path.resolve(
-    assistantContractDir,
-    'src/mastra-memory-schema.ts'
-  ),
-  '@brainstrike/assistant-contract/memory-settings': path.resolve(
-    assistantContractDir,
-    'src/memory-settings.ts'
-  ),
-  '@brainstrike/assistant-contract/provider-metadata': path.resolve(
-    assistantContractDir,
-    'src/provider-metadata.ts'
-  ),
-  '@brainstrike/assistant-contract/provider-registry': path.resolve(
-    assistantContractDir,
-    'src/provider-registry.ts'
-  ),
-  '@brainstrike/assistant-contract/run-events': path.resolve(
-    assistantContractDir,
-    'src/run-events.ts'
-  ),
-  '@brainstrike/assistant-contract/runtime-data': path.resolve(
-    assistantContractDir,
-    'src/runtime-data.ts'
-  ),
-  '@brainstrike/assistant-contract/tool-approval': path.resolve(
-    assistantContractDir,
-    'src/tool-approval.ts'
-  ),
-  '@brainstrike/assistant-contract/tool-metadata': path.resolve(
-    assistantContractDir,
-    'src/tool-metadata.ts'
-  ),
-  '@brainstrike/assistant-contract': path.resolve(assistantContractDir, 'src/index.ts'),
-};
+const assistantContractAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/assistant-contract',
+  assistantContractDir
+);
 const utilsDir = path.resolve(import.meta.dirname, '../../packages/utils');
-const utilsAliases = {
-  '@brainstrike/utils/bulk-operation-context': path.resolve(
-    utilsDir,
-    'src/bulk-operation-context.ts'
-  ),
-  '@brainstrike/utils/collator': path.resolve(utilsDir, 'src/collator.ts'),
-  '@brainstrike/utils/console-guard': path.resolve(utilsDir, 'src/console-guard.ts'),
-  '@brainstrike/utils/crypto': path.resolve(utilsDir, 'src/crypto.ts'),
-  '@brainstrike/utils/install-renderer-error-hooks': path.resolve(
-    utilsDir,
-    'src/install-renderer-error-hooks.ts'
-  ),
-  '@brainstrike/utils/log-buffer': path.resolve(utilsDir, 'src/log-buffer.ts'),
-  '@brainstrike/utils/logger': path.resolve(utilsDir, 'src/logger.ts'),
-  '@brainstrike/utils/logging-initializer': path.resolve(utilsDir, 'src/logging-initializer.ts'),
-  '@brainstrike/utils/logging-preferences': path.resolve(utilsDir, 'src/logging-preferences.ts'),
-  '@brainstrike/utils/performance-measure-guard': path.resolve(
-    utilsDir,
-    'src/performance-measure-guard.ts'
-  ),
-  '@brainstrike/utils/string-utils': path.resolve(utilsDir, 'src/string-utils.ts'),
-  '@brainstrike/utils/token-constants': path.resolve(utilsDir, 'src/token-constants.ts'),
-  '@brainstrike/utils/token-counting-heuristics': path.resolve(
-    utilsDir,
-    'src/token-counting-heuristics.ts'
-  ),
-  '@brainstrike/utils/token-counting-runtime': path.resolve(
-    utilsDir,
-    'src/token-counting-runtime.ts'
-  ),
-  '@brainstrike/utils/token-utils-accurate-lite': path.resolve(
-    utilsDir,
-    'src/token-utils-accurate-lite.ts'
-  ),
-  '@brainstrike/utils/workspace-indexing-power-snapshot': path.resolve(
-    utilsDir,
-    'src/workspace-indexing-power-snapshot.ts'
-  ),
-  '@brainstrike/utils/workspace-indexing-qos': path.resolve(
-    utilsDir,
-    'src/workspace-indexing-qos.ts'
-  ),
-  '@brainstrike/utils': path.resolve(utilsDir, 'src/index.ts'),
-};
+const utilsAliasEntries = createPackageSourceAliasEntries('@brainstrike/utils', utilsDir);
+const dbAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/db',
+  path.resolve(import.meta.dirname, '../../packages/db')
+);
+const embeddingsAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/embeddings',
+  path.resolve(import.meta.dirname, '../../packages/embeddings')
+);
+const queueAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/queue',
+  path.resolve(import.meta.dirname, '../../packages/queue')
+);
+const textSplitterAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/text-splitter',
+  path.resolve(import.meta.dirname, '../../packages/text-splitter')
+);
+const typesAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/types',
+  path.resolve(import.meta.dirname, '../../packages/types')
+);
+const indexingContractAliasEntries = createPackageSourceAliasEntries(
+  '@brainstrike/indexing-contract',
+  path.resolve(import.meta.dirname, '../../packages/indexing-contract')
+);
 
 export default defineConfig({
   plugins: [react()],
@@ -169,114 +153,66 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
+    alias: [
       // The real `electron` entrypoint only exports the binary path and throws
       // when the prebuilt binary is absent (e.g. cache-miss CI lanes). Tests
       // never need the runtime module — they `vi.mock('electron', …)` — so
       // alias it to an inert stub. This keeps desktop unit tests independent of
       // the Electron binary being installed. See electron-test-stub.mts.
-      electron: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
-      '@': path.resolve(import.meta.dirname, './src/renderer'),
-      ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
-      '@brainstrike/agent': path.resolve(import.meta.dirname, '../../packages/agent/src/index.ts'),
-      ...assistantContractAliases,
-      ...utilsAliases,
-      '@brainstrike/types': path.resolve(import.meta.dirname, '../../packages/types/src/index.ts'),
-      '@brainstrike/indexing-contract': path.resolve(
-        import.meta.dirname,
-        '../../packages/indexing-contract/src/index.ts'
-      ),
-      '@brainstrike/platform-utils': path.resolve(
-        import.meta.dirname,
-        '../../packages/platform-utils/src'
-      ),
-      '@brainstrike/db/turso/owner-client': path.resolve(
-        import.meta.dirname,
-        '../../packages/db/src/turso/owner-client.ts'
-      ),
-      '@brainstrike/db/turso/schema-baseline': path.resolve(
-        import.meta.dirname,
-        '../../packages/db/src/turso/schema-baseline.ts'
-      ),
-      '@brainstrike/db/bootstrap/turso-profile-bootstrap': path.resolve(
-        import.meta.dirname,
-        '../../packages/db/src/bootstrap/turso-profile-bootstrap.ts'
-      ),
-      '@brainstrike/db/browser-pglite-storage': path.resolve(
-        import.meta.dirname,
-        '../../packages/db/src/browser-pglite-storage.ts'
-      ),
-      '@brainstrike/db': path.resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/embeddings/runtime-config': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/backend': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/backend-entry.ts'
-      ),
-      '@brainstrike/embeddings/factory': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/factory-entry.ts'
-      ),
-      '@brainstrike/embeddings/service': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/service-entry.ts'
-      ),
-      '@brainstrike/embeddings/worker': path.resolve(
-        import.meta.dirname,
-        '../../packages/embeddings/src/worker-entry.ts'
-      ),
-      '@brainstrike/queue': path.resolve(import.meta.dirname, '../../packages/queue/src/index.ts'),
-      '@brainstrike/queue/browser': path.resolve(
-        import.meta.dirname,
-        '../../packages/queue/src/browser.ts'
-      ),
-      '@brainstrike/file-import/browser-queue-port': path.resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': path.resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': path.resolve(
-        import.meta.dirname,
-        '../../packages/file-import/src/enhanced-import.ts'
-      ),
-      '@brainstrike/file-explorer-ui/indexing': path.resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/indexing'
-      ),
-      '@brainstrike/file-explorer-ui/shell': path.resolve(
-        import.meta.dirname,
-        '../../packages/file-explorer-ui/src/shell'
-      ),
-      '@brainstrike/text-splitter/chunking-core': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/chunking-core.ts'
-      ),
-      '@brainstrike/text-splitter/token-counting-heuristics': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-counting-heuristics.ts'
-      ),
-      '@brainstrike/text-splitter/token-constants': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-constants.ts'
-      ),
-      '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-      ),
-      '@brainstrike/text-splitter': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
-      '@brainstrike/test-utils': path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
-    },
+      {
+        find: 'electron',
+        replacement: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
+      },
+      { find: '@', replacement: path.resolve(import.meta.dirname, './src/renderer') },
+      ...createPackageSourceAliasEntries('@brainstrike/agent', agentDir),
+      ...assistantContractAliasEntries,
+      ...utilsAliasEntries,
+      ...typesAliasEntries,
+      ...indexingContractAliasEntries,
+      {
+        find: '@brainstrike/platform-utils',
+        replacement: path.resolve(import.meta.dirname, '../../packages/platform-utils/src'),
+      },
+      ...dbAliasEntries,
+      ...embeddingsAliasEntries,
+      ...queueAliasEntries,
+      {
+        find: '@brainstrike/file-import/browser-queue-port',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/file-import/src/browser-queue-port.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/file-import/chunking-worker-context',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/file-import/src/chunking-worker-context.tsx'
+        ),
+      },
+      {
+        find: '@brainstrike/file-import/enhanced-import',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/file-import/src/enhanced-import.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui/indexing',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/file-explorer-ui/src/indexing'
+        ),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui/shell',
+        replacement: path.resolve(import.meta.dirname, '../../packages/file-explorer-ui/src/shell'),
+      },
+      ...textSplitterAliasEntries,
+      {
+        find: '@brainstrike/test-utils',
+        replacement: path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
+      },
+    ],
   },
 });
