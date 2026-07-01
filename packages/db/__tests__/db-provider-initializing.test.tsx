@@ -11,6 +11,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useManualImportDbClient,
   useModelRegistryDbClient,
   useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
@@ -912,6 +913,7 @@ describe('DbProvider initializing state', () => {
         assistantMemoryDb: useAssistantMemoryDbClient(),
         db: useBrainstrikeDbClient(),
         initializationStatus: useDbInitializationStatus(),
+        manualImportDb: useManualImportDbClient(),
         modelRegistryDb: useModelRegistryDbClient(),
         pgliteDb: usePGliteDatabase(),
         querySelectionSnapshotDb: useQuerySelectionSnapshotDbClient(),
@@ -938,13 +940,19 @@ describe('DbProvider initializing state', () => {
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
+    expect(result.current.manualImportDb).toEqual({
+      db: result.current.modelRegistryDb,
+      runtimeEngine: 'turso',
+    });
     expect(result.current.workspaceRootsDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
+    const manualImportDb = result.current.manualImportDb;
     const querySelectionSnapshotDb = result.current.querySelectionSnapshotDb;
     const workspaceRootsDb = result.current.workspaceRootsDb;
     rerender();
+    expect(result.current.manualImportDb).toBe(manualImportDb);
     expect(result.current.querySelectionSnapshotDb).toBe(querySelectionSnapshotDb);
     expect(result.current.workspaceRootsDb).toBe(workspaceRootsDb);
     expect(result.current.modelRegistryDb).not.toBeNull();

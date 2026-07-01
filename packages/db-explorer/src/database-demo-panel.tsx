@@ -1,13 +1,18 @@
 import {
+  type BrainstrikeDbTransactionClient,
+  type DatabaseWorkOptions,
   type EmbeddingSet,
   isTursoFileChunkRepository,
+  type ManualImportDbClient,
   refreshCollectionIndexingStats,
+  refreshTursoCollectionIndexingStats,
   useBrainstrikeDbClient,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useManualImportDbClient,
   useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import {
@@ -173,6 +178,40 @@ function DatabaseDemoSemanticSearchTestHookBridge() {
   return null;
 }
 
+const IMPORT_COMPLETION_STATS_WORK_OPTIONS = {
+  label: 'import completion stats refresh',
+  priority: 'foreground',
+} as const satisfies DatabaseWorkOptions;
+
+async function refreshImportCompletionCollectionStats(
+  client: ManualImportDbClient,
+  activeCollectionId: string
+): Promise<void> {
+  if (client.runtimeEngine === 'pglite') {
+    await refreshCollectionIndexingStats(
+      client.db,
+      [activeCollectionId],
+      IMPORT_COMPLETION_STATS_WORK_OPTIONS
+    );
+    return;
+  }
+
+  const exec = client.db.exec;
+  if (typeof exec !== 'function') {
+    throw new Error('Turso import completion stats refresh requires an exec-capable database.');
+  }
+
+  const tursoClient: BrainstrikeDbTransactionClient = {
+    exec: async (sql, params, options) => {
+      await exec(sql, params ? [...params] : undefined, options);
+    },
+    query: (sql, params, options) =>
+      client.db.query(sql, params ? [...params] : undefined, options),
+  };
+
+  await refreshTursoCollectionIndexingStats(tursoClient, [activeCollectionId]);
+}
+
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
@@ -185,6 +224,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = useBrainstrikeDbClient();
+  const manualImportDbClient = useManualImportDbClient();
   const profileBootstrapReport = useOptionalProfileBootstrapReport();
 
   const { toast } = useToast();
@@ -348,20 +388,17 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const handleImportComplete = useCallback(
     async (results: EnhancedImportResult[]) => {
       const handler = createImportCompletionHandler(toast, loadRecords, loadChunks, async () => {
-        if (!dbContext) {
+        if (!manualImportDbClient) {
           throw new Error('Import completion stats refresh requires an initialized database.');
         }
         if (!activeCollectionId) {
           throw new Error('Import completion stats refresh requires an active collection.');
         }
-        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
-          label: 'import completion stats refresh',
-          priority: 'foreground',
-        });
+        await refreshImportCompletionCollectionStats(manualImportDbClient, activeCollectionId);
       });
       await handler(results);
     },
-    [activeCollectionId, dbContext, toast, loadRecords, loadChunks]
+    [activeCollectionId, manualImportDbClient, toast, loadRecords, loadChunks]
   );
 
   const importFlow = useImportFlow({
@@ -372,10 +409,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     resolveActiveCollectionId,
   });
   const manualImportStorageUnavailable = !(
-    dbContext &&
+    manualImportDbClient &&
     repository &&
-    importFlow.chunkRepository &&
-    !tursoChunkRepository
+    (!importSettings.enableChunking || (importFlow.chunkRepository && !tursoChunkRepository))
   );
 
   // Sync import state to Zustand store to pause live queries during bulk operations

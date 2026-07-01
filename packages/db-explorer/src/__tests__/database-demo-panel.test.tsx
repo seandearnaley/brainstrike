@@ -10,6 +10,7 @@ import {
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
   useBackgroundIndexingPreferencesStore,
+  useImportSettingsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import {
@@ -48,6 +49,21 @@ const { ensureStartedMock } = vi.hoisted(() => ({
     isReady: vi.fn(() => true),
     terminate: vi.fn(),
   })),
+}));
+
+const {
+  enhancedImportServiceState,
+  mockRefreshCollectionIndexingStats,
+  mockRefreshTursoCollectionIndexingStats,
+} = vi.hoisted(() => ({
+  enhancedImportServiceState: {
+    options: null as null | {
+      onComplete?: (results: Record<string, unknown>[]) => Promise<void> | void;
+      onError?: (error: Error) => void;
+    },
+  },
+  mockRefreshCollectionIndexingStats: vi.fn().mockResolvedValue([]),
+  mockRefreshTursoCollectionIndexingStats: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock all external dependencies at the top level
@@ -193,6 +209,10 @@ const mockModelRegistryDatabase = {
 let mockDatabaseClient: typeof mockDatabase | null = mockDatabase;
 let mockModelRegistryDatabaseClient: typeof mockModelRegistryDatabase | null =
   mockModelRegistryDatabase;
+let mockManualImportDatabaseClient: {
+  db: typeof mockDatabase & { exec?: (sql: string, params?: unknown[]) => Promise<unknown> };
+  runtimeEngine: 'pglite' | 'turso';
+} | null = { db: mockDatabase, runtimeEngine: 'pglite' };
 let mockCurrentChunkRepository: typeof mockChunkRepository | null = mockChunkRepository;
 let mockProfileBootstrapReport: { runtime: { engine: string } } | null = {
   runtime: { engine: 'pglite' },
@@ -231,6 +251,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useFileRecordRepository: () => mockCurrentRepository,
     useBrainstrikeDbClient: () => mockDatabaseClient,
     useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
+    useManualImportDbClient: () => mockManualImportDatabaseClient,
     useEmbeddingSetsRepository: () => mockEmbeddingSetsRepositoryClient,
     useOptionalPGliteDatabase: () =>
       mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
@@ -240,6 +261,8 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useDbProviderError: () => null,
     useFactoryReset: () => null,
     useVectorEnabled: () => true,
+    refreshCollectionIndexingStats: mockRefreshCollectionIndexingStats,
+    refreshTursoCollectionIndexingStats: mockRefreshTursoCollectionIndexingStats,
     MigrationRunner: class MockMigrationRunner {
       async initialize() {
         return Promise.resolve();
@@ -411,12 +434,15 @@ vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   }),
 }));
 
-vi.mock('./enhanced-file-import-service', () => ({
-  useEnhancedFileImportService: vi.fn().mockReturnValue({
-    isImporting: false,
-    progress: null,
-    importFiles: mockImportFiles,
-    chunkRepository: mockChunkRepository,
+vi.mock('../enhanced-file-import-service', () => ({
+  useEnhancedFileImportService: vi.fn((options) => {
+    enhancedImportServiceState.options = options;
+    return {
+      isImporting: false,
+      progress: null,
+      importFiles: mockImportFiles,
+      chunkRepository: mockCurrentChunkRepository,
+    };
   }),
 }));
 
@@ -495,10 +521,14 @@ describe('DatabaseDemoPanel', () => {
     ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
     mockUseSemanticSearchExecutor.mockClear();
+    mockRefreshCollectionIndexingStats.mockClear();
+    mockRefreshTursoCollectionIndexingStats.mockClear();
+    enhancedImportServiceState.options = null;
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
     mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
+    mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'pglite' };
     mockEmbeddingSetsRepositoryClient = mockEmbeddingSetsRepository;
     mockCurrentRepository = mockRepository;
     mockCurrentChunkRepository = mockChunkRepository;
@@ -679,6 +709,7 @@ describe('DatabaseDemoPanel', () => {
 
     it('does not pass a null PGlite client to model registry hydration in Turso mode', async () => {
       mockDatabaseClient = null;
+      mockManualImportDatabaseClient = null;
       mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
 
       renderWithProviders(<DatabaseDemoPanel />);
@@ -897,7 +928,11 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
     });
 
-    it('disables manual import for Turso chunk storage until the import path is migrated', async () => {
+    it('enables manual import for Turso chunk storage when chunking is disabled', async () => {
+      useImportSettingsStore.getState().setEnableChunking(false);
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'turso' };
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
       mockCurrentChunkRepository =
         new TursoFileChunkRepository() as unknown as typeof mockChunkRepository;
 
@@ -907,7 +942,38 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeEnabled();
+    });
+
+    it('refreshes Turso collection stats after Turso manual import completion', async () => {
+      const tursoDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        exec: vi.fn().mockResolvedValue(undefined),
+      };
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: tursoDb, runtimeEngine: 'turso' };
+      mockProfileBootstrapReport = { runtime: { engine: 'turso' } };
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(enhancedImportServiceState.options?.onComplete).toEqual(expect.any(Function));
+      });
+
+      await act(async () => {
+        await enhancedImportServiceState.options?.onComplete?.([
+          { id: 'file-turso', imported: true, existed: false, chunksCreated: 0 },
+        ]);
+      });
+
+      expect(mockRefreshTursoCollectionIndexingStats).toHaveBeenCalledWith(
+        expect.objectContaining({
+          exec: expect.any(Function),
+          query: expect.any(Function),
+        }),
+        [TEST_COLLECTION_ID]
+      );
+      expect(mockRefreshCollectionIndexingStats).not.toHaveBeenCalled();
     });
 
     it('passes Turso chunk storage to semantic search while keeping manual import disabled', async () => {
@@ -963,13 +1029,15 @@ describe('DatabaseDemoPanel', () => {
       // Since we're mocking the enhanced file import service, it should at least try
       // Let's verify the button was clicked and some action was taken
       expect(importButton).toBeInTheDocument();
-
-      // Check that a toast was called (either success or error)
-      expect(mockToast).toHaveBeenCalled();
+      expect(mockImportFiles).toHaveBeenCalled();
     });
 
     it('shows toast when import fails due to missing adapters', async () => {
       const user = userEvent.setup();
+      mockImportFiles.mockImplementationOnce(async () => {
+        enhancedImportServiceState.options?.onError?.(new Error('Missing adapters'));
+      });
+
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
