@@ -139,8 +139,14 @@ describe('hf proxy route', () => {
     expect(response.status).toBe(403);
   });
 
-  it('marks transient upstream errors as non-cacheable when no cache header is present', async () => {
-    fetchMock.mockResolvedValue(new Response('busy', { status: 503, statusText: 'Busy' }));
+  it('marks transient upstream errors as non-cacheable', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('busy', {
+        status: 503,
+        statusText: 'Busy',
+        headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await GET(

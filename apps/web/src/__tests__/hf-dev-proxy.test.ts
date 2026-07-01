@@ -339,7 +339,12 @@ describe('hf dev proxy', () => {
     });
 
     it('sets no-store cache-control on non-ok responses', async () => {
-      fetchMock.mockResolvedValue(new Response('not found', { status: 404 }));
+      fetchMock.mockResolvedValue(
+        new Response('not found', {
+          status: 404,
+          headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+        })
+      );
       vi.stubGlobal('fetch', fetchMock);
 
       const req = createMockRequest(
@@ -348,6 +353,7 @@ describe('hf dev proxy', () => {
       const res = new ResponseSink();
       await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
 
+      expect(res.statusCode).toBe(404);
       expect(res.headers['cache-control']).toBe('no-store');
     });
 
