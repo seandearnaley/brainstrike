@@ -104,7 +104,7 @@ function createMockVectorQueueService(): VectorQueueService {
 let mockRuntimeService: VectorQueueService | null = createMockVectorQueueService();
 let mockRuntimeServiceUnavailableReason:
   | 'missing-db-or-coverage-repository'
-  | 'turso-vector-backfill-not-migrated'
+  | 'missing-turso-vector-queue-adapter'
   | 'unsupported-db-runtime'
   | null = null;
 
@@ -590,21 +590,21 @@ describe('VectorStatusWithDb', () => {
       expect(screen.getByText('Backfilling…')).toBeInTheDocument();
     });
 
-    it('disables backfill with a Turso migration boundary reason when queue service is unavailable', () => {
+    it('disables backfill with a Turso adapter reason when queue service is unavailable', () => {
       mockDb = { query: vi.fn() };
       mockRuntimeService = null;
-      mockRuntimeServiceUnavailableReason = 'turso-vector-backfill-not-migrated';
+      mockRuntimeServiceUnavailableReason = 'missing-turso-vector-queue-adapter';
       render(<VectorStatusWithDb />);
 
       const backfillButton = screen.getByRole('button', { name: 'Backfill current collection' });
       expect(backfillButton).toBeDisabled();
       expect(backfillButton).toHaveAttribute(
         'title',
-        'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.'
+        'Embedding queue actions require the desktop Turso vector queue adapter.'
       );
       expect(
         screen.getByRole('tooltip', {
-          name: 'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.',
+          name: 'Embedding queue actions require the desktop Turso vector queue adapter.',
         })
       ).toBeInTheDocument();
     });

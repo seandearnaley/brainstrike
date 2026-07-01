@@ -117,7 +117,6 @@ type VectorQueueRuntimeEngine = ProfileBootstrapRuntime['engine'];
 export type VectorQueueServiceUnavailableReason =
   | 'missing-db-or-coverage-repository'
   | 'missing-turso-vector-queue-adapter'
-  | 'turso-vector-backfill-not-migrated'
   | 'unsupported-db-runtime';
 
 export type VectorQueueServiceRuntimeResolution =
@@ -151,9 +150,6 @@ export function formatVectorQueueServiceUnavailableReason(
   }
   if (reason === 'missing-turso-vector-queue-adapter') {
     return 'Embedding queue actions require the desktop Turso vector queue adapter.';
-  }
-  if (reason === 'turso-vector-backfill-not-migrated') {
-    return 'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.';
   }
   if (reason === 'unsupported-db-runtime') {
     return 'Embedding queue actions are unavailable for the selected database runtime.';
@@ -703,7 +699,7 @@ export function createVectorQueueServiceForRuntime(
     }
     return {
       available: false,
-      reason: 'turso-vector-backfill-not-migrated',
+      reason: 'missing-turso-vector-queue-adapter',
       service: null,
     };
   }
