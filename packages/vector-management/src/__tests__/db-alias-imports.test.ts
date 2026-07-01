@@ -8,11 +8,7 @@ const PGLITE_IMPORT_MARKERS = [
   'usePGliteDatabase',
   'useOptionalPGliteDatabase',
 ] as const;
-const PGLITE_ONLY_CONSUMERS = new Set([
-  'embedding-job-queue-tracker.tsx',
-  'indexing-activity-coordinator.tsx',
-  'queue-hud.tsx',
-]);
+const PGLITE_ONLY_CONSUMERS = new Set(['embedding-job-queue-tracker.tsx', 'queue-hud.tsx']);
 const PGLITE_CAPABILITY_CONSUMERS = new Set(['collection-select/collection-select.tsx']);
 
 async function listSourceFiles(dir: string): Promise<string[]> {
