@@ -12,7 +12,6 @@ import {
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
-  invalidateTursoManagedCacheEntriesByIdentity,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
@@ -1335,10 +1334,8 @@ export function WorkspaceCollectionSyncProvider({
   }, [fileSystemAdapter, registerRoot, rootDirectoryHandles, rootIdByPath]);
 
   const backgroundDb = useMemo(() => {
-    if (pgliteDb) {
-      return createPriorityDbHandle(pgliteDb, 'background');
-    }
-    return tursoDb;
+    const runtimeDb = pgliteDb ?? tursoDb;
+    return runtimeDb ? createPriorityDbHandle(runtimeDb, 'background') : null;
   }, [pgliteDb, tursoDb]);
   const waitForBackgroundPermit = useMemo(
     () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
@@ -1646,11 +1643,7 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         if (runtimeEngine === 'turso') {
-          if (!tursoExecutionClient) {
-            throw new Error('Turso managed-cache apply requires an execution client.');
-          }
-          await applyTursoManagedCacheBatch(tursoExecutionClient, args);
-          return;
+          throw new Error('Turso background indexing requires desktop managed-cache IPC support.');
         }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       },
@@ -1664,10 +1657,9 @@ export function WorkspaceCollectionSyncProvider({
           );
         }
         if (runtimeEngine === 'turso') {
-          if (!tursoExecutionClient) {
-            throw new Error('Turso managed-cache invalidation requires an execution client.');
-          }
-          return await invalidateTursoManagedCacheEntriesByIdentity(tursoExecutionClient, args);
+          throw new Error(
+            'Turso background indexing requires desktop managed-cache invalidation IPC support.'
+          );
         }
         return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
       },

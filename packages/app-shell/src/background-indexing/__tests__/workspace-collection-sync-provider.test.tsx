@@ -141,43 +141,77 @@ const {
     (
       db: {
         exec?: ReturnType<typeof vi.fn>;
+        insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
         query: ReturnType<typeof vi.fn>;
+        raw?: unknown;
         transaction?: ReturnType<typeof vi.fn>;
       },
       priority: 'foreground' | 'normal' | 'background'
-    ) => ({
-      exec: vi.fn(async (sql: string, params?: unknown[]) =>
-        db.exec
-          ? await (db.exec as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+    ) => {
+      const handle: {
+        exec?: ReturnType<typeof vi.fn>;
+        insertChunksAndEnqueueEmbeddingJobs?: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        raw?: unknown;
+        transaction: ReturnType<typeof vi.fn>;
+      } = {
+        exec: vi.fn(async (sql: string, params?: unknown[]) =>
+          db.exec
+            ? await (db.exec as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+                priority,
+              })
+            : undefined
+        ),
+        query: vi.fn(
+          async (sql: string, params?: unknown[]) =>
+            await (db.query as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
               priority,
             })
-          : undefined
-      ),
-      query: vi.fn(
-        async (sql: string, params?: unknown[]) =>
-          await (db.query as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
-            priority,
-          })
-      ),
-      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) => {
-        if (!db.transaction) {
-          return;
-        }
-        return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
-          async (tx: { query: ReturnType<typeof vi.fn> }) =>
-            fn({
-              query: vi.fn(
-                async (sql: string, params?: unknown[]) =>
-                  await (tx.query as unknown as (...args: unknown[]) => Promise<unknown>)(
-                    sql,
-                    params,
-                    { priority }
-                  )
-              ),
-            })
+        ),
+        transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) => {
+          if (!db.transaction) {
+            return;
+          }
+          return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
+            async (tx: { query: ReturnType<typeof vi.fn> }) =>
+              fn({
+                query: vi.fn(
+                  async (sql: string, params?: unknown[]) =>
+                    await (tx.query as unknown as (...args: unknown[]) => Promise<unknown>)(
+                      sql,
+                      params,
+                      { priority }
+                    )
+                ),
+              })
+          );
+        }),
+      };
+      if (db.insertChunksAndEnqueueEmbeddingJobs) {
+        handle.insertChunksAndEnqueueEmbeddingJobs = vi.fn(
+          async (
+            chunks: unknown,
+            fileRecordId: unknown,
+            options: unknown,
+            workOptions?: unknown
+          ) => {
+            const mergedWorkOptions =
+              workOptions && typeof workOptions === 'object'
+                ? { ...workOptions, priority }
+                : { priority };
+            return await (
+              db.insertChunksAndEnqueueEmbeddingJobs as unknown as (
+                ...args: unknown[]
+              ) => Promise<unknown>
+            )(chunks, fileRecordId, options, mergedWorkOptions);
+          }
         );
-      }),
-    })
+      }
+      if ('raw' in db) {
+        handle.raw = db.raw;
+      }
+      return handle;
+    }
   ),
   validateApiKeyForSetMock: vi.fn(),
   ensureChunkingWorkerMock: vi.fn(),
@@ -677,6 +711,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('starts background indexing with Turso runtime repositories when PGlite is unavailable', async () => {
     const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    const electronInvalidateManagedCacheEntriesByIdentity = vi.fn(async () => ({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    }));
     const tursoExecutionClient = {
       query: vi.fn(async () => ({ rows: [] })),
       exec: vi.fn(async () => undefined),
@@ -696,6 +736,14 @@ describe('WorkspaceCollectionSyncProvider', () => {
       ready: true,
       runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
     };
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+          invalidateManagedCacheEntriesByIdentity: electronInvalidateManagedCacheEntriesByIdentity,
+        },
+      },
+    });
     runEnhancedImportMock.mockImplementationOnce(async (params) => {
       await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,
@@ -711,23 +759,38 @@ describe('WorkspaceCollectionSyncProvider', () => {
       return [];
     });
 
-    render(
-      <WorkspaceCollectionSyncProvider>
-        <div data-testid="child" />
-      </WorkspaceCollectionSyncProvider>
-    );
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
 
-    await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(electronApplyManagedCacheBatch).toHaveBeenCalledTimes(1));
 
-    expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
-    expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
-    expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledWith(
-      tursoExecutionClient,
-      expect.any(Object)
-    );
-    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalled();
+      expect(createPriorityDbHandleMock).toHaveBeenCalledWith(tursoDb, 'background');
+      expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+      expect(applyManagedCacheBatchTursoMock).not.toHaveBeenCalled();
+      expect(electronApplyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          label: 'background indexing',
+          priority: 'background',
+        })
+      );
+      expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+        [],
+        'file-record-id',
+        undefined,
+        expect.objectContaining({
+          priority: 'background',
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
   });
 
   it('coalesces refresh events while a background sync is already importing', async () => {
