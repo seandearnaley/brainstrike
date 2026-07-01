@@ -178,7 +178,7 @@ describe('EmbeddingRuntimeProvider', () => {
     expect(result.current.service).toBeNull();
   });
 
-  it('keeps Turso queue actions unavailable while exposing snapshot reads until an adapter is wired', () => {
+  it('keeps Turso queue actions unavailable while exposing snapshot reads when owner IPC is missing', () => {
     useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
     useOptionalProfileBootstrapReportMock.mockReturnValue({
       runtime: { engine: 'turso', host: 'electron-utility', persistence: 'filesystem' },

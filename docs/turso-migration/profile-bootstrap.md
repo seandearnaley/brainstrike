@@ -137,6 +137,7 @@ compatibility.
 Desktop assistant `brainstrike.queryEmbeddingSpace` is enabled for Turso only
 when the ready bootstrap report proves `search.vector32-functions`. Quick-open
 filename lookup and grep already use primary-store gram candidate tables because
-they only need bounded substring search. FTS snippets and hybrid retrieval
-remain split-owned until `docs/turso-migration/search-index-architecture.md` is
-implemented.
+they only need bounded substring search. Hybrid retrieval now uses the Turso
+repository lexical source plus vector search when bootstrap proves vector
+support. Native Tantivy-style FTS snippets/ranking remain future work if the
+primary-store gram indexes are not enough.
