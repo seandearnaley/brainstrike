@@ -570,7 +570,7 @@ describe('useDatabaseDemoData', () => {
     );
 
     expect(result.current.collectionBrowserUnavailableReason).toBe(
-      'Collection file browsing is unavailable for the Turso database runtime until selected-collection record queries are migrated.'
+      'Collection file browsing requires collection snapshot support for the Turso database runtime.'
     );
   });
 
