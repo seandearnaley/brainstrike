@@ -30,7 +30,8 @@ const {
   createPriorityDbHandleMock,
   getDatabaseWorkSchedulerMock,
   makeLiveQueryKeyMock,
-  usePGliteDatabaseMock,
+  useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReportMock,
   useBrainstrikeLiveQueryMock,
   useEmbeddingJobQueueMock,
   useSharedEmbeddingRuntimeMock,
@@ -46,7 +47,8 @@ const {
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
-    usePGliteDatabaseMock: vi.fn((): unknown => null),
+    useModelRegistryDbClientMock: vi.fn((): unknown => null),
+    useOptionalProfileBootstrapReportMock: vi.fn((): unknown => null),
     useBrainstrikeLiveQueryMock: vi.fn(),
     useEmbeddingJobQueueMock: vi.fn((): unknown => null),
     useSharedEmbeddingRuntimeMock: vi.fn(),
@@ -135,7 +137,8 @@ vi.mock('@brainstrike/db', () => ({
   createPriorityDbHandle: createPriorityDbHandleMock,
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
-  usePGliteDatabase: usePGliteDatabaseMock,
+  useModelRegistryDbClient: useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
@@ -213,7 +216,8 @@ describe('IndexingActivityCoordinator', () => {
     liveQueryState.loading = false;
     liveQueryState.error = null;
     databaseWorkSchedulerState.current = null;
-    usePGliteDatabaseMock.mockReturnValue(null);
+    useModelRegistryDbClientMock.mockReturnValue(null);
+    useOptionalProfileBootstrapReportMock.mockReturnValue(null);
     useEmbeddingJobQueueMock.mockReturnValue(null);
     useBrainstrikeLiveQueryMock.mockImplementation(() => ({
       rows: liveQueryState.rows,
@@ -243,7 +247,12 @@ describe('IndexingActivityCoordinator', () => {
         },
       ],
     }));
-    usePGliteDatabaseMock.mockReturnValue({ query });
+    const db = { query };
+    useModelRegistryDbClientMock.mockReturnValue(db);
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'pglite' },
+    });
 
     render(<IndexingActivityCoordinator />);
 
@@ -262,7 +271,7 @@ describe('IndexingActivityCoordinator', () => {
     });
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM job_queue'), ['embeddings']);
-    expect(createPriorityDbHandleMock).toHaveBeenCalledWith({ query }, 'background');
+    expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
     expect(useBrainstrikeLiveQueryMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       queued: 7,
@@ -275,6 +284,7 @@ describe('IndexingActivityCoordinator', () => {
   });
 
   it('samples queue state from the runtime job queue when PGlite is unavailable', async () => {
+    const query = vi.fn();
     const getQueueStats = vi.fn(async () => [
       {
         queue: 'embeddings',
@@ -285,7 +295,11 @@ describe('IndexingActivityCoordinator', () => {
         nextRunnableAt: '2026-04-25T12:05:00.000Z',
       },
     ]);
-    usePGliteDatabaseMock.mockReturnValue(null);
+    useModelRegistryDbClientMock.mockReturnValue({ query });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'turso' },
+    });
     useEmbeddingJobQueueMock.mockReturnValue({ getQueueStats });
 
     render(<IndexingActivityCoordinator />);
@@ -309,6 +323,7 @@ describe('IndexingActivityCoordinator', () => {
       label: 'indexing activity queue snapshot',
       priority: 'background',
     });
+    expect(query).not.toHaveBeenCalled();
     expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
       queued: 4,
@@ -321,8 +336,13 @@ describe('IndexingActivityCoordinator', () => {
   });
 
   it('routes runtime queue stats polling through the background database lane', async () => {
+    const query = vi.fn();
     const getQueueStats = vi.fn(async () => []);
-    usePGliteDatabaseMock.mockReturnValue(null);
+    useModelRegistryDbClientMock.mockReturnValue({ query });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'turso' },
+    });
     useEmbeddingJobQueueMock.mockReturnValue({ getQueueStats });
 
     render(<IndexingActivityCoordinator />);
@@ -352,6 +372,7 @@ describe('IndexingActivityCoordinator', () => {
       succeeded: 0,
       nextRunnableAt: null,
     });
+    expect(query).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(false);
   });
 
@@ -463,7 +484,11 @@ describe('IndexingActivityCoordinator', () => {
         };
       }),
     };
-    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useModelRegistryDbClientMock.mockReturnValue({ query: vi.fn() });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'pglite' },
+    });
 
     render(<IndexingActivityCoordinator />);
 

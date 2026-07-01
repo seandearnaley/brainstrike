@@ -1,7 +1,8 @@
 import {
   createPriorityDbHandle,
   getDatabaseWorkScheduler,
-  usePGliteDatabase,
+  useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
@@ -104,7 +105,7 @@ function normalizeError(error: unknown): string {
 }
 
 async function readQueueSnapshot(
-  db: ReturnType<typeof usePGliteDatabase>
+  db: ReturnType<typeof useModelRegistryDbClient>
 ): Promise<IndexingQueueSnapshot | null> {
   if (!db || typeof db.query !== 'function') {
     return null;
@@ -138,11 +139,17 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
 }
 
 export function IndexingActivityCoordinator(): null {
-  const db = usePGliteDatabase();
+  const db = useModelRegistryDbClient();
+  const bootstrapReport = useOptionalProfileBootstrapReport();
+  const runtimeEngine = bootstrapReport?.runtime.engine ?? 'unknown';
   const jobQueue = useEmbeddingJobQueue();
+  const pgliteDb = runtimeEngine === 'pglite' ? db : null;
   const backgroundDb = useMemo(
-    () => (db && typeof db.query === 'function' ? createPriorityDbHandle(db, 'background') : db),
-    [db]
+    () =>
+      pgliteDb && typeof pgliteDb.query === 'function'
+        ? createPriorityDbHandle(pgliteDb, 'background')
+        : null,
+    [pgliteDb]
   );
   const { controller } = useSharedEmbeddingRuntime();
   const setQueueSnapshot = useIndexingActivityStore((state) => state.setQueueSnapshot);
