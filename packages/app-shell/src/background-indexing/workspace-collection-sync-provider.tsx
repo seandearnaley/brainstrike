@@ -1743,7 +1743,6 @@ export function WorkspaceCollectionSyncProvider({
     runtimeController,
     setManagedCollectionId,
     setSyncStatus,
-    tursoExecutionClient,
     validateHostedProviderAccess,
     waitForBackgroundPermit,
   ]);
