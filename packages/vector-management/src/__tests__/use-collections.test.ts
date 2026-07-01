@@ -286,6 +286,7 @@ describe('useCollections', () => {
     it('should disable live query and use snapshot data when no PGlite live source is available', async () => {
       vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
       mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+      vi.mocked(useEmbeddingSetsRepository).mockReturnValue(null as never);
 
       const { result } = renderHook(() => useCollections(mockDb as any));
 
@@ -297,6 +298,55 @@ describe('useCollections', () => {
 
       await waitFor(() => expect(result.current.collections).toHaveLength(1));
       expect(result.current.collections.at(0)?.id).toBe('set-1');
+    });
+
+    it('prefers the repository snapshot over raw SQL when Turso exposes a generic query handle', async () => {
+      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      mockDb.query.mockRejectedValue(new Error('raw SQL should not be used for Turso collections'));
+      mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
+        {
+          category: 'search',
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
+          dimensions: 1536,
+          distance: 'cosine',
+          id: 'turso-set-query-handle',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Turso Query Handle Collection',
+          stats: {
+            averageTokensPerChunk: 5,
+            embeddedChunks: 11,
+            fileCount: 4,
+            tokenizedChunkCount: 12,
+            totalChunks: 13,
+            totalTokens: 60,
+          },
+          systemRole: null,
+          tags: 'docs',
+        },
+      ]);
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(useBrainstrikeLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        })
+      );
+      await waitFor(() => expect(result.current.collections).toHaveLength(1));
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockEmbeddingSetsRepository.listEmbeddingSpaces).toHaveBeenCalledWith({
+        includeStats: true,
+      });
+      expect(result.current.collections.at(0)).toMatchObject({
+        id: 'turso-set-query-handle',
+        fileCount: 4,
+        chunkCount: 13,
+        embeddingCount: 11,
+        category: 'search',
+        tags: 'docs',
+      });
     });
 
     it('keeps the collection live query attached during embedding generation', () => {
