@@ -91,7 +91,7 @@ describe('vector-queue-service', () => {
     expect(dependencies.jobQueue.getQueueStats).toHaveBeenCalledWith('embeddings');
   });
 
-  it('keeps turso runtime out of the pglite-shaped vector queue service', () => {
+  it('reports the missing Turso adapter instead of a stale migration boundary', () => {
     const db: VectorQueueDatabase = {
       query: vi.fn(async () => ({ rows: [] })) as VectorQueueDatabase['query'],
     };
@@ -107,7 +107,7 @@ describe('vector-queue-service', () => {
 
     expect(result).toEqual({
       available: false,
-      reason: 'turso-vector-backfill-not-migrated',
+      reason: 'missing-turso-vector-queue-adapter',
       service: null,
     });
     expect(createPGliteJobQueue).not.toHaveBeenCalled();

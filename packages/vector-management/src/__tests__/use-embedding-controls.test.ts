@@ -658,7 +658,7 @@ describe('useEmbeddingControls', () => {
       });
     });
 
-    it('shows Turso migration boundary toast when Turso vector backfill is not migrated', async () => {
+    it('shows Turso adapter toast when queue actions are unavailable', async () => {
       vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
         controller: {
           cancelAllBackfills: vi.fn(async () => {}),
@@ -675,7 +675,7 @@ describe('useEmbeddingControls', () => {
         },
         liveQueryMetricsEnabled: true,
         service: null,
-        serviceUnavailableReason: 'turso-vector-backfill-not-migrated',
+        serviceUnavailableReason: 'missing-turso-vector-queue-adapter',
         snapshotReader: null,
       });
 
@@ -687,8 +687,7 @@ describe('useEmbeddingControls', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Vector Queue Unavailable',
-        description:
-          'Embedding queue actions require a migrated vector backfill service. Turso queue support is not migrated yet.',
+        description: 'Embedding queue actions require the desktop Turso vector queue adapter.',
         variant: 'destructive',
       });
     });
