@@ -52,13 +52,42 @@ export class ElectronEmbeddingSetsRepository extends EmbeddingSetsRepository {
       );
     }
 
+    const existing = await this.electronDb.query('SELECT id FROM embedding_sets WHERE id = $1', [
+      id,
+    ]);
+    if (existing.rows.length === 0) {
+      return false;
+    }
+
     const statements: TransactionStatement[] = [
       { sql: 'DELETE FROM job_queue WHERE embedding_set_id = $1', params: [id] },
       { sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1', params: [id] },
-      { sql: 'DELETE FROM file_chunks WHERE embedding_set_id = $1', params: [id] },
+      {
+        sql: `DELETE FROM file_chunks
+          WHERE embedding_set_id = $1
+             OR (
+               embedding_set_id IS NULL
+               AND EXISTS (
+                 SELECT 1
+                   FROM file_records fr
+                  WHERE fr.id = file_chunks.file_record_id
+                    AND fr.embedding_set_id = $1
+               )
+             )`,
+        params: [id],
+      },
+      {
+        sql: `UPDATE file_records
+            SET embedding_set_id = NULL,
+                chunks_processed_at = NULL,
+                chunks_count = NULL,
+                chunking_strategy = NULL
+          WHERE embedding_set_id = $1`,
+        params: [id],
+      },
       { sql: 'DELETE FROM embedding_sets WHERE id = $1 RETURNING id', params: [id] },
     ];
-    const result = await this.electronDb.transaction(statements, 3);
+    const result = await this.electronDb.transaction(statements, 4);
     return result.rows.length > 0;
   }
 }

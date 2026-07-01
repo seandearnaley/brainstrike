@@ -375,6 +375,10 @@ Completed low-risk queue UI slices:
 - Shared PGlite collection stats refresh and active live-count queries use the
   same effective membership predicate, so later background refreshes cannot
   overwrite repository-correct inherited chunk counts with direct-only zeroes.
+- PGlite-family embedding-set deletion now matches Turso's effective membership
+  cleanup: deleting a set removes direct chunks and inherited chunks whose file
+  record points at the deleted set, clears the file-record embedding metadata,
+  and refuses cleanup when the set does not exist.
 
 Remaining vector-queue action slice: compose a user-visible Turso re-embed flow
 as clear-embeddings through the DB owner IPC followed by backfill through the

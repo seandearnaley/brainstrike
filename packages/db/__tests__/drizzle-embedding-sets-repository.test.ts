@@ -383,7 +383,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(found).toBeNull();
     });
 
-    it('deletes chunks associated with the set while leaving file records', async () => {
+    it('deletes direct and inherited chunks while clearing file record embedding metadata', async () => {
       const created = await repository.getOrCreateSet(
         'openai::text-embedding-3-small',
         'text-embedding-3-small',
@@ -391,14 +391,23 @@ describe('DrizzleEmbeddingSetsRepository', () => {
         'cosine'
       );
       await client.query(
-        `INSERT INTO file_records (id, name, path, size, embedding_set_id)
-         VALUES ('file-1', 'file.md', '/file.md', 12, $1)`,
-        [created.id]
+        `INSERT INTO file_records (
+           id,
+           name,
+           path,
+           size,
+           embedding_set_id,
+           chunks_processed_at,
+           chunks_count,
+           chunking_strategy
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        ['file-1', 'file.md', '/file.md', 12, created.id, '2026-06-29T18:00:00.000Z', 2, 'sentence']
       );
       await client.query(
         `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
-         VALUES ('chunk-1', 'file-1', 0, 'hello', $1)`,
-        [created.id]
+         VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)`,
+        ['chunk-1', 'file-1', 0, 'hello', created.id, 'chunk-2', 'file-1', 1, 'inherited', null]
       );
       await client.query(
         `INSERT INTO job_queue (id, queue, job_type, payload, embedding_set_id)
@@ -411,15 +420,31 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(transaction).toHaveBeenCalledTimes(1);
       const chunkRows = await client.query<{ id: string }>(
-        'SELECT id FROM file_chunks WHERE id = $1',
-        ['chunk-1']
-      );
-      expect(chunkRows.rows).toEqual([]);
-      const fileRows = await client.query<{ id: string }>(
-        'SELECT id FROM file_records WHERE id = $1',
+        'SELECT id FROM file_chunks WHERE file_record_id = $1 ORDER BY id',
         ['file-1']
       );
-      expect(fileRows.rows).toEqual([{ id: 'file-1' }]);
+      expect(chunkRows.rows).toEqual([]);
+      const fileRows = await client.query<{
+        chunking_strategy: string | null;
+        chunks_count: number | null;
+        chunks_processed_at: string | null;
+        embedding_set_id: string | null;
+        id: string;
+      }>(
+        `SELECT id, embedding_set_id, chunks_processed_at, chunks_count, chunking_strategy
+           FROM file_records
+          WHERE id = $1`,
+        ['file-1']
+      );
+      expect(fileRows.rows).toEqual([
+        {
+          chunking_strategy: null,
+          chunks_count: null,
+          chunks_processed_at: null,
+          embedding_set_id: null,
+          id: 'file-1',
+        },
+      ]);
       const jobRows = await client.query<{ id: string }>('SELECT id FROM job_queue WHERE id = $1', [
         'job-1',
       ]);
