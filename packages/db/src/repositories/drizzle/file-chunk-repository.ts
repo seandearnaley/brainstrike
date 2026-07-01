@@ -512,6 +512,7 @@ export class DrizzleFileChunkRepository {
       threshold = 0,
       fileRecordId,
       chunkType,
+      embeddingSetId,
       filePaths,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -559,6 +560,9 @@ export class DrizzleFileChunkRepository {
         AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
     `;
 
+    if (embeddingSetId) {
+      baseQuery = sql`${baseQuery} AND ${fileChunks.embeddingSetId} = ${embeddingSetId}`;
+    }
     if (fileRecordId) {
       baseQuery = sql`${baseQuery} AND file_record_id = ${fileRecordId}`;
     }

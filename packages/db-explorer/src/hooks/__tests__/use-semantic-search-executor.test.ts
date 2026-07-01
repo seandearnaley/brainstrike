@@ -589,7 +589,7 @@ describe('useSemanticSearchExecutor', () => {
     );
     expect(fullTextSearch).toHaveBeenCalledWith(
       'turso hybrid query',
-      expect.objectContaining({ includeHeadline: false })
+      expect.objectContaining({ embeddingSetId: 'set-1', includeHeadline: false })
     );
   });
 

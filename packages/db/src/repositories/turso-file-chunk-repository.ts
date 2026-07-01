@@ -82,6 +82,7 @@ interface TursoFileChunkRow {
   readonly content_hash: string | null;
   readonly created_at: string;
   readonly embedding: ArrayBuffer | Uint8Array | string | null;
+  readonly embedding_dims?: number | string | null;
   readonly embedding_hash: string | null;
   readonly embedding_set_id: string | null;
   readonly embedding_updated_at: string | null;
@@ -449,6 +450,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
   async fullTextSearch(query: string, options: FTSSearchOptions = {}): Promise<FTSSearchResult[]> {
     const {
       chunkType,
+      embeddingSetId,
       filePaths,
       fileRecordId,
       includeEmbedding = false,
@@ -495,6 +497,12 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     const conditions: string[] = [];
     const params: unknown[] = [];
     appendTursoLexicalSearchConditions(conditions, params, searchPlan);
+    if (embeddingSetId !== undefined) {
+      conditions.push(
+        '(fc.embedding_set_id = ? OR (fc.embedding_set_id IS NULL AND fr.embedding_set_id = ?))'
+      );
+      params.push(embeddingSetId, embeddingSetId);
+    }
     appendOptionalCondition(conditions, params, 'fc.file_record_id', fileRecordId);
     appendOptionalCondition(conditions, params, 'fc.chunk_type', chunkType);
     if (normalizedFilePaths) {
@@ -525,7 +533,11 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
           GROUP BY gc.file_chunk_id
        ),
        scored_chunks AS (
-         SELECT ${prefixFileChunkColumns('fc', includeEmbedding)},
+         SELECT ${prefixFileChunkColumns(
+           'fc',
+           includeEmbedding,
+           'CASE WHEN fc.embedding IS NULL THEN NULL ELSE es.dimensions END'
+         )},
                 (
                   (CAST(candidate_chunks.matched_grams AS REAL) / ?)
                   + (1.0 / (1.0 + (length(fci.normalized_content) / 1000.0)))
@@ -534,6 +546,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
            JOIN file_chunk_content_index fci ON fci.file_chunk_id = candidate_chunks.file_chunk_id
            JOIN file_chunks fc ON fc.id = candidate_chunks.file_chunk_id
            JOIN file_records fr ON fr.id = fc.file_record_id
+           LEFT JOIN embedding_sets es ON es.id = COALESCE(fc.embedding_set_id, fr.embedding_set_id)
           WHERE ${conditions.join(' AND ')}
        )
        SELECT *,
@@ -1233,21 +1246,32 @@ function buildInsertValueSql(chunk: FileChunkInsert): string {
   }).join(', ')})`;
 }
 
-function buildFileChunkProjection(tableAlias?: string, includeEmbeddingPayload = true): string {
+function buildFileChunkProjection(
+  tableAlias?: string,
+  includeEmbeddingPayload = true,
+  embeddingDimsExpression?: string
+): string {
   return FILE_CHUNK_COLUMN_NAMES.map((column) => {
     const qualifiedColumn = tableAlias ? `${tableAlias}.${column}` : column;
     if (column !== 'embedding') {
       return qualifiedColumn;
     }
     if (!includeEmbeddingPayload) {
+      if (embeddingDimsExpression) {
+        return `NULL AS embedding, ${embeddingDimsExpression} AS embedding_dims`;
+      }
       return 'NULL AS embedding';
     }
     return qualifiedColumn;
   }).join(', ');
 }
 
-function prefixFileChunkColumns(tableAlias: string, includeEmbeddingPayload = true): string {
-  return buildFileChunkProjection(tableAlias, includeEmbeddingPayload);
+function prefixFileChunkColumns(
+  tableAlias: string,
+  includeEmbeddingPayload = true,
+  embeddingDimsExpression?: string
+): string {
+  return buildFileChunkProjection(tableAlias, includeEmbeddingPayload, embeddingDimsExpression);
 }
 
 async function resolveTursoDistanceConfig(
@@ -1326,18 +1350,9 @@ function parseTursoWebsearchLexicalQuery(query: string): TursoLexicalSearchPlan 
 
   for (const token of tokens) {
     const upperValue = token.quoted ? '' : token.value.toUpperCase();
-    if (upperValue === 'AND') {
-      continue;
-    }
     if (upperValue === 'OR') {
-      if (excludeNext) {
-        throw new Error('Turso fullTextSearch websearch syntax cannot negate OR.');
-      }
       groups.push([]);
-      continue;
-    }
-    if (upperValue === 'NOT') {
-      excludeNext = true;
+      excludeNext = false;
       continue;
     }
 
@@ -1352,6 +1367,9 @@ function parseTursoWebsearchLexicalQuery(query: string): TursoLexicalSearchPlan 
     if (!normalized) {
       continue;
     }
+    if (!token.quoted && isEnglishWebsearchStopWord(normalized)) {
+      continue;
+    }
     if (excluded) {
       excludedTerms.push(normalized);
       continue;
@@ -1359,11 +1377,11 @@ function parseTursoWebsearchLexicalQuery(query: string): TursoLexicalSearchPlan 
     groups.at(-1)?.push(normalized);
   }
 
-  if (excludeNext) {
-    throw new Error('Turso fullTextSearch websearch syntax has a dangling NOT operator.');
-  }
-
   return buildTursoLexicalSearchPlanFromGroups(groups, excludedTerms);
+}
+
+function isEnglishWebsearchStopWord(value: string): boolean {
+  return value === 'and' || value === 'not';
 }
 
 function tokenizePlainLexicalQuery(query: string): readonly string[] {
@@ -1373,22 +1391,18 @@ function tokenizePlainLexicalQuery(query: string): readonly string[] {
     .filter((token) => token.length > 0);
 }
 
-function tokenizeWebsearchLexicalQuery(
-  query: string
-): ReadonlyArray<{ readonly quoted: boolean; readonly value: string }> {
+function tokenizeWebsearchLexicalQuery(query: string): readonly TursoWebsearchToken[] {
   const tokens: Array<{ quoted: boolean; value: string }> = [];
   let current = '';
   let quoted = false;
-  let currentQuoted = false;
   let quotePrefix = '';
 
   for (const char of query) {
     if (char === '"') {
       if (quoted) {
-        tokens.push({ quoted: true, value: `${quotePrefix}${current}` });
+        appendWebsearchToken(tokens, current, true, quotePrefix);
         current = '';
         quoted = false;
-        currentQuoted = false;
         quotePrefix = '';
         continue;
       }
@@ -1396,32 +1410,41 @@ function tokenizeWebsearchLexicalQuery(
       if (pendingToken === '-') {
         quotePrefix = '-';
       } else if (pendingToken) {
-        tokens.push({ quoted: currentQuoted, value: pendingToken });
+        appendWebsearchToken(tokens, pendingToken, false);
       }
       current = '';
       quoted = true;
-      currentQuoted = true;
       continue;
     }
     if (!quoted && /\s/.test(char)) {
-      if (current.trim()) {
-        tokens.push({ quoted: currentQuoted, value: current.trim() });
-        current = '';
-        currentQuoted = false;
-      }
+      appendWebsearchToken(tokens, current, false);
+      current = '';
       continue;
     }
     current += char;
   }
 
-  if (quoted) {
-    throw new Error('Turso fullTextSearch websearch syntax has an unterminated quote.');
-  }
-  if (current.trim()) {
-    tokens.push({ quoted: currentQuoted, value: current.trim() });
-  }
+  appendWebsearchToken(tokens, current, quoted, quotePrefix);
 
   return tokens;
+}
+
+interface TursoWebsearchToken {
+  readonly quoted: boolean;
+  readonly value: string;
+}
+
+function appendWebsearchToken(
+  tokens: TursoWebsearchToken[],
+  value: string,
+  quoted: boolean,
+  quotePrefix = ''
+): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return;
+  }
+  tokens.push({ quoted, value: `${quotePrefix}${trimmed}` });
 }
 
 function buildTursoLexicalSearchPlanFromGroups(
@@ -1702,6 +1725,11 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     `file chunk ${row.id} chunk_size`
   );
   const embedding = decodeEmbeddingBlob(row.embedding, row.id);
+  const embeddingDimensions = resolveTursoEmbeddingDimensions(
+    embedding,
+    row.embedding_dims,
+    `file chunk ${row.id} embedding_dims`
+  );
   return {
     chunkIndex: readNonNegativeInteger(row.chunk_index, `file chunk ${row.id} chunk_index`),
     chunkSize,
@@ -1709,7 +1737,8 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     content: row.content,
     contentHash,
     createdAt: row.created_at,
-    ...(embedding && { embedding, embeddingDimensions: embedding.length }),
+    ...(embedding && { embedding }),
+    ...(embeddingDimensions !== undefined && { embeddingDimensions }),
     ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),
     ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
     ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
@@ -1730,6 +1759,20 @@ function mapRowToChunk(row: TursoFileChunkRow): FileChunk {
     tokenCount,
     updatedAt: row.updated_at,
   };
+}
+
+function resolveTursoEmbeddingDimensions(
+  embedding: readonly number[] | undefined,
+  projectedDims: number | string | null | undefined,
+  fieldName: string
+): number | undefined {
+  if (embedding) {
+    return embedding.length;
+  }
+  if (projectedDims === null || projectedDims === undefined) {
+    return;
+  }
+  return readPositiveInteger(projectedDims, fieldName);
 }
 
 function encodeEmbeddingVectorParam(embedding: readonly number[] | undefined): string | null {
