@@ -43,6 +43,19 @@ describe('backfillEmbeddingSetAssignments', () => {
     );
   });
 
+  it('chunks Turso assignment backfills before exceeding the SQLite parameter budget', async () => {
+    const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
+    const sql = { query, runtimeEngine: 'turso' as const };
+    const fileIds = Array.from({ length: 899 }, (_, index) => `file-${index + 1}`);
+
+    await backfillEmbeddingSetAssignments(sql, 'set-1', fileIds);
+
+    expect(query).toHaveBeenCalledTimes(4);
+    for (const [, params] of query.mock.calls) {
+      expect(params?.length).toBeLessThanOrEqual(900);
+    }
+  });
+
   it('returns early when sql, collection id, or file ids are missing', async () => {
     const query = vi.fn(async () => ({ rows: [] }));
 
