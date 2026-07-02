@@ -70,7 +70,7 @@ function createWorkerConfig(
 
 export function EmbeddingWorkerProvider({ children }: { children: React.ReactNode }) {
   const dbClient = useEmbeddingWorkerDbClient();
-  const pgliteDb = dbClient?.runtimeEngine === 'pglite' ? dbClient.db : null;
+  const pgliteDb = dbClient?.db ?? null;
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const startingRef = useRef(false);
 

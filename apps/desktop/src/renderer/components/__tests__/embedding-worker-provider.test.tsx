@@ -102,8 +102,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('does not start the visible renderer worker for Turso runtime', () => {
-      const mockDb = createMockDb();
-      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'turso' });
+      mockUseEmbeddingWorkerDbClient.mockReturnValue(null);
 
       render(
         <EmbeddingWorkerProvider>

@@ -229,7 +229,9 @@ export interface BrainstrikeRuntimeDbClient {
 
 export interface AssistantMemoryDbClient extends BrainstrikeRuntimeDbClient {}
 
-export interface EmbeddingWorkerDbClient extends BrainstrikeRuntimeDbClient {}
+export interface EmbeddingWorkerDbClient extends BrainstrikeRuntimeDbClient {
+  readonly runtimeEngine: 'pglite';
+}
 
 export interface ManualImportDbClient extends BrainstrikeRuntimeDbClient {}
 
@@ -1968,7 +1970,7 @@ export function useEmbeddingWorkerDbClient(): EmbeddingWorkerDbClient | null {
   const runtimeEngine = ctx?.profileBootstrapReport.runtime.engine;
   const ready = ctx?.ready;
   const client = useMemo<EmbeddingWorkerDbClient | null>(() => {
-    if (!((runtimeEngine === 'pglite' || runtimeEngine === 'turso') && ready) || error || !db) {
+    if (!(runtimeEngine === 'pglite' && ready) || error || !db) {
       return null;
     }
 

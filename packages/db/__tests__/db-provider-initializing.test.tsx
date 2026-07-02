@@ -10,6 +10,7 @@ import {
   useDbInitializationStatus,
   useDbInitializing,
   useEmbeddingSetsRepository,
+  useEmbeddingWorkerDbClient,
   useFileChunkRepository,
   useFileRecordRepository,
   useManualImportDbClient,
@@ -917,6 +918,7 @@ describe('DbProvider initializing state', () => {
         chunkRepository: useFileChunkRepository(),
         assistantMemoryDb: useAssistantMemoryDbClient(),
         db: useBrainstrikeDbClient(),
+        embeddingWorkerDb: useEmbeddingWorkerDbClient(),
         initializationStatus: useDbInitializationStatus(),
         liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         manualImportDb: useManualImportDbClient(),
@@ -937,6 +939,7 @@ describe('DbProvider initializing state', () => {
     );
 
     expect(result.current.db).toBeNull();
+    expect(result.current.embeddingWorkerDb).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.liveQueryAvailable).toBe(false);
     expect(result.current.assistantMemoryDb).toEqual({
