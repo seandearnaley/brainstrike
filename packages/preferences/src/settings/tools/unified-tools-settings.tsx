@@ -9,6 +9,7 @@
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   type UseBrainstrikeLiveQueryOptions,
+  useBrainstrikeExecutionDbClient,
   useBrainstrikeLiveQuery,
   useBrainstrikeLiveQueryCapability,
 } from '@brainstrike/db';
@@ -328,9 +329,12 @@ export function UnifiedToolsSettings({
   const _statsStateRef = useRef<ToolStats | null>(null);
   const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
+  const executionDbClient = useBrainstrikeExecutionDbClient();
   const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const liveQueryEnabled = Boolean(liveQueryConfig) && liveQueryAvailable;
-  const liveQueryUnsupported = Boolean(liveQueryConfig) && !liveQueryAvailable;
+  const liveQueryPending = Boolean(liveQueryConfig) && !liveQueryAvailable && !executionDbClient;
+  const liveQueryUnsupported =
+    Boolean(liveQueryConfig) && !liveQueryAvailable && !!executionDbClient;
   const operationsSnapshotEnabled = !liveQueryConfig;
   const liveQueryOptions: UseBrainstrikeLiveQueryOptions<ToolDisplayMetadata> = {
     query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
@@ -343,14 +347,21 @@ export function UnifiedToolsSettings({
   };
   const liveQuery = useBrainstrikeLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
-  const loading = liveQueryUnsupported
-    ? false
-    : liveQueryEnabled
-      ? liveQuery.loading || dataState.loading
-      : dataState.loading;
-  const error = liveQueryUnsupported
+  let loading = dataState.loading;
+  if (liveQueryPending) {
+    loading = true;
+  } else if (liveQueryUnsupported) {
+    loading = false;
+  } else if (liveQueryEnabled) {
+    loading = liveQuery.loading || dataState.loading;
+  }
+  const liveQueryUnsupportedError = liveQueryUnsupported
     ? 'Tool live queries require PGlite live-query support.'
-    : (dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null));
+    : null;
+  const error =
+    dataState.error ??
+    liveQueryUnsupportedError ??
+    (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
   const { mcpServers, mcpConfigInfo, errorBoundaryKey } = dataState;
 
   const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
@@ -738,7 +749,7 @@ function ToolsPanelContent({
         <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
       )}
 
-      {!(loading || hasTools) && (
+      {!(loading || hasTools || error) && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No tools registered. Tools will appear here when the agent runtime initializes.

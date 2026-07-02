@@ -13,7 +13,14 @@ import type {
 } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
-const { useBrainstrikeLiveQueryCapabilityMock, useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
+const {
+  useBrainstrikeExecutionDbClientMock,
+  useBrainstrikeLiveQueryCapabilityMock,
+  useBrainstrikeLiveQueryMock,
+} = vi.hoisted(() => ({
+  useBrainstrikeExecutionDbClientMock: vi.fn<() => { runtimeEngine: string } | null>(() => ({
+    runtimeEngine: 'pglite',
+  })),
   useBrainstrikeLiveQueryCapabilityMock: vi.fn(() => true),
   useBrainstrikeLiveQueryMock: vi.fn(() => ({
     rows: [],
@@ -24,6 +31,7 @@ const { useBrainstrikeLiveQueryCapabilityMock, useBrainstrikeLiveQueryMock } = v
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  useBrainstrikeExecutionDbClient: useBrainstrikeExecutionDbClientMock,
   useBrainstrikeLiveQueryCapability: useBrainstrikeLiveQueryCapabilityMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
@@ -311,6 +319,7 @@ describe('UnifiedToolsSettings', () => {
       refresh: vi.fn(),
     });
     useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
+    useBrainstrikeExecutionDbClientMock.mockReturnValue({ runtimeEngine: 'pglite' });
     localStorage.clear();
   });
 
@@ -359,6 +368,57 @@ describe('UnifiedToolsSettings', () => {
       expect(
         await screen.findByText('Tool live queries require PGlite live-query support.')
       ).toBeInTheDocument();
+      expect(screen.queryByText(/No tools registered/)).not.toBeInTheDocument();
+    });
+
+    it('waits for runtime readiness before reporting live query support as unavailable', () => {
+      const operations = createMockOperations();
+      operations.toolsLiveQuery = {
+        query: 'SELECT id FROM tools ORDER BY id',
+        mode: 'incremental',
+        key: 'id',
+      };
+      useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
+      useBrainstrikeExecutionDbClientMock.mockReturnValue(null);
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'SELECT id FROM tools ORDER BY id',
+          enabled: false,
+          mode: 'incremental',
+          key: 'id',
+        })
+      );
+
+      expect(operations.getTools).not.toHaveBeenCalled();
+      expect(screen.getByText('Loading tools...')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Tool live queries require PGlite live-query support.')
+      ).not.toBeInTheDocument();
+    });
+
+    it('preserves operation errors when live query metadata is unsupported', async () => {
+      const operations = createMockOperations();
+      operations.toolsLiveQuery = {
+        query: 'SELECT id FROM tools ORDER BY id',
+        mode: 'incremental',
+        key: 'id',
+      };
+      operations.getMcpConfigInfo = vi
+        .fn()
+        .mockResolvedValue({ path: '/test', exists: true, error: 'MCP config unavailable' });
+      useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      expect(operations.getTools).not.toHaveBeenCalled();
+      expect(await screen.findByText('MCP config unavailable')).toBeInTheDocument();
+      expect(
+        screen.queryByText('Tool live queries require PGlite live-query support.')
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/No tools registered/)).not.toBeInTheDocument();
     });
   });
 
