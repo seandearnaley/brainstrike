@@ -13,6 +13,8 @@ const {
   mockUsePGliteDatabase,
   mockUseFileChunkRepository,
   mockUseFileRecordRepository,
+  MockJobQueue,
+  createEmbeddingJobQueuePortMock,
   createBulkOperationContextMock,
   bulkOperationState,
 } = vi.hoisted(() => {
@@ -20,6 +22,15 @@ const {
   const mockDb = {
     query: vi.fn().mockResolvedValue({ rows: [] }),
   };
+  const MockJobQueue = vi.fn(function JobQueueMock(
+    this: { executor?: unknown },
+    executor: unknown
+  ) {
+    this.executor = executor;
+  });
+  const createEmbeddingJobQueuePortMock = vi.fn(() => ({
+    resetProgress: vi.fn(),
+  }));
   const mockFileRecordRepository = {
     findById: vi.fn(),
     update: vi.fn(),
@@ -46,6 +57,8 @@ const {
     mockUseFileRecordRepository: vi.fn(() => mockFileRecordRepository),
     mockUseFileChunkRepository: vi.fn(() => mockFileChunkRepository),
     bulkOperationState: state,
+    MockJobQueue,
+    createEmbeddingJobQueuePortMock,
     createBulkOperationContextMock: vi.fn(() => ({
       enter: vi.fn(() => {
         state.active = true;
@@ -69,6 +82,7 @@ vi.mock('../base-file-import-service', () => ({
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
+  JobQueue: MockJobQueue,
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   isTursoFileChunkRepository: vi.fn(
     (repository: unknown) =>
@@ -103,6 +117,10 @@ vi.mock('@brainstrike/db', () => ({
   useDbProviderError: () => null,
   useFactoryReset: () => null,
   useBrainstrikeLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
+}));
+
+vi.mock('@brainstrike/pipeline', () => ({
+  createEmbeddingJobQueuePort: createEmbeddingJobQueuePortMock,
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -161,6 +179,9 @@ describe('useEnhancedFileImportService', () => {
     runEnhancedImportMock.mockReset();
     createBulkOperationContextMock.mockClear();
     bulkOperationState.active = false;
+    process.env['EMBED_QUEUE_ENABLED'] = '';
+    createEmbeddingJobQueuePortMock.mockClear();
+    MockJobQueue.mockClear();
     mockUseBrainstrikeDbClient.mockReset();
     mockUseBrainstrikeDbClient.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [] }) });
     mockUseManualImportDbClient.mockReset();
@@ -172,6 +193,8 @@ describe('useEnhancedFileImportService', () => {
     mockUseFileRecordRepository.mockReturnValue({ findById: vi.fn(), update: vi.fn() });
     mockUseFileChunkRepository.mockClear();
     mockUseFileChunkRepository.mockReturnValue({ insertMany: vi.fn(), update: vi.fn() });
+    mockUsePGliteDatabase.mockReset();
+    mockUsePGliteDatabase.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [] }) });
     ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
@@ -488,6 +511,45 @@ describe('useEnhancedFileImportService', () => {
           chunksCreated: 2,
         }),
       ]);
+    });
+
+    it('creates the legacy PGlite embedding queue port from the runtime manual import client', async () => {
+      process.env['EMBED_QUEUE_ENABLED'] = 'true';
+      const manualImportDb = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+      const stalePgliteHookDb = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+      mockUseManualImportDbClient.mockReturnValue({
+        db: manualImportDb,
+        runtimeEngine: 'pglite',
+      } as never);
+      mockUsePGliteDatabase.mockReturnValue(stalePgliteHookDb as never);
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file-pglite', imported: true, existed: false, chunksCreated: 1 },
+      ]);
+
+      const { result } = renderHook(() => useEnhancedFileImportService({ enableChunking: true }));
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(createEmbeddingJobQueuePortMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          db: manualImportDb,
+          createQueue: expect.any(Function),
+        })
+      );
+      expect(createEmbeddingJobQueuePortMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ db: stalePgliteHookDb })
+      );
+      expect(runEnhancedImportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ports: expect.objectContaining({
+            embeddingQueue: expect.any(Object),
+          }),
+        })
+      );
     });
 
     it('rejects chunked Turso imports when the atomic chunk enqueue bridge is unavailable', async () => {
