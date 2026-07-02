@@ -593,6 +593,70 @@ describe('useVectorQueueState', () => {
     }
   });
 
+  it.each([
+    {
+      actionName: 'retry failed jobs',
+      call: (state: UseVectorQueueStateResult) => state.retryFailed(12),
+      serviceOverride: {},
+      serviceSpyName: 'retryFailed',
+    },
+    {
+      actionName: 'clear failed queue jobs',
+      call: (state: UseVectorQueueStateResult) => state.clearQueue(),
+      serviceOverride: {},
+      serviceSpyName: 'clearQueue',
+    },
+    {
+      actionName: 'wipe queue',
+      call: (state: UseVectorQueueStateResult) => state.wipeQueue(),
+      serviceOverride: {},
+      serviceSpyName: 'wipeQueue',
+    },
+  ] as const)('separates $actionName success from a later queue state refresh failure', async ({
+    actionName,
+    call,
+    serviceOverride,
+    serviceSpyName,
+  }) => {
+    const controller = createMockController();
+    const service = createMockService(serviceOverride);
+    liveQueryRefresh.queueCounts.mockRejectedValueOnce(new Error('metrics refresh failed'));
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service,
+          controller: controller.controller,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await expect(call(result.current)).resolves.toBeUndefined();
+
+      await waitFor(() => {
+        expect(result.current.lastError).toBe(
+          `Failed to refresh queue state after ${actionName}: metrics refresh failed`
+        );
+      });
+      expect(service[serviceSpyName]).toHaveBeenCalledTimes(1);
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: LogLevel.WARN,
+            message: `Failed to refresh queue state after ${actionName}`,
+          }),
+        ])
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('logs snapshot refresh failures instead of leaving unhandled rejections', async () => {
     const controller = createMockController();
     const snapshotReader: VectorQueueSnapshotReader = {
