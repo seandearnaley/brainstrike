@@ -502,30 +502,7 @@ async function applyBackgroundImportBatch(args: {
       sampleRelativePaths,
       truncatedRelativePathCount: Math.max(0, mutations.length - sampleRelativePaths.length),
     });
-    return {
-      errors: [
-        ...skippedErrors,
-        ...mutations.map((entry) => ({
-          file: entry.relativePath,
-          error: message,
-        })),
-      ],
-      results: [
-        ...skippedResults,
-        ...mutations.flatMap((entry) =>
-          entry.mode === 'remove'
-            ? []
-            : [
-                {
-                  id: entry.mutation.record.id,
-                  imported: false,
-                  existed: false,
-                  error: message,
-                },
-              ]
-        ),
-      ],
-    };
+    throw error;
   }
 }
 

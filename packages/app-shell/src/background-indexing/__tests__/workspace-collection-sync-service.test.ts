@@ -1307,6 +1307,158 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('fails mixed managed-cache removals atomically when batch apply rejects', async () => {
+    const keptFilePath = 'src/rebuilt/keep.ts';
+    const staleFilePath = 'src/rebuilt/stale.ts';
+    const keptCompositeKey = encodeFileSelection(ROOT_PATH, keptFilePath);
+    const oldContent = 'export const value = 1;';
+    const newContent = 'export const value = 2;';
+    const oldHash = await generateContentHash(oldContent);
+    const applyError = new Error('managed-cache apply failed');
+    const callOrder: string[] = [];
+    const fileSystemAdapter = {
+      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+        if (handle.path === ROOT_PATH) {
+          return [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+              }),
+              name: 'src',
+              path: `${ROOT_PATH}/src`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src`) {
+          return [
+            {
+              depth: 2,
+              handle: createMockNodeHandle({
+                kind: 'directory',
+                name: 'rebuilt',
+                path: `${ROOT_PATH}/src/rebuilt`,
+              }),
+              name: 'rebuilt',
+              path: `${ROOT_PATH}/src/rebuilt`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              type: 'directory',
+            },
+          ];
+        }
+        if (handle.path === `${ROOT_PATH}/src/rebuilt`) {
+          return [
+            {
+              depth: 3,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'keep.ts',
+                path: `${ROOT_PATH}/${keptFilePath}`,
+              }),
+              lastModified: 1000,
+              name: 'keep.ts',
+              path: `${ROOT_PATH}/${keptFilePath}`,
+              rootFolderId: ROOT_PATH,
+              selectionState: 'unchecked',
+              size: 24,
+              type: 'file',
+            },
+          ];
+        }
+        return [];
+      }),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
+    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+    const deps = createDeps({
+      applyManagedCacheBatch: vi.fn(async () => {
+        callOrder.push('apply');
+        throw applyError;
+      }),
+      invalidateManagedCacheEntriesByIdentity: vi.fn(async () => {
+        callOrder.push('invalidate');
+        return {
+          canceledEmbeddingJobCount: 0,
+          deletedChunkIds: [],
+          deletedFileRecordIds: [],
+        };
+      }),
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [keptCompositeKey]: newContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'kept-file',
+            mtimeMs: 1000,
+            relativePath: keptFilePath,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: oldHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'stale-file',
+            mtimeMs: 1000,
+            relativePath: staleFilePath,
+            rootId: ROOT_PATH,
+            size: 23,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      fileSystemAdapter,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        mode: 'paths',
+        changes: [
+          { kind: 'directory', path: `${ROOT_PATH}/src/rebuilt`, type: 'removed' },
+          { kind: 'directory', path: `${ROOT_PATH}/src/rebuilt`, type: 'added' },
+        ],
+      },
+    });
+
+    expect(callOrder).toEqual(['apply']);
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.arrayContaining([
+          expect.objectContaining({ mode: 'remove' }),
+          expect.objectContaining({ mode: 'replace' }),
+        ]),
+      })
+    );
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: applyError.message,
+        state: 'error',
+      })
+    );
+  });
+
   it('invalidates a watcher-removed directory by prefix root identity', async () => {
     const deps = createDeps();
     const service = new WorkspaceCollectionSyncService(deps);
