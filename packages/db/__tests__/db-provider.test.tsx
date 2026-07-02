@@ -7,8 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProfileBootstrapReport } from '../src/bootstrap/profile-bootstrap-report';
 import {
   DbProvider,
-  resolveBrainstrikeSchemaReadyCapability,
-  startDbProviderLazyInitialization,
   useAssistantMemoryDbClient,
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
@@ -20,6 +18,10 @@ import {
   useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
 } from '../src/db-provider';
+import {
+  resolveBrainstrikeSchemaReadyCapability,
+  startDbProviderLazyInitialization,
+} from '../src/db-provider-schema-readiness';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 

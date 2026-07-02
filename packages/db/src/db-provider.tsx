@@ -45,6 +45,10 @@ import {
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
+import {
+  resolveBrainstrikeSchemaReadyCapability,
+  startDbProviderLazyInitialization,
+} from './db-provider-schema-readiness.js';
 import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
 import type { ApplyManagedCacheBatchArgs } from './managed-cache/index.js';
@@ -1918,39 +1922,6 @@ export function useBrainstrikeLiveQueryCapability(): boolean {
   return Boolean(
     ctx?.ready && !ctx.error && ctx.db && ctx.profileBootstrapReport.runtime.engine === 'pglite'
   );
-}
-
-export interface BrainstrikeSchemaReadyCapabilityInput {
-  readonly db: unknown | null;
-  readonly error: Error | null;
-  readonly initializationStatus: DbInitializationStatus;
-  readonly profileBootstrapReport: ProfileBootstrapReport;
-  readonly ready: boolean;
-}
-
-export function startDbProviderLazyInitialization(initializeDatabase: () => Promise<void>): void {
-  initializeDatabase().catch((err) => {
-    logDatabaseError('Failed to lazy-initialize database', err);
-  });
-}
-
-export function resolveBrainstrikeSchemaReadyCapability(
-  input: BrainstrikeSchemaReadyCapabilityInput
-): boolean {
-  if (input.error) {
-    return false;
-  }
-
-  const runtimeEngine = input.profileBootstrapReport.runtime.engine;
-  if (runtimeEngine === 'pglite') {
-    return Boolean(input.ready && input.db);
-  }
-
-  if (runtimeEngine === 'turso') {
-    return input.initializationStatus === 'ready' && input.profileBootstrapReport.ready === true;
-  }
-
-  return false;
 }
 
 export function useBrainstrikeSchemaReadyCapability(): boolean {
