@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-01 on `feature/turso-migration`.
+Last updated: 2026-07-02 on `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -116,6 +116,7 @@ as the implementation backlog.
 - #1413 `Neutralize file status backend error copy`
 - #1414 `Remove stale Turso queue boundary`
 - #1415 `Neutralize collection browser snapshot copy`
+- #1441 `Expose runtime execution DB client hook`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -139,11 +140,23 @@ because it can open a local `file:` libSQL database or embedded replica. Any
 latency-critical write path must either use a local Turso database with explicit
 sync semantics, or be documented as remote-primary/online-bound.
 
+MVCC/concurrent-write maturity is a separate release-readiness risk. The
+Brainstrike Turso path hard-requires `PRAGMA journal_mode = 'mvcc'`, and owner
+client transactions use `BEGIN CONCURRENT`. Current official Turso material is
+mixed: the TypeScript SDK reference presents `@tursodatabase/database` as the
+recommended local embedded package, while the TursoDB quickstart and 0.5.0
+release notes still describe MVCC/concurrent-write behavior as beta,
+experimental, or not production-ready in places. Treat this as requiring
+explicit team signoff, backup/reset validation, and real-engine tests before
+shipping. Do not hide that risk behind a PGlite fallback.
+
 Primary docs consulted:
 
 - <https://docs.turso.tech/features/embedded-replicas/introduction>
 - <https://docs.turso.tech/sdk/ts/reference>
 - <https://docs.turso.tech/sync/usage>
+- <https://docs.turso.tech/tursodb/quickstart>
+- <https://turso.tech/blog/turso-0.5.0>
 
 ## Implemented Runtime Shape
 
@@ -185,8 +198,11 @@ The branch currently has a real Turso runtime seam:
   parallel writer concurrency. A background transaction can briefly head-of-line
   block foreground DB work until it commits, and `BEGIN CONCURRENT` does not add
   primary-store write parallelism while all writes share one owner client. Reopen
-  the separate-connection design only if QoS diagnostics show material
-  foreground blocking from embedding-worker operations.
+  the separate-connection design if release profiling shows
+  `slowQueuedOperationCount > 0` for foreground-labeled work, or foreground DB
+  work repeatedly waits more than 1000ms behind embedding-worker/background
+  operations during manual or e2e profiling. Until that profiling exists, do not
+  claim this topology proves foreground latency under active background writes.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.
@@ -348,19 +364,34 @@ Many UI blockers are now centralized at the shared DB provider layer:
   `runtime.engine === "pglite"`.
 - `useBrainstrikeLiveQuery()` remains a PGlite live-query alias.
 
-Remaining provider work: add a generic execution-client hook with capability
-metadata so callers stop treating "raw DB handle" as "PGlite". Vector, FTS, and
-grep methods on the chunk repository must stay capability-gated by the concrete
-repository and bootstrap proofs instead of a raw database-handle assumption.
-
 Provider execution-client slice now exposes `useBrainstrikeExecutionDbClient()`
-for ready PGlite and Turso runtimes. The hook returns the runtime engine and
-explicit SQL capability metadata (`postgres` plus Postgres-only features for
-PGlite, `sqlite` plus Turso baseline features for Turso), and returns `null`
-unless the ready provider handle has query, exec, and transaction capabilities.
-Consumer migrations should use this hook when they need generic SQL execution
-metadata; do not use it to imply live-query, vector, grep, or FTS availability.
-Those capabilities remain repository/bootstrap-gated.
+for ready PGlite and query-capable Turso runtimes. The hook returns the runtime
+engine and explicit SQL capability metadata (`postgres` plus Postgres-only
+features for PGlite, `sqlite` plus Turso baseline features for Turso), and
+returns `null` unless the ready provider handle has query, exec, and callback
+transaction capabilities. Electron-hosted Turso currently returns `null` on
+purpose: renderer-facing Turso mutations must go through repository/bootstrap
+capabilities or explicit owner-IPC action surfaces, not a raw callback-style SQL
+client. Consumer migrations should use this hook only when they truly need a
+generic execution client; do not use it to infer runtime readiness, live-query,
+vector, grep, or FTS availability. Those capabilities remain
+schema-readiness-, repository-, or bootstrap-gated.
+
+Remaining provider work: migrate remaining generic SQL consumers onto
+`useBrainstrikeExecutionDbClient()` only where the runtime actually exposes a
+query-capable execution client, or onto a concrete repository capability when
+Electron-hosted Turso owns the SQL path. Callers must stop treating "raw DB
+handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
+stay capability-gated by the concrete repository and bootstrap proofs instead
+of a raw database-handle assumption.
+
+Audit follow-up: `useModelRegistryDbClient()` and model-registry toggle writes
+still need a runtime-specific SQL helper. Current Turso driver probes accepted
+Postgres-style `$1` placeholders and raw boolean params, but production code
+must not depend on dialect lenience. The next model-registry slice should emit
+SQLite/Turso `?` placeholders with integer booleans under Turso and keep the
+existing Postgres-shaped path only for PGlite, with tests that assert emitted
+SQL/params by runtime.
 
 ### 2. UI Snapshot Replacements For Live Queries
 
@@ -381,15 +412,18 @@ Known production touchpoints:
 - `packages/app-shell/src/use-om-segment-row.ts`
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
-chunk count, requested file status lookups, and collection embedding coverage
-banner snapshots. Selected collection browsing now uses repository snapshots
-under Turso without requiring a raw PGlite database handle. DB Explorer semantic
-search now also resolves the active set's model through the repository path
-before the PGlite-only raw DB fallback. Quick-open now has a repository-snapshot
-hook seam for runtimes that expose an indexed `findByNameSubstring` repository
-capability. Turso
-implements that seam with a primary-store `file_record_name_grams` table indexed
-by `(gram, file_record_id)` plus a `file_record_name_index` normalized-name
+chunk count, requested file status lookups, collection embedding coverage banner
+snapshots, quick-open, and file mentions. Selected collection browsing now uses
+repository snapshots under Turso without requiring a raw PGlite database handle.
+DB Explorer semantic search now also resolves the active set's model through the
+repository path before the PGlite-only raw DB fallback. Unified Tools Settings
+now fails closed when optional PGlite `toolsLiveQuery` metadata is configured
+but the shared live-query capability is unavailable; it does not silently
+substitute `operations.getTools()` snapshots for an explicitly live-query
+surface. Quick-open now has a repository-snapshot hook seam for runtimes that
+expose an indexed `findByNameSubstring` repository capability. Turso implements
+that seam with a primary-store `file_record_name_grams` table indexed by
+`(gram, file_record_id)` plus a `file_record_name_index` normalized-name
 sidecar: the gram index produces candidates, SQLite's `instr` applies the exact
 substring guard, and ordering remains the same shortest-name-then-path ordering
 used by the PGlite query. Schema upgrades backfill both sidecar tables from
@@ -397,6 +431,12 @@ existing `file_records`. This is intentionally not a general native-FTS
 replacement; grep and hybrid search now use primary-store gram indexes, while a
 separate native FTS search-index store remains a future option if Tantivy
 ranking/snippet semantics become required.
+
+Remaining live-query replacement gaps: `use-cross-root-cost` and
+`use-om-segment-row` currently rely on one-shot Turso snapshots without an
+explicit invalidation trigger. They need event-driven refresh tokens tied to the
+write paths that change their data, not polling and not a PGlite live-query
+fallback.
 
 ### 3. Background Indexing And Embedding Host
 
@@ -417,8 +457,9 @@ Known production touchpoints:
 Completed low-risk queue UI slices:
 
 - `EmbeddingJobQueueTracker` and `QueueHud` use a runtime-keyed queue hook.
-  Ready Turso profiles can poll `TursoJobQueue.getQueueStats()` and run
-  failed-job retry/repair controls without opening a PGlite handle.
+  Ready Turso profiles can poll read-only queue stats without opening a PGlite
+  handle. User-visible retry/repair controls are routed through the
+  vector-status owner-IPC action path, not through `QueueHud` itself.
 - `EmbeddingRuntimeProvider` no longer calls the PGlite-only database hook to
   construct its vector queue service. It uses the generic ready DB client and
   the bootstrap runtime, constructs `JobQueue` only for PGlite, exposes Turso
@@ -611,6 +652,10 @@ No production Turso sync/search metadata path currently exists outside the
 profile directory. Future out-of-profile sync or search stores must be added as
 explicit named reset targets with tests; do not delete guessed names such as
 `.sync`, `sync`, or `${primary}.fts.db`.
+
+`db:clearAll` is a separate SQL-only live-handle data clear path. It is not the
+barrier-coordinated factory reset/profile cleanup path and must not be cited as
+proof that runtime-owned profile files or future sidecars were removed.
 
 Known production touchpoints:
 

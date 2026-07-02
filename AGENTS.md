@@ -454,6 +454,38 @@ extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.tes
 
 ---
 
+## TURSO RUNTIME INVARIANT
+
+Turso is selected explicitly with `BRAINSTRIKE_DB_RUNTIME=turso`. Do not infer a
+Turso runtime from a generic DB handle, and do not add a PGlite fallback for
+missing Turso behavior.
+
+Rules:
+- Desktop owns the long-lived Turso owner client through the DB host. Renderers
+  and hidden hosts must not construct independent mutation repositories or
+  `TursoJobQueue` instances; transaction-capable writes go through explicit
+  owner-client IPC/actions.
+- The typed profile/bootstrap readiness report is the authority for Turso
+  capabilities. Search, vector, live query, schema readiness, and diagnostics
+  must be gated by that report or by concrete repository capabilities, never by
+  string-matching a database URL or assuming SQLite parity.
+- Turso live query capability is currently false. UI surfaces that configure
+  PGlite live-query metadata must either use a proven repository snapshot path
+  with explicit refresh triggers, or fail closed with diagnostics. No silent
+  snapshot substitution for a configured live-query surface.
+- Brainstrike's Turso path hard-requires `PRAGMA journal_mode = 'mvcc'` and
+  owner transactions use `BEGIN CONCURRENT`. Treat Turso MVCC/concurrent-write
+  maturity as a release-readiness risk requiring explicit signoff and
+  real-engine tests; do not hide it behind compatibility shims.
+- Factory reset/profile cleanup is separate from SQL-only clears. `db:resetLocal`
+  owns barrier-coordinated profile deletion/recreation; `db:clearAll` must not be
+  cited as proof that runtime-owned profile files or sidecars were removed.
+
+When changing this flow, update this section and
+docs/turso-migration/migration-ledger.md.
+
+---
+
 ## ASSISTANT SEARCH TOOLS
 
 The assistant's search verbs, in the order the default instructions present them:

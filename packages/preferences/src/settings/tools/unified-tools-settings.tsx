@@ -7,7 +7,12 @@
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
-import { type UseBrainstrikeLiveQueryOptions, useBrainstrikeLiveQuery } from '@brainstrike/db';
+import {
+  type UseBrainstrikeLiveQueryOptions,
+  useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
+  useBrainstrikeSchemaReadyCapability,
+} from '@brainstrike/db';
 import {
   Accordion,
   Button,
@@ -201,6 +206,7 @@ interface UseToolsDataManagerParams {
   liveQueryEnabled: boolean;
   mcpAvailable: boolean;
   operations: UnifiedToolsSettingsProps['operations'];
+  operationsSnapshotEnabled: boolean;
   statsRef: { current: ToolStats | null };
 }
 
@@ -211,6 +217,7 @@ function useToolsDataManager({
   liveQueryEnabled,
   mcpAvailable,
   operations,
+  operationsSnapshotEnabled,
   statsRef,
 }: UseToolsDataManagerParams) {
   const fetchAndApplyTools = useCallback(async () => {
@@ -267,11 +274,11 @@ function useToolsDataManager({
   }, [operations, mcpAvailable, dispatch, lastMcpErrorRef]);
 
   useEffect(() => {
-    if (liveQueryEnabled) {
+    if (liveQueryEnabled || !operationsSnapshotEnabled) {
       return;
     }
     void fetchAndApplyTools();
-  }, [fetchAndApplyTools, liveQueryEnabled]);
+  }, [fetchAndApplyTools, liveQueryEnabled, operationsSnapshotEnabled]);
 
   useEffect(() => {
     void loadMcpData();
@@ -289,8 +296,11 @@ function useToolsDataManager({
       }
       return;
     }
+    if (!operationsSnapshotEnabled) {
+      return;
+    }
     await loadToolsData();
-  }, [liveQueryEnabled, liveQuery, loadToolsData, dispatch]);
+  }, [liveQueryEnabled, liveQuery, operationsSnapshotEnabled, loadToolsData, dispatch]);
 
   const handleMcpConfigUpdated = useCallback(async () => {
     await loadMcpData();
@@ -319,7 +329,12 @@ export function UnifiedToolsSettings({
   const _statsStateRef = useRef<ToolStats | null>(null);
   const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
-  const liveQueryEnabled = Boolean(liveQueryConfig);
+  const schemaReady = useBrainstrikeSchemaReadyCapability();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
+  const liveQueryEnabled = Boolean(liveQueryConfig) && liveQueryAvailable;
+  const liveQueryPending = Boolean(liveQueryConfig) && !liveQueryAvailable && !schemaReady;
+  const liveQueryUnsupported = Boolean(liveQueryConfig) && !liveQueryAvailable && schemaReady;
+  const operationsSnapshotEnabled = !liveQueryConfig;
   const liveQueryOptions: UseBrainstrikeLiveQueryOptions<ToolDisplayMetadata> = {
     query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
     ...(liveQueryConfig?.params === undefined ? {} : { params: liveQueryConfig.params }),
@@ -331,8 +346,21 @@ export function UnifiedToolsSettings({
   };
   const liveQuery = useBrainstrikeLiveQuery<ToolDisplayMetadata>(liveQueryOptions);
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
-  const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
-  const error = dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
+  let loading = dataState.loading;
+  if (liveQueryPending) {
+    loading = true;
+  } else if (liveQueryUnsupported) {
+    loading = false;
+  } else if (liveQueryEnabled) {
+    loading = liveQuery.loading || dataState.loading;
+  }
+  const liveQueryUnsupportedError = liveQueryUnsupported
+    ? 'Tool live queries require PGlite live-query support.'
+    : null;
+  const error =
+    dataState.error ??
+    liveQueryUnsupportedError ??
+    (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
   const { mcpServers, mcpConfigInfo, errorBoundaryKey } = dataState;
 
   const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
@@ -352,6 +380,7 @@ export function UnifiedToolsSettings({
     liveQueryEnabled,
     mcpAvailable,
     operations,
+    operationsSnapshotEnabled,
     statsRef: _statsStateRef,
   });
 
@@ -361,11 +390,11 @@ export function UnifiedToolsSettings({
     uiDispatch({ type: 'SET_EXPANDED_TOOL_ID', toolId: null });
     if (liveQueryEnabled) {
       void liveQuery.refresh();
-    } else {
+    } else if (operationsSnapshotEnabled) {
       void loadToolsData();
     }
     void loadMcpData();
-  }, [liveQueryEnabled, liveQuery, loadMcpData, loadToolsData]);
+  }, [liveQueryEnabled, liveQuery, operationsSnapshotEnabled, loadMcpData, loadToolsData]);
 
   const handleToggleTool = useCallback(
     async (toolId: string, currentlyEnabled: boolean) => {
@@ -719,7 +748,7 @@ function ToolsPanelContent({
         <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
       )}
 
-      {!(loading || hasTools) && (
+      {!(loading || hasTools || error) && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No tools registered. Tools will appear here when the agent runtime initializes.
