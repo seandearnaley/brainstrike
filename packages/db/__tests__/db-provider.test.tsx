@@ -10,6 +10,7 @@ import {
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
   useBrainstrikeLiveQueryCapability,
+  useEmbeddingWorkerDbClient,
   useFileRecordRepository,
   useOptionalBrainstrikeDatabase,
   useOptionalBrainstrikeDbClient,
@@ -90,6 +91,7 @@ describe('DbProvider', () => {
         assistantMemoryClient: useAssistantMemoryDbClient(),
         client: useBrainstrikeDbClient(),
         db: useBrainstrikeDatabase(),
+        embeddingWorkerClient: useEmbeddingWorkerDbClient(),
         liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
@@ -102,6 +104,10 @@ describe('DbProvider', () => {
       expect(result.current.db).toBeTruthy();
       expect(result.current.client).toBe(result.current.db);
       expect(result.current.assistantMemoryClient).toEqual({
+        db: result.current.db,
+        runtimeEngine: 'pglite',
+      });
+      expect(result.current.embeddingWorkerClient).toEqual({
         db: result.current.db,
         runtimeEngine: 'pglite',
       });
