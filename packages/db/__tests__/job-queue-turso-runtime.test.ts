@@ -445,6 +445,97 @@ describe('TursoJobQueue runtime operations', () => {
     expect(query).toHaveBeenCalledTimes(3);
   });
 
+  it('rolls back queued repairs when retrying failed jobs hits write contention', async () => {
+    await insertRawJob({
+      embeddingSetId,
+      error: 'stale queued repair',
+      id: 'job-repair-queued',
+      queue: 'retry-atomic',
+      state: 'queued',
+    });
+    await client.exec('UPDATE job_queue SET attempts = max_attempts WHERE id = ?', [
+      'job-repair-queued',
+    ]);
+    await insertRawJob({
+      embeddingSetId,
+      error: 'terminal failure',
+      id: 'job-retry-failed',
+      queue: 'retry-atomic',
+      state: 'failed',
+    });
+
+    let transactionAttempts = 0;
+    let fieldsAfterRollback: Array<{
+      attempts: number;
+      error: string | null;
+      id: string;
+      state: string;
+    }> | null = null;
+    const retryQueue = new TursoJobQueue({
+      exec: (sql, params) => client.exec(sql, params),
+      query: (sql, params, options) => client.query(sql, params, options),
+      transaction: async (callback) => {
+        transactionAttempts += 1;
+        let retryResetUpdates = 0;
+        try {
+          return await client.transaction((tx) =>
+            callback({
+              exec: tx.exec,
+              query: async (sql, params, options) => {
+                if (
+                  transactionAttempts === 1 &&
+                  sql.includes('UPDATE job_queue') &&
+                  sql.includes("SET state = 'queued'")
+                ) {
+                  retryResetUpdates += 1;
+                  if (retryResetUpdates === 2) {
+                    throw new Error('SQLITE_BUSY: injected retry contention');
+                  }
+                }
+                return tx.query(sql, params, options);
+              },
+            })
+          );
+        } catch (error) {
+          if (transactionAttempts === 1) {
+            fieldsAfterRollback = await readJobRetryFieldsForIds([
+              'job-repair-queued',
+              'job-retry-failed',
+            ]);
+          }
+          throw error;
+        }
+      },
+    });
+
+    await expect(retryQueue.retryFailed('retry-atomic', 10)).resolves.toEqual({
+      repairedQueued: 1,
+      requeuedFailed: 1,
+    });
+
+    expect(transactionAttempts).toBe(2);
+    expect(fieldsAfterRollback).toEqual([
+      {
+        attempts: 5,
+        error: 'stale queued repair',
+        id: 'job-repair-queued',
+        state: 'queued',
+      },
+      {
+        attempts: 0,
+        error: 'terminal failure',
+        id: 'job-retry-failed',
+        state: 'failed',
+      },
+    ]);
+    await expect(
+      readJobRetryFieldsForIds(['job-repair-queued', 'job-retry-failed'])
+    ).resolves.toEqual([
+      { attempts: 0, error: null, id: 'job-repair-queued', state: 'queued' },
+      { attempts: 0, error: null, id: 'job-retry-failed', state: 'queued' },
+    ]);
+  });
+
   it('throws a row-scoped diagnostic for malformed job payload JSON', async () => {
     await client.exec('PRAGMA ignore_check_constraints = ON');
     await client.exec(
@@ -804,6 +895,29 @@ describe('TursoJobQueue runtime operations', () => {
       [...ids]
     );
     return result.rows;
+  }
+
+  async function readJobRetryFieldsForIds(
+    ids: readonly string[]
+  ): Promise<Array<{ attempts: number; error: string | null; id: string; state: string }>> {
+    const result = await client.query<{
+      attempts: number | string;
+      error: string | null;
+      id: string;
+      state: string;
+    }>(
+      `SELECT id, state, attempts, error
+         FROM job_queue
+        WHERE id IN (${ids.map(() => '?').join(', ')})
+        ORDER BY id`,
+      [...ids]
+    );
+    return result.rows.map((row) => ({
+      attempts: Number(row.attempts),
+      error: row.error,
+      id: row.id,
+      state: row.state,
+    }));
   }
 
   async function insertRawJob(input: {

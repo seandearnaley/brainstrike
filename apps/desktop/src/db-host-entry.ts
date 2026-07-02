@@ -593,13 +593,7 @@ async function handleTursoVectorQueueAction(
     }
     case 'retryFailed': {
       const queue = new TursoJobQueue(executionDb);
-      return {
-        repairedQueued: await queue.repairUnclaimableQueued(
-          EMBEDDINGS_QUEUE,
-          request.payload.payload.limit
-        ),
-        requeuedFailed: await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.payload.limit),
-      };
+      return await queue.retryFailed(EMBEDDINGS_QUEUE, request.payload.payload.limit);
     }
     case 'wipeQueue': {
       const queue = new TursoJobQueue(executionDb);
