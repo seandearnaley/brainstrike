@@ -353,6 +353,15 @@ metadata so callers stop treating "raw DB handle" as "PGlite". Vector, FTS, and
 grep methods on the chunk repository must stay capability-gated by the concrete
 repository and bootstrap proofs instead of a raw database-handle assumption.
 
+Provider execution-client slice now exposes `useBrainstrikeExecutionDbClient()`
+for ready PGlite and Turso runtimes. The hook returns the runtime engine and
+explicit SQL capability metadata (`postgres` plus Postgres-only features for
+PGlite, `sqlite` plus Turso baseline features for Turso), and returns `null`
+unless the ready provider handle has query, exec, and transaction capabilities.
+Consumer migrations should use this hook when they need generic SQL execution
+metadata; do not use it to imply live-query, vector, grep, or FTS availability.
+Those capabilities remain repository/bootstrap-gated.
+
 ### 2. UI Snapshot Replacements For Live Queries
 
 PGlite live queries are not part of the Turso runtime. Any UI still depending

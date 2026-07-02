@@ -6,6 +6,7 @@ import {
   DbProvider,
   useAssistantMemoryDbClient,
   useBrainstrikeDbClient,
+  useBrainstrikeExecutionDbClient,
   useBrainstrikeLiveQueryCapability,
   useBrainstrikeSchemaReadyCapability,
   useDbInitializationStatus,
@@ -920,6 +921,7 @@ describe('DbProvider initializing state', () => {
         assistantMemoryDb: useAssistantMemoryDbClient(),
         db: useBrainstrikeDbClient(),
         embeddingWorkerDb: useEmbeddingWorkerDbClient(),
+        executionDb: useBrainstrikeExecutionDbClient(),
         initializationStatus: useDbInitializationStatus(),
         liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         manualImportDb: useManualImportDbClient(),
@@ -948,6 +950,14 @@ describe('DbProvider initializing state', () => {
     expect(result.current.assistantMemoryDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
+    });
+    expect(result.current.executionDb).toEqual({
+      db: result.current.modelRegistryDb,
+      runtimeEngine: 'turso',
+      sqlCapabilities: {
+        dialect: 'sqlite',
+        features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],
+      },
     });
     expect(result.current.querySelectionSnapshotDb).toEqual({
       db: result.current.modelRegistryDb,
