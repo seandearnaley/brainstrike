@@ -8,7 +8,12 @@ import {
   insertTursoChunksAndEnqueueEmbeddingJobs,
   invalidateManagedCacheEntriesByIdentity,
   invalidateTursoManagedCacheEntriesByIdentity,
+  markTursoCollectionIndexingStatsDirty,
   parseManagedCacheBatchArgs,
+  refreshTursoCollectionIndexingStats,
+  TursoEmbeddingSetsRepository,
+  TursoFileChunkRepository,
+  TursoJobQueue,
 } from '@brainstrike/db';
 import type {
   DbHostInitResult,
@@ -111,6 +116,7 @@ const pendingGeneralRequests: QueuedRequest[] = [];
 const pendingTransactionRequests: QueuedRequest[] = [];
 const liveQueries = new Map<string, LiveQueryRecord>();
 const SLOW_REQUEST_WARNING_MS = 5000;
+const EMBEDDINGS_QUEUE = 'embeddings';
 
 function createLiveId(): string {
   return `live:${randomUUID()}`;
@@ -375,6 +381,16 @@ function requireDbHostExecutionClient(
   return db as BrainstrikeDbExecutionClient;
 }
 
+function requireTursoExecutionClient(
+  db: QueryableDatabase,
+  engine: QueryableDatabaseContext['engine']
+): BrainstrikeDbExecutionClient {
+  if (engine !== 'turso') {
+    throw new Error('Turso DB-host owner request requires Turso runtime.');
+  }
+  return requireDbHostExecutionClient(db, engine);
+}
+
 function asLegacyMutationDatabase(db: BrainstrikeDbExecutionClient): LegacyMutationDatabase {
   return db as unknown as LegacyMutationDatabase;
 }
@@ -498,6 +514,167 @@ async function handleChunksInsertAndEnqueueEmbeddingJobs(
   return { inserted: true };
 }
 
+async function handleTursoEmbeddingWorkerQueueOperation(
+  request: Extract<DbHostRequest, { kind: 'turso:embedding-worker:queue' }>
+): Promise<unknown> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const executionDb = requireTursoExecutionClient(db, engine);
+  const queue = new TursoJobQueue(executionDb);
+  switch (request.payload.operation) {
+    case 'claimMany':
+      return await queue.claimMany(request.payload.payload);
+    case 'completeBatch':
+      return await queue.completeBatch([...request.payload.payload]);
+    case 'completeEmbeddingChunkBatch':
+      return await queue.completeEmbeddingChunkBatch([...request.payload.payload]);
+    case 'fail':
+      return await queue.fail(request.payload.payload);
+    case 'failBatch':
+      return await queue.failBatch(request.payload.payload);
+    case 'heartbeatBatch':
+      return await queue.heartbeatBatch(
+        [...request.payload.payload.jobs],
+        request.payload.payload.extendMs
+      );
+    default:
+      return assertNeverTursoEmbeddingWorkerQueueOperation(request.payload);
+  }
+}
+
+function assertNeverTursoEmbeddingWorkerQueueOperation(_request: never): never {
+  throw new Error('Unsupported Turso embedding worker queue operation.');
+}
+
+async function handleTursoEmbeddingWorkerStatsOperation(
+  request: Extract<DbHostRequest, { kind: 'turso:embedding-worker:stats' }>
+): Promise<void> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const executionDb = requireTursoExecutionClient(db, engine);
+  switch (request.payload.operation) {
+    case 'markDirty':
+      await markTursoCollectionIndexingStatsDirty(executionDb, request.payload.embeddingSetIds);
+      return;
+    case 'refresh':
+      await executionDb.transaction(async (tx) => {
+        await refreshTursoCollectionIndexingStats(tx, request.payload.embeddingSetIds);
+      });
+      return;
+    default:
+      return assertNeverTursoEmbeddingWorkerStatsOperation(request.payload.operation);
+  }
+}
+
+function assertNeverTursoEmbeddingWorkerStatsOperation(_operation: never): never {
+  throw new Error('Unsupported Turso embedding worker stats operation.');
+}
+
+async function handleTursoVectorQueueAction(
+  request: Extract<DbHostRequest, { kind: 'turso:vector-queue:action' }>
+): Promise<unknown> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const executionDb = requireTursoExecutionClient(db, engine);
+  switch (request.payload.operation) {
+    case 'clearEmbeddingsForSet': {
+      const chunkRepository = new TursoFileChunkRepository(executionDb);
+      return {
+        cleared: await chunkRepository.clearEmbeddingsForSet(
+          request.payload.payload.embeddingSetId
+        ),
+      };
+    }
+    case 'clearQueue': {
+      const queue = new TursoJobQueue(executionDb);
+      return {
+        cleared: await queue.clear(
+          EMBEDDINGS_QUEUE,
+          request.payload.payload.states ? [...request.payload.payload.states] : undefined
+        ),
+      };
+    }
+    case 'retryFailed': {
+      const queue = new TursoJobQueue(executionDb);
+      return {
+        repairedQueued: await queue.repairUnclaimableQueued(
+          EMBEDDINGS_QUEUE,
+          request.payload.payload.limit
+        ),
+        requeuedFailed: await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.payload.limit),
+      };
+    }
+    case 'wipeQueue': {
+      const queue = new TursoJobQueue(executionDb);
+      return { cleared: await queue.clear(EMBEDDINGS_QUEUE) };
+    }
+    default:
+      return assertNeverTursoVectorQueueAction(request.payload);
+  }
+}
+
+function assertNeverTursoVectorQueueAction(_request: never): never {
+  throw new Error('Unsupported Turso vector queue action operation.');
+}
+
+async function handleTursoEmbeddingBackfillOperation(
+  request: Extract<DbHostRequest, { kind: 'turso:embedding-backfill' }>
+): Promise<unknown> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const executionDb = requireTursoExecutionClient(db, engine);
+  switch (request.payload.operation) {
+    case 'embeddingSet:getById': {
+      const embeddingSetsRepository = new TursoEmbeddingSetsRepository(executionDb);
+      return await embeddingSetsRepository.getById(request.payload.embeddingSetId);
+    }
+    case 'chunk:countEmbeddingBackfillCandidates': {
+      const chunkRepository = new TursoFileChunkRepository(executionDb);
+      return await chunkRepository.countEmbeddingBackfillCandidates(
+        request.payload.embeddingSetId,
+        request.payload.queue === undefined ? undefined : { queue: request.payload.queue }
+      );
+    }
+    case 'chunk:findEmbeddingBackfillCandidates': {
+      const chunkRepository = new TursoFileChunkRepository(executionDb);
+      return await chunkRepository.findEmbeddingBackfillCandidates({
+        embeddingSetId: request.payload.embeddingSetId,
+        limit: request.payload.limit,
+        ...(request.payload.afterChunkId === undefined
+          ? {}
+          : { afterChunkId: request.payload.afterChunkId }),
+        ...(request.payload.queue === undefined ? {} : { queue: request.payload.queue }),
+      });
+    }
+    case 'queue:enqueueBatch': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.enqueueBatch([...request.payload.payload]);
+    }
+    case 'queue:getEmbeddingSetQueueCounts': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.getEmbeddingSetQueueCounts(
+        request.payload.queue,
+        request.payload.embeddingSetId,
+        request.payload.updatedAfter === undefined
+          ? undefined
+          : { updatedAfter: request.payload.updatedAfter }
+      );
+    }
+    case 'queue:getQueueStats': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.getQueueStats(request.payload.queue);
+    }
+    case 'queue:repairUnclaimableQueued': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.repairUnclaimableQueued(request.payload.queue, request.payload.limit, {
+        embeddingSetId: request.payload.embeddingSetId,
+      });
+    }
+    default:
+      return assertNeverTursoEmbeddingBackfillOperation(request.payload);
+  }
+}
+
+function assertNeverTursoEmbeddingBackfillOperation(_request: never): never {
+  throw new Error('Unsupported Turso embedding backfill operation.');
+}
+
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
   switch (request.kind) {
     case 'init': {
@@ -585,6 +762,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return await handleManagedCacheInvalidateByIdentity(request);
     case 'chunks:insert-and-enqueue-embedding-jobs':
       return await handleChunksInsertAndEnqueueEmbeddingJobs(request);
+    case 'turso:embedding-worker:queue':
+      return await handleTursoEmbeddingWorkerQueueOperation(request);
+    case 'turso:embedding-worker:stats':
+      return await handleTursoEmbeddingWorkerStatsOperation(request);
+    case 'turso:vector-queue:action':
+      return await handleTursoVectorQueueAction(request);
+    case 'turso:embedding-backfill':
+      return await handleTursoEmbeddingBackfillOperation(request);
     case 'diagnostics':
       return getDatabaseDiagnostics();
     case 'reset':

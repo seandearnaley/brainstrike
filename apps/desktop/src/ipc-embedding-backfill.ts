@@ -4,6 +4,7 @@ import {
   type DatabaseWorkScheduler,
   type DimensionIndexMaintenanceStrategy,
   JobQueue,
+  type JobQueueStateCounts,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestId } from '@brainstrike/worker-runtime';
@@ -13,6 +14,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { type DbHostManager, getDbHostManager } from './db-host-manager';
 import { getDatabase, resolveCurrentDesktopDbRuntimeEngine } from './db-main';
 import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import {
@@ -25,7 +27,7 @@ import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
   type EmbeddingBackfillSource,
 } from './embedding-host-shared';
-import { enqueueTursoEmbeddingBackfill } from './turso-embedding-backfill';
+import { createTursoEmbeddingBackfillRunner } from './turso-embedding-backfill';
 
 const logger = createLogger('DesktopEmbeddingBackfillIpc');
 
@@ -145,6 +147,94 @@ function resolveGpuMemoryReclaimConfig(): GpuMemoryReclaimConfig {
       GPU_MEMORY_RECLAIM_DEFAULT_MODE
     ),
   };
+}
+
+function createDbHostTursoEmbeddingBackfillRunner(
+  dbHostManager: Pick<DbHostManager, 'runTursoEmbeddingBackfillOperation'>
+) {
+  const requireRepairQueue = (queue: string | undefined): string => {
+    if (typeof queue !== 'string' || queue.length === 0) {
+      throw new Error('Turso backfill queue repair requires a queue name.');
+    }
+    return queue;
+  };
+  const requireRepairLimit = (limit: number | undefined): number => {
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
+      throw new Error('Turso backfill queue repair requires a positive limit.');
+    }
+    return limit;
+  };
+  const requireRepairEmbeddingSetId = (embeddingSetId: string | undefined): string => {
+    if (typeof embeddingSetId !== 'string' || embeddingSetId.length === 0) {
+      throw new Error('Turso backfill queue repair requires an embeddingSetId.');
+    }
+    return embeddingSetId;
+  };
+
+  return createTursoEmbeddingBackfillRunner({
+    chunkRepository: {
+      countEmbeddingBackfillCandidates: async (embeddingSetId, options) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<number>({
+          embeddingSetId,
+          operation: 'chunk:countEmbeddingBackfillCandidates',
+          ...(options?.queue === undefined ? {} : { queue: options.queue }),
+        }),
+      findEmbeddingBackfillCandidates: async (options) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<
+          Array<{ contentHash: string; fileRecordId: string; id: string }>
+        >({
+          embeddingSetId: options.embeddingSetId,
+          limit: options.limit,
+          operation: 'chunk:findEmbeddingBackfillCandidates',
+          ...(options.afterChunkId === undefined ? {} : { afterChunkId: options.afterChunkId }),
+          ...(options.queue === undefined ? {} : { queue: options.queue }),
+        }),
+    },
+    embeddingSetsRepository: {
+      getById: async (embeddingSetId) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<{
+          dimensions: number | string;
+          modelKey: string;
+        } | null>({
+          embeddingSetId,
+          operation: 'embeddingSet:getById',
+        }),
+    },
+    jobQueue: {
+      enqueueBatch: async (payload) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<readonly unknown[]>({
+          operation: 'queue:enqueueBatch',
+          payload: [...payload],
+        }),
+      getEmbeddingSetQueueCounts: async (queue, embeddingSetId, options) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<JobQueueStateCounts>({
+          embeddingSetId,
+          operation: 'queue:getEmbeddingSetQueueCounts',
+          queue,
+          ...(options?.updatedAfter === undefined ? {} : { updatedAfter: options.updatedAfter }),
+        }),
+      getQueueStats: async (queue) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<
+          Array<{
+            failed: number;
+            queue: string;
+            queued: number;
+            running: number;
+            succeeded: number;
+          }>
+        >({
+          operation: 'queue:getQueueStats',
+          ...(queue === undefined ? {} : { queue }),
+        }),
+      repairUnclaimableQueued: async (queue, limit, options) =>
+        await dbHostManager.runTursoEmbeddingBackfillOperation<number>({
+          embeddingSetId: requireRepairEmbeddingSetId(options?.embeddingSetId),
+          limit: requireRepairLimit(limit),
+          operation: 'queue:repairUnclaimableQueued',
+          queue: requireRepairQueue(queue),
+        }),
+    },
+  });
 }
 
 export function resolveEmbeddingBackfillRequest(
@@ -378,18 +468,12 @@ export async function runDesktopEmbeddingBackfill(params: {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
     }
 
-    const db = await getDatabase();
     logger.info('Desktop embedding backfill scheduling resolved', {
       embeddingSetId: normalizedEmbeddingSetId,
       priority: EMBEDDING_BACKFILL_DATABASE_PRIORITY,
       requestId: backfillRequestId,
       source,
     });
-    const scheduledDb = createScheduledDbHandle(
-      db,
-      databaseWorkScheduler,
-      EMBEDDING_BACKFILL_DATABASE_PRIORITY
-    );
     const runtimeEngine = await resolveCurrentDesktopDbRuntimeEngine();
     const commonBackfillOptions = {
       assertCanContinue: () => {
@@ -412,16 +496,26 @@ export async function runDesktopEmbeddingBackfill(params: {
     });
 
     if (runtimeEngine === 'turso') {
-      await enqueueTursoEmbeddingBackfill(scheduledDb, normalizedEmbeddingSetId, progressReporter, {
-        ...commonBackfillOptions,
-        ...(source === 'background-indexing'
-          ? {
-              drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
-              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
-            }
-          : {}),
-      });
+      await createDbHostTursoEmbeddingBackfillRunner(getDbHostManager()).enqueue(
+        normalizedEmbeddingSetId,
+        progressReporter,
+        {
+          ...commonBackfillOptions,
+          ...(source === 'background-indexing'
+            ? {
+                drainTimeoutMs: BACKGROUND_INDEXING_BACKFILL_DRAIN_TIMEOUT_MS,
+                queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+              }
+            : {}),
+        }
+      );
     } else if (runtimeEngine === 'pglite') {
+      const db = await getDatabase();
+      const scheduledDb = createScheduledDbHandle(
+        db,
+        databaseWorkScheduler,
+        EMBEDDING_BACKFILL_DATABASE_PRIORITY
+      );
       const backgroundIndexingOptions: Partial<EnqueueEmbeddingBackfillOptions> =
         source === 'background-indexing'
           ? {

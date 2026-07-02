@@ -3,8 +3,10 @@ import type {
   ClaimParams,
   CompleteEmbeddingChunkParams,
   CompleteParams,
+  EnqueueParams,
   FailBatchParams,
   FailParams,
+  JobQueueStateCounts,
   JobState,
   ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
@@ -118,6 +120,52 @@ export type ParsedTursoVectorQueueActionRequest =
       readonly operation: 'wipeQueue';
       readonly payload: null;
     };
+
+export interface TursoEmbeddingBackfillCandidate {
+  readonly contentHash: string;
+  readonly fileRecordId: string;
+  readonly id: string;
+}
+
+export type ParsedTursoEmbeddingBackfillOperationRequest =
+  | {
+      readonly embeddingSetId: string;
+      readonly operation: 'embeddingSet:getById';
+    }
+  | {
+      readonly embeddingSetId: string;
+      readonly operation: 'chunk:countEmbeddingBackfillCandidates';
+      readonly queue?: string;
+    }
+  | {
+      readonly afterChunkId?: string | null;
+      readonly embeddingSetId: string;
+      readonly limit: number;
+      readonly operation: 'chunk:findEmbeddingBackfillCandidates';
+      readonly queue?: string;
+    }
+  | {
+      readonly operation: 'queue:enqueueBatch';
+      readonly payload: readonly EnqueueParams[];
+    }
+  | {
+      readonly embeddingSetId: string;
+      readonly operation: 'queue:getEmbeddingSetQueueCounts';
+      readonly queue: string;
+      readonly updatedAfter?: string;
+    }
+  | {
+      readonly operation: 'queue:getQueueStats';
+      readonly queue?: string;
+    }
+  | {
+      readonly embeddingSetId: string;
+      readonly limit: number;
+      readonly operation: 'queue:repairUnclaimableQueued';
+      readonly queue: string;
+    };
+
+export type TursoEmbeddingBackfillQueueCounts = JobQueueStateCounts;
 
 const EMBEDDING_PROVIDERS = new Set<ElectronEmbeddingProvider>([
   'local',

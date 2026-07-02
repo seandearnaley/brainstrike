@@ -1,16 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-  type FileChunkInsert,
-  type FileRecord,
-  TursoEmbeddingSetsRepository,
-  TursoFileChunkRepository,
-  TursoFileRecordRepository,
-  TursoJobQueue,
-} from '@brainstrike/db';
-import { createTursoOwnerClient, type TursoOwnerClient } from '@brainstrike/db/turso/owner-client';
-import { applyTursoSchemaBaseline } from '@brainstrike/db/turso/schema-baseline';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -151,6 +138,9 @@ const { createDefaultMockDatabase, getDatabaseMock, querySpy, transactionSpy } =
 const { dbHostManagerMock } = vi.hoisted(() => ({
   dbHostManagerMock: {
     insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+    runTursoEmbeddingWorkerQueueOperation: vi.fn(async () => [{ id: 'job-1', state: 'running' }]),
+    runTursoEmbeddingWorkerStatsOperation: vi.fn(async () => undefined),
+    runTursoVectorQueueAction: vi.fn(async () => ({ repairedQueued: 1, requeuedFailed: 1 })),
   },
 }));
 vi.mock('../../db-main', () => ({
@@ -173,6 +163,9 @@ describe('database IPC domain', () => {
     querySpy.mockClear();
     transactionSpy.mockClear();
     dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
+    dbHostManagerMock.runTursoEmbeddingWorkerQueueOperation.mockClear();
+    dbHostManagerMock.runTursoEmbeddingWorkerStatsOperation.mockClear();
+    dbHostManagerMock.runTursoVectorQueueAction.mockClear();
     registerDatabaseIpcHandlers({});
   });
 
@@ -320,7 +313,7 @@ describe('database IPC domain', () => {
     });
   });
 
-  it('runs Turso embedding worker queue operations against the main DB transaction client', async () => {
+  it('forwards Turso embedding worker queue operations to the DB host manager', async () => {
     const result = await handlers.get('db:turso-embedding-worker:queue')?.(
       {} as IpcMainInvokeEvent,
       'claimMany',
@@ -337,21 +330,43 @@ describe('database IPC domain', () => {
     expect(result).toEqual([
       expect.objectContaining({
         id: 'job-1',
-        jobType: 'embed_chunk',
-        lease_token: expect.any(String),
         state: 'running',
-        worker_id: 'worker-1',
       }),
     ]);
-    expect(transactionSpy).toHaveBeenCalledTimes(1);
-    const ranSql = transactionSpy.mock.calls[0]?.[0]?.map((s: { sql: string }) => s.sql);
-    expect(ranSql).toEqual([
-      expect.stringContaining('SELECT *'),
-      expect.stringContaining('UPDATE job_queue'),
-    ]);
+    expect(dbHostManagerMock.runTursoEmbeddingWorkerQueueOperation).toHaveBeenCalledWith({
+      operation: 'claimMany',
+      payload: {
+        leaseMs: 60_000,
+        limit: 1,
+        now: '2026-06-30T10:01:00.000Z',
+        queue: 'embeddings',
+        workerId: 'worker-1',
+      },
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
   });
 
-  it('runs Turso vector queue action operations against the owner DB client', async () => {
+  it('forwards Turso embedding worker stats operations to the DB host manager', async () => {
+    await expect(
+      handlers.get('db:turso-embedding-worker:stats')?.(
+        {} as IpcMainInvokeEvent,
+        'refresh',
+        ['set-1'],
+        { label: 'turso.embedding-worker.stats.refresh', priority: 'background' }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(dbHostManagerMock.runTursoEmbeddingWorkerStatsOperation).toHaveBeenCalledWith({
+      embeddingSetIds: ['set-1'],
+      operation: 'refresh',
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+  });
+
+  it('forwards Turso vector queue action operations to the DB host manager', async () => {
     const result = await handlers.get('db:turso-vector-queue:action')?.(
       {} as IpcMainInvokeEvent,
       'retryFailed',
@@ -363,20 +378,17 @@ describe('database IPC domain', () => {
       repairedQueued: 1,
       requeuedFailed: 1,
     });
-    expect(transactionSpy).toHaveBeenCalledTimes(2);
-    const ranSql = transactionSpy.mock.calls.flatMap((call) =>
-      call[0].map((statement: { sql: string }) => statement.sql)
-    );
-    expect(ranSql).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("state = 'queued' AND attempts >= max_attempts"),
-        expect.stringContaining("state = 'failed'"),
-        expect.stringContaining('UPDATE job_queue'),
-      ])
-    );
+    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith({
+      operation: 'retryFailed',
+      payload: { limit: 5 },
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
   });
 
-  it('clears the Turso vector queue without serializing an absent state filter', async () => {
+  it('forwards Turso vector queue clearQueue without serializing an absent state filter', async () => {
+    dbHostManagerMock.runTursoVectorQueueAction.mockResolvedValueOnce({ cleared: 1 });
+
     const result = await handlers.get('db:turso-vector-queue:action')?.(
       {} as IpcMainInvokeEvent,
       'clearQueue',
@@ -385,189 +397,13 @@ describe('database IPC domain', () => {
     );
 
     expect(result).toEqual({ cleared: 1 });
-    expect(querySpy).toHaveBeenCalledTimes(1);
-    expect(transactionSpy).not.toHaveBeenCalled();
-    const statement = querySpy.mock.calls[0]?.[0];
-    expect(statement).toMatchObject({
-      params: ['embeddings'],
-      sql: expect.stringContaining('WHERE queue = ?'),
+    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith({
+      operation: 'clearQueue',
+      payload: {},
     });
-    expect(statement?.sql).not.toContain('state IN');
-  });
-
-  it('clears Turso embeddings for a set through the owner vector queue action IPC', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-vector-action-ipc-'));
-    let client: TursoOwnerClient | undefined;
-    try {
-      client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
-      await applyTursoSchemaBaseline(client);
-      const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
-      const fileRecordsRepository = new TursoFileRecordRepository(client);
-      const chunkRepository = new TursoFileChunkRepository(client);
-      const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
-        'local::test-model',
-        'test-model',
-        3,
-        'cosine'
-      );
-      await fileRecordsRepository.createWithContent(
-        createRecord({ embeddingSetId: embeddingSet.id })
-      );
-      await chunkRepository.insertMany([
-        createChunk({
-          chunkIndex: 0,
-          embedding: [0.1, 0.2, 0.3],
-          embeddingHash: 'direct-embedding-hash',
-          embeddingSetId: embeddingSet.id,
-          id: 'chunk-direct',
-        }),
-        createChunk({
-          chunkIndex: 1,
-          embedding: [0.3, 0.2, 0.1],
-          embeddingHash: 'inherited-embedding-hash',
-          id: 'chunk-inherited',
-        }),
-      ]);
-      getDatabaseMock.mockResolvedValue(client);
-
-      const result = await handlers.get('db:turso-vector-queue:action')?.(
-        {} as IpcMainInvokeEvent,
-        'clearEmbeddingsForSet',
-        { embeddingSetId: embeddingSet.id },
-        { label: 'turso.vector-queue.action.clearEmbeddingsForSet', priority: 'normal' }
-      );
-
-      expect(result).toEqual({ cleared: 2 });
-      await expect(chunkRepository.findById('chunk-direct')).resolves.toMatchObject({
-        embeddingSetId: embeddingSet.id,
-      });
-      await expect(chunkRepository.findById('chunk-direct')).resolves.not.toHaveProperty(
-        'embedding'
-      );
-      await expect(chunkRepository.findById('chunk-inherited')).resolves.not.toHaveProperty(
-        'embedding'
-      );
-      await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({
-        chunk_count: 2,
-        dirty: 0,
-        embedded_chunk_count: 0,
-        file_count: 1,
-        pending_chunk_count: 2,
-      });
-    } finally {
-      await client?.close();
-      await rm(tempDir, { force: true, recursive: true });
-    }
-  });
-
-  it('drives Turso embedding worker queue and stats IPC through a real owner client', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-worker-ipc-'));
-    let client: TursoOwnerClient | undefined;
-    try {
-      client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
-      await applyTursoSchemaBaseline(client);
-      const embeddingSetsRepository = new TursoEmbeddingSetsRepository(client);
-      const fileRecordsRepository = new TursoFileRecordRepository(client);
-      const chunkRepository = new TursoFileChunkRepository(client);
-      const queue = new TursoJobQueue(client);
-      const embeddingSet = await embeddingSetsRepository.getOrCreateSet(
-        'local::test-model',
-        'test-model',
-        3,
-        'cosine'
-      );
-      await fileRecordsRepository.createWithContent(
-        createRecord({ embeddingSetId: embeddingSet.id })
-      );
-      await chunkRepository.insert(createChunk({ embeddingSetId: embeddingSet.id }));
-      const job = await queue.enqueue({
-        queue: 'embeddings',
-        jobType: 'embed_chunk',
-        payload: { chunkId: 'chunk-1', embeddingSetId: embeddingSet.id },
-        runAt: '2026-06-30T10:00:00.000Z',
-      });
-      getDatabaseMock.mockResolvedValue(client);
-
-      const claimed = await handlers.get('db:turso-embedding-worker:queue')?.(
-        {} as IpcMainInvokeEvent,
-        'claimMany',
-        {
-          leaseMs: 60_000,
-          limit: 1,
-          now: '2026-06-30T10:01:00.000Z',
-          queue: 'embeddings',
-          workerId: 'worker-real-owner',
-        },
-        { label: 'turso.embedding-worker.queue.claimMany', priority: 'background' }
-      );
-
-      expect(claimed).toEqual([
-        expect.objectContaining({
-          id: job.id,
-          lease_token: expect.any(String),
-          state: 'running',
-          worker_id: 'worker-real-owner',
-        }),
-      ]);
-      const [claimedJob] = claimed as Array<{ lease_token: string }>;
-
-      const completed = await handlers.get('db:turso-embedding-worker:queue')?.(
-        {} as IpcMainInvokeEvent,
-        'completeEmbeddingChunkBatch',
-        [
-          {
-            id: job.id,
-            leaseToken: claimedJob.lease_token,
-            chunkId: 'chunk-1',
-            embedding: [0.1, 0.2, 0.3],
-            embeddingHash: 'embedding-hash-ipc',
-            embeddingSetId: embeddingSet.id,
-          },
-        ],
-        {
-          label: 'turso.embedding-worker.queue.completeEmbeddingChunkBatch',
-          priority: 'background',
-        }
-      );
-
-      expect(completed).toEqual([
-        expect.objectContaining({
-          id: job.id,
-          state: 'succeeded',
-        }),
-      ]);
-      await expect(chunkRepository.findById('chunk-1')).resolves.toMatchObject({
-        embedding: [0.1, 0.2, 0.3],
-        embeddingHash: 'embedding-hash-ipc',
-        embeddingSetId: embeddingSet.id,
-      });
-
-      await handlers.get('db:turso-embedding-worker:stats')?.(
-        {} as IpcMainInvokeEvent,
-        'markDirty',
-        [embeddingSet.id],
-        { label: 'turso.embedding-worker.stats.markDirty', priority: 'background' }
-      );
-      await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({ dirty: 1 });
-
-      await handlers.get('db:turso-embedding-worker:stats')?.(
-        {} as IpcMainInvokeEvent,
-        'refresh',
-        [embeddingSet.id],
-        { label: 'turso.embedding-worker.stats.refresh', priority: 'background' }
-      );
-
-      await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({
-        chunk_count: 1,
-        dirty: 0,
-        embedded_chunk_count: 1,
-        file_count: 1,
-        pending_chunk_count: 0,
-      });
-    } finally {
-      await client?.close();
-      await rm(tempDir, { force: true, recursive: true });
-    }
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
   });
 
   it('rejects malformed atomic chunk/job payloads before DB host scheduling', async () => {
@@ -586,60 +422,3 @@ describe('database IPC domain', () => {
     expect(dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
   });
 });
-
-function createRecord(overrides: Partial<FileRecord> = {}): FileRecord {
-  return {
-    content: 'const answer = 42;',
-    contentHash: 'hash-file-1',
-    createdAt: '2026-06-30T09:50:00.000Z',
-    id: 'file-1',
-    name: 'index.ts',
-    path: 'src/index.ts',
-    size: 42,
-    tokenCount: 8,
-    updatedAt: '2026-06-30T09:50:00.000Z',
-    ...overrides,
-  };
-}
-
-function createChunk(overrides: Partial<FileChunkInsert> = {}): FileChunkInsert {
-  return {
-    chunkIndex: 0,
-    chunkSize: 18,
-    chunkType: 'code',
-    content: 'const answer = 42;',
-    contentHash: 'hash-chunk-1',
-    createdAt: '2026-06-30T09:55:00.000Z',
-    fileRecordId: 'file-1',
-    id: 'chunk-1',
-    tokenCount: 4,
-    updatedAt: '2026-06-30T09:55:00.000Z',
-    ...overrides,
-  };
-}
-
-async function readStatsRow(client: TursoOwnerClient, embeddingSetId: string) {
-  const result = await client.query<{
-    chunk_count: number | string;
-    dirty: number | string;
-    embedded_chunk_count: number | string;
-    file_count: number | string;
-    pending_chunk_count: number | string;
-  }>(
-    `SELECT file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty
-       FROM collection_indexing_stats
-      WHERE embedding_set_id = ?`,
-    [embeddingSetId]
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-  return {
-    chunk_count: Number(row.chunk_count),
-    dirty: Number(row.dirty),
-    embedded_chunk_count: Number(row.embedded_chunk_count),
-    file_count: Number(row.file_count),
-    pending_chunk_count: Number(row.pending_chunk_count),
-  };
-}

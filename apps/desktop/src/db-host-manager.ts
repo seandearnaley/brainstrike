@@ -21,6 +21,12 @@ import {
   DB_RUNTIME_ENV,
   SERIALIZE_PGLITE_INIT_ENV,
 } from './db-runtime-env';
+import type {
+  ParsedTursoEmbeddingBackfillOperationRequest,
+  ParsedTursoEmbeddingWorkerQueueRequest,
+  ParsedTursoEmbeddingWorkerStatsRequest,
+  ParsedTursoVectorQueueActionRequest,
+} from './db-shared';
 
 const logger = createLogger('DbHostManager');
 
@@ -134,6 +140,18 @@ export interface DbHostManager {
   readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
+  readonly runTursoEmbeddingBackfillOperation: <TResult = unknown>(
+    payload: ParsedTursoEmbeddingBackfillOperationRequest
+  ) => Promise<TResult>;
+  readonly runTursoEmbeddingWorkerQueueOperation: (
+    payload: ParsedTursoEmbeddingWorkerQueueRequest
+  ) => Promise<unknown>;
+  readonly runTursoEmbeddingWorkerStatsOperation: (
+    payload: ParsedTursoEmbeddingWorkerStatsRequest
+  ) => Promise<void>;
+  readonly runTursoVectorQueueAction: (
+    payload: ParsedTursoVectorQueueActionRequest
+  ) => Promise<unknown>;
 }
 
 export interface DbHostManagerOptions {
@@ -154,12 +172,14 @@ interface PendingRequest {
 }
 
 interface RequestTimeoutDiagnostics {
+  readonly embeddingBackfillOperation?: string;
   readonly liveId?: string;
   readonly paramsCount?: number;
   readonly payloadQueryPreview?: string;
   readonly requestKind: DbHostRequest['kind'];
   readonly sqlPreview?: string;
   readonly transactionId?: string;
+  readonly vectorQueueOperation?: string;
 }
 
 function toError(error: DbHostSerializedError): Error {
@@ -291,6 +311,14 @@ function requiresHostTerminationOnTimeout(
   );
 }
 
+function isBulkTursoVectorQueueAction(request: DbHostRequest): boolean {
+  return (
+    request.kind === 'turso:vector-queue:action' &&
+    (request.payload.operation === 'clearEmbeddingsForSet' ||
+      request.payload.operation === 'wipeQueue')
+  );
+}
+
 function createQueryPreview(query: string): string {
   return query.replace(/\s+/g, ' ').slice(0, 240);
 }
@@ -342,6 +370,16 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
       return {
         requestKind: request.kind,
         liveId: request.liveId,
+      };
+    case 'turso:vector-queue:action':
+      return {
+        requestKind: request.kind,
+        vectorQueueOperation: request.payload.operation,
+      };
+    case 'turso:embedding-backfill':
+      return {
+        embeddingBackfillOperation: request.payload.operation,
+        requestKind: request.kind,
       };
     default:
       return { requestKind: request.kind };
@@ -593,6 +631,32 @@ class DefaultDbHostManager implements DbHostManager {
     await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
   }
 
+  async runTursoEmbeddingWorkerQueueOperation(
+    payload: ParsedTursoEmbeddingWorkerQueueRequest
+  ): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send({ kind: 'turso:embedding-worker:queue', payload });
+  }
+
+  async runTursoEmbeddingBackfillOperation<TResult = unknown>(
+    payload: ParsedTursoEmbeddingBackfillOperationRequest
+  ): Promise<TResult> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send<TResult>({ kind: 'turso:embedding-backfill', payload });
+  }
+
+  async runTursoEmbeddingWorkerStatsOperation(
+    payload: ParsedTursoEmbeddingWorkerStatsRequest
+  ): Promise<void> {
+    await this.#ensureRuntimeInitialized();
+    await this.send({ kind: 'turso:embedding-worker:stats', payload });
+  }
+
+  async runTursoVectorQueueAction(payload: ParsedTursoVectorQueueActionRequest): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send({ kind: 'turso:vector-queue:action', payload });
+  }
+
   async #ensureRuntimeInitialized(): Promise<void> {
     if (this.#runtimeEngine !== null) {
       return;
@@ -653,7 +717,7 @@ class DefaultDbHostManager implements DbHostManager {
     if (request.kind === 'init') {
       return this.#initializationTimeoutMs;
     }
-    if (request.kind === 'maintenance:exec') {
+    if (request.kind === 'maintenance:exec' || isBulkTursoVectorQueueAction(request)) {
       return this.#maintenanceRequestTimeoutMs;
     }
     return this.#requestTimeoutMs;

@@ -1,14 +1,9 @@
 import {
-  type BrainstrikeDbExecutionClient,
   type DatabaseWorkOptions,
   escapePGliteLiveQueryFormatPercents,
-  markTursoCollectionIndexingStatsDirty,
   parseManagedCacheBatchArgs,
-  refreshTursoCollectionIndexingStats,
   runStatementsInTransaction,
   type TransactionStatement,
-  TursoFileChunkRepository,
-  TursoJobQueue,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
@@ -21,9 +16,6 @@ import {
   DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
   DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
   DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL,
-  type ParsedTursoEmbeddingWorkerQueueRequest,
-  type ParsedTursoEmbeddingWorkerStatsRequest,
-  type ParsedTursoVectorQueueActionRequest,
   parseInsertChunksAndEnqueueEmbeddingJobsArgs,
   parseManagedCacheInvalidationsArgs,
   parseTursoEmbeddingWorkerQueueArgs,
@@ -97,7 +89,6 @@ const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const MAX_RENDERER_SQL_BYTES = 1_000_000;
-const EMBEDDINGS_QUEUE = 'embeddings';
 const logger = createLogger('DatabaseIpc');
 const DESTRUCTIVE_SCHEMA_SQL_PATTERN =
   /(?:^|;)\s*(?:drop\s+\w+|truncate(?:\s+table)?\b|alter\s+table\b[^;]*\bdrop\s+(?:column|constraint|index|primary\s+key|foreign\s+key|unique|check|not\s+null|default|identity|expression)\b)/iu;
@@ -295,97 +286,6 @@ async function clearOptionalRelation(
     logger.warn('Failed to clear optional database table', { error, tableName });
     throw error;
   }
-}
-
-async function executeTursoEmbeddingWorkerQueueOperation(
-  db: BrainstrikeDbExecutionClient,
-  request: ParsedTursoEmbeddingWorkerQueueRequest
-): Promise<unknown> {
-  const queue = new TursoJobQueue(db);
-  switch (request.operation) {
-    case 'claimMany':
-      return await queue.claimMany(request.payload);
-    case 'completeBatch':
-      return await queue.completeBatch([...request.payload]);
-    case 'completeEmbeddingChunkBatch':
-      return await queue.completeEmbeddingChunkBatch([...request.payload]);
-    case 'fail':
-      return await queue.fail(request.payload);
-    case 'failBatch':
-      return await queue.failBatch(request.payload);
-    case 'heartbeatBatch':
-      return await queue.heartbeatBatch([...request.payload.jobs], request.payload.extendMs);
-    default:
-      return assertNeverTursoQueueOperation(request);
-  }
-}
-
-function assertNeverTursoQueueOperation(_request: never): never {
-  throw new Error('Unsupported Turso embedding worker queue operation.');
-}
-
-async function executeTursoEmbeddingWorkerStatsOperation(
-  db: BrainstrikeDbExecutionClient,
-  request: ParsedTursoEmbeddingWorkerStatsRequest
-): Promise<void> {
-  if (request.operation === 'markDirty') {
-    await markTursoCollectionIndexingStatsDirty(db, request.embeddingSetIds);
-    return;
-  }
-  if (request.operation === 'refresh') {
-    await db.transaction(async (tx) => {
-      await refreshTursoCollectionIndexingStats(tx, request.embeddingSetIds);
-    });
-    return;
-  }
-  assertNeverTursoStatsOperation(request.operation);
-}
-
-function assertNeverTursoStatsOperation(_operation: never): never {
-  throw new Error('Unsupported Turso embedding worker stats operation.');
-}
-
-async function executeTursoVectorQueueAction(
-  db: BrainstrikeDbExecutionClient,
-  request: ParsedTursoVectorQueueActionRequest
-): Promise<unknown> {
-  switch (request.operation) {
-    case 'clearEmbeddingsForSet': {
-      const chunkRepository = new TursoFileChunkRepository(db);
-      return {
-        cleared: await chunkRepository.clearEmbeddingsForSet(request.payload.embeddingSetId),
-      };
-    }
-    case 'clearQueue': {
-      const queue = new TursoJobQueue(db);
-      return {
-        cleared: await queue.clear(
-          EMBEDDINGS_QUEUE,
-          request.payload.states ? [...request.payload.states] : undefined
-        ),
-      };
-    }
-    case 'retryFailed': {
-      const queue = new TursoJobQueue(db);
-      return {
-        repairedQueued: await queue.repairUnclaimableQueued(
-          EMBEDDINGS_QUEUE,
-          request.payload.limit
-        ),
-        requeuedFailed: await queue.requeueFailed(EMBEDDINGS_QUEUE, request.payload.limit),
-      };
-    }
-    case 'wipeQueue': {
-      const queue = new TursoJobQueue(db);
-      return { cleared: await queue.clear(EMBEDDINGS_QUEUE) };
-    }
-    default:
-      return assertNeverTursoVectorQueueAction(request);
-  }
-}
-
-function assertNeverTursoVectorQueueAction(_request: never): never {
-  throw new Error('Unsupported Turso vector queue action operation.');
 }
 
 function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
@@ -748,11 +648,8 @@ export function registerDatabaseIpcHandlers(
         DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL,
         async () =>
           withCorruptionRecovery(async () => {
-            const { getDatabase } = await import('../db-main');
-            return await executeTursoEmbeddingWorkerQueueOperation(
-              (await getDatabase()) as BrainstrikeDbExecutionClient,
-              parsedRequest
-            );
+            const { getDbHostManager } = await import('../db-host-manager');
+            return await getDbHostManager().runTursoEmbeddingWorkerQueueOperation(parsedRequest);
           }, DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL)
       );
     }
@@ -775,11 +672,8 @@ export function registerDatabaseIpcHandlers(
         DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL,
         async () =>
           withCorruptionRecovery(async () => {
-            const { getDatabase } = await import('../db-main');
-            await executeTursoEmbeddingWorkerStatsOperation(
-              (await getDatabase()) as BrainstrikeDbExecutionClient,
-              parsedRequest
-            );
+            const { getDbHostManager } = await import('../db-host-manager');
+            return await getDbHostManager().runTursoEmbeddingWorkerStatsOperation(parsedRequest);
           }, DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL)
       );
     }
@@ -802,11 +696,8 @@ export function registerDatabaseIpcHandlers(
         DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL,
         async () =>
           withCorruptionRecovery(async () => {
-            const { getDatabase } = await import('../db-main');
-            return await executeTursoVectorQueueAction(
-              (await getDatabase()) as BrainstrikeDbExecutionClient,
-              parsedRequest
-            );
+            const { getDbHostManager } = await import('../db-host-manager');
+            return await getDbHostManager().runTursoVectorQueueAction(parsedRequest);
           }, DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL)
       );
     }
