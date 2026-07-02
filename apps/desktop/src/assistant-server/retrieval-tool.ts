@@ -27,6 +27,7 @@ import type {
 import {
   FileChunkRepository,
   FileRecordRepository,
+  getBrainstrikeDbExecutionRuntime,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
@@ -182,8 +183,7 @@ export interface RetrievalToolDependencies {
 }
 
 function isTursoRetrievalDatabase(db: unknown): db is TursoRetrievalDatabase {
-  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
-  return capabilities?.liveQuery === false;
+  return getBrainstrikeDbExecutionRuntime(db) === 'turso';
 }
 
 async function assertReadyTursoVectorBootstrap(): Promise<void> {

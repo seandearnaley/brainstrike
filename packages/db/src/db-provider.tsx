@@ -24,6 +24,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
 } from './architecture/brainstrike-db-client-contract.js';
+import { markBrainstrikeDbExecutionRuntime } from './architecture/brainstrike-db-client-contract.js';
 import type { BrainstrikeDbRuntimeEngine } from './architecture/db-runtime-selection.js';
 import {
   createProfileBootstrapReport,
@@ -807,36 +808,39 @@ function createElectronTursoExecutionClient(
     exec: repositoryDb.exec,
     query: repositoryDb.query,
   };
-  return {
-    ...transactionClient,
-    ...(applyManagedCacheBatch ? { applyManagedCacheBatch } : {}),
-    ...(insertChunksAndEnqueueEmbeddingJobs ? { insertChunksAndEnqueueEmbeddingJobs } : {}),
-    transaction: async (callback) => {
-      const statements: { params?: unknown[]; sql: string }[] = [];
-      const batchClient: BrainstrikeDbTransactionClient = {
-        exec: async (sql, params, options) => {
-          if (options) {
-            throw new Error(
-              'Desktop Turso transaction adapter does not support per-statement work options.'
-            );
-          }
-          statements.push({ sql, ...(params ? { params: [...params] } : {}) });
-        },
-        query: async () => {
-          throw new Error('Desktop Turso transaction adapter only supports exec statements.');
-        },
-      };
+  return markBrainstrikeDbExecutionRuntime(
+    {
+      ...transactionClient,
+      ...(applyManagedCacheBatch ? { applyManagedCacheBatch } : {}),
+      ...(insertChunksAndEnqueueEmbeddingJobs ? { insertChunksAndEnqueueEmbeddingJobs } : {}),
+      transaction: async (callback) => {
+        const statements: { params?: unknown[]; sql: string }[] = [];
+        const batchClient: BrainstrikeDbTransactionClient = {
+          exec: async (sql, params, options) => {
+            if (options) {
+              throw new Error(
+                'Desktop Turso transaction adapter does not support per-statement work options.'
+              );
+            }
+            statements.push({ sql, ...(params ? { params: [...params] } : {}) });
+          },
+          query: async () => {
+            throw new Error('Desktop Turso transaction adapter only supports exec statements.');
+          },
+        };
 
-      const result = await callback(batchClient);
-      if (statements.length > 0) {
-        await runTransaction(statements, 0, {
-          label: 'turso.transaction',
-          priority: 'normal',
-        });
-      }
-      return result;
+        const result = await callback(batchClient);
+        if (statements.length > 0) {
+          await runTransaction(statements, 0, {
+            label: 'turso.transaction',
+            priority: 'normal',
+          });
+        }
+        return result;
+      },
     },
-  };
+    'turso'
+  );
 }
 
 function createElectronProviderTursoFileChunkRepository(

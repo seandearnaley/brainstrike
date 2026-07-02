@@ -11,6 +11,8 @@ const {
   getKeyMock,
   loggerError,
   loggerWarn,
+  getDbExecutionRuntimeMock,
+  markDbExecutionRuntime,
   resolveHostedProviderApiKeyMock,
   searchSimilarMock,
   tursoFindByIdsMock,
@@ -25,6 +27,23 @@ const {
   getKeyMock: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
+  getDbExecutionRuntimeMock: (candidate: unknown): 'pglite' | 'turso' | null => {
+    const runtime = (candidate as Record<PropertyKey, unknown> | null)?.[
+      Symbol.for('brainstrike.db.execution-runtime')
+    ];
+    return runtime === 'pglite' || runtime === 'turso' ? runtime : null;
+  },
+  markDbExecutionRuntime: <TClient extends object>(
+    client: TClient,
+    runtimeEngine: 'pglite' | 'turso'
+  ) => {
+    Object.defineProperty(client, Symbol.for('brainstrike.db.execution-runtime'), {
+      value: runtimeEngine,
+      enumerable: false,
+      configurable: false,
+    });
+    return client;
+  },
   resolveHostedProviderApiKeyMock: vi.fn(),
   searchSimilarMock: vi.fn(),
   tursoFindByIdsMock: vi.fn(),
@@ -94,6 +113,8 @@ vi.mock('@brainstrike/agent', async () => {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  getBrainstrikeDbExecutionRuntime: getDbExecutionRuntimeMock,
+  markBrainstrikeDbExecutionRuntime: markDbExecutionRuntime,
   FileChunkRepository: class {
     searchSimilar(
       embedding: number[],
@@ -339,10 +360,15 @@ describe('retrieval-tool', () => {
   });
 
   it('fails explicitly instead of running PGlite vector retrieval against Turso', async () => {
-    getDatabaseMock.mockResolvedValueOnce({
-      capabilities: { liveQuery: false },
-      query: dbQueryMock,
-    });
+    getDatabaseMock.mockResolvedValueOnce(
+      markDbExecutionRuntime(
+        {
+          capabilities: { liveQuery: false },
+          query: dbQueryMock,
+        },
+        'turso'
+      )
+    );
     getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
       profileBootstrapReport: {
         ...createReadyTursoDiagnostics().profileBootstrapReport,
@@ -368,13 +394,48 @@ describe('retrieval-tool', () => {
     expect(tursoSearchSimilarMock).not.toHaveBeenCalled();
   });
 
-  it('runs Turso vector retrieval only when the bootstrap vector check passed', async () => {
+  it('does not infer Turso retrieval runtime from live-query absence alone', async () => {
     getDatabaseMock.mockResolvedValueOnce({
       capabilities: { liveQuery: false },
       query: dbQueryMock,
-      transaction: vi.fn(),
-      exec: vi.fn(),
     });
+
+    await runQueryEmbeddingSpace(
+      {
+        query: 'Where is assistant retrieval wired?',
+        embeddingSetId: 'explicit-set',
+      },
+      {
+        workspaceIndexEmbeddingSetId: 'workspace-index-set',
+        workspaceIndexingEnabled: true,
+        workspaceIndexStatusState: 'idle',
+      }
+    );
+
+    expect(getDatabaseRuntimeDiagnosticsMock).not.toHaveBeenCalled();
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'explicit-set',
+    });
+    expect(findByIdsMock).toHaveBeenCalledWith(['file-1']);
+    expect(tursoGetEmbeddingSetByIdMock).not.toHaveBeenCalled();
+    expect(tursoSearchSimilarMock).not.toHaveBeenCalled();
+    expect(tursoFindByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it('runs Turso vector retrieval only when the bootstrap vector check passed', async () => {
+    getDatabaseMock.mockResolvedValueOnce(
+      markDbExecutionRuntime(
+        {
+          capabilities: { liveQuery: false },
+          query: dbQueryMock,
+          transaction: vi.fn(),
+          exec: vi.fn(),
+        },
+        'turso'
+      )
+    );
 
     const result = await runQueryEmbeddingSpace(
       {
@@ -412,12 +473,17 @@ describe('retrieval-tool', () => {
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
       ): Promise<TResult> => callback(transactionClient)
     );
-    getDatabaseMock.mockResolvedValueOnce({
-      capabilities: { liveQuery: false },
-      exec: vi.fn(),
-      query: dbQueryMock,
-      transaction: transactionMock,
-    });
+    getDatabaseMock.mockResolvedValueOnce(
+      markDbExecutionRuntime(
+        {
+          capabilities: { liveQuery: false },
+          exec: vi.fn(),
+          query: dbQueryMock,
+          transaction: transactionMock,
+        },
+        'turso'
+      )
+    );
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
 
     const result = await runQueryEmbeddingSpace(

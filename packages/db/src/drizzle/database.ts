@@ -7,7 +7,10 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle as createDrizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
-import type { BrainstrikeDbExecutionClient } from '../architecture/brainstrike-db-client-contract.js';
+import {
+  type BrainstrikeDbExecutionClient,
+  markBrainstrikeDbExecutionRuntime,
+} from '../architecture/brainstrike-db-client-contract.js';
 
 export const BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE = Symbol.for(
   'brainstrike.db.pglite-drizzle-compatible'
@@ -41,6 +44,7 @@ export function drizzle(pglite: PGlite): DrizzleDb {
 export function markPGliteDrizzleCompatible<TClient extends object>(
   client: TClient
 ): TClient & PGliteDrizzleCompatibilityMarker {
+  markBrainstrikeDbExecutionRuntime(client, 'pglite');
   Object.defineProperty(client, BRAINSTRIKE_PGLITE_DRIZZLE_COMPATIBLE, {
     value: true,
     enumerable: false,

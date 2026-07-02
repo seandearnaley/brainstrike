@@ -245,7 +245,8 @@ describe('DbHostManager', () => {
   });
 
   it('returns a remote client that satisfies the shared DB execution contract', async () => {
-    const { getMissingBrainstrikeDbClientCapabilities } = await import('@brainstrike/db');
+    const { getBrainstrikeDbExecutionRuntime, getMissingBrainstrikeDbClientCapabilities } =
+      await import('@brainstrike/db');
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
@@ -256,9 +257,11 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     expect(getMissingBrainstrikeDbClientCapabilities(database)).toEqual([]);
+    expect(getBrainstrikeDbExecutionRuntime(database)).toBe('pglite');
   });
 
   it('fails live queries locally without sending live:start when Turso disables live-query capability', async () => {
+    const { getBrainstrikeDbExecutionRuntime } = await import('@brainstrike/db');
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
@@ -274,6 +277,7 @@ describe('DbHostManager', () => {
 
     const database = await databasePromise;
     expect(database.capabilities).toEqual({ liveQuery: false });
+    expect(getBrainstrikeDbExecutionRuntime(database)).toBe('turso');
     const messageCountBeforeLiveQuery = firstHost.messages.length;
 
     await expect(database.live.query({ query: 'SELECT 1' })).rejects.toThrow(

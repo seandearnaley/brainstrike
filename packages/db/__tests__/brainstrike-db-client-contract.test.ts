@@ -16,11 +16,14 @@ import {
   buildBrainstrikeDbExecutionClientCapabilityBootstrapChecks,
   buildBrainstrikeDbRuntimeHostCapabilityBootstrapChecks,
   buildBrainstrikeDbSqlFeatureBootstrapChecks,
+  getBrainstrikeDbExecutionRuntime,
   getMissingBrainstrikeDbClientCapabilities,
   getMissingBrainstrikeDbExecutionClientCapabilities,
   getMissingBrainstrikeDbRuntimeHostCapabilities,
   getMissingBrainstrikeDbSqlFeatures,
   hasBrainstrikeDbSqlDialect,
+  isTursoBrainstrikeDbExecutionClient,
+  markBrainstrikeDbExecutionRuntime,
 } from '../src/architecture/brainstrike-db-client-contract.js';
 
 describe('Brainstrike DB client contract', () => {
@@ -67,6 +70,37 @@ describe('Brainstrike DB client contract', () => {
 
     expect(getMissingBrainstrikeDbExecutionClientCapabilities(tursoShapedOwner)).toEqual([]);
     expect(getMissingBrainstrikeDbClientCapabilities(tursoShapedOwner)).toEqual(['live-query']);
+  });
+
+  it('requires an explicit execution runtime marker instead of inferring from missing live query', () => {
+    const txClient: BrainstrikeDbTransactionClient = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
+      exec: async () => undefined,
+    };
+    const executionClient = {
+      capabilities: { liveQuery: false },
+      query: txClient.query,
+      exec: txClient.exec,
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ) => callback(txClient),
+    };
+
+    expect(getBrainstrikeDbExecutionRuntime(executionClient)).toBeNull();
+    expect(isTursoBrainstrikeDbExecutionClient(executionClient)).toBe(false);
+
+    const markedClient = markBrainstrikeDbExecutionRuntime(executionClient, 'turso');
+
+    expect(getBrainstrikeDbExecutionRuntime(markedClient)).toBe('turso');
+    expect(isTursoBrainstrikeDbExecutionClient(markedClient)).toBe(true);
+    const [runtimeSymbol] = Object.getOwnPropertySymbols(markedClient).filter(
+      (symbol) => symbol.description === 'brainstrike.db.execution-runtime'
+    );
+    expect(runtimeSymbol).toBeDefined();
+    expect(Object.getOwnPropertyDescriptor(markedClient, runtimeSymbol as symbol)).toMatchObject({
+      enumerable: false,
+      value: 'turso',
+    });
   });
 
   it('does not treat Turso execution shape as Postgres repository compatibility', () => {

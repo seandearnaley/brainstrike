@@ -57,6 +57,9 @@ const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'search.ownership',
   'store.close',
 ] as const;
+const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for('brainstrike.db.execution-runtime');
+
+type DbExecutionRuntimeEngine = 'pglite' | 'turso';
 
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
@@ -274,11 +277,24 @@ function getRequiredBootstrapCheckIds(engine: string): readonly string[] | null 
   }
 }
 
-function normalizeRuntimeEngineForTimeoutPolicy(engine: string): 'pglite' | 'turso' | null {
+function normalizeRuntimeEngineForTimeoutPolicy(engine: string): DbExecutionRuntimeEngine | null {
   if (engine === 'pglite' || engine === 'turso') {
     return engine;
   }
   return null;
+}
+
+function markRemoteDbClientRuntime(client: RemoteDbClient, engine: string): RemoteDbClient {
+  const runtimeEngine = normalizeRuntimeEngineForTimeoutPolicy(engine);
+  if (!runtimeEngine) {
+    throw new Error(`DB host returned unsupported runtime engine: ${engine}`);
+  }
+  Object.defineProperty(client, BRAINSTRIKE_DB_EXECUTION_RUNTIME, {
+    value: runtimeEngine,
+    enumerable: false,
+    configurable: false,
+  });
+  return client;
 }
 
 function assertReadyDbHostInitResult(result: DbHostInitResult): void {
@@ -774,7 +790,7 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   #createClient(initResult: DbHostInitResult): RemoteDbClient {
-    return {
+    const client: RemoteDbClient = {
       capabilities: initResult.capabilities,
       exec: async (sql, params) =>
         await this.send({ kind: 'exec', sql, ...(params ? { params } : {}) }),
@@ -792,6 +808,7 @@ class DefaultDbHostManager implements DbHostManager {
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
         await this.#transaction(fn),
     };
+    return markRemoteDbClientRuntime(client, initResult.bootstrapReport.runtime.engine);
   }
 
   #createLiveNamespace(initResult: DbHostInitResult): RemoteDbClient['live'] {
