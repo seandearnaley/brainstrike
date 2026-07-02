@@ -347,6 +347,25 @@ describe('database IPC domain', () => {
     expect(transactionSpy).not.toHaveBeenCalled();
   });
 
+  it('forwards Turso embedding worker stats operations to the DB host manager', async () => {
+    await expect(
+      handlers.get('db:turso-embedding-worker:stats')?.(
+        {} as IpcMainInvokeEvent,
+        'refresh',
+        ['set-1'],
+        { label: 'turso.embedding-worker.stats.refresh', priority: 'background' }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(dbHostManagerMock.runTursoEmbeddingWorkerStatsOperation).toHaveBeenCalledWith({
+      embeddingSetIds: ['set-1'],
+      operation: 'refresh',
+    });
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+  });
+
   it('forwards Turso vector queue action operations to the DB host manager', async () => {
     const result = await handlers.get('db:turso-vector-queue:action')?.(
       {} as IpcMainInvokeEvent,
