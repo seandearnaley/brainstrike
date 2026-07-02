@@ -9,10 +9,7 @@ const OLD_PGLITE_UI_ALIASES = [
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ] as const;
-const PGLITE_ONLY_CONSUMERS = new Set([
-  '__tests__/enhanced-file-import-service.test.ts',
-  'enhanced-file-import-service.ts',
-]);
+const PGLITE_ONLY_CONSUMERS = new Set(['__tests__/enhanced-file-import-service.test.ts']);
 const PGLITE_CAPABILITY_CONSUMERS = new Set([
   '__tests__/database-demo-panel.test.tsx',
   'hooks/__tests__/use-collection-embedding-coverage.test.ts',
