@@ -19,6 +19,7 @@ import {
 import {
   backfillEmbeddingSetAssignments,
   type ChunkingWorkerPort,
+  type EmbeddingJobQueuePort,
   type EnhancedImportProgress,
   type FileImportChunkRepository,
   type FileImportFileRecordRepository,
@@ -42,6 +43,8 @@ import {
 const logger = createLogger('WorkspaceCollectionSyncImport');
 const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index background import requires transactional chunk/job enqueue support.';
+const TURSO_ATOMIC_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index Turso background import requires desktop atomic chunk/job enqueue support.';
 const TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR =
   'Workspace Index Turso background import does not support inline chunk embedding repository writes; use durable embed_chunk jobs through the Turso owner client.';
 
@@ -60,6 +63,22 @@ function hasTransactionalChunkJobEnqueueSupport(db: DbHandle): boolean {
   );
 }
 
+function hasAtomicChunkJobEnqueueSupport(db: DbHandle): boolean {
+  return typeof db.insertChunksAndEnqueueEmbeddingJobs === 'function';
+}
+
+function assertChunkJobEnqueueSupportForRuntime(
+  db: DbHandle,
+  runtimeEngine: BackgroundImportRuntimeEngine
+): void {
+  if (runtimeEngine === 'turso' && !hasAtomicChunkJobEnqueueSupport(db)) {
+    throw new Error(TURSO_ATOMIC_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR);
+  }
+  if (!hasTransactionalChunkJobEnqueueSupport(db)) {
+    throw new Error(TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR);
+  }
+}
+
 function rejectTursoInlineEmbeddingWrite(): Promise<never> {
   return Promise.reject(new Error(TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR));
 }
@@ -76,6 +95,43 @@ function createEmbeddingChunkRepositoryForRuntime(
     insertMany: rejectTursoInlineEmbeddingWrite,
     insertManyWithTx: rejectTursoInlineEmbeddingWrite,
     update: rejectTursoInlineEmbeddingWrite,
+  };
+}
+
+function createBackgroundImportEmbeddingQueuePort(args: {
+  collection: EmbeddingSet;
+  db: DbHandle;
+  getActiveBatchNumber: () => number;
+  logFirstEmbedChunkJobEnqueued: (args: {
+    batchNumber: number;
+    chunkCount: number;
+    fileRecordId: string;
+  }) => void;
+  runtimeEngine: BackgroundImportRuntimeEngine;
+}): EmbeddingJobQueuePort | null {
+  const { collection, db, getActiveBatchNumber, logFirstEmbedChunkJobEnqueued, runtimeEngine } =
+    args;
+
+  if (runtimeEngine === 'turso') {
+    return null;
+  }
+
+  const rawEmbeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+    db,
+    createQueue: (executor) => new JobQueue(executor),
+    defaultExpectedDimension: collection.dimensions,
+  });
+  return {
+    ...rawEmbeddingQueue,
+    enqueueBatch: async (...params: Parameters<typeof rawEmbeddingQueue.enqueueBatch>) => {
+      const [chunks, fileRecordId] = params;
+      await rawEmbeddingQueue.enqueueBatch(...params);
+      logFirstEmbedChunkJobEnqueued({
+        batchNumber: getActiveBatchNumber(),
+        chunkCount: chunks.length,
+        fileRecordId,
+      });
+    },
   };
 }
 
@@ -823,9 +879,7 @@ export async function runRootFolderCacheImport(args: {
     return;
   }
   assertManagedCollectionModelKey(collection.modelKey);
-  if (!hasTransactionalChunkJobEnqueueSupport(db)) {
-    throw new Error(TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR);
-  }
+  assertChunkJobEnqueueSupportForRuntime(db, runtimeEngine);
   const firstEmbedChunkJobEnqueueRef: { current: FirstEmbedChunkJobEnqueueMarker | null } = {
     current: null,
   };
@@ -867,23 +921,13 @@ export async function runRootFolderCacheImport(args: {
       : {}),
     ...(db.transaction ? { runInTransaction: db.transaction.bind(db) } : {}),
   };
-  const rawEmbeddingQueue = createEmbeddingJobQueuePort<IDatabase>({
+  const embeddingQueue = createBackgroundImportEmbeddingQueuePort({
+    collection,
     db,
-    createQueue: (executor) => new JobQueue(executor),
-    defaultExpectedDimension: collection.dimensions,
+    getActiveBatchNumber: () => activeBatchNumber,
+    logFirstEmbedChunkJobEnqueued,
+    runtimeEngine,
   });
-  const embeddingQueue = {
-    ...rawEmbeddingQueue,
-    enqueueBatch: async (...params: Parameters<typeof rawEmbeddingQueue.enqueueBatch>) => {
-      const [chunks, fileRecordId] = params;
-      await rawEmbeddingQueue.enqueueBatch(...params);
-      logFirstEmbedChunkJobEnqueued({
-        batchNumber: activeBatchNumber,
-        chunkCount: chunks.length,
-        fileRecordId,
-      });
-    },
-  };
   const embeddingConfig = {
     enabled: true,
     model: collection.modelKey,
