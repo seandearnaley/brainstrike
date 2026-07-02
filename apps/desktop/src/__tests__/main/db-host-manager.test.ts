@@ -835,7 +835,7 @@ describe('DbHostManager', () => {
     }
   });
 
-  it('initializes Turso before forwarding first-touch Turso queue/vector owner requests', async () => {
+  it('initializes Turso before forwarding first-touch Turso queue/backfill/vector owner requests', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
@@ -894,12 +894,31 @@ describe('DbHostManager', () => {
     firstHost.reply(firstHost.messages[2] as PostedMessage, undefined);
     await expect(statsPromise).resolves.toBeUndefined();
 
+    const backfillPromise = manager.runTursoEmbeddingBackfillOperation<number>({
+      embeddingSetId: 'set-1',
+      operation: 'chunk:countEmbeddingBackfillCandidates',
+      queue: 'embeddings',
+    });
+    await waitForHostMessageCount(firstHost, 4);
+    expect(firstHost.messages[3]).toMatchObject({
+      request: {
+        kind: 'turso:embedding-backfill',
+        payload: {
+          embeddingSetId: 'set-1',
+          operation: 'chunk:countEmbeddingBackfillCandidates',
+          queue: 'embeddings',
+        },
+      },
+    });
+    firstHost.reply(firstHost.messages[3] as PostedMessage, 2);
+    await expect(backfillPromise).resolves.toBe(2);
+
     const actionPromise = manager.runTursoVectorQueueAction({
       operation: 'retryFailed',
       payload: { limit: 5 },
     });
-    await waitForHostMessageCount(firstHost, 4);
-    expect(firstHost.messages[3]).toMatchObject({
+    await waitForHostMessageCount(firstHost, 5);
+    expect(firstHost.messages[4]).toMatchObject({
       request: {
         kind: 'turso:vector-queue:action',
         payload: {
@@ -908,7 +927,7 @@ describe('DbHostManager', () => {
         },
       },
     });
-    firstHost.reply(firstHost.messages[3] as PostedMessage, {
+    firstHost.reply(firstHost.messages[4] as PostedMessage, {
       repairedQueued: 1,
       requeuedFailed: 1,
     });
@@ -1057,6 +1076,51 @@ describe('DbHostManager', () => {
           requestKind: 'turso:vector-queue:action',
           timeoutMs: 50,
           vectorQueueOperation: operation,
+        }),
+        'DB host request timed out'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('logs Turso embedding backfill operation context when a request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult({
+          bootstrapReport: createReadyTursoBootstrapReport(),
+          capabilities: { liveQuery: false },
+        })
+      );
+      await databasePromise;
+
+      const backfillPromise = manager.runTursoEmbeddingBackfillOperation({
+        embeddingSetId: 'set-timeout',
+        operation: 'chunk:countEmbeddingBackfillCandidates',
+        queue: 'embeddings',
+      });
+      const backfillAssertion = expect(backfillPromise).rejects.toThrow(
+        'DB host request timed out: turso:embedding-backfill'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await backfillAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 5,
+          embeddingBackfillOperation: 'chunk:countEmbeddingBackfillCandidates',
+          pendingCount: 1,
+          requestKind: 'turso:embedding-backfill',
+          timeoutMs: 5,
         }),
         'DB host request timed out'
       );

@@ -22,6 +22,7 @@ import {
   SERIALIZE_PGLITE_INIT_ENV,
 } from './db-runtime-env';
 import type {
+  ParsedTursoEmbeddingBackfillOperationRequest,
   ParsedTursoEmbeddingWorkerQueueRequest,
   ParsedTursoEmbeddingWorkerStatsRequest,
   ParsedTursoVectorQueueActionRequest,
@@ -139,6 +140,9 @@ export interface DbHostManager {
   readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
+  readonly runTursoEmbeddingBackfillOperation: <TResult = unknown>(
+    payload: ParsedTursoEmbeddingBackfillOperationRequest
+  ) => Promise<TResult>;
   readonly runTursoEmbeddingWorkerQueueOperation: (
     payload: ParsedTursoEmbeddingWorkerQueueRequest
   ) => Promise<unknown>;
@@ -168,6 +172,7 @@ interface PendingRequest {
 }
 
 interface RequestTimeoutDiagnostics {
+  readonly embeddingBackfillOperation?: string;
   readonly liveId?: string;
   readonly paramsCount?: number;
   readonly payloadQueryPreview?: string;
@@ -370,6 +375,11 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
       return {
         requestKind: request.kind,
         vectorQueueOperation: request.payload.operation,
+      };
+    case 'turso:embedding-backfill':
+      return {
+        embeddingBackfillOperation: request.payload.operation,
+        requestKind: request.kind,
       };
     default:
       return { requestKind: request.kind };
@@ -626,6 +636,13 @@ class DefaultDbHostManager implements DbHostManager {
   ): Promise<unknown> {
     await this.#ensureRuntimeInitialized();
     return await this.send({ kind: 'turso:embedding-worker:queue', payload });
+  }
+
+  async runTursoEmbeddingBackfillOperation<TResult = unknown>(
+    payload: ParsedTursoEmbeddingBackfillOperationRequest
+  ): Promise<TResult> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send<TResult>({ kind: 'turso:embedding-backfill', payload });
   }
 
   async runTursoEmbeddingWorkerStatsOperation(

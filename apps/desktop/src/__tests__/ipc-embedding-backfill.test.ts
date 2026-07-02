@@ -4,13 +4,15 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  dbHostManagerMock,
   enqueueEmbeddingBackfillMock,
-  enqueueTursoEmbeddingBackfillMock,
   getDatabaseMock,
   resolveCurrentDesktopDbRuntimeEngineMock,
 } = vi.hoisted(() => ({
+  dbHostManagerMock: {
+    runTursoEmbeddingBackfillOperation: vi.fn(),
+  },
   enqueueEmbeddingBackfillMock: vi.fn(),
-  enqueueTursoEmbeddingBackfillMock: vi.fn(),
   getDatabaseMock: vi.fn(async () => ({ query: vi.fn(async () => ({ rows: [] })) })),
   resolveCurrentDesktopDbRuntimeEngineMock: vi.fn(async () => 'pglite'),
 }));
@@ -24,8 +26,8 @@ vi.mock('../embedding-backfill', () => ({
   enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
 }));
 
-vi.mock('../turso-embedding-backfill', () => ({
-  enqueueTursoEmbeddingBackfill: enqueueTursoEmbeddingBackfillMock,
+vi.mock('../db-host-manager', () => ({
+  getDbHostManager: vi.fn(() => dbHostManagerMock),
 }));
 
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -103,12 +105,58 @@ function createRunParams(
   };
 }
 
+function createTursoBackfillCounts(overrides: Partial<Record<string, number>> = {}) {
+  return {
+    failed: 0,
+    queued: 0,
+    running: 0,
+    succeeded: 0,
+    ...overrides,
+  };
+}
+
+function createTursoBackfillCandidates(count = 2) {
+  return Array.from({ length: count }, (_, index) => ({
+    contentHash: `hash-${index + 1}`,
+    fileRecordId: `file-${index + 1}`,
+    id: `chunk-${index + 1}`,
+  }));
+}
+
+function mockSuccessfulDbHostTursoBackfill(candidateCount = 2): void {
+  const candidates = createTursoBackfillCandidates(candidateCount);
+  dbHostManagerMock.runTursoEmbeddingBackfillOperation.mockImplementation(async (request) => {
+    switch (request.operation) {
+      case 'embeddingSet:getById':
+        return { dimensions: 384, modelKey: 'local::mock-model' };
+      case 'queue:repairUnclaimableQueued':
+        return 0;
+      case 'queue:getEmbeddingSetQueueCounts':
+        return createTursoBackfillCounts({
+          succeeded: request.updatedAfter ? candidateCount : 0,
+        });
+      case 'chunk:countEmbeddingBackfillCandidates':
+        return candidateCount;
+      case 'queue:getQueueStats':
+        return [createTursoBackfillCounts()];
+      case 'chunk:findEmbeddingBackfillCandidates':
+        return candidates.slice(0, request.limit);
+      case 'queue:enqueueBatch':
+        return request.payload.map((_, index) => ({ id: `job-${index + 1}` }));
+      default:
+        throw new Error(`Unexpected Turso backfill operation: ${request.operation}`);
+    }
+  });
+}
+
 describe('desktop embedding backfill termination logging', () => {
   let captured: LogRecord[];
   let removeListener: () => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dbHostManagerMock.runTursoEmbeddingBackfillOperation.mockReset();
+    mockSuccessfulDbHostTursoBackfill();
     resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValue('pglite');
     setLogLevel(LogLevel.INFO);
     captured = [];
@@ -333,20 +381,6 @@ describe('desktop embedding backfill termination logging', () => {
     resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValueOnce('turso');
     const event = createLiveSenderEvent();
     enqueueEmbeddingBackfillMock.mockRejectedValue(new Error('PGlite backfill path used'));
-    enqueueTursoEmbeddingBackfillMock.mockImplementation(
-      async (
-        _db: unknown,
-        embeddingSetId: string,
-        onProgress: (done: number, total: number) => void,
-        options: { assertCanContinue?: () => void | Promise<void> }
-      ) => {
-        expect(embeddingSetId).toBe('set-turso');
-        await options.assertCanContinue?.();
-        onProgress(1, 2);
-        onProgress(2, 2);
-        return { failed: 0, queued: 0, running: 0, succeeded: 2 };
-      }
-    );
 
     await expect(
       runDesktopEmbeddingBackfill({
@@ -356,23 +390,38 @@ describe('desktop embedding backfill termination logging', () => {
     ).resolves.toMatchObject({ requestId: expect.stringMatching(/^embedding-backfill:/) });
 
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
-    expect(enqueueTursoEmbeddingBackfillMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      'set-turso',
-      expect.any(Function),
-      expect.objectContaining({
-        assertCanContinue: expect.any(Function),
-        progressIntervalBatches: 4,
-        progressIntervalMs: 250,
-      })
-    );
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+      embeddingSetId: 'set-turso',
+      operation: 'embeddingSet:getById',
+    });
+    expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+      embeddingSetId: 'set-turso',
+      operation: 'chunk:countEmbeddingBackfillCandidates',
+      queue: 'embeddings',
+    });
+    expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+      operation: 'queue:enqueueBatch',
+      payload: expect.arrayContaining([
+        expect.objectContaining({
+          jobType: 'embed_chunk',
+          payload: expect.objectContaining({
+            chunkId: 'chunk-1',
+            embeddingSetId: 'set-turso',
+            expectedDimension: 384,
+            modelKey: 'local::mock-model',
+          }),
+          queue: 'embeddings',
+        }),
+      ]),
+    });
     expect(event.sender.send).toHaveBeenCalledWith(
       EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
       expect.objectContaining({
         embeddingSetId: 'set-turso',
         source: 'manual',
         stage: 'backfill',
-        current: 1,
+        current: 2,
         total: 2,
       })
     );
@@ -380,24 +429,30 @@ describe('desktop embedding backfill termination logging', () => {
 
   it('passes cancellation through the Turso runner assertCanContinue path', async () => {
     resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValueOnce('turso');
-    enqueueTursoEmbeddingBackfillMock.mockImplementationOnce(
-      async (
-        _db: unknown,
-        embeddingSetId: string,
-        _onProgress: unknown,
-        options: { assertCanContinue?: () => void | Promise<void> }
-      ) => {
-        cancelDesktopEmbeddingBackfill(embeddingSetId);
-        await options.assertCanContinue?.();
+    dbHostManagerMock.runTursoEmbeddingBackfillOperation.mockImplementation(async (request) => {
+      switch (request.operation) {
+        case 'embeddingSet:getById':
+          return { dimensions: 384, modelKey: 'local::mock-model' };
+        case 'queue:repairUnclaimableQueued':
+          return 0;
+        case 'queue:getEmbeddingSetQueueCounts':
+          cancelDesktopEmbeddingBackfill('set-turso-cancel');
+          return createTursoBackfillCounts({ queued: 1 });
+        default:
+          throw new Error(`Unexpected Turso backfill operation: ${request.operation}`);
       }
-    );
+    });
 
     await expect(runDesktopEmbeddingBackfill(createRunParams('set-turso-cancel'))).rejects.toThrow(
       EMBEDDING_BACKFILL_CANCELED_MESSAGE
     );
 
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
-    expect(enqueueTursoEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+      embeddingSetId: 'set-turso-cancel',
+      operation: 'embeddingSet:getById',
+    });
   });
 
   it('attaches duplicate background-indexing submissions to an in-flight Turso backfill', async () => {
@@ -407,15 +462,30 @@ describe('desktop embedding backfill termination logging', () => {
       resolveBackfillStarted = resolve;
     });
     let resolveBackfill: (() => void) | null = null;
-    enqueueTursoEmbeddingBackfillMock.mockImplementationOnce(
-      async (_db: unknown, _embeddingSetId: string, onProgress: unknown) => {
-        (onProgress as (done: number, total: number) => void)(3, 10);
-        resolveBackfillStarted?.();
-        await new Promise<void>((resolve) => {
-          resolveBackfill = resolve;
-        });
+    dbHostManagerMock.runTursoEmbeddingBackfillOperation.mockImplementation(async (request) => {
+      switch (request.operation) {
+        case 'embeddingSet:getById':
+          resolveBackfillStarted?.();
+          await new Promise<void>((resolve) => {
+            resolveBackfill = resolve;
+          });
+          return { dimensions: 384, modelKey: 'local::mock-model' };
+        case 'queue:repairUnclaimableQueued':
+          return 0;
+        case 'queue:getEmbeddingSetQueueCounts':
+          return createTursoBackfillCounts();
+        case 'chunk:countEmbeddingBackfillCandidates':
+          return 0;
+        case 'queue:getQueueStats':
+          return [createTursoBackfillCounts()];
+        case 'chunk:findEmbeddingBackfillCandidates':
+          return [];
+        case 'queue:enqueueBatch':
+          return [];
+        default:
+          throw new Error(`Unexpected Turso backfill operation: ${request.operation}`);
       }
-    );
+    });
 
     const first = runDesktopEmbeddingBackfill(
       createRunParams('set-turso-background-attach', 'background-indexing')
@@ -426,8 +496,12 @@ describe('desktop embedding backfill termination logging', () => {
     );
 
     expect(second.requestId).toMatch(/^background-indexing-backfill:/);
-    expect(enqueueTursoEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+      embeddingSetId: 'set-turso-background-attach',
+      operation: 'embeddingSet:getById',
+    });
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+    expect(getDatabaseMock).not.toHaveBeenCalled();
 
     resolveBackfill?.();
     await first;
@@ -436,12 +510,6 @@ describe('desktop embedding backfill termination logging', () => {
   it('does not require PGlite dimension maintenance before Turso background-indexing backfill', async () => {
     resolveCurrentDesktopDbRuntimeEngineMock.mockResolvedValueOnce('turso');
     const getDimensionIndexMaintenanceStrategy = vi.fn(() => null);
-    enqueueTursoEmbeddingBackfillMock.mockResolvedValueOnce({
-      failed: 0,
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-    });
 
     await expect(
       runDesktopEmbeddingBackfill({
@@ -455,21 +523,14 @@ describe('desktop embedding backfill termination logging', () => {
     });
 
     await vi.waitFor(() => {
-      expect(enqueueTursoEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+      expect(dbHostManagerMock.runTursoEmbeddingBackfillOperation).toHaveBeenCalledWith({
+        embeddingSetId: 'set-turso-background-no-strategy',
+        operation: 'embeddingSet:getById',
+      });
     });
     expect(getDimensionIndexMaintenanceStrategy).not.toHaveBeenCalled();
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
-    const options = enqueueTursoEmbeddingBackfillMock.mock.calls[0]?.[3] as
-      | Record<string, unknown>
-      | undefined;
-    expect(options).toEqual(
-      expect.objectContaining({
-        drainTimeoutMs: expect.any(Number),
-        queueCapacityTimeoutMs: expect.any(Number),
-      })
-    );
-    expect(options).not.toHaveProperty('dimensionIndexMaintenanceStrategy');
-    expect(options).not.toHaveProperty('rebuildDimensionIndexOnCompletion');
+    expect(getDatabaseMock).not.toHaveBeenCalled();
   });
 
   it('attaches duplicate background-indexing submissions to the in-flight backfill', async () => {

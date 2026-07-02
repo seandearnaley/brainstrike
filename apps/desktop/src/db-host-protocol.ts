@@ -1,6 +1,7 @@
 import type { ProfileBootstrapReport } from '@brainstrike/db';
 import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
 import type {
+  ParsedTursoEmbeddingBackfillOperationRequest,
   ParsedTursoEmbeddingWorkerQueueRequest,
   ParsedTursoEmbeddingWorkerStatsRequest,
   ParsedTursoVectorQueueActionRequest,
@@ -66,6 +67,10 @@ export type DbHostRequest =
   | {
       readonly kind: 'turso:vector-queue:action';
       readonly payload: ParsedTursoVectorQueueActionRequest;
+    }
+  | {
+      readonly kind: 'turso:embedding-backfill';
+      readonly payload: ParsedTursoEmbeddingBackfillOperationRequest;
     }
   | { readonly kind: 'diagnostics' }
   | { readonly kind: 'reset' }

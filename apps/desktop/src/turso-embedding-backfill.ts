@@ -1,11 +1,7 @@
 import {
-  type BrainstrikeDbExecutionClient,
   buildEmbeddingJobDedupeKey,
   type EnqueueParams,
   type JobQueueStateCounts,
-  TursoEmbeddingSetsRepository,
-  TursoFileChunkRepository,
-  TursoJobQueue,
 } from '@brainstrike/db';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -685,17 +681,4 @@ export function createTursoEmbeddingBackfillRunner(
       return runScopedCounts;
     },
   };
-}
-
-export async function enqueueTursoEmbeddingBackfill(
-  db: BrainstrikeDbExecutionClient,
-  embeddingSetId: string,
-  onProgress: (done: number, total: number) => void,
-  options?: EnqueueTursoEmbeddingBackfillOptions
-): Promise<TursoEmbeddingBackfillQueueCounts> {
-  return createTursoEmbeddingBackfillRunner({
-    chunkRepository: new TursoFileChunkRepository(db),
-    embeddingSetsRepository: new TursoEmbeddingSetsRepository(db),
-    jobQueue: new TursoJobQueue(db),
-  }).enqueue(embeddingSetId, onProgress, options);
 }

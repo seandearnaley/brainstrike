@@ -23,13 +23,41 @@ const dbPackageMocks = vi.hoisted(() => ({
   applyTursoManagedCacheBatch: vi.fn(async () => undefined),
   markTursoCollectionIndexingStatsDirty: vi.fn(async () => undefined),
   refreshTursoCollectionIndexingStats: vi.fn(async () => undefined),
+  tursoEmbeddingSetsRepositoryGetById: vi.fn(async () => ({
+    dimensions: 384,
+    modelKey: 'local::mock-model',
+  })),
   tursoFileChunkRepositoryClearEmbeddingsForSet: vi.fn(async () => 3),
+  tursoFileChunkRepositoryCountEmbeddingBackfillCandidates: vi.fn(async () => 2),
+  tursoFileChunkRepositoryFindEmbeddingBackfillCandidates: vi.fn(async () => [
+    {
+      contentHash: 'hash-1',
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+    },
+  ]),
   tursoJobQueueClear: vi.fn(async () => 4),
   tursoJobQueueClaimMany: vi.fn(async () => [{ id: 'job-1', state: 'running' }]),
   tursoJobQueueCompleteBatch: vi.fn(async () => [{ id: 'job-1', state: 'done' }]),
   tursoJobQueueCompleteEmbeddingChunkBatch: vi.fn(async () => [{ id: 'job-2', state: 'done' }]),
+  tursoJobQueueEnqueueBatch: vi.fn(async () => [{ id: 'job-6', state: 'queued' }]),
   tursoJobQueueFail: vi.fn(async () => ({ id: 'job-3', state: 'failed' })),
   tursoJobQueueFailBatch: vi.fn(async () => [{ id: 'job-4', state: 'failed' }]),
+  tursoJobQueueGetEmbeddingSetQueueCounts: vi.fn(async () => ({
+    failed: 0,
+    queued: 0,
+    running: 0,
+    succeeded: 1,
+  })),
+  tursoJobQueueGetQueueStats: vi.fn(async () => [
+    {
+      failed: 0,
+      queue: 'embeddings',
+      queued: 1,
+      running: 0,
+      succeeded: 2,
+    },
+  ]),
   tursoJobQueueHeartbeatBatch: vi.fn(async () => [{ id: 'job-5', state: 'running' }]),
   tursoJobQueueRepairUnclaimableQueued: vi.fn(async () => 5),
   tursoJobQueueRequeueFailed: vi.fn(async () => 6),
@@ -59,16 +87,26 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       dbPackageMocks.invalidateTursoManagedCacheEntriesByIdentity,
     markTursoCollectionIndexingStatsDirty: dbPackageMocks.markTursoCollectionIndexingStatsDirty,
     refreshTursoCollectionIndexingStats: dbPackageMocks.refreshTursoCollectionIndexingStats,
+    TursoEmbeddingSetsRepository: class TursoEmbeddingSetsRepository {
+      getById = dbPackageMocks.tursoEmbeddingSetsRepositoryGetById;
+    },
     TursoFileChunkRepository: class TursoFileChunkRepository {
       clearEmbeddingsForSet = dbPackageMocks.tursoFileChunkRepositoryClearEmbeddingsForSet;
+      countEmbeddingBackfillCandidates =
+        dbPackageMocks.tursoFileChunkRepositoryCountEmbeddingBackfillCandidates;
+      findEmbeddingBackfillCandidates =
+        dbPackageMocks.tursoFileChunkRepositoryFindEmbeddingBackfillCandidates;
     },
     TursoJobQueue: class TursoJobQueue {
       clear = dbPackageMocks.tursoJobQueueClear;
       claimMany = dbPackageMocks.tursoJobQueueClaimMany;
       completeBatch = dbPackageMocks.tursoJobQueueCompleteBatch;
       completeEmbeddingChunkBatch = dbPackageMocks.tursoJobQueueCompleteEmbeddingChunkBatch;
+      enqueueBatch = dbPackageMocks.tursoJobQueueEnqueueBatch;
       fail = dbPackageMocks.tursoJobQueueFail;
       failBatch = dbPackageMocks.tursoJobQueueFailBatch;
+      getEmbeddingSetQueueCounts = dbPackageMocks.tursoJobQueueGetEmbeddingSetQueueCounts;
+      getQueueStats = dbPackageMocks.tursoJobQueueGetQueueStats;
       heartbeatBatch = dbPackageMocks.tursoJobQueueHeartbeatBatch;
       repairUnclaimableQueued = dbPackageMocks.tursoJobQueueRepairUnclaimableQueued;
       requeueFailed = dbPackageMocks.tursoJobQueueRequeueFailed;
@@ -216,13 +254,19 @@ describe('db-host-entry', () => {
     dbPackageMocks.invalidateTursoManagedCacheEntriesByIdentity.mockClear();
     dbPackageMocks.markTursoCollectionIndexingStatsDirty.mockClear();
     dbPackageMocks.refreshTursoCollectionIndexingStats.mockClear();
+    dbPackageMocks.tursoEmbeddingSetsRepositoryGetById.mockClear();
     dbPackageMocks.tursoFileChunkRepositoryClearEmbeddingsForSet.mockClear();
+    dbPackageMocks.tursoFileChunkRepositoryCountEmbeddingBackfillCandidates.mockClear();
+    dbPackageMocks.tursoFileChunkRepositoryFindEmbeddingBackfillCandidates.mockClear();
     dbPackageMocks.tursoJobQueueClear.mockClear();
     dbPackageMocks.tursoJobQueueClaimMany.mockClear();
     dbPackageMocks.tursoJobQueueCompleteBatch.mockClear();
     dbPackageMocks.tursoJobQueueCompleteEmbeddingChunkBatch.mockClear();
+    dbPackageMocks.tursoJobQueueEnqueueBatch.mockClear();
     dbPackageMocks.tursoJobQueueFail.mockClear();
     dbPackageMocks.tursoJobQueueFailBatch.mockClear();
+    dbPackageMocks.tursoJobQueueGetEmbeddingSetQueueCounts.mockClear();
+    dbPackageMocks.tursoJobQueueGetQueueStats.mockClear();
     dbPackageMocks.tursoJobQueueHeartbeatBatch.mockClear();
     dbPackageMocks.tursoJobQueueRepairUnclaimableQueued.mockClear();
     dbPackageMocks.tursoJobQueueRequeueFailed.mockClear();
@@ -1117,6 +1161,135 @@ describe('db-host-entry', () => {
     });
   });
 
+  it('routes Turso embedding backfill owner operations through DB host repositories', async () => {
+    dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
+      bootstrapReport: createReadyBootstrapProbeReport('turso').bootstrapReport,
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+    const db = createMockExecutionDb();
+    dbMainMocks.getDatabase.mockResolvedValue(db);
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    const requests = [
+      {
+        id: 'backfill-embedding-set',
+        payload: {
+          embeddingSetId: 'set-1',
+          operation: 'embeddingSet:getById',
+        },
+      },
+      {
+        id: 'backfill-count',
+        payload: {
+          embeddingSetId: 'set-1',
+          operation: 'chunk:countEmbeddingBackfillCandidates',
+          queue: 'embeddings',
+        },
+      },
+      {
+        id: 'backfill-find',
+        payload: {
+          afterChunkId: null,
+          embeddingSetId: 'set-1',
+          limit: 2,
+          operation: 'chunk:findEmbeddingBackfillCandidates',
+          queue: 'embeddings',
+        },
+      },
+      {
+        id: 'backfill-enqueue',
+        payload: {
+          operation: 'queue:enqueueBatch',
+          payload: [
+            {
+              jobType: 'embed_chunk',
+              payload: { chunkId: 'chunk-1', embeddingSetId: 'set-1' },
+              queue: 'embeddings',
+            },
+          ],
+        },
+      },
+      {
+        id: 'backfill-counts',
+        payload: {
+          embeddingSetId: 'set-1',
+          operation: 'queue:getEmbeddingSetQueueCounts',
+          queue: 'embeddings',
+          updatedAfter: '2026-06-30T10:00:00.000Z',
+        },
+      },
+      {
+        id: 'backfill-stats',
+        payload: {
+          operation: 'queue:getQueueStats',
+          queue: 'embeddings',
+        },
+      },
+      {
+        id: 'backfill-repair',
+        payload: {
+          embeddingSetId: 'set-1',
+          limit: 1000,
+          operation: 'queue:repairUnclaimableQueued',
+          queue: 'embeddings',
+        },
+      },
+    ];
+
+    for (const request of requests) {
+      listeners[0]?.({
+        data: {
+          id: request.id,
+          kind: 'request',
+          request: {
+            kind: 'turso:embedding-backfill',
+            payload: request.payload,
+          },
+        },
+      });
+      await flushMicrotasks();
+    }
+
+    expect(dbPackageMocks.tursoEmbeddingSetsRepositoryGetById).toHaveBeenCalledWith('set-1');
+    expect(
+      dbPackageMocks.tursoFileChunkRepositoryCountEmbeddingBackfillCandidates
+    ).toHaveBeenCalledWith('set-1', { queue: 'embeddings' });
+    expect(
+      dbPackageMocks.tursoFileChunkRepositoryFindEmbeddingBackfillCandidates
+    ).toHaveBeenCalledWith({
+      afterChunkId: null,
+      embeddingSetId: 'set-1',
+      limit: 2,
+      queue: 'embeddings',
+    });
+    expect(dbPackageMocks.tursoJobQueueEnqueueBatch).toHaveBeenCalledWith([
+      {
+        jobType: 'embed_chunk',
+        payload: { chunkId: 'chunk-1', embeddingSetId: 'set-1' },
+        queue: 'embeddings',
+      },
+    ]);
+    expect(dbPackageMocks.tursoJobQueueGetEmbeddingSetQueueCounts).toHaveBeenCalledWith(
+      'embeddings',
+      'set-1',
+      { updatedAfter: '2026-06-30T10:00:00.000Z' }
+    );
+    expect(dbPackageMocks.tursoJobQueueGetQueueStats).toHaveBeenCalledWith('embeddings');
+    expect(dbPackageMocks.tursoJobQueueRepairUnclaimableQueued).toHaveBeenCalledWith(
+      'embeddings',
+      1000,
+      { embeddingSetId: 'set-1' }
+    );
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'backfill-repair',
+      kind: 'response',
+      ok: true,
+      result: 5,
+    });
+  });
+
   it('rejects unsupported Turso owner operation messages at the DB host boundary', async () => {
     dbMainMocks.initializeMainDatabaseWithBootstrapReport.mockResolvedValue({
       bootstrapReport: createReadyBootstrapProbeReport('turso').bootstrapReport,
@@ -1150,6 +1323,13 @@ describe('db-host-entry', () => {
           payload: { operation: 'unknownVectorOperation', payload: {} },
         },
       },
+      {
+        id: 'unsupported-backfill',
+        request: {
+          kind: 'turso:embedding-backfill',
+          payload: { operation: 'unknownBackfillOperation', payload: {} },
+        },
+      },
     ]) {
       listeners[0]?.({
         data: {
@@ -1159,7 +1339,18 @@ describe('db-host-entry', () => {
         },
       });
     }
-    await flushMicrotasks();
+    await vi.waitFor(() => {
+      expect(parentPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({
+            message: 'Unsupported Turso embedding backfill operation.',
+          }),
+          id: 'unsupported-backfill',
+          kind: 'response',
+          ok: false,
+        })
+      );
+    });
 
     expect(parentPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1191,9 +1382,19 @@ describe('db-host-entry', () => {
         ok: false,
       })
     );
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: 'Unsupported Turso embedding backfill operation.',
+        }),
+        id: 'unsupported-backfill',
+        kind: 'response',
+        ok: false,
+      })
+    );
   });
 
-  it('rejects Turso queue/vector owner requests before mutation when the host runtime is PGlite', async () => {
+  it('rejects Turso owner requests before mutation when the host runtime is PGlite', async () => {
     const db = createMockExecutionDb();
     dbMainMocks.getDatabase.mockResolvedValue(db);
     const { listeners, parentPort } = installParentPortMock();
@@ -1218,11 +1419,36 @@ describe('db-host-entry', () => {
       },
     });
     await flushMicrotasks();
+    listeners[0]?.({
+      data: {
+        id: 'pglite-turso-backfill',
+        kind: 'request',
+        request: {
+          kind: 'turso:embedding-backfill',
+          payload: {
+            embeddingSetId: 'set-1',
+            operation: 'embeddingSet:getById',
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
 
     expect(dbPackageMocks.tursoJobQueueClaimMany).not.toHaveBeenCalled();
+    expect(dbPackageMocks.tursoEmbeddingSetsRepositoryGetById).not.toHaveBeenCalled();
     expect(parentPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'pglite-turso-queue',
+        kind: 'response',
+        ok: false,
+        error: expect.objectContaining({
+          message: 'Turso DB-host owner request requires Turso runtime.',
+        }),
+      })
+    );
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'pglite-turso-backfill',
         kind: 'response',
         ok: false,
         error: expect.objectContaining({

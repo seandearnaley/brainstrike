@@ -11,6 +11,7 @@ import {
   markTursoCollectionIndexingStatsDirty,
   parseManagedCacheBatchArgs,
   refreshTursoCollectionIndexingStats,
+  TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoJobQueue,
 } from '@brainstrike/db';
@@ -613,6 +614,67 @@ function assertNeverTursoVectorQueueAction(_request: never): never {
   throw new Error('Unsupported Turso vector queue action operation.');
 }
 
+async function handleTursoEmbeddingBackfillOperation(
+  request: Extract<DbHostRequest, { kind: 'turso:embedding-backfill' }>
+): Promise<unknown> {
+  const { db, engine } = await getQueryableDatabaseContext();
+  const executionDb = requireTursoExecutionClient(db, engine);
+  switch (request.payload.operation) {
+    case 'embeddingSet:getById': {
+      const embeddingSetsRepository = new TursoEmbeddingSetsRepository(executionDb);
+      return await embeddingSetsRepository.getById(request.payload.embeddingSetId);
+    }
+    case 'chunk:countEmbeddingBackfillCandidates': {
+      const chunkRepository = new TursoFileChunkRepository(executionDb);
+      return await chunkRepository.countEmbeddingBackfillCandidates(
+        request.payload.embeddingSetId,
+        request.payload.queue === undefined ? undefined : { queue: request.payload.queue }
+      );
+    }
+    case 'chunk:findEmbeddingBackfillCandidates': {
+      const chunkRepository = new TursoFileChunkRepository(executionDb);
+      return await chunkRepository.findEmbeddingBackfillCandidates({
+        embeddingSetId: request.payload.embeddingSetId,
+        limit: request.payload.limit,
+        ...(request.payload.afterChunkId === undefined
+          ? {}
+          : { afterChunkId: request.payload.afterChunkId }),
+        ...(request.payload.queue === undefined ? {} : { queue: request.payload.queue }),
+      });
+    }
+    case 'queue:enqueueBatch': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.enqueueBatch([...request.payload.payload]);
+    }
+    case 'queue:getEmbeddingSetQueueCounts': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.getEmbeddingSetQueueCounts(
+        request.payload.queue,
+        request.payload.embeddingSetId,
+        request.payload.updatedAfter === undefined
+          ? undefined
+          : { updatedAfter: request.payload.updatedAfter }
+      );
+    }
+    case 'queue:getQueueStats': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.getQueueStats(request.payload.queue);
+    }
+    case 'queue:repairUnclaimableQueued': {
+      const queue = new TursoJobQueue(executionDb);
+      return await queue.repairUnclaimableQueued(request.payload.queue, request.payload.limit, {
+        embeddingSetId: request.payload.embeddingSetId,
+      });
+    }
+    default:
+      return assertNeverTursoEmbeddingBackfillOperation(request.payload);
+  }
+}
+
+function assertNeverTursoEmbeddingBackfillOperation(_request: never): never {
+  throw new Error('Unsupported Turso embedding backfill operation.');
+}
+
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
   switch (request.kind) {
     case 'init': {
@@ -706,6 +768,8 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return await handleTursoEmbeddingWorkerStatsOperation(request);
     case 'turso:vector-queue:action':
       return await handleTursoVectorQueueAction(request);
+    case 'turso:embedding-backfill':
+      return await handleTursoEmbeddingBackfillOperation(request);
     case 'diagnostics':
       return getDatabaseDiagnostics();
     case 'reset':
