@@ -7,6 +7,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
 } from '../src/architecture/brainstrike-db-client-contract.js';
+import { getBrainstrikeDbExecutionRuntime } from '../src/architecture/brainstrike-db-client-contract.js';
 import { createTursoOwnerClient } from '../src/turso/owner-client.js';
 
 describe('Turso owner client', () => {
@@ -37,6 +38,18 @@ describe('Turso owner client', () => {
       );
 
       expect(result).toEqual({ rows: [{ value: 'alpha' }] });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('marks owner handles with the explicit Turso execution runtime', async () => {
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'profile.db'),
+    });
+
+    try {
+      expect(getBrainstrikeDbExecutionRuntime(client)).toBe('turso');
     } finally {
       await client.close();
     }

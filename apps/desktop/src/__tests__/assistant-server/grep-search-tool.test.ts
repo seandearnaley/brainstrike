@@ -1,4 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent';
+import { markBrainstrikeDbExecutionRuntime } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 
@@ -27,6 +28,20 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 });
 
 describe('grep search tool', () => {
+  function createTursoSearchDb() {
+    return markBrainstrikeDbExecutionRuntime(
+      {
+        capabilities: { liveQuery: false },
+        exec: vi.fn(),
+        query: queryMock,
+        transaction: async <TResult>(
+          callback: (tx: { query: typeof queryMock }) => Promise<TResult>
+        ) => callback({ query: queryMock }),
+      },
+      'turso'
+    );
+  }
+
   function createReadyTursoDiagnostics() {
     return {
       profileBootstrapReport: {
@@ -79,10 +94,7 @@ describe('grep search tool', () => {
   });
 
   it('uses the bounded Turso grep candidate repository when Turso runtime is selected', async () => {
-    getDatabaseMock.mockResolvedValueOnce({
-      capabilities: { liveQuery: false },
-      query: queryMock,
-    });
+    getDatabaseMock.mockResolvedValueOnce(createTursoSearchDb());
     queryMock.mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
     });
@@ -109,11 +121,28 @@ describe('grep search tool', () => {
     expect(params).toContain(500);
   });
 
-  it('fails closed before querying when Turso bootstrap does not prove the grep content gram index', async () => {
+  it('does not infer Turso runtime from live-query absence alone', async () => {
     getDatabaseMock.mockResolvedValueOnce({
       capabilities: { liveQuery: false },
       query: queryMock,
     });
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+    });
+
+    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, undefined);
+
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toHaveLength(1);
+    expect(getDatabaseRuntimeDiagnosticsMock).not.toHaveBeenCalled();
+    const [sql] = queryMock.mock.calls[0] ?? [];
+    expect(String(sql)).not.toContain('file_chunk_content_grams');
+  });
+
+  it('fails closed before querying when Turso bootstrap does not prove the grep content gram index', async () => {
+    getDatabaseMock.mockResolvedValueOnce(createTursoSearchDb());
     getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
       profileBootstrapReport: {
         ...createReadyTursoDiagnostics().profileBootstrapReport,

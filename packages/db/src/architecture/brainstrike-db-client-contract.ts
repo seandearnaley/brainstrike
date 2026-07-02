@@ -1,3 +1,4 @@
+import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY } from '@brainstrike/types';
 import type { ProfileBootstrapCheck } from '../bootstrap/profile-bootstrap-report.js';
 
 export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
@@ -5,6 +6,7 @@ export type BrainstrikeDbExecutionClientCapability = Exclude<
   BrainstrikeDbClientCapability,
   'live-query'
 >;
+export type BrainstrikeDbExecutionRuntimeEngine = 'pglite' | 'turso';
 export type BrainstrikeDbSqlDialect = 'postgres' | 'sqlite';
 export type BrainstrikeDbSqlFeature =
   | 'data-modifying-cte'
@@ -56,6 +58,8 @@ export const BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES = [
   'reset',
   'close',
 ] as const satisfies readonly BrainstrikeDbRuntimeHostCapability[];
+
+export const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for(BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY);
 
 export const BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES = [
   'data-modifying-cte',
@@ -130,6 +134,10 @@ export interface BrainstrikeDbExecutionClient extends BrainstrikeDbTransactionCl
   ) => Promise<TResult>;
 }
 
+export interface BrainstrikeDbExecutionRuntimeMarker {
+  readonly [BRAINSTRIKE_DB_EXECUTION_RUNTIME]: BrainstrikeDbExecutionRuntimeEngine;
+}
+
 export interface BrainstrikeDbClient extends BrainstrikeDbExecutionClient {
   readonly live: {
     readonly incrementalQuery?: <TRecord = unknown>(
@@ -168,6 +176,37 @@ export function getMissingBrainstrikeDbExecutionClientCapabilities(
 
   return BRAINSTRIKE_DB_EXECUTION_CLIENT_CAPABILITIES.filter((capability) =>
     isBrainstrikeDbExecutionClientCapabilityMissing(candidate, capability)
+  );
+}
+
+export function markBrainstrikeDbExecutionRuntime<TClient extends object>(
+  client: TClient,
+  runtimeEngine: BrainstrikeDbExecutionRuntimeEngine
+): TClient & BrainstrikeDbExecutionRuntimeMarker {
+  Object.defineProperty(client, BRAINSTRIKE_DB_EXECUTION_RUNTIME, {
+    value: runtimeEngine,
+    enumerable: false,
+    configurable: false,
+  });
+  return client as TClient & BrainstrikeDbExecutionRuntimeMarker;
+}
+
+export function getBrainstrikeDbExecutionRuntime(
+  candidate: unknown
+): BrainstrikeDbExecutionRuntimeEngine | null {
+  if (!isObjectRecord(candidate)) {
+    return null;
+  }
+  const runtime = candidate[BRAINSTRIKE_DB_EXECUTION_RUNTIME];
+  return isBrainstrikeDbExecutionRuntimeEngine(runtime) ? runtime : null;
+}
+
+export function isTursoBrainstrikeDbExecutionClient(
+  candidate: unknown
+): candidate is BrainstrikeDbExecutionClient & BrainstrikeDbExecutionRuntimeMarker {
+  return (
+    getBrainstrikeDbExecutionRuntime(candidate) === 'turso' &&
+    getMissingBrainstrikeDbExecutionClientCapabilities(candidate).length === 0
   );
 }
 
@@ -340,6 +379,12 @@ function isBrainstrikeDbSqlCapabilities(value: unknown): value is BrainstrikeDbS
         typeof feature === 'string' && knownFeatures.has(feature as BrainstrikeDbSqlFeature)
     )
   );
+}
+
+function isBrainstrikeDbExecutionRuntimeEngine(
+  value: unknown
+): value is BrainstrikeDbExecutionRuntimeEngine {
+  return value === 'pglite' || value === 'turso';
 }
 
 function assertUnreachableDbClientCapability(value: never): never {

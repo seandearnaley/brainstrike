@@ -14,6 +14,7 @@ import {
   createGrepLineMatcher,
   FileChunkRepository,
   GrepSearchService,
+  isTursoBrainstrikeDbExecutionClient,
   TursoFileChunkRepository,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -101,8 +102,7 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
 function isTursoSearchDatabase(db: unknown): boolean {
-  const capabilities = (db as { capabilities?: { liveQuery?: unknown } } | null)?.capabilities;
-  return capabilities?.liveQuery === false;
+  return isTursoBrainstrikeDbExecutionClient(db);
 }
 
 async function assertReadyTursoGrepBootstrap(): Promise<void> {

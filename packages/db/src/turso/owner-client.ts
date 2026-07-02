@@ -6,6 +6,7 @@ import type {
   BrainstrikeDbTransactionClient,
   BrainstrikeDbWorkOptions,
 } from '../architecture/brainstrike-db-client-contract.js';
+import { markBrainstrikeDbExecutionRuntime } from '../architecture/brainstrike-db-client-contract.js';
 import {
   createTursoDatabaseConnectOptions,
   type TursoDatabaseConnectOptions,
@@ -233,7 +234,7 @@ export async function createTursoOwnerClient(
       }),
   };
 
-  return client;
+  return markBrainstrikeDbExecutionRuntime(client, 'turso');
 }
 
 async function runTransaction<TResult>(params: {
