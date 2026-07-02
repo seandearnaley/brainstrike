@@ -8,7 +8,10 @@ import type {
   EmbeddingRuntimeBackfillProgress,
   EmbeddingRuntimeController,
 } from '../vector-status/embedding-runtime-controller';
-import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
+import {
+  type UseVectorQueueStateResult,
+  useVectorQueueState,
+} from '../vector-status/use-vector-queue-state';
 import type {
   VectorQueueService,
   VectorQueueSnapshot,
@@ -510,6 +513,84 @@ describe('useVectorQueueState', () => {
       liveQueryCallsForRender.length > 0 &&
         liveQueryCallsForRender.every(([options]) => options.enabled === false)
     ).toBe(true);
+  });
+
+  it.each([
+    {
+      actionName: 'retry failed jobs',
+      call: (state: UseVectorQueueStateResult) => state.retryFailed(12),
+      failureMessage: 'Turso owner retry rejected',
+      serviceOverride: {
+        retryFailed: vi.fn(async () => {
+          throw new Error('Turso owner retry rejected');
+        }),
+      },
+      serviceSpyName: 'retryFailed',
+    },
+    {
+      actionName: 'clear failed queue jobs',
+      call: (state: UseVectorQueueStateResult) => state.clearQueue(),
+      failureMessage: 'Turso owner clear rejected',
+      serviceOverride: {
+        clearQueue: vi.fn(async () => {
+          throw new Error('Turso owner clear rejected');
+        }),
+      },
+      serviceSpyName: 'clearQueue',
+    },
+    {
+      actionName: 'wipe queue',
+      call: (state: UseVectorQueueStateResult) => state.wipeQueue(),
+      failureMessage: 'Turso owner wipe rejected',
+      serviceOverride: {
+        wipeQueue: vi.fn(async () => {
+          throw new Error('Turso owner wipe rejected');
+        }),
+      },
+      serviceSpyName: 'wipeQueue',
+    },
+  ] as const)('surfaces $actionName failures from the queue action service', async ({
+    actionName,
+    call,
+    failureMessage,
+    serviceOverride,
+    serviceSpyName,
+  }) => {
+    const controller = createMockController();
+    const service = createMockService(serviceOverride);
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    try {
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service,
+          controller: controller.controller,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await expect(call(result.current)).rejects.toThrow(failureMessage);
+
+      await waitFor(() => {
+        expect(result.current.lastError).toBe(`Failed to ${actionName}: ${failureMessage}`);
+      });
+      expect(service[serviceSpyName]).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.queueCounts).not.toHaveBeenCalled();
+      expect(records).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: LogLevel.WARN,
+            message: `Failed to ${actionName}`,
+          }),
+        ])
+      );
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('logs snapshot refresh failures instead of leaving unhandled rejections', async () => {
