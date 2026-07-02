@@ -1,9 +1,10 @@
 /**
  * DbSchemaVerifier Component
  *
- * Sets schemaVerified flag when the selected database runtime is ready.
+ * Mirrors schemaVerified to the selected database runtime's current readiness.
  * This ensures Vector Status collections can load regardless of
- * which panel opens first.
+ * which panel opens first, without keeping stale readiness after teardown,
+ * re-initialization, or profile/runtime changes.
  *
  * Must be rendered inside DbProvider (from @brainstrike/db).
  *
