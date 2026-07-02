@@ -27,7 +27,7 @@ function resolveLocation(repo: IFileRecordRepository): {
   };
 }
 
-function resolvePartialRuntimeStatus(
+function resolveReadyRuntimeStatus(
   initializationStatus: DbInitializationStatus,
   report: ProfileBootstrapReport
 ): { location: string; testResult: string } | null {
@@ -53,10 +53,10 @@ export function useDatabaseStatusSync(): void {
   useEffect(() => {
     const store = useDatabaseStatusStore.getState();
     const repositoryStatus = repository ? resolveLocation(repository) : null;
-    const partialRuntimeStatus = profileBootstrapReport
-      ? resolvePartialRuntimeStatus(initializationStatus, profileBootstrapReport)
+    const readyRuntimeStatus = profileBootstrapReport
+      ? resolveReadyRuntimeStatus(initializationStatus, profileBootstrapReport)
       : null;
-    const status = partialRuntimeStatus ?? repositoryStatus;
+    const status = readyRuntimeStatus ?? repositoryStatus;
 
     if (!status) {
       if (!store.loading) {
