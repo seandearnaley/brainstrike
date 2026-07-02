@@ -16,9 +16,8 @@ const PGLITE_GATED_DB_ALIASES = [
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ] as const;
-const PGLITE_GATED_DB_IMPORT_PATTERN = new RegExp(
-  `import\\s*(?:type\\s*)?\\{[^}]*\\b(?:${PGLITE_GATED_DB_ALIASES.join('|')})\\b[^}]*\\}\\s*from\\s*['"]@brainstrike/db['"]`
-);
+const BRAINSTRIKE_DB_NAMED_IMPORT_PATTERN =
+  /import\s*(?:type\s*)?\{(?<imports>[^}]*)\}\s*from\s*['"]@brainstrike\/db['"]/g;
 const GENERIC_DB_CLIENT_ALIASES = new Set([
   'useBrainstrikeDatabase',
   'useBrainstrikeDbClient',
@@ -33,6 +32,24 @@ const PGLITE_ONLY_ALIASES = new Set([
 ]);
 const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set(['root-layout-content.tsx']);
 const EXISTING_PGLITE_ONLY_DEBT = new Set(['embedding-worker-provider.tsx']);
+
+function findImportedGatedDbAliases(source: string): string[] {
+  const aliases: string[] = [];
+  for (const match of source.matchAll(BRAINSTRIKE_DB_NAMED_IMPORT_PATTERN)) {
+    const imports = match.groups?.['imports'] ?? '';
+    for (const specifier of imports.split(',')) {
+      const [rawImportedName = ''] = specifier
+        .trim()
+        .replace(/^type\s+/, '')
+        .split(/\s+as\s+/);
+      const importedName = rawImportedName.trim();
+      if (PGLITE_GATED_DB_ALIASES.some((alias) => alias === importedName)) {
+        aliases.push(importedName);
+      }
+    }
+  }
+  return aliases;
+}
 
 async function listSourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -60,13 +77,7 @@ describe('desktop renderer database hook imports', () => {
     for (const file of await listSourceFiles(DESKTOP_RENDERER_COMPONENTS_DIR)) {
       const relativeFile = relative(DESKTOP_RENDERER_COMPONENTS_DIR, file).split(sep).join('/');
       const source = await readFile(file, 'utf8');
-      if (!PGLITE_GATED_DB_IMPORT_PATTERN.test(source)) {
-        continue;
-      }
-      for (const alias of PGLITE_GATED_DB_ALIASES) {
-        if (!source.includes(alias)) {
-          continue;
-        }
+      for (const alias of findImportedGatedDbAliases(source)) {
         if (
           GENERIC_DB_CLIENT_ALIASES.has(alias) &&
           EXISTING_GENERIC_DB_CLIENT_DEBT.has(relativeFile)
