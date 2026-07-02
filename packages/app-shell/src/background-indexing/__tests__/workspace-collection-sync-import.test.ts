@@ -547,6 +547,8 @@ function makeMinimalIpcDbWithoutCallbackTransaction() {
 
 const TRANSACTIONAL_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index background import requires transactional chunk/job enqueue support.';
+const TURSO_ATOMIC_ENQUEUE_REQUIRED_ERROR =
+  'Workspace Index Turso background import requires desktop atomic chunk/job enqueue support.';
 const TURSO_INLINE_EMBEDDING_UNSUPPORTED_ERROR =
   'Workspace Index Turso background import does not support inline chunk embedding repository writes; use durable embed_chunk jobs through the Turso owner client.';
 
@@ -718,6 +720,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     );
     const change = makeMinimalChange();
     const collection = makeMinimalCollection();
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
 
     await runRootFolderCacheImport({
       applyManagedCacheBatch,
@@ -736,7 +739,10 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection,
-      db: makeMinimalDb() as never,
+      db: {
+        ...makeMinimalDb(),
+        insertChunksAndEnqueueEmbeddingJobs,
+      } as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         findByCollectionId: vi.fn().mockResolvedValue([]),
@@ -765,6 +771,125 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     );
   });
 
+  it('rejects Turso background imports without the atomic chunk/job enqueue bridge', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+
+    await expect(
+      runRootFolderCacheImport({
+        applyManagedCacheBatch,
+        abortSignal: new AbortController().signal,
+        changes: [change],
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        } as never,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: 'root-db-1',
+        runtimeEngine: 'turso',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow(TURSO_ATOMIC_ENQUEUE_REQUIRED_ERROR);
+
+    expect(runEnhancedImport).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+  });
+
+  it('uses Turso atomic chunk/job enqueue without constructing a generic queue port', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const collection = makeMinimalCollection();
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+
+    await runRootFolderCacheImport({
+      applyManagedCacheBatch,
+      abortSignal: new AbortController().signal,
+      changes: [change],
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      collection,
+      db: {
+        ...makeMinimalDb(),
+        insertChunksAndEnqueueEmbeddingJobs,
+      } as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      runtimeEngine: 'turso',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const enhancedImportCall = vi.mocked(runEnhancedImport).mock.calls[0]?.[0];
+    expect(enhancedImportCall).toEqual(
+      expect.objectContaining({
+        ports: expect.objectContaining({
+          embeddingQueue: null,
+          sql: expect.objectContaining({
+            insertChunksAndEnqueueEmbeddingJobs: expect.any(Function),
+          }),
+        }),
+      })
+    );
+
+    await enhancedImportCall?.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith([], 'file-id-a', {
+      model: collection.modelKey,
+      targetEmbeddingSetId: collection.id,
+    });
+  });
+
   it('fails closed if Turso background imports try inline chunk embedding writes', async () => {
     vi.mocked(runEnhancedImport).mockClear();
     const updateChunk = vi.fn().mockResolvedValue(null);
@@ -790,7 +915,10 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         transportKind: 'local',
       } as never,
       collection: makeMinimalCollection(),
-      db: makeMinimalDb() as never,
+      db: {
+        ...makeMinimalDb(),
+        insertChunksAndEnqueueEmbeddingJobs: vi.fn().mockResolvedValue(undefined),
+      } as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
         findByCollectionId: vi.fn().mockResolvedValue([]),
