@@ -41,8 +41,8 @@ const mockLiveQueryResult = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useBrainstrikeLiveQueryCapability: vi.fn(() => true),
   useEmbeddingSetsRepository: vi.fn(() => null),
-  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
 // Mock preferences store for useEmbeddingSetSelection tests

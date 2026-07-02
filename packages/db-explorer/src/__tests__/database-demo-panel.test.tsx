@@ -262,6 +262,8 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
     useManualImportDbClient: () => mockManualImportDatabaseClient,
     useEmbeddingSetsRepository: () => mockEmbeddingSetsRepositoryClient,
+    useBrainstrikeLiveQueryCapability: () =>
+      mockProfileBootstrapReport?.runtime.engine === 'pglite',
     useOptionalPGliteDatabase: () =>
       mockProfileBootstrapReport?.runtime.engine === 'pglite' ? {} : null,
     useFileChunkRepository: () => mockCurrentChunkRepository,
