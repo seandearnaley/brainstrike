@@ -27,11 +27,7 @@ const PGLITE_ONLY_ALIASES = new Set([
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ]);
-const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set([
-  'database-demo-panel.tsx',
-  'hooks/use-search-functionality.ts',
-  'hooks/use-semantic-search-executor.ts',
-]);
+const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set(['database-demo-panel.tsx']);
 
 function findImportedGatedDbAliases(source: string): string[] {
   const aliases: string[] = [];
