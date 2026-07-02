@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest';
 const VECTOR_MANAGEMENT_SRC_DIR = resolve(import.meta.dirname, '..');
 const PGLITE_IMPORT_MARKERS = [
   '@electric-sql/pglite',
+  'useBrainstrikeDatabase',
+  'useBrainstrikeDbClient',
+  'useOptionalBrainstrikeDatabase',
+  'useOptionalBrainstrikeDbClient',
   'usePGliteDatabase',
   'useOptionalPGliteDatabase',
 ] as const;

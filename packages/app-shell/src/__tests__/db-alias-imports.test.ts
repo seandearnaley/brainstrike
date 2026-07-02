@@ -1,13 +1,20 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { extname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const APP_SHELL_SRC_DIR = resolve(import.meta.dirname, '..');
-const OLD_PGLITE_UI_ALIASES = [
+const PGLITE_GATED_DB_ALIASES = [
+  'useBrainstrikeDatabase',
+  'useBrainstrikeDbClient',
+  'useOptionalBrainstrikeDatabase',
+  'useOptionalBrainstrikeDbClient',
   'usePGliteDatabase',
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ] as const;
+const PGLITE_GATED_DB_IMPORT_PATTERN = new RegExp(
+  `import\\s*(?:type\\s*)?\\{[^}]*\\b(?:${PGLITE_GATED_DB_ALIASES.join('|')})\\b[^}]*\\}\\s*from\\s*['"]@brainstrike/db['"]`
+);
 const PGLITE_ONLY_CONSUMERS = new Set([
   'background-indexing/workspace-collection-sync-provider.tsx',
 ]);
@@ -33,16 +40,19 @@ async function listSourceFiles(dir: string): Promise<string[]> {
 }
 
 describe('app shell database hook imports', () => {
-  it('uses generic DB client and live query aliases in production consumers', async () => {
+  it('keeps new production consumers off PGlite-gated database hooks', async () => {
     const matches: string[] = [];
     for (const file of await listSourceFiles(APP_SHELL_SRC_DIR)) {
-      const relativeFile = file.replace(`${APP_SHELL_SRC_DIR}/`, '');
+      const relativeFile = relative(APP_SHELL_SRC_DIR, file).split(sep).join('/');
       const source = await readFile(file, 'utf8');
-      for (const alias of OLD_PGLITE_UI_ALIASES) {
-        if (source.includes(alias)) {
-          if (alias === 'usePGliteDatabase' && PGLITE_ONLY_CONSUMERS.has(relativeFile)) {
-            continue;
-          }
+      if (!PGLITE_GATED_DB_IMPORT_PATTERN.test(source)) {
+        continue;
+      }
+      for (const alias of PGLITE_GATED_DB_ALIASES) {
+        if (
+          source.includes(alias) &&
+          !(alias === 'usePGliteDatabase' && PGLITE_ONLY_CONSUMERS.has(relativeFile))
+        ) {
           matches.push(`${relativeFile}: ${alias}`);
         }
       }

@@ -1,16 +1,26 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { extname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const DB_EXPLORER_SRC_DIR = resolve(import.meta.dirname, '..');
-const OLD_PGLITE_UI_ALIASES = [
+const PGLITE_GATED_DB_ALIASES = [
+  'useBrainstrikeDatabase',
+  'useBrainstrikeDbClient',
+  'useOptionalBrainstrikeDatabase',
+  'useOptionalBrainstrikeDbClient',
   'usePGliteDatabase',
   'useOptionalPGliteDatabase',
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ] as const;
-const PGLITE_ONLY_CONSUMERS = new Set(['__tests__/enhanced-file-import-service.test.ts']);
-const PGLITE_CAPABILITY_CONSUMERS = new Set(['__tests__/database-demo-panel.test.tsx']);
+const PGLITE_GATED_DB_IMPORT_PATTERN = new RegExp(
+  `import\\s*(?:type\\s*)?\\{[^}]*\\b(?:${PGLITE_GATED_DB_ALIASES.join('|')})\\b[^}]*\\}\\s*from\\s*['"]@brainstrike/db['"]`
+);
+const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set([
+  'database-demo-panel.tsx',
+  'hooks/use-search-functionality.ts',
+  'hooks/use-semantic-search-executor.ts',
+]);
 
 async function listSourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -18,6 +28,9 @@ async function listSourceFiles(dir: string): Promise<string[]> {
     entries.map(async (entry) => {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (entry.name === '__tests__') {
+          return [];
+        }
         return listSourceFiles(path);
       }
       if (entry.isFile() && ['.ts', '.tsx'].includes(extname(entry.name))) {
@@ -30,22 +43,19 @@ async function listSourceFiles(dir: string): Promise<string[]> {
 }
 
 describe('db explorer database hook imports', () => {
-  it('uses generic DB client and live query aliases in production consumers and tests', async () => {
+  it('keeps new production consumers off PGlite-gated database hooks', async () => {
     const matches: string[] = [];
     for (const file of await listSourceFiles(DB_EXPLORER_SRC_DIR)) {
-      if (file === resolve(import.meta.filename)) {
+      const relativeFile = relative(DB_EXPLORER_SRC_DIR, file).split(sep).join('/');
+      const source = await readFile(file, 'utf8');
+      if (!PGLITE_GATED_DB_IMPORT_PATTERN.test(source)) {
         continue;
       }
-      const relativeFile = file.replace(`${DB_EXPLORER_SRC_DIR}/`, '');
-      const source = await readFile(file, 'utf8');
-      for (const alias of OLD_PGLITE_UI_ALIASES) {
+      if (EXISTING_GENERIC_DB_CLIENT_DEBT.has(relativeFile)) {
+        continue;
+      }
+      for (const alias of PGLITE_GATED_DB_ALIASES) {
         if (source.includes(alias)) {
-          if (
-            (alias === 'usePGliteDatabase' && PGLITE_ONLY_CONSUMERS.has(relativeFile)) ||
-            (alias === 'useOptionalPGliteDatabase' && PGLITE_CAPABILITY_CONSUMERS.has(relativeFile))
-          ) {
-            continue;
-          }
           matches.push(`${relativeFile}: ${alias}`);
         }
       }
