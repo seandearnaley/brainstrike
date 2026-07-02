@@ -1891,6 +1891,27 @@ export function useModelRegistryDbClient(): DbHandle | null {
   return ctx.ready && !ctx.error ? ctx.db : null;
 }
 
+export function useBrainstrikeLiveQueryCapability(): boolean {
+  const ctx = useContext(DbContext);
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  return Boolean(
+    ctx?.ready && !ctx.error && ctx.db && ctx.profileBootstrapReport.runtime.engine === 'pglite'
+  );
+}
+
 export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {
   const ctx = useContext(DbContext);
 

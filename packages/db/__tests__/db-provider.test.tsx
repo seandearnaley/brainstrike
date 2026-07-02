@@ -9,6 +9,7 @@ import {
   useAssistantMemoryDbClient,
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
+  useBrainstrikeLiveQueryCapability,
   useFileRecordRepository,
   useOptionalBrainstrikeDatabase,
   useOptionalBrainstrikeDbClient,
@@ -89,6 +90,7 @@ describe('DbProvider', () => {
         assistantMemoryClient: useAssistantMemoryDbClient(),
         client: useBrainstrikeDbClient(),
         db: useBrainstrikeDatabase(),
+        liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
         pgliteDb: usePGliteDatabase(),
@@ -106,6 +108,7 @@ describe('DbProvider', () => {
       expect(result.current.optionalClient).toBe(result.current.db);
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);
+      expect(result.current.liveQueryAvailable).toBe(true);
     });
   });
 
@@ -113,9 +116,11 @@ describe('DbProvider', () => {
     const { result } = renderHook(() => ({
       client: useOptionalBrainstrikeDbClient(),
       db: useOptionalBrainstrikeDatabase(),
+      liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
     }));
     expect(result.current.client).toBeNull();
     expect(result.current.db).toBeNull();
+    expect(result.current.liveQueryAvailable).toBe(false);
   });
 
   it('runs migrations on mount and closes db on unmount in production', async () => {
