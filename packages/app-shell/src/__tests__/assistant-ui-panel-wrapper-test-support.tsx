@@ -308,14 +308,24 @@ vi.mock('@brainstrike/preferences', async () => {
       models: ReturnType<typeof buildRegistryModels>;
       hasLoaded: boolean;
       error: Error | null;
-      toggleModel: (_db: unknown, modelId: string, enabled: boolean) => void;
+      toggleModel: (
+        _db: unknown,
+        modelId: string,
+        enabled: boolean,
+        _runtimeEngine: 'pglite' | 'turso'
+      ) => void;
     }) => T
   ): T =>
     selector({
       models: buildRegistryModels(),
       hasLoaded: true,
       error: null,
-      toggleModel: (_db: unknown, modelId: string, enabled: boolean) => {
+      toggleModel: (
+        _db: unknown,
+        modelId: string,
+        enabled: boolean,
+        _runtimeEngine: 'pglite' | 'turso'
+      ) => {
         if (enabled) {
           testEnabledModels.add(modelId);
         } else {

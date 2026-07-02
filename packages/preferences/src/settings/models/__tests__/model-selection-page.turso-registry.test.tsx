@@ -8,15 +8,21 @@ import {
 } from '../../../stores/model-registry-store';
 import { ModelSelectionPage } from '../model-selection-page';
 
-const { useBrainstrikeDbClientMock, useModelRegistryDbClientMock } = vi.hoisted(() => ({
+const {
+  useBrainstrikeDbClientMock,
+  useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReportMock,
+} = vi.hoisted(() => ({
   useBrainstrikeDbClientMock: vi.fn(),
   useModelRegistryDbClientMock: vi.fn(),
+  useOptionalProfileBootstrapReportMock: vi.fn(),
 }));
 
 vi.mock('@brainstrike/db', () => ({
   DEFAULT_EMBEDDING_DIMENSION: 1536,
   useBrainstrikeDbClient: useBrainstrikeDbClientMock,
   useModelRegistryDbClient: useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
 }));
 
 vi.mock('../../../hooks/use-model-registry', () => ({
@@ -57,6 +63,7 @@ describe('ModelSelectionPage Turso model-registry actions', () => {
     __resetModelRegistryStoreForTests();
     useBrainstrikeDbClientMock.mockReturnValue(null);
     useModelRegistryDbClientMock.mockReturnValue({ runtime: 'turso-registry' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({ runtime: { engine: 'turso' } });
     (useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ toast: mockToast });
     useModelRegistryStore.setState({
       providers: [
@@ -104,7 +111,7 @@ describe('ModelSelectionPage Turso model-registry actions', () => {
 
     await waitFor(() => {
       expect(fetchRegistry).toHaveBeenCalledWith(registryDb);
-      expect(toggleModel).toHaveBeenCalledWith(registryDb, 'test-model', false);
+      expect(toggleModel).toHaveBeenCalledWith(registryDb, 'test-model', false, 'turso');
     });
   });
 });

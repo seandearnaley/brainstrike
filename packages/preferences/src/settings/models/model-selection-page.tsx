@@ -1,4 +1,8 @@
-import { DEFAULT_EMBEDDING_DIMENSION, useModelRegistryDbClient } from '@brainstrike/db';
+import {
+  DEFAULT_EMBEDDING_DIMENSION,
+  useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
+} from '@brainstrike/db';
 import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -6,6 +10,7 @@ import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import { resolveCacheDirectorySelectionTestOverride } from '../../settings-test-runtime-access';
+import { resolveModelRegistrySqlRuntime } from '../../stores/model-registry-sql';
 import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
@@ -229,6 +234,7 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
 
 export function ModelSelectionPage() {
   const db = useModelRegistryDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()
@@ -350,7 +356,12 @@ export function ModelSelectionPage() {
     });
 
     try {
-      await toggleModel(db, modelId, enabled);
+      await toggleModel(
+        db,
+        modelId,
+        enabled,
+        resolveModelRegistrySqlRuntime(profileBootstrapReport?.runtime.engine)
+      );
     } finally {
       setPendingModelIds((current) => {
         const next = new Set(current);

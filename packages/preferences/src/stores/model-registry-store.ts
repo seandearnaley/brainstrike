@@ -9,6 +9,11 @@ import {
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
 import { createBrowserJsonStorage } from './browser-json-storage';
+import {
+  buildModelToggleStatement,
+  buildProviderToggleStatement,
+  type ModelRegistrySqlRuntime,
+} from './model-registry-sql';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -59,8 +64,18 @@ interface ModelRegistryState {
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   setDownloadProgress: (modelId: string, progress: number) => void;
   setModelCacheDir: (dir: string) => void;
-  toggleModel: (db: DbHandle, modelId: string, enabled: boolean) => Promise<void>;
-  toggleProvider: (db: DbHandle, providerId: string, enabled: boolean) => Promise<void>;
+  toggleModel: (
+    db: DbHandle,
+    modelId: string,
+    enabled: boolean,
+    runtimeEngine: ModelRegistrySqlRuntime
+  ) => Promise<void>;
+  toggleProvider: (
+    db: DbHandle,
+    providerId: string,
+    enabled: boolean,
+    runtimeEngine: ModelRegistrySqlRuntime
+  ) => Promise<void>;
 }
 
 // Raw DB types
@@ -297,7 +312,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      toggleProvider: async (db: IDatabase, providerId: string, enabled: boolean) => {
+      toggleProvider: async (
+        db: IDatabase,
+        providerId: string,
+        enabled: boolean,
+        runtimeEngine: ModelRegistrySqlRuntime
+      ) => {
         try {
           // Optimistic update
           set((state) => ({
@@ -307,11 +327,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           }));
 
           const updatedAt = createUpdatedAtTimestamp();
-          await db.query('UPDATE providers SET is_enabled = $1, updated_at = $2 WHERE id = $3', [
+          const statement = buildProviderToggleStatement({
             enabled,
-            updatedAt,
             providerId,
-          ]);
+            runtimeEngine,
+            updatedAt,
+          });
+          await db.query(statement.sql, [...statement.params]);
           await syncDurableDatabaseWrites(db);
 
           set((state) => ({
@@ -326,7 +348,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         }
       },
 
-      toggleModel: async (db: IDatabase, modelId: string, enabled: boolean) => {
+      toggleModel: async (
+        db: IDatabase,
+        modelId: string,
+        enabled: boolean,
+        runtimeEngine: ModelRegistrySqlRuntime
+      ) => {
         try {
           // Optimistic update
           set((state) => ({
@@ -334,11 +361,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           }));
 
           const updatedAt = createUpdatedAtTimestamp();
-          await db.query('UPDATE models SET is_enabled = $1, updated_at = $2 WHERE id = $3', [
+          const statement = buildModelToggleStatement({
             enabled,
-            updatedAt,
             modelId,
-          ]);
+            runtimeEngine,
+            updatedAt,
+          });
+          await db.query(statement.sql, [...statement.params]);
           await syncDurableDatabaseWrites(db);
 
           set((state) => ({
