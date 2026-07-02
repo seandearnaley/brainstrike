@@ -1,3 +1,4 @@
+import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY } from '@brainstrike/types';
 import type { ProfileBootstrapCheck } from '../bootstrap/profile-bootstrap-report.js';
 
 export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
@@ -58,7 +59,7 @@ export const BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES = [
   'close',
 ] as const satisfies readonly BrainstrikeDbRuntimeHostCapability[];
 
-export const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for('brainstrike.db.execution-runtime');
+export const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for(BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY);
 
 export const BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES = [
   'data-modifying-cte',

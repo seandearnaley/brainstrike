@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
@@ -57,7 +58,7 @@ const TURSO_BOOTSTRAP_REQUIRED_CHECK_IDS = [
   'search.ownership',
   'store.close',
 ] as const;
-const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for('brainstrike.db.execution-runtime');
+const BRAINSTRIKE_DB_EXECUTION_RUNTIME = Symbol.for(BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY);
 
 type DbExecutionRuntimeEngine = 'pglite' | 'turso';
 

@@ -1,5 +1,8 @@
 import type { RuntimeData } from '@brainstrike/agent';
-import type { BrainstrikeDbTransactionClient } from '@brainstrike/db';
+import {
+  type BrainstrikeDbTransactionClient,
+  markBrainstrikeDbExecutionRuntime,
+} from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -11,8 +14,6 @@ const {
   getKeyMock,
   loggerError,
   loggerWarn,
-  getDbExecutionRuntimeMock,
-  markDbExecutionRuntime,
   resolveHostedProviderApiKeyMock,
   searchSimilarMock,
   tursoFindByIdsMock,
@@ -27,23 +28,6 @@ const {
   getKeyMock: vi.fn(),
   loggerError: vi.fn(),
   loggerWarn: vi.fn(),
-  getDbExecutionRuntimeMock: (candidate: unknown): 'pglite' | 'turso' | null => {
-    const runtime = (candidate as Record<PropertyKey, unknown> | null)?.[
-      Symbol.for('brainstrike.db.execution-runtime')
-    ];
-    return runtime === 'pglite' || runtime === 'turso' ? runtime : null;
-  },
-  markDbExecutionRuntime: <TClient extends object>(
-    client: TClient,
-    runtimeEngine: 'pglite' | 'turso'
-  ) => {
-    Object.defineProperty(client, Symbol.for('brainstrike.db.execution-runtime'), {
-      value: runtimeEngine,
-      enumerable: false,
-      configurable: false,
-    });
-    return client;
-  },
   resolveHostedProviderApiKeyMock: vi.fn(),
   searchSimilarMock: vi.fn(),
   tursoFindByIdsMock: vi.fn(),
@@ -111,54 +95,60 @@ vi.mock('@brainstrike/agent', async () => {
   };
 });
 
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  getBrainstrikeDbExecutionRuntime: getDbExecutionRuntimeMock,
-  markBrainstrikeDbExecutionRuntime: markDbExecutionRuntime,
-  FileChunkRepository: class {
-    searchSimilar(
-      embedding: number[],
-      options: {
-        limit: number;
-        threshold: number;
-        embeddingSetId: string;
-        filePaths?: string[];
-        selectionSnapshotId?: string;
+vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../../packages/db/src/architecture/brainstrike-db-client-contract')
+  >('../../../../../packages/db/src/architecture/brainstrike-db-client-contract');
+  return {
+    getBrainstrikeDbExecutionRuntime: actual.getBrainstrikeDbExecutionRuntime,
+    isTursoBrainstrikeDbExecutionClient: actual.isTursoBrainstrikeDbExecutionClient,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+    markBrainstrikeDbExecutionRuntime: actual.markBrainstrikeDbExecutionRuntime,
+    FileChunkRepository: class {
+      searchSimilar(
+        embedding: number[],
+        options: {
+          limit: number;
+          threshold: number;
+          embeddingSetId: string;
+          filePaths?: string[];
+          selectionSnapshotId?: string;
+        }
+      ) {
+        return searchSimilarMock(embedding, options);
       }
-    ) {
-      return searchSimilarMock(embedding, options);
-    }
-  },
-  FileRecordRepository: class {
-    findByIds(ids: readonly string[]) {
-      return findByIdsMock(ids);
-    }
-  },
-  TursoEmbeddingSetsRepository: class {
-    getById(id: string) {
-      return tursoGetEmbeddingSetByIdMock(id);
-    }
-  },
-  TursoFileChunkRepository: class {
-    searchSimilar(
-      embedding: number[],
-      options: {
-        limit: number;
-        threshold: number;
-        embeddingSetId: string;
-        filePaths?: string[];
-        selectionSnapshotId?: string;
+    },
+    FileRecordRepository: class {
+      findByIds(ids: readonly string[]) {
+        return findByIdsMock(ids);
       }
-    ) {
-      return tursoSearchSimilarMock(embedding, options);
-    }
-  },
-  TursoFileRecordRepository: class {
-    findByIds(ids: readonly string[]) {
-      return tursoFindByIdsMock(ids);
-    }
-  },
-}));
+    },
+    TursoEmbeddingSetsRepository: class {
+      getById(id: string) {
+        return tursoGetEmbeddingSetByIdMock(id);
+      }
+    },
+    TursoFileChunkRepository: class {
+      searchSimilar(
+        embedding: number[],
+        options: {
+          limit: number;
+          threshold: number;
+          embeddingSetId: string;
+          filePaths?: string[];
+          selectionSnapshotId?: string;
+        }
+      ) {
+        return tursoSearchSimilarMock(embedding, options);
+      }
+    },
+    TursoFileRecordRepository: class {
+      findByIds(ids: readonly string[]) {
+        return tursoFindByIdsMock(ids);
+      }
+    },
+  };
+});
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
   CohereEmbeddingProvider: class {
@@ -262,6 +252,28 @@ describe('retrieval-tool', () => {
     };
   }
 
+  function createTursoRetrievalDb(options?: {
+    exec?: BrainstrikeDbTransactionClient['exec'];
+    query?: BrainstrikeDbTransactionClient['query'];
+    transaction?: <TResult>(
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    ) => Promise<TResult>;
+  }) {
+    const transactionClient: BrainstrikeDbTransactionClient = {
+      exec: options?.exec ?? (async () => undefined),
+      query: options?.query ?? (dbQueryMock as BrainstrikeDbTransactionClient['query']),
+    };
+    return markBrainstrikeDbExecutionRuntime(
+      {
+        capabilities: { liveQuery: false },
+        exec: transactionClient.exec,
+        query: transactionClient.query,
+        transaction: options?.transaction ?? ((callback) => callback(transactionClient)),
+      },
+      'turso'
+    );
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     getDatabaseRuntimeDiagnosticsMock.mockResolvedValue(createReadyTursoDiagnostics());
@@ -360,15 +372,7 @@ describe('retrieval-tool', () => {
   });
 
   it('fails explicitly instead of running PGlite vector retrieval against Turso', async () => {
-    getDatabaseMock.mockResolvedValueOnce(
-      markDbExecutionRuntime(
-        {
-          capabilities: { liveQuery: false },
-          query: dbQueryMock,
-        },
-        'turso'
-      )
-    );
+    getDatabaseMock.mockResolvedValueOnce(createTursoRetrievalDb());
     getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
       profileBootstrapReport: {
         ...createReadyTursoDiagnostics().profileBootstrapReport,
@@ -425,17 +429,7 @@ describe('retrieval-tool', () => {
   });
 
   it('runs Turso vector retrieval only when the bootstrap vector check passed', async () => {
-    getDatabaseMock.mockResolvedValueOnce(
-      markDbExecutionRuntime(
-        {
-          capabilities: { liveQuery: false },
-          query: dbQueryMock,
-          transaction: vi.fn(),
-          exec: vi.fn(),
-        },
-        'turso'
-      )
-    );
+    getDatabaseMock.mockResolvedValueOnce(createTursoRetrievalDb());
 
     const result = await runQueryEmbeddingSpace(
       {
@@ -474,15 +468,11 @@ describe('retrieval-tool', () => {
       ): Promise<TResult> => callback(transactionClient)
     );
     getDatabaseMock.mockResolvedValueOnce(
-      markDbExecutionRuntime(
-        {
-          capabilities: { liveQuery: false },
-          exec: vi.fn(),
-          query: dbQueryMock,
-          transaction: transactionMock,
-        },
-        'turso'
-      )
+      createTursoRetrievalDb({
+        exec: vi.fn(),
+        query: dbQueryMock as BrainstrikeDbTransactionClient['query'],
+        transaction: transactionMock,
+      })
     );
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
 

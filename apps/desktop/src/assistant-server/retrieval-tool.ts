@@ -27,7 +27,7 @@ import type {
 import {
   FileChunkRepository,
   FileRecordRepository,
-  getBrainstrikeDbExecutionRuntime,
+  isTursoBrainstrikeDbExecutionClient,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
@@ -183,7 +183,7 @@ export interface RetrievalToolDependencies {
 }
 
 function isTursoRetrievalDatabase(db: unknown): db is TursoRetrievalDatabase {
-  return getBrainstrikeDbExecutionRuntime(db) === 'turso';
+  return isTursoBrainstrikeDbExecutionClient(db);
 }
 
 async function assertReadyTursoVectorBootstrap(): Promise<void> {

@@ -28,6 +28,20 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 });
 
 describe('grep search tool', () => {
+  function createTursoSearchDb() {
+    return markBrainstrikeDbExecutionRuntime(
+      {
+        capabilities: { liveQuery: false },
+        exec: vi.fn(),
+        query: queryMock,
+        transaction: async <TResult>(
+          callback: (tx: { query: typeof queryMock }) => Promise<TResult>
+        ) => callback({ query: queryMock }),
+      },
+      'turso'
+    );
+  }
+
   function createReadyTursoDiagnostics() {
     return {
       profileBootstrapReport: {
@@ -80,15 +94,7 @@ describe('grep search tool', () => {
   });
 
   it('uses the bounded Turso grep candidate repository when Turso runtime is selected', async () => {
-    getDatabaseMock.mockResolvedValueOnce(
-      markBrainstrikeDbExecutionRuntime(
-        {
-          capabilities: { liveQuery: false },
-          query: queryMock,
-        },
-        'turso'
-      )
-    );
+    getDatabaseMock.mockResolvedValueOnce(createTursoSearchDb());
     queryMock.mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
     });
@@ -136,15 +142,7 @@ describe('grep search tool', () => {
   });
 
   it('fails closed before querying when Turso bootstrap does not prove the grep content gram index', async () => {
-    getDatabaseMock.mockResolvedValueOnce(
-      markBrainstrikeDbExecutionRuntime(
-        {
-          capabilities: { liveQuery: false },
-          query: queryMock,
-        },
-        'turso'
-      )
-    );
+    getDatabaseMock.mockResolvedValueOnce(createTursoSearchDb());
     getDatabaseRuntimeDiagnosticsMock.mockResolvedValueOnce({
       profileBootstrapReport: {
         ...createReadyTursoDiagnostics().profileBootstrapReport,

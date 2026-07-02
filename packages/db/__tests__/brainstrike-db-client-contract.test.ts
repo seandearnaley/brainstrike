@@ -1,3 +1,4 @@
+import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY } from '@brainstrike/types';
 import type {
   BrainstrikeDbClient,
   BrainstrikeDbExecutionClient,
@@ -94,7 +95,7 @@ describe('Brainstrike DB client contract', () => {
     expect(getBrainstrikeDbExecutionRuntime(markedClient)).toBe('turso');
     expect(isTursoBrainstrikeDbExecutionClient(markedClient)).toBe(true);
     const [runtimeSymbol] = Object.getOwnPropertySymbols(markedClient).filter(
-      (symbol) => symbol.description === 'brainstrike.db.execution-runtime'
+      (symbol) => symbol.description === BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY
     );
     expect(runtimeSymbol).toBeDefined();
     expect(Object.getOwnPropertyDescriptor(markedClient, runtimeSymbol as symbol)).toMatchObject({
