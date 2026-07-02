@@ -148,6 +148,13 @@ function createScheduledTestDb(
   };
 }
 
+function createPGliteEmbeddingWorkerConfig(
+  db: Parameters<typeof createEmbeddingWorkerConfig>[0],
+  gate?: Parameters<typeof createEmbeddingWorkerConfig>[1]
+) {
+  return createEmbeddingWorkerConfig(db, gate, { runtimeEngine: 'pglite' });
+}
+
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,10 +169,18 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
 
+  it('requires an explicit database runtime engine', () => {
+    const { scheduledDb } = createScheduledTestDb();
+
+    expect(() => createEmbeddingWorkerConfig(scheduledDb as never, undefined, {} as never)).toThrow(
+      'Desktop embedding worker config requires an explicit database runtime.'
+    );
+  });
+
   it('uses strict defaults when optional env vars are not configured', () => {
     const { db, scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
       db: scheduledDb,
@@ -189,7 +204,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('uses the idle desktop claim batch when no foreground database work is active', async () => {
     const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
@@ -197,7 +212,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('derives desktop claim size from the shared workspace index QoS policy', async () => {
     const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
     expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
@@ -228,7 +243,7 @@ describe('createEmbeddingWorkerConfig', () => {
     const { db, scheduledDb } = createScheduledTestDb();
     db.query.mockResolvedValueOnce({ rows: [{ count: 256 }] });
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
     expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
@@ -282,7 +297,7 @@ describe('createEmbeddingWorkerConfig', () => {
     });
 
     try {
-      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+      const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
       expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
@@ -304,7 +319,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('passes accelerator idle ratio and stalled-progress window into desktop QoS resolution', async () => {
     const { db, scheduledDb } = createScheduledTestDb();
     db.query.mockResolvedValue({ rows: [{ count: 256 }] });
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     config.log?.('embedding_pipeline_timing', {
       completionWaitMs: 90,
@@ -348,7 +363,7 @@ describe('createEmbeddingWorkerConfig', () => {
     });
 
     try {
-      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+      const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
       expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
@@ -388,7 +403,7 @@ describe('createEmbeddingWorkerConfig', () => {
     });
 
     try {
-      const config = createEmbeddingWorkerConfig(scheduledDb as never);
+      const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
@@ -402,7 +417,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('logs a QoS transition once across repeated claim-size reads under unchanged conditions', async () => {
     const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
@@ -430,7 +445,7 @@ describe('createEmbeddingWorkerConfig', () => {
       },
     });
 
-    const config = createEmbeddingWorkerConfig({
+    const config = createPGliteEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
     } as never);
 
@@ -468,7 +483,7 @@ describe('createEmbeddingWorkerConfig', () => {
         },
       });
 
-      const config = createEmbeddingWorkerConfig({
+      const config = createPGliteEmbeddingWorkerConfig({
         query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
       } as never);
 
@@ -493,7 +508,7 @@ describe('createEmbeddingWorkerConfig', () => {
       },
     });
 
-    const config = createEmbeddingWorkerConfig({
+    const config = createPGliteEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
     } as never);
     const firstRead = config.resolveClaimBatchSize?.();
@@ -523,7 +538,7 @@ describe('createEmbeddingWorkerConfig', () => {
       expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
     });
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
 
@@ -540,7 +555,7 @@ describe('createEmbeddingWorkerConfig', () => {
       waitUntilInactive: vi.fn(async () => {}),
     };
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never, gate);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never, gate);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
     expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
@@ -570,7 +585,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(scheduler.getSnapshot().priorityStats.foreground.serviceP95Ms).toBeGreaterThan(120);
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
   });
@@ -594,7 +609,7 @@ describe('createEmbeddingWorkerConfig', () => {
       expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
     });
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolvePipelineCapacity?.()).resolves.toMatchObject({
       maxPendingCompletionBatches: 1,
@@ -634,7 +649,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(scheduler.getSnapshot().priorityStats.normal.serviceP95Ms).toBeGreaterThan(120);
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
   });
@@ -656,7 +671,7 @@ describe('createEmbeddingWorkerConfig', () => {
     });
     now += 50;
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
   });
@@ -679,7 +694,7 @@ describe('createEmbeddingWorkerConfig', () => {
       { priority: 'foreground', label: 'fast foreground query' }
     );
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
@@ -696,7 +711,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '5';
     const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+    const config = createPGliteEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
       db: scheduledDb,
@@ -728,7 +743,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when embed concurrency is not a positive integer', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '0';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CONCURRENCY must be a positive integer, received "0".'
     );
   });
@@ -736,7 +751,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when embed concurrency uses non-decimal numeric syntax', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '1e3';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CONCURRENCY must be a positive integer, received "1e3".'
     );
   });
@@ -744,7 +759,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when embed claim batch size is not a positive integer', () => {
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '0';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer, received "0".'
     );
   });
@@ -752,7 +767,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when embed inter-batch delay is not a positive integer', () => {
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer, received "abc".'
     );
   });
@@ -761,7 +776,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = 'abc';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_LEASE_MS must be a positive integer, received "abc".'
     );
   });
@@ -769,7 +784,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when stream batch size is not a positive integer', () => {
     import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '0';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_STREAM_BATCH_SIZE must be a positive integer, received "0".'
     );
   });
@@ -777,7 +792,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('fails fast when pending completion limits are malformed', () => {
     import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = 'abc';
 
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+    expect(() => createPGliteEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS must be a positive integer, received "abc".'
     );
   });

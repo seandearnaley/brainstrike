@@ -15,6 +15,7 @@ import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import {
   useBrainstrikeDbClient,
+  useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
   useTokenCacheStore,
 } from '@brainstrike/db';
@@ -88,7 +89,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
-  const db = useBrainstrikeDbClient();
+  const db = useModelRegistryDbClient();
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
   );

@@ -328,7 +328,7 @@ type EmbeddingWorkerConfigRuntimeEngine = Extract<
 >;
 
 interface EmbeddingWorkerConfigOptions {
-  readonly runtimeEngine?: EmbeddingWorkerConfigRuntimeEngine;
+  readonly runtimeEngine: EmbeddingWorkerConfigRuntimeEngine;
   readonly storage?: EmbeddingWorkerStorage;
 }
 
@@ -460,7 +460,10 @@ function resolveEmbeddingWorkerStorageOptions(
   db: IDatabase,
   options: EmbeddingWorkerConfigOptions
 ): Pick<EmbeddingWorkerOptions, 'db' | 'storage'> {
-  const runtimeEngine = options.runtimeEngine ?? 'pglite';
+  const runtimeEngine = options.runtimeEngine;
+  if (!runtimeEngine) {
+    throw new Error('Desktop embedding worker config requires an explicit database runtime.');
+  }
   if (runtimeEngine === 'pglite') {
     if (options.storage) {
       throw new Error('PGlite embedding worker config must use the database handle.');
@@ -482,8 +485,8 @@ function unsupportedEmbeddingWorkerRuntime(runtimeEngine: never): never {
 
 export function createEmbeddingWorkerConfig(
   db: IDatabase,
-  gate?: ForegroundEmbeddingGate,
-  options: EmbeddingWorkerConfigOptions = {}
+  gate: ForegroundEmbeddingGate | undefined,
+  options: EmbeddingWorkerConfigOptions
 ): EmbeddingWorkerOptions {
   const claimBatchSize = parsePositiveIntegerEnv(
     'VITE_EMBED_CLAIM_BATCH_SIZE',
