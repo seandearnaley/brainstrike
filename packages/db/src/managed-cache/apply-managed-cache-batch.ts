@@ -254,7 +254,7 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
     }
     return parsedChange;
   });
-  assertTotalBatchWithinLimit(changes.length);
+  assertTotalBatchWithinLimit(countRecordBackedMutations(changes));
 
   // rootId is per-batch (all changes in a batch share one root); must be a
   // non-empty string, null, or absent — any other value is a caller bug, not
@@ -317,13 +317,23 @@ const MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH = Math.floor(
 const MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH =
   MAX_MANAGED_CACHE_IMPORTS_PER_BATCH + MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH;
 
+function countRecordBackedMutations(changes: readonly ManagedCacheBatchMutation[]): number {
+  let count = 0;
+  for (const change of changes) {
+    if (change.mode !== 'remove') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function assertTotalBatchWithinLimit(count: number): void {
   if (count <= MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH) {
     return;
   }
   throw new Error(
-    'Managed cache batch exceeds the maximum supported total size. ' +
-      `Received ${count} changes; maximum supported batch size is ` +
+    'Managed cache batch exceeds the maximum supported record-backed size. ' +
+      `Received ${count} import/replace changes; maximum supported batch size is ` +
       `${MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH}.`
   );
 }
@@ -1072,7 +1082,7 @@ export async function applyManagedCacheBatch(
   if (!db.transaction) {
     throw new Error('Managed cache batch mutation requires transactional database support.');
   }
-  assertTotalBatchWithinLimit(args.changes.length);
+  assertTotalBatchWithinLimit(countRecordBackedMutations(args.changes));
   assertNoDuplicateMutationIds(args.changes);
   assertNoNullBytesInManagedCacheContent(args.changes);
 
@@ -1123,7 +1133,7 @@ export async function applyTursoManagedCacheBatch(
   if (args.changes.length === 0) {
     return;
   }
-  assertTotalBatchWithinLimit(args.changes.length);
+  assertTotalBatchWithinLimit(countRecordBackedMutations(args.changes));
   assertNoDuplicateMutationIds(args.changes);
   assertNoNullBytesInManagedCacheContent(args.changes);
 
