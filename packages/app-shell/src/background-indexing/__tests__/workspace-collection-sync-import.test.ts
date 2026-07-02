@@ -1218,41 +1218,43 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     };
 
     try {
-      await runRootFolderCacheImport({
-        applyManagedCacheBatch,
-        abortSignal: new AbortController().signal,
-        changes: [firstChange, secondChange],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
-        chunkingWorkerPort: {
-          chunkBatch: vi.fn().mockResolvedValue([]),
-          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
-          isReady: vi.fn().mockReturnValue(true),
-          transportKind: 'local',
-        } as never,
-        collection: makeMinimalCollection(),
-        db: makeMinimalDb() as never,
-        fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
-        fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
-          findByCollectionId: vi.fn().mockResolvedValue([]),
-        } as never,
-        onProgress: () => {},
-        qosPolicy: {
-          allowNewWork: true,
-          contentReadBatchSize: 10,
-          contentReadConcurrency: 1,
-          importBatchSize: 10,
-        },
-        rootId: 'root-db-1',
-        runtimeEngine: 'pglite',
-        setImporting: () => {},
-        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
-      });
+      await expect(
+        runRootFolderCacheImport({
+          applyManagedCacheBatch,
+          abortSignal: new AbortController().signal,
+          changes: [firstChange, secondChange],
+          chunkRepository: {
+            deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+            deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+            insertChunks: vi.fn().mockResolvedValue(undefined),
+            findByFileRecordId: vi.fn().mockResolvedValue([]),
+          } as never,
+          chunkingWorkerPort: {
+            chunkBatch: vi.fn().mockResolvedValue([]),
+            chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+            isReady: vi.fn().mockReturnValue(true),
+            transportKind: 'local',
+          } as never,
+          collection: makeMinimalCollection(),
+          db: makeMinimalDb() as never,
+          fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
+          fileRecordRepository: {
+            upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+            findByCollectionId: vi.fn().mockResolvedValue([]),
+          } as never,
+          onProgress: () => {},
+          qosPolicy: {
+            allowNewWork: true,
+            contentReadBatchSize: 10,
+            contentReadConcurrency: 1,
+            importBatchSize: 10,
+          },
+          rootId: 'root-db-1',
+          runtimeEngine: 'pglite',
+          setImporting: () => {},
+          waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+        })
+      ).rejects.toThrow(dbTimeout.message);
 
       const failureLog = captured.find((record) =>
         record.message?.includes('Workspace Index managed-cache batch import failed')
