@@ -131,10 +131,10 @@ function getManualImportCapabilityError({
   if (
     manualImportDbClient.runtimeEngine === 'turso' &&
     (typeof manualImportDbClient.db.applyManagedCacheBatch !== 'function' ||
-      typeof manualImportDbClient.db.invalidateManagedCacheEntriesByIdentity !== 'function')
+      typeof manualImportDbClient.db.query !== 'function')
   ) {
     return new Error(
-      'Manual imports with Turso require managed-cache apply and invalidation support.'
+      'Manual imports with Turso require managed-cache apply and identity lookup support.'
     );
   }
   if (

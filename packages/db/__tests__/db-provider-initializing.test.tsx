@@ -883,11 +883,6 @@ describe('DbProvider initializing state', () => {
     });
     const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
     const applyManagedCacheBatch = vi.fn(async () => undefined);
-    const invalidateManagedCacheEntriesByIdentity = vi.fn(async () => ({
-      canceledEmbeddingJobCount: 0,
-      deletedChunkIds: [],
-      deletedFileRecordIds: [],
-    }));
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -910,7 +905,6 @@ describe('DbProvider initializing state', () => {
     setWindowElectronDbBridge({
       exec: vi.fn(async () => {}),
       applyManagedCacheBatch,
-      invalidateManagedCacheEntriesByIdentity,
       insertChunksAndEnqueueEmbeddingJobs,
       query,
       runTransaction: vi.fn(async () => ({ rows: [] })),
@@ -980,36 +974,6 @@ describe('DbProvider initializing state', () => {
       expect.any(Function)
     );
     expect(result.current.manualImportDb?.db.applyManagedCacheBatch).toEqual(expect.any(Function));
-    expect(result.current.manualImportDb?.db.invalidateManagedCacheEntriesByIdentity).toEqual(
-      expect.any(Function)
-    );
-    const invalidationBatch = {
-      embeddingSetId: 'embedding-set-1',
-      targets: [
-        {
-          mode: 'exact',
-          relativePath: 'src/managed.md',
-          rootId: 'root-1',
-        },
-      ],
-    } as const;
-    await expect(
-      result.current.manualImportDb?.db.invalidateManagedCacheEntriesByIdentity?.(
-        invalidationBatch,
-        {
-          label: 'manual import managed-cache invalidation',
-          priority: 'foreground',
-        }
-      )
-    ).resolves.toEqual({
-      canceledEmbeddingJobCount: 0,
-      deletedChunkIds: [],
-      deletedFileRecordIds: [],
-    });
-    expect(invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith(invalidationBatch, {
-      label: 'manual import managed-cache invalidation',
-      priority: 'foreground',
-    });
     const managedCacheBatch = {
       changes: [
         {

@@ -128,23 +128,38 @@ function createDependencies(
     manualImportDbClient?.runtimeEngine === 'turso'
       ? manualImportDbClient.db.applyManagedCacheBatch
       : undefined;
-  const invalidateManagedCacheEntriesByIdentity =
+  const managedCacheQuery =
     manualImportDbClient?.runtimeEngine === 'turso'
-      ? manualImportDbClient.db.invalidateManagedCacheEntriesByIdentity
+      ? manualImportDbClient.db.query.bind(manualImportDbClient.db)
       : undefined;
   const managedCacheImport: ManagedCacheImportPort | null =
-    applyManagedCacheBatch && invalidateManagedCacheEntriesByIdentity
+    applyManagedCacheBatch && managedCacheQuery
       ? {
           applyBatch: (args) =>
             applyManagedCacheBatch(args, {
               label: 'manual import managed-cache batch',
               priority: 'foreground',
             }),
-          invalidateByIdentity: (args) =>
-            invalidateManagedCacheEntriesByIdentity(args, {
-              label: 'manual import managed-cache invalidation',
-              priority: 'foreground',
-            }),
+          findExistingByIdentity: async ({ embeddingSetId, relativePaths, rootId }) => {
+            if (relativePaths.length === 0) {
+              return [];
+            }
+            const placeholders = relativePaths.map(() => '?').join(', ');
+            const result = await managedCacheQuery<{ id: string; path: string }>(
+              `SELECT id, path
+                 FROM file_records
+                WHERE embedding_set_id = ?
+                  AND root_id = ?
+                  AND path IN (${placeholders})
+                ORDER BY path, id`,
+              [embeddingSetId, rootId, ...relativePaths],
+              {
+                label: 'manual import managed-cache identity lookup',
+                priority: 'foreground',
+              }
+            );
+            return result.rows;
+          },
         }
       : null;
 
@@ -216,11 +231,11 @@ export function useFileImportService(
         if (
           manualImportDbClient?.runtimeEngine === 'turso' &&
           (typeof manualImportDbClient.db.applyManagedCacheBatch !== 'function' ||
-            typeof manualImportDbClient.db.invalidateManagedCacheEntriesByIdentity !== 'function')
+            typeof manualImportDbClient.db.query !== 'function')
         ) {
           throw new FileImportError(
             'missing-dependency',
-            'Manual imports with Turso require managed-cache apply and invalidation support.'
+            'Manual imports with Turso require managed-cache apply and identity lookup support.'
           );
         }
 

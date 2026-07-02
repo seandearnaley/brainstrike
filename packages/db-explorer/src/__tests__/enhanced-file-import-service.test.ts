@@ -374,14 +374,9 @@ describe('useEnhancedFileImportService', () => {
       const onComplete = vi.fn();
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
       const applyManagedCacheBatch = vi.fn().mockResolvedValue(undefined);
-      const invalidateManagedCacheEntriesByIdentity = vi.fn().mockResolvedValue({
-        canceledEmbeddingJobCount: 0,
-        deletedChunkIds: [],
-        deletedFileRecordIds: [],
-      });
       mockUseBrainstrikeDbClient.mockReturnValue(null as never);
       mockUseManualImportDbClient.mockReturnValue({
-        db: { applyManagedCacheBatch, invalidateManagedCacheEntriesByIdentity, query: dbQuery },
+        db: { applyManagedCacheBatch, query: dbQuery },
         runtimeEngine: 'turso',
       } as never);
       mockUseFileChunkRepository.mockReturnValue({
@@ -436,11 +431,6 @@ describe('useEnhancedFileImportService', () => {
       const onComplete = vi.fn();
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
       const applyManagedCacheBatch = vi.fn().mockResolvedValue(undefined);
-      const invalidateManagedCacheEntriesByIdentity = vi.fn().mockResolvedValue({
-        canceledEmbeddingJobCount: 0,
-        deletedChunkIds: [],
-        deletedFileRecordIds: [],
-      });
       const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
       const tursoChunkRepository = {
         brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
@@ -451,7 +441,6 @@ describe('useEnhancedFileImportService', () => {
       mockUseManualImportDbClient.mockReturnValue({
         db: {
           applyManagedCacheBatch,
-          invalidateManagedCacheEntriesByIdentity,
           query: dbQuery,
           insertChunksAndEnqueueEmbeddingJobs,
         },
@@ -512,11 +501,6 @@ describe('useEnhancedFileImportService', () => {
       mockUseManualImportDbClient.mockReturnValue({
         db: {
           applyManagedCacheBatch: vi.fn().mockResolvedValue(undefined),
-          invalidateManagedCacheEntriesByIdentity: vi.fn().mockResolvedValue({
-            canceledEmbeddingJobCount: 0,
-            deletedChunkIds: [],
-            deletedFileRecordIds: [],
-          }),
           query: vi.fn().mockResolvedValue({ rows: [] }),
         },
         runtimeEngine: 'turso',

@@ -1,6 +1,5 @@
 import type {
   ApplyManagedCacheBatchArgs,
-  ApplyManagedCacheInvalidationsArgs,
   FileImportRequest,
   FileImportResult,
   ImportProgress,
@@ -18,7 +17,11 @@ export interface FileImportRepositoryPort {
 
 export interface ManagedCacheImportPort {
   readonly applyBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
-  readonly invalidateByIdentity: (args: ApplyManagedCacheInvalidationsArgs) => Promise<unknown>;
+  readonly findExistingByIdentity: (args: {
+    readonly embeddingSetId: string;
+    readonly relativePaths: readonly string[];
+    readonly rootId: string;
+  }) => Promise<readonly { readonly id: string; readonly path: string }[]>;
 }
 
 export interface FileSystemPort {

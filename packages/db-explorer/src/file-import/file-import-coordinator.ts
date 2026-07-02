@@ -315,11 +315,11 @@ async function importRequestBatch(
   };
 }
 
-function groupManagedCacheImportsByRoot(
-  imports: readonly ManagedCachePreparedImport[]
-): Array<{ imports: ManagedCachePreparedImport[]; rootId: string }> {
-  const groups = new Map<string, ManagedCachePreparedImport[]>();
-  for (const entry of imports) {
+function groupRootedRequestsByRoot(
+  requests: readonly RootedFileImportRequest[]
+): Array<{ requests: RootedFileImportRequest[]; rootId: string }> {
+  const groups = new Map<string, RootedFileImportRequest[]>();
+  for (const entry of requests) {
     const existing = groups.get(entry.rootId);
     if (existing) {
       existing.push(entry);
@@ -327,34 +327,67 @@ function groupManagedCacheImportsByRoot(
     }
     groups.set(entry.rootId, [entry]);
   }
-  return [...groups.entries()].map(([rootId, rootImports]) => ({ rootId, imports: rootImports }));
+  return [...groups.entries()].map(([rootId, rootRequests]) => ({
+    requests: rootRequests,
+    rootId,
+  }));
+}
+
+async function findExistingManagedCacheIds(
+  managedCacheImport: NonNullable<FileImportDependencies['managedCacheImport']>,
+  embeddingSetId: string,
+  rootId: string,
+  requests: readonly RootedFileImportRequest[]
+): Promise<Map<string, string>> {
+  const matches = await managedCacheImport.findExistingByIdentity({
+    embeddingSetId,
+    rootId,
+    relativePaths: requests.map((entry) => entry.request.path),
+  });
+  const existingByPath = new Map<string, string>();
+  for (const match of matches) {
+    if (existingByPath.has(match.path)) {
+      throw new FileImportError(
+        'repository-error',
+        `Managed-cache identity lookup returned duplicate rows for ${match.path}.`
+      );
+    }
+    existingByPath.set(match.path, match.id);
+  }
+  return existingByPath;
 }
 
 async function prepareManagedCacheImport(
   entry: RootedFileImportRequest,
+  existingId: string | null,
   now: string
 ): Promise<ManagedCachePreparedImport> {
   const { request, rootId, mtimeMs } = entry;
-  const id = generateUUID();
-  const mutation: ManagedCacheBatchMutation = {
-    mode: 'import',
-    record: {
-      content: request.content,
-      contentHash: await generateContentHash(request.content),
-      createdAt: now,
-      id,
-      mtimeMs,
-      name: request.name,
-      path: request.path,
-      processedAt: now,
-      size: request.size,
-      tokenCount: countTokensHeuristic(request.content),
-      updatedAt: now,
-    },
+  const id = existingId ?? generateUUID();
+  const record = {
+    content: request.content,
+    contentHash: await generateContentHash(request.content),
+    id,
+    mtimeMs,
+    name: request.name,
+    path: request.path,
+    processedAt: now,
+    size: request.size,
+    tokenCount: countTokensHeuristic(request.content),
+    updatedAt: now,
   };
+  const mutation: ManagedCacheBatchMutation = existingId
+    ? {
+        mode: 'replace',
+        record,
+      }
+    : {
+        mode: 'import',
+        record: { ...record, createdAt: now },
+      };
   return {
     mutation,
-    result: { existed: false, id, imported: true },
+    result: { existed: existingId !== null, id, imported: existingId === null },
     rootId,
   };
 }
@@ -379,25 +412,36 @@ async function importManagedCacheRequestBatch(
   }
 
   const now = new Date().toISOString();
-  const preparedImports = await Promise.all(
-    rootedRequests.map((entry) => prepareManagedCacheImport(entry, now))
-  );
+  const preparedByRequest = new Map<RootedFileImportRequest, ManagedCachePreparedImport>();
 
   try {
-    for (const group of groupManagedCacheImportsByRoot(preparedImports)) {
-      await managedCacheImport.invalidateByIdentity({
+    for (const requestGroup of groupRootedRequestsByRoot(rootedRequests)) {
+      const existingByPath = await findExistingManagedCacheIds(
+        managedCacheImport,
         embeddingSetId,
-        targets: group.imports.map((entry) => ({
-          mode: 'exact',
-          relativePath: entry.mutation.record.path,
-          rootId: group.rootId,
-        })),
-      });
+        requestGroup.rootId,
+        requestGroup.requests
+      );
+      const groupImports = await Promise.all(
+        requestGroup.requests.map((entry) =>
+          prepareManagedCacheImport(entry, existingByPath.get(entry.request.path) ?? null, now)
+        )
+      );
       await managedCacheImport.applyBatch({
         embeddingSetId,
-        rootId: group.rootId,
-        changes: group.imports.map((entry) => entry.mutation),
+        rootId: requestGroup.rootId,
+        changes: groupImports.map((entry) => entry.mutation),
       });
+      for (const [index, preparedImport] of groupImports.entries()) {
+        const request = requestGroup.requests[index];
+        if (!request) {
+          throw new FileImportError(
+            'repository-error',
+            'Managed-cache import prepared more records than requested.'
+          );
+        }
+        preparedByRequest.set(request, preparedImport);
+      }
     }
   } catch (error) {
     const message =
@@ -413,7 +457,16 @@ async function importManagedCacheRequestBatch(
   tracker.update(nonRequestErrorCount + completedCount, current);
   return {
     resultErrorCount: 0,
-    results: preparedImports.map((entry) => entry.result),
+    results: rootedRequests.map((entry) => {
+      const preparedImport = preparedByRequest.get(entry);
+      if (!preparedImport) {
+        throw new FileImportError(
+          'repository-error',
+          'Managed-cache import did not produce a result for every request.'
+        );
+      }
+      return preparedImport.result;
+    }),
   };
 }
 

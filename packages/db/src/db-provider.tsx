@@ -46,11 +46,7 @@ import {
 } from './database-work-scheduler.js';
 import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
-import type {
-  ApplyManagedCacheBatchArgs,
-  ApplyManagedCacheInvalidationsArgs,
-  ManagedCacheInvalidationResult,
-} from './managed-cache/index.js';
+import type { ApplyManagedCacheBatchArgs } from './managed-cache/index.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import type { FileChunk, FileChunkInsert, FileChunkUpdate } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
@@ -221,10 +217,6 @@ export interface DbHandle extends IDatabase {
     options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
     workOptions?: DatabaseWorkOptions
   ) => Promise<void>;
-  invalidateManagedCacheEntriesByIdentity?: (
-    payload: ApplyManagedCacheInvalidationsArgs,
-    options?: DatabaseWorkOptions
-  ) => Promise<ManagedCacheInvalidationResult>;
   readonly raw?: unknown;
   readonly syncToFs?: () => Promise<void>;
 }
@@ -254,10 +246,6 @@ interface QueryExecutor {
     options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
     workOptions?: DatabaseWorkOptions
   ) => Promise<void>;
-  invalidateManagedCacheEntriesByIdentity?: (
-    payload: ApplyManagedCacheInvalidationsArgs,
-    options?: DatabaseWorkOptions
-  ) => Promise<ManagedCacheInvalidationResult>;
   query: <T = unknown>(
     sql: string,
     params?: unknown[],
@@ -408,13 +396,6 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
         workOptions
       );
     };
-  }
-
-  if (typeof executor.invalidateManagedCacheEntriesByIdentity === 'function') {
-    const invalidateManagedCacheEntriesByIdentity =
-      executor.invalidateManagedCacheEntriesByIdentity;
-    handle.invalidateManagedCacheEntriesByIdentity = async (payload, options) =>
-      await invalidateManagedCacheEntriesByIdentity(payload, options);
   }
 
   if (typeof executor.transaction === 'function') {
@@ -756,12 +737,7 @@ interface ElectronTursoRuntimeRepositories {
 }
 
 type ElectronTursoExecutionClient = BrainstrikeDbExecutionClient &
-  Pick<
-    QueryExecutor,
-    | 'applyManagedCacheBatch'
-    | 'insertChunksAndEnqueueEmbeddingJobs'
-    | 'invalidateManagedCacheEntriesByIdentity'
-  >;
+  Pick<QueryExecutor, 'applyManagedCacheBatch' | 'insertChunksAndEnqueueEmbeddingJobs'>;
 
 interface ElectronTursoRepositoryDb {
   readonly applyManagedCacheBatch?: QueryExecutor['applyManagedCacheBatch'];
@@ -771,7 +747,6 @@ interface ElectronTursoRepositoryDb {
     options?: DatabaseWorkOptions
   ) => Promise<void>;
   readonly insertChunksAndEnqueueEmbeddingJobs?: QueryExecutor['insertChunksAndEnqueueEmbeddingJobs'];
-  readonly invalidateManagedCacheEntriesByIdentity?: QueryExecutor['invalidateManagedCacheEntriesByIdentity'];
   readonly query: <T = unknown>(
     sql: string,
     params?: readonly unknown[],
@@ -806,12 +781,6 @@ function createElectronTursoRepositoryDb(
             electronDB.insertChunksAndEnqueueEmbeddingJobs.bind(electronDB),
         }
       : {}),
-    ...(typeof electronDB.invalidateManagedCacheEntriesByIdentity === 'function'
-      ? {
-          invalidateManagedCacheEntriesByIdentity:
-            electronDB.invalidateManagedCacheEntriesByIdentity.bind(electronDB),
-        }
-      : {}),
     query: async (sql, params, options) =>
       await electronDB.query(sql, params ? [...params] : undefined, options),
     ...(electronRunTransaction
@@ -833,8 +802,6 @@ function createElectronTursoExecutionClient(
   const runTransaction = repositoryDb.runTransaction;
   const applyManagedCacheBatch = repositoryDb.applyManagedCacheBatch;
   const insertChunksAndEnqueueEmbeddingJobs = repositoryDb.insertChunksAndEnqueueEmbeddingJobs;
-  const invalidateManagedCacheEntriesByIdentity =
-    repositoryDb.invalidateManagedCacheEntriesByIdentity;
 
   const transactionClient: BrainstrikeDbTransactionClient = {
     exec: repositoryDb.exec,
@@ -844,7 +811,6 @@ function createElectronTursoExecutionClient(
     ...transactionClient,
     ...(applyManagedCacheBatch ? { applyManagedCacheBatch } : {}),
     ...(insertChunksAndEnqueueEmbeddingJobs ? { insertChunksAndEnqueueEmbeddingJobs } : {}),
-    ...(invalidateManagedCacheEntriesByIdentity ? { invalidateManagedCacheEntriesByIdentity } : {}),
     transaction: async (callback) => {
       const statements: { params?: unknown[]; sql: string }[] = [];
       const batchClient: BrainstrikeDbTransactionClient = {
