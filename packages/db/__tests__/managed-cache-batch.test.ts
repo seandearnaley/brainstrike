@@ -505,6 +505,44 @@ describe('applyManagedCacheBatch', () => {
     );
   });
 
+  it('applies remove mutations inside the managed-cache batch transaction', async () => {
+    await seedRoot('root-batch-remove-other', '/workspace/batch-remove-other');
+    await importManagedCacheFile({
+      fileRecordId: 'batch-remove-target',
+      relativePath: 'src/remove-me.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'batch-remove-other-root',
+      relativePath: 'src/remove-me.ts',
+      rootId: 'root-batch-remove-other',
+    });
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
+      changes: [
+        {
+          mode: 'remove',
+          target: {
+            expectedFileRecordId: 'batch-remove-target',
+            mode: 'exact',
+            relativePath: 'src/remove-me.ts',
+            rootId: 'root-fixture',
+          },
+        },
+      ],
+    } as Parameters<typeof applyManagedCacheBatch>[1]);
+
+    await expect(fileRecordRepository.findById('batch-remove-target')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('batch-remove-other-root')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'batch-remove-other-root',
+        path: 'src/remove-me.ts',
+      })
+    );
+  });
+
   it('does not invalidate root_id null legacy rows that share the target path', async () => {
     const now = new Date().toISOString();
     await fileRecordRepository.createWithContent({

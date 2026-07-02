@@ -37,6 +37,10 @@ export type ManagedCacheBatchMutation =
       record: ManagedCacheImportRecord;
     }
   | {
+      mode: 'remove';
+      target: ManagedCacheInvalidationTarget;
+    }
+  | {
       mode: 'replace';
       record: ManagedCacheReplaceRecord;
     };
@@ -214,6 +218,19 @@ function parseManagedCacheBatchMutation(change: unknown): ManagedCacheBatchMutat
     };
   }
 
+  if (candidate['mode'] === 'remove') {
+    const target = candidate['target'] as ManagedCacheInvalidationTarget;
+    try {
+      normalizeInvalidationTargets([target]);
+    } catch {
+      return null;
+    }
+    return {
+      mode: 'remove',
+      target,
+    };
+  }
+
   return null;
 }
 
@@ -328,6 +345,9 @@ function assertBatchWithinParameterLimit(
 function assertNoDuplicateMutationIds(changes: readonly ManagedCacheBatchMutation[]): void {
   const seenIds = new Set<string>();
   for (const change of changes) {
+    if (change.mode === 'remove') {
+      continue;
+    }
     if (seenIds.has(change.record.id)) {
       throw new Error(`Managed cache batch contains duplicate file record id ${change.record.id}.`);
     }
@@ -339,6 +359,9 @@ function assertNoNullBytesInManagedCacheContent(
   changes: readonly ManagedCacheBatchMutation[]
 ): void {
   for (const change of changes) {
+    if (change.mode === 'remove') {
+      continue;
+    }
     assertTextContentHasNoNullBytes(change.record.content, 'Managed cache content');
   }
 }
@@ -899,6 +922,95 @@ async function listTursoInvalidationMatches(
   };
 }
 
+async function applyManagedCacheRemovalTargets(
+  tx: QueryLike,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<ManagedCacheInvalidationResult> {
+  const deletedChunkIds = new Set<string>();
+  const deletedFileRecordIds = new Set<string>();
+  let canceledEmbeddingJobCount = 0;
+
+  for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+    const matches = await listInvalidationMatches(tx, embeddingSetId, targetBatch);
+    canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
+      tx,
+      matches.chunkIds,
+      'invalidation'
+    );
+
+    for (const chunkId of matches.chunkIds) {
+      deletedChunkIds.add(chunkId);
+    }
+    for (const fileRecordId of matches.fileRecordIds) {
+      deletedFileRecordIds.add(fileRecordId);
+    }
+
+    for (const fileRecordIds of chunkArray(
+      matches.fileRecordIds,
+      MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY
+    )) {
+      await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [fileRecordIds]);
+    }
+  }
+
+  return {
+    canceledEmbeddingJobCount,
+    deletedChunkIds: [...deletedChunkIds].sort(),
+    deletedFileRecordIds: [...deletedFileRecordIds].sort(),
+  };
+}
+
+async function applyTursoManagedCacheRemovalTargets(
+  tx: BrainstrikeDbTransactionClient,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<ManagedCacheInvalidationResult> {
+  const deletedChunkIds = new Set<string>();
+  const deletedFileRecordIds = new Set<string>();
+  let canceledEmbeddingJobCount = 0;
+
+  for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+    const matches = await listTursoInvalidationMatches(tx, embeddingSetId, targetBatch);
+    canceledEmbeddingJobCount += await cancelTursoQueuedOrRunningEmbeddingJobsForChunks(
+      tx,
+      matches.chunkIds,
+      'invalidation'
+    );
+
+    for (const chunkId of matches.chunkIds) {
+      deletedChunkIds.add(chunkId);
+    }
+    for (const fileRecordId of matches.fileRecordIds) {
+      deletedFileRecordIds.add(fileRecordId);
+    }
+
+    for (const fileRecordIds of chunkArray(matches.fileRecordIds, TURSO_PARAMETER_LIMIT)) {
+      if (fileRecordIds.length === 0) {
+        continue;
+      }
+      await tx.exec(
+        `DELETE FROM file_record_name_grams WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+        fileRecordIds
+      );
+      await tx.exec(
+        `DELETE FROM file_record_name_index WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+        fileRecordIds
+      );
+      await tx.exec(
+        `DELETE FROM file_records WHERE id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
+        fileRecordIds
+      );
+    }
+  }
+
+  return {
+    canceledEmbeddingJobCount,
+    deletedChunkIds: [...deletedChunkIds].sort(),
+    deletedFileRecordIds: [...deletedFileRecordIds].sort(),
+  };
+}
+
 export async function invalidateManagedCacheEntriesByIdentity(
   db: IDatabase,
   args: ApplyManagedCacheInvalidationsArgs
@@ -920,42 +1032,9 @@ export async function invalidateManagedCacheEntriesByIdentity(
   }
 
   return await db.transaction(async (tx) => {
-    const deletedChunkIds = new Set<string>();
-    const deletedFileRecordIds = new Set<string>();
-    let canceledEmbeddingJobCount = 0;
-
-    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
-      const matches = await listInvalidationMatches(tx, args.embeddingSetId, targetBatch);
-      canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
-        tx,
-        matches.chunkIds,
-        'invalidation'
-      );
-
-      for (const chunkId of matches.chunkIds) {
-        deletedChunkIds.add(chunkId);
-      }
-      for (const fileRecordId of matches.fileRecordIds) {
-        deletedFileRecordIds.add(fileRecordId);
-      }
-
-      for (const fileRecordIds of chunkArray(
-        matches.fileRecordIds,
-        MANAGED_CACHE_INVALIDATION_IDS_PER_QUERY
-      )) {
-        await tx.query('DELETE FROM file_records WHERE id::text = ANY($1::text[])', [
-          fileRecordIds,
-        ]);
-      }
-    }
-
+    const result = await applyManagedCacheRemovalTargets(tx, args.embeddingSetId, targets);
     await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
-
-    return {
-      canceledEmbeddingJobCount,
-      deletedChunkIds: [...deletedChunkIds].sort(),
-      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
-    };
+    return result;
   });
 }
 
@@ -977,51 +1056,9 @@ export async function invalidateTursoManagedCacheEntriesByIdentity(
   }
 
   return await db.transaction(async (tx) => {
-    const deletedChunkIds = new Set<string>();
-    const deletedFileRecordIds = new Set<string>();
-    let canceledEmbeddingJobCount = 0;
-
-    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
-      const matches = await listTursoInvalidationMatches(tx, args.embeddingSetId, targetBatch);
-      canceledEmbeddingJobCount += await cancelTursoQueuedOrRunningEmbeddingJobsForChunks(
-        tx,
-        matches.chunkIds,
-        'invalidation'
-      );
-
-      for (const chunkId of matches.chunkIds) {
-        deletedChunkIds.add(chunkId);
-      }
-      for (const fileRecordId of matches.fileRecordIds) {
-        deletedFileRecordIds.add(fileRecordId);
-      }
-
-      for (const fileRecordIds of chunkArray(matches.fileRecordIds, TURSO_PARAMETER_LIMIT)) {
-        if (fileRecordIds.length === 0) {
-          continue;
-        }
-        await tx.exec(
-          `DELETE FROM file_record_name_grams WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
-          fileRecordIds
-        );
-        await tx.exec(
-          `DELETE FROM file_record_name_index WHERE file_record_id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
-          fileRecordIds
-        );
-        await tx.exec(
-          `DELETE FROM file_records WHERE id IN (${buildQuestionMarkList(fileRecordIds.length)})`,
-          fileRecordIds
-        );
-      }
-    }
-
+    const result = await applyTursoManagedCacheRemovalTargets(tx, args.embeddingSetId, targets);
     await refreshTursoCollectionIndexingStats(tx, [args.embeddingSetId]);
-
-    return {
-      canceledEmbeddingJobCount,
-      deletedChunkIds: [...deletedChunkIds].sort(),
-      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
-    };
+    return result;
   });
 }
 
@@ -1045,6 +1082,9 @@ export async function applyManagedCacheBatch(
   const replacements = args.changes.flatMap((change) =>
     change.mode === 'replace' ? [change.record] : []
   );
+  const removals = normalizeInvalidationTargets(
+    args.changes.flatMap((change) => (change.mode === 'remove' ? [change.target] : []))
+  );
   assertBatchWithinParameterLimit(imports.length, MAX_MANAGED_CACHE_IMPORTS_PER_BATCH, 'import');
   assertBatchWithinParameterLimit(
     replacements.length,
@@ -1064,8 +1104,10 @@ export async function applyManagedCacheBatch(
   }
 
   await db.transaction(async (tx) => {
-    // Replacements must run first so stale chunks are cleared before any new rows in the same
-    // batch are inserted. Reordering these calls changes conflict behavior and atomicity.
+    await applyManagedCacheRemovalTargets(tx, args.embeddingSetId, removals);
+    // After removals, replacements must run before imports so stale chunks are cleared before
+    // any new rows in the same batch are inserted. Reordering these calls changes conflict
+    // behavior and atomicity.
     // NOTE: applyManagedCacheReplacements does NOT set root_id — it is an UPDATE by id,
     // and the root of an existing record never changes on replace.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
@@ -1091,6 +1133,9 @@ export async function applyTursoManagedCacheBatch(
   const replacements = args.changes.flatMap((change) =>
     change.mode === 'replace' ? [change.record] : []
   );
+  const removals = normalizeInvalidationTargets(
+    args.changes.flatMap((change) => (change.mode === 'remove' ? [change.target] : []))
+  );
   if (imports.length > 0 && (args.rootId === null || args.rootId === undefined)) {
     throw new Error(
       'Managed cache import requires a non-null rootId — an import with no root_id would have no cache identity.'
@@ -1098,6 +1143,7 @@ export async function applyTursoManagedCacheBatch(
   }
 
   await db.transaction(async (tx) => {
+    await applyTursoManagedCacheRemovalTargets(tx, args.embeddingSetId, removals);
     await applyTursoManagedCacheReplacements(tx, args.embeddingSetId, replacements);
     await insertTursoManagedCacheImports(tx, args.embeddingSetId, imports, args.rootId ?? null);
     await refreshTursoCollectionIndexingStats(tx, [args.embeddingSetId]);

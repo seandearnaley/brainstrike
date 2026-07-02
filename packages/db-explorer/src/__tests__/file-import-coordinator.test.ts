@@ -89,6 +89,9 @@ describe('runFileImport', () => {
     if (!firstChange) {
       throw new Error('Expected managed-cache applyBatch to receive a root-a change.');
     }
+    if (firstChange.mode !== 'replace') {
+      throw new Error('Expected first managed-cache applyBatch change to be replace.');
+    }
     expect(firstChange.record).not.toHaveProperty('createdAt');
     expect(applyBatch).toHaveBeenNthCalledWith(2, {
       embeddingSetId: 'collection-1',

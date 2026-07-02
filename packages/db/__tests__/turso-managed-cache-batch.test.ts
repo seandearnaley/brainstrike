@@ -424,6 +424,56 @@ describe('Turso managed-cache batch', () => {
     await expect(readStats()).resolves.toMatchObject({ file_count: 1 });
   });
 
+  it('applies remove mutations inside the Turso managed-cache batch transaction', async () => {
+    await client.exec(
+      "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-2', 'path', 'Root 2', '/tmp/root-2')"
+    );
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'remove-target', path: 'src/shared.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'same-path-other-root', path: 'src/shared.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-2',
+    });
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'remove',
+          target: {
+            expectedFileRecordId: 'remove-target',
+            mode: 'exact',
+            relativePath: 'src/shared.ts',
+            rootId: 'root-1',
+          },
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(readFileRecord('remove-target')).resolves.toBeUndefined();
+    await expect(readFileRecord('same-path-other-root')).resolves.toMatchObject({
+      id: 'same-path-other-root',
+      path: 'src/shared.ts',
+      root_id: 'root-2',
+    });
+    await expect(readStats()).resolves.toMatchObject({ file_count: 1 });
+  });
+
   it('keeps quick-open name grams searchable across Turso managed-cache writes', async () => {
     const fileRecords = new TursoFileRecordRepository(client);
 

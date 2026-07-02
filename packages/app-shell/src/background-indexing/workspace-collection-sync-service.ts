@@ -869,7 +869,7 @@ export class WorkspaceCollectionSyncService {
     });
     const { invalidationTargets, prepared } = syncChanges;
     this.setScanSummary(args.context, prepared);
-    if (invalidationTargets.length > 0) {
+    if (invalidationTargets.length > 0 && prepared.changes.length === 0) {
       await this.deps.invalidateManagedCacheEntriesByIdentity({
         embeddingSetId: args.context.collection.id,
         targets: invalidationTargets,
@@ -942,6 +942,7 @@ export class WorkspaceCollectionSyncService {
         ? { fileContentProcessor: this.deps.fileContentProcessor }
         : {}),
       fileRecordRepository: this.deps.fileRecordRepository,
+      removals: invalidationTargets,
       rootId: args.context.dbRootId,
       runtimeEngine: this.deps.runtimeEngine,
       onProgress: (progress) => {
