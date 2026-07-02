@@ -61,6 +61,7 @@ const dbPackageMocks = vi.hoisted(() => ({
   tursoJobQueueHeartbeatBatch: vi.fn(async () => [{ id: 'job-5', state: 'running' }]),
   tursoJobQueueRepairUnclaimableQueued: vi.fn(async () => 5),
   tursoJobQueueRequeueFailed: vi.fn(async () => 6),
+  tursoJobQueueRetryFailed: vi.fn(async () => ({ repairedQueued: 5, requeuedFailed: 6 })),
   invalidateManagedCacheEntriesByIdentity: vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
@@ -110,6 +111,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       heartbeatBatch = dbPackageMocks.tursoJobQueueHeartbeatBatch;
       repairUnclaimableQueued = dbPackageMocks.tursoJobQueueRepairUnclaimableQueued;
       requeueFailed = dbPackageMocks.tursoJobQueueRequeueFailed;
+      retryFailed = dbPackageMocks.tursoJobQueueRetryFailed;
     },
   };
 });
@@ -1147,11 +1149,12 @@ describe('db-host-entry', () => {
       ['set-2']
     );
     expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(1, 'embeddings', ['failed']);
-    expect(dbPackageMocks.tursoJobQueueRepairUnclaimableQueued).toHaveBeenCalledWith(
+    expect(dbPackageMocks.tursoJobQueueRetryFailed).toHaveBeenCalledWith('embeddings', 5);
+    expect(dbPackageMocks.tursoJobQueueRepairUnclaimableQueued).not.toHaveBeenCalledWith(
       'embeddings',
       5
     );
-    expect(dbPackageMocks.tursoJobQueueRequeueFailed).toHaveBeenCalledWith('embeddings', 5);
+    expect(dbPackageMocks.tursoJobQueueRequeueFailed).not.toHaveBeenCalledWith('embeddings', 5);
     expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(2, 'embeddings');
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       id: 'retry-failed',

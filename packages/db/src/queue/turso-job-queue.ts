@@ -538,7 +538,14 @@ export class TursoJobQueue {
     limit = 20,
     options: QueueRetryOptions = {}
   ): Promise<number> {
-    return resetJobsForRetry(this.db, "state = 'failed'", queue, limit, options.embeddingSetId);
+    return resetJobsForRetry(
+      this.db,
+      'requeueFailed',
+      "state = 'failed'",
+      queue,
+      limit,
+      options.embeddingSetId
+    );
   }
 
   async repairUnclaimableQueued(
@@ -548,10 +555,36 @@ export class TursoJobQueue {
   ): Promise<number> {
     return resetJobsForRetry(
       this.db,
+      'repairUnclaimableQueued',
       "state = 'queued' AND attempts >= max_attempts",
       queue,
       limit,
       options.embeddingSetId
+    );
+  }
+
+  async retryFailed(
+    queue?: string,
+    limit = 20,
+    options: QueueRetryOptions = {}
+  ): Promise<{ repairedQueued: number; requeuedFailed: number }> {
+    return withTursoWriteRetry('retryFailed', async () =>
+      this.db.transaction(async (tx) => ({
+        repairedQueued: await resetJobsForRetryWithTx(
+          tx,
+          "state = 'queued' AND attempts >= max_attempts",
+          queue,
+          limit,
+          options.embeddingSetId
+        ),
+        requeuedFailed: await resetJobsForRetryWithTx(
+          tx,
+          "state = 'failed'",
+          queue,
+          limit,
+          options.embeddingSetId
+        ),
+      }))
     );
   }
 }
@@ -1289,6 +1322,21 @@ function sleep(ms: number): Promise<void> {
 
 async function resetJobsForRetry(
   db: BrainstrikeDbExecutionClient,
+  operation: string,
+  baseCondition: string,
+  queue: string | undefined,
+  limit: number,
+  embeddingSetId: string | undefined
+): Promise<number> {
+  return withTursoWriteRetry(operation, async () =>
+    db.transaction(async (tx) =>
+      resetJobsForRetryWithTx(tx, baseCondition, queue, limit, embeddingSetId)
+    )
+  );
+}
+
+async function resetJobsForRetryWithTx(
+  tx: BrainstrikeDbTransactionClient,
   baseCondition: string,
   queue: string | undefined,
   limit: number,
@@ -1305,35 +1353,31 @@ async function resetJobsForRetry(
     conditions.push('embedding_set_id = ?');
     params.push(embeddingSetId);
   }
-  return withTursoWriteRetry('resetJobsForRetry', async () =>
-    db.transaction(async (tx) => {
-      const candidates = await tx.query<{ id: string }>(
-        `SELECT id
-           FROM job_queue
-          WHERE ${conditions.join(' AND ')}
-          ORDER BY updated_at DESC
-          LIMIT ?`,
-        [...params, limit]
-      );
-      if (candidates.rows.length === 0) {
-        return 0;
-      }
-      const ids = candidates.rows.map((row) => row.id);
-      const result = await tx.query<{ id: string }>(
-        `UPDATE job_queue
-            SET state = 'queued',
-                attempts = 0,
-                run_at = ?,
-                backoff_ms = 0,
-                leased_until = NULL,
-                lease_token = NULL,
-                error = NULL,
-                updated_at = ?
-          WHERE id IN (${placeholders(ids.length)})
-        RETURNING id`,
-        [now, now, ...ids]
-      );
-      return result.rows.length;
-    })
+  const candidates = await tx.query<{ id: string }>(
+    `SELECT id
+       FROM job_queue
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY updated_at DESC
+      LIMIT ?`,
+    [...params, limit]
   );
+  if (candidates.rows.length === 0) {
+    return 0;
+  }
+  const ids = candidates.rows.map((row) => row.id);
+  const result = await tx.query<{ id: string }>(
+    `UPDATE job_queue
+        SET state = 'queued',
+            attempts = 0,
+            run_at = ?,
+            backoff_ms = 0,
+            leased_until = NULL,
+            lease_token = NULL,
+            error = NULL,
+            updated_at = ?
+      WHERE id IN (${placeholders(ids.length)})
+    RETURNING id`,
+    [now, now, ...ids]
+  );
+  return result.rows.length;
 }
