@@ -50,13 +50,10 @@ export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.Rea
     Boolean(db) || isTursoSchemaReady(initializationStatus, profileBootstrapReport);
 
   useEffect(() => {
-    if (!schemaReady) {
-      return;
-    }
-    // Database runtime is ready (migrations have run in DbProvider), set schemaVerified.
+    // Keep the global schema cache aligned with the current runtime readiness.
     // Defer to avoid synchronous setState in effect body (React Compiler requirement)
     const timer = setTimeout(() => {
-      setSchemaVerified(true);
+      setSchemaVerified(schemaReady);
     }, 0);
     return () => {
       clearTimeout(timer);
