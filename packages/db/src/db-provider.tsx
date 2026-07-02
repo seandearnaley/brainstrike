@@ -1920,6 +1920,39 @@ export function useBrainstrikeLiveQueryCapability(): boolean {
   );
 }
 
+export interface BrainstrikeSchemaReadyCapabilityInput {
+  readonly db: unknown | null;
+  readonly error: Error | null;
+  readonly initializationStatus: DbInitializationStatus;
+  readonly profileBootstrapReport: ProfileBootstrapReport;
+  readonly ready: boolean;
+}
+
+export function startDbProviderLazyInitialization(initializeDatabase: () => Promise<void>): void {
+  initializeDatabase().catch((err) => {
+    logDatabaseError('Failed to lazy-initialize database', err);
+  });
+}
+
+export function resolveBrainstrikeSchemaReadyCapability(
+  input: BrainstrikeSchemaReadyCapabilityInput
+): boolean {
+  if (input.error) {
+    return false;
+  }
+
+  const runtimeEngine = input.profileBootstrapReport.runtime.engine;
+  if (runtimeEngine === 'pglite') {
+    return Boolean(input.ready && input.db);
+  }
+
+  if (runtimeEngine === 'turso') {
+    return input.initializationStatus === 'ready' && input.profileBootstrapReport.ready === true;
+  }
+
+  return false;
+}
+
 export function useBrainstrikeSchemaReadyCapability(): boolean {
   const ctx = useContext(DbContext);
   const db = ctx?.db;
@@ -1930,26 +1963,21 @@ export function useBrainstrikeSchemaReadyCapability(): boolean {
 
   useEffect(() => {
     if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
+      startDbProviderLazyInitialization(initializeDatabase);
     }
   }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
-  if (!ctx || ctx.error) {
+  if (!ctx) {
     return false;
   }
 
-  const runtimeEngine = ctx.profileBootstrapReport.runtime.engine;
-  if (runtimeEngine === 'pglite') {
-    return Boolean(ctx.ready && ctx.db);
-  }
-
-  if (runtimeEngine === 'turso') {
-    return ctx.initializationStatus === 'ready' && ctx.profileBootstrapReport.ready === true;
-  }
-
-  return false;
+  return resolveBrainstrikeSchemaReadyCapability({
+    db: ctx.db,
+    error: ctx.error,
+    initializationStatus: ctx.initializationStatus,
+    profileBootstrapReport: ctx.profileBootstrapReport,
+    ready: ctx.ready,
+  });
 }
 
 export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {
