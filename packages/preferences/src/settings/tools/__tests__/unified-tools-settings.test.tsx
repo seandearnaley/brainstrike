@@ -13,7 +13,8 @@ import type {
 } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
-const { useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
+const { useBrainstrikeLiveQueryCapabilityMock, useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
+  useBrainstrikeLiveQueryCapabilityMock: vi.fn(() => true),
   useBrainstrikeLiveQueryMock: vi.fn(() => ({
     rows: [],
     loading: false,
@@ -23,6 +24,7 @@ const { useBrainstrikeLiveQueryMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  useBrainstrikeLiveQueryCapability: useBrainstrikeLiveQueryCapabilityMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
 }));
 
@@ -308,6 +310,7 @@ describe('UnifiedToolsSettings', () => {
       error: null,
       refresh: vi.fn(),
     });
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
     localStorage.clear();
   });
 
@@ -330,6 +333,32 @@ describe('UnifiedToolsSettings', () => {
           key: 'id',
         })
       );
+    });
+
+    it('fails closed when live query metadata is configured but unavailable', async () => {
+      const operations = createMockOperations();
+      operations.toolsLiveQuery = {
+        query: 'SELECT id FROM tools ORDER BY id',
+        mode: 'incremental',
+        key: 'id',
+      };
+      useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      expect(useBrainstrikeLiveQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'SELECT id FROM tools ORDER BY id',
+          enabled: false,
+          mode: 'incremental',
+          key: 'id',
+        })
+      );
+
+      expect(operations.getTools).not.toHaveBeenCalled();
+      expect(
+        await screen.findByText('Tool live queries require PGlite live-query support.')
+      ).toBeInTheDocument();
     });
   });
 
