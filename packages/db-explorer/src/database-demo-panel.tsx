@@ -6,7 +6,6 @@ import {
   type ManualImportDbClient,
   refreshCollectionIndexingStats,
   refreshTursoCollectionIndexingStats,
-  useBrainstrikeDbClient,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
@@ -223,7 +222,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
-  const dbContext = useBrainstrikeDbClient();
   const manualImportDbClient = useManualImportDbClient();
   const profileBootstrapReport = useOptionalProfileBootstrapReport();
 
@@ -265,6 +263,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
   const tursoChunkRepository = isTursoFileChunkRepository(dbChunkRepository);
   const supportsPGliteCollectionQueries = Boolean(dbChunkRepository && !tursoChunkRepository);
+  const collectionQueryDatabase =
+    manualImportDbClient?.runtimeEngine === 'pglite' ? manualImportDbClient.db : null;
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -304,7 +304,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     repository,
     chunkRepository: dbChunkRepository,
     toast,
-    database: dbContext,
+    database: collectionQueryDatabase,
     activeCollectionId,
     isImporting: isImportActive,
     isEmbeddingActive,
@@ -712,7 +712,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
               <SearchCollectionSelector
                 activeCollectionId={activeCollectionId}
-                db={dbContext}
+                db={collectionQueryDatabase}
                 onCollectionChange={handleCollectionChange}
                 onCreateCollection={collectionDialogs.handleCreateCollection}
                 onDeleteCollection={collectionDialogs.handleDeleteCollection}

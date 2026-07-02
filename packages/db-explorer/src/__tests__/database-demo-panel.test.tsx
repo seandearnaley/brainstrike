@@ -55,6 +55,7 @@ const {
   enhancedImportServiceState,
   mockRefreshCollectionIndexingStats,
   mockRefreshTursoCollectionIndexingStats,
+  mockUseBrainstrikeDbClient,
 } = vi.hoisted(() => ({
   enhancedImportServiceState: {
     options: null as null | {
@@ -64,6 +65,7 @@ const {
   },
   mockRefreshCollectionIndexingStats: vi.fn().mockResolvedValue([]),
   mockRefreshTursoCollectionIndexingStats: vi.fn().mockResolvedValue(undefined),
+  mockUseBrainstrikeDbClient: vi.fn(),
 }));
 
 // Mock all external dependencies at the top level
@@ -256,7 +258,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     ),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockCurrentRepository,
-    useBrainstrikeDbClient: () => mockDatabaseClient,
+    useBrainstrikeDbClient: () => mockUseBrainstrikeDbClient(),
     useModelRegistryDbClient: () => mockModelRegistryDatabaseClient,
     useManualImportDbClient: () => mockManualImportDatabaseClient,
     useEmbeddingSetsRepository: () => mockEmbeddingSetsRepositoryClient,
@@ -532,10 +534,12 @@ describe('DatabaseDemoPanel', () => {
     mockUseSemanticSearchExecutor.mockClear();
     mockRefreshCollectionIndexingStats.mockClear();
     mockRefreshTursoCollectionIndexingStats.mockClear();
+    mockUseBrainstrikeDbClient.mockReset();
     enhancedImportServiceState.options = null;
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
     useVectorStatusUIStore.getState().setSchemaVerified(true);
     mockDatabaseClient = mockDatabase;
+    mockUseBrainstrikeDbClient.mockImplementation(() => mockDatabaseClient);
     mockModelRegistryDatabaseClient = mockModelRegistryDatabase;
     mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'pglite' };
     mockEmbeddingSetsRepositoryClient = mockEmbeddingSetsRepository;
@@ -629,6 +633,19 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
+    });
+
+    it('does not request the PGlite-gated generic DB client for collection data', async () => {
+      mockDatabaseClient = null;
+      mockManualImportDatabaseClient = { db: mockDatabase, runtimeEngine: 'pglite' };
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      expect(mockUseBrainstrikeDbClient).not.toHaveBeenCalled();
     });
 
     it('does not render a panel-local embedding status bar', async () => {

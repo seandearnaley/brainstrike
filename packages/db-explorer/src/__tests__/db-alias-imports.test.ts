@@ -27,7 +27,7 @@ const PGLITE_ONLY_ALIASES = new Set([
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ]);
-const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set(['database-demo-panel.tsx']);
+const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set<string>();
 
 function findImportedGatedDbAliases(source: string): string[] {
   const aliases: string[] = [];
