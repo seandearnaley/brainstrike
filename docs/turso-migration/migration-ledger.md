@@ -281,10 +281,11 @@ Current Turso repository/runtime coverage:
   `useEmbeddingSetsRepository()` before falling back to the raw PGlite-only DB
   handle, so Turso repository mode can generate query embeddings without
   requiring a PGlite client.
-- `DbSchemaVerifier` still treats `useBrainstrikeDbClient()` as PGlite-only, but
-  now also marks the existing vector-status `schemaVerified` compatibility flag
-  from a ready Turso bootstrap report (`initializationStatus=ready`,
-  `report.ready=true`, `runtime.engine=turso`).
+- `DbSchemaVerifier` now consumes the DB provider's schema-readiness
+  capability instead of reassembling readiness from raw database handles, so
+  the existing vector-status `schemaVerified` compatibility flag follows ready
+  PGlite handles and ready Turso bootstrap reports through one provider-owned
+  decision.
 - Desktop assistant `brainstrike.grepSearch` is available under Turso only when
   the ready bootstrap report includes required check
   `search.grep-content-grams=passed`. The tool uses

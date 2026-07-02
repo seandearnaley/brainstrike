@@ -96,7 +96,7 @@ describe('useDatabaseStatusSync', () => {
     expect(state.testResult).toBe('Connected (IPC)');
   });
 
-  it('marks Turso partial repository coverage connected without a file-record repository', async () => {
+  it('marks a ready Turso runtime connected without a file-record repository', async () => {
     mockUseOptionalDbInitializationStatus.mockReturnValue('ready');
     mockUseFileRecordRepository.mockReturnValue(null);
     mockUseOptionalProfileBootstrapReport.mockReturnValue({
@@ -126,9 +126,7 @@ describe('useDatabaseStatusSync', () => {
     const state = useDatabaseStatusStore.getState();
     expect(state.loading).toBe(false);
     expect(state.location).toBe('Turso');
-    expect(state.testResult).toBe(
-      'Connected (partial: embedding_sets, file_token_cache, view_filter_presets)'
-    );
+    expect(state.testResult).toBe('Connected (runtime ready)');
   });
 
   it('uses the ready Turso bootstrap report even when a file-record repository is available', async () => {
@@ -160,9 +158,7 @@ describe('useDatabaseStatusSync', () => {
 
     const state = useDatabaseStatusStore.getState();
     expect(state.location).toBe('Turso');
-    expect(state.testResult).toBe(
-      'Connected (partial: embedding_sets, file_token_cache, view_filter_presets)'
-    );
+    expect(state.testResult).toBe('Connected (runtime ready)');
   });
 
   it('reverts to loading when repository disappears after being connected', async () => {
