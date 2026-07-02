@@ -58,6 +58,20 @@ function createTestQosPolicy(
   };
 }
 
+function expectTursoDebugSqlPortable(sql: string): void {
+  expect(sql).not.toContain('::');
+  expect(sql).not.toMatch(/\bFILTER\s*\(/);
+  expect(sql).not.toMatch(/\$\d+/);
+
+  for (const aggregate of ['COUNT(', 'SUM(']) {
+    let offset = sql.indexOf(aggregate);
+    while (offset !== -1) {
+      expect(sql.slice(Math.max(0, offset - 'CAST('.length), offset)).toBe('CAST(');
+      offset = sql.indexOf(aggregate, offset + aggregate.length);
+    }
+  }
+}
+
 const {
   runEnhancedImportMock,
   readFullTreeWithOptionsMock,
@@ -3683,9 +3697,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }),
       ]);
       for (const [sql] of queryMock.mock.calls) {
-        expect(sql).not.toContain('::');
-        expect(sql).not.toMatch(/\bFILTER\s*\(/);
-        expect(sql).not.toMatch(/\$\d+/);
+        expectTursoDebugSqlPortable(sql);
       }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
@@ -3780,9 +3792,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }),
       ]);
       for (const [sql] of queryMock.mock.calls) {
-        expect(sql).not.toContain('::');
-        expect(sql).not.toMatch(/\bFILTER\s*\(/);
-        expect(sql).not.toMatch(/\$\d+/);
+        expectTursoDebugSqlPortable(sql);
       }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
@@ -3895,9 +3905,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         })
       ).toBe(true);
       for (const [sql] of queryMock.mock.calls) {
-        expect(sql).not.toContain('::');
-        expect(sql).not.toMatch(/\bFILTER\s*\(/);
-        expect(sql).not.toMatch(/\$\d+/);
+        expectTursoDebugSqlPortable(sql);
       }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');

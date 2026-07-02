@@ -2500,9 +2500,9 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
-        `SELECT root_id, COUNT(*) AS file_count,
-                SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS chunked_file_count,
-                SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS unchunked_file_count
+        `SELECT root_id, CAST(COUNT(*) AS INTEGER) AS file_count,
+                CAST(SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER) AS chunked_file_count,
+                CAST(SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS INTEGER) AS unchunked_file_count
            FROM file_records
           WHERE ${collectionFilter}
           GROUP BY root_id
@@ -2518,7 +2518,7 @@ export function WorkspaceCollectionSyncProvider({
                 fr.id,
                 fr.path AS relative_path,
                 fr.chunks_processed_at,
-                COUNT(fc.id) AS chunk_count
+                CAST(COUNT(fc.id) AS INTEGER) AS chunk_count
            FROM file_records fr
            LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
           WHERE ${fileRecordCollectionFilter}
@@ -2532,9 +2532,9 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `SELECT fr.root_id,
-                COUNT(fc.id) AS chunk_count,
-                COUNT(fc.embedding) AS embedded_chunk_count,
-                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
+                CAST(COUNT(fc.id) AS INTEGER) AS chunk_count,
+                CAST(COUNT(fc.embedding) AS INTEGER) AS embedded_chunk_count,
+                CAST(SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS INTEGER) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
           WHERE ${chunkCollectionFilter}
@@ -2549,9 +2549,9 @@ export function WorkspaceCollectionSyncProvider({
         `/* chunks_by_root_and_set_query_marker */
          SELECT fr.root_id,
                 fc.embedding_set_id,
-                COUNT(fc.id) AS chunk_count,
-                COUNT(fc.embedding) AS embedded_chunk_count,
-                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
+                CAST(COUNT(fc.id) AS INTEGER) AS chunk_count,
+                CAST(COUNT(fc.embedding) AS INTEGER) AS embedded_chunk_count,
+                CAST(SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS INTEGER) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
           WHERE ${fileRecordCollectionFilter}
@@ -2563,7 +2563,7 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
-        `SELECT queue, job_type, state, COUNT(*) AS count,
+        `SELECT queue, job_type, state, CAST(COUNT(*) AS INTEGER) AS count,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
@@ -2579,8 +2579,8 @@ export function WorkspaceCollectionSyncProvider({
         query,
         `/* job_queue_readiness_query_marker */
          SELECT state,
-                SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS due_count,
-                SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS future_count,
+                CAST(SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS INTEGER) AS due_count,
+                CAST(SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS INTEGER) AS future_count,
                 MIN(run_at) AS oldest_run_at,
                 MAX(run_at) AS newest_run_at,
                 MIN(updated_at) AS oldest_updated_at,
@@ -2751,9 +2751,9 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `/* workspace_index_summary_file_records_marker */
-         SELECT root_id, COUNT(*) AS file_count,
-                SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS chunked_file_count,
-                SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS unchunked_file_count
+         SELECT root_id, CAST(COUNT(*) AS INTEGER) AS file_count,
+                CAST(SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS INTEGER) AS chunked_file_count,
+                CAST(SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS INTEGER) AS unchunked_file_count
            FROM file_records
           WHERE ${collectionFilter}
           GROUP BY root_id
@@ -2767,9 +2767,9 @@ export function WorkspaceCollectionSyncProvider({
         `/* workspace_index_summary_chunks_marker */
          SELECT fr.root_id,
                 fc.embedding_set_id,
-                COUNT(fc.id) AS chunk_count,
-                COUNT(fc.embedding) AS embedded_chunk_count,
-                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
+                CAST(COUNT(fc.id) AS INTEGER) AS chunk_count,
+                CAST(COUNT(fc.embedding) AS INTEGER) AS embedded_chunk_count,
+                CAST(SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS INTEGER) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
           WHERE ${fileRecordCollectionFilter}
@@ -2782,7 +2782,7 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `/* workspace_index_summary_job_queue_marker */
-         SELECT queue, job_type, state, COUNT(*) AS count,
+         SELECT queue, job_type, state, CAST(COUNT(*) AS INTEGER) AS count,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
@@ -2798,8 +2798,8 @@ export function WorkspaceCollectionSyncProvider({
         query,
         `/* workspace_index_summary_job_queue_readiness_marker */
          SELECT state,
-                SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS due_count,
-                SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS future_count,
+                CAST(SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS INTEGER) AS due_count,
+                CAST(SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS INTEGER) AS future_count,
                 MIN(run_at) AS oldest_run_at,
                 MAX(run_at) AS newest_run_at,
                 MIN(updated_at) AS oldest_updated_at,
