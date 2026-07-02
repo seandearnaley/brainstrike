@@ -265,6 +265,10 @@ interface ReconcileBackfillStateAfterReloadParams {
   setIsJobQueueActive: (active: boolean) => void;
 }
 
+function extractErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function reconcileBackfillStateAfterReload({
   activeEmbeddingSetId,
   clearTransientBackfillState,
@@ -347,6 +351,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
   const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [snapshot, setSnapshot] = useState<VectorQueueSnapshot | null>(null);
+  const [queueActionError, setQueueActionError] = useState<string | null>(null);
   const snapshotRefreshRequestIdRef = useRef(0);
   const autoBackfillRef = useRef<string | null>(null);
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
@@ -385,6 +390,21 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     activeBackfill !== null && activeBackfill.embeddingSetId === activeEmbeddingSetId;
   const activeSetBackfillProgress = isActiveSetBackfill ? (activeBackfill?.progress ?? null) : null;
 
+  const reportQueueActionFailure = useCallback((actionName: string, error: unknown): never => {
+    const message = extractErrorMessage(error);
+    const visibleMessage = `Failed to ${actionName}: ${message}`;
+    logger.warn(`Failed to ${actionName}`, { error: message });
+    setQueueActionError(visibleMessage);
+    throw error;
+  }, []);
+
+  const reportQueueStateRefreshFailure = useCallback((actionName: string, error: unknown) => {
+    const message = extractErrorMessage(error);
+    const visibleMessage = `Failed to refresh queue state after ${actionName}: ${message}`;
+    logger.warn(`Failed to refresh queue state after ${actionName}`, { error: message });
+    setQueueActionError(visibleMessage);
+  }, []);
+
   // Pause live queries during import, active embedding, and local backfill submission.
   // These queries invalidate on every job_queue mutation and can cause visible renderer
   // OOM during large backfills (30K+ chunks generate ~90K mutations).
@@ -411,6 +431,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     },
     [clearBackfillTimeout]
   );
+
+  useEffect(() => {
+    setQueueActionError(null);
+  }, [activeEmbeddingSetId]);
 
   // Reconcile backfill state after renderer reload (e.g., crash recovery).
   // If the main process has a backfill in flight for the active embedding set,
@@ -536,8 +560,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   });
 
   const lastError = useMemo(
-    () => lastErrorResult.rows[0]?.error ?? snapshotFallback?.lastError ?? null,
-    [lastErrorResult.rows, snapshotFallback]
+    () => queueActionError ?? lastErrorResult.rows[0]?.error ?? snapshotFallback?.lastError ?? null,
+    [lastErrorResult.rows, queueActionError, snapshotFallback]
   );
 
   const latencyRowsResult = useBrainstrikeLiveQuery<LatencyRow>({
@@ -640,6 +664,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     refreshSnapshotReaderState,
     throughputResult,
   ]);
+
+  const refreshQueueStateAfterAction = useCallback(
+    async (actionName: string) => {
+      setQueueActionError(null);
+      try {
+        await refreshCoverageAndQueueState();
+      } catch (error) {
+        reportQueueStateRefreshFailure(actionName, error);
+      }
+    },
+    [refreshCoverageAndQueueState, reportQueueStateRefreshFailure]
+  );
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
 
@@ -865,12 +901,12 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       }
       try {
         await service.retryFailed(limit);
-        await refreshCoverageAndQueueState();
-      } catch {
-        // ignore errors from manual retries
+      } catch (error) {
+        reportQueueActionFailure('retry failed jobs', error);
       }
+      await refreshQueueStateAfterAction('retry failed jobs');
     },
-    [refreshCoverageAndQueueState, service]
+    [refreshQueueStateAfterAction, reportQueueActionFailure, service]
   );
 
   const clearQueue = useCallback(async () => {
@@ -879,11 +915,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     try {
       await service.clearQueue(['failed']);
-      await refreshCoverageAndQueueState();
-    } catch {
-      // ignore errors when clearing queue
+    } catch (error) {
+      reportQueueActionFailure('clear failed queue jobs', error);
     }
-  }, [refreshCoverageAndQueueState, service]);
+    await refreshQueueStateAfterAction('clear failed queue jobs');
+  }, [refreshQueueStateAfterAction, reportQueueActionFailure, service]);
 
   const wipeQueue = useCallback(async () => {
     if (!service) {
@@ -893,11 +929,17 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       await controller.cancelAllBackfills();
       await service.wipeQueue();
       clearTransientBackfillState();
-      await refreshCoverageAndQueueState();
-    } catch {
-      // ignore errors when wiping queue
+    } catch (error) {
+      reportQueueActionFailure('wipe queue', error);
     }
-  }, [clearTransientBackfillState, controller, refreshCoverageAndQueueState, service]);
+    await refreshQueueStateAfterAction('wipe queue');
+  }, [
+    clearTransientBackfillState,
+    controller,
+    refreshQueueStateAfterAction,
+    reportQueueActionFailure,
+    service,
+  ]);
 
   return useMemo(
     () => ({
