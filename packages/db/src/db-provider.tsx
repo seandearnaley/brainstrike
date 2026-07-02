@@ -22,9 +22,15 @@ import {
 } from 'react';
 import type {
   BrainstrikeDbExecutionClient,
+  BrainstrikeDbSqlCapabilities,
   BrainstrikeDbTransactionClient,
 } from './architecture/brainstrike-db-client-contract.js';
-import { markBrainstrikeDbExecutionRuntime } from './architecture/brainstrike-db-client-contract.js';
+import {
+  BRAINSTRIKE_DB_PGLITE_BASELINE_SQL_CAPABILITIES,
+  BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES,
+  getMissingBrainstrikeDbExecutionClientCapabilities,
+  markBrainstrikeDbExecutionRuntime,
+} from './architecture/brainstrike-db-client-contract.js';
 import type { BrainstrikeDbRuntimeEngine } from './architecture/db-runtime-selection.js';
 import {
   createProfileBootstrapReport,
@@ -231,6 +237,14 @@ export interface BrainstrikeRuntimeDbClient {
   readonly runtimeEngine: BrainstrikeDbRuntimeEngine;
 }
 
+type BrainstrikeExecutionRuntimeEngine = Extract<BrainstrikeDbRuntimeEngine, 'pglite' | 'turso'>;
+
+export interface BrainstrikeExecutionDbClient
+  extends Omit<BrainstrikeRuntimeDbClient, 'runtimeEngine'> {
+  readonly runtimeEngine: BrainstrikeExecutionRuntimeEngine;
+  readonly sqlCapabilities: BrainstrikeDbSqlCapabilities;
+}
+
 export interface AssistantMemoryDbClient extends BrainstrikeRuntimeDbClient {}
 
 export interface EmbeddingWorkerDbClient extends BrainstrikeRuntimeDbClient {
@@ -422,6 +436,18 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   });
 
   return handle;
+}
+
+function resolveRuntimeSqlCapabilities(
+  runtimeEngine: BrainstrikeExecutionRuntimeEngine
+): BrainstrikeDbSqlCapabilities {
+  // These describe SQL expression support only; repository/live/vector/grep availability remains
+  // gated by the runtime bootstrap and repository capability checks.
+  if (runtimeEngine === 'pglite') {
+    return BRAINSTRIKE_DB_PGLITE_BASELINE_SQL_CAPABILITIES;
+  }
+
+  return BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES;
 }
 
 function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
@@ -1901,6 +1927,57 @@ export function useModelRegistryDbClient(): DbHandle | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useBrainstrikeExecutionDbClient(): BrainstrikeExecutionDbClient | null {
+  const ctx = useContext(DbContext);
+
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  const runtimeEngine = ctx?.profileBootstrapReport.runtime.engine;
+  const runtimeHost = ctx?.profileBootstrapReport.runtime.host;
+  const ready = ctx?.ready;
+  const client = useMemo<BrainstrikeExecutionDbClient | null>(() => {
+    if (!((runtimeEngine === 'pglite' || runtimeEngine === 'turso') && ready && db) || error) {
+      return null;
+    }
+    if (
+      runtimeEngine === 'turso' &&
+      (runtimeHost === 'desktop-ipc' || runtimeHost === 'electron-utility')
+    ) {
+      // Electron-hosted Turso currently exposes statement-list transactions for repository
+      // internals, not callback transactions whose tx client can query before the callback resolves.
+      return null;
+    }
+    if (getMissingBrainstrikeDbExecutionClientCapabilities(db).length > 0) {
+      return null;
+    }
+
+    return {
+      db,
+      runtimeEngine,
+      sqlCapabilities: resolveRuntimeSqlCapabilities(runtimeEngine),
+    };
+  }, [db, error, ready, runtimeEngine, runtimeHost]);
+
+  if (!ctx) {
+    logger.warn('useBrainstrikeExecutionDbClient must be used within a DbProvider');
+    return null;
+  }
+
+  return client;
 }
 
 export function useBrainstrikeLiveQueryCapability(): boolean {

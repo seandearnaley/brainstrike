@@ -6,6 +6,7 @@ import {
   DbProvider,
   useAssistantMemoryDbClient,
   useBrainstrikeDbClient,
+  useBrainstrikeExecutionDbClient,
   useBrainstrikeLiveQueryCapability,
   useBrainstrikeSchemaReadyCapability,
   useDbInitializationStatus,
@@ -397,6 +398,49 @@ describe('DbProvider initializing state', () => {
         phase: 'probing-capabilities',
       },
     });
+  });
+
+  it('does not expose a generic Electron IPC PGlite execution client from statement-list transactions', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      return { rows: [] };
+    });
+    const runTransaction = vi.fn(
+      async (
+        _statements: readonly { params?: unknown[]; sql: string }[],
+        _resultIndex: number,
+        _options?: unknown
+      ) => ({ rows: [] })
+    );
+    setWindowElectronDbBridge({
+      exec: vi.fn(async () => undefined),
+      query,
+      runTransaction,
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        db: useBrainstrikeDbClient(),
+        executionDb: useBrainstrikeExecutionDbClient(),
+        initializationStatus: useDbInitializationStatus(),
+        pgliteDb: usePGliteDatabase(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.db).toBe(result.current.pgliteDb);
+    expect(result.current.executionDb).toBeNull();
+    expect(runTransaction).not.toHaveBeenCalled();
   });
 
   it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories without generic DB handles', async () => {
@@ -920,6 +964,7 @@ describe('DbProvider initializing state', () => {
         assistantMemoryDb: useAssistantMemoryDbClient(),
         db: useBrainstrikeDbClient(),
         embeddingWorkerDb: useEmbeddingWorkerDbClient(),
+        executionDb: useBrainstrikeExecutionDbClient(),
         initializationStatus: useDbInitializationStatus(),
         liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         manualImportDb: useManualImportDbClient(),
@@ -949,6 +994,7 @@ describe('DbProvider initializing state', () => {
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
+    expect(result.current.executionDb).toBeNull();
     expect(result.current.querySelectionSnapshotDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',

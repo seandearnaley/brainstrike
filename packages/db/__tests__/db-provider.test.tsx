@@ -10,6 +10,7 @@ import {
   useAssistantMemoryDbClient,
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
+  useBrainstrikeExecutionDbClient,
   useBrainstrikeLiveQueryCapability,
   useBrainstrikeSchemaReadyCapability,
   useEmbeddingWorkerDbClient,
@@ -52,6 +53,7 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     query: baseQuery,
     exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    transaction: vi.fn(async (callback) => callback({ query: baseQuery })),
     ...overrides,
   };
 }
@@ -122,6 +124,7 @@ describe('DbProvider', () => {
         client: useBrainstrikeDbClient(),
         db: useBrainstrikeDatabase(),
         embeddingWorkerClient: useEmbeddingWorkerDbClient(),
+        executionClient: useBrainstrikeExecutionDbClient(),
         liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
         optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
@@ -142,6 +145,21 @@ describe('DbProvider', () => {
         db: result.current.db,
         runtimeEngine: 'pglite',
       });
+      expect(result.current.executionClient).toEqual({
+        db: result.current.db,
+        runtimeEngine: 'pglite',
+        sqlCapabilities: {
+          dialect: 'postgres',
+          features: [
+            'data-modifying-cte',
+            'jsonb',
+            'postgres-fts',
+            'postgres-vector',
+            'skip-locked',
+            'trigram',
+          ],
+        },
+      });
       expect(result.current.optionalClient).toBe(result.current.db);
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);
@@ -154,11 +172,13 @@ describe('DbProvider', () => {
     const { result } = renderHook(() => ({
       client: useOptionalBrainstrikeDbClient(),
       db: useOptionalBrainstrikeDatabase(),
+      executionClient: useBrainstrikeExecutionDbClient(),
       liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
       schemaReady: useBrainstrikeSchemaReadyCapability(),
     }));
     expect(result.current.client).toBeNull();
     expect(result.current.db).toBeNull();
+    expect(result.current.executionClient).toBeNull();
     expect(result.current.liveQueryAvailable).toBe(false);
     expect(result.current.schemaReady).toBe(false);
   });
