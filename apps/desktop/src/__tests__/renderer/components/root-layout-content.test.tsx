@@ -78,14 +78,17 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 }));
 
 let currentDb: unknown = null;
+let currentModelRegistryDb: unknown = null;
 let currentTokenCacheStore: unknown = null;
 let currentProfileBootstrapReport: unknown = null;
 const useBrainstrikeDbClientMock = vi.fn(() => currentDb);
+const useModelRegistryDbClientMock = vi.fn(() => currentModelRegistryDb ?? currentDb);
 const useTokenCacheStoreMock = vi.fn(() => currentTokenCacheStore);
 const useOptionalProfileBootstrapReportMock = vi.fn(() => currentProfileBootstrapReport);
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeDbClient: () => useBrainstrikeDbClientMock(),
+  useModelRegistryDbClient: () => useModelRegistryDbClientMock(),
   useOptionalProfileBootstrapReport: () => useOptionalProfileBootstrapReportMock(),
   useTokenCacheStore: () => useTokenCacheStoreMock(),
 }));
@@ -242,6 +245,7 @@ describe('RootLayoutContent', () => {
 
   beforeEach(() => {
     currentDb = null;
+    currentModelRegistryDb = null;
     currentTokenCacheStore = null;
     currentProfileBootstrapReport = null;
     tokenCacheProviderProps.length = 0;
@@ -425,6 +429,49 @@ describe('RootLayoutContent', () => {
 
     unmount();
     expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the runtime-neutral DB client for Turso database-ready diagnostics', () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        usedJSHeapSize: 1,
+        totalJSHeapSize: 2,
+        jsHeapSizeLimit: 3,
+      },
+    });
+
+    currentDb = null;
+    currentModelRegistryDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    currentTokenCacheStore = { kind: 'turso-token-cache-store' };
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'turso' },
+    };
+
+    render(<RootLayoutContent />);
+
+    (
+      globalThis.performance as typeof globalThis.performance & {
+        memory: {
+          jsHeapSizeLimit: number;
+          totalJSHeapSize: number;
+          usedJSHeapSize: number;
+        };
+      }
+    ).memory.usedJSHeapSize = 129 * 1024 * 1024;
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      'Desktop visible renderer heap changed materially',
+      expect.objectContaining({
+        activeToolsTab: 'database-ready',
+      })
+    );
   });
 
   it('logs visible renderer frame stalls with the latest database readiness state', () => {
