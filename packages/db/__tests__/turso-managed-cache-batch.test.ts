@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import {
   applyTursoManagedCacheBatch,
   invalidateTursoManagedCacheEntriesByIdentity,
@@ -422,6 +426,103 @@ describe('Turso managed-cache batch', () => {
       state: 'canceled',
     });
     await expect(readStats()).resolves.toMatchObject({ file_count: 1 });
+  });
+
+  it('applies remove mutations inside the Turso managed-cache batch transaction', async () => {
+    await client.exec(
+      "INSERT INTO roots (id, kind, display_name, path) VALUES ('root-2', 'path', 'Root 2', '/tmp/root-2')"
+    );
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'remove-target', path: 'src/shared.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'import',
+          record: createImportRecord({ id: 'same-path-other-root', path: 'src/shared.ts' }),
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-2',
+    });
+
+    await applyTursoManagedCacheBatch(client, {
+      changes: [
+        {
+          mode: 'remove',
+          target: {
+            expectedFileRecordId: 'remove-target',
+            mode: 'exact',
+            relativePath: 'src/shared.ts',
+            rootId: 'root-1',
+          },
+        },
+      ],
+      embeddingSetId,
+      rootId: 'root-1',
+    });
+
+    await expect(readFileRecord('remove-target')).resolves.toBeUndefined();
+    await expect(readFileRecord('same-path-other-root')).resolves.toMatchObject({
+      id: 'same-path-other-root',
+      path: 'src/shared.ts',
+      root_id: 'root-2',
+    });
+    await expect(readStats()).resolves.toMatchObject({ file_count: 1 });
+  });
+
+  it('does not count remove mutations toward the Turso record-backed batch limit', async () => {
+    let removalQueryCount = 0;
+    let execCount = 0;
+    const tx = {
+      exec: async () => {
+        execCount += 1;
+      },
+      query: async (sql) => {
+        if (sql.includes('SELECT DISTINCT')) {
+          removalQueryCount += 1;
+        }
+        if (sql.includes('RETURNING id')) {
+          return { rows: [{ id: 'large-removal-import' }] };
+        }
+        return { rows: [] };
+      },
+    } satisfies BrainstrikeDbTransactionClient;
+    const fakeClient = {
+      ...tx,
+      transaction: async (callback) => callback(tx),
+    } satisfies BrainstrikeDbExecutionClient;
+    const manyRemovals = Array.from({ length: 12_015 }, (_, index) => ({
+      mode: 'remove' as const,
+      target: {
+        mode: 'exact' as const,
+        relativePath: `deleted/file-${index}.ts`,
+        rootId: 'root-1',
+      },
+    }));
+
+    await expect(
+      applyTursoManagedCacheBatch(fakeClient, {
+        changes: [
+          ...manyRemovals,
+          {
+            mode: 'import',
+            record: createImportRecord({ id: 'large-removal-import', path: 'src/import.ts' }),
+          },
+        ],
+        embeddingSetId,
+        rootId: 'root-1',
+      })
+    ).resolves.toBeUndefined();
+    expect(removalQueryCount).toBe(manyRemovals.length);
+    expect(execCount).toBeGreaterThan(0);
   });
 
   it('keeps quick-open name grams searchable across Turso managed-cache writes', async () => {

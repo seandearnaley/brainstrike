@@ -505,6 +505,44 @@ describe('applyManagedCacheBatch', () => {
     );
   });
 
+  it('applies remove mutations inside the managed-cache batch transaction', async () => {
+    await seedRoot('root-batch-remove-other', '/workspace/batch-remove-other');
+    await importManagedCacheFile({
+      fileRecordId: 'batch-remove-target',
+      relativePath: 'src/remove-me.ts',
+      rootId: 'root-fixture',
+    });
+    await importManagedCacheFile({
+      fileRecordId: 'batch-remove-other-root',
+      relativePath: 'src/remove-me.ts',
+      rootId: 'root-batch-remove-other',
+    });
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
+      changes: [
+        {
+          mode: 'remove',
+          target: {
+            expectedFileRecordId: 'batch-remove-target',
+            mode: 'exact',
+            relativePath: 'src/remove-me.ts',
+            rootId: 'root-fixture',
+          },
+        },
+      ],
+    } as Parameters<typeof applyManagedCacheBatch>[1]);
+
+    await expect(fileRecordRepository.findById('batch-remove-target')).resolves.toBeNull();
+    await expect(fileRecordRepository.findById('batch-remove-other-root')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'batch-remove-other-root',
+        path: 'src/remove-me.ts',
+      })
+    );
+  });
+
   it('does not invalidate root_id null legacy rows that share the target path', async () => {
     const now = new Date().toISOString();
     await fileRecordRepository.createWithContent({
@@ -1295,7 +1333,72 @@ describe('applyManagedCacheBatch', () => {
         embeddingSetId: 'set-1',
         changes: oversizedCombinedBatch,
       })
-    ).toThrow('Managed cache batch exceeds the maximum supported total size.');
+    ).toThrow('Managed cache batch exceeds the maximum supported record-backed size.');
+  });
+
+  it('does not count remove mutations toward the record-backed batch limit', async () => {
+    const now = new Date().toISOString();
+    const manyRemovals = Array.from({ length: 12_015 }, (_, index) => ({
+      mode: 'remove' as const,
+      target: {
+        mode: 'exact' as const,
+        relativePath: `deleted/file-${index}.ts`,
+        rootId: 'root-fixture',
+      },
+    }));
+    const mixedChanges = [
+      ...manyRemovals,
+      {
+        mode: 'replace' as const,
+        record: {
+          id: 'large-removal-replace',
+          name: 'large-removal.ts',
+          path: 'src/large-removal.ts',
+          size: 10,
+          updatedAt: now,
+          processedAt: now,
+          content: 'export const value = 2;',
+          contentHash: 'large-removal-new-hash',
+          tokenCount: 5,
+        },
+      },
+    ];
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: mixedChanges,
+        rootId: 'root-fixture',
+      })
+    ).not.toThrow();
+
+    await fileRecordRepository.createWithContent({
+      id: 'large-removal-replace',
+      name: 'large-removal.ts',
+      path: 'src/large-removal.ts',
+      size: 9,
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const value = 1;',
+      contentHash: 'large-removal-old-hash',
+      tokenCount: 4,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+    });
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
+      changes: mixedChanges,
+    });
+
+    await expect(fileRecordRepository.findById('large-removal-replace')).resolves.toEqual(
+      expect.objectContaining({
+        content: 'export const value = 2;',
+        contentHash: 'large-removal-new-hash',
+        id: 'large-removal-replace',
+      })
+    );
   });
 
   it('rejects duplicate file record ids in a single batch with a clear error', async () => {

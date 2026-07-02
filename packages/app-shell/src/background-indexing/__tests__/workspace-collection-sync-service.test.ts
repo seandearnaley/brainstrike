@@ -1161,7 +1161,7 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
   });
 
-  it('deletes stale children when a removed directory is recreated with fewer files', async () => {
+  it('applies stale child removal and recreated file replacement in one managed-cache batch', async () => {
     const keptFilePath = 'src/rebuilt/keep.ts';
     const staleFilePath = 'src/rebuilt/stale.ts';
     const keptCompositeKey = encodeFileSelection(ROOT_PATH, keptFilePath);
@@ -1281,23 +1281,19 @@ describe('WorkspaceCollectionSyncService', () => {
       },
     });
 
-    expect(deps.invalidateManagedCacheEntriesByIdentity).toHaveBeenCalledWith({
-      embeddingSetId: 'set-1',
-      targets: [
-        {
-          expectedFileRecordId: 'stale-file',
-          mode: 'exact',
-          relativePath: staleFilePath,
-          rootId: ROOT_PATH,
-        },
-      ],
-    });
-    expect(
-      JSON.stringify(vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls)
-    ).not.toContain('kept-file');
+    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
     expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        changes: [
+        changes: expect.arrayContaining([
+          expect.objectContaining({
+            mode: 'remove',
+            target: {
+              expectedFileRecordId: 'stale-file',
+              mode: 'exact',
+              relativePath: staleFilePath,
+              rootId: ROOT_PATH,
+            },
+          }),
           expect.objectContaining({
             mode: 'replace',
             record: expect.objectContaining({
@@ -1306,7 +1302,7 @@ describe('WorkspaceCollectionSyncService', () => {
               content: newContent,
             }),
           }),
-        ],
+        ]),
       })
     );
   });

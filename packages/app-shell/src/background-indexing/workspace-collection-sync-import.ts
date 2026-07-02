@@ -8,6 +8,7 @@ import type {
   ImportProgress,
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
+  ManagedCacheInvalidationTarget,
 } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import {
@@ -115,6 +116,11 @@ type BackgroundManagedCacheBatchMutation =
       mode: 'import';
       relativePath: string;
       mutation: Extract<ManagedCacheBatchMutation, { mode: 'import' }>;
+    }
+  | {
+      mode: 'remove';
+      relativePath: string;
+      mutation: Extract<ManagedCacheBatchMutation, { mode: 'remove' }>;
     }
   | {
       mode: 'replace';
@@ -365,8 +371,19 @@ function applyDiscoveredPreparedFiles(args: {
 async function buildBackgroundImportBatchMutations(args: {
   batch: readonly PreparedCacheChange[];
   batchContents: Record<string, string>;
+  removals: readonly ManagedCacheInvalidationTarget[];
 }): Promise<BackgroundManagedCacheBatchMutation[]> {
-  const mutations: BackgroundManagedCacheBatchMutation[] = [];
+  const mutations: BackgroundManagedCacheBatchMutation[] = args.removals.map((target) => ({
+    mode: 'remove',
+    relativePath:
+      target.mode === 'prefix'
+        ? `${target.relativePathPrefix.replace(/\/+$/u, '')}/`
+        : target.relativePath,
+    mutation: {
+      mode: 'remove',
+      target,
+    },
+  }));
   const batchCreatedAt = new Date().toISOString();
   for (const change of args.batch) {
     const content = args.batchContents[change.compositeKey];
@@ -407,6 +424,7 @@ async function applyBackgroundImportBatch(args: {
   batch: readonly PreparedCacheChange[];
   batchContents: Record<string, string>;
   collectionId: string;
+  removals?: readonly ManagedCacheInvalidationTarget[];
   rootId?: string | null;
   waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<{
@@ -434,6 +452,7 @@ async function applyBackgroundImportBatch(args: {
   const mutations = await buildBackgroundImportBatchMutations({
     batch: args.batch,
     batchContents: args.batchContents,
+    removals: args.removals ?? [],
   });
   if (mutations.length === 0) {
     return { errors: skippedErrors, results: skippedResults };
@@ -455,11 +474,17 @@ async function applyBackgroundImportBatch(args: {
       errors: skippedErrors,
       results: [
         ...skippedResults,
-        ...mutations.map((entry) => ({
-          id: entry.mutation.record.id,
-          imported: true,
-          existed: false,
-        })),
+        ...mutations.flatMap((entry) =>
+          entry.mode === 'remove'
+            ? []
+            : [
+                {
+                  id: entry.mutation.record.id,
+                  imported: true,
+                  existed: false,
+                },
+              ]
+        ),
       ],
     };
   } catch (error) {
@@ -487,12 +512,18 @@ async function applyBackgroundImportBatch(args: {
       ],
       results: [
         ...skippedResults,
-        ...mutations.map((entry) => ({
-          id: entry.mutation.record.id,
-          imported: false,
-          existed: false,
-          error: message,
-        })),
+        ...mutations.flatMap((entry) =>
+          entry.mode === 'remove'
+            ? []
+            : [
+                {
+                  id: entry.mutation.record.id,
+                  imported: false,
+                  existed: false,
+                  error: message,
+                },
+              ]
+        ),
       ],
     };
   }
@@ -775,6 +806,7 @@ export async function runRootFolderCacheImport(args: {
   fileRecordRepository: FileImportFileRecordRepository;
   onProgress: (progress: EnhancedImportProgress) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
+  removals?: readonly ManagedCacheInvalidationTarget[];
   rootId?: string | null;
   runtimeEngine: BackgroundImportRuntimeEngine;
   setImporting: (importing: boolean) => void;
@@ -792,6 +824,7 @@ export async function runRootFolderCacheImport(args: {
     fileRecordRepository,
     onProgress,
     qosPolicy,
+    removals = [],
     rootId,
     runtimeEngine,
     setImporting,
@@ -900,6 +933,8 @@ export async function runRootFolderCacheImport(args: {
       throwIfAborted(abortSignal, 'Background cache import was cancelled.');
       const batch = changes.slice(index, index + qosPolicy.importBatchSize);
       const batchNumber = Math.floor(index / qosPolicy.importBatchSize) + 1;
+      const isFinalBatch = index + qosPolicy.importBatchSize >= changes.length;
+      const batchRemovals = isFinalBatch ? removals : [];
       activeBatchNumber = batchNumber;
       firstEmbedChunkJobEnqueueRef.current = null;
       logger.info('Workspace Index import batch content read started', {
@@ -987,7 +1022,7 @@ export async function runRootFolderCacheImport(args: {
 
           let completed = 0;
           emitImportProgress(createInitialImportProgress(total));
-          if (selectedKeys.size > 0) {
+          if (selectedKeys.size > 0 || batchRemovals.length > 0) {
             const selectedBatch = batch.filter((change) => selectedKeys.has(change.compositeKey));
             const selectedBatchById = new Map(
               selectedBatch.map((change) => [change.id, change] as const)
@@ -998,6 +1033,7 @@ export async function runRootFolderCacheImport(args: {
               batch: selectedBatch,
               batchContents: fileContents,
               collectionId: collection.id,
+              removals: batchRemovals,
               rootId: rootId ?? null,
               waitForBackgroundPermit,
             });
