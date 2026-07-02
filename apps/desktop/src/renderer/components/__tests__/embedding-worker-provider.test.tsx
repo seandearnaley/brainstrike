@@ -5,8 +5,8 @@ import type { IDatabase } from '@brainstrike/db';
 import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 
 // Use vi.hoisted to ensure mock functions are available during module initialization
-const { mockUsePGliteDatabase, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
-  mockUsePGliteDatabase: vi.fn(),
+const { mockUseEmbeddingWorkerDbClient, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
+  mockUseEmbeddingWorkerDbClient: vi.fn(),
   mockStartEmbeddingWorker: vi.fn(),
   mockLogger: {
     info: vi.fn(),
@@ -26,7 +26,7 @@ function createMockDb(collectionCount = 1): MockDb {
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: (...args: unknown[]) => mockUsePGliteDatabase(...args),
+  useEmbeddingWorkerDbClient: (...args: unknown[]) => mockUseEmbeddingWorkerDbClient(...args),
 }));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
@@ -89,7 +89,21 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('worker lifecycle', () => {
     it('does not start worker when database is not available', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue(null);
+
+      render(
+        <EmbeddingWorkerProvider>
+          <div data-testid="child">Child Content</div>
+        </EmbeddingWorkerProvider>
+      );
+
+      expect(screen.getByTestId('child')).toBeInTheDocument();
+      expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
+    });
+
+    it('does not start the visible renderer worker for Turso runtime', () => {
+      const mockDb = createMockDb();
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'turso' });
 
       render(
         <EmbeddingWorkerProvider>
@@ -105,7 +119,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -142,7 +156,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -169,7 +183,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -193,7 +207,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -221,7 +235,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       const { unmount } = render(
@@ -250,7 +264,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('does not attempt to stop worker if it was never started', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue(null);
 
       const { unmount } = render(
         <EmbeddingWorkerProvider>
@@ -266,7 +280,7 @@ describe('EmbeddingWorkerProvider', () => {
     it('does not crash if worker controller is null during unmount', async () => {
       const mockDb = createMockDb();
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       // Worker start never resolves
       mockStartEmbeddingWorker.mockImplementation(() => new Promise(() => {}));
 
@@ -288,7 +302,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockError = new Error('Failed to initialize worker');
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockRejectedValue(mockError);
 
       render(
@@ -321,7 +335,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -354,7 +368,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -383,7 +397,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('children rendering', () => {
     it('renders children correctly', () => {
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue(null);
 
       render(
         <EmbeddingWorkerProvider>
@@ -400,7 +414,7 @@ describe('EmbeddingWorkerProvider', () => {
 
     it('renders children even when worker is starting', async () => {
       const mockDb = createMockDb();
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockImplementation(() => new Promise(() => {}));
 
       render(
@@ -416,7 +430,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       render(
@@ -442,7 +456,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb2 = Object.assign(createMockDb(), { id: 2 } as const);
       const mockController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(mockDb1);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb1, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       const { rerender } = render(
@@ -459,7 +473,7 @@ describe('EmbeddingWorkerProvider', () => {
       );
 
       // Change database reference
-      mockUsePGliteDatabase.mockReturnValue(mockDb2);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb2, runtimeEngine: 'pglite' });
 
       rerender(
         <EmbeddingWorkerProvider>
@@ -484,7 +498,7 @@ describe('EmbeddingWorkerProvider', () => {
       const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
-      mockUsePGliteDatabase.mockReturnValue(null);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue(null);
 
       const { rerender } = render(
         <EmbeddingWorkerProvider>
@@ -495,7 +509,7 @@ describe('EmbeddingWorkerProvider', () => {
       expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
 
       // Database becomes available
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockUseEmbeddingWorkerDbClient.mockReturnValue({ db: mockDb, runtimeEngine: 'pglite' });
       mockStartEmbeddingWorker.mockResolvedValue(mockController);
 
       rerender(

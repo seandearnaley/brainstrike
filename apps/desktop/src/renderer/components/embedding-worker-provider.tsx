@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useEmbeddingWorkerDbClient } from '@brainstrike/db';
 import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
@@ -45,7 +45,7 @@ function logWorkerStartError(error: unknown): void {
  */
 // Helper to create worker config
 function createWorkerConfig(
-  db: NonNullable<ReturnType<typeof usePGliteDatabase>>
+  db: NonNullable<ReturnType<typeof useEmbeddingWorkerDbClient>>['db']
 ): Parameters<typeof startEmbeddingWorker>[0] {
   return {
     db,
@@ -69,12 +69,13 @@ function createWorkerConfig(
 }
 
 export function EmbeddingWorkerProvider({ children }: { children: React.ReactNode }) {
-  const db = usePGliteDatabase();
+  const dbClient = useEmbeddingWorkerDbClient();
+  const pgliteDb = dbClient?.runtimeEngine === 'pglite' ? dbClient.db : null;
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const startingRef = useRef(false);
 
   useEffect(() => {
-    if (!db) {
+    if (!pgliteDb) {
       return;
     }
 
@@ -89,7 +90,7 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
 
       try {
         logger.info('Starting embedding worker in renderer process...');
-        const config = createWorkerConfig(db);
+        const config = createWorkerConfig(pgliteDb);
         const controller = await startEmbeddingWorker(config);
         if (isDisposed) {
           stopWorker(
@@ -119,7 +120,7 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
         stopWorker(currentController, 'Stopping embedding worker...', 'Embedding worker stopped');
       }
     };
-  }, [db]);
+  }, [pgliteDb]);
 
   // Relay power-state events from the main process to the embedding worker via
   // BroadcastChannel. This pauses the GPU keep-alive during system suspend so
