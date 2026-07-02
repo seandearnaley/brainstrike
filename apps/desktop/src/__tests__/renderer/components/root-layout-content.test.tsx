@@ -306,6 +306,26 @@ describe('RootLayoutContent', () => {
     expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
   });
 
+  it('passes the runtime DB client to the PGlite token cache path', () => {
+    currentDb = null;
+    currentModelRegistryDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    currentTokenCacheStore = null;
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'pglite' },
+    };
+
+    render(<RootLayoutContent />);
+
+    expect(tokenCacheProviderProps.at(-1)).toMatchObject({
+      db: currentModelRegistryDb,
+      persistentStore: null,
+    });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
+  });
+
   it('fails closed instead of silently entering memory token-cache mode for Turso partial DB', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     currentDb = null;
