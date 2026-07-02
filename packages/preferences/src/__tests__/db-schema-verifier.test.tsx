@@ -72,4 +72,32 @@ describe('DbSchemaVerifier', () => {
     });
     expect(mockUseBrainstrikeDbClient).toHaveReturnedWith(null);
   });
+
+  it('clears schema verification when Turso bootstrap is no longer ready', async () => {
+    mockUseOptionalDbInitializationStatus.mockReturnValue('ready' as DbInitializationStatus);
+    mockUseOptionalProfileBootstrapReport.mockReturnValue(readyTursoReport);
+
+    const { rerender } = render(
+      <DbSchemaVerifier>
+        <div>app</div>
+      </DbSchemaVerifier>
+    );
+
+    await waitFor(() => {
+      expect(useVectorStatusUIStore.getState().schemaVerified).toBe(true);
+    });
+
+    mockUseOptionalDbInitializationStatus.mockReturnValue('idle' as DbInitializationStatus);
+    mockUseOptionalProfileBootstrapReport.mockReturnValue(null);
+
+    rerender(
+      <DbSchemaVerifier>
+        <div>app</div>
+      </DbSchemaVerifier>
+    );
+
+    await waitFor(() => {
+      expect(useVectorStatusUIStore.getState().schemaVerified).toBe(false);
+    });
+  });
 });

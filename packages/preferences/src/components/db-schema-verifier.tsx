@@ -1,9 +1,10 @@
 /**
  * DbSchemaVerifier Component
  *
- * Sets schemaVerified flag when the selected database runtime is ready.
+ * Mirrors schemaVerified to the selected database runtime's current readiness.
  * This ensures Vector Status collections can load regardless of
- * which panel opens first.
+ * which panel opens first, without keeping stale readiness after teardown,
+ * re-initialization, or profile/runtime changes.
  *
  * Must be rendered inside DbProvider (from @brainstrike/db).
  *
@@ -50,13 +51,10 @@ export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.Rea
     Boolean(db) || isTursoSchemaReady(initializationStatus, profileBootstrapReport);
 
   useEffect(() => {
-    if (!schemaReady) {
-      return;
-    }
-    // Database runtime is ready (migrations have run in DbProvider), set schemaVerified.
+    // Keep the global schema cache aligned with the current runtime readiness.
     // Defer to avoid synchronous setState in effect body (React Compiler requirement)
     const timer = setTimeout(() => {
-      setSchemaVerified(true);
+      setSchemaVerified(schemaReady);
     }, 0);
     return () => {
       clearTimeout(timer);
