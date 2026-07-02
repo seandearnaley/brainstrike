@@ -5,7 +5,7 @@ import type {
   FileRecord,
   IFileRecordRepository,
 } from '@brainstrike/db';
-import { useBrainstrikeDbClient, useEmbeddingSetsRepository } from '@brainstrike/db';
+import { useEmbeddingSetsRepository } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
@@ -56,7 +56,6 @@ export function useSearchFunctionality(
   const [searching, setSearching] = useState(false);
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
-  const db = useBrainstrikeDbClient();
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   // Selector-scoped: only `models` is consumed; a bare store call would
   // re-render the host on every registry update (e.g. download progress).
@@ -71,7 +70,7 @@ export function useSearchFunctionality(
   const embedderDisposePromiseRef = useRef<Promise<void> | null>(null);
   const isDisposingRef = useRef(false);
 
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const getActiveEmbeddingSetOrThrow = useCallback((): string => {
@@ -300,23 +299,8 @@ export function useSearchFunctionality(
       );
     }
 
-    if (!db) {
-      throw new Error(
-        'Embedding set repository is not available to resolve the active embedding set.'
-      );
-    }
-
-    const res = await db.query<{ modelKey: string; dimensions: number }>(
-      'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-      [activeSetId]
-    );
-    const row = res.rows[0];
-    if (!row?.modelKey) {
-      throw new Error('Active embedding set is missing a model.');
-    }
-    return resolveEmbeddingSetModelInfo(
-      { modelKey: row.modelKey, dimensions: parseStrictEmbeddingDimensions(row.dimensions) },
-      modelConfigMap
+    throw new Error(
+      'Embedding set repository is not available to resolve the active embedding set.'
     );
   }
 
@@ -453,7 +437,6 @@ export function useSearchFunctionality(
   }, [
     searchQuery,
     chunkRepository,
-    db,
     embeddingSetsRepository,
     modelConfigMap,
     searchThreshold,

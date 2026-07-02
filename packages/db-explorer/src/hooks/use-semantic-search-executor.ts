@@ -18,7 +18,6 @@ import {
   createHybridSearchService,
   DEFAULT_HYBRID_SOURCE_LIMIT,
   normalizeRRFScores,
-  useBrainstrikeDbClient,
   useEmbeddingSetsRepository,
 } from '@brainstrike/db';
 import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
@@ -486,7 +485,6 @@ export function useSemanticSearchExecutor({
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const previousAvailabilityRef = useRef<boolean | null>(null);
-  const db = useBrainstrikeDbClient();
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   // Selector-scoped subscription: this hook only consumes `models`. A bare
   // useModelRegistryStore() would re-render the host component (the whole
@@ -499,7 +497,7 @@ export function useSemanticSearchExecutor({
   // Track in-flight initialization to prevent race conditions (BST-175 fix)
   const initializingPromiseRef = useRef<Promise<SearchEmbedder> | null>(null);
 
-  useEnsureModelRegistry({ db });
+  useEnsureModelRegistry();
 
   // `initializingPromiseRef` is deliberately not cleared — clearing it
   // would break ensureEmbedderReady's dedup gate. Stale embedders are
@@ -576,28 +574,11 @@ export function useSemanticSearchExecutor({
         throw new Error('Active embedding set is missing a model.');
       }
 
-      if (!db) {
-        throw new Error(
-          'Embedding set repository is not available to resolve the active embedding set.'
-        );
-      }
-      const res = await db.query<{ modelKey: string; dimensions: number }>(
-        'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-        [embeddingSetId]
-      );
-      const row = res.rows[0];
-      if (!row?.modelKey) {
-        throw new Error('Active embedding set is missing a model.');
-      }
-      return resolveEmbeddingSetModelInfo(
-        {
-          modelKey: row.modelKey,
-          dimensions: parseStrictEmbeddingDimensions(row.dimensions),
-        },
-        modelConfigMap
+      throw new Error(
+        'Embedding set repository is not available to resolve the active embedding set.'
       );
     },
-    [db, embeddingSetsRepository, modelConfigMap]
+    [embeddingSetsRepository, modelConfigMap]
   );
 
   /**

@@ -17,6 +17,7 @@ const mockDb = {
 };
 type MockDbClient = typeof mockDb | null;
 const mockUseBrainstrikeDbClient = vi.fn<() => MockDbClient>(() => mockDb);
+const mockUseModelRegistryDbClient = vi.fn<() => MockDbClient>(() => mockDb);
 const mockEmbeddingSetsRepository = {
   getById: vi.fn(),
 };
@@ -28,6 +29,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     ...mod,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useBrainstrikeDbClient: () => mockUseBrainstrikeDbClient(),
+    useModelRegistryDbClient: () => mockUseModelRegistryDbClient(),
     useEmbeddingSetsRepository: () => mockUseEmbeddingSetsRepository(),
   };
 });
@@ -94,7 +96,10 @@ describe('useSearchFunctionality', () => {
       ],
     });
     mockUseBrainstrikeDbClient.mockReturnValue(mockDb);
-    mockUseEmbeddingSetsRepository.mockReturnValue(null);
+    mockUseModelRegistryDbClient.mockReturnValue(mockDb);
+    mockUseEmbeddingSetsRepository.mockReturnValue(
+      mockEmbeddingSetsRepository as unknown as IEmbeddingSetsRepository
+    );
     mockEmbeddingSetsRepository.getById.mockResolvedValue({
       id: 'set-1',
       modelKey: 'jinaai/jina-embeddings-v3',
@@ -237,7 +242,6 @@ describe('useSearchFunctionality', () => {
 
   it('resolves the active embedding-set model through the repository when no raw DB client is available', async () => {
     const toast = vi.fn() as unknown as ToastFn;
-    mockUseBrainstrikeDbClient.mockReturnValue(null);
     mockUseEmbeddingSetsRepository.mockReturnValue(
       mockEmbeddingSetsRepository as unknown as IEmbeddingSetsRepository
     );
@@ -260,6 +264,8 @@ describe('useSearchFunctionality', () => {
     });
 
     expect(mockEmbeddingSetsRepository.getById).toHaveBeenCalledWith('set-1');
+    expect(mockUseBrainstrikeDbClient).not.toHaveBeenCalled();
+    expect(mockUseModelRegistryDbClient).toHaveBeenCalled();
     expect(mockDb.query).not.toHaveBeenCalled();
     expect(generateQueryEmbedding).toHaveBeenCalledWith('turso semantic search');
     expect(searchSimilar).toHaveBeenCalledWith(
@@ -397,13 +403,10 @@ describe('useSearchFunctionality', () => {
       ok: true,
       value: { embed },
     } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
-    mockDb.query.mockResolvedValue({
-      rows: [
-        {
-          modelKey: 'openai::text-embedding-3-small',
-          dimensions: 1536,
-        },
-      ],
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
     });
     const searchSimilar = vi.fn().mockResolvedValue([]);
     const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
@@ -477,13 +480,10 @@ describe('useSearchFunctionality', () => {
       ok: true,
       value: { embed },
     } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
-    mockDb.query.mockResolvedValue({
-      rows: [
-        {
-          modelKey: `${provider}::${modelId}`,
-          dimensions: 768,
-        },
-      ],
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: `${provider}::${modelId}`,
+      dimensions: 768,
     });
     const searchSimilar = vi.fn().mockResolvedValue([]);
     const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
@@ -511,13 +511,10 @@ describe('useSearchFunctionality', () => {
       ok: false,
       error: { type: 'api_key_missing' },
     } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
-    mockDb.query.mockResolvedValue({
-      rows: [
-        {
-          modelKey: 'openai::text-embedding-3-small',
-          dimensions: 1536,
-        },
-      ],
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
     });
     const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
 
@@ -553,13 +550,10 @@ describe('useSearchFunctionality', () => {
       ok: true,
       value: { embed },
     } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
-    mockDb.query.mockResolvedValue({
-      rows: [
-        {
-          modelKey: 'openai::text-embedding-3-small',
-          dimensions: 1536,
-        },
-      ],
+    mockEmbeddingSetsRepository.getById.mockResolvedValue({
+      id: 'set-1',
+      modelKey: 'openai::text-embedding-3-small',
+      dimensions: 1536,
     });
     const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
 
@@ -633,7 +627,7 @@ describe('useSearchFunctionality', () => {
 
   it('surfaces missing active embedding set model rows through the search toast', async () => {
     const toast = vi.fn() as unknown as ToastFn;
-    mockDb.query.mockResolvedValue({ rows: [] });
+    mockEmbeddingSetsRepository.getById.mockResolvedValue(null);
     const chunkRepository = { searchSimilar: vi.fn() } as unknown as FileChunkRepository;
 
     const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));

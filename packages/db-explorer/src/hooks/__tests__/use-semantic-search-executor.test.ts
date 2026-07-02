@@ -23,6 +23,8 @@ const mockDb = {
   query: vi.fn(),
 };
 let mockDbClient: typeof mockDb | null = mockDb;
+const mockUseBrainstrikeDbClient = vi.fn(() => mockDbClient);
+const mockUseModelRegistryDbClient = vi.fn(() => mockDb);
 const mockEmbeddingSetsRepository = {
   getById: vi.fn(),
 };
@@ -39,7 +41,8 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useBrainstrikeDbClient: vi.fn(() => mockDbClient),
+    useBrainstrikeDbClient: () => mockUseBrainstrikeDbClient(),
+    useModelRegistryDbClient: () => mockUseModelRegistryDbClient(),
     useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepositoryClient),
   };
 });
@@ -161,6 +164,7 @@ describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDbClient = mockDb;
+    mockUseModelRegistryDbClient.mockReturnValue(mockDb);
     mockEmbeddingSetsRepositoryClient = mockEmbeddingSetsRepository;
     configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.DEBUG);
@@ -458,7 +462,7 @@ describe('useSemanticSearchExecutor', () => {
     expect(MockSimpleEmbeddingService).not.toHaveBeenCalled();
   });
 
-  it('uses the raw DB query path when the embedding-set repository is unavailable', async () => {
+  it('fails closed when the embedding-set repository is unavailable', async () => {
     mockEmbeddingSetsRepositoryClient = null;
     const chunk = createMockChunk('chunk-1', 'file-1');
     const chunkRepo = createMockChunkRepository([chunk]);
@@ -470,12 +474,12 @@ describe('useSemanticSearchExecutor', () => {
 
     await expect(
       result.current!('legacy query', createSearchConfig({ retrievalMode: 'vector' }), 'set-1')
-    ).resolves.toHaveLength(1);
-
-    expect(mockDb.query).toHaveBeenCalledWith(
-      'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-      ['set-1']
+    ).rejects.toThrow(
+      'Embedding set repository is not available to resolve the active embedding set.'
     );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+    expect(mockUseBrainstrikeDbClient).not.toHaveBeenCalled();
   });
 
   it('reports a missing active embedding set when the runtime repository returns no row', async () => {
@@ -523,6 +527,8 @@ describe('useSemanticSearchExecutor', () => {
 
     expect(mockDb.query).not.toHaveBeenCalled();
     expect(mockEmbeddingSetsRepository.getById).toHaveBeenCalledWith('set-1');
+    expect(mockUseBrainstrikeDbClient).not.toHaveBeenCalled();
+    expect(mockUseModelRegistryDbClient).toHaveBeenCalled();
     expect(searchSimilar).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
