@@ -1,5 +1,5 @@
 import type { FileImportResult, ImportProgress } from '@brainstrike/db';
-import { useFileRecordRepository } from '@brainstrike/db';
+import { useFileRecordRepository, useManualImportDbClient } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
@@ -16,6 +16,7 @@ import type {
   FileImportContext,
   FileImportDependencies,
   FileSystemPort,
+  ManagedCacheImportPort,
 } from './file-import/file-import-types';
 
 interface UseFileImportServiceOptions {
@@ -78,6 +79,7 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
         const content = await adapter.readFileByPath(path);
         return {
           content,
+          mtimeMs: null,
           name,
           path,
           size: content.length,
@@ -105,6 +107,7 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
 
       return {
         content,
+        mtimeMs: file.lastModified,
         name,
         path,
         size: file.size,
@@ -115,11 +118,35 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
 
 function createDependencies(
   repository: ReturnType<typeof useFileRecordRepository>,
-  adapter: FileSystemAdapter | null
+  adapter: FileSystemAdapter | null,
+  manualImportDbClient: ReturnType<typeof useManualImportDbClient>
 ): FileImportDependencies {
   const boundBulkImport = repository?.bulkImport
     ? repository.bulkImport.bind(repository)
     : undefined;
+  const applyManagedCacheBatch =
+    manualImportDbClient?.runtimeEngine === 'turso'
+      ? manualImportDbClient.db.applyManagedCacheBatch
+      : undefined;
+  const invalidateManagedCacheEntriesByIdentity =
+    manualImportDbClient?.runtimeEngine === 'turso'
+      ? manualImportDbClient.db.invalidateManagedCacheEntriesByIdentity
+      : undefined;
+  const managedCacheImport: ManagedCacheImportPort | null =
+    applyManagedCacheBatch && invalidateManagedCacheEntriesByIdentity
+      ? {
+          applyBatch: (args) =>
+            applyManagedCacheBatch(args, {
+              label: 'manual import managed-cache batch',
+              priority: 'foreground',
+            }),
+          invalidateByIdentity: (args) =>
+            invalidateManagedCacheEntriesByIdentity(args, {
+              label: 'manual import managed-cache invalidation',
+              priority: 'foreground',
+            }),
+        }
+      : null;
 
   const repositoryPort: FileImportDependencies['repository'] = repository
     ? boundBulkImport
@@ -129,6 +156,7 @@ function createDependencies(
 
   return {
     repository: repositoryPort,
+    managedCacheImport,
     fileSystem: createFileSystemPort(adapter),
   };
 }
@@ -162,11 +190,12 @@ export function useFileImportService(
   const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   const repository = useFileRecordRepository();
+  const manualImportDbClient = useManualImportDbClient();
   const { fileSystemAdapter } = useAdapters();
 
   const dependencies = useMemo(
-    () => createDependencies(repository, fileSystemAdapter ?? null),
-    [repository, fileSystemAdapter]
+    () => createDependencies(repository, fileSystemAdapter ?? null, manualImportDbClient),
+    [repository, fileSystemAdapter, manualImportDbClient]
   );
 
   const importFiles = useCallback(
@@ -184,6 +213,17 @@ export function useFileImportService(
       };
 
       try {
+        if (
+          manualImportDbClient?.runtimeEngine === 'turso' &&
+          (typeof manualImportDbClient.db.applyManagedCacheBatch !== 'function' ||
+            typeof manualImportDbClient.db.invalidateManagedCacheEntriesByIdentity !== 'function')
+        ) {
+          throw new FileImportError(
+            'missing-dependency',
+            'Manual imports with Turso require managed-cache apply and invalidation support.'
+          );
+        }
+
         const context: FileImportContext = embeddingSetId
           ? { selectedFilePaths, fileTree, fileContents, embeddingSetId }
           : { selectedFilePaths, fileTree, fileContents };
@@ -208,7 +248,7 @@ export function useFileImportService(
         setIsImporting(false);
       }
     },
-    [dependencies, onProgress, onComplete, onError]
+    [dependencies, manualImportDbClient, onProgress, onComplete, onError]
   );
 
   return useMemo(

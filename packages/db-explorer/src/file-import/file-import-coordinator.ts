@@ -1,5 +1,11 @@
-import type { FileImportRequest, FileImportResult } from '@brainstrike/db';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  ManagedCacheBatchMutation,
+} from '@brainstrike/db';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { IFileNode } from '@brainstrike/types';
+import { generateContentHash, generateUUID } from '@brainstrike/utils/crypto';
 import { fileContent } from '@brainstrike/utils/file-content';
 import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -17,6 +23,18 @@ interface PendingFile {
   folderId: string;
   name: string;
   path: string;
+}
+
+interface RootedFileImportRequest {
+  mtimeMs: number | null;
+  request: FileImportRequest;
+  rootId: string;
+}
+
+interface ManagedCachePreparedImport {
+  mutation: ManagedCacheBatchMutation;
+  result: FileImportResult;
+  rootId: string;
 }
 
 interface ErrorEntry {
@@ -42,12 +60,18 @@ function isContentAccessible(content: string): boolean {
   );
 }
 
+function normalizeMtimeMs(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
 function prepareRequestsFromCache(
   context: FileImportContext,
   tracker: ImportProgressTracker
-): { requests: FileImportRequest[]; pending: PendingFile[] } {
+): { requests: RootedFileImportRequest[]; pending: PendingFile[] } {
   const { selectedFilePaths, fileTree, fileContents, embeddingSetId } = context;
-  const requests: FileImportRequest[] = [];
+  const requests: RootedFileImportRequest[] = [];
   const pending: PendingFile[] = [];
 
   for (const compositeKey of selectedFilePaths) {
@@ -64,19 +88,25 @@ function prepareRequestsFromCache(
     const cachedContent = fileContents[compositeKey];
 
     if (cachedContent && isContentAccessible(cachedContent)) {
-      const fileName = getImportPathFileName(path);
-      const request: FileImportRequest = {
-        path,
-        name: fileName,
-        content: cachedContent,
-        size: cachedContent.length,
-      };
+      const fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
+      const request = createImportRequest(
+        {
+          name: fileNode?.type === 'file' ? fileNode.name : getImportPathFileName(path),
+          path,
+          size:
+            fileNode?.type === 'file' && typeof fileNode.size === 'number'
+              ? fileNode.size
+              : cachedContent.length,
+        },
+        cachedContent,
+        embeddingSetId
+      );
 
-      if (embeddingSetId) {
-        request.embeddingSetId = embeddingSetId;
-      }
-
-      requests.push(request);
+      requests.push({
+        request,
+        rootId: folderId,
+        mtimeMs: normalizeMtimeMs(fileNode?.type === 'file' ? fileNode.lastModified : null),
+      });
       continue;
     }
 
@@ -150,8 +180,8 @@ async function loadMissingFileContents(
   dependencies: FileImportDependencies,
   tracker: ImportProgressTracker,
   embeddingSetId?: string
-): Promise<FileImportRequest[]> {
-  const requests: FileImportRequest[] = [];
+): Promise<RootedFileImportRequest[]> {
+  const requests: RootedFileImportRequest[] = [];
 
   // If no files need loading, return early (file system not required)
   if (pending.length === 0) {
@@ -177,7 +207,11 @@ async function loadMissingFileContents(
       try {
         if (pendingFile.fileNode) {
           const content = await readTextFile(pendingFile.fileNode, fileSystem);
-          return createImportRequest(pendingFile.fileNode, content, embeddingSetId);
+          return {
+            request: createImportRequest(pendingFile.fileNode, content, embeddingSetId),
+            rootId: pendingFile.folderId,
+            mtimeMs: normalizeMtimeMs(pendingFile.fileNode.lastModified),
+          };
         }
 
         const resolved = await fileSystem.readFileBySelection?.(
@@ -193,15 +227,19 @@ async function loadMissingFileContents(
         }
 
         validateTextContent(resolved.path, resolved.content);
-        return createImportRequest(
-          {
-            name: resolved.name,
-            path: resolved.path,
-            size: resolved.size,
-          },
-          resolved.content,
-          embeddingSetId
-        );
+        return {
+          request: createImportRequest(
+            {
+              name: resolved.name,
+              path: resolved.path,
+              size: resolved.size,
+            },
+            resolved.content,
+            embeddingSetId
+          ),
+          rootId: pendingFile.folderId,
+          mtimeMs: normalizeMtimeMs(resolved.mtimeMs),
+        };
       } catch (error) {
         tracker.addError({
           file: pendingFile.path,
@@ -226,7 +264,7 @@ async function loadMissingFileContents(
 
 async function importRequestBatch(
   repository: NonNullable<FileImportDependencies['repository']>,
-  requests: FileImportRequest[],
+  rootedRequests: RootedFileImportRequest[],
   tracker: ImportProgressTracker,
   processedRequestCount: number,
   processedResultErrorCount: number
@@ -237,6 +275,7 @@ async function importRequestBatch(
     });
   }
 
+  const requests = rootedRequests.map((entry) => entry.request);
   const requestMap = createRequestMap(requests);
   const nonRequestErrorCount = tracker.errorCount - processedResultErrorCount;
   if (nonRequestErrorCount < 0) {
@@ -273,6 +312,108 @@ async function importRequestBatch(
   return {
     resultErrorCount: resultErrors.length,
     results,
+  };
+}
+
+function groupManagedCacheImportsByRoot(
+  imports: readonly ManagedCachePreparedImport[]
+): Array<{ imports: ManagedCachePreparedImport[]; rootId: string }> {
+  const groups = new Map<string, ManagedCachePreparedImport[]>();
+  for (const entry of imports) {
+    const existing = groups.get(entry.rootId);
+    if (existing) {
+      existing.push(entry);
+      continue;
+    }
+    groups.set(entry.rootId, [entry]);
+  }
+  return [...groups.entries()].map(([rootId, rootImports]) => ({ rootId, imports: rootImports }));
+}
+
+async function prepareManagedCacheImport(
+  entry: RootedFileImportRequest,
+  now: string
+): Promise<ManagedCachePreparedImport> {
+  const { request, rootId, mtimeMs } = entry;
+  const id = generateUUID();
+  const mutation: ManagedCacheBatchMutation = {
+    mode: 'import',
+    record: {
+      content: request.content,
+      contentHash: await generateContentHash(request.content),
+      createdAt: now,
+      id,
+      mtimeMs,
+      name: request.name,
+      path: request.path,
+      processedAt: now,
+      size: request.size,
+      tokenCount: countTokensHeuristic(request.content),
+      updatedAt: now,
+    },
+  };
+  return {
+    mutation,
+    result: { existed: false, id, imported: true },
+    rootId,
+  };
+}
+
+async function importManagedCacheRequestBatch(
+  managedCacheImport: NonNullable<FileImportDependencies['managedCacheImport']>,
+  rootedRequests: RootedFileImportRequest[],
+  embeddingSetId: string,
+  tracker: ImportProgressTracker,
+  processedRequestCount: number,
+  processedResultErrorCount: number
+): Promise<{ resultErrorCount: number; results: FileImportResult[] }> {
+  const nonRequestErrorCount = tracker.errorCount - processedResultErrorCount;
+  if (nonRequestErrorCount < 0) {
+    throw new FileImportError(
+      'unknown',
+      'Import progress tracker entered an invalid error-count state.',
+      {
+        progress: tracker.snapshot(),
+      }
+    );
+  }
+
+  const now = new Date().toISOString();
+  const preparedImports = await Promise.all(
+    rootedRequests.map((entry) => prepareManagedCacheImport(entry, now))
+  );
+
+  try {
+    for (const group of groupManagedCacheImportsByRoot(preparedImports)) {
+      await managedCacheImport.invalidateByIdentity({
+        embeddingSetId,
+        targets: group.imports.map((entry) => ({
+          mode: 'exact',
+          relativePath: entry.mutation.record.path,
+          rootId: group.rootId,
+        })),
+      });
+      await managedCacheImport.applyBatch({
+        embeddingSetId,
+        rootId: group.rootId,
+        changes: group.imports.map((entry) => entry.mutation),
+      });
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Unknown error during managed-cache import';
+    throw new FileImportError('repository-error', message, {
+      cause: error,
+      progress: tracker.snapshot(),
+    });
+  }
+
+  const completedCount = processedRequestCount + rootedRequests.length;
+  const current = rootedRequests.at(-1)?.request.name;
+  tracker.update(nonRequestErrorCount + completedCount, current);
+  return {
+    resultErrorCount: 0,
+    results: preparedImports.map((entry) => entry.result),
   };
 }
 
@@ -318,10 +459,17 @@ export async function runFileImport(
   context: FileImportContext,
   callbacks: FileImportCallbacks = {}
 ): Promise<FileImportOutcome> {
-  const { repository } = dependencies;
+  const { managedCacheImport, repository } = dependencies;
+  const managedCacheEmbeddingSetId = context.embeddingSetId;
 
-  if (!repository) {
+  if (!(repository || managedCacheImport)) {
     throw new FileImportError('missing-dependency', 'Database repository not available');
+  }
+  if (managedCacheImport && !managedCacheEmbeddingSetId) {
+    throw new FileImportError(
+      'missing-dependency',
+      'Managed-cache imports require an embedding set id'
+    );
   }
 
   if (context.selectedFilePaths.size === 0) {
@@ -336,14 +484,41 @@ export async function runFileImport(
   let processedRequestCount = 0;
   let processedResultErrorCount = 0;
 
-  for (const batch of splitIntoBatches(cachedRequests, IMPORT_REQUEST_BATCH_SIZE)) {
-    const batchOutcome = await importRequestBatch(
+  const importBatch = async (
+    batch: RootedFileImportRequest[]
+  ): Promise<{ resultErrorCount: number; results: FileImportResult[] }> => {
+    if (managedCacheImport) {
+      if (!managedCacheEmbeddingSetId) {
+        throw new FileImportError(
+          'missing-dependency',
+          'Managed-cache imports require an embedding set id'
+        );
+      }
+      return importManagedCacheRequestBatch(
+        managedCacheImport,
+        batch,
+        managedCacheEmbeddingSetId,
+        tracker,
+        processedRequestCount,
+        processedResultErrorCount
+      );
+    }
+
+    if (!repository) {
+      throw new FileImportError('missing-dependency', 'Database repository not available');
+    }
+
+    return importRequestBatch(
       repository,
       batch,
       tracker,
       processedRequestCount,
       processedResultErrorCount
     );
+  };
+
+  for (const batch of splitIntoBatches(cachedRequests, IMPORT_REQUEST_BATCH_SIZE)) {
+    const batchOutcome = await importBatch(batch);
     results.push(...batchOutcome.results);
     processedRequestCount += batch.length;
     processedResultErrorCount += batchOutcome.resultErrorCount;
@@ -359,13 +534,7 @@ export async function runFileImport(
     if (loadedRequests.length === 0) {
       continue;
     }
-    const batchOutcome = await importRequestBatch(
-      repository,
-      loadedRequests,
-      tracker,
-      processedRequestCount,
-      processedResultErrorCount
-    );
+    const batchOutcome = await importBatch(loadedRequests);
     results.push(...batchOutcome.results);
     processedRequestCount += loadedRequests.length;
     processedResultErrorCount += batchOutcome.resultErrorCount;

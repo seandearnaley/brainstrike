@@ -43,6 +43,10 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => ({
     bulkImport: mockBulkImport,
   }),
+  useManualImportDbClient: () => ({
+    db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+    runtimeEngine: 'pglite',
+  }),
   useBrainstrikeDbClient: () => null,
   useBrainstrikeLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));

@@ -1,4 +1,10 @@
-import type { FileImportRequest, FileImportResult, ImportProgress } from '@brainstrike/db';
+import type {
+  ApplyManagedCacheBatchArgs,
+  ApplyManagedCacheInvalidationsArgs,
+  FileImportRequest,
+  FileImportResult,
+  ImportProgress,
+} from '@brainstrike/db';
 import type { IFileNode } from '@brainstrike/types';
 
 type BulkImportProgressHandler = (completed: number, total: number, current?: string) => void;
@@ -10,6 +16,11 @@ export interface FileImportRepositoryPort {
   ) => Promise<FileImportResult[] | null>;
 }
 
+export interface ManagedCacheImportPort {
+  readonly applyBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
+  readonly invalidateByIdentity: (args: ApplyManagedCacheInvalidationsArgs) => Promise<unknown>;
+}
+
 export interface FileSystemPort {
   readFile(node: IFileNode): Promise<string>;
   readFileBySelection?(
@@ -17,6 +28,7 @@ export interface FileSystemPort {
     path: string
   ): Promise<{
     content: string;
+    mtimeMs?: number | null;
     name: string;
     path: string;
     size: number;
@@ -25,6 +37,7 @@ export interface FileSystemPort {
 
 export interface FileImportDependencies {
   readonly fileSystem: FileSystemPort | null;
+  readonly managedCacheImport?: ManagedCacheImportPort | null;
   readonly repository: FileImportRepositoryPort | null;
 }
 

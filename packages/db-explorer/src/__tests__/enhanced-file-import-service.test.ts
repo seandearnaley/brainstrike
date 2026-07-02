@@ -373,9 +373,15 @@ describe('useEnhancedFileImportService', () => {
     it('runs non-chunked Turso imports through the runtime manual import client', async () => {
       const onComplete = vi.fn();
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      const applyManagedCacheBatch = vi.fn().mockResolvedValue(undefined);
+      const invalidateManagedCacheEntriesByIdentity = vi.fn().mockResolvedValue({
+        canceledEmbeddingJobCount: 0,
+        deletedChunkIds: [],
+        deletedFileRecordIds: [],
+      });
       mockUseBrainstrikeDbClient.mockReturnValue(null as never);
       mockUseManualImportDbClient.mockReturnValue({
-        db: { query: dbQuery },
+        db: { applyManagedCacheBatch, invalidateManagedCacheEntriesByIdentity, query: dbQuery },
         runtimeEngine: 'turso',
       } as never);
       mockUseFileChunkRepository.mockReturnValue({
@@ -429,6 +435,12 @@ describe('useEnhancedFileImportService', () => {
     it('runs chunked Turso imports through the runtime manual import client and atomic chunk enqueue bridge', async () => {
       const onComplete = vi.fn();
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      const applyManagedCacheBatch = vi.fn().mockResolvedValue(undefined);
+      const invalidateManagedCacheEntriesByIdentity = vi.fn().mockResolvedValue({
+        canceledEmbeddingJobCount: 0,
+        deletedChunkIds: [],
+        deletedFileRecordIds: [],
+      });
       const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
       const tursoChunkRepository = {
         brainstrikeRepositoryKind: TURSO_FILE_CHUNK_REPOSITORY_MARKER,
@@ -437,7 +449,12 @@ describe('useEnhancedFileImportService', () => {
       };
       mockUseBrainstrikeDbClient.mockReturnValue(null as never);
       mockUseManualImportDbClient.mockReturnValue({
-        db: { query: dbQuery, insertChunksAndEnqueueEmbeddingJobs },
+        db: {
+          applyManagedCacheBatch,
+          invalidateManagedCacheEntriesByIdentity,
+          query: dbQuery,
+          insertChunksAndEnqueueEmbeddingJobs,
+        },
         runtimeEngine: 'turso',
       } as never);
       mockUseFileChunkRepository.mockReturnValue(tursoChunkRepository as never);
@@ -493,7 +510,15 @@ describe('useEnhancedFileImportService', () => {
       };
       mockUseBrainstrikeDbClient.mockReturnValue(null as never);
       mockUseManualImportDbClient.mockReturnValue({
-        db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+        db: {
+          applyManagedCacheBatch: vi.fn().mockResolvedValue(undefined),
+          invalidateManagedCacheEntriesByIdentity: vi.fn().mockResolvedValue({
+            canceledEmbeddingJobCount: 0,
+            deletedChunkIds: [],
+            deletedFileRecordIds: [],
+          }),
+          query: vi.fn().mockResolvedValue({ rows: [] }),
+        },
         runtimeEngine: 'turso',
       } as never);
       mockUseFileChunkRepository.mockReturnValue(tursoChunkRepository as never);
