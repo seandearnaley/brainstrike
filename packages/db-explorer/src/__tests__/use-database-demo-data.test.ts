@@ -690,6 +690,46 @@ describe('useDatabaseDemoData', () => {
     ).toBe(true);
   });
 
+  it('uses repository snapshots for Turso even when callers omit the PGlite query flag', async () => {
+    const { chunkRepository, listByEmbeddingSetPage, repository } =
+      createTursoCollectionSnapshotFixture();
+    setupLiveQueries();
+    const databaseQuery = vi.fn(async () => {
+      throw new Error('raw PGlite SQL must not run for Turso collection browsing');
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast: vi.fn(),
+        database: { query: databaseQuery } as never,
+        activeCollectionId: 'set-turso',
+        databaseRuntimeEngine: 'turso',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records).toEqual([
+        expect.objectContaining({
+          embeddingSetId: 'set-turso',
+          id: 'record-turso',
+        }),
+      ]);
+    });
+
+    expect(listByEmbeddingSetPage).toHaveBeenCalledWith('set-turso', {
+      limit: 50,
+      offset: 0,
+    });
+    expect(databaseQuery).not.toHaveBeenCalled();
+    expect(
+      mockedUseBrainstrikeLiveQuery.mock.calls.every(
+        ([queryOptions]) => queryOptions.enabled === false
+      )
+    ).toBe(true);
+  });
+
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
