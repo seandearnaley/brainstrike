@@ -3912,6 +3912,51 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('keeps PGlite nullable debug collection filters typed', async () => {
+    readFullTreeWithOptionsMock.mockImplementation(async () => {
+      throw new Error('summary must not read the full file tree');
+    });
+    const queryMock = vi.fn(async (_sql: string) => ({ rows: [] }));
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'worker', persistence: 'filesystem' },
+    };
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          query: queryMock,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const debugApi = (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+            summary: () => Promise<unknown>;
+          };
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+      await debugApi?.summary();
+
+      const fileRecordsQuery = queryMock.mock.calls.find(([sql]) =>
+        sql.includes('workspace_index_summary_file_records_marker')
+      )?.[0];
+      expect(fileRecordsQuery).toContain('($1::text IS NULL OR embedding_set_id = $1::text)');
+      expect(fileRecordsQuery).toContain('CAST(COUNT(*) AS INTEGER) AS file_count');
+      expect(fileRecordsQuery).not.toContain('$1 IS NULL');
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
   it('exposes the workspace index debug API in desktop E2E mode without renderer process env', () => {
     vi.stubEnv('NODE_ENV', 'production');
     (

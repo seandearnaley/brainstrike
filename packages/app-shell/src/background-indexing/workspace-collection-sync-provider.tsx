@@ -166,7 +166,9 @@ function buildWorkspaceIndexDebugCollectionFilter(
   columnName: string
 ): string {
   const collectionIdParameter = getWorkspaceIndexDebugSqlParameter(runtimeEngine, 1);
-  return `(${collectionIdParameter} IS NULL OR ${columnName} = ${collectionIdParameter})`;
+  const nullableCollectionIdParameter =
+    runtimeEngine === 'pglite' ? `${collectionIdParameter}::text` : collectionIdParameter;
+  return `(${nullableCollectionIdParameter} IS NULL OR ${columnName} = ${nullableCollectionIdParameter})`;
 }
 
 interface BackgroundIndexingPreferencesPersistApi {
