@@ -163,7 +163,7 @@ function createIndexingDebugApi(): IndexingDebugApi {
           ),
           readRows(
             query,
-            "SELECT queue, job_type, state, COUNT(*)::int AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
+            "SELECT queue, job_type, state, CAST(COUNT(*) AS INTEGER) AS count FROM job_queue WHERE job_type = 'embed_chunk' GROUP BY queue, job_type, state ORDER BY queue, job_type, state",
             accessIssues,
             'job_queue'
           ),
@@ -171,7 +171,7 @@ function createIndexingDebugApi(): IndexingDebugApi {
             query,
             // Debug-only backlog snapshot: `oldest_updated_at` is the oldest
             // current row write time, not the original discovery/enqueue time.
-            'SELECT embedding_set_id, root_id, COUNT(*)::int AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
+            'SELECT embedding_set_id, root_id, CAST(COUNT(*) AS INTEGER) AS file_count, MIN(updated_at) AS oldest_updated_at FROM file_records WHERE embedding_set_id IS NOT NULL AND root_id IS NOT NULL AND chunks_processed_at IS NULL GROUP BY embedding_set_id, root_id ORDER BY embedding_set_id, root_id',
             accessIssues,
             'file_records_chunking_backlog'
           ),

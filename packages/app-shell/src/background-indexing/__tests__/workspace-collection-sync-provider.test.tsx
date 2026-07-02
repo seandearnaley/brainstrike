@@ -58,6 +58,20 @@ function createTestQosPolicy(
   };
 }
 
+function expectTursoDebugSqlPortable(sql: string): void {
+  expect(sql).not.toContain('::');
+  expect(sql).not.toMatch(/\bFILTER\s*\(/);
+  expect(sql).not.toMatch(/\$\d+/);
+
+  for (const aggregate of ['COUNT(', 'SUM(']) {
+    let offset = sql.indexOf(aggregate);
+    while (offset !== -1) {
+      expect(sql.slice(Math.max(0, offset - 'CAST('.length), offset)).toBe('CAST(');
+      offset = sql.indexOf(aggregate, offset + aggregate.length);
+    }
+  }
+}
+
 const {
   runEnhancedImportMock,
   readFullTreeWithOptionsMock,
@@ -3632,6 +3646,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3678,6 +3696,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
           root_id: 'root-id-1',
         }),
       ]);
+      for (const [sql] of queryMock.mock.calls) {
+        expectTursoDebugSqlPortable(sql);
+      }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
@@ -3718,6 +3739,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3766,6 +3791,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
           payload: { chunkId: 'chunk-1' },
         }),
       ]);
+      for (const [sql] of queryMock.mock.calls) {
+        expectTursoDebugSqlPortable(sql);
+      }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
@@ -3820,6 +3848,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3872,6 +3904,54 @@ describe('WorkspaceCollectionSyncProvider', () => {
           return priority === 'background';
         })
       ).toBe(true);
+      for (const [sql] of queryMock.mock.calls) {
+        expectTursoDebugSqlPortable(sql);
+      }
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
+  it('keeps PGlite nullable debug collection filters typed', async () => {
+    readFullTreeWithOptionsMock.mockImplementation(async () => {
+      throw new Error('summary must not read the full file tree');
+    });
+    const queryMock = vi.fn(async (_sql: string) => ({ rows: [] }));
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'pglite', host: 'worker', persistence: 'filesystem' },
+    };
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          query: queryMock,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      const debugApi = (
+        window as unknown as {
+          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
+            summary: () => Promise<unknown>;
+          };
+        }
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+
+      await debugApi?.summary();
+
+      const fileRecordsQuery = queryMock.mock.calls.find(([sql]) =>
+        sql.includes('workspace_index_summary_file_records_marker')
+      )?.[0];
+      expect(fileRecordsQuery).toContain('($1::text IS NULL OR embedding_set_id = $1::text)');
+      expect(fileRecordsQuery).toContain('CAST(COUNT(*) AS INTEGER) AS file_count');
+      expect(fileRecordsQuery).not.toContain('$1 IS NULL');
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
