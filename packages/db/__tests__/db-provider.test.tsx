@@ -4,18 +4,24 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createProfileBootstrapReport } from '../src/bootstrap/profile-bootstrap-report';
 import {
   DbProvider,
   useAssistantMemoryDbClient,
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
   useBrainstrikeLiveQueryCapability,
+  useBrainstrikeSchemaReadyCapability,
   useEmbeddingWorkerDbClient,
   useFileRecordRepository,
   useOptionalBrainstrikeDatabase,
   useOptionalBrainstrikeDbClient,
   usePGliteDatabase,
 } from '../src/db-provider';
+import {
+  resolveBrainstrikeSchemaReadyCapability,
+  startDbProviderLazyInitialization,
+} from '../src/db-provider-schema-readiness';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
@@ -54,6 +60,30 @@ function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
   return record.args.some(
     (arg) => typeof arg === 'object' && arg !== null && 'err' in arg && arg.err === error
   );
+}
+
+function createReadyBootstrapReport(
+  engine: Parameters<typeof createProfileBootstrapReport>[0]['runtime']['engine']
+) {
+  return createProfileBootstrapReport({
+    checks: [
+      {
+        id: 'store.open',
+        label: 'database store opened',
+        required: true,
+        status: 'passed',
+      },
+    ],
+    phase: 'ready',
+    profileId: 'test',
+    runtime: {
+      engine,
+      host: 'node',
+      persistence: 'filesystem',
+    },
+    startedAt: '2026-07-02T00:00:00.000Z',
+    updatedAt: '2026-07-02T00:00:01.000Z',
+  });
 }
 
 describe('DbProvider', () => {
@@ -96,6 +126,7 @@ describe('DbProvider', () => {
         optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
         pgliteDb: usePGliteDatabase(),
+        schemaReady: useBrainstrikeSchemaReadyCapability(),
       }),
       { wrapper }
     );
@@ -115,6 +146,7 @@ describe('DbProvider', () => {
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);
       expect(result.current.liveQueryAvailable).toBe(true);
+      expect(result.current.schemaReady).toBe(true);
     });
   });
 
@@ -123,10 +155,65 @@ describe('DbProvider', () => {
       client: useOptionalBrainstrikeDbClient(),
       db: useOptionalBrainstrikeDatabase(),
       liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
+      schemaReady: useBrainstrikeSchemaReadyCapability(),
     }));
     expect(result.current.client).toBeNull();
     expect(result.current.db).toBeNull();
     expect(result.current.liveQueryAvailable).toBe(false);
+    expect(result.current.schemaReady).toBe(false);
+  });
+
+  it('does not report schema readiness for unsupported bootstrap runtime engines', () => {
+    const readyPgliteReport = createReadyBootstrapReport('pglite');
+
+    expect(
+      resolveBrainstrikeSchemaReadyCapability({
+        db: createMockDb(),
+        error: new Error('schema failed'),
+        initializationStatus: 'ready',
+        profileBootstrapReport: readyPgliteReport,
+        ready: true,
+      })
+    ).toBe(false);
+
+    expect(
+      resolveBrainstrikeSchemaReadyCapability({
+        db: createMockDb(),
+        error: null,
+        initializationStatus: 'ready',
+        profileBootstrapReport: createReadyBootstrapReport('libsql'),
+        ready: true,
+      })
+    ).toBe(false);
+  });
+
+  it('logs lazy initialization rejection from schema-ready consumers', async () => {
+    const error = new Error('lazy schema init failed');
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
+
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'DbProvider') {
+        captured.push(record);
+      }
+    });
+
+    startDbProviderLazyInitialization(() => Promise.reject(error));
+
+    await waitFor(() => {
+      expect(
+        captured.some(
+          (record) =>
+            record.level === LogLevel.ERROR &&
+            record.scope === 'DbProvider' &&
+            record.message === 'Failed to lazy-initialize database' &&
+            hasStructuredErrorArg(record, error)
+        )
+      ).toBe(true);
+    });
+
+    unsubscribe();
   });
 
   it('runs migrations on mount and closes db on unmount in production', async () => {

@@ -45,6 +45,10 @@ import {
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
+import {
+  resolveBrainstrikeSchemaReadyCapability,
+  startDbProviderLazyInitialization,
+} from './db-provider-schema-readiness.js';
 import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
 import type { ApplyManagedCacheBatchArgs } from './managed-cache/index.js';
@@ -1918,6 +1922,33 @@ export function useBrainstrikeLiveQueryCapability(): boolean {
   return Boolean(
     ctx?.ready && !ctx.error && ctx.db && ctx.profileBootstrapReport.runtime.engine === 'pglite'
   );
+}
+
+export function useBrainstrikeSchemaReadyCapability(): boolean {
+  const ctx = useContext(DbContext);
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      startDbProviderLazyInitialization(initializeDatabase);
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx) {
+    return false;
+  }
+
+  return resolveBrainstrikeSchemaReadyCapability({
+    db: ctx.db,
+    error: ctx.error,
+    initializationStatus: ctx.initializationStatus,
+    profileBootstrapReport: ctx.profileBootstrapReport,
+    ready: ctx.ready,
+  });
 }
 
 export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {

@@ -18,13 +18,7 @@
  * ```
  */
 
-import {
-  type DbInitializationStatus,
-  type ProfileBootstrapReport,
-  useBrainstrikeDbClient,
-  useOptionalDbInitializationStatus,
-  useOptionalProfileBootstrapReport,
-} from '@brainstrike/db';
+import { useBrainstrikeSchemaReadyCapability } from '@brainstrike/db';
 import type React from 'react';
 import { useEffect } from 'react';
 import { useVectorStatusUIStore } from '../stores/vector-status-ui-store';
@@ -33,22 +27,9 @@ export interface DbSchemaVerifierProps {
   children: React.ReactNode;
 }
 
-function isTursoSchemaReady(
-  initializationStatus: DbInitializationStatus,
-  report: ProfileBootstrapReport | null
-): boolean {
-  return (
-    initializationStatus === 'ready' && report?.ready === true && report.runtime.engine === 'turso'
-  );
-}
-
 export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.ReactElement {
-  const db = useBrainstrikeDbClient();
-  const initializationStatus = useOptionalDbInitializationStatus();
-  const profileBootstrapReport = useOptionalProfileBootstrapReport();
+  const schemaReady = useBrainstrikeSchemaReadyCapability();
   const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
-  const schemaReady =
-    Boolean(db) || isTursoSchemaReady(initializationStatus, profileBootstrapReport);
 
   useEffect(() => {
     // Keep the global schema cache aligned with the current runtime readiness.
