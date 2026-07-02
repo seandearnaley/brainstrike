@@ -86,8 +86,8 @@ const mockStoreState = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: vi.fn(() => mockLiveQueryResult),
+  useBrainstrikeLiveQueryCapability: vi.fn(() => true),
   useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepository),
-  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
@@ -103,8 +103,8 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importO
 
 import {
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useEmbeddingSetsRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useCollections } from '../collection-select/collection-select';
 
@@ -123,8 +123,8 @@ describe('useCollections', () => {
     mockDb.query.mockImplementation(() => new Promise(() => {}));
     mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([]);
     vi.mocked(useBrainstrikeLiveQuery).mockReturnValue(mockLiveQueryResult);
+    vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(true);
     vi.mocked(useEmbeddingSetsRepository).mockReturnValue(mockEmbeddingSetsRepository as never);
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
   });
 
   describe('Live Query Enabling', () => {
@@ -194,7 +194,7 @@ describe('useCollections', () => {
     });
 
     it('loads a repository snapshot when Turso intentionally withholds the generic db handle', async () => {
-      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
       mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
         {
           category: 'search',
@@ -239,7 +239,7 @@ describe('useCollections', () => {
 
     it('loads a repository snapshot before PGlite schema verification when only the repository is available', async () => {
       mockStoreState.schemaVerified = false;
-      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
       mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
         {
           category: 'search',
@@ -284,7 +284,7 @@ describe('useCollections', () => {
     });
 
     it('should disable live query and use snapshot data when no PGlite live source is available', async () => {
-      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
       mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
       vi.mocked(useEmbeddingSetsRepository).mockReturnValue(null as never);
 
@@ -301,7 +301,7 @@ describe('useCollections', () => {
     });
 
     it('prefers the repository snapshot over raw SQL when Turso exposes a generic query handle', async () => {
-      vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+      vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
       mockDb.query.mockRejectedValue(new Error('raw SQL should not be used for Turso collections'));
       mockEmbeddingSetsRepository.listEmbeddingSpaces.mockResolvedValue([
         {

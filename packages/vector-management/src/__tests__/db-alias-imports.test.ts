@@ -16,7 +16,6 @@ const PGLITE_GATED_DB_ALIASES = [
 ] as const;
 const BRAINSTRIKE_DB_NAMED_IMPORT_PATTERN =
   /import\s*(?:type\s*)?\{(?<imports>[^}]*)\}\s*from\s*['"]@brainstrike\/db['"]/g;
-const PGLITE_CAPABILITY_CONSUMERS = new Set(['collection-select/collection-select.tsx']);
 
 function findImportedGatedDbAliases(source: string): string[] {
   const aliases: string[] = [];
@@ -68,12 +67,6 @@ describe('vector management database imports', () => {
         }
       }
       for (const alias of findImportedGatedDbAliases(source)) {
-        if (
-          alias === 'useOptionalPGliteDatabase' &&
-          PGLITE_CAPABILITY_CONSUMERS.has(relativeFile)
-        ) {
-          continue;
-        }
         matches.push(`${relativeFile}: ${alias}`);
       }
     }

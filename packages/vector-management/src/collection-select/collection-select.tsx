@@ -2,8 +2,8 @@ import type { DbHandle, EmbeddingSetSystemRole, EmbeddingSpaceListing } from '@b
 import {
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useEmbeddingSetsRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import {
   compareCollectionsDesc,
@@ -385,7 +385,7 @@ function areCollectionsEqual(
 }
 
 export function useCollections(db: DbHandle | null | undefined) {
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const embeddingSetsRepository = useEmbeddingSetsRepository();
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
@@ -399,17 +399,17 @@ export function useCollections(db: DbHandle | null | undefined) {
   cachedCollectionsRef.current = cachedCollections;
   const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
   const canListFromRepository = Boolean(embeddingSetsRepository?.listEmbeddingSpaces);
-  const canUseRepositorySnapshot = !pgliteDb && canListFromRepository;
+  const canUseRepositorySnapshot = !liveQueryAvailable && canListFromRepository;
   const canUseSqlSnapshot = schemaVerified && canQuery && !canUseRepositorySnapshot;
   const canUseSnapshot = canUseSqlSnapshot || canUseRepositorySnapshot;
   // Only enable live queries when:
-  // 1. Generic database and PGlite live-query source are both available
+  // 1. Generic database and live-query source are both available
   // 2. Schema has been verified (migrations completed, tables exist)
   // 3. Not currently importing files
   //
   // Background embedding must not detach foreground collection updates: the
   // collection selector is the user's navigation surface while indexing runs.
-  const liveQueryEnabled = Boolean(db) && Boolean(pgliteDb) && schemaVerified && !isImporting;
+  const liveQueryEnabled = Boolean(db) && liveQueryAvailable && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;

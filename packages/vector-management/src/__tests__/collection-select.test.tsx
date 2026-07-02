@@ -21,8 +21,8 @@ vi.mock('@brainstrike/db', () => ({
     refresh: vi.fn(),
     rows: [],
   })),
+  useBrainstrikeLiveQueryCapability: vi.fn(() => false),
   useEmbeddingSetsRepository: vi.fn(() => mockEmbeddingSetsRepository),
-  useOptionalPGliteDatabase: vi.fn(() => null),
 }));
 
 const mockStoreState = {
