@@ -21,6 +21,11 @@ import {
   DB_RUNTIME_ENV,
   SERIALIZE_PGLITE_INIT_ENV,
 } from './db-runtime-env';
+import type {
+  ParsedTursoEmbeddingWorkerQueueRequest,
+  ParsedTursoEmbeddingWorkerStatsRequest,
+  ParsedTursoVectorQueueActionRequest,
+} from './db-shared';
 
 const logger = createLogger('DbHostManager');
 
@@ -134,6 +139,15 @@ export interface DbHostManager {
   readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
+  readonly runTursoEmbeddingWorkerQueueOperation: (
+    payload: ParsedTursoEmbeddingWorkerQueueRequest
+  ) => Promise<unknown>;
+  readonly runTursoEmbeddingWorkerStatsOperation: (
+    payload: ParsedTursoEmbeddingWorkerStatsRequest
+  ) => Promise<unknown>;
+  readonly runTursoVectorQueueAction: (
+    payload: ParsedTursoVectorQueueActionRequest
+  ) => Promise<unknown>;
 }
 
 export interface DbHostManagerOptions {
@@ -591,6 +605,25 @@ class DefaultDbHostManager implements DbHostManager {
   async insertChunksAndEnqueueEmbeddingJobs(payload: unknown): Promise<void> {
     await this.#ensureRuntimeInitialized();
     await this.send({ kind: 'chunks:insert-and-enqueue-embedding-jobs', payload });
+  }
+
+  async runTursoEmbeddingWorkerQueueOperation(
+    payload: ParsedTursoEmbeddingWorkerQueueRequest
+  ): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send({ kind: 'turso:embedding-worker:queue', payload });
+  }
+
+  async runTursoEmbeddingWorkerStatsOperation(
+    payload: ParsedTursoEmbeddingWorkerStatsRequest
+  ): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send({ kind: 'turso:embedding-worker:stats', payload });
+  }
+
+  async runTursoVectorQueueAction(payload: ParsedTursoVectorQueueActionRequest): Promise<unknown> {
+    await this.#ensureRuntimeInitialized();
+    return await this.send({ kind: 'turso:vector-queue:action', payload });
   }
 
   async #ensureRuntimeInitialized(): Promise<void> {

@@ -1,5 +1,10 @@
 import type { ProfileBootstrapReport } from '@brainstrike/db';
 import type { DatabaseDiagnosticsSnapshot } from '@brainstrike/types';
+import type {
+  ParsedTursoEmbeddingWorkerQueueRequest,
+  ParsedTursoEmbeddingWorkerStatsRequest,
+  ParsedTursoVectorQueueActionRequest,
+} from './db-shared';
 
 export interface DbHostQueryResult<TRecord = unknown> {
   readonly rows: TRecord[];
@@ -50,6 +55,18 @@ export type DbHostRequest =
   | { readonly kind: 'managed-cache:apply-batch'; readonly payload: unknown }
   | { readonly kind: 'managed-cache:invalidate-by-identity'; readonly payload: unknown }
   | { readonly kind: 'chunks:insert-and-enqueue-embedding-jobs'; readonly payload: unknown }
+  | {
+      readonly kind: 'turso:embedding-worker:queue';
+      readonly payload: ParsedTursoEmbeddingWorkerQueueRequest;
+    }
+  | {
+      readonly kind: 'turso:embedding-worker:stats';
+      readonly payload: ParsedTursoEmbeddingWorkerStatsRequest;
+    }
+  | {
+      readonly kind: 'turso:vector-queue:action';
+      readonly payload: ParsedTursoVectorQueueActionRequest;
+    }
   | { readonly kind: 'diagnostics' }
   | { readonly kind: 'reset' }
   | { readonly kind: 'close' };

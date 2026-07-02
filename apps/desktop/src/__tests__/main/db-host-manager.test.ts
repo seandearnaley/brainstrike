@@ -8,10 +8,7 @@ interface PostedMessage {
   readonly request: {
     readonly kind: string;
     readonly params?: readonly unknown[];
-    readonly payload?: {
-      readonly params?: readonly unknown[] | null;
-      readonly query?: string;
-    };
+    readonly payload?: unknown;
     readonly sql?: string;
     readonly transactionId?: string;
   };
@@ -88,6 +85,19 @@ function latestProcess(): FakeUtilityProcess {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function waitForHostMessageCount(
+  utilityProcess: FakeUtilityProcess,
+  expectedCount: number
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (utilityProcess.messages.length >= expectedCount) {
+      return;
+    }
+    await flushMicrotasks();
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} DB host messages.`);
 }
 
 function restoreEnvValue(key: string, value: string | undefined): void {
@@ -823,6 +833,89 @@ describe('DbHostManager', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('initializes Turso before forwarding first-touch Turso queue/vector owner requests', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const queuePromise = manager.runTursoEmbeddingWorkerQueueOperation({
+      operation: 'claimMany',
+      payload: {
+        leaseMs: 60_000,
+        limit: 1,
+        now: '2026-06-30T10:01:00.000Z',
+        queue: 'embeddings',
+        workerId: 'worker-1',
+      },
+    });
+    const firstHost = latestProcess();
+    firstHost.reply(
+      firstHost.messages.at(-1) as PostedMessage,
+      createReadyInitResult({
+        bootstrapReport: createReadyTursoBootstrapReport(),
+        capabilities: { liveQuery: false },
+      })
+    );
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await waitForHostMessageCount(firstHost, 2);
+
+    expect(firstHost.messages[0]?.request.kind).toBe('init');
+    expect(firstHost.messages[1]).toMatchObject({
+      request: {
+        kind: 'turso:embedding-worker:queue',
+        payload: {
+          operation: 'claimMany',
+          payload: {
+            queue: 'embeddings',
+            workerId: 'worker-1',
+          },
+        },
+      },
+    });
+    firstHost.reply(firstHost.messages[1] as PostedMessage, [{ id: 'job-1' }]);
+    await expect(queuePromise).resolves.toEqual([{ id: 'job-1' }]);
+
+    const statsPromise = manager.runTursoEmbeddingWorkerStatsOperation({
+      embeddingSetIds: ['set-1'],
+      operation: 'refresh',
+    });
+    await waitForHostMessageCount(firstHost, 3);
+    expect(firstHost.messages[2]).toMatchObject({
+      request: {
+        kind: 'turso:embedding-worker:stats',
+        payload: {
+          embeddingSetIds: ['set-1'],
+          operation: 'refresh',
+        },
+      },
+    });
+    firstHost.reply(firstHost.messages[2] as PostedMessage, { refreshed: true });
+    await expect(statsPromise).resolves.toEqual({ refreshed: true });
+
+    const actionPromise = manager.runTursoVectorQueueAction({
+      operation: 'retryFailed',
+      payload: { limit: 5 },
+    });
+    await waitForHostMessageCount(firstHost, 4);
+    expect(firstHost.messages[3]).toMatchObject({
+      request: {
+        kind: 'turso:vector-queue:action',
+        payload: {
+          operation: 'retryFailed',
+          payload: { limit: 5 },
+        },
+      },
+    });
+    firstHost.reply(firstHost.messages[3] as PostedMessage, {
+      repairedQueued: 1,
+      requeuedFailed: 1,
+    });
+    await expect(actionPromise).resolves.toEqual({
+      repairedQueued: 1,
+      requeuedFailed: 1,
+    });
   });
 
   it('logs request context when a query request times out', async () => {
