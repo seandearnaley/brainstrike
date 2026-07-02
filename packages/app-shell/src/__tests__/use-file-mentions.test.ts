@@ -8,7 +8,7 @@ const useFileRecordRepositoryMock = vi.fn();
 vi.mock('@brainstrike/db', () => ({
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
   useFileRecordRepository: () => useFileRecordRepositoryMock(),
-  useOptionalPGliteDatabase: vi.fn(() => ({})),
+  useBrainstrikeLiveQueryCapability: vi.fn(() => true),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
   QUICK_OPEN_MAX_LIMIT: 50,
   QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
@@ -38,7 +38,7 @@ vi.mock('../roots/root-identity-context', () => ({
         },
 }));
 
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
+import { useBrainstrikeLiveQueryCapability } from '@brainstrike/db';
 import { useFileMentions } from '../use-file-mentions';
 
 interface DbRow {
@@ -86,8 +86,8 @@ afterEach(() => {
   vi.useRealTimers();
   useBrainstrikeLiveQueryMock.mockReset();
   useFileRecordRepositoryMock.mockReset();
-  vi.mocked(useOptionalPGliteDatabase).mockReset();
-  vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
+  vi.mocked(useBrainstrikeLiveQueryCapability).mockReset();
+  vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(true);
   adapterByDbRootId = new Map();
   rootIdentityAbsent = false;
   setRoots([], {});
@@ -169,7 +169,7 @@ describe('useFileMentions', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it('uses repository snapshots when PGlite live queries are unavailable', async () => {
+  it('uses repository snapshots when live queries are unavailable', async () => {
     setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
     adapterByDbRootId = new Map([['D', 'A']]);
     const findByNameSubstring = vi.fn().mockResolvedValue([
@@ -181,7 +181,7 @@ describe('useFileMentions', () => {
         root_id: 'D',
       },
     ]);
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
     useFileRecordRepositoryMock.mockReturnValue({ findByNameSubstring });
     mockRows([]);
 
@@ -207,7 +207,7 @@ describe('useFileMentions', () => {
   it('does not expose disabled live-query rows when repository search is unavailable', async () => {
     setRoots(['A'], { A: { rootId: 'A', displayName: 'Alpha', path: '/abs/alpha' } });
     adapterByDbRootId = new Map([['D', 'A']]);
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
     useFileRecordRepositoryMock.mockReturnValue({});
     mockRows([
       {
@@ -233,7 +233,7 @@ describe('useFileMentions', () => {
     const findByNameSubstring = vi.fn(
       () => new Promise<DbRow[]>((resolve) => setTimeout(() => resolve([]), 1000))
     );
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
     useFileRecordRepositoryMock.mockReturnValue({ findByNameSubstring });
     mockRows([]);
 
@@ -267,7 +267,7 @@ describe('useFileMentions', () => {
           root_id: 'D',
         },
       ]);
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    vi.mocked(useBrainstrikeLiveQueryCapability).mockReturnValue(false);
     useFileRecordRepositoryMock.mockReturnValue({ findByNameSubstring });
     mockRows([]);
 

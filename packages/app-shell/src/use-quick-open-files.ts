@@ -4,8 +4,8 @@ import {
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useFileRecordRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { QuickOpenFileItem } from '@brainstrike/ui';
@@ -63,7 +63,7 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const rootIdentity = useOptionalRootIdentity();
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const fileRecordRepository = useFileRecordRepository();
 
   const trimmed = query.trim();
@@ -72,14 +72,14 @@ export function useQuickOpenFiles(query: string): UseQuickOpenFilesResult {
   // up to the debounced one the subscription is keyed on.
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
-  const liveQueryEnabled = enabled && Boolean(pgliteDb);
+  const liveQueryEnabled = enabled && liveQueryAvailable;
 
   const repositorySearch = useMemo(() => {
-    if (pgliteDb || !hasQuickOpenRepositorySearch(fileRecordRepository)) {
+    if (liveQueryAvailable || !hasQuickOpenRepositorySearch(fileRecordRepository)) {
       return null;
     }
     return fileRecordRepository.findByNameSubstring.bind(fileRecordRepository);
-  }, [fileRecordRepository, pgliteDb]);
+  }, [fileRecordRepository, liveQueryAvailable]);
 
   const [repositorySnapshot, setRepositorySnapshot] = useState<{
     readonly query: string;

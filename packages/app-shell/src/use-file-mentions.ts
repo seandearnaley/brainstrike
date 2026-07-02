@@ -5,8 +5,8 @@ import {
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useFileRecordRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import type { FileMention } from '@brainstrike/ui/assistant-ui-panel';
@@ -105,21 +105,21 @@ export function useFileMentions(query: string): UseFileMentionsResult {
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
   const rootIdentity = useOptionalRootIdentity();
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const fileRecordRepository = useFileRecordRepository();
 
   const trimmed = query.trim();
   const debounced = useDebouncedQuery(trimmed, FILE_MENTION_DEBOUNCE_MS);
   const debouncePending = trimmed !== debounced;
   const enabled = debounced.length > 0;
-  const liveQueryEnabled = enabled && Boolean(pgliteDb);
+  const liveQueryEnabled = enabled && liveQueryAvailable;
 
   const repositorySearch = useMemo(() => {
-    if (pgliteDb || !hasFileMentionRepositorySearch(fileRecordRepository)) {
+    if (liveQueryAvailable || !hasFileMentionRepositorySearch(fileRecordRepository)) {
       return null;
     }
     return fileRecordRepository.findByNameSubstring.bind(fileRecordRepository);
-  }, [fileRecordRepository, pgliteDb]);
+  }, [fileRecordRepository, liveQueryAvailable]);
 
   const [repositorySnapshot, setRepositorySnapshot] = useState<{
     readonly query: string;
