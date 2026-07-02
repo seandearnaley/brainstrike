@@ -283,6 +283,47 @@ describe('RootLayoutContent', () => {
       db: null,
       persistentStore: currentTokenCacheStore,
     });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
+  });
+
+  it('does not pass a Turso execution client through the PGlite token cache db prop', () => {
+    currentDb = null;
+    currentModelRegistryDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    currentTokenCacheStore = { kind: 'turso-token-cache-store' };
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'turso' },
+    };
+
+    render(<RootLayoutContent />);
+
+    expect(tokenCacheProviderProps.at(-1)).toMatchObject({
+      db: null,
+      persistentStore: currentTokenCacheStore,
+    });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
+  });
+
+  it('passes the runtime DB client to the PGlite token cache path', () => {
+    currentDb = null;
+    currentModelRegistryDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    currentTokenCacheStore = null;
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'pglite' },
+    };
+
+    render(<RootLayoutContent />);
+
+    expect(tokenCacheProviderProps.at(-1)).toMatchObject({
+      db: currentModelRegistryDb,
+      persistentStore: null,
+    });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
   });
 
   it('fails closed instead of silently entering memory token-cache mode for Turso partial DB', () => {

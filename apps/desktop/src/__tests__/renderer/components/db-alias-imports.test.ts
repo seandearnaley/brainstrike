@@ -30,7 +30,7 @@ const PGLITE_ONLY_ALIASES = new Set([
   'usePGliteLiveQuery',
   'UsePGliteLiveQueryOptions',
 ]);
-const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set(['root-layout-content.tsx']);
+const EXISTING_GENERIC_DB_CLIENT_DEBT = new Set<string>();
 const EXISTING_PGLITE_ONLY_DEBT = new Set(['embedding-worker-provider.tsx']);
 
 function findImportedGatedDbAliases(source: string): string[] {

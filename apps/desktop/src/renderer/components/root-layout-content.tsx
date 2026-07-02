@@ -14,7 +14,6 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import {
-  useBrainstrikeDbClient,
   useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
   useTokenCacheStore,
@@ -54,7 +53,7 @@ interface RendererMemoryPerformance extends Performance {
  * The token worker must be ready eagerly so background indexing starts immediately.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
-  const db = useBrainstrikeDbClient();
+  const db = useModelRegistryDbClient();
   const tokenCacheStore = useTokenCacheStore();
   const bootstrapReport = useOptionalProfileBootstrapReport();
   if (bootstrapReport?.ready && bootstrapReport.runtime.engine === 'turso' && !tokenCacheStore) {
@@ -62,8 +61,10 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
       'Desktop Turso token cache store is unavailable while the database client is not exposed.'
     );
   }
+  const pgliteTokenCacheDb =
+    tokenCacheStore || bootstrapReport?.runtime.engine === 'turso' ? null : db;
   return (
-    <TokenCacheProvider db={db} persistentStore={tokenCacheStore}>
+    <TokenCacheProvider db={pgliteTokenCacheDb} persistentStore={tokenCacheStore}>
       {children}
     </TokenCacheProvider>
   );
