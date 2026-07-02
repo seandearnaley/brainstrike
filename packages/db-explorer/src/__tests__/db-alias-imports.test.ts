@@ -10,15 +10,7 @@ const OLD_PGLITE_UI_ALIASES = [
   'UsePGliteLiveQueryOptions',
 ] as const;
 const PGLITE_ONLY_CONSUMERS = new Set(['__tests__/enhanced-file-import-service.test.ts']);
-const PGLITE_CAPABILITY_CONSUMERS = new Set([
-  '__tests__/database-demo-panel.test.tsx',
-  'hooks/__tests__/use-collection-embedding-coverage.test.ts',
-  'hooks/__tests__/use-document-count.test.ts',
-  'hooks/__tests__/use-file-collection-status.test.ts',
-  'hooks/use-collection-embedding-coverage.ts',
-  'hooks/use-document-count.ts',
-  'hooks/use-file-collection-status.ts',
-]);
+const PGLITE_CAPABILITY_CONSUMERS = new Set(['__tests__/database-demo-panel.test.tsx']);
 
 async function listSourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });

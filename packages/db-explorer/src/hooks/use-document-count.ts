@@ -1,8 +1,8 @@
 import {
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useFileChunkRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -40,15 +40,19 @@ const INDEXED_CHUNK_COUNT_QUERY = `
 `.trim();
 
 export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const chunkRepository = useFileChunkRepository();
-  const liveQueryEnabled = Boolean(activeCollectionId && pgliteDb);
+  const liveQueryEnabled = Boolean(activeCollectionId) && liveQueryAvailable;
   const repositoryCoverageLoader = useMemo(() => {
-    if (pgliteDb || !chunkRepository || typeof chunkRepository.getCoverageForSet !== 'function') {
+    if (
+      liveQueryAvailable ||
+      !chunkRepository ||
+      typeof chunkRepository.getCoverageForSet !== 'function'
+    ) {
       return null;
     }
     return chunkRepository.getCoverageForSet.bind(chunkRepository);
-  }, [chunkRepository, pgliteDb]);
+  }, [chunkRepository, liveQueryAvailable]);
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]

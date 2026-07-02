@@ -1,8 +1,8 @@
 import {
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useFileRecordRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
@@ -115,15 +115,19 @@ const FILE_STATUS_QUERY = `
 `.trim();
 
 export function useFileCollectionStatus(activeCollectionId: string | null) {
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const repository = useFileRecordRepository();
   const repositoryStatusLoader = useMemo(() => {
-    if (pgliteDb || !repository || typeof repository.getFileCollectionStatuses !== 'function') {
+    if (
+      liveQueryAvailable ||
+      !repository ||
+      typeof repository.getFileCollectionStatuses !== 'function'
+    ) {
       return null;
     }
     return repository.getFileCollectionStatuses.bind(repository);
-  }, [pgliteDb, repository]);
-  const liveQueryEnabled = Boolean(activeCollectionId && pgliteDb);
+  }, [liveQueryAvailable, repository]);
+  const liveQueryEnabled = Boolean(activeCollectionId) && liveQueryAvailable;
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]

@@ -23,15 +23,14 @@ const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQ
   () => mockLiveQueryState
 );
 const useFileChunkRepositoryMock = vi.fn();
+const useBrainstrikeLiveQueryCapabilityMock = vi.fn(() => true);
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useBrainstrikeLiveQueryCapability: () => useBrainstrikeLiveQueryCapabilityMock(),
   useFileChunkRepository: () => useFileChunkRepositoryMock(),
-  useOptionalPGliteDatabase: vi.fn(() => ({})),
 }));
-
-import { useOptionalPGliteDatabase } from '@brainstrike/db';
 
 describe('collection embedding coverage status', () => {
   beforeEach(() => {
@@ -41,7 +40,7 @@ describe('collection embedding coverage status', () => {
     mockLiveQueryState.error = null;
     useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
     useFileChunkRepositoryMock.mockReturnValue(null);
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue({} as never);
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
   });
 
   it('reports idle when the collection has no files', () => {
@@ -76,8 +75,8 @@ describe('collection embedding coverage status', () => {
     expect(result.current.snapshot.status).toBe('idle');
   });
 
-  it('disables the live coverage query when no PGlite live source is available', () => {
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+  it('disables the live coverage query when live queries are unavailable', () => {
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
 
     renderHook(() => useCollectionEmbeddingCoverage('active-collection'));
 
@@ -88,14 +87,14 @@ describe('collection embedding coverage status', () => {
     );
   });
 
-  it('loads collection coverage from repository snapshots when PGlite live queries are unavailable', async () => {
+  it('loads collection coverage from repository snapshots when live queries are unavailable', async () => {
     const getCollectionEmbeddingCoverage = vi.fn().mockResolvedValue({
       chunksMissingSourceRange: 2,
       pendingReindexFileCount: 0,
       totalChunks: 9,
       totalFiles: 3,
     });
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
     useFileChunkRepositoryMock.mockReturnValue({ getCollectionEmbeddingCoverage });
 
     const { result } = renderHook(() => useCollectionEmbeddingCoverage('collection-turso'));
@@ -130,7 +129,7 @@ describe('collection embedding coverage status', () => {
         totalChunks: 2,
         totalFiles: 1,
       });
-    vi.mocked(useOptionalPGliteDatabase).mockReturnValue(null as never);
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
     useFileChunkRepositoryMock.mockReturnValue({ getCollectionEmbeddingCoverage });
 
     const { result } = renderHook(() => useCollectionEmbeddingCoverage('collection-turso'));

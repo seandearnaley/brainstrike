@@ -17,7 +17,7 @@ const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQ
   () => mockLiveQueryState
 );
 const useFileChunkRepositoryMock = vi.fn();
-const useOptionalPGliteDatabaseMock = vi.fn<() => unknown>(() => ({}));
+const useBrainstrikeLiveQueryCapabilityMock = vi.fn(() => true);
 
 const mockVectorStatusUiStore = {
   isImporting: false,
@@ -27,8 +27,8 @@ const mockVectorStatusUiStore = {
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useBrainstrikeLiveQueryCapability: () => useBrainstrikeLiveQueryCapabilityMock(),
   useFileChunkRepository: () => useFileChunkRepositoryMock(),
-  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
@@ -47,7 +47,7 @@ describe('useIndexedChunkCount', () => {
     mockVectorStatusUiStore.isEmbeddingActive = false;
     useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
     useFileChunkRepositoryMock.mockReturnValue(null);
-    useOptionalPGliteDatabaseMock.mockReturnValue({});
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
   });
 
   it('returns undefined when no active collection', () => {
@@ -153,12 +153,12 @@ describe('useIndexedChunkCount', () => {
     expect(mockLiveQueryState.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('loads indexed chunk count from repository snapshots when PGlite live queries are unavailable', async () => {
+  it('loads indexed chunk count from repository snapshots when live queries are unavailable', async () => {
     const getCoverageForSet = vi.fn().mockResolvedValue({
       chunksWithEmbeddingsForSet: 12,
       totalChunks: 30,
     });
-    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
     useFileChunkRepositoryMock.mockReturnValue({ getCoverageForSet });
 
     const { result } = renderHook(() => useIndexedChunkCount('collection-turso'));
