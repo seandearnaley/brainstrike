@@ -283,6 +283,27 @@ describe('RootLayoutContent', () => {
       db: null,
       persistentStore: currentTokenCacheStore,
     });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
+  });
+
+  it('does not pass a Turso execution client through the PGlite token cache db prop', () => {
+    currentDb = null;
+    currentModelRegistryDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    currentTokenCacheStore = { kind: 'turso-token-cache-store' };
+    currentProfileBootstrapReport = {
+      ready: true,
+      runtime: { engine: 'turso' },
+    };
+
+    render(<RootLayoutContent />);
+
+    expect(tokenCacheProviderProps.at(-1)).toMatchObject({
+      db: null,
+      persistentStore: currentTokenCacheStore,
+    });
+    expect(useBrainstrikeDbClientMock).not.toHaveBeenCalled();
   });
 
   it('fails closed instead of silently entering memory token-cache mode for Turso partial DB', () => {
