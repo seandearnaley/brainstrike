@@ -262,9 +262,11 @@ export function useDatabaseDemoData({
   isImporting = false,
   recordPage = 0,
   recordPageSize = 50,
-  supportsPGliteCollectionQueries = true,
+  supportsPGliteCollectionQueries: requestedSupportsPGliteCollectionQueries = true,
   databaseRuntimeEngine = null,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
+  const supportsPGliteCollectionQueries =
+    databaseRuntimeEngine === 'turso' ? false : requestedSupportsPGliteCollectionQueries;
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
   const manualRefreshCountRef = useRef(0);
