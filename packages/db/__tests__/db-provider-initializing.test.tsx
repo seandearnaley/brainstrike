@@ -7,6 +7,7 @@ import {
   useAssistantMemoryDbClient,
   useBrainstrikeDbClient,
   useBrainstrikeLiveQueryCapability,
+  useBrainstrikeSchemaReadyCapability,
   useDbInitializationStatus,
   useDbInitializing,
   useEmbeddingSetsRepository,
@@ -925,6 +926,7 @@ describe('DbProvider initializing state', () => {
         modelRegistryDb: useModelRegistryDbClient(),
         pgliteDb: usePGliteDatabase(),
         querySelectionSnapshotDb: useQuerySelectionSnapshotDbClient(),
+        schemaReady: useBrainstrikeSchemaReadyCapability(),
         tokenCacheStore: useTokenCacheStore(),
         workspaceRootsDb: useWorkspaceRootsDbClient(),
       }),
@@ -942,6 +944,7 @@ describe('DbProvider initializing state', () => {
     expect(result.current.embeddingWorkerDb).toBeNull();
     expect(result.current.pgliteDb).toBeNull();
     expect(result.current.liveQueryAvailable).toBe(false);
+    expect(result.current.schemaReady).toBe(true);
     expect(result.current.assistantMemoryDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',

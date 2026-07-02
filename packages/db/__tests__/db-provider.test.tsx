@@ -10,6 +10,7 @@ import {
   useBrainstrikeDatabase,
   useBrainstrikeDbClient,
   useBrainstrikeLiveQueryCapability,
+  useBrainstrikeSchemaReadyCapability,
   useEmbeddingWorkerDbClient,
   useFileRecordRepository,
   useOptionalBrainstrikeDatabase,
@@ -96,6 +97,7 @@ describe('DbProvider', () => {
         optionalClient: useOptionalBrainstrikeDbClient(),
         optionalDb: useOptionalBrainstrikeDatabase(),
         pgliteDb: usePGliteDatabase(),
+        schemaReady: useBrainstrikeSchemaReadyCapability(),
       }),
       { wrapper }
     );
@@ -115,6 +117,7 @@ describe('DbProvider', () => {
       expect(result.current.optionalDb).toBe(result.current.db);
       expect(result.current.pgliteDb).toBe(result.current.db);
       expect(result.current.liveQueryAvailable).toBe(true);
+      expect(result.current.schemaReady).toBe(true);
     });
   });
 
@@ -123,10 +126,12 @@ describe('DbProvider', () => {
       client: useOptionalBrainstrikeDbClient(),
       db: useOptionalBrainstrikeDatabase(),
       liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
+      schemaReady: useBrainstrikeSchemaReadyCapability(),
     }));
     expect(result.current.client).toBeNull();
     expect(result.current.db).toBeNull();
     expect(result.current.liveQueryAvailable).toBe(false);
+    expect(result.current.schemaReady).toBe(false);
   });
 
   it('runs migrations on mount and closes db on unmount in production', async () => {

@@ -1920,6 +1920,38 @@ export function useBrainstrikeLiveQueryCapability(): boolean {
   );
 }
 
+export function useBrainstrikeSchemaReadyCapability(): boolean {
+  const ctx = useContext(DbContext);
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+  const initializationStatus = ctx?.initializationStatus;
+
+  useEffect(() => {
+    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase, initializationStatus]);
+
+  if (!ctx || ctx.error) {
+    return false;
+  }
+
+  const runtimeEngine = ctx.profileBootstrapReport.runtime.engine;
+  if (runtimeEngine === 'pglite') {
+    return Boolean(ctx.ready && ctx.db);
+  }
+
+  if (runtimeEngine === 'turso') {
+    return ctx.initializationStatus === 'ready' && ctx.profileBootstrapReport.ready === true;
+  }
+
+  return false;
+}
+
 export function useAssistantMemoryDbClient(): AssistantMemoryDbClient | null {
   const ctx = useContext(DbContext);
 
