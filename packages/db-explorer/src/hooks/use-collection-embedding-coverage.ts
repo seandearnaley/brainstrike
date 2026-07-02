@@ -1,8 +1,8 @@
 import {
   makeLiveQueryKey,
   useBrainstrikeLiveQuery,
+  useBrainstrikeLiveQueryCapability,
   useFileChunkRepository,
-  useOptionalPGliteDatabase,
 } from '@brainstrike/db';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -109,16 +109,16 @@ const IDLE_SNAPSHOT: CollectionEmbeddingCoverageSnapshot = {
 };
 
 export function useCollectionEmbeddingCoverage(activeCollectionId: string | null) {
-  const pgliteDb = useOptionalPGliteDatabase();
+  const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const chunkRepository = useFileChunkRepository();
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
   );
-  const liveQueryEnabled = Boolean(activeCollectionId) && Boolean(pgliteDb);
+  const liveQueryEnabled = Boolean(activeCollectionId) && liveQueryAvailable;
   const repositoryCoverageLoader = useMemo(() => {
     if (
-      pgliteDb ||
+      liveQueryAvailable ||
       !chunkRepository ||
       typeof (chunkRepository as Partial<CollectionCoverageRepository>)
         .getCollectionEmbeddingCoverage !== 'function'
@@ -128,7 +128,7 @@ export function useCollectionEmbeddingCoverage(activeCollectionId: string | null
     return (chunkRepository as CollectionCoverageRepository).getCollectionEmbeddingCoverage.bind(
       chunkRepository
     );
-  }, [chunkRepository, pgliteDb]);
+  }, [chunkRepository, liveQueryAvailable]);
   const [repositorySnapshot, setRepositorySnapshot] = useState<{
     collectionId: string;
     snapshot: CollectionEmbeddingCoverageSnapshot;

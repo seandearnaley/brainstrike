@@ -23,13 +23,13 @@ const useBrainstrikeLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQ
   () => mockLiveQueryState
 );
 const useFileRecordRepositoryMock = vi.fn();
-const useOptionalPGliteDatabaseMock = vi.fn<() => unknown>(() => ({}));
+const useBrainstrikeLiveQueryCapabilityMock = vi.fn(() => true);
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeLiveQuery: (options: unknown) => useBrainstrikeLiveQueryMock(options),
+  useBrainstrikeLiveQueryCapability: () => useBrainstrikeLiveQueryCapabilityMock(),
   useFileRecordRepository: () => useFileRecordRepositoryMock(),
-  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
 
 describe('useFileCollectionStatus', () => {
@@ -40,7 +40,7 @@ describe('useFileCollectionStatus', () => {
     mockLiveQueryState.refresh = vi.fn();
     useBrainstrikeLiveQueryMock.mockReturnValue(mockLiveQueryState);
     useFileRecordRepositoryMock.mockReturnValue(null);
-    useOptionalPGliteDatabaseMock.mockReturnValue({});
+    useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
   });
 
   describe('getFileStatus', () => {
@@ -213,7 +213,7 @@ describe('useFileCollectionStatus', () => {
       );
     });
 
-    it('loads requested file statuses from repository snapshots when PGlite live queries are unavailable', async () => {
+    it('loads requested file statuses from repository snapshots when live queries are unavailable', async () => {
       const getFileCollectionStatuses = vi.fn().mockResolvedValue([
         {
           fileId: 'file-2',
@@ -226,7 +226,7 @@ describe('useFileCollectionStatus', () => {
           totalChunksCount: 3,
         },
       ]);
-      useOptionalPGliteDatabaseMock.mockReturnValue(null);
+      useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
       useFileRecordRepositoryMock.mockReturnValue({ getFileCollectionStatuses });
 
       const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
@@ -252,7 +252,7 @@ describe('useFileCollectionStatus', () => {
     });
 
     it('uses storage-neutral error copy when no file status backend is available', async () => {
-      useOptionalPGliteDatabaseMock.mockReturnValue(null);
+      useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
       useFileRecordRepositoryMock.mockReturnValue({});
 
       const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
