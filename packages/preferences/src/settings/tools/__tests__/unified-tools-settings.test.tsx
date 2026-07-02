@@ -14,13 +14,10 @@ import type {
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
 const {
-  useBrainstrikeExecutionDbClientMock,
   useBrainstrikeLiveQueryCapabilityMock,
   useBrainstrikeLiveQueryMock,
+  useBrainstrikeSchemaReadyCapabilityMock,
 } = vi.hoisted(() => ({
-  useBrainstrikeExecutionDbClientMock: vi.fn<() => { runtimeEngine: string } | null>(() => ({
-    runtimeEngine: 'pglite',
-  })),
   useBrainstrikeLiveQueryCapabilityMock: vi.fn(() => true),
   useBrainstrikeLiveQueryMock: vi.fn(() => ({
     rows: [],
@@ -28,12 +25,13 @@ const {
     error: null,
     refresh: vi.fn(),
   })),
+  useBrainstrikeSchemaReadyCapabilityMock: vi.fn(() => true),
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  useBrainstrikeExecutionDbClient: useBrainstrikeExecutionDbClientMock,
   useBrainstrikeLiveQueryCapability: useBrainstrikeLiveQueryCapabilityMock,
   useBrainstrikeLiveQuery: useBrainstrikeLiveQueryMock,
+  useBrainstrikeSchemaReadyCapability: useBrainstrikeSchemaReadyCapabilityMock,
 }));
 
 // Mock child components
@@ -319,7 +317,7 @@ describe('UnifiedToolsSettings', () => {
       refresh: vi.fn(),
     });
     useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(true);
-    useBrainstrikeExecutionDbClientMock.mockReturnValue({ runtimeEngine: 'pglite' });
+    useBrainstrikeSchemaReadyCapabilityMock.mockReturnValue(true);
     localStorage.clear();
   });
 
@@ -344,7 +342,7 @@ describe('UnifiedToolsSettings', () => {
       );
     });
 
-    it('fails closed when live query metadata is configured but unavailable', async () => {
+    it('fails closed for schema-ready runtimes when live query metadata is configured but unavailable', async () => {
       const operations = createMockOperations();
       operations.toolsLiveQuery = {
         query: 'SELECT id FROM tools ORDER BY id',
@@ -352,6 +350,7 @@ describe('UnifiedToolsSettings', () => {
         key: 'id',
       };
       useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
+      useBrainstrikeSchemaReadyCapabilityMock.mockReturnValue(true);
 
       render(<UnifiedToolsSettings operations={operations} />);
 
@@ -379,7 +378,7 @@ describe('UnifiedToolsSettings', () => {
         key: 'id',
       };
       useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
-      useBrainstrikeExecutionDbClientMock.mockReturnValue(null);
+      useBrainstrikeSchemaReadyCapabilityMock.mockReturnValue(false);
 
       render(<UnifiedToolsSettings operations={operations} />);
 
@@ -410,6 +409,7 @@ describe('UnifiedToolsSettings', () => {
         .fn()
         .mockResolvedValue({ path: '/test', exists: true, error: 'MCP config unavailable' });
       useBrainstrikeLiveQueryCapabilityMock.mockReturnValue(false);
+      useBrainstrikeSchemaReadyCapabilityMock.mockReturnValue(true);
 
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 

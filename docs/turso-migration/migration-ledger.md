@@ -365,19 +365,25 @@ Many UI blockers are now centralized at the shared DB provider layer:
 - `useBrainstrikeLiveQuery()` remains a PGlite live-query alias.
 
 Provider execution-client slice now exposes `useBrainstrikeExecutionDbClient()`
-for ready PGlite and Turso runtimes. The hook returns the runtime engine and
-explicit SQL capability metadata (`postgres` plus Postgres-only features for
-PGlite, `sqlite` plus Turso baseline features for Turso), and returns `null`
-unless the ready provider handle has query, exec, and transaction capabilities.
-Consumer migrations should use this hook when they need generic SQL execution
-metadata; do not use it to imply live-query, vector, grep, or FTS availability.
-Those capabilities remain repository/bootstrap-gated.
+for ready PGlite and query-capable Turso runtimes. The hook returns the runtime
+engine and explicit SQL capability metadata (`postgres` plus Postgres-only
+features for PGlite, `sqlite` plus Turso baseline features for Turso), and
+returns `null` unless the ready provider handle has query, exec, and callback
+transaction capabilities. Electron-hosted Turso currently returns `null` on
+purpose: renderer-facing Turso mutations must go through repository/bootstrap
+capabilities or explicit owner-IPC action surfaces, not a raw callback-style SQL
+client. Consumer migrations should use this hook only when they truly need a
+generic execution client; do not use it to infer runtime readiness, live-query,
+vector, grep, or FTS availability. Those capabilities remain
+schema-readiness-, repository-, or bootstrap-gated.
 
 Remaining provider work: migrate remaining generic SQL consumers onto
-`useBrainstrikeExecutionDbClient()` or a concrete repository capability so
-callers stop treating "raw DB handle" as "PGlite". Vector, FTS, and grep
-methods on the chunk repository must stay capability-gated by the concrete
-repository and bootstrap proofs instead of a raw database-handle assumption.
+`useBrainstrikeExecutionDbClient()` only where the runtime actually exposes a
+query-capable execution client, or onto a concrete repository capability when
+Electron-hosted Turso owns the SQL path. Callers must stop treating "raw DB
+handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
+stay capability-gated by the concrete repository and bootstrap proofs instead
+of a raw database-handle assumption.
 
 Audit follow-up: `useModelRegistryDbClient()` and model-registry toggle writes
 still need a runtime-specific SQL helper. Current Turso driver probes accepted

@@ -9,9 +9,9 @@
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   type UseBrainstrikeLiveQueryOptions,
-  useBrainstrikeExecutionDbClient,
   useBrainstrikeLiveQuery,
   useBrainstrikeLiveQueryCapability,
+  useBrainstrikeSchemaReadyCapability,
 } from '@brainstrike/db';
 import {
   Accordion,
@@ -329,12 +329,11 @@ export function UnifiedToolsSettings({
   const _statsStateRef = useRef<ToolStats | null>(null);
   const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
-  const executionDbClient = useBrainstrikeExecutionDbClient();
+  const schemaReady = useBrainstrikeSchemaReadyCapability();
   const liveQueryAvailable = useBrainstrikeLiveQueryCapability();
   const liveQueryEnabled = Boolean(liveQueryConfig) && liveQueryAvailable;
-  const liveQueryPending = Boolean(liveQueryConfig) && !liveQueryAvailable && !executionDbClient;
-  const liveQueryUnsupported =
-    Boolean(liveQueryConfig) && !liveQueryAvailable && !!executionDbClient;
+  const liveQueryPending = Boolean(liveQueryConfig) && !liveQueryAvailable && !schemaReady;
+  const liveQueryUnsupported = Boolean(liveQueryConfig) && !liveQueryAvailable && schemaReady;
   const operationsSnapshotEnabled = !liveQueryConfig;
   const liveQueryOptions: UseBrainstrikeLiveQueryOptions<ToolDisplayMetadata> = {
     query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
