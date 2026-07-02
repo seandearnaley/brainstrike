@@ -70,6 +70,11 @@ export const BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES = [
   'trigram',
 ] as const satisfies readonly BrainstrikeDbSqlFeature[];
 
+export const BRAINSTRIKE_DB_PGLITE_BASELINE_SQL_CAPABILITIES = {
+  dialect: 'postgres',
+  features: BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES,
+} as const satisfies BrainstrikeDbSqlCapabilities;
+
 export const BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES = {
   dialect: 'sqlite',
   features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],

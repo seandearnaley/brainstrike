@@ -26,7 +26,7 @@ import type {
   BrainstrikeDbTransactionClient,
 } from './architecture/brainstrike-db-client-contract.js';
 import {
-  BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES,
+  BRAINSTRIKE_DB_PGLITE_BASELINE_SQL_CAPABILITIES,
   BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES,
   getMissingBrainstrikeDbExecutionClientCapabilities,
   markBrainstrikeDbExecutionRuntime,
@@ -274,6 +274,11 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  runTransaction?: (
+    statements: readonly { readonly params?: readonly unknown[]; readonly sql: string }[],
+    resultIndex: number,
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
@@ -427,6 +432,39 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
       fn: (txHandle: DbHandle) => Promise<T>
     ) => tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
     handle.transaction = transactionWrapper;
+  } else if (typeof executor.runTransaction === 'function') {
+    const runTransaction = executor.runTransaction;
+    const transactionWrapper: DbHandle['transaction'] = async <T,>(
+      fn: (txHandle: DbHandle) => Promise<T>
+    ) => {
+      const statements: { params?: unknown[]; sql: string }[] = [];
+      const txHandle: DbHandle = {
+        exec: async (sql: string, params?: unknown[], options?: unknown) => {
+          const forwarded = splitExposedDatabaseWorkOptions(params, options);
+          if (forwarded.options !== undefined) {
+            throw new Error(
+              'Desktop PGlite IPC transaction adapter does not support per-statement work options.'
+            );
+          }
+          statements.push({
+            sql,
+            ...(forwarded.params === undefined ? {} : { params: [...forwarded.params] }),
+          });
+        },
+        query: async () => {
+          throw new Error('Desktop PGlite IPC transaction adapter only supports exec statements.');
+        },
+      };
+      const result = await fn(txHandle);
+      if (statements.length > 0) {
+        await runTransaction.call(executor, statements, 0, {
+          label: 'pglite-ipc.transaction',
+          priority: 'normal',
+        });
+      }
+      return result;
+    };
+    handle.transaction = transactionWrapper;
   }
 
   Object.defineProperty(handle, 'raw', {
@@ -441,11 +479,10 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
 function resolveRuntimeSqlCapabilities(
   runtimeEngine: BrainstrikeExecutionRuntimeEngine
 ): BrainstrikeDbSqlCapabilities {
+  // These describe SQL expression support only; repository/live/vector/grep availability remains
+  // gated by the runtime bootstrap and repository capability checks.
   if (runtimeEngine === 'pglite') {
-    return {
-      dialect: 'postgres',
-      features: BRAINSTRIKE_DB_POSTGRES_REPOSITORY_SQL_FEATURES,
-    };
+    return BRAINSTRIKE_DB_PGLITE_BASELINE_SQL_CAPABILITIES;
   }
 
   return BRAINSTRIKE_DB_TURSO_BASELINE_SQL_CAPABILITIES;

@@ -400,6 +400,83 @@ describe('DbProvider initializing state', () => {
     });
   });
 
+  it('exposes a ready Electron IPC PGlite execution client through the atomic transaction bridge', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      return { rows: [] };
+    });
+    const runTransaction = vi.fn(
+      async (
+        _statements: readonly { params?: unknown[]; sql: string }[],
+        _resultIndex: number,
+        _options?: unknown
+      ) => ({ rows: [] })
+    );
+    setWindowElectronDbBridge({
+      exec: vi.fn(async () => undefined),
+      query,
+      runTransaction,
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        db: useBrainstrikeDbClient(),
+        executionDb: useBrainstrikeExecutionDbClient(),
+        initializationStatus: useDbInitializationStatus(),
+        pgliteDb: usePGliteDatabase(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.db).toBe(result.current.pgliteDb);
+    expect(result.current.executionDb).toEqual({
+      db: result.current.pgliteDb,
+      runtimeEngine: 'pglite',
+      sqlCapabilities: {
+        dialect: 'postgres',
+        features: [
+          'data-modifying-cte',
+          'jsonb',
+          'postgres-fts',
+          'postgres-vector',
+          'skip-locked',
+          'trigram',
+        ],
+      },
+    });
+
+    await expect(
+      result.current.executionDb?.db.transaction?.(async (tx) => {
+        await tx.exec?.('DELETE FROM job_queue WHERE job_type = $1', ['embedding']);
+        return 'committed';
+      })
+    ).resolves.toBe('committed');
+    expect(runTransaction).toHaveBeenCalledWith(
+      [{ sql: 'DELETE FROM job_queue WHERE job_type = $1', params: ['embedding'] }],
+      0,
+      {
+        label: 'pglite-ipc.transaction',
+        priority: 'normal',
+      }
+    );
+
+    await expect(
+      result.current.executionDb?.db.transaction?.(async (tx) => {
+        await tx.query('SELECT 1 AS ok');
+      })
+    ).rejects.toThrow('Desktop PGlite IPC transaction adapter only supports exec statements.');
+  });
+
   it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories without generic DB handles', async () => {
     let createdChunk: {
       chunk_index: number;
