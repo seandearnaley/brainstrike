@@ -144,7 +144,7 @@ export interface DbHostManager {
   ) => Promise<unknown>;
   readonly runTursoEmbeddingWorkerStatsOperation: (
     payload: ParsedTursoEmbeddingWorkerStatsRequest
-  ) => Promise<unknown>;
+  ) => Promise<void>;
   readonly runTursoVectorQueueAction: (
     payload: ParsedTursoVectorQueueActionRequest
   ) => Promise<unknown>;
@@ -174,6 +174,7 @@ interface RequestTimeoutDiagnostics {
   readonly requestKind: DbHostRequest['kind'];
   readonly sqlPreview?: string;
   readonly transactionId?: string;
+  readonly vectorQueueOperation?: string;
 }
 
 function toError(error: DbHostSerializedError): Error {
@@ -305,6 +306,14 @@ function requiresHostTerminationOnTimeout(
   );
 }
 
+function isBulkTursoVectorQueueAction(request: DbHostRequest): boolean {
+  return (
+    request.kind === 'turso:vector-queue:action' &&
+    (request.payload.operation === 'clearEmbeddingsForSet' ||
+      request.payload.operation === 'wipeQueue')
+  );
+}
+
 function createQueryPreview(query: string): string {
   return query.replace(/\s+/g, ' ').slice(0, 240);
 }
@@ -356,6 +365,11 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
       return {
         requestKind: request.kind,
         liveId: request.liveId,
+      };
+    case 'turso:vector-queue:action':
+      return {
+        requestKind: request.kind,
+        vectorQueueOperation: request.payload.operation,
       };
     default:
       return { requestKind: request.kind };
@@ -616,9 +630,9 @@ class DefaultDbHostManager implements DbHostManager {
 
   async runTursoEmbeddingWorkerStatsOperation(
     payload: ParsedTursoEmbeddingWorkerStatsRequest
-  ): Promise<unknown> {
+  ): Promise<void> {
     await this.#ensureRuntimeInitialized();
-    return await this.send({ kind: 'turso:embedding-worker:stats', payload });
+    await this.send({ kind: 'turso:embedding-worker:stats', payload });
   }
 
   async runTursoVectorQueueAction(payload: ParsedTursoVectorQueueActionRequest): Promise<unknown> {
@@ -686,7 +700,7 @@ class DefaultDbHostManager implements DbHostManager {
     if (request.kind === 'init') {
       return this.#initializationTimeoutMs;
     }
-    if (request.kind === 'maintenance:exec') {
+    if (request.kind === 'maintenance:exec' || isBulkTursoVectorQueueAction(request)) {
       return this.#maintenanceRequestTimeoutMs;
     }
     return this.#requestTimeoutMs;

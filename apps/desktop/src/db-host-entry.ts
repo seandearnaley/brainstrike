@@ -546,18 +546,18 @@ function assertNeverTursoEmbeddingWorkerQueueOperation(_request: never): never {
 
 async function handleTursoEmbeddingWorkerStatsOperation(
   request: Extract<DbHostRequest, { kind: 'turso:embedding-worker:stats' }>
-): Promise<{ readonly updated: true }> {
+): Promise<void> {
   const { db, engine } = await getQueryableDatabaseContext();
   const executionDb = requireTursoExecutionClient(db, engine);
   switch (request.payload.operation) {
     case 'markDirty':
       await markTursoCollectionIndexingStatsDirty(executionDb, request.payload.embeddingSetIds);
-      return { updated: true };
+      return;
     case 'refresh':
       await executionDb.transaction(async (tx) => {
         await refreshTursoCollectionIndexingStats(tx, request.payload.embeddingSetIds);
       });
-      return { updated: true };
+      return;
     default:
       return assertNeverTursoEmbeddingWorkerStatsOperation(request.payload.operation);
   }

@@ -388,7 +388,7 @@ describe('db-host-entry Turso owner requests', () => {
       });
       await expect(waitForResponse(parentPort, 'mark-dirty')).resolves.toMatchObject({
         ok: true,
-        result: { updated: true },
+        result: undefined,
       });
       await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({ dirty: 1 });
 
@@ -402,7 +402,7 @@ describe('db-host-entry Turso owner requests', () => {
 
       await expect(waitForResponse(parentPort, 'refresh-stats')).resolves.toMatchObject({
         ok: true,
-        result: { updated: true },
+        result: undefined,
       });
       await expect(readStatsRow(client, embeddingSet.id)).resolves.toMatchObject({
         chunk_count: 1,

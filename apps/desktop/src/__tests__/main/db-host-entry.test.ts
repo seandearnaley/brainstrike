@@ -923,7 +923,7 @@ describe('db-host-entry', () => {
       id: 'turso-stats',
       kind: 'response',
       ok: true,
-      result: { updated: true },
+      result: undefined,
     });
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       id: 'turso-vector',

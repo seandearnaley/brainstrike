@@ -891,8 +891,8 @@ describe('DbHostManager', () => {
         },
       },
     });
-    firstHost.reply(firstHost.messages[2] as PostedMessage, { refreshed: true });
-    await expect(statsPromise).resolves.toEqual({ refreshed: true });
+    firstHost.reply(firstHost.messages[2] as PostedMessage, undefined);
+    await expect(statsPromise).resolves.toBeUndefined();
 
     const actionPromise = manager.runTursoVectorQueueAction({
       operation: 'retryFailed',
@@ -1001,6 +1001,62 @@ describe('DbHostManager', () => {
           sqlPreview:
             'CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384 ON file_chunks USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops)',
           timeoutMs: 50,
+        }),
+        'DB host request timed out'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    'clearEmbeddingsForSet',
+    'wipeQueue',
+  ] as const)('uses the maintenance timeout for bulk Turso vector owner action %s', async (operation) => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        maintenanceRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(
+        latestProcess().messages.at(-1) as PostedMessage,
+        createReadyInitResult({
+          bootstrapReport: createReadyTursoBootstrapReport(),
+          capabilities: { liveQuery: false },
+        })
+      );
+      await databasePromise;
+
+      const actionPromise = manager.runTursoVectorQueueAction(
+        operation === 'clearEmbeddingsForSet'
+          ? { operation, payload: { embeddingSetId: 'set-timeout' } }
+          : { operation, payload: null }
+      );
+      const actionAssertion = expect(actionPromise).rejects.toThrow(
+        'DB host request timed out: turso:vector-queue:action'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await flushMicrotasks();
+      expect(loggerWarnMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ requestKind: 'turso:vector-queue:action' }),
+        'DB host request timed out'
+      );
+
+      await vi.advanceTimersByTimeAsync(45);
+      await actionAssertion;
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 50,
+          pendingCount: 1,
+          requestKind: 'turso:vector-queue:action',
+          timeoutMs: 50,
+          vectorQueueOperation: operation,
         }),
         'DB host request timed out'
       );
