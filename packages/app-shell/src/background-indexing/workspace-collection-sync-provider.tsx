@@ -137,6 +137,7 @@ const TURSO_BACKGROUND_CHUNK_UPDATE_UNSUPPORTED_ERROR =
 
 type BackgroundIndexingRuntimeEngine = 'pglite' | 'turso';
 type BootstrapRuntimeEngine = 'libsql' | 'pglite' | 'turso' | 'unknown';
+type WorkspaceIndexDebugSqlRuntime = 'pglite' | 'turso';
 interface BackgroundTursoTransactionStatement {
   params?: unknown[];
   sql: string;
@@ -151,6 +152,21 @@ function isBackgroundIndexingRuntimeEngine(
   runtimeEngine: BootstrapRuntimeEngine
 ): runtimeEngine is BackgroundIndexingRuntimeEngine {
   return runtimeEngine === 'pglite' || runtimeEngine === 'turso';
+}
+
+function getWorkspaceIndexDebugSqlParameter(
+  runtimeEngine: WorkspaceIndexDebugSqlRuntime,
+  index: number
+): string {
+  return runtimeEngine === 'turso' ? `?${index}` : `$${index}`;
+}
+
+function buildWorkspaceIndexDebugCollectionFilter(
+  runtimeEngine: WorkspaceIndexDebugSqlRuntime,
+  columnName: string
+): string {
+  const collectionIdParameter = getWorkspaceIndexDebugSqlParameter(runtimeEngine, 1);
+  return `(${collectionIdParameter} IS NULL OR ${columnName} = ${collectionIdParameter})`;
 }
 
 interface BackgroundIndexingPreferencesPersistApi {
@@ -2444,6 +2460,21 @@ export function WorkspaceCollectionSyncProvider({
               rows?: unknown[];
             }>) satisfies WorkspaceIndexDebugDbQuery)
         : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
+    const debugSqlRuntime: WorkspaceIndexDebugSqlRuntime =
+      runtimeEngine === 'turso' ? 'turso' : 'pglite';
+    const collectionFilter = buildWorkspaceIndexDebugCollectionFilter(
+      debugSqlRuntime,
+      'embedding_set_id'
+    );
+    const fileRecordCollectionFilter = buildWorkspaceIndexDebugCollectionFilter(
+      debugSqlRuntime,
+      'fr.embedding_set_id'
+    );
+    const chunkCollectionFilter = buildWorkspaceIndexDebugCollectionFilter(
+      debugSqlRuntime,
+      'fc.embedding_set_id'
+    );
+    const runAtParameter = getWorkspaceIndexDebugSqlParameter(debugSqlRuntime, 2);
     const [
       expectedCounts,
       roots,
@@ -2469,11 +2500,11 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
-        `SELECT root_id, COUNT(*)::int AS file_count,
-                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
-                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+        `SELECT root_id, COUNT(*) AS file_count,
+                SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS chunked_file_count,
+                SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS unchunked_file_count
            FROM file_records
-          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          WHERE ${collectionFilter}
           GROUP BY root_id
           ORDER BY root_id`,
         [managedCollectionId],
@@ -2487,10 +2518,10 @@ export function WorkspaceCollectionSyncProvider({
                 fr.id,
                 fr.path AS relative_path,
                 fr.chunks_processed_at,
-                COUNT(fc.id)::int AS chunk_count
+                COUNT(fc.id) AS chunk_count
            FROM file_records fr
            LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
-          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          WHERE ${fileRecordCollectionFilter}
             AND fr.chunks_processed_at IS NOT NULL
           GROUP BY fr.root_id, fr.id, fr.path, fr.chunks_processed_at
           ORDER BY fr.root_id, fr.path`,
@@ -2501,12 +2532,12 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `SELECT fr.root_id,
-                COUNT(fc.id)::int AS chunk_count,
-                COUNT(fc.embedding)::int AS embedded_chunk_count,
-                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+                COUNT(fc.id) AS chunk_count,
+                COUNT(fc.embedding) AS embedded_chunk_count,
+                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
-          WHERE ($1::text IS NULL OR fc.embedding_set_id = $1::text)
+          WHERE ${chunkCollectionFilter}
           GROUP BY fr.root_id
           ORDER BY fr.root_id`,
         [managedCollectionId],
@@ -2518,12 +2549,12 @@ export function WorkspaceCollectionSyncProvider({
         `/* chunks_by_root_and_set_query_marker */
          SELECT fr.root_id,
                 fc.embedding_set_id,
-                COUNT(fc.id)::int AS chunk_count,
-                COUNT(fc.embedding)::int AS embedded_chunk_count,
-                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+                COUNT(fc.id) AS chunk_count,
+                COUNT(fc.embedding) AS embedded_chunk_count,
+                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
-          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          WHERE ${fileRecordCollectionFilter}
           GROUP BY fr.root_id, fc.embedding_set_id
           ORDER BY fr.root_id, fc.embedding_set_id`,
         [managedCollectionId],
@@ -2532,12 +2563,12 @@ export function WorkspaceCollectionSyncProvider({
       ),
       readWorkspaceIndexDebugRows(
         query,
-        `SELECT queue, job_type, state, COUNT(*)::int AS count,
+        `SELECT queue, job_type, state, COUNT(*) AS count,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
           WHERE job_type = 'embed_chunk'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           GROUP BY queue, job_type, state
           ORDER BY queue, job_type, state`,
         [managedCollectionId],
@@ -2548,15 +2579,15 @@ export function WorkspaceCollectionSyncProvider({
         query,
         `/* job_queue_readiness_query_marker */
          SELECT state,
-                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
-                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS due_count,
+                SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS future_count,
                 MIN(run_at) AS oldest_run_at,
                 MAX(run_at) AS newest_run_at,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
           WHERE job_type = 'embed_chunk'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           GROUP BY state
           ORDER BY state`,
         [managedCollectionId, new Date().toISOString()],
@@ -2569,7 +2600,7 @@ export function WorkspaceCollectionSyncProvider({
            FROM job_queue
           WHERE job_type = 'embed_chunk'
             AND state = 'succeeded'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           ORDER BY updated_at DESC
           LIMIT 10`,
         [managedCollectionId],
@@ -2583,7 +2614,7 @@ export function WorkspaceCollectionSyncProvider({
            FROM job_queue
           WHERE job_type = 'embed_chunk'
             AND state = 'failed'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           ORDER BY updated_at DESC
           LIMIT 20`,
         [managedCollectionId],
@@ -2671,6 +2702,7 @@ export function WorkspaceCollectionSyncProvider({
     rootDirectoryHandle,
     rootDirectoryHandles,
     rootIdByPath,
+    runtimeEngine,
     selectedDevicePreference,
     service,
   ]);
@@ -2685,6 +2717,17 @@ export function WorkspaceCollectionSyncProvider({
               rows?: unknown[];
             }>) satisfies WorkspaceIndexDebugDbQuery)
         : (backgroundDb?.query as WorkspaceIndexDebugDbQuery | undefined);
+    const debugSqlRuntime: WorkspaceIndexDebugSqlRuntime =
+      runtimeEngine === 'turso' ? 'turso' : 'pglite';
+    const collectionFilter = buildWorkspaceIndexDebugCollectionFilter(
+      debugSqlRuntime,
+      'embedding_set_id'
+    );
+    const fileRecordCollectionFilter = buildWorkspaceIndexDebugCollectionFilter(
+      debugSqlRuntime,
+      'fr.embedding_set_id'
+    );
+    const runAtParameter = getWorkspaceIndexDebugSqlParameter(debugSqlRuntime, 2);
     const [
       roots,
       fileRecordsByRoot,
@@ -2708,11 +2751,11 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `/* workspace_index_summary_file_records_marker */
-         SELECT root_id, COUNT(*)::int AS file_count,
-                COUNT(*) FILTER (WHERE chunks_processed_at IS NOT NULL)::int AS chunked_file_count,
-                COUNT(*) FILTER (WHERE chunks_processed_at IS NULL)::int AS unchunked_file_count
+         SELECT root_id, COUNT(*) AS file_count,
+                SUM(CASE WHEN chunks_processed_at IS NOT NULL THEN 1 ELSE 0 END) AS chunked_file_count,
+                SUM(CASE WHEN chunks_processed_at IS NULL THEN 1 ELSE 0 END) AS unchunked_file_count
            FROM file_records
-          WHERE ($1::text IS NULL OR embedding_set_id = $1::text)
+          WHERE ${collectionFilter}
           GROUP BY root_id
           ORDER BY root_id`,
         [managedCollectionId],
@@ -2724,12 +2767,12 @@ export function WorkspaceCollectionSyncProvider({
         `/* workspace_index_summary_chunks_marker */
          SELECT fr.root_id,
                 fc.embedding_set_id,
-                COUNT(fc.id)::int AS chunk_count,
-                COUNT(fc.embedding)::int AS embedded_chunk_count,
-                COUNT(*) FILTER (WHERE fc.embedding IS NULL)::int AS pending_chunk_count
+                COUNT(fc.id) AS chunk_count,
+                COUNT(fc.embedding) AS embedded_chunk_count,
+                SUM(CASE WHEN fc.embedding IS NULL THEN 1 ELSE 0 END) AS pending_chunk_count
            FROM file_chunks fc
            JOIN file_records fr ON fr.id = fc.file_record_id
-          WHERE ($1::text IS NULL OR fr.embedding_set_id = $1::text)
+          WHERE ${fileRecordCollectionFilter}
           GROUP BY fr.root_id, fc.embedding_set_id
           ORDER BY fr.root_id, fc.embedding_set_id`,
         [managedCollectionId],
@@ -2739,12 +2782,12 @@ export function WorkspaceCollectionSyncProvider({
       readWorkspaceIndexDebugRows(
         query,
         `/* workspace_index_summary_job_queue_marker */
-         SELECT queue, job_type, state, COUNT(*)::int AS count,
+         SELECT queue, job_type, state, COUNT(*) AS count,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
           WHERE job_type = 'embed_chunk'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           GROUP BY queue, job_type, state
           ORDER BY queue, job_type, state`,
         [managedCollectionId],
@@ -2755,15 +2798,15 @@ export function WorkspaceCollectionSyncProvider({
         query,
         `/* workspace_index_summary_job_queue_readiness_marker */
          SELECT state,
-                COUNT(*) FILTER (WHERE run_at <= $2::text)::int AS due_count,
-                COUNT(*) FILTER (WHERE run_at > $2::text)::int AS future_count,
+                SUM(CASE WHEN run_at <= ${runAtParameter} THEN 1 ELSE 0 END) AS due_count,
+                SUM(CASE WHEN run_at > ${runAtParameter} THEN 1 ELSE 0 END) AS future_count,
                 MIN(run_at) AS oldest_run_at,
                 MAX(run_at) AS newest_run_at,
                 MIN(updated_at) AS oldest_updated_at,
                 MAX(updated_at) AS newest_updated_at
            FROM job_queue
           WHERE job_type = 'embed_chunk'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           GROUP BY state
           ORDER BY state`,
         [managedCollectionId, new Date().toISOString()],
@@ -2777,7 +2820,7 @@ export function WorkspaceCollectionSyncProvider({
            FROM job_queue
           WHERE job_type = 'embed_chunk'
             AND state = 'failed'
-            AND ($1::text IS NULL OR embedding_set_id = $1::text)
+            AND ${collectionFilter}
           ORDER BY updated_at DESC
           LIMIT 20`,
         [managedCollectionId],
@@ -2809,6 +2852,7 @@ export function WorkspaceCollectionSyncProvider({
     managedCollectionId,
     readDatabaseSchedulerSnapshot,
     readDebugHostStatus,
+    runtimeEngine,
     selectedDevicePreference,
   ]);
 

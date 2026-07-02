@@ -3632,6 +3632,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3678,6 +3682,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
           root_id: 'root-id-1',
         }),
       ]);
+      for (const [sql] of queryMock.mock.calls) {
+        expect(sql).not.toContain('::');
+        expect(sql).not.toMatch(/\bFILTER\s*\(/);
+        expect(sql).not.toMatch(/\$\d+/);
+      }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
@@ -3718,6 +3727,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3766,6 +3779,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
           payload: { chunkId: 'chunk-1' },
         }),
       ]);
+      for (const [sql] of queryMock.mock.calls) {
+        expect(sql).not.toContain('::');
+        expect(sql).not.toMatch(/\bFILTER\s*\(/);
+        expect(sql).not.toMatch(/\$\d+/);
+      }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
@@ -3820,6 +3838,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       }
       return { rows: [] };
     });
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
     Object.assign(window, {
       electronAPI: {
         db: {
@@ -3872,6 +3894,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
           return priority === 'background';
         })
       ).toBe(true);
+      for (const [sql] of queryMock.mock.calls) {
+        expect(sql).not.toContain('::');
+        expect(sql).not.toMatch(/\bFILTER\s*\(/);
+        expect(sql).not.toMatch(/\$\d+/);
+      }
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
