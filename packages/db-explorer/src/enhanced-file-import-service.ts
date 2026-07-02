@@ -129,6 +129,15 @@ function getManualImportCapabilityError({
     return new Error('Manual imports require chunk storage.');
   }
   if (
+    manualImportDbClient.runtimeEngine === 'turso' &&
+    (typeof manualImportDbClient.db.applyManagedCacheBatch !== 'function' ||
+      typeof manualImportDbClient.db.query !== 'function')
+  ) {
+    return new Error(
+      'Manual imports with Turso require managed-cache apply and identity lookup support.'
+    );
+  }
+  if (
     enableChunking &&
     manualImportDbClient.runtimeEngine === 'turso' &&
     typeof manualImportDbClient.db.insertChunksAndEnqueueEmbeddingJobs !== 'function'

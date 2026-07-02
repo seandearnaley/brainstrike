@@ -882,6 +882,7 @@ describe('DbProvider initializing state', () => {
       return { rows: [] };
     });
     const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const applyManagedCacheBatch = vi.fn(async () => undefined);
     const profileBootstrapReport = {
       checks: [],
       failure: null,
@@ -903,6 +904,7 @@ describe('DbProvider initializing state', () => {
     } as const;
     setWindowElectronDbBridge({
       exec: vi.fn(async () => {}),
+      applyManagedCacheBatch,
       insertChunksAndEnqueueEmbeddingJobs,
       query,
       runTransaction: vi.fn(async () => ({ rows: [] })),
@@ -971,6 +973,37 @@ describe('DbProvider initializing state', () => {
     expect(result.current.manualImportDb?.db.insertChunksAndEnqueueEmbeddingJobs).toEqual(
       expect.any(Function)
     );
+    expect(result.current.manualImportDb?.db.applyManagedCacheBatch).toEqual(expect.any(Function));
+    const managedCacheBatch = {
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            content: 'hello managed cache',
+            contentHash: 'content-hash-1',
+            createdAt: '2026-06-22T19:00:00.000Z',
+            id: 'file-managed-1',
+            mtimeMs: 10,
+            name: 'managed.md',
+            path: 'src/managed.md',
+            processedAt: '2026-06-22T19:00:00.000Z',
+            size: 19,
+            tokenCount: 4,
+            updatedAt: '2026-06-22T19:00:00.000Z',
+          },
+        },
+      ],
+      embeddingSetId: 'embedding-set-1',
+      rootId: 'root-1',
+    } as const;
+    await result.current.manualImportDb?.db.applyManagedCacheBatch?.(managedCacheBatch, {
+      label: 'manual import managed-cache batch',
+      priority: 'foreground',
+    });
+    expect(applyManagedCacheBatch).toHaveBeenCalledWith(managedCacheBatch, {
+      label: 'manual import managed-cache batch',
+      priority: 'foreground',
+    });
     await result.current.manualImportDb?.db.insertChunksAndEnqueueEmbeddingJobs?.(
       [],
       'file-turso',

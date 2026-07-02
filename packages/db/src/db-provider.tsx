@@ -46,6 +46,7 @@ import {
 } from './database-work-scheduler.js';
 import { clearDbProviderRepositoryStateForError } from './db-provider-state-reset.js';
 import { type DrizzleDb, drizzle, markPGliteDrizzleCompatible } from './drizzle/database.js';
+import type { ApplyManagedCacheBatchArgs } from './managed-cache/index.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import type { FileChunk, FileChunkInsert, FileChunkUpdate } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
@@ -205,6 +206,10 @@ export interface DbInsertChunksAndEnqueueEmbeddingJobsOptions {
 }
 
 export interface DbHandle extends IDatabase {
+  applyManagedCacheBatch?: (
+    payload: ApplyManagedCacheBatchArgs,
+    options?: DatabaseWorkOptions
+  ) => Promise<void>;
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   insertChunksAndEnqueueEmbeddingJobs?: (
     chunks: readonly FileChunk[],
@@ -230,6 +235,10 @@ export interface QuerySelectionSnapshotDbClient extends BrainstrikeRuntimeDbClie
 export interface WorkspaceRootsDbClient extends BrainstrikeRuntimeDbClient {}
 
 interface QueryExecutor {
+  applyManagedCacheBatch?: (
+    payload: ApplyManagedCacheBatchArgs,
+    options?: DatabaseWorkOptions
+  ) => Promise<void>;
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   insertChunksAndEnqueueEmbeddingJobs?: (
     chunks: readonly FileChunk[],
@@ -358,6 +367,12 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     query,
     ...(syncToFs ? { syncToFs } : {}),
   };
+
+  if (typeof executor.applyManagedCacheBatch === 'function') {
+    handle.applyManagedCacheBatch = async (payload, options) => {
+      await executor.applyManagedCacheBatch?.(payload, options);
+    };
+  }
 
   if (typeof executor.exec === 'function') {
     handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
@@ -722,9 +737,10 @@ interface ElectronTursoRuntimeRepositories {
 }
 
 type ElectronTursoExecutionClient = BrainstrikeDbExecutionClient &
-  Pick<QueryExecutor, 'insertChunksAndEnqueueEmbeddingJobs'>;
+  Pick<QueryExecutor, 'applyManagedCacheBatch' | 'insertChunksAndEnqueueEmbeddingJobs'>;
 
 interface ElectronTursoRepositoryDb {
+  readonly applyManagedCacheBatch?: QueryExecutor['applyManagedCacheBatch'];
   readonly exec: (
     sql: string,
     params?: readonly unknown[],
@@ -753,6 +769,9 @@ function createElectronTursoRepositoryDb(
   electronRunTransaction: ElectronDatabaseAPI['runTransaction']
 ): ElectronTursoRepositoryDb {
   return {
+    ...(typeof electronDB.applyManagedCacheBatch === 'function'
+      ? { applyManagedCacheBatch: electronDB.applyManagedCacheBatch.bind(electronDB) }
+      : {}),
     exec: async (sql, params, options) => {
       await electronExec(sql, params ? [...params] : undefined, options);
     },
@@ -781,6 +800,7 @@ function createElectronTursoExecutionClient(
     throw new Error('Desktop Turso token cache store requires db:transaction IPC support.');
   }
   const runTransaction = repositoryDb.runTransaction;
+  const applyManagedCacheBatch = repositoryDb.applyManagedCacheBatch;
   const insertChunksAndEnqueueEmbeddingJobs = repositoryDb.insertChunksAndEnqueueEmbeddingJobs;
 
   const transactionClient: BrainstrikeDbTransactionClient = {
@@ -789,6 +809,7 @@ function createElectronTursoExecutionClient(
   };
   return {
     ...transactionClient,
+    ...(applyManagedCacheBatch ? { applyManagedCacheBatch } : {}),
     ...(insertChunksAndEnqueueEmbeddingJobs ? { insertChunksAndEnqueueEmbeddingJobs } : {}),
     transaction: async (callback) => {
       const statements: { params?: unknown[]; sql: string }[] = [];

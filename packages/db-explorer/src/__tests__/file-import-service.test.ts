@@ -12,6 +12,7 @@ const {
   mockDecodeFileSelection,
   mockFindNodeByPath,
   mockGetFileExtension,
+  mockUseManualImportDbClient,
   mockIsBinaryExtension,
   mockIsTextExtension,
   mockIsTextContent,
@@ -23,6 +24,7 @@ const {
   mockDecodeFileSelection: vi.fn(),
   mockFindNodeByPath: vi.fn(),
   mockGetFileExtension: vi.fn(),
+  mockUseManualImportDbClient: vi.fn(),
   mockIsBinaryExtension: vi.fn(),
   mockIsTextExtension: vi.fn(),
   mockIsTextContent: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => ({
     bulkImport: mockBulkImport,
   }),
+  useManualImportDbClient: mockUseManualImportDbClient,
   useBrainstrikeDbClient: () => null,
   useBrainstrikeLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
@@ -96,6 +99,10 @@ describe('useFileImportService', () => {
     mockIsBinaryExtension.mockReturnValue(false);
     mockIsTextExtension.mockReturnValue(true);
     mockIsTextContent.mockReturnValue(true);
+    mockUseManualImportDbClient.mockReturnValue({
+      db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+      runtimeEngine: 'pglite',
+    });
   });
 
   describe('Initialization', () => {
@@ -171,6 +178,63 @@ describe('useFileImportService', () => {
         expect.any(Function)
       );
       expect(onComplete).toHaveBeenCalled();
+    });
+
+    it('routes Turso cached imports through managed-cache identity lookup and apply', async () => {
+      const onComplete = vi.fn();
+      const query = vi.fn().mockResolvedValue({
+        rows: [{ id: 'existing-file', path: '/test/path' }],
+      });
+      const applyManagedCacheBatch = vi.fn().mockResolvedValue(undefined);
+      mockUseManualImportDbClient.mockReturnValue({
+        db: { applyManagedCacheBatch, query },
+        runtimeEngine: 'turso',
+      });
+
+      const { result } = renderHook(() => useFileImportService({ onComplete }));
+
+      await act(async () => {
+        await result.current.importFiles(
+          new Set(['test-folder:/test/path']),
+          [],
+          { 'test-folder:/test/path': 'test file content' },
+          'set-1'
+        );
+      });
+
+      expect(mockBulkImport).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledWith(
+        expect.stringContaining('path IN (?)'),
+        ['set-1', 'test-folder', '/test/path'],
+        {
+          label: 'manual import managed-cache identity lookup',
+          priority: 'foreground',
+        }
+      );
+      expect(applyManagedCacheBatch).toHaveBeenCalledWith(
+        {
+          embeddingSetId: 'set-1',
+          rootId: 'test-folder',
+          changes: [
+            {
+              mode: 'replace',
+              record: expect.objectContaining({
+                content: 'test file content',
+                id: 'existing-file',
+                name: 'path',
+                path: '/test/path',
+              }),
+            },
+          ],
+        },
+        {
+          label: 'manual import managed-cache batch',
+          priority: 'foreground',
+        }
+      );
+      expect(onComplete).toHaveBeenCalledWith([
+        { existed: true, id: 'existing-file', imported: false },
+      ]);
     });
 
     it('imports cached files in bounded batches to cap retained request memory', async () => {
