@@ -274,11 +274,6 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
-  runTransaction?: (
-    statements: readonly { readonly params?: readonly unknown[]; readonly sql: string }[],
-    resultIndex: number,
-    options?: DatabaseWorkOptions
-  ) => Promise<{ rows: unknown[] }>;
   readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
@@ -431,39 +426,6 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     const transactionWrapper: DbHandle['transaction'] = async <T,>(
       fn: (txHandle: DbHandle) => Promise<T>
     ) => tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
-    handle.transaction = transactionWrapper;
-  } else if (typeof executor.runTransaction === 'function') {
-    const runTransaction = executor.runTransaction;
-    const transactionWrapper: DbHandle['transaction'] = async <T,>(
-      fn: (txHandle: DbHandle) => Promise<T>
-    ) => {
-      const statements: { params?: unknown[]; sql: string }[] = [];
-      const txHandle: DbHandle = {
-        exec: async (sql: string, params?: unknown[], options?: unknown) => {
-          const forwarded = splitExposedDatabaseWorkOptions(params, options);
-          if (forwarded.options !== undefined) {
-            throw new Error(
-              'Desktop PGlite IPC transaction adapter does not support per-statement work options.'
-            );
-          }
-          statements.push({
-            sql,
-            ...(forwarded.params === undefined ? {} : { params: [...forwarded.params] }),
-          });
-        },
-        query: async () => {
-          throw new Error('Desktop PGlite IPC transaction adapter only supports exec statements.');
-        },
-      };
-      const result = await fn(txHandle);
-      if (statements.length > 0) {
-        await runTransaction.call(executor, statements, 0, {
-          label: 'pglite-ipc.transaction',
-          priority: 'normal',
-        });
-      }
-      return result;
-    };
     handle.transaction = transactionWrapper;
   }
 
@@ -1985,9 +1947,18 @@ export function useBrainstrikeExecutionDbClient(): BrainstrikeExecutionDbClient 
   }, [db, error, initializing, initializeDatabase, initializationStatus]);
 
   const runtimeEngine = ctx?.profileBootstrapReport.runtime.engine;
+  const runtimeHost = ctx?.profileBootstrapReport.runtime.host;
   const ready = ctx?.ready;
   const client = useMemo<BrainstrikeExecutionDbClient | null>(() => {
     if (!((runtimeEngine === 'pglite' || runtimeEngine === 'turso') && ready && db) || error) {
+      return null;
+    }
+    if (
+      runtimeEngine === 'turso' &&
+      (runtimeHost === 'desktop-ipc' || runtimeHost === 'electron-utility')
+    ) {
+      // Electron-hosted Turso currently exposes statement-list transactions for repository
+      // internals, not callback transactions whose tx client can query before the callback resolves.
       return null;
     }
     if (getMissingBrainstrikeDbExecutionClientCapabilities(db).length > 0) {
@@ -1999,7 +1970,7 @@ export function useBrainstrikeExecutionDbClient(): BrainstrikeExecutionDbClient 
       runtimeEngine,
       sqlCapabilities: resolveRuntimeSqlCapabilities(runtimeEngine),
     };
-  }, [db, error, ready, runtimeEngine]);
+  }, [db, error, ready, runtimeEngine, runtimeHost]);
 
   if (!ctx) {
     logger.warn('useBrainstrikeExecutionDbClient must be used within a DbProvider');

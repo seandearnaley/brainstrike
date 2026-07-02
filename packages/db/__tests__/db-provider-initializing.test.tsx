@@ -400,7 +400,7 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('exposes a ready Electron IPC PGlite execution client through the atomic transaction bridge', async () => {
+  it('does not expose a generic Electron IPC PGlite execution client from statement-list transactions', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         return { rows: [{ '?column?': 1 }] };
@@ -439,42 +439,8 @@ describe('DbProvider initializing state', () => {
     );
 
     expect(result.current.db).toBe(result.current.pgliteDb);
-    expect(result.current.executionDb).toEqual({
-      db: result.current.pgliteDb,
-      runtimeEngine: 'pglite',
-      sqlCapabilities: {
-        dialect: 'postgres',
-        features: [
-          'data-modifying-cte',
-          'jsonb',
-          'postgres-fts',
-          'postgres-vector',
-          'skip-locked',
-          'trigram',
-        ],
-      },
-    });
-
-    await expect(
-      result.current.executionDb?.db.transaction?.(async (tx) => {
-        await tx.exec?.('DELETE FROM job_queue WHERE job_type = $1', ['embedding']);
-        return 'committed';
-      })
-    ).resolves.toBe('committed');
-    expect(runTransaction).toHaveBeenCalledWith(
-      [{ sql: 'DELETE FROM job_queue WHERE job_type = $1', params: ['embedding'] }],
-      0,
-      {
-        label: 'pglite-ipc.transaction',
-        priority: 'normal',
-      }
-    );
-
-    await expect(
-      result.current.executionDb?.db.transaction?.(async (tx) => {
-        await tx.query('SELECT 1 AS ok');
-      })
-    ).rejects.toThrow('Desktop PGlite IPC transaction adapter only supports exec statements.');
+    expect(result.current.executionDb).toBeNull();
+    expect(runTransaction).not.toHaveBeenCalled();
   });
 
   it('uses Turso IPC runtime diagnostics to skip pgvector probing and expose migrated repositories without generic DB handles', async () => {
@@ -1028,14 +994,7 @@ describe('DbProvider initializing state', () => {
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
     });
-    expect(result.current.executionDb).toEqual({
-      db: result.current.modelRegistryDb,
-      runtimeEngine: 'turso',
-      sqlCapabilities: {
-        dialect: 'sqlite',
-        features: ['sqlite-json', 'sqlite-returning', 'turso-vector'],
-      },
-    });
+    expect(result.current.executionDb).toBeNull();
     expect(result.current.querySelectionSnapshotDb).toEqual({
       db: result.current.modelRegistryDb,
       runtimeEngine: 'turso',
