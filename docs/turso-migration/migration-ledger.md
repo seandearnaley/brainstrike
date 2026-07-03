@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-ledger-post-1464-20260703`,
+Last updated: 2026-07-03 on `codex/turso-pglite-retirement-scan-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,16 +10,15 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1464 at `71b9952a`. The branch migrates the web Vite Node server's
-Mastra workflow-storage singleton to embedded Turso. Desktop fresh profiles use
-the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
-preserving existing desktop PGlite profiles when `<profile>/pgdata` already
-exists. Explicit desktop PGlite compatibility remains available with
-`BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
-`BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage remains
-PGlite-backed by an explicit, tested browser-runtime ownership decision until a
-supported browser-local Turso replacement exists or browser support is
-deliberately changed.
+through #1465 at `c0140f600`. The branch migrates the web Vite Node server's
+Mastra workflow-storage singleton to embedded Turso. This current desktop
+retirement slice makes unset desktop runtime selection use Turso even when a
+legacy `<profile>/pgdata` directory exists. Explicit desktop PGlite
+compatibility remains available only with `BRAINSTRIKE_DB_RUNTIME=pglite`,
+explicit Turso remains available with `BRAINSTRIKE_DB_RUNTIME=turso`, and
+browser/client DB storage remains PGlite-backed by an explicit, tested
+browser-runtime ownership decision until a supported browser-local Turso
+replacement exists or browser support is deliberately changed.
 
 Merged slices:
 
@@ -176,6 +175,14 @@ Merged slices:
 - #1462 `test(turso): guard pglite import inventory`
 - #1463 `feat(web): use Turso for web Mastra storage`
 - #1464 `test(turso): guard browser runtime ownership`
+- #1465 `docs(turso): reconcile ledger after browser runtime guard`
+
+Current desktop PGlite-retirement slice: unset desktop runtime selection now
+chooses Turso even when a legacy `<profile>/pgdata` directory exists. Existing
+`pgdata` is no longer a runtime-selection signal. Explicit desktop PGlite
+compatibility remains available with `BRAINSTRIKE_DB_RUNTIME=pglite`, and
+factory reset follows the same explicit-only rule for recreating
+`<profile>/pgdata`.
 
 Recently completed browser-runtime ownership guardrail slice: #1464 added
 `packages/db/__tests__/architecture-browser-runtime-ownership.test.ts`. The
@@ -236,11 +243,10 @@ repository comments, assistant memory aggregate-count wording, and the
 primary-store lexical search architecture note.
 
 Recently completed default-runtime slice: #1458 made unset desktop runtime
-selection default fresh profiles to Turso while preserving existing PGlite
-profiles that already contain `<profile>/pgdata`. Reset now bypasses the
-existing-profile preservation gate, so an unset-runtime reset of a former
-PGlite profile recreates the fresh Turso default profile directory instead of
-manufacturing an empty `pgdata` directory.
+selection default fresh profiles to Turso while still preserving existing
+PGlite profiles that already contained `<profile>/pgdata`. The current desktop
+PGlite-retirement slice removes that implicit preservation gate: existing
+`pgdata` no longer selects PGlite unless `BRAINSTRIKE_DB_RUNTIME=pglite` is set.
 
 Recently completed final-runtime-audit slice: #1457 fixed the enhanced manual
 import Turso SQL dialect leak found during the final runtime audit:
@@ -309,7 +315,10 @@ precision@5 0.400, recall@5 1.000 for the tiny seeded corpus, plus query-plan
 evidence that gram sidecars supply the lexical candidate source. #1457 fixed the
 enhanced manual-import SQL dialect leak for Turso metadata and embedding-set
 paths. #1458 made fresh unset-runtime desktop profiles default to Turso while
-preserving existing PGlite profiles and keeping reset on the fresh Turso default.
+keeping reset on the fresh Turso default. The current desktop
+PGlite-retirement slice removes the remaining implicit existing-`pgdata`
+preservation gate, so unset desktop runtime now means Turso and explicit
+`BRAINSTRIKE_DB_RUNTIME=pglite` is the only desktop PGlite opt-in.
 #1459 neutralized the stale runtime wording found in the final-pass audit.
 #1460 narrowed the remaining generic SQL audit: chunking-host load-by-id, local
 semantic recall dimension lookup, and workspace-root loading are not current
@@ -415,10 +424,10 @@ browser reset cleanup remain supported code rather than removable residue.
 
 The branch currently has a real Turso runtime seam:
 
-- Desktop runtime selection defaults empty profiles to Turso when
-  `BRAINSTRIKE_DB_RUNTIME` is unset. If the active desktop profile already has a
-  PGlite `pgdata` store, unset runtime selection preserves PGlite until the user
-  explicitly selects Turso or a real data migration/import path exists.
+- Desktop runtime selection defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is
+  unset, including profiles that still contain a legacy PGlite `pgdata` store.
+  Existing `pgdata` is not a runtime-selection signal; desktop PGlite is
+  selected only by explicit `BRAINSTRIKE_DB_RUNTIME=pglite`.
 - Desktop bootstrap opens the Turso primary store and reports typed
   capabilities.
 - The Turso primary store uses a greenfield baseline ledger rather than the
@@ -1030,9 +1039,9 @@ DB reset deletes the whole active profile directory, which removes the Turso
 primary store and any profile-local sidecars. After deletion, reset now
 recreates the fresh runtime-owned empty directory: explicit PGlite recreates
 `<profile>/pgdata`, while Turso and unset-runtime reset recreate only
-`<profile>`. Reset intentionally does not apply the existing-`pgdata`
-profile-continuity gate, because that gate protects pre-reset data and must not
-manufacture an empty PGlite store that pins a reset profile back to PGlite.
+`<profile>`. There is no implicit existing-`pgdata` profile-continuity gate for
+desktop runtime selection; reset must not manufacture an empty PGlite store that
+pins a reset profile back to PGlite.
 
 No production Turso sync/search metadata path currently exists outside the
 profile directory. Future out-of-profile sync or search stores must be added as

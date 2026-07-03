@@ -94,6 +94,7 @@ vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 const migrateMock = vi.fn();
 const runPgliteBootstrapCapabilityProbeMock = vi.fn();
 const runTursoProfileBootstrapMock = vi.fn();
+const loggerWarnMock = vi.fn();
 const loggerErrorMock = vi.fn();
 const tursoOwnerQueryMock = vi.fn(async (sql: string, params?: readonly unknown[]) => ({
   rows: [{ sql, params, value: 'ok' }],
@@ -166,7 +167,7 @@ vi.mock('@brainstrike/utils', async () => {
     ...actual,
     createLogger: () => ({
       info: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
       error: loggerErrorMock,
       debug: vi.fn(),
     }),
@@ -175,7 +176,7 @@ vi.mock('@brainstrike/utils', async () => {
 vi.mock('@brainstrike/utils/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: loggerWarnMock,
     error: loggerErrorMock,
     debug: vi.fn(),
   }),
@@ -407,7 +408,7 @@ describe('initializeMainDatabase', () => {
     });
   });
 
-  it('keeps an unset desktop runtime on PGlite when the profile already has pgdata', async () => {
+  it('defaults an unset desktop runtime to Turso even when a legacy pgdata directory exists', async () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
     const existingPgliteDataDir = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
@@ -416,28 +417,34 @@ describe('initializeMainDatabase', () => {
     const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
     const result = await initializeMainDatabaseWithBootstrapReport();
 
-    expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledWith({
-      dataDir: existingPgliteDataDir,
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
       profileId: 'test',
       runtime: {
-        engine: 'pglite',
+        engine: 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
     });
-    expect(PGliteMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Legacy PGlite profile detected while defaulting desktop runtime to Turso',
+      {
         dataDir: existingPgliteDataDir,
-      })
+        profileId: 'test',
+        tursoDbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+      }
     );
-    expect(runTursoProfileBootstrapMock).not.toHaveBeenCalled();
-    expect(createTursoOwnerClientMock).not.toHaveBeenCalled();
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       bootstrapReport: {
         ready: true,
-        runtime: { engine: 'pglite' },
+        runtime: { engine: 'turso' },
       },
-      capabilities: { liveQuery: true },
+      capabilities: { liveQuery: false },
       initialized: true,
     });
   });

@@ -456,18 +456,16 @@ extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.tes
 
 ## TURSO RUNTIME INVARIANT
 
-Desktop defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is unset and the active
-profile does not already contain a PGlite `pgdata` store. Existing PGlite
-desktop profiles stay on PGlite unless a runtime is selected explicitly, so the
-cutover does not silently strand local profile data. This is a profile-continuity
-gate, not a fallback for missing Turso behavior. Do not infer a Turso runtime
-from a generic DB handle, and do not add a PGlite fallback for missing Turso
-behavior.
-Factory reset is different from profile-continuity boot: when runtime is unset,
-reset deletes the active profile and must recreate a fresh Turso-default profile
-directory, not an empty `<profile>/pgdata` directory that pins the reset profile
-back to PGlite. Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` still recreates
-`<profile>/pgdata` for compatibility checks.
+Desktop defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is unset, even when the
+active profile contains a legacy PGlite `pgdata` store. Existing `pgdata` is not
+a runtime-selection signal. Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` is the only
+desktop PGlite opt-in and remains available for compatibility checks. Do not
+infer a Turso runtime from a generic DB handle, and do not add a PGlite fallback
+for missing Turso behavior.
+Factory reset follows the same rule: when runtime is unset, reset deletes the
+active profile and must recreate a fresh Turso-default profile directory, not an
+empty `<profile>/pgdata` directory that pins the reset profile back to PGlite.
+Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` still recreates `<profile>/pgdata`.
 
 Rules:
 - Desktop owns the long-lived Turso owner client through the DB host. Renderers

@@ -11,17 +11,16 @@
 ## Desktop Runtime Switch
 
 Desktop now runs the Turso profile bootstrap path by default when
-`BRAINSTRIKE_DB_RUNTIME` is unset and the active profile does not already contain
-a PGlite `pgdata` store. If `pgdata` exists and no runtime override is set, the
-desktop host keeps that profile on PGlite so the cutover does not silently strand
-local data. Set `BRAINSTRIKE_DB_RUNTIME=pglite` for explicit desktop PGlite
+`BRAINSTRIKE_DB_RUNTIME` is unset, even if the active profile already contains a
+legacy PGlite `pgdata` store. Existing `pgdata` is not a runtime-selection
+signal. Set `BRAINSTRIKE_DB_RUNTIME=pglite` for explicit desktop PGlite
 compatibility checks, or set `BRAINSTRIKE_DB_RUNTIME=turso` to force the Turso
-greenfield path.
+greenfield path explicitly.
 
 When Turso is selected, current behavior is:
 
-1. Resolve the desktop runtime selection, including the existing-`pgdata`
-   profile-continuity gate.
+1. Resolve the desktop runtime selection from the explicit environment request
+   or the default Turso runtime.
 2. Open `<profile>/turso-primary.db`.
 3. Enable `PRAGMA journal_mode = 'mvcc'`.
 4. Apply the Turso greenfield schema baseline through `brainstrike_turso_schema_ledger`.
@@ -31,16 +30,15 @@ When Turso is selected, current behavior is:
 7. Open a long-lived Turso owner client for the same primary database.
 8. Return `initialized: true` only after the Turso owner handle is live, with `capabilities.liveQuery = false`.
 
-When the existing-`pgdata` gate selects PGlite, the desktop host uses the
+When `BRAINSTRIKE_DB_RUNTIME=pglite` selects PGlite, the desktop host uses the
 existing PGlite bootstrap/probe/migration path and reports
-`capabilities.liveQuery = true`. That path remains compatibility-preserving
-only; it is not proof of a Turso fallback for unsupported capabilities.
+`capabilities.liveQuery = true`. That path remains an explicit compatibility
+mode only; it is not proof of a Turso fallback for unsupported capabilities.
 
-Factory reset does not use the existing-`pgdata` continuity gate when deciding
-which empty directory to recreate. If `BRAINSTRIKE_DB_RUNTIME` is unset, reset
-deletes the active profile directory and recreates only `<profile>`, so the next
-fresh boot follows the Turso default. Only an explicit
-`BRAINSTRIKE_DB_RUNTIME=pglite` reset recreates `<profile>/pgdata`.
+If `BRAINSTRIKE_DB_RUNTIME` is unset, factory reset deletes the active profile
+directory and recreates only `<profile>`, so the next fresh boot follows the
+Turso default. Only an explicit `BRAINSTRIKE_DB_RUNTIME=pglite` reset recreates
+`<profile>/pgdata`.
 
 The host manager validates Turso reports against Turso-required checks
 (`store.open`, `primary-store.mvcc`, `schema.baseline`,
