@@ -139,7 +139,12 @@ export async function runTursoVectorExactScanBenchmark(
       topK: normalized.topK,
       warmupCount: normalized.warmupCount,
     },
-    queryPlans: await explainExactScanQueryPlan(normalized.database, normalized.indexName),
+    queryPlans: await explainExactScanQueryPlan(
+      store,
+      normalized.indexName,
+      normalized.topK,
+      measuredCases[0]
+    ),
     queryShape: {
       metadataFilter: 'json_extract',
       path: 'exact-scan',
@@ -175,7 +180,7 @@ export function formatTursoVectorExactScanBenchmarkMarkdown(
     '',
     '## Verdict',
     '',
-    `The current Turso Mastra vector-memory path is characterized as an exact scan over \`mastra_vectors\` for ${report.input.rowCount} rows at ${report.input.dimensions} dimensions. The benchmark matched the independent scorer for ${report.recall.exactTopKMatches}/${report.recall.totalQueries} queries, with recall@K ${report.recall.recallAtK.toFixed(3)}.`,
+    `The current Turso Mastra vector-memory path is characterized as an exact scan over \`mastra_vectors\` for ${report.input.rowCount} rows at ${report.input.dimensions} dimensions. The benchmark matched a deterministic JavaScript cosine-distance scorer for ${report.recall.exactTopKMatches}/${report.recall.totalQueries} queries, with recall@K ${report.recall.recallAtK.toFixed(3)}.`,
     '',
     'Native Turso vector indexes remain a separate decision because the current store preserves exact ordering semantics, supports dot-product metrics, and applies Mastra metadata filters through the shared table before `LIMIT`.',
     '',
@@ -324,12 +329,25 @@ function createQueryCases(
       },
       [RESOURCE_ID_KEY]: target.metadata.resourceId,
     };
+    const candidateCount = countFilteredCandidates(rows, filter);
+    if (candidateCount < options.topK) {
+      throw new Error(
+        `topK ${options.topK} exceeds the filtered candidate count ${candidateCount} for benchmark query ${index + 1}`
+      );
+    }
     return {
       expectedIds: scoreExpectedTopK(rows, target.vector, filter, options.topK),
       filter,
       vector: createUnitVector(targetIndex, options.dimensions),
     };
   });
+}
+
+function countFilteredCandidates(
+  rows: readonly BenchmarkRow[],
+  filter: QueryCase['filter']
+): number {
+  return rows.filter((row) => rowMatchesFilter(row, filter)).length;
 }
 
 async function runQuery(
@@ -353,11 +371,7 @@ function scoreExpectedTopK(
   topK: number
 ): string[] {
   return rows
-    .filter(
-      (row) =>
-        row.metadata.resourceId === filter[RESOURCE_ID_KEY] &&
-        row.metadata.observedAt >= filter[OBSERVED_AT_KEY].$gte
-    )
+    .filter((row) => rowMatchesFilter(row, filter))
     .map((row) => ({
       distance: cosineDistance(row.vector, queryVector),
       id: row.id,
@@ -365,6 +379,13 @@ function scoreExpectedTopK(
     .sort((left, right) => left.distance - right.distance || left.id.localeCompare(right.id))
     .slice(0, topK)
     .map((entry) => entry.id);
+}
+
+function rowMatchesFilter(row: BenchmarkRow, filter: QueryCase['filter']): boolean {
+  return (
+    row.metadata.resourceId === filter[RESOURCE_ID_KEY] &&
+    row.metadata.observedAt >= filter[OBSERVED_AT_KEY].$gte
+  );
 }
 
 function createUnitVector(rowIndex: number, dimensions: number): Float32Array {
@@ -414,38 +435,20 @@ async function readJournalMode(database: TursoMastraSqlClient): Promise<'mvcc'> 
 }
 
 async function explainExactScanQueryPlan(
-  database: TursoMastraSqlClient,
-  indexName: string
+  store: TursoVectorStore,
+  indexName: string,
+  topK: number,
+  queryCase: QueryCase | undefined
 ): Promise<string[]> {
-  const result = await database.query<Record<string, unknown>>(
-    `EXPLAIN QUERY PLAN
-     SELECT id
-     FROM mastra_vectors, (SELECT vector32('[1,0]') AS value) q
-     WHERE index_name = ?
-       AND id <> ?
-       AND CASE json_type(metadata, ?)
-         WHEN 'true' THEN 'true'
-         WHEN 'false' THEN 'false'
-         WHEN 'null' THEN 'null'
-         ELSE CAST(json_extract(metadata, ?) AS TEXT)
-       END = ?
-     ORDER BY vector_distance_cos(mastra_vectors.embedding, q.value) ASC, updated_at DESC, id ASC
-     LIMIT ?`,
-    [indexName, '__index_metadata__', '$.resource_id', '$.resource_id', 'workspace-0', 1]
-  );
-  const plans = result.rows.map((row) =>
-    Object.entries(row)
-      .filter(
-        ([key]) => key === 'detail' || key === 'selectid' || key === 'order' || key === 'from'
-      )
-      .map(([, value]) => String(value))
-      .join(' ')
-      .trim()
-  );
-  if (plans.length === 0) {
-    throw new Error('Turso did not return an EXPLAIN QUERY PLAN result for vector exact scan');
+  if (!queryCase) {
+    throw new Error('Cannot explain a Turso vector exact-scan benchmark without measured queries');
   }
-  return plans;
+  return store.explainQueryPlan({
+    filter: queryCase.filter,
+    indexName,
+    queryVector: Array.from(queryCase.vector),
+    topK,
+  });
 }
 
 function observedAtForIndex(index: number): string {

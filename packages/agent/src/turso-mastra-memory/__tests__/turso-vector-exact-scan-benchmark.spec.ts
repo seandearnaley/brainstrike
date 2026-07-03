@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type {
+  TursoMastraQueryResult,
+  TursoMastraQueryValues,
+  TursoMastraSqlClient,
+} from '../types';
 import {
   formatTursoVectorExactScanBenchmarkMarkdown,
   runTursoVectorExactScanBenchmark,
@@ -63,6 +68,51 @@ describe('Turso Mastra vector exact-scan benchmark', () => {
     expect(serialized).not.toContain('queryVector');
     expect(serialized).not.toContain('embedding');
     expect(serialized).not.toMatch(/\[[0-9., -]{20,}\]/);
+  });
+
+  it('explains the same metadata-filtered exact-scan shape as measured queries', async () => {
+    const explainCalls: Array<{ sql: string; values: TursoMastraQueryValues | undefined }> = [];
+    const instrumentedClient: TursoMastraSqlClient = {
+      exec: (sql, values) => runtime.client.exec(sql, values),
+      query: async <TRecord extends Record<string, unknown> = Record<string, unknown>>(
+        sql: string,
+        values?: TursoMastraQueryValues
+      ): Promise<TursoMastraQueryResult<TRecord>> => {
+        if (/^\s*EXPLAIN QUERY PLAN/i.test(sql)) {
+          explainCalls.push({ sql, values });
+        }
+        return runtime.client.query<TRecord>(sql, values);
+      },
+      transaction: (fn) => runtime.client.transaction((tx) => fn(tx)),
+    };
+
+    await runTursoVectorExactScanBenchmark({
+      database: instrumentedClient,
+      dimensions: 16,
+      indexName: 'memory_observations_explain',
+      queryCount: 2,
+      rowCount: 128,
+      topK: 4,
+    });
+
+    expect(explainCalls).toHaveLength(1);
+    const [explainCall] = explainCalls;
+    expect(explainCall?.sql).toContain('vector_distance_cos');
+    expect(explainCall?.values).toContain('$.resource_id');
+    expect(explainCall?.values).toContain('$.observed_at');
+  });
+
+  it('rejects topK values that exceed the measured query filtered candidate set', async () => {
+    await expect(
+      runTursoVectorExactScanBenchmark({
+        database: runtime.client,
+        dimensions: 4,
+        indexName: 'memory_observations_candidate_floor',
+        queryCount: 1,
+        rowCount: 512,
+        topK: 120,
+      })
+    ).rejects.toThrow(/topK 120 exceeds the filtered candidate count/i);
   });
 
   it('formats a durable markdown report with reproducer and decision boundary', async () => {
