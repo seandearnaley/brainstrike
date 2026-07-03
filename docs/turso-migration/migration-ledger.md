@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-sustained-queue-profile`,
+Last updated: 2026-07-03 on `codex/turso-mastra-vector-profile`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,8 +10,8 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1453 at `346ff2e4c`. This PR branch adds the sustained hidden-worker
-queue-profile proof layer on top of the deterministic topology proof.
+through #1454 at `914201922`. This PR branch adds the Mastra Turso vector-memory
+exact-scan characterization layer on top of the sustained queue-profile proof.
 
 Merged slices:
 
@@ -157,25 +157,26 @@ Merged slices:
 - #1451 `Label Turso queue work for profiling`
 - #1452 `Add Turso queue profile verdict`
 - #1453 `Prove Turso queue topology`
+- #1454 `Prove sustained Turso queue profiling`
 
 In-flight slice on this branch:
 
-- Add an opt-in sustained Turso queue-profile Electron E2E lane:
-  `pnpm --filter @brainstrike/desktop test:e2e:lane:turso-sustained-queue-profile`.
-  The lane runs `BRAINSTRIKE_DB_RUNTIME=turso`, seeds a real Turso embedding
-  set/file/chunk fixture with SQLite placeholders, starts the hidden embedding
-  host backfill path, issues repeated foreground-labeled DB probes while
-  set-scoped backfill jobs are still queued or running, and requires
-  `desktopDiagnostics.tursoQueueProfile` to reach `accepted` with hidden-worker
-  owner labels and foreground wait metrics below threshold.
-- Repair the desktop clean-worktree build path exposed by that E2E. Desktop
-  `prebuild` now uses Turbo's dependency-only closure
-  `@brainstrike/desktop^...`, so Electron main declarations for DB, storage,
-  worker-runtime paths and renderer package dependencies are restored in a
-  clean worktree instead of depending on stale `dist` artifacts. Desktop Vite
-  also source-aliases `@brainstrike/indexing-contract` and
-  `@brainstrike/pipeline`, matching the existing source-alias pattern for
-  renderer imports.
+- Add a real-engine Mastra Turso vector exact-scan benchmark harness and CLI:
+  `pnpm --filter @brainstrike/agent run bench:turso-vector-memory`.
+  The harness seeds deterministic vectors into the current `TursoVectorStore`,
+  compares query results against an independent JavaScript scorer, records
+  compact query timing and `EXPLAIN QUERY PLAN` evidence, and writes the durable
+  report `docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
+  It deliberately characterizes the current exact-scan path rather than adding
+  a native ANN/vector-index schema rewrite.
+
+Recently completed queue profile slice: the sustained Turso queue-profile E2E
+lane is merged in #1454. It runs `BRAINSTRIKE_DB_RUNTIME=turso`, seeds a real
+Turso embedding set/file/chunk fixture with SQLite placeholders, starts the
+hidden embedding host backfill path, issues repeated foreground-labeled DB
+probes while set-scoped backfill jobs are still queued or running, and requires
+`desktopDiagnostics.tursoQueueProfile` to reach `accepted` with hidden-worker
+owner labels and foreground wait metrics below threshold.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -193,18 +194,20 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1453 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1454 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
 retirement should stay out of the remaining backlog except where the ledger
 names a narrower follow-up. Queue profiling now has owner QoS
 labels/priorities for hidden worker paths plus a desktop diagnostics verdict
-surface for foreground/background evidence; sustained hidden-worker profiling is
-in flight on this branch. The verified remaining backlog is now:
+surface for foreground/background evidence, and the sustained hidden-worker
+profile proof is merged. This branch also adds exact-scan Mastra vector-memory
+characterization: 5,000 rows x 384 dimensions, 12 measured queries, exact top-K
+match 12/12, recall@K 1.000, query p95 30.411 ms, with query-plan evidence in
+`docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
+The verified remaining backlog is now:
 
-- Mastra Turso vector memory performance characterization for exact-scan recall
-  at expected local profile sizes;
 - product search-quality decision for primary-store gram lexical search versus
   a split native Tantivy search-index owner;
 - explicit reset targets only if future Turso sync or split-search stores live
@@ -754,10 +757,12 @@ Completed slices have wired the desktop assistant server to select the Turso
 factory from the ready runtime/bootstrap verdict, included runtime/profile/store
 identity in the memory cache key, replayed live-loop persistence against Turso,
 and, on this branch, added Turso vector memory parity for Mastra semantic
-recall/observational vector retrieval. Remaining work in this area is
-performance characterization: prove the exact-scan Turso memory vector path at
-expected local profile sizes and decide whether native Turso vector indexes are
-needed before release.
+recall/observational vector retrieval. This branch adds exact-scan performance
+characterization for the same path: the benchmark seeds 5,000 deterministic
+384-dimensional rows, validates Turso results against an independent scorer,
+and records p50/p95/max query timings plus query-plan evidence. Native Turso
+vector indexes remain a separate release decision only if expected profile sizes
+push exact-scan latency beyond the team budget.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 

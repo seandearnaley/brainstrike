@@ -43,6 +43,11 @@ interface VectorRow {
   [key: string]: unknown;
 }
 
+interface VectorQueryStatement {
+  readonly sql: string;
+  readonly values: readonly TursoMastraQueryValue[];
+}
+
 const DEFAULT_TOP_K = 10;
 const MAX_TOP_K = 1000;
 const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
@@ -446,39 +451,19 @@ export class TursoVectorStore extends MastraVector<TursoVectorFilter> {
     includeVector,
   }: QueryVectorParams<TursoVectorFilter>): Promise<QueryResult[]> {
     const stats = await this.describeIndex({ indexName });
-    if (!Number.isSafeInteger(topK) || topK <= 0 || topK > MAX_TOP_K) {
-      throw new Error(`topK must be between 1 and ${MAX_TOP_K}`);
+    const queryParams: QueryVectorParams<TursoVectorFilter> = { filter, indexName, topK };
+    if (queryVector !== undefined) {
+      queryParams.queryVector = queryVector;
     }
-    if (queryVector && queryVector.length !== stats.dimension) {
-      throw new Error(
-        `Query vector has ${queryVector.length} dimensions, expected ${stats.dimension}`
-      );
+    if (includeVector !== undefined) {
+      queryParams.includeVector = includeVector;
     }
-    const whereValues: TursoMastraQueryValue[] = [indexName, INDEX_METADATA_ID];
-    const clauses = ['index_name = ?', 'id <> ?'];
-    appendFilterSql(filter, whereValues, clauses);
-    const values: TursoMastraQueryValue[] = queryVector ? [vectorLiteral(queryVector)] : [];
-    values.push(...whereValues, topK);
-    const fromSql = queryVector
-      ? `${MASTRA_VECTOR_TABLE}, (SELECT vector32(?) AS value) q`
-      : MASTRA_VECTOR_TABLE;
-    const scoreSql = queryVector ? scoreSqlForMetric(stats.metric) : '1';
-    const orderSql = queryVector
-      ? `${orderSqlForMetric(stats.metric)} ASC, updated_at DESC, id ASC`
-      : 'updated_at DESC, id ASC';
+    const statement = this.buildQueryStatement(queryParams, stats);
     this.emitRunEvent('memory.semantic.started', 'Semantic memory search started', {
       indexName,
       topK,
     });
-    const result = await this.database.query<VectorRow>(
-      `SELECT id, metadata, ${includeVector ? 'vector_extract(embedding)' : 'NULL'} AS embedding,
-        ${scoreSql} AS score
-       FROM ${fromSql}
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY ${orderSql}
-       LIMIT ?`,
-      values
-    );
+    const result = await this.database.query<VectorRow>(statement.sql, statement.values);
     const rows = result.rows.map((row) => {
       const queryResult: QueryResult = {
         id: row.id,
@@ -500,6 +485,69 @@ export class TursoVectorStore extends MastraVector<TursoVectorFilter> {
       topK,
     });
     return rows;
+  }
+
+  async explainQueryPlan(params: QueryVectorParams<TursoVectorFilter>): Promise<string[]> {
+    const stats = await this.describeIndex({ indexName: params.indexName });
+    const statement = this.buildQueryStatement(params, stats);
+    const result = await this.database.query<Record<string, unknown>>(
+      `EXPLAIN QUERY PLAN ${statement.sql}`,
+      statement.values
+    );
+    const plans = result.rows.map((row) =>
+      Object.entries(row)
+        .filter(
+          ([key]) => key === 'detail' || key === 'selectid' || key === 'order' || key === 'from'
+        )
+        .map(([, value]) => String(value))
+        .join(' ')
+        .trim()
+    );
+    if (plans.length === 0) {
+      throw new Error('Turso did not return an EXPLAIN QUERY PLAN result for vector exact scan');
+    }
+    return plans;
+  }
+
+  private buildQueryStatement(
+    {
+      indexName,
+      queryVector,
+      topK = DEFAULT_TOP_K,
+      filter,
+      includeVector,
+    }: QueryVectorParams<TursoVectorFilter>,
+    stats: IndexStats
+  ): VectorQueryStatement {
+    if (!Number.isSafeInteger(topK) || topK <= 0 || topK > MAX_TOP_K) {
+      throw new Error(`topK must be between 1 and ${MAX_TOP_K}`);
+    }
+    if (queryVector && queryVector.length !== stats.dimension) {
+      throw new Error(
+        `Query vector has ${queryVector.length} dimensions, expected ${stats.dimension}`
+      );
+    }
+    const whereValues: TursoMastraQueryValue[] = [indexName, INDEX_METADATA_ID];
+    const clauses = ['index_name = ?', 'id <> ?'];
+    appendFilterSql(filter, whereValues, clauses);
+    const values: TursoMastraQueryValue[] = queryVector ? [vectorLiteral(queryVector)] : [];
+    values.push(...whereValues, topK);
+    const fromSql = queryVector
+      ? `${MASTRA_VECTOR_TABLE}, (SELECT vector32(?) AS value) q`
+      : MASTRA_VECTOR_TABLE;
+    const scoreSql = queryVector ? scoreSqlForMetric(stats.metric) : '1';
+    const orderSql = queryVector
+      ? `${orderSqlForMetric(stats.metric)} ASC, updated_at DESC, id ASC`
+      : 'updated_at DESC, id ASC';
+    return {
+      sql: `SELECT id, metadata, ${includeVector ? 'vector_extract(embedding)' : 'NULL'} AS embedding,
+        ${scoreSql} AS score
+       FROM ${fromSql}
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY ${orderSql}
+       LIMIT ?`,
+      values,
+    };
   }
 
   override async updateVector({
