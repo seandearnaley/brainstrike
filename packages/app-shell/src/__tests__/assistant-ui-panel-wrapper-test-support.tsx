@@ -696,6 +696,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange,
     onModelToggle,
     onProviderSettingsChange,
+    onRunEvent,
     onThreadRunStart,
     completePreparedRequest,
     prepareRequestData,
@@ -720,6 +721,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
+    onRunEvent?: (event: {
+      id: string;
+      kind: 'memory.observation.completed';
+      label: string;
+      status: 'completed';
+      timestamp: string;
+    }) => void;
     onThreadRunStart?: () => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
@@ -855,6 +863,21 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         </div>
         <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
           Submit
+        </button>
+        <button
+          data-testid="emit-observational-memory-updated"
+          onClick={() =>
+            onRunEvent?.({
+              id: 'event-observations-updated',
+              kind: 'memory.observation.completed',
+              label: 'Observations updated',
+              status: 'completed',
+              timestamp: '2026-07-03T01:00:00.000Z',
+            })
+          }
+          type="button"
+        >
+          Emit OM update
         </button>
         <button
           data-testid="provider-settings-change-openai"

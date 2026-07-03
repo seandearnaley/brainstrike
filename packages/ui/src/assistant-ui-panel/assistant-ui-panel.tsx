@@ -14,15 +14,12 @@ import {
   useAuiState,
   useLocalRuntime,
   useMessagePartReasoning,
-  // Aliased to a `use`-prefixed name so React Fast Refresh (Vite dev) recognizes
-  // it as a hook. Its detection keys on the `use` prefix; an `unstable_use…` call
-  // site is missed, so React's real hook count (this hook calls useMemo) exceeds the
-  // Fast Refresh signature and throws "Rendered fewer hooks" -- crashing ChatThreadUI
-  // + looping the error boundary in dev. Dev-only; prod/tests (no Fast Refresh) were fine.
+  // Alias so Fast Refresh sees this hook; unstable_ broke dev hook signatures.
   unstable_useSlashCommandAdapter as useSlashCommandAdapter,
 } from '@assistant-ui/react';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
   type LocalLlmBackendFactory,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
@@ -247,6 +244,11 @@ import type {
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 
+type ProviderSettingsChangeHandler = (
+  providerId: string,
+  updates: AssistantProviderSettingsUpdate
+) => void;
+
 export interface AssistantUiPanelProps {
   className?: string;
   completePreparedRequest?: (
@@ -283,9 +285,8 @@ export interface AssistantUiPanelProps {
   onFileMentionQueryChange?: (query: string) => void;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
+  onProviderSettingsChange?: ProviderSettingsChangeHandler | undefined;
+  onRunEvent?: (event: AssistantRunEvent) => void;
   /** Liveness signal fired for each streamed assistant chunk/snapshot. */
   onStreamActivity?: () => void;
   onThreadRunStart?: () => void;
@@ -741,9 +742,8 @@ interface ChatThreadProps {
   omSegment?: OmMeterState | undefined;
   onFileMentionQueryChange: ((query: string) => void) | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
+  onProviderSettingsChange?: ProviderSettingsChangeHandler | undefined;
+  onRunEvent?: ((event: AssistantRunEvent) => void) | undefined;
   onStreamActivity?: (() => void) | undefined;
   onThreadRunStart?: (() => void) | undefined;
   onUsage?: ((usage: { inputTokens: number; outputTokens: number }) => void) | undefined;
@@ -927,6 +927,7 @@ const DataStreamRuntimeChat: FC<
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onRunEvent,
   onUsage,
   disabled,
   disabledReason,
@@ -998,6 +999,7 @@ const DataStreamRuntimeChat: FC<
     onFinish: () => {
       void completeLatestPreparedRequest('completed');
     },
+    ...(onRunEvent ? { onRunEvent } : {}),
     ...(onUsage ? { onUsage } : {}),
   });
 
@@ -1048,9 +1050,7 @@ const ChatThreadUI: FC<{
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
+  onProviderSettingsChange?: ProviderSettingsChangeHandler | undefined;
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
@@ -1279,6 +1279,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onModelChange,
   onStreamActivity,
   onThreadRunStart,
+  onRunEvent,
   onUsage,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentionError,
@@ -1397,6 +1398,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             omSegment={omSegment}
             onModelChange={onModelChange}
             onProviderSettingsChange={onProviderSettingsChange}
+            onRunEvent={onRunEvent}
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             prepareLocalModel={prepareLocalModel}
@@ -1586,9 +1588,7 @@ interface NormalizedProviderGroup {
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
   onModelChange?: ((compositeKey: string) => void) | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
+  onProviderSettingsChange?: ProviderSettingsChangeHandler | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   providerSettings?: AssistantProviderSettingsMap | undefined;

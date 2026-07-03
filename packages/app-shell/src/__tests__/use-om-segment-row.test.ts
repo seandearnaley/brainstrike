@@ -184,6 +184,58 @@ describe('useObservationalMemoryRow', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('refreshes the Turso OM snapshot after a matching assistant-memory invalidation event', async () => {
+    const snapshots = [
+      [{ observationTokenCount: '42', totalTokensObserved: '100' }],
+      [{ observationTokenCount: '64', totalTokensObserved: '160' }],
+    ];
+    let queryIndex = 0;
+    const query = vi.fn(async () => {
+      const rows = snapshots[Math.min(queryIndex, snapshots.length - 1)];
+      queryIndex += 1;
+      return { rows };
+    });
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: { query },
+      runtimeEngine: 'turso',
+    });
+    useBrainstrikeLiveQueryMock.mockReturnValue({
+      rows: [{ observationTokenCount: 7777, totalTokensObserved: 7777 }],
+      loading: false,
+      error: new Error('live query must stay disabled for Turso'),
+    });
+
+    const { result } = renderHook(() =>
+      useObservationalMemoryRow({
+        hasDurableCapability: true,
+        scope: 'thread',
+        threadId: 'thread-abc',
+        resourceId: 'res-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.row).toEqual({
+        observationTokenCount: '42',
+        totalTokensObserved: '100',
+      });
+    });
+
+    window.dispatchEvent(
+      new CustomEvent('brainstrike:assistant-memory-invalidated', {
+        detail: { kind: 'observational-memory', lookupKey: 'thread:thread-abc' },
+      })
+    );
+
+    await waitFor(() => {
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(result.current.row).toEqual({
+        observationTokenCount: '64',
+        totalTokensObserved: '160',
+      });
+    });
+  });
+
   it('FIX 4: a disabled query yields NO stale row even if the live layer still holds prior rows', () => {
     // Simulate useBrainstrikeLiveQuery keeping the prior thread's rows when disabled
     // (clearOnDisable is async); the hook must still return null when disabled.

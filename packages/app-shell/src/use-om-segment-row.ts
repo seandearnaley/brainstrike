@@ -31,7 +31,8 @@ import {
   useAssistantMemoryDbClient,
   useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useAssistantMemoryInvalidationToken } from './assistant-memory-invalidation';
 
 /**
  * Build the OM lookup key the store writes under. Mirrors the memory store's
@@ -125,6 +126,14 @@ export function useObservationalMemoryRow(
   const enabled = input.hasDurableCapability && lookupKey !== null;
   const pgliteLiveEnabled = enabled && runtimeEngine === 'pglite';
   const tursoSnapshotEnabled = enabled && runtimeEngine === 'turso';
+  const tursoInvalidationToken = useAssistantMemoryInvalidationToken(
+    useCallback(
+      (detail) =>
+        detail.kind === 'all' ||
+        (detail.kind === 'observational-memory' && detail.lookupKey === lookupKey),
+      [lookupKey]
+    )
+  );
   const [tursoSnapshot, setTursoSnapshot] =
     useState<ObservationalMemorySnapshotState>(EMPTY_SNAPSHOT_STATE);
 
@@ -168,7 +177,7 @@ export function useObservationalMemoryRow(
     return () => {
       cancelled = true;
     };
-  }, [database, lookupKey, tursoSnapshotEnabled]);
+  }, [database, lookupKey, tursoInvalidationToken, tursoSnapshotEnabled]);
 
   if (tursoSnapshotEnabled) {
     return tursoSnapshot;

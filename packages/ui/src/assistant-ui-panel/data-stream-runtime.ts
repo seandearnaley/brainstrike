@@ -5,6 +5,10 @@ import type {
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { AssistantStreamChunk } from 'assistant-stream';
@@ -50,6 +54,7 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
   onResponse?: (response: Response) => Promise<void> | void;
+  onRunEvent?: (event: AssistantRunEvent) => void;
   /**
    * Called when a finish-message chunk reports provider token usage.
    * The callback contract requires non-throwing consumers — our consumer
@@ -362,6 +367,42 @@ function buildUsageTap(
   });
 }
 
+function isAssistantRunEvent(value: unknown): value is AssistantRunEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['id'] === 'string' &&
+    typeof record['kind'] === 'string' &&
+    typeof record['label'] === 'string' &&
+    typeof record['status'] === 'string' &&
+    typeof record['timestamp'] === 'string'
+  );
+}
+
+function buildRunEventTap(
+  onRunEvent: (event: AssistantRunEvent) => void
+): TransformStream<AssistantStreamChunk, AssistantStreamChunk> {
+  return new TransformStream<AssistantStreamChunk, AssistantStreamChunk>({
+    transform(chunk, controller) {
+      if (
+        chunk.type === 'part-start' &&
+        chunk.part.type === 'data' &&
+        chunk.part.name === ASSISTANT_RUN_EVENT_DATA_NAME &&
+        isAssistantRunEvent(chunk.part.data)
+      ) {
+        try {
+          onRunEvent(chunk.part.data);
+        } catch (error: unknown) {
+          logger.warn('Assistant runtime onRunEvent callback failed', { error });
+        }
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
 export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
   constructor(private readonly optionsSource: BrainstrikeDataStreamRuntimeOptionsSource) {}
 
@@ -463,11 +504,18 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
 
       await this.options.onResponse?.(response);
 
-      // Only insert the usage tap when a consumer is wired; the common
-      // no-onUsage path keeps the original decoder → tool-result pipeline.
+      // Only insert taps when consumers are wired; the common no-callback path
+      // keeps the original decoder → tool-result pipeline.
       const onUsage = this.options.onUsage;
+      const onRunEvent = this.options.onRunEvent;
       const decoded = response.body.pipeThrough(new DataStreamDecoder());
-      const tapped = onUsage ? decoded.pipeThrough(buildUsageTap(onUsage)) : decoded;
+      let tapped: ReadableStream<AssistantStreamChunk> = decoded;
+      if (onUsage) {
+        tapped = tapped.pipeThrough(buildUsageTap(onUsage));
+      }
+      if (onRunEvent) {
+        tapped = tapped.pipeThrough(buildRunEventTap(onRunEvent));
+      }
 
       const stream = tapped
         .pipeThrough(
@@ -499,6 +547,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
+  readonly onRunEvent: BrainstrikeDataStreamRuntimeOptions['onRunEvent'];
   readonly onUsage: BrainstrikeDataStreamRuntimeOptions['onUsage'];
 }): BrainstrikeDataStreamRuntimeOptions {
   return {
@@ -511,6 +560,7 @@ function createRuntimeRequestOptionsSnapshot(input: {
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
+    ...(input.onRunEvent === undefined ? {} : { onRunEvent: input.onRunEvent }),
     ...(input.onUsage === undefined ? {} : { onUsage: input.onUsage }),
   };
 }
@@ -528,6 +578,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onError,
     onFinish,
     onResponse,
+    onRunEvent,
     onUsage,
     unstable_humanToolNames,
   } = options;
@@ -541,6 +592,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onError,
     onFinish,
     onResponse,
+    onRunEvent,
     onUsage,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);

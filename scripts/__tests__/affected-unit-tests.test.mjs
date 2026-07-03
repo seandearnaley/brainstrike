@@ -225,11 +225,13 @@ test('Turso profile-bootstrap docs track Turso provider repository coverage', ()
     /unavailableRepositories:\s*tursoRepositories\.fileChunkRepository\s*\?\s*\[\]\s*:\s*\['file_chunks'\]/
   );
   assert.match(profileBootstrapDoc, /^- `file_records`$/m);
+  assert.match(profileBootstrapDoc, /^- `file_chunks` when `tursoRepositories\.fileChunkRepository` is available;/m);
   assert.match(
     profileBootstrapDoc,
     /Turso file-record repository is exposed through the desktop Turso provider/
   );
-  assert.match(profileBootstrapDoc, /does not expose a generic `db` handle or `file_chunks`/);
+  assert.match(profileBootstrapDoc, /does not expose a\s+generic live-query-compatible `db` handle/);
+  assert.match(profileBootstrapDoc, /`file_chunks` remains explicit\/conditional/);
 });
 
 test('createDbLaneCommands maps DB lanes to existing package scripts', () => {

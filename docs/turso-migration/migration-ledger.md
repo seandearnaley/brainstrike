@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-02 on `feature/turso-migration`.
+Last updated: 2026-07-03 on `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -117,10 +117,18 @@ as the implementation backlog.
 - #1414 `Remove stale Turso queue boundary`
 - #1415 `Neutralize collection browser snapshot copy`
 - #1441 `Expose runtime execution DB client hook`
+- #1442 `Gate tools settings live queries by capability`
+- #1443 `Fix model registry toggle SQL by runtime`
+- #1444 `Add Turso snapshot invalidation triggers`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
   directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
+
+Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
+is not present in this branch at `0a62b270`. Do not cite that report as
+reconciled work until the artifact is restored or this ledger links to the
+correct audit artifact.
 
 ## Turso Docs Guardrail
 
@@ -203,6 +211,14 @@ The branch currently has a real Turso runtime seam:
   work repeatedly waits more than 1000ms behind embedding-worker/background
   operations during manual or e2e profiling. Until that profiling exists, do not
   claim this topology proves foreground latency under active background writes.
+- Remaining queue-topology release gate: capture a manual or e2e profiling pass
+  with hidden embedding-worker/background Turso writes active and
+  foreground-labeled DB work in flight. Record owner-client QoS snapshots and
+  scheduler timing. Accept the shared owner-client topology only if
+  `slowQueuedOperationCount` stays 0 for foreground-labeled work and foreground
+  DB work does not repeatedly wait more than 1000ms behind
+  background/embedding operations. If either threshold is observed, reopen the
+  separate Turso connection design before release.
 - Live query capability is explicit and currently false for Turso.
 - PGlite-only query surfaces now fail closed under Turso instead of silently
   returning stale PGlite behavior.
@@ -405,11 +421,16 @@ Known production touchpoints:
 
 - `packages/db-explorer/src/database-demo-panel.tsx`
 - `packages/db-explorer/src/use-database-demo-data.ts`
+- `packages/db-explorer/src/hooks/use-document-count.ts`
+- `packages/db-explorer/src/hooks/use-file-collection-status.ts`
+- `packages/db-explorer/src/hooks/use-collection-embedding-coverage.ts`
 - `packages/preferences/src/settings/tools/unified-tools-settings.tsx`
 - `packages/app-shell/src/use-quick-open-files.ts`
 - `packages/app-shell/src/use-file-mentions.ts`
 - `packages/app-shell/src/cost-tracking/use-cross-root-cost.ts`
 - `packages/app-shell/src/use-om-segment-row.ts`
+- `packages/vector-management/src/collection-select/collection-select.tsx`
+- `packages/vector-management/src/vector-status/use-vector-queue-state.ts`
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
 chunk count, requested file status lookups, collection embedding coverage banner
@@ -432,11 +453,20 @@ replacement; grep and hybrid search now use primary-store gram indexes, while a
 separate native FTS search-index store remains a future option if Tantivy
 ranking/snippet semantics become required.
 
-Remaining live-query replacement gaps: `use-cross-root-cost` and
-`use-om-segment-row` currently rely on one-shot Turso snapshots without an
-explicit invalidation trigger. They need event-driven refresh tokens tied to the
-write paths that change their data, not polling and not a PGlite live-query
-fallback.
+Cross-root durable usage and OM segment rows now have explicit Turso snapshot
+invalidation instead of one-shot reads. Durable usage dispatches a workspace
+usage invalidation only after `recordRunUsage()` resolves. OM rows refresh when
+the renderer receives a completed observational-memory write run event from the
+real assistant stream (`Observations updated`, `Buffered observations updated`,
+or `Buffered observations activated`) and derives the active thread/resource
+lookup key. The hooks still keep PGlite on live queries and Turso on event-driven
+repository/SQLite snapshots; no polling or live-query fallback is introduced.
+
+Latest live-query sweep (2026-07-03): production `useBrainstrikeLiveQuery`
+references under `apps/` and `packages/` are either the package-owned live-query
+implementation/tests, PGlite-only live query paths paired with Turso repository
+snapshot readers, or explicit fail-closed capability gates. No additional
+unmapped production live-query consumer was found in this pass.
 
 ### 3. Background Indexing And Embedding Host
 
@@ -564,7 +594,7 @@ Known production touchpoints:
 - `packages/app-shell/src/threads-panel.tsx`
 - `packages/app-shell/src/assistant-thread-tabs-workspace.tsx`
 
-Concrete blockers:
+Concrete status and remaining blocker:
 
 - `TursoMemoryStore` and `TursoWorkflowsStore` now exist under
   `@brainstrike/agent/turso-mastra-memory`, with SQLite-compatible schema,
@@ -576,10 +606,11 @@ Concrete blockers:
 - `PgliteVectorStore` creates `vector` extension, `embedding vector`, JSONB,
   and GIN indexes.
 - The renderer thread repository still contains separate PGlite and Turso read
-  query dialects for latest-run listing, message hydration, usage aggregation,
-  and thread CRUD. Do not centralize those until each read surface is covered by
-  a dialect-specific contract test; the current shared helper only owns
-  run-event append and terminal run-status writes.
+  query dialects. Current tests cover the major Turso read surfaces: latest-run
+  listing, message hydration, usage aggregation, thread metadata, and thread
+  CRUD. Future centralization should keep equivalent dialect-specific coverage.
+  The current shared helper owns only run-event append and terminal run-status
+  writes.
 
 Completed slices have wired the desktop assistant server to select the Turso
 factory from the ready runtime/bootstrap verdict, included runtime/profile/store
@@ -603,7 +634,7 @@ Known production touchpoints:
 - `apps/desktop/src/db-main.ts`
 - `apps/desktop/src/main.ts`
 
-Concrete blockers:
+Concrete status and authority boundaries:
 
 - Canonical Drizzle schema still defines pgvector and generated
   `to_tsvector` structures.
