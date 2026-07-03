@@ -445,11 +445,12 @@ of a raw database-handle assumption.
 
 Residual provider cleanup from the 2026-07-03 audit:
 
-- `DbProvider` still exports `clearQueuesAndEmbeddingSets`, which sends raw
-  Electron SQL and soft-fails around the explicit owner-action pattern used by
-  Turso vector queue mutations. Search found no production consumer beyond the
-  exported hook/tests. Either retire this helper or replace it with an explicit
-  Turso owner-IPC action before final runtime cleanup.
+- `DbProvider.clearQueuesAndEmbeddingSets` has been retired. The helper sent
+  raw Electron SQL and soft-failed around the explicit owner-action pattern used
+  by Turso vector queue mutations; the 2026-07-03 audit found no production
+  consumer beyond the exported hook/tests. Queue operations now stay on the
+  scoped queue service/repository paths, and embedding-set deletion stays on the
+  embedding-set repository path.
 
 Model-registry toggle writes now use a runtime-specific SQL helper instead of
 depending on dialect lenience. PGlite keeps the existing Postgres-shaped `$1`

@@ -296,7 +296,6 @@ interface DbContextValue {
     | TursoFileChunkRepository
     | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
-  clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
   db: DbHandle | null;
   drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
   embeddingSetsRepository: EmbeddingSetsRepo | null;
@@ -1646,49 +1645,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     bootstrapRuntime,
   ]);
 
-  const purgeQueuesAndSetsElectron = useCallback(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
-    if (w?.electronAPI?.db?.query) {
-      try {
-        await w.electronAPI.db.query('DELETE FROM job_queue');
-      } catch (err) {
-        logger.warn('Electron query to clear job_queue failed:', err);
-      }
-      try {
-        await w.electronAPI.db.query('DELETE FROM collection_indexing_stats');
-      } catch (err) {
-        logger.warn('Electron query to clear collection_indexing_stats failed:', err);
-      }
-      try {
-        await w.electronAPI.db.query('DELETE FROM embedding_sets');
-      } catch (err) {
-        logger.warn('Electron query to clear embedding_sets failed:', err);
-      }
-    }
-  }, []);
-
-  const purgeQueuesAndSetsTx = useCallback(
-    async (tx: { query: (sql: string) => Promise<unknown> }) => {
-      try {
-        await tx.query('DELETE FROM job_queue');
-      } catch (err) {
-        logger.warn('Failed to clear job_queue (transaction):', err);
-      }
-      try {
-        await tx.query('DELETE FROM collection_indexing_stats');
-      } catch (err) {
-        logger.warn('Failed to clear collection_indexing_stats (transaction):', err);
-      }
-      try {
-        await tx.query('DELETE FROM embedding_sets');
-      } catch (err) {
-        logger.warn('Failed to clear embedding_sets (transaction):', err);
-      }
-    },
-    []
-  );
-
   const contextValue = useMemo(
     () => ({
       fileRecordRepository,
@@ -1715,23 +1671,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
         await resetPGliteState();
       },
-      clearQueuesAndEmbeddingSets: async () => {
-        if (useElectronIPC) {
-          // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-          const w = (typeof window === 'undefined' ? null : (window as any)) as any;
-          if (w?.electronAPI?.db?.query) {
-            await purgeQueuesAndSetsElectron();
-            return;
-          }
-        }
-        const conn = connectionRef.current;
-        if (!conn || conn.kind !== 'direct') {
-          return;
-        }
-        await conn.db.transaction(async (tx) => {
-          await purgeQueuesAndSetsTx(tx);
-        });
-      },
     }),
     [
       fileRecordRepository,
@@ -1748,11 +1687,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       clearAllData,
       initializeDatabase,
       vectorEnabled,
-      useElectronIPC,
       tryElectronHardReset,
       resetPGliteState,
-      purgeQueuesAndSetsElectron,
-      purgeQueuesAndSetsTx,
       exposedDb,
     ]
   );
@@ -2371,32 +2307,6 @@ export function useFactoryReset(): (() => Promise<void>) | null {
     return null;
   }
   return ctx.ready && !ctx.error ? ctx.factoryReset : null;
-}
-
-export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const db = ctx?.db;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-  const initializationStatus = ctx?.initializationStatus;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(db || error || initializing || initializationStatus === 'ready') && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [db, error, initializing, initializeDatabase, initializationStatus]);
-
-  if (!ctx) {
-    return null;
-  }
-  return ctx.ready && !ctx.error ? ctx.clearQueuesAndEmbeddingSets : null;
 }
 
 /**
