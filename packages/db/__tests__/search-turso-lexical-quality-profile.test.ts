@@ -70,7 +70,7 @@ describe('Turso primary-store lexical search quality profile', () => {
     const judgedRelevantIds = ['chunk-auth-focused', 'chunk-auth-context'];
 
     expect(resultIds).toEqual(judgedRelevantIds);
-    expect(precisionAt(resultIds, judgedRelevantIds, 5)).toBe(1);
+    expect(precisionAt(resultIds, judgedRelevantIds, 5)).toBe(0.4);
     expect(recallAt(resultIds, judgedRelevantIds, 5)).toBe(1);
     expect(resultIds).not.toContain('chunk-auth-only');
     expect(resultIds).not.toContain('chunk-login-only');
@@ -146,7 +146,7 @@ describe('Turso primary-store lexical search quality profile', () => {
       readFile(searchArchitecturePath, 'utf8'),
     ]);
 
-    expect(qualityReport).toContain('precision@5 = 1.000');
+    expect(qualityReport).toContain('precision@5 = 0.400');
     expect(qualityReport).toContain('recall@5 = 1.000');
     expect(qualityReport).toContain('chunk-near-stem');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
@@ -300,7 +300,7 @@ function precisionAt(
 ): number {
   const relevant = new Set(relevantIds);
   const topK = resultIds.slice(0, k);
-  return topK.filter((id) => relevant.has(id)).length / Math.max(topK.length, 1);
+  return topK.filter((id) => relevant.has(id)).length / Math.max(k, 1);
 }
 
 function recallAt(resultIds: readonly string[], relevantIds: readonly string[], k: number): number {
