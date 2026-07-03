@@ -1718,6 +1718,28 @@ function getRuntimeDirectoryToCreate(
   }
 }
 
+function logLegacyPgliteProfileWhenDefaultingToTurso(
+  runtimeSelection: BrainstrikeDbRuntimeSelection,
+  dataDir: string,
+  tursoDbPath: string
+): void {
+  if (runtimeSelection.engine !== 'turso') {
+    return;
+  }
+  if (runtimeSelection.source !== 'default') {
+    return;
+  }
+  if (!existsSync(dataDir)) {
+    return;
+  }
+
+  logger.warn('Legacy PGlite profile detected while defaulting desktop runtime to Turso', {
+    dataDir,
+    profileId: getDatabaseProfile(),
+    tursoDbPath,
+  });
+}
+
 export async function initializeMainDatabaseWithBootstrapReport(
   retryAfterCorruption = true
 ): Promise<MainDatabaseBootstrapInitResult> {
@@ -1748,6 +1770,7 @@ export async function initializeMainDatabaseWithBootstrapReport(
     appDataDir,
     dataDir
   );
+  logLegacyPgliteProfileWhenDefaultingToTurso(runtimeSelection, dataDir, runtimeStorePath);
   if (!existsSync(directoryToCreate)) {
     mkdirSync(directoryToCreate, { recursive: true });
     logger.debug(`Created database directory: ${directoryToCreate}`);
