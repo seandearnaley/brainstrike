@@ -2,42 +2,6 @@ import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
 // ============================================================================
-// Hybrid Search Tool Schema
-// ============================================================================
-
-export const HybridSearchInputSchema = z
-  .object({
-    query: z.string().min(1).max(2000).describe('Search query text'),
-    embeddingSetId: z.string().min(1).describe('Embedding set ID for vector search'),
-    limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
-    vectorWeight: z
-      .number()
-      .min(0)
-      .max(2)
-      .optional()
-      .describe('Weight for vector search (default 1.0)'),
-    ftsWeight: z
-      .number()
-      .min(0)
-      .max(2)
-      .optional()
-      .describe('Weight for full-text search (default 1.0)'),
-    vectorThreshold: z.number().min(0).max(1).optional().describe('Minimum similarity threshold'),
-    filePaths: z
-      .array(z.string().min(1))
-      .max(1000)
-      .optional()
-      .describe('Filter to specific file paths'),
-    chunkType: z
-      .enum(['text', 'code', 'sentence', 'recursive'])
-      .optional()
-      .describe('Filter by chunk type'),
-  })
-  .strict();
-
-export type HybridSearchInput = z.infer<typeof HybridSearchInputSchema>;
-
-// ============================================================================
 // Queue Status Tool Schema
 // ============================================================================
 

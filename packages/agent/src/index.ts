@@ -340,21 +340,6 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
-// Hybrid search tool factory
-export {
-  buildToolsWithHybridSearch,
-  createHybridSearchTool,
-  HYBRID_SEARCH_ERROR_MESSAGES,
-  HYBRID_SEARCH_TOOL_ID,
-  type HybridSearchResultItem,
-  type HybridSearchServiceMetadata,
-  type HybridSearchServiceResult,
-  type HybridSearchToolDependencies,
-  type HybridSearchToolResult,
-  SAFE_HYBRID_SEARCH_ERRORS,
-  type SearchChunk,
-  type SearchFileRecord,
-} from './tools/hybrid-search-tool';
 // Queue status tool factory
 export {
   buildToolsWithQueueStatus,
