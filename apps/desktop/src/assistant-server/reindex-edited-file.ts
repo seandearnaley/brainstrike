@@ -2,6 +2,7 @@ import fsPromises from 'node:fs/promises';
 import {
   type ApplyManagedCacheBatchArgs,
   applyManagedCacheBatch as applyManagedCacheBatchStandalone,
+  getBrainstrikeDbExecutionRuntime,
   type ManagedCacheBatchMutation,
 } from '@brainstrike/db';
 import { generateContentHash } from '@brainstrike/utils';
@@ -10,16 +11,12 @@ import { createLogger } from '@brainstrike/utils/logger';
 const logger = createLogger('ReindexEditedFile');
 
 /**
- * The DB handle returned by `getDatabase()` (apps/desktop/src/db-main.ts) is one
- * of two shapes, and BOTH drive the standalone `applyManagedCacheBatch(db, args)`
- * over `db.transaction`:
- *  - the local PGlite instance (utility-process runtime) — `transaction` runs
- *    in-process.
- *  - the `RemoteDbClient` (DB-host runtime) — `transaction` is real IPC-backed
- *    (the host runs the callback atomically). Its dedicated
- *    `applyManagedCacheBatch` IPC method lives on the `DbHostManager`, NOT on the
- *    client `getDatabase()` returns, so the trigger never sees it — there is no
- *    handle-method fast path to take.
+ * The DB handle returned by `getDatabase()` (apps/desktop/src/db-main.ts) may be
+ * local PGlite or a DB-host runtime client. PGlite can still drive the
+ * standalone `applyManagedCacheBatch(db, args)` over `db.transaction`.
+ * Turso must use the injected DB-host managed-cache applier so the mutation
+ * stays on the owner-client Turso path and never falls through to the
+ * PostgreSQL-shaped standalone implementation.
  * Structural so it stays trivially mockable in tests.
  */
 export interface ReindexDatabaseHandle {
@@ -92,8 +89,9 @@ async function findIndexedFileRecordId(
  * background sync re-chunks + re-embeds it), then refreshes
  * collection_indexing_stats. We never hand-roll chunking/embedding here.
  *
- * Both DB runtimes drive the standalone function over `db.transaction` (local
- * PGlite in-process; RemoteDbClient.transaction is real IPC-backed).
+ * PGlite drives the standalone function over `db.transaction`. Turso requires
+ * the injected DB-host applier; falling through to the standalone PostgreSQL
+ * implementation is a hard error, not a compatibility fallback.
  */
 async function applyManagedCacheReplace(
   db: ReindexDatabaseHandle,
@@ -103,6 +101,10 @@ async function applyManagedCacheReplace(
   if (managedCacheBatchApplier) {
     await managedCacheBatchApplier.applyManagedCacheBatch(args);
     return;
+  }
+
+  if (getBrainstrikeDbExecutionRuntime(db) === 'turso') {
+    throw new Error('Turso re-index requires the DB-host managed-cache applier.');
   }
 
   if (typeof db.transaction !== 'function') {

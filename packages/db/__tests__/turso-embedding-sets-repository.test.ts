@@ -2,9 +2,69 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  BrainstrikeDbExecutionClient,
+  BrainstrikeDbTransactionClient,
+  BrainstrikeDbWorkOptions,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import { TursoEmbeddingSetsRepository } from '../src/repositories/turso-embedding-sets-repository.js';
 import { createTursoOwnerClient, type TursoOwnerClient } from '../src/turso/owner-client.js';
 import { applyTursoSchemaBaseline } from '../src/turso/schema-baseline.js';
+
+function createSqlTrackingClient(delegate: TursoOwnerClient): {
+  client: BrainstrikeDbExecutionClient;
+  statements: string[];
+} {
+  const statements: string[] = [];
+
+  const trackTransactionClient = (
+    tx: BrainstrikeDbTransactionClient
+  ): BrainstrikeDbTransactionClient => ({
+    exec: async (sql, params, options) => {
+      statements.push(sql);
+      return tx.exec(sql, params, options);
+    },
+    query: async <TRecord = unknown>(
+      sql: string,
+      params?: readonly unknown[],
+      options?: BrainstrikeDbWorkOptions
+    ) => {
+      statements.push(sql);
+      return tx.query<TRecord>(sql, params, options);
+    },
+  });
+
+  return {
+    client: {
+      exec: async (sql, params, options) => {
+        statements.push(sql);
+        return delegate.exec(sql, params, options);
+      },
+      query: async <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[],
+        options?: BrainstrikeDbWorkOptions
+      ) => {
+        statements.push(sql);
+        return delegate.query<TRecord>(sql, params, options);
+      },
+      transaction: async (callback, options) =>
+        delegate.transaction((tx) => callback(trackTransactionClient(tx)), options),
+    },
+    statements,
+  };
+}
+
+function findPostgresOnlySql(statements: readonly string[]): string[] {
+  return statements.filter(
+    (statement) =>
+      /\$[1-9]\d*/.test(statement) ||
+      /::[a-z_]/i.test(statement) ||
+      /\bANY\s*\(/i.test(statement) ||
+      /\bUNNEST\s*\(/i.test(statement) ||
+      /\bFILTER\s*\(/i.test(statement)
+  );
+}
 
 describe('TursoEmbeddingSetsRepository', () => {
   let client: TursoOwnerClient;
@@ -245,6 +305,43 @@ describe('TursoEmbeddingSetsRepository', () => {
 
     await expect(repository.delete(created.id)).resolves.toBe(true);
     await expect(repository.getById(created.id)).resolves.toBeNull();
+  });
+
+  it('keeps metadata create, update, and read queries in SQLite dialect for Turso', async () => {
+    const tracked = createSqlTrackingClient(client);
+    const trackedRepository = new TursoEmbeddingSetsRepository(tracked.client);
+
+    const created = await trackedRepository.getOrCreateSet(
+      'text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine'
+    );
+
+    await expect(
+      trackedRepository.updateMetadata(created.id, { name: 'Updated Name' })
+    ).resolves.toMatchObject({ name: 'Updated Name' });
+
+    await client.exec(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'legacy-set',
+        'Xenova/all-MiniLM-L6-v2',
+        'all-MiniLM-L6-v2',
+        384,
+        'cosine',
+        '2026-06-23T08:00:00.000Z',
+      ]
+    );
+
+    await expect(trackedRepository.getById('legacy-set')).resolves.toMatchObject({
+      id: 'legacy-set',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+    });
+
+    expect(findPostgresOnlySql(tracked.statements)).toEqual([]);
   });
 
   it('deletes chunks associated with the set while clearing file record embedding metadata', async () => {

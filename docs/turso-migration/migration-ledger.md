@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-stale-wording-cleanup-20260703`,
+Last updated: 2026-07-03 on `codex/turso-runtime-sql-hardening-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1458 at `be220c05e`. This branch cuts empty desktop profiles over to
+through #1459 at `6945e770`. This branch cuts empty desktop profiles over to
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
@@ -166,6 +166,23 @@ Merged slices:
 - #1456 `Profile Turso lexical search quality`
 - #1457 `Fix Turso enhanced import SQL dialect`
 - #1458 `Default desktop runtime to Turso`
+- #1459 `docs(turso): neutralize stale runtime wording`
+
+In-flight runtime-SQL hardening slice: this branch turns the final-runtime-audit
+follow-up into concrete behavior checks. The shared embedding-set metadata
+helper now has an explicit SQL dialect so Turso metadata create/read/repair
+queries use SQLite `?` placeholders while PGlite/Drizzle keep PostgreSQL `$n`
+placeholders. Desktop assistant edit re-indexing now fails closed when a
+Turso-marked DB handle lacks the injected DB-host managed-cache applier, rather
+than falling through to the PostgreSQL-shaped standalone managed-cache
+implementation.
+
+Recently completed stale-wording cleanup slice: #1459 refreshed this ledger
+through #1458/default-runtime state and neutralized stale PGlite-only comments
+on supported Turso runtime paths, including DB-host owner transactions, grep
+candidate wording, renderer runtime comments, token-cache wording, quick-open
+repository comments, assistant memory aggregate-count wording, and the
+primary-store lexical search architecture note.
 
 Recently completed default-runtime slice: #1458 made unset desktop runtime
 selection default fresh profiles to Turso while preserving existing PGlite
@@ -213,7 +230,7 @@ profile directory for both runtimes, then recreates the runtime-owned empty
 directory: explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not tracked in this branch at feature head `be220c05e` through the 2026-07-03
+is not tracked in this branch at feature head `6945e770` through the 2026-07-03
 reconciliation pass. Do not cite that report as reconciled work until the
 artifact is restored or this ledger links to the correct audit artifact.
 
@@ -224,7 +241,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1458 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1459 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -242,6 +259,12 @@ evidence that gram sidecars supply the lexical candidate source. #1457 fixed the
 enhanced manual-import SQL dialect leak for Turso metadata and embedding-set
 paths. #1458 made fresh unset-runtime desktop profiles default to Turso while
 preserving existing PGlite profiles and keeping reset on the fresh Turso default.
+#1459 neutralized the stale runtime wording found in the final-pass audit. The
+current branch narrows the remaining generic SQL audit: chunking-host
+load-by-id, local semantic recall dimension lookup, and workspace-root loading
+are not current Turso-default bugs because they route through the owner DB host
+and libSQL accepts their `$1` bindings; the real fixes are explicit metadata
+SQL dialect generation and fail-closed Turso re-index fallback behavior.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
@@ -249,8 +272,8 @@ The verified remaining backlog is now:
 - explicit reset targets only if future Turso sync or split-search stores live
   outside the active profile directory;
 - final PGlite dependency/removal audit after web/runtime ownership decisions;
-- final stale wording cleanup for comments/docs that still describe supported
-  Turso paths as PGlite-only.
+- follow-up stale wording cleanup only for future surfaces found after the
+  final PGlite dependency/removal audit.
 
 ## Turso Docs Guardrail
 

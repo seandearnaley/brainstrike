@@ -128,7 +128,7 @@ export class EmbeddingSetsRepository {
   }
 
   async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
-    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.metadataDb(), {
       modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
       modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
     });
@@ -222,7 +222,7 @@ export class EmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet> {
-    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.metadataDb(), {
       modelKey,
       modelId,
     });
@@ -317,7 +317,7 @@ export class EmbeddingSetsRepository {
   }
 
   async getByModelKey(modelKey: string): Promise<EmbeddingSet[] | []> {
-    const normalizedMetadata = await tryResolveEmbeddingSetMetadata(this.db, {
+    const normalizedMetadata = await tryResolveEmbeddingSetMetadata(this.metadataDb(), {
       modelKey,
       modelId: '',
     });
@@ -552,7 +552,7 @@ export class EmbeddingSetsRepository {
 
   private async readEmbeddingSet(row: Record<string, unknown>): Promise<EmbeddingSet> {
     const embeddingSet = this.fromRow(row);
-    const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.db, {
+    const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.metadataDb(), {
       id: embeddingSet.id,
       modelKey: embeddingSet.modelKey,
       modelId: embeddingSet.modelId,
@@ -564,6 +564,19 @@ export class EmbeddingSetsRepository {
       ...embeddingSet,
       modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
+    };
+  }
+
+  private metadataDb(): {
+    readonly dialect: 'postgres';
+    query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  } {
+    return {
+      dialect: 'postgres',
+      query: async <T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
+        const result = await this.db.query<T>(sql, params);
+        return { rows: Array.from(result.rows) };
+      },
     };
   }
 }

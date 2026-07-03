@@ -450,9 +450,11 @@ export class TursoEmbeddingSetsRepository implements IEmbeddingSetsRepository {
   }
 
   private metadataDb(): {
+    readonly dialect: 'sqlite';
     query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
   } {
     return {
+      dialect: 'sqlite',
       query: async <T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
         const result = await this.db.query<T>(sql, params);
         return { rows: Array.from(result.rows) };
