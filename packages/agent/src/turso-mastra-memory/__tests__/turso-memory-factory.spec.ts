@@ -63,15 +63,80 @@ describe('createTursoMastraMemory', () => {
     expect(result.workflows.supportsConcurrentUpdates()).toBe(true);
     expect(memoryConstructorCalls[0]).toMatchObject({
       options: { lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES },
+      vector: result.vector,
     });
-    expect(memoryConstructorCalls[0]).not.toHaveProperty('vector');
   });
 
-  it('fails closed when semantic recall requests vector memory', async () => {
+  it('registers Turso vector memory when semantic recall has an explicit embedder', async () => {
+    const result = await createTursoMastraMemory({
+      database: createFakeClient(),
+      embedder: 'openai:text-embedding-3-small',
+      memorySettings: {
+        observationalMemory: {
+          enabled: false,
+          modelTarget: 'openai/gpt-5.4-mini',
+          scope: 'thread',
+          messageTokens: 30_000,
+          observationTokens: 40_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: true,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      },
+    });
+
+    expect(result.vector.id).toBe('brainstrike-turso-memory-vector');
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      embedder: 'openai:text-embedding-3-small',
+      vector: result.vector,
+    });
+  });
+
+  it('registers Turso vector memory when observational memory vector retrieval has an explicit embedder', async () => {
+    const result = await createTursoMastraMemory({
+      database: createFakeClient(),
+      embedder: 'openai:text-embedding-3-small',
+      memorySettings: {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.4-mini',
+          scope: 'thread',
+          messageTokens: 30_000,
+          observationTokens: 40_000,
+          retrievalMode: 'vector',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          messageRange: 2,
+          scope: 'resource',
+          topK: 5,
+        },
+      },
+    });
+
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      embedder: 'openai:text-embedding-3-small',
+      vector: result.vector,
+    });
+    expect(memoryConstructorCalls[0]).toMatchObject({
+      options: {
+        observationalMemory: {
+          retrieval: { scope: 'thread', vector: true },
+        },
+      },
+    });
+  });
+
+  it('fails closed when semantic recall lacks an explicit embedder', async () => {
     await expect(
       createTursoMastraMemory({
         database: createFakeClient(),
-        embedder: 'openai:text-embedding-3-small',
         memorySettings: {
           observationalMemory: {
             enabled: false,
@@ -90,14 +155,13 @@ describe('createTursoMastraMemory', () => {
           },
         },
       })
-    ).rejects.toThrow('Turso Mastra semantic recall requires Turso vector memory support.');
+    ).rejects.toThrow('Turso Mastra semantic recall requires an explicit embedder.');
   });
 
-  it('fails closed when observational memory requests vector retrieval', async () => {
+  it('fails closed when observational memory vector retrieval lacks an explicit embedder', async () => {
     await expect(
       createTursoMastraMemory({
         database: createFakeClient(),
-        embedder: 'openai:text-embedding-3-small',
         memorySettings: {
           observationalMemory: {
             enabled: true,
@@ -116,8 +180,6 @@ describe('createTursoMastraMemory', () => {
           },
         },
       })
-    ).rejects.toThrow(
-      'Turso Mastra observational vector retrieval requires Turso vector memory support.'
-    );
+    ).rejects.toThrow('Turso Mastra observational vector retrieval requires an explicit embedder.');
   });
 });

@@ -12,6 +12,7 @@ import { Memory } from '@mastra/memory';
 import type { AssistantRunEventSink } from '../run-events';
 import { TursoMemoryStore } from './memory-store';
 import type { TursoMastraSqlClient } from './types';
+import { TursoVectorStore } from './vector-store';
 import { TursoWorkflowsStore } from './workflows-store';
 
 type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
@@ -33,6 +34,7 @@ export interface TursoMastraMemoryResult {
   memory: Memory;
   storage: MastraCompositeStore;
   store: TursoMemoryStore;
+  vector: TursoVectorStore;
   workflows: TursoWorkflowsStore;
 }
 
@@ -111,16 +113,14 @@ export async function createTursoMastraMemory({
   semanticRecall = false,
 }: TursoMastraMemoryOptions): Promise<TursoMastraMemoryResult> {
   const semanticRecallEnabled = semanticRecall || memorySettings.semanticRecall.enabled;
-  if (semanticRecallEnabled) {
-    throw new Error('Turso Mastra semantic recall requires Turso vector memory support.');
+  if (semanticRecallEnabled && !embedder) {
+    throw new Error('Turso Mastra semantic recall requires an explicit embedder.');
   }
   const observationalVectorRetrievalEnabled =
     memorySettings.observationalMemory.enabled &&
     memorySettings.observationalMemory.retrievalMode === 'vector';
-  if (observationalVectorRetrievalEnabled) {
-    throw new Error(
-      'Turso Mastra observational vector retrieval requires Turso vector memory support.'
-    );
+  if (observationalVectorRetrievalEnabled && !embedder) {
+    throw new Error('Turso Mastra observational vector retrieval requires an explicit embedder.');
   }
 
   const store = new TursoMemoryStore({
@@ -135,8 +135,15 @@ export async function createTursoMastraMemory({
     id: `${id}-storage`,
     domains: { memory: store, workflows },
   });
+  const vector = new TursoVectorStore({
+    database,
+    id: `${id}-vector`,
+    ...(eventSink ? { eventSink } : {}),
+    ...(runId ? { runId } : {}),
+  });
   const memory = new Memory({
     storage,
+    vector,
     ...(embedder ? { embedder } : {}),
     options: buildMastraMemoryOptions({
       memoryOptions,
@@ -146,5 +153,5 @@ export async function createTursoMastraMemory({
     }),
   });
 
-  return { memory, storage, store, workflows };
+  return { memory, storage, store, vector, workflows };
 }

@@ -1,6 +1,7 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `feature/turso-migration`.
+Last updated: 2026-07-03 on `codex/turso-mastra-vector-memory`, targeting
+`feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -8,7 +9,11 @@ as the implementation backlog.
 
 ## Current Branch State
 
-`feature/turso-migration` currently contains these Turso migration slices:
+`feature/turso-migration` currently contains merged Turso migration slices
+through #1444 at `d957516a7`. This PR branch adds #1445; after merge it becomes
+the next feature-branch slice.
+
+Merged slices:
 
 - #1304 `feat(db): add profile bootstrap readiness report`
 - #1305 `feat(db): add bootstrap capability probe`
@@ -116,19 +121,56 @@ as the implementation backlog.
 - #1413 `Neutralize file status backend error copy`
 - #1414 `Remove stale Turso queue boundary`
 - #1415 `Neutralize collection browser snapshot copy`
+- #1416 `docs(turso): refresh migration wording`
+- #1417 `fix(desktop): skip dimension probe for turso startup`
+- #1418 `Route Turso manual imports through managed cache`
+- #1419 `Batch background cache removals for Turso`
+- #1420 `Make index debug SQL portable for Turso`
+- #1421 `Fail closed on managed cache apply errors`
+- #1422 `fix(db-explorer): gate import queue on runtime client`
+- #1423 `fix(app-shell): gate file search on live-query capability`
+- #1424 `Use live-query capability in db explorer hooks`
+- #1425 `Route Turso queue owner requests through DB host`
+- #1426 `Fix Turso DB Explorer collection snapshot mode`
+- #1427 `Surface Turso vector queue action failures`
+- #1428 `Clear stale Turso schema readiness`
+- #1429 `Make Turso retry failed queue action atomic`
+- #1430 `Guard Turso background imports behind atomic enqueue`
+- #1431 `Mark DB execution runtime explicitly`
+- #1432 `Require explicit desktop Turso readiness seams`
+- #1433 `Guard PGlite-gated hook imports`
+- #1434 `Route desktop token cache through runtime store`
+- #1435 `Resolve DB Explorer search metadata through repositories`
+- #1436 `Stop DB Explorer panel using PGlite DB hook`
+- #1437 `Gate visible embedding worker by runtime`
+- #1438 `Use live-query capability for collection selector`
+- #1439 `Move schema readiness into db capability hook`
+- #1440 `Report ready Turso runtime status`
 - #1441 `Expose runtime execution DB client hook`
 - #1442 `Gate tools settings live queries by capability`
 - #1443 `Fix model registry toggle SQL by runtime`
 - #1444 `Add Turso snapshot invalidation triggers`
+
+In-flight slice on this branch:
+
+- #1445 `Add Turso Mastra vector memory store`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
   directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not present in this branch at `0a62b270`. Do not cite that report as
+is not present in this branch at feature head `d957516a7` or on the #1445 PR
+branch through the 2026-07-03 reconciliation pass. Do not cite that report as
 reconciled work until the artifact is restored or this ledger links to the
 correct audit artifact.
+
+Ledger reconciliation pass (2026-07-03): compared this ledger with
+`git log --first-parent origin/feature/turso-migration` and
+`gh pr list --base feature/turso-migration`; the merged-slice list now includes
+#1416 through #1440, which were landed on the feature branch but missing from a
+prior ledger pass. The remaining-work sections below should not re-list those
+slices as TODO unless they name a concrete follow-up still absent from code.
 
 ## Turso Docs Guardrail
 
@@ -401,6 +443,14 @@ handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
 stay capability-gated by the concrete repository and bootstrap proofs instead
 of a raw database-handle assumption.
 
+Residual provider cleanup from the 2026-07-03 audit:
+
+- `DbProvider` still exports `clearQueuesAndEmbeddingSets`, which sends raw
+  Electron SQL and soft-fails around the explicit owner-action pattern used by
+  Turso vector queue mutations. Search found no production consumer beyond the
+  exported hook/tests. Either retire this helper or replace it with an explicit
+  Turso owner-IPC action before final runtime cleanup.
+
 Model-registry toggle writes now use a runtime-specific SQL helper instead of
 depending on dialect lenience. PGlite keeps the existing Postgres-shaped `$1`
 placeholder and boolean parameter path; Turso and libSQL emit SQLite-compatible
@@ -576,6 +626,12 @@ Remaining search decisions:
    for product search quality, or whether native Tantivy FTS ranking/snippets
    still justify a split search-index owner described in
    `docs/turso-migration/search-index-architecture.md`.
+3. Decide the fate of the assistant `brainstrike.hybridSearch` native tool.
+   The shared hybrid search service is now repository-compatible, but the tool
+   is not registered in the desktop assistant tool surface or the assistant
+   contract registries. Either register it with explicit Turso capability gates
+   or retire the unused native-tool wrapper and keep hybrid search as an
+   internal DB service.
 
 ### 5. Mastra Memory And Assistant Persistence
 
@@ -589,22 +645,40 @@ Known production touchpoints:
 
 - `apps/desktop/src/assistant-server.ts`
 - `packages/agent/src/pglite-mastra-memory`
+- `packages/agent/src/turso-mastra-memory`
 - `packages/app-shell/src/assistant-memory-repository.ts`
 - `packages/app-shell/src/assistant-ui-panel-wrapper.tsx`
 - `packages/app-shell/src/threads-panel.tsx`
 - `packages/app-shell/src/assistant-thread-tabs-workspace.tsx`
 
-Concrete status and remaining blocker:
+Concrete status and remaining work:
 
 - `TursoMemoryStore` and `TursoWorkflowsStore` now exist under
   `@brainstrike/agent/turso-mastra-memory`, with SQLite-compatible schema,
   thread/message/resource persistence, non-vector observational memory, and
   workflow snapshots.
-- The Turso factory intentionally does not expose vector memory yet. Semantic
-  recall and observational vector retrieval fail closed with deterministic
-  configuration errors instead of silently disabling vector behavior.
+- `TursoVectorStore` now exposes the Mastra vector contract under
+  `@brainstrike/agent/turso-mastra-memory`. It stores embeddings as Turso
+  `vector32(?)` BLOBs in the shared `mastra_vectors` table, keeps the same
+  sentinel-row index metadata model as `PgliteVectorStore`, supports equality,
+  `$eq`, `$in`, `$and`, and Mastra recall timestamp comparison filters
+  (`$lt`/`$lte`/`$gt`/`$gte`) on metadata, returns high-score-is-better
+  cosine/euclidean/dot-product results, and emits the same nonblocking
+  semantic memory run events. Real Turso-engine tests cover cosine, euclidean,
+  dot-product ranking, and `observed_at` recall windows, and fail closed if
+  persisted metadata names an unsupported metric.
+- The Turso factory now passes the vector store to `Memory`, so semantic recall
+  and observational vector retrieval can run when an explicit embedder is
+  configured. Those paths still fail closed with deterministic configuration
+  errors when vector-enabled memory is requested without an embedder.
 - `PgliteVectorStore` creates `vector` extension, `embedding vector`, JSONB,
-  and GIN indexes.
+  and GIN indexes. `TursoVectorStore` intentionally uses exact vector-distance
+  ordering for Mastra memory parity in this slice; native vector index/ANN
+  tuning remains a separate performance decision once real memory volume
+  requires it. The Turso vector memory schema is also lazily owned by the
+  Mastra memory store rather than the profile bootstrap baseline; keep that
+  ownership explicit unless release readiness requires bootstrap-level vector
+  schema proof.
 - The renderer thread repository still contains separate PGlite and Turso read
   query dialects. Current tests cover the major Turso read surfaces: latest-run
   listing, message hydration, usage aggregation, thread metadata, and thread
@@ -614,10 +688,12 @@ Concrete status and remaining blocker:
 
 Completed slices have wired the desktop assistant server to select the Turso
 factory from the ready runtime/bootstrap verdict, included runtime/profile/store
-identity in the memory cache key, and replayed live-loop persistence against
-Turso. Remaining work in this area is vector semantic memory parity: the Turso
-factory intentionally fails closed for vector memory until a Turso-compatible
-vector store and recall contract exist.
+identity in the memory cache key, replayed live-loop persistence against Turso,
+and, on this branch, added Turso vector memory parity for Mastra semantic
+recall/observational vector retrieval. Remaining work in this area is
+performance characterization: prove the exact-scan Turso memory vector path at
+expected local profile sizes and decide whether native Turso vector indexes are
+needed before release.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 
@@ -687,6 +763,11 @@ explicit named reset targets with tests; do not delete guessed names such as
 `db:clearAll` is a separate SQL-only live-handle data clear path. It is not the
 barrier-coordinated factory reset/profile cleanup path and must not be cited as
 proof that runtime-owned profile files or future sidecars were removed.
+The next reset/clear follow-up is real-engine Turso proof for `db:clearAll`, or
+replacement with runtime repository/owner actions. The handler currently runs
+generic SQL over the owner client; Turso sidecars should clear through foreign
+key cascades, but existing coverage is mocked and desktop E2E setup calls this
+path directly.
 
 Known production touchpoints:
 
@@ -715,6 +796,12 @@ Known production touchpoints:
 Preferred next slice: keep PGlite-specific files until the final runtime removal
 pass; premature cleanup would break current PGlite-mode tests and web paths
 without advancing Turso parity.
+
+Stale wording cleanup is a final-pass task after release decisions are made.
+Examples from the 2026-07-03 audit: DB host queue comments still describe the
+host as PGlite single-connection only even though Turso requests share the same
+host dispatch surface, and hybrid-search service docs do not yet name Turso as
+a repository-backed source.
 
 ## Historical Implementation Order
 

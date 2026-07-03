@@ -1,3 +1,7 @@
+import { MASTRA_VECTOR_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+
+export { MASTRA_VECTOR_TABLE };
+
 export const MASTRA_MEMORY_TABLES = {
   messages: 'mastra_messages',
   observationalMemory: 'mastra_observational_memory',
@@ -6,6 +10,26 @@ export const MASTRA_MEMORY_TABLES = {
 } as const;
 
 export const MASTRA_WORKFLOW_TABLE = 'mastra_workflow_snapshot';
+
+export const MASTRA_VECTOR_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS ${MASTRA_VECTOR_TABLE} (
+  index_name TEXT NOT NULL,
+  id TEXT NOT NULL,
+  embedding BLOB NOT NULL,
+  metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),
+  dimension INTEGER NOT NULL,
+  metric TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (index_name, id)
+);
+
+CREATE INDEX IF NOT EXISTS mastra_vectors_index_name_idx
+  ON ${MASTRA_VECTOR_TABLE} (index_name);
+
+CREATE INDEX IF NOT EXISTS mastra_vectors_updated_idx
+  ON ${MASTRA_VECTOR_TABLE} (index_name, updated_at DESC, id ASC);
+`;
 
 export const MASTRA_MEMORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS ${MASTRA_MEMORY_TABLES.resources} (
