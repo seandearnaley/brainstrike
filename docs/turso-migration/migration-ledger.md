@@ -1,7 +1,7 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-queue-profile-gate`, targeting
-`feature/turso-migration`.
+Last updated: 2026-07-03 on `codex/turso-queue-topology-proof-20260703`,
+targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -10,9 +10,9 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1451 at `03d17bd5`. This PR branch adds the queue-profile verdict
-surface for Turso diagnostics and closes the remaining owner-observability gap
-for generic foreground `query`/`exec` DB-host work.
+through #1452 at `db6203bc`. This PR branch adds the deterministic
+queue-topology proof layer on top of that verdict surface, and fixes the
+renderer/bootstrap diagnostics gaps the proof exposed.
 
 Merged slices:
 
@@ -156,18 +156,27 @@ Merged slices:
 - #1447 `Prove Turso clear-all path`
 - #1450 `Retire unregistered hybrid search assistant wrapper`
 - #1451 `Label Turso queue work for profiling`
+- #1452 `Add Turso queue profile verdict`
 
 In-flight slice on this branch:
 
-- Add a deterministic Turso queue-profile diagnostics verdict that combines
-  desktop scheduler timing with Turso owner-client QoS snapshots. Generic
-  foreground `query`/`exec` DB-host work, including renderer-facing
-  `window.electronAPI.db.query()` / `exec()` calls, now forwards
-  `DatabaseWorkOptions` into the Turso owner client, so manual foreground probes
-  can appear in owner QoS snapshots instead of only in the main-process
-  scheduler. This still does not replace the manual/opt-in hidden-worker
-  profiling pass; it creates the stable evidence surface and tests that
-  pass/fail the release-gate thresholds.
+- Add a deterministic Turso queue-topology proof using a real Turso owner
+  client plus the desktop database-work scheduler in unit coverage, and an
+  opt-in Electron E2E lane that runs `BRAINSTRIKE_DB_RUNTIME=turso`, seeds real
+  queue work through owner IPC, issues foreground-labeled DB work, starts the
+  hidden embedding host, and requires `desktopDiagnostics.tursoQueueProfile` to
+  reach `accepted` with observed scheduler foreground/background work and owner
+  QoS activity.
+- Fix the Turso renderer bootstrap classification gap exposed by that E2E:
+  `DbProvider` now uses the authoritative IPC diagnostics bootstrap report when
+  `db:test` omits one, and `db:test` now reads the same DB-host diagnostics
+  authority as `db:diagnostics`. If no authoritative Electron IPC bootstrap
+  report is available, initialization fails closed instead of falling through to
+  the PGlite `pg_extension`/pgvector probe.
+- Desktop platform diagnostics now skips the PGlite-only dimension-index
+  maintenance snapshot under Turso instead of querying missing
+  `embedding_dimension_index_*` tables; the snapshot is marked
+  `status: unsupported` rather than disguised as healthy idle maintenance.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -185,7 +194,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1451 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1452 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -195,8 +204,8 @@ labels/priorities for hidden worker paths plus a desktop diagnostics verdict
 surface for foreground/background evidence; real hidden-worker profiling remains
 required. The verified remaining backlog is now:
 
-- queue-topology release profiling under hidden embedding-worker/background
-  Turso writes plus foreground-labeled DB work using
+- sustained queue-topology release profiling under real hidden
+  embedding-worker/background Turso writes plus foreground-labeled DB work using
   `window.desktopDiagnostics.getSnapshot().tursoQueueProfile`,
   `window.electronAPI.db.diagnostics()`, and
   `window.electronAPI.db.schedulerSnapshot()`;
@@ -300,11 +309,15 @@ The branch currently has a real Turso runtime seam:
   the separate-connection design if release profiling shows
   `slowQueuedOperationCount > 0` for foreground-labeled work, or foreground DB
   work repeatedly waits more than 1000ms behind embedding-worker/background
-  operations during manual or e2e profiling. Until that profiling exists, do not
-  claim this topology proves foreground latency under active background writes.
-- Remaining queue-topology release gate: capture a manual or opt-in e2e
-  profiling pass with hidden embedding-worker/background Turso writes active
-  and foreground-labeled DB work in flight. Record
+  operations during manual or e2e profiling. This branch adds deterministic
+  unit and opt-in Electron E2E proof that the diagnostics surface can observe
+  real background Turso queue work, foreground DB work, and the hidden embedding
+  host's Turso provider initialization, and it refuses to accept a queue profile
+  without Turso owner QoS activity. Treat that as topology regression coverage,
+  not sustained-load latency proof.
+- Remaining queue-topology release gate: capture a manual or extended opt-in
+  profiling pass with sustained hidden embedding-worker/background Turso writes
+  active and foreground-labeled DB work in flight. Record
   `window.desktopDiagnostics.getSnapshot().tursoQueueProfile`,
   `window.electronAPI.db.diagnostics().tursoOwnerClientQoS`, and
   `window.electronAPI.db.schedulerSnapshot()`. Accept the shared owner-client

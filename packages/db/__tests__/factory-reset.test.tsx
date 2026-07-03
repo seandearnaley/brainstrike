@@ -51,6 +51,28 @@ function createMockDb(): MockDb {
   };
 }
 
+function createReadyPgliteProfileBootstrapReport() {
+  return {
+    checks: [],
+    failure: null,
+    phase: 'ready',
+    profileId: 'test',
+    ready: true,
+    runtime: {
+      engine: 'pglite',
+      host: 'electron-utility',
+      persistence: 'filesystem',
+    },
+    search: {
+      indexedSearch: 'available',
+      message: 'PGlite search is ready',
+      ownershipMode: 'primary-store-indexes',
+    },
+    startedAt: '2026-07-03T10:00:00.000Z',
+    updatedAt: '2026-07-03T10:00:01.000Z',
+  } as const;
+}
+
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
@@ -221,6 +243,7 @@ describe('DbProvider factoryReset', () => {
   });
 
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
+    const profileBootstrapReport = createReadyPgliteProfileBootstrapReport();
     installElectronDbBridge({
       clearAll: vi.fn(async () => ({ success: true })),
       diagnostics: vi.fn(async () => null),
@@ -233,7 +256,7 @@ describe('DbProvider factoryReset', () => {
         return { rows: [] };
       }),
       resetLocal: vi.fn(async () => ({ success: false, message: 'disk reset failed' })),
-      test: vi.fn(async () => ({ message: 'ok', success: true })),
+      test: vi.fn(async () => ({ message: 'ok', profileBootstrapReport, success: true })),
     });
 
     const { result } = renderHook(
@@ -260,6 +283,7 @@ describe('DbProvider factoryReset', () => {
     const clearAll = vi.fn(async () => {
       throw new Error('clearAll should not run before resetLocal');
     });
+    const profileBootstrapReport = createReadyPgliteProfileBootstrapReport();
     const resetLocal = vi.fn(async () => ({ success: true }));
     installElectronDbBridge({
       clearAll,
@@ -273,7 +297,7 @@ describe('DbProvider factoryReset', () => {
         return { rows: [] };
       }),
       resetLocal,
-      test: vi.fn(async () => ({ message: 'ok', success: true })),
+      test: vi.fn(async () => ({ message: 'ok', profileBootstrapReport, success: true })),
     });
 
     const { result } = renderHook(

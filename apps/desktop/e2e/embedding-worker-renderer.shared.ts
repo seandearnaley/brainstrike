@@ -1651,7 +1651,7 @@ export async function createLargeBackfillCorpusFixture(
   >(
     async ({ chunkContentBytes, chunksPerFile, fileContentBytes, fileCount, persistActiveSet }) => {
       const api = (
-        window as Window & {
+        window as unknown as {
           electronAPI?: {
             db?: {
               exec?: (sql: string) => Promise<unknown>;
@@ -1849,7 +1849,7 @@ export async function createLargeCollectionListFixture(
   >(
     async ({ fileContentBytes, fileCount, persistActiveSet }) => {
       const api = (
-        window as Window & {
+        window as unknown as {
           electronAPI?: {
             db?: {
               exec?: (sql: string) => Promise<unknown>;
@@ -2569,14 +2569,14 @@ export async function ensureEmbeddingHostWarmed(page: Page): Promise<Page> {
 export async function startBackfillViaBridge(page: Page, embeddingSetId: string): Promise<void> {
   await page.evaluate<void, string>(async (id) => {
     const host = (
-      window as Window & {
+      window as unknown as Window & {
         __e2eEmbeddingBackfillState?: {
           done: boolean;
           embeddingSetId: string;
           error: string | null;
         };
         embeddingHost?: {
-          enqueueBackfill?: (embeddingSetId: string) => Promise<void>;
+          enqueueBackfill?: (request: { embeddingSetId: string }) => Promise<unknown>;
         };
       }
     ).embeddingHost;
@@ -2594,7 +2594,7 @@ export async function startBackfillViaBridge(page: Page, embeddingSetId: string)
       window as Window & { __e2eEmbeddingBackfillState?: typeof state }
     ).__e2eEmbeddingBackfillState = state;
 
-    void host.enqueueBackfill(id).then(
+    void host.enqueueBackfill({ embeddingSetId: id }).then(
       () => {
         state.done = true;
       },

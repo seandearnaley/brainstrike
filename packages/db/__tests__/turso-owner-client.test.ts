@@ -342,6 +342,20 @@ describe('Turso owner client', () => {
         activeOperation: null,
         queuedOperationCount: 0,
         queuedOperations: [],
+        recentCompletedOperations: [
+          {
+            durationMs: 75,
+            kind: 'query',
+            label: 'first query',
+            priority: 'background',
+            queueWaitMs: 0,
+          },
+          {
+            kind: 'query',
+            label: 'queued query',
+            priority: 'foreground',
+          },
+        ],
         slowQueuedOperationCount: 0,
         totalCompletedOperations: 2,
         totalFailedOperations: 0,

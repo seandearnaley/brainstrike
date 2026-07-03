@@ -3,7 +3,9 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
+  DatabaseDiagnosticsSnapshot,
   DatabaseWorkOptions,
+  DatabaseWorkSchedulerSnapshot,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
   IFileNode,
@@ -59,9 +61,9 @@ import type {
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { LoggingSettingsPayload } from '../logging-shared';
 
-interface QueryResult {
+interface QueryResult<T = unknown> {
   fields?: { name: string; dataType: string }[];
-  rows: unknown[];
+  rows: T[];
 }
 
 interface ElectronLiveQueryResults {
@@ -120,8 +122,13 @@ declare global {
       };
       // Database operations
       db: {
-        query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
-        exec: (sql: string) => Promise<void>;
+        diagnostics: () => Promise<DatabaseDiagnosticsSnapshot>;
+        query: <T = unknown>(
+          sql: string,
+          params?: unknown[],
+          options?: DatabaseWorkOptions
+        ) => Promise<QueryResult<T>>;
+        exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
         insertChunksAndEnqueueEmbeddingJobs: (
           chunks: readonly ElectronChunkInsert[],
           fileRecordId: string,
@@ -143,7 +150,18 @@ declare global {
           payload: unknown,
           workOptions?: DatabaseWorkOptions
         ) => Promise<unknown>;
-        test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
+        runTransaction: (
+          statements: { sql: string; params?: unknown[] }[],
+          resultIndex: number,
+          options?: DatabaseWorkOptions
+        ) => Promise<{ rows: unknown[] }>;
+        schedulerSnapshot: () => Promise<DatabaseWorkSchedulerSnapshot>;
+        test: () => Promise<{
+          success: boolean;
+          message: string;
+          dbLocation: string;
+          profileBootstrapReport?: DatabaseDiagnosticsSnapshot['profileBootstrapReport'] | null;
+        }>;
         clearAll: (confirmationToken?: string) => Promise<{
           success: boolean;
           message?: string;

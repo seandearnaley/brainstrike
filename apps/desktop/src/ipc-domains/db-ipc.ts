@@ -731,13 +731,15 @@ export function registerDatabaseIpcHandlers(
   registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.test, async () => {
     try {
       return await withCorruptionRecovery(async () => {
-        const { getDatabase, getDatabaseDiagnostics } = await import('../db-main');
+        const { getDatabase } = await import('../db-main');
+        const { getDbHostManager } = await import('../db-host-manager');
         const db = await getDatabase();
         await db.query('SELECT 1');
+        const diagnostics = await getDbHostManager().getDiagnostics();
         return {
           dbLocation: 'DB Host',
           message: 'Database connection successful',
-          profileBootstrapReport: getDatabaseDiagnostics().profileBootstrapReport ?? null,
+          profileBootstrapReport: diagnostics.profileBootstrapReport ?? null,
           success: true,
         };
       }, 'db:test');

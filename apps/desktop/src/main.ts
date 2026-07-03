@@ -957,6 +957,7 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
   },
   database: {
     getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+    getRuntimeEngine: resolveCurrentDesktopDbRuntimeEngine,
   },
   databaseScheduler: {
     getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,

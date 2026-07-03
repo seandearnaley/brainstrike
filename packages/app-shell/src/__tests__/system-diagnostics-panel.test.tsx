@@ -204,6 +204,73 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Runtime Metrics')).toBeInTheDocument();
       expect(screen.getByText('1 process')).toBeInTheDocument();
     });
+
+    it('renders unsupported dimension maintenance diagnostics without reporting idle', async () => {
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-05-20T00:00:00.000Z',
+          crashRecovery: {
+            lastRendererCrashReason: null,
+            pendingRendererRecovery: false,
+            rendererCrashCount: 0,
+            rendererReloadAttemptCount: 0,
+            suppressedRendererReloadCount: 0,
+          },
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          indexing: {
+            activeBackfills: [],
+            databaseWork: null,
+            dimensionIndexMaintenance: {
+              maintenance: [],
+              reason: 'runtime-not-pglite',
+              status: 'unsupported',
+              suspensions: [],
+            },
+          },
+          migration: {
+            attemptCount: 0,
+            inFlight: false,
+            lastFailure: null,
+            lastSucceededAt: null,
+          },
+          reset: {
+            lastCompletedAt: null,
+            lastDeletedPathCount: 0,
+            lastError: null,
+            lastFailedAt: null,
+            lastPreservedPathCount: 0,
+            lastStartedAt: null,
+            status: 'idle',
+            userDataPath: '/tmp/brainstrike-user-data',
+          },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+          },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(await screen.findByText('Dimension Maintenance')).toBeInTheDocument();
+      expect(screen.getByText('unsupported')).toBeInTheDocument();
+    });
   });
 
   describe('database status', () => {
