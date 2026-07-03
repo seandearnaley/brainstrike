@@ -817,6 +817,31 @@ describe('db-main lifecycle', () => {
     expect(mkdirSyncMock).not.toHaveBeenCalledWith(expectedPgDataPath, { recursive: true });
   });
 
+  it('resetLocalDatabase recreates an unset-runtime existing PGlite profile as a fresh Turso-default profile', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    vi.resetModules();
+
+    const { resetLocalDatabase } = await import('../../db-main');
+    await resetLocalDatabase();
+
+    const expectedProfilePath = path.join(
+      '/mock/documents',
+      'BrainStrike-dev',
+      'profiles',
+      'test-profile'
+    );
+    const expectedPgDataPath = path.join(expectedProfilePath, 'pgdata');
+
+    expect(rmSyncMock).toHaveBeenCalledWith(expectedProfilePath, {
+      recursive: true,
+      force: true,
+    });
+    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedProfilePath, { recursive: true });
+    expect(mkdirSyncMock).not.toHaveBeenCalledWith(expectedPgDataPath, { recursive: true });
+  });
+
   it('prunes stale profile backups during reset', async () => {
     process.env['NODE_ENV'] = 'development';
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';

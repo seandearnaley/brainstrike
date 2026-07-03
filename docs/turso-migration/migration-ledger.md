@@ -890,9 +890,11 @@ renderer/browser storage path. Desktop Turso state is currently filesystem
 profile state: `<dbRoot>/profiles/<profile>/turso-primary.db`. The main-process
 DB reset deletes the whole active profile directory, which removes the Turso
 primary store and any profile-local sidecars. After deletion, reset now
-recreates the runtime-owned empty directory: PGlite recreates `<profile>/pgdata`,
-while Turso recreates only `<profile>` so a Turso reset does not leave a
-misleading PGlite-shaped `pgdata` directory.
+recreates the fresh runtime-owned empty directory: explicit PGlite recreates
+`<profile>/pgdata`, while Turso and unset-runtime reset recreate only
+`<profile>`. Reset intentionally does not apply the existing-`pgdata`
+profile-continuity gate, because that gate protects pre-reset data and must not
+manufacture an empty PGlite store that pins a reset profile back to PGlite.
 
 No production Turso sync/search metadata path currently exists outside the
 profile directory. Future out-of-profile sync or search stores must be added as

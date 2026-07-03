@@ -463,6 +463,11 @@ cutover does not silently strand local profile data. This is a profile-continuit
 gate, not a fallback for missing Turso behavior. Do not infer a Turso runtime
 from a generic DB handle, and do not add a PGlite fallback for missing Turso
 behavior.
+Factory reset is different from profile-continuity boot: when runtime is unset,
+reset deletes the active profile and must recreate a fresh Turso-default profile
+directory, not an empty `<profile>/pgdata` directory that pins the reset profile
+back to PGlite. Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` still recreates
+`<profile>/pgdata` for compatibility checks.
 
 Rules:
 - Desktop owns the long-lived Turso owner client through the DB host. Renderers
@@ -849,6 +854,9 @@ Desktop reset order:
 3. Purge DB tables (job_queue, embedding_sets, etc.).
 4. Reload renderer.
 Do not skip reload.
+Unset-runtime desktop reset must not recreate empty PGlite `pgdata`; after the
+profile directory is deleted, the next fresh default is Turso. Only explicit
+`BRAINSTRIKE_DB_RUNTIME=pglite` reset recreates `pgdata`.
 
 Add tests when changing reset behavior.
 

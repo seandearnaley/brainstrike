@@ -36,6 +36,12 @@ existing PGlite bootstrap/probe/migration path and reports
 `capabilities.liveQuery = true`. That path remains compatibility-preserving
 only; it is not proof of a Turso fallback for unsupported capabilities.
 
+Factory reset does not use the existing-`pgdata` continuity gate when deciding
+which empty directory to recreate. If `BRAINSTRIKE_DB_RUNTIME` is unset, reset
+deletes the active profile directory and recreates only `<profile>`, so the next
+fresh boot follows the Turso default. Only an explicit
+`BRAINSTRIKE_DB_RUNTIME=pglite` reset recreates `<profile>/pgdata`.
+
 The host manager validates Turso reports against Turso-required checks
 (`store.open`, `primary-store.mvcc`, `schema.baseline`,
 `search.grep-content-grams`, `search.vector32-functions`,

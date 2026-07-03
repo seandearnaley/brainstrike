@@ -1582,6 +1582,10 @@ interface DesktopRuntimeRequest {
   readonly source: BrainstrikeDbRuntimeSelection['source'];
 }
 
+interface DesktopRuntimeRequestOptions {
+  readonly preserveExistingPgliteProfile?: boolean;
+}
+
 function resolveDefaultDesktopDbRuntimeEngine():
   | BrainstrikeDbRuntimeSelection['engine']
   | undefined {
@@ -1599,20 +1603,27 @@ function resolveDefaultDesktopDbRuntimeEngine():
   return 'pglite';
 }
 
-function resolveDesktopRuntimeRequest(): DesktopRuntimeRequest {
+function resolveDesktopRuntimeRequest(
+  options: DesktopRuntimeRequestOptions = {}
+): DesktopRuntimeRequest {
   const requestedEngineFromEnv = getRequestedDbRuntimeEngineFromEnv();
   if (requestedEngineFromEnv !== undefined) {
     return { requestedEngine: requestedEngineFromEnv, source: 'env' };
   }
   return {
-    requestedEngine: resolveDefaultDesktopDbRuntimeEngine(),
+    requestedEngine:
+      options.preserveExistingPgliteProfile === false
+        ? undefined
+        : resolveDefaultDesktopDbRuntimeEngine(),
     source: 'default',
   };
 }
 
-async function resolveCurrentDesktopDbRuntimeSelection(): Promise<BrainstrikeDbRuntimeSelection> {
+async function resolveCurrentDesktopDbRuntimeSelection(
+  options: DesktopRuntimeRequestOptions = {}
+): Promise<BrainstrikeDbRuntimeSelection> {
   const { resolveBrainstrikeDbRuntimeSelection } = await import('@brainstrike/db');
-  const runtimeRequest = resolveDesktopRuntimeRequest();
+  const runtimeRequest = resolveDesktopRuntimeRequest(options);
   return resolveBrainstrikeDbRuntimeSelection({
     platform: 'desktop',
     requestedEngine: runtimeRequest.requestedEngine,
@@ -1956,7 +1967,9 @@ async function resetLocalDatabaseInternal(): Promise<void> {
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
-  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection();
+  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection({
+    preserveExistingPgliteProfile: false,
+  });
   const directoryToCreate = getRuntimeDirectoryToCreate(
     runtimeSelection.engine,
     appDataDir,
