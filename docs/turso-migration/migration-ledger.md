@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-runtime-sql-hardening-20260703`,
+Last updated: 2026-07-03 on `codex/turso-final-runtime-scan-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1459 at `6945e770`. This branch cuts empty desktop profiles over to
+through #1460 at `61c933af`. This branch cuts empty desktop profiles over to
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
@@ -167,15 +167,28 @@ Merged slices:
 - #1457 `Fix Turso enhanced import SQL dialect`
 - #1458 `Default desktop runtime to Turso`
 - #1459 `docs(turso): neutralize stale runtime wording`
+- #1460 `fix(turso): harden runtime SQL seams`
 
-In-flight runtime-SQL hardening slice: this branch turns the final-runtime-audit
-follow-up into concrete behavior checks. The shared embedding-set metadata
-helper now has an explicit SQL dialect so Turso metadata create/read/repair
-queries use SQLite `?` placeholders while PGlite/Drizzle keep PostgreSQL `$n`
-placeholders. Desktop assistant edit re-indexing now fails closed when a
+Recently completed runtime-SQL hardening slice: #1460 turned the
+final-runtime-audit follow-up into concrete behavior checks. The shared
+embedding-set metadata helper now has an explicit SQL dialect so Turso metadata
+create/read/repair queries use SQLite `?` placeholders while PGlite/Drizzle
+keep PostgreSQL `$n` placeholders. SQLite `no such table: models` metadata
+registry absence is classified with the same fallback behavior as PostgreSQL
+`42P01`. Desktop assistant edit re-indexing now fails closed when a
 Turso-marked DB handle lacks the injected DB-host managed-cache applier, rather
 than falling through to the PostgreSQL-shaped standalone managed-cache
 implementation.
+
+In-flight live-query guardrail slice: `codex/turso-final-runtime-scan-20260703`
+adds `packages/db/__tests__/architecture-turso-live-query-guardrails.test.ts`.
+The test scans production `apps/` and `packages/` source for
+`useBrainstrikeLiveQuery` imports and requires every consumer to stay
+policy-classified with concrete Turso-safe markers: direct live-query
+capability gates, explicit PGlite/Turso runtime snapshot splits, or
+provider-owned live-query metric flags paired with repository snapshots. This
+turns the 2026-07-03 manual live-query sweep into an executable regression
+guard before the final PGlite dependency/removal audit.
 
 Recently completed stale-wording cleanup slice: #1459 refreshed this ledger
 through #1458/default-runtime state and neutralized stale PGlite-only comments
@@ -230,7 +243,7 @@ profile directory for both runtimes, then recreates the runtime-owned empty
 directory: explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not tracked in this branch at feature head `6945e770` through the 2026-07-03
+is not tracked in this branch at feature head `61c933af` through the 2026-07-03
 reconciliation pass. Do not cite that report as reconciled work until the
 artifact is restored or this ledger links to the correct audit artifact.
 
@@ -241,7 +254,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1459 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1460 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -259,12 +272,13 @@ evidence that gram sidecars supply the lexical candidate source. #1457 fixed the
 enhanced manual-import SQL dialect leak for Turso metadata and embedding-set
 paths. #1458 made fresh unset-runtime desktop profiles default to Turso while
 preserving existing PGlite profiles and keeping reset on the fresh Turso default.
-#1459 neutralized the stale runtime wording found in the final-pass audit. The
-current branch narrows the remaining generic SQL audit: chunking-host
-load-by-id, local semantic recall dimension lookup, and workspace-root loading
-are not current Turso-default bugs because they route through the owner DB host
-and libSQL accepts their `$1` bindings; the real fixes are explicit metadata
-SQL dialect generation and fail-closed Turso re-index fallback behavior.
+#1459 neutralized the stale runtime wording found in the final-pass audit.
+#1460 narrowed the remaining generic SQL audit: chunking-host load-by-id, local
+semantic recall dimension lookup, and workspace-root loading are not current
+Turso-default bugs because they route through the owner DB host and libSQL
+accepts their `$1` bindings; the real fixes were explicit metadata SQL dialect
+generation, SQLite missing-models-table classification, and fail-closed Turso
+re-index fallback behavior.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
@@ -526,6 +540,8 @@ Current Turso repository/runtime coverage:
 - Do not move embedding or built-in local LLM work into Electron main.
 - Do not call generic `db` handles PGlite-compatible unless the runtime has a
   real execution client behind the generic contract.
+- Keep production `useBrainstrikeLiveQuery` consumers classified behind a
+  concrete capability gate, runtime split, or provider-owned snapshot path.
 - Every production Turso write path needs a Turso-specific test or an existing
   runtime test that proves the Turso path, not a mock-only PGlite path.
 
@@ -555,13 +571,13 @@ generic execution client; do not use it to infer runtime readiness, live-query,
 vector, grep, or FTS availability. Those capabilities remain
 schema-readiness-, repository-, or bootstrap-gated.
 
-Remaining provider work: migrate remaining generic SQL consumers onto
+Provider guardrail: future generic SQL consumers should use
 `useBrainstrikeExecutionDbClient()` only where the runtime actually exposes a
-query-capable execution client, or onto a concrete repository capability when
-Electron-hosted Turso owns the SQL path. Callers must stop treating "raw DB
-handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
-stay capability-gated by the concrete repository and bootstrap proofs instead
-of a raw database-handle assumption.
+query-capable execution client, or use a concrete repository capability when
+Electron-hosted Turso owns the SQL path. Callers must not treat "raw DB handle"
+as "PGlite". Vector, FTS, and grep methods on the chunk repository must stay
+capability-gated by the concrete repository and bootstrap proofs instead of a
+raw database-handle assumption.
 
 Residual provider cleanup from the 2026-07-03 audit:
 
@@ -637,7 +653,9 @@ Latest live-query sweep (2026-07-03): production `useBrainstrikeLiveQuery`
 references under `apps/` and `packages/` are either the package-owned live-query
 implementation/tests, PGlite-only live query paths paired with Turso repository
 snapshot readers, or explicit fail-closed capability gates. No additional
-unmapped production live-query consumer was found in this pass.
+unmapped production live-query consumer was found in this pass. The in-flight
+guardrail slice now codifies the production consumer list and policy markers so
+new live-query usage cannot enter the Turso feature branch silently.
 
 ### 3. Background Indexing And Embedding Host
 
@@ -977,10 +995,8 @@ pass; premature cleanup would break current PGlite-mode tests and web paths
 without advancing Turso parity.
 
 Stale wording cleanup is a final-pass task after release decisions are made.
-Examples from the 2026-07-03 audit: DB host queue comments still describe the
-host as PGlite single-connection only even though Turso requests share the same
-host dispatch surface, and hybrid-search service docs do not yet name Turso as
-a repository-backed source.
+Do not repeat already-closed wording items from #1459/#1460 unless a fresh
+current-code audit finds a new stale surface.
 
 ## Historical Implementation Order
 
