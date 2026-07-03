@@ -272,7 +272,7 @@ function isMissingRelationError(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return (
     (message.includes('relation') && message.includes('does not exist')) ||
-    message.includes('no such table:')
+    message.includes('no such table')
   );
 }
 

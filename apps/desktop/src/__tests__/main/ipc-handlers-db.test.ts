@@ -1101,6 +1101,44 @@ describe('database IPC handlers', () => {
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
     });
 
+    it('treats SQLite missing optional table messages without a colon as absent and continues clearing', async () => {
+      const handler = handlers.get('db:clearAll');
+      const clearedSql: string[] = [];
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi.fn(async (sql: string) => {
+            clearedSql.push(sql);
+            if (sql === 'SELECT COUNT(*) as count FROM file_chunks') {
+              return { rows: [{ count: '5' }] };
+            }
+            if (sql === 'SELECT COUNT(*) as count FROM file_records') {
+              return { rows: [{ count: '3' }] };
+            }
+            if (sql === 'DELETE FROM roots') {
+              throw new Error('SQLITE_ERROR: no such table roots');
+            }
+            return { rows: [] };
+          }),
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 3,
+        deletedChunks: 5,
+      });
+      expect(clearedSql).toContain('DELETE FROM roots');
+      expect(clearedSql).toContain('DELETE FROM collection_indexing_stats');
+      expect(clearedSql).toContain('DELETE FROM embedding_sets');
+      expect(clearedSql).toContain('DELETE FROM job_queue');
+      expect(clearedSql).toContain('DELETE FROM brainstrike_assistant_run_usage');
+    });
+
     it('clears seeded Turso profile data and cascaded search sidecars on the real owner client', async () => {
       const handler = handlers.get('db:clearAll');
 
@@ -1123,7 +1161,7 @@ describe('database IPC handlers', () => {
       const handler = handlers.get('db:clearAll');
 
       await withTursoClearAllFixture(async (client) => {
-        await client.exec('DROP TABLE brainstrike_assistant_run_usage');
+        await client.exec('DROP TABLE collection_indexing_stats');
         getDatabaseMock.mockResolvedValueOnce(client);
 
         const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
@@ -1135,7 +1173,9 @@ describe('database IPC handlers', () => {
           deletedChunks: 1,
         });
         await expect(countTursoRows(client, 'file_records')).resolves.toBe(0);
+        await expect(countTursoRows(client, 'embedding_sets')).resolves.toBe(0);
         await expect(countTursoRows(client, 'job_queue')).resolves.toBe(0);
+        await expect(countTursoRows(client, 'brainstrike_assistant_run_usage')).resolves.toBe(0);
       });
     });
 

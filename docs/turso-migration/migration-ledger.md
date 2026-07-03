@@ -153,7 +153,7 @@ Merged slices:
 - #1445 `Add Turso Mastra vector memory store`
 - #1446 `Retire raw queue purge helper`
 
-In-flight slice on this branch:
+In-flight slice on this branch (#1447, head `cf565af`):
 
 - Real-engine Turso `db:clearAll` proof and missing optional-table handling.
 
@@ -172,6 +172,27 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 #1416 through #1440, which were landed on the feature branch but missing from a
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
+
+Ledger reconciliation checkpoint (2026-07-03, #1447 live branch): the
+`db:clearAll` real-engine proof is now represented by this PR, not a separate
+future slice. The raw queue purge helper removal, live-query sweep, Turso vector
+memory parity, and reset-directory recreation work should stay out of the
+remaining backlog except where the ledger names a narrower follow-up. The
+verified remaining backlog is now:
+
+- queue-topology release profiling under hidden embedding-worker/background
+  Turso writes plus foreground-labeled DB work;
+- assistant `brainstrike.hybridSearch` decision: register with explicit Turso
+  capability gates or retire the unregistered native-tool wrapper;
+- Mastra Turso vector memory performance characterization for exact-scan recall
+  at expected local profile sizes;
+- product search-quality decision for primary-store gram lexical search versus
+  a split native Tantivy search-index owner;
+- explicit reset targets only if future Turso sync or split-search stores live
+  outside the active profile directory;
+- final PGlite dependency/removal audit after web/runtime ownership decisions;
+- final stale wording cleanup for comments/docs that still describe supported
+  Turso paths as PGlite-only.
 
 ## Turso Docs Guardrail
 
