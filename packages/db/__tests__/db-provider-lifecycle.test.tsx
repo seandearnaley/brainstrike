@@ -1,13 +1,10 @@
 import * as utilsModule from '@brainstrike/utils';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DbProvider,
-  useClearQueuesAndEmbeddingSets,
-  useFileRecordRepository,
-} from '../src/db-provider';
+import * as dbProviderModule from '../src/db-provider';
+import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
@@ -261,76 +258,9 @@ describe('DbProvider lifecycle', () => {
     });
   });
 
-  describe('clearQueuesAndEmbeddingSets', () => {
-    it('uses Electron IPC when available instead of falling through to direct path', async () => {
-      const bridge = createMockIpcBridge();
-      setWindowElectronAPI(bridge);
-
-      function ipcWrapper({ children }: { children: React.ReactNode }) {
-        return (
-          <DbProvider dbPath="memory://" useElectronIPC={true}>
-            {children}
-          </DbProvider>
-        );
-      }
-
-      const { result } = renderHook(() => useClearQueuesAndEmbeddingSets(), {
-        wrapper: ipcWrapper,
-      });
-
-      await waitFor(() => expect(result.current).not.toBeNull(), {
-        timeout: 10_000,
-      });
-
-      // Call the clearQueuesAndEmbeddingSets function
-      await act(async () => {
-        await result.current?.();
-      });
-
-      // IPC path should issue DELETE queries via the bridge
-      expect(bridge.query).toHaveBeenCalledWith('DELETE FROM job_queue');
-      expect(bridge.query).toHaveBeenCalledWith('DELETE FROM embedding_sets');
-    });
-
-    it('returns early when connection is IPC and electron API not available', async () => {
-      // Start with the bridge available so initialization succeeds
-      const bridge = createMockIpcBridge();
-      setWindowElectronAPI(bridge);
-
-      function ipcWrapper({ children }: { children: React.ReactNode }) {
-        return (
-          <DbProvider dbPath="memory://" useElectronIPC={true}>
-            {children}
-          </DbProvider>
-        );
-      }
-
-      const { result } = renderHook(() => useClearQueuesAndEmbeddingSets(), {
-        wrapper: ipcWrapper,
-      });
-
-      await waitFor(() => expect(result.current).not.toBeNull(), {
-        timeout: 10_000,
-      });
-
-      // Now remove the electron API to simulate it becoming unavailable
-      clearWindowElectronAPI();
-
-      // Clear previous call counts
-      bridge.query.mockClear();
-
-      // Call should return early without throwing when IPC is configured
-      // but electronAPI is no longer available. The guard in
-      // clearQueuesAndEmbeddingSets checks `w?.electronAPI?.db?.query`
-      // which is now undefined, so the IPC branch is skipped. Then the
-      // direct branch checks `conn.kind !== 'direct'` (it's 'ipc') and
-      // also returns early.
-      await act(async () => {
-        await expect(result.current?.()).resolves.toBeUndefined();
-      });
-
-      // The bridge query should NOT have been called after removal
-      expect(bridge.query).not.toHaveBeenCalled();
+  describe('retired queue and embedding-set purge helper', () => {
+    it('does not expose the raw SQL queue/set purge hook from the provider module', () => {
+      expect(dbProviderModule).not.toHaveProperty('useClearQueuesAndEmbeddingSets');
     });
   });
 });
