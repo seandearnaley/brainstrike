@@ -109,6 +109,7 @@ export const dbCoverageLaneDefinitions = {
   },
   coverageOverridesByLane: {
     architecture: [
+      'architecture-browser-runtime-ownership.test.ts',
       'architecture-boundary.test.ts',
       'architecture-ownership.test.ts',
       'architecture-profile-bootstrap-report.test.ts',

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-web-runtime-audit-20260703`,
+Last updated: 2026-07-03 on `codex/turso-browser-runtime-audit-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1462 at `3d08589a`. This branch migrates the web Vite Node server's
+through #1463 at `790249e5`. The branch migrates the web Vite Node server's
 Mastra workflow-storage singleton to embedded Turso. Desktop fresh profiles use
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
@@ -172,8 +172,9 @@ Merged slices:
 - #1460 `fix(turso): harden runtime SQL seams`
 - #1461 `test(turso): guard live query consumers`
 - #1462 `test(turso): guard pglite import inventory`
+- #1463 `feat(web): use Turso for web Mastra storage`
 
-Current web-server Mastra storage slice: this branch moves
+Recently completed web-server Mastra storage slice: #1463 moves
 `apps/web/src/server/web-mastra-storage.ts` off direct PGlite construction and
 onto a temp embedded Turso profile opened through the shared Turso owner client.
 The singleton still has process lifetime, so suspended web tool-approval
@@ -355,6 +356,44 @@ Primary docs consulted:
 - <https://docs.turso.tech/sync/usage>
 - <https://docs.turso.tech/tursodb/quickstart>
 - <https://turso.tech/blog/turso-0.5.0>
+
+## Browser Runtime Ownership Decision
+
+Current browser/client DB storage remains PGlite-backed by design. This is not
+a Turso parity gap being hidden behind a fallback; it is an explicit runtime
+ownership boundary for the web/browser build. Browser storage today is a local
+PGlite worker path using `idb://` / OPFS-AHP persistence, and the web startup
+smoke still proves that `pglite-worker-entry` owns the browser database worker.
+
+The current official Turso TypeScript docs do not provide an equivalent
+browser-local embedded database surface:
+
+- `@tursodatabase/database and @tursodatabase/sync are not browser-local storage replacements`.
+  The TypeScript reference presents both as native local-file packages; the
+  compatible environments listed there are Node.js, Deno, Cloudflare Workers,
+  and Netlify/Vercel Edge Functions, not a normal browser tab with IndexedDB or
+  OPFS ownership.
+- `@tursodatabase/serverless is a remote fetch client, not a local-first browser database`.
+  It is browser-compatible because it uses `fetch`, but adopting it for the
+  client DB would turn latency-critical local writes into remote Turso Cloud
+  requests and would require credentials, auth, offline, privacy, and sync
+  product decisions that this migration has not made.
+- `@libsql/client/web` cannot open local file URLs, and embedded replicas only
+  work where the runtime has filesystem access. That rules out treating
+  libSQL's browser/web subpath as a drop-in local replacement for the current
+  browser PGlite worker.
+
+Release implication: do not import Turso/libSQL database clients into browser
+DB bundle entrypoints, and do not replace the browser PGlite worker with a remote
+serverless client as a silent compatibility shim. A future browser Turso path
+must be a named product/runtime mode with explicit user-facing semantics:
+remote-only, server-backed, or a future Turso-supported browser-local engine.
+It must include bootstrap readiness, reset/backup/sync ownership, credential
+handling, offline behavior, and tests before it can retire browser PGlite.
+
+`The final PGlite dependency-removal pass is blocked until browser-local storage has a supported Turso replacement or browser support is explicitly dropped`.
+Until then, PGlite packages, Vite aliases, the browser worker entry, and
+browser reset cleanup remain supported code rather than removable residue.
 
 ## Implemented Runtime Shape
 
