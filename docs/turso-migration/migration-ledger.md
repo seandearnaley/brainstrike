@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-browser-runtime-audit-20260703`,
+Last updated: 2026-07-03 on `codex/turso-ledger-post-1464-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,14 +10,16 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1463 at `790249e5`. The branch migrates the web Vite Node server's
+through #1464 at `71b9952a`. The branch migrates the web Vite Node server's
 Mastra workflow-storage singleton to embedded Turso. Desktop fresh profiles use
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
 `BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
-`BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage still owns the
-PGlite worker path until a separate browser-runtime decision replaces it.
+`BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage remains
+PGlite-backed by an explicit, tested browser-runtime ownership decision until a
+supported browser-local Turso replacement exists or browser support is
+deliberately changed.
 
 Merged slices:
 
@@ -173,6 +175,16 @@ Merged slices:
 - #1461 `test(turso): guard live query consumers`
 - #1462 `test(turso): guard pglite import inventory`
 - #1463 `feat(web): use Turso for web Mastra storage`
+- #1464 `test(turso): guard browser runtime ownership`
+
+Recently completed browser-runtime ownership guardrail slice: #1464 added
+`packages/db/__tests__/architecture-browser-runtime-ownership.test.ts`. The
+test locks the ledger's browser-local storage decision, rejects Turso/libSQL
+database-client imports from the browser DB bundle entry surface, follows local
+static import/export edges from browser-facing barrels, and requires new
+browser DB entrypoints to be registered explicitly. Server-only web code stays
+outside that scan because it may legitimately use Turso through the Vite Node
+server path introduced by #1463.
 
 Recently completed web-server Mastra storage slice: #1463 moves
 `apps/web/src/server/web-mastra-storage.ts` off direct PGlite construction and
@@ -280,7 +292,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1462 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1464 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -309,15 +321,19 @@ sweep as an architecture guardrail so new root-barrel named imports of
 `useBrainstrikeLiveQuery` cannot enter the feature branch unclassified. #1462
 codified the direct production PGlite import inventory, making every remaining
 direct `@electric-sql/pglite*` import explicit and owned before the final
-dependency-removal pass.
+dependency-removal pass. #1463 moved the web Vite Node server's Mastra storage
+singleton to embedded Turso. #1464 codified the browser runtime boundary: the
+browser DB bundle must not import Turso/libSQL database clients until the
+product has an explicit browser-local replacement, remote-only mode, or browser
+support change.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
   a split native Tantivy search-index owner;
 - explicit reset targets only if future Turso sync or split-search stores live
   outside the active profile directory;
-- final PGlite dependency/removal audit after browser-runtime ownership and
-  explicit desktop PGlite compatibility decisions;
+- final PGlite dependency/removal audit after browser-local replacement/drop and
+  explicit desktop PGlite compatibility retirement decisions;
 - follow-up stale wording cleanup only for future surfaces found after the
   final PGlite dependency/removal audit.
 
@@ -1086,7 +1102,7 @@ The original implementation order was collection/import, assistant memory,
 search, live-query strategy, reset/maintenance, then final runtime audit. Most
 of those slices have landed. Keep the remaining work focused on runtime-removal
 audits, browser/runtime ownership decisions, explicit desktop PGlite
-compatibility decisions, native FTS snippet/ranking decisions, and stale
+compatibility retirement decisions, native FTS snippet/ranking decisions, and stale
 PGlite-only surfaces that no longer serve a supported runtime.
 
 ## Verification Policy
