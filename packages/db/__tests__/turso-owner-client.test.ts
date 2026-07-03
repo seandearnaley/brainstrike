@@ -297,12 +297,14 @@ describe('Turso owner client', () => {
     try {
       const firstQuery = client.query<{ value: string }>('SELECT 1 AS value', undefined, {
         label: 'first query',
+        priority: 'background',
       });
       await waitFor(() => client.getQoSDiagnostics().activeOperation?.label === 'first query');
 
       now = 1010;
       const secondQuery = client.query<{ value: string }>('SELECT 2 AS value', undefined, {
         label: 'queued query',
+        priority: 'foreground',
       });
       await waitFor(() => client.getQoSDiagnostics().queuedOperationCount === 1);
 
@@ -312,6 +314,7 @@ describe('Turso owner client', () => {
           activeDurationMs: 75,
           kind: 'query',
           label: 'first query',
+          priority: 'background',
           queueWaitMs: 0,
         },
         queuedOperationCount: 1,
@@ -319,6 +322,7 @@ describe('Turso owner client', () => {
           {
             kind: 'query',
             label: 'queued query',
+            priority: 'foreground',
             queuedForMs: 65,
           },
         ],
@@ -384,12 +388,14 @@ describe('Turso owner client', () => {
         activeOperation: {
           kind: 'transaction',
           label: 'turso.embedding-worker.queue.claimMany',
+          priority: 'background',
           queueWaitMs: 0,
         },
         queuedOperations: [
           {
             kind: 'transaction',
             label: 'foreground collection refresh',
+            priority: 'foreground',
             queuedForMs: 30,
           },
         ],

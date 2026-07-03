@@ -124,6 +124,7 @@ export interface DatabaseTursoOwnerClientActiveOperationDiagnostic {
   readonly id: number;
   readonly kind: DatabaseTursoOwnerClientOperationKind;
   readonly label: string;
+  readonly priority: DatabaseWorkPriority | null;
   readonly queuedAt: number;
   readonly queueWaitMs: number;
   readonly startedAt: number;
@@ -133,6 +134,7 @@ export interface DatabaseTursoOwnerClientQueuedOperationDiagnostic {
   readonly id: number;
   readonly kind: DatabaseTursoOwnerClientOperationKind;
   readonly label: string;
+  readonly priority: DatabaseWorkPriority | null;
   readonly queuedAt: number;
   readonly queuedForMs: number;
 }
