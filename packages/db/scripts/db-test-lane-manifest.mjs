@@ -112,6 +112,7 @@ export const dbCoverageLaneDefinitions = {
       'architecture-boundary.test.ts',
       'architecture-ownership.test.ts',
       'architecture-profile-bootstrap-report.test.ts',
+      'architecture-pglite-import-guardrails.test.ts',
       'architecture-turso-live-query-guardrails.test.ts',
       'brainstrike-db-client-contract.test.ts',
       'db-runtime-selection.test.ts',

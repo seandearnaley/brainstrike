@@ -15,6 +15,9 @@ const SKIPPED_DIRECTORIES = new Set([
   'node_modules',
   'test-results',
 ]);
+// Current production consumers import this hook as a named export from the
+// root @brainstrike/db barrel. If a namespace or subpath export is introduced,
+// tighten this discovery pattern in the same change.
 const BRAINSTRIKE_DB_NAMED_IMPORT_PATTERN =
   /import\s*(?:type\s*)?\{(?<imports>[^}]*)\}\s*from\s*['"]@brainstrike\/db['"]/g;
 
@@ -142,6 +145,8 @@ describe('Turso live-query architecture guardrails', () => {
         policyViolations.push(`${relativePath}: policy has no matching production consumer`);
         continue;
       }
+      // These are lightweight presence markers. The exact consumer-set assertion
+      // above is the hard guard against unclassified production live-query usage.
       for (const requiredMarker of requiredMarkers) {
         if (!requiredMarker.test(source)) {
           policyViolations.push(`${relativePath}: missing ${requiredMarker}`);
