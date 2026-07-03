@@ -9,15 +9,33 @@
 // package's mastra-tool-approval-suspend.spec.ts, which drives the real Mastra
 // loop against Turso-backed workflow storage. This file proves the web-specific
 // glue: the lazily-built, request-shared singleton.
-import { access, chmod, readdir, readFile, rm } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeWebMastraStorage,
   getWebMastraStorage,
   resetWebMastraStorageForTests,
 } from '../web-mastra-storage';
+
+const fsPromisesMock = vi.hoisted(() => ({
+  removeFailurePath: undefined as string | undefined,
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      const [path] = args;
+      if (typeof path === 'string' && path === fsPromisesMock.removeFailurePath) {
+        throw new Error('forced cleanup failure');
+      }
+      return actual.rm(...args);
+    },
+  };
+});
 
 type WebMastraStorage = Awaited<ReturnType<typeof getWebMastraStorage>>;
 type WebWorkflowSnapshot = Parameters<
@@ -183,15 +201,17 @@ describe('getWebMastraStorage (real embedded Turso)', () => {
       throw new Error('Expected getWebMastraStorage to create one temp Turso profile');
     }
 
-    await chmod(createdPath, 0);
+    fsPromisesMock.removeFailurePath = createdPath;
 
     try {
       await expect(resetWebMastraStorageForTests()).rejects.toThrow(
         'Failed to dispose web Mastra Turso profile'
       );
     } finally {
-      await chmod(createdPath, 0o700).catch(() => undefined);
+      fsPromisesMock.removeFailurePath = undefined;
+      const { rm } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
       await rm(createdPath, { force: true, recursive: true });
+      await disposeWebMastraStorage();
     }
   });
 
