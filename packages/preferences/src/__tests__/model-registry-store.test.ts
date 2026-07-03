@@ -394,7 +394,9 @@ describe('model-registry-store', () => {
     it('persists model toggles through a Turso owner client', async () => {
       const { client, cleanup } = await createTursoRegistryClient();
       try {
-        await useModelRegistryStore.getState().toggleModel(client as never, 'gpt-5.5', false);
+        await useModelRegistryStore
+          .getState()
+          .toggleModel(client as never, 'gpt-5.5', false, 'turso');
 
         const result = await client.query<{ is_enabled: number; updated_at: string }>(
           'SELECT is_enabled, updated_at FROM models WHERE id = ?',
@@ -415,7 +417,9 @@ describe('model-registry-store', () => {
         query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', true, 'pglite');
 
       expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
     });
@@ -428,11 +432,31 @@ describe('model-registry-store', () => {
         query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', true, 'pglite');
 
       expect(mockDb.query).toHaveBeenCalledWith(
         'UPDATE models SET is_enabled = $1, updated_at = $2 WHERE id = $3',
         [true, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'model-1']
+      );
+    });
+
+    it('calls Turso model update with SQLite placeholders and integer booleans', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: true });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', false, 'turso');
+
+      expect(mockDb.query).toHaveBeenCalledWith(
+        'UPDATE models SET is_enabled = ?, updated_at = ? WHERE id = ?',
+        [0, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'model-1']
       );
     });
 
@@ -451,7 +475,9 @@ describe('model-registry-store', () => {
         }),
       };
 
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', true, 'pglite');
 
       expect(events).toEqual(['query', 'sync']);
       expect(mockDb.syncToFs).toHaveBeenCalledTimes(1);
@@ -476,7 +502,9 @@ describe('model-registry-store', () => {
         raw,
       };
 
-      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', true, 'pglite');
 
       expect(events).toEqual(['query']);
       expect(raw.syncToFs).not.toHaveBeenCalled();
@@ -493,7 +521,7 @@ describe('model-registry-store', () => {
 
       const toggleFinished = useModelRegistryStore
         .getState()
-        .toggleModel(mockDb as never, 'model-1', true);
+        .toggleModel(mockDb as never, 'model-1', true, 'pglite');
       expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
 
       useModelRegistryStore.setState({ models: [{ ...model, isEnabled: false }] });
@@ -508,7 +536,9 @@ describe('model-registry-store', () => {
     it('persists provider toggles through a Turso owner client', async () => {
       const { client, cleanup } = await createTursoRegistryClient();
       try {
-        await useModelRegistryStore.getState().toggleProvider(client as never, 'openrouter', true);
+        await useModelRegistryStore
+          .getState()
+          .toggleProvider(client as never, 'openrouter', true, 'turso');
 
         const result = await client.query<{ is_enabled: number; updated_at: string }>(
           'SELECT is_enabled, updated_at FROM providers WHERE id = ?',
@@ -529,7 +559,9 @@ describe('model-registry-store', () => {
         query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleProvider(mockDb as never, 'provider-1', true, 'pglite');
 
       expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
     });
@@ -542,11 +574,31 @@ describe('model-registry-store', () => {
         query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleProvider(mockDb as never, 'provider-1', true, 'pglite');
 
       expect(mockDb.query).toHaveBeenCalledWith(
         'UPDATE providers SET is_enabled = $1, updated_at = $2 WHERE id = $3',
         [true, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'provider-1']
+      );
+    });
+
+    it('calls Turso provider update with SQLite placeholders and integer booleans', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: true });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore
+        .getState()
+        .toggleProvider(mockDb as never, 'provider-1', false, 'turso');
+
+      expect(mockDb.query).toHaveBeenCalledWith(
+        'UPDATE providers SET is_enabled = ?, updated_at = ? WHERE id = ?',
+        [0, expect.stringMatching(ISO_UTC_TIMESTAMP_PATTERN), 'provider-1']
       );
     });
 
@@ -560,7 +612,9 @@ describe('model-registry-store', () => {
         syncToFs,
       };
 
-      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+      await useModelRegistryStore
+        .getState()
+        .toggleProvider(mockDb as never, 'provider-1', true, 'pglite');
 
       expect(syncToFs).toHaveBeenCalledTimes(1);
     });
@@ -576,7 +630,7 @@ describe('model-registry-store', () => {
 
       const toggleFinished = useModelRegistryStore
         .getState()
-        .toggleProvider(mockDb as never, 'provider-1', true);
+        .toggleProvider(mockDb as never, 'provider-1', true, 'pglite');
       expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
 
       useModelRegistryStore.setState({ providers: [{ ...provider, isEnabled: false }] });

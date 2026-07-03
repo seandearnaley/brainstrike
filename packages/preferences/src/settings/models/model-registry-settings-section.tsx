@@ -1,9 +1,10 @@
-import { useModelRegistryDbClient } from '@brainstrike/db';
+import { useModelRegistryDbClient, useOptionalProfileBootstrapReport } from '@brainstrike/db';
 import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
+import { resolveModelRegistrySqlRuntime } from '../../stores/model-registry-sql';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { getModelRuntimeServices } from './model-runtime-services';
 
@@ -12,6 +13,7 @@ const logger = createLogger('ModelRegistrySettingsSection');
 export function ModelRegistrySettingsSection() {
   const { toast } = useToast();
   const db = useModelRegistryDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
   const {
     providers,
     models,
@@ -173,7 +175,15 @@ export function ModelRegistrySettingsSection() {
                   <Switch
                     checked={provider.isEnabled}
                     id={`provider-${provider.id}`}
-                    onCheckedChange={(checked) => db && toggleProvider(db, provider.id, checked)}
+                    onCheckedChange={(checked) =>
+                      db &&
+                      toggleProvider(
+                        db,
+                        provider.id,
+                        checked,
+                        resolveModelRegistrySqlRuntime(profileBootstrapReport?.runtime.engine)
+                      )
+                    }
                   />
                 </div>
               </div>
@@ -243,7 +253,15 @@ export function ModelRegistrySettingsSection() {
                                 checked={model.isEnabled}
                                 disabled={!provider.isEnabled}
                                 onCheckedChange={(checked) =>
-                                  db && toggleModel(db, model.id, checked)
+                                  db &&
+                                  toggleModel(
+                                    db,
+                                    model.id,
+                                    checked,
+                                    resolveModelRegistrySqlRuntime(
+                                      profileBootstrapReport?.runtime.engine
+                                    )
+                                  )
                                 }
                               />
                             </div>

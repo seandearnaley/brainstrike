@@ -385,13 +385,13 @@ handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
 stay capability-gated by the concrete repository and bootstrap proofs instead
 of a raw database-handle assumption.
 
-Audit follow-up: `useModelRegistryDbClient()` and model-registry toggle writes
-still need a runtime-specific SQL helper. Current Turso driver probes accepted
-Postgres-style `$1` placeholders and raw boolean params, but production code
-must not depend on dialect lenience. The next model-registry slice should emit
-SQLite/Turso `?` placeholders with integer booleans under Turso and keep the
-existing Postgres-shaped path only for PGlite, with tests that assert emitted
-SQL/params by runtime.
+Model-registry toggle writes now use a runtime-specific SQL helper instead of
+depending on dialect lenience. PGlite keeps the existing Postgres-shaped `$1`
+placeholder and boolean parameter path; Turso and libSQL emit SQLite-compatible
+`?` placeholders with integer booleans. UI callers pass the provider bootstrap
+runtime into the toggle action before the store can mutate durable rows. Keep
+future model-registry writes on that explicit runtime-authored path, and keep
+unsupported runtimes rejected instead of guessing a dialect.
 
 ### 2. UI Snapshot Replacements For Live Queries
 

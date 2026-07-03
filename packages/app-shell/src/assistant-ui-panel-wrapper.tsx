@@ -11,6 +11,7 @@ import {
   useDbInitializing,
   useDbProviderError,
   useModelRegistryDbClient,
+  useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -22,6 +23,7 @@ import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { resolveModelRegistrySqlRuntime } from '@brainstrike/preferences/stores/model-registry-sql';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
@@ -294,6 +296,7 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const modelRegistryDb = useModelRegistryDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
   const assistantMemoryDb = useAssistantMemoryDbClient();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -1107,10 +1110,15 @@ export function AssistantUiPanelWrapper({
 
       // Always use database as the source of truth for model enabled state
       if (modelRegistryDb) {
-        void toggleModelInDb(modelRegistryDb, modelId, enabled);
+        void toggleModelInDb(
+          modelRegistryDb,
+          modelId,
+          enabled,
+          resolveModelRegistrySqlRuntime(profileBootstrapReport?.runtime.engine)
+        );
       }
     },
-    [modelRegistryDb, toggleModelInDb]
+    [modelRegistryDb, profileBootstrapReport, toggleModelInDb]
   );
 
   const handleProviderSettingsChange = useCallback(

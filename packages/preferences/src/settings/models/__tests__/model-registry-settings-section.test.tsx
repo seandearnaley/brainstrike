@@ -12,9 +12,14 @@ import {
   type ModelRuntimeServices,
 } from '../model-runtime-services';
 
-const { useBrainstrikeDbClientMock, useModelRegistryDbClientMock } = vi.hoisted(() => ({
+const {
+  useBrainstrikeDbClientMock,
+  useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReportMock,
+} = vi.hoisted(() => ({
   useBrainstrikeDbClientMock: vi.fn(),
   useModelRegistryDbClientMock: vi.fn(),
+  useOptionalProfileBootstrapReportMock: vi.fn(),
 }));
 
 // Mock imports
@@ -22,6 +27,7 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useBrainstrikeDbClient: useBrainstrikeDbClientMock,
   useModelRegistryDbClient: useModelRegistryDbClientMock,
+  useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
 }));
 
 vi.mock('../../../hooks/use-model-registry', () => ({
@@ -81,6 +87,7 @@ describe('ModelRegistrySettingsSection', () => {
     __resetModelRegistryStoreForTests();
     useBrainstrikeDbClientMock.mockReturnValue(null);
     useModelRegistryDbClientMock.mockReturnValue({ runtime: 'turso-registry' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({ runtime: { engine: 'turso' } });
     downloadEmbeddingModelMock = vi
       .fn<ModelRuntimeServices['downloadEmbeddingModel']>()
       .mockRejectedValue(new Error('Network error'));
@@ -213,8 +220,8 @@ describe('ModelRegistrySettingsSection', () => {
 
     await waitFor(() => {
       expect(fetchRegistry).toHaveBeenCalledWith(registryDb);
-      expect(toggleProvider).toHaveBeenCalledWith(registryDb, 'local', false);
-      expect(toggleModel).toHaveBeenCalledWith(registryDb, 'test-model', false);
+      expect(toggleProvider).toHaveBeenCalledWith(registryDb, 'local', false, 'turso');
+      expect(toggleModel).toHaveBeenCalledWith(registryDb, 'test-model', false, 'turso');
     });
   });
 });
