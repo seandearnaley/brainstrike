@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+const originalDbRuntime = process.env['BRAINSTRIKE_DB_RUNTIME'];
 
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
@@ -24,6 +25,14 @@ function restoreParentPort(): void {
     value: undefined,
     writable: true,
   });
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+    return;
+  }
+  process.env[key] = value;
 }
 
 // Mock fs and electron app path
@@ -149,12 +158,14 @@ describe('db-main lazy-load getDatabase', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
     existsSyncMock.mockReturnValue(true);
     mkdirSyncMock.mockImplementation(() => {});
   });
 
   afterEach(() => {
     restoreParentPort();
+    restoreEnvValue('BRAINSTRIKE_DB_RUNTIME', originalDbRuntime);
   });
 
   it('lazy-loads database on first getDatabase call when uninitialized', async () => {

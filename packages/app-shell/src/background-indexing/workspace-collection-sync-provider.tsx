@@ -376,10 +376,20 @@ function createBackgroundTursoExecutionClient(db: DbHandle): BrainstrikeDbExecut
   const exec = db.exec.bind(db);
   const transactionClient: BrainstrikeDbTransactionClient = {
     exec: async (sql, params, options) => {
-      await exec(sql, params ? [...params] : undefined, options);
+      const forwardedParams = params ? [...params] : undefined;
+      if (options === undefined) {
+        await exec(sql, forwardedParams);
+        return;
+      }
+      await exec(sql, forwardedParams, options);
     },
-    query: async (sql, params, options) =>
-      await query(sql, params ? [...params] : undefined, options),
+    query: async (sql, params, options) => {
+      const forwardedParams = params ? [...params] : undefined;
+      if (options === undefined) {
+        return await query(sql, forwardedParams);
+      }
+      return await query(sql, forwardedParams, options);
+    },
   };
   return {
     ...transactionClient,

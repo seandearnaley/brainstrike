@@ -4,14 +4,14 @@ import {
 } from '../src/architecture/db-runtime-selection.js';
 
 describe('Brainstrike DB runtime selection', () => {
-  it('keeps desktop on the existing PGlite filesystem runtime by default', () => {
+  it('defaults desktop to the Turso filesystem runtime', () => {
     expect(resolveBrainstrikeDbRuntimeSelection({ platform: 'desktop' })).toEqual({
       bootstrapRuntime: {
-        engine: 'pglite',
+        engine: 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
-      engine: 'pglite',
+      engine: 'turso',
       platform: 'desktop',
       source: 'default',
     });
@@ -43,8 +43,27 @@ describe('Brainstrike DB runtime selection', () => {
     });
   });
 
-  it('preserves caller provenance when the runtime defaults to PGlite', () => {
+  it('preserves caller provenance when the desktop runtime defaults to Turso', () => {
     expect(resolveBrainstrikeDbRuntimeSelection({ platform: 'desktop', source: 'env' })).toEqual({
+      bootstrapRuntime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      engine: 'turso',
+      platform: 'desktop',
+      source: 'env',
+    });
+  });
+
+  it('keeps explicit PGlite opt-in available on desktop', () => {
+    expect(
+      resolveBrainstrikeDbRuntimeSelection({
+        platform: 'desktop',
+        requestedEngine: 'pglite',
+        source: 'env',
+      })
+    ).toEqual({
       bootstrapRuntime: {
         engine: 'pglite',
         host: 'electron-utility',

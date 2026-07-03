@@ -2,6 +2,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+const originalDbRuntime = process.env['BRAINSTRIKE_DB_RUNTIME'];
 
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
@@ -25,6 +26,14 @@ function restoreParentPort(): void {
     value: undefined,
     writable: true,
   });
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+    return;
+  }
+  process.env[key] = value;
 }
 
 const existsSyncMock = vi.fn();
@@ -133,11 +142,11 @@ vi.mock('@brainstrike/db', () => ({
       source?: 'env' | 'default';
     }) => ({
       bootstrapRuntime: {
-        engine: input.requestedEngine ?? 'pglite',
+        engine: input.requestedEngine ?? 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
-      engine: input.requestedEngine ?? 'pglite',
+      engine: input.requestedEngine ?? 'turso',
       platform: input.platform,
       source: input.source ?? (input.requestedEngine ? 'env' : 'default'),
     })
@@ -181,7 +190,7 @@ describe('initializeMainDatabase', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     process.argv = [...originalArgv];
     runPgliteBootstrapCapabilityProbeMock.mockResolvedValue(createReadyBootstrapProbeReport());
@@ -191,6 +200,7 @@ describe('initializeMainDatabase', () => {
   afterEach(() => {
     restoreParentPort();
     process.argv = [...originalArgv];
+    restoreEnvValue('BRAINSTRIKE_DB_RUNTIME', originalDbRuntime);
   });
 
   it('creates directory, migrates, and returns singleton instance', async () => {
@@ -362,6 +372,74 @@ describe('initializeMainDatabase', () => {
       rows: [{ sql: 'SELECT ? AS value', params: ['ok'], value: 'ok' }],
     });
     expect(tursoOwnerQueryMock).toHaveBeenCalledWith('SELECT ? AS value', ['ok']);
+  });
+
+  it('defaults an unset desktop runtime to the Turso owner client', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+      profileId: 'test',
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      bootstrapReport: {
+        ready: true,
+        runtime: { engine: 'turso' },
+      },
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+  });
+
+  it('keeps an unset desktop runtime on PGlite when the profile already has pgdata', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+    const existingPgliteDataDir = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
+    existsSyncMock.mockImplementation((candidate: string) => candidate === existingPgliteDataDir);
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledWith({
+      dataDir: existingPgliteDataDir,
+      profileId: 'test',
+      runtime: {
+        engine: 'pglite',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+    });
+    expect(PGliteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataDir: existingPgliteDataDir,
+      })
+    );
+    expect(runTursoProfileBootstrapMock).not.toHaveBeenCalled();
+    expect(createTursoOwnerClientMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      bootstrapReport: {
+        ready: true,
+        runtime: { engine: 'pglite' },
+      },
+      capabilities: { liveQuery: true },
+      initialized: true,
+    });
   });
 
   it('getDatabase uses the runtime-aware Turso bootstrap path without explicit pre-initialization', async () => {

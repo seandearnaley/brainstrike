@@ -133,11 +133,11 @@ vi.mock('@brainstrike/db', () => ({
       source?: 'default' | 'env';
     }) => ({
       bootstrapRuntime: {
-        engine: input.requestedEngine ?? 'pglite',
+        engine: input.requestedEngine ?? 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
-      engine: input.requestedEngine ?? 'pglite',
+      engine: input.requestedEngine ?? 'turso',
       platform: input.platform,
       source: input.source ?? (input.requestedEngine ? 'env' : 'default'),
     })
@@ -167,7 +167,7 @@ describe('db-main lifecycle', () => {
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
     runPgliteBootstrapCapabilityProbeMock.mockReturnValue(createReadyBootstrapProbeReport());
@@ -796,6 +796,31 @@ describe('db-main lifecycle', () => {
     process.env['NODE_ENV'] = 'development';
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     process.env['BRAINSTRIKE_DB_RUNTIME'] = 'turso';
+    vi.resetModules();
+
+    const { resetLocalDatabase } = await import('../../db-main');
+    await resetLocalDatabase();
+
+    const expectedProfilePath = path.join(
+      '/mock/documents',
+      'BrainStrike-dev',
+      'profiles',
+      'test-profile'
+    );
+    const expectedPgDataPath = path.join(expectedProfilePath, 'pgdata');
+
+    expect(rmSyncMock).toHaveBeenCalledWith(expectedProfilePath, {
+      recursive: true,
+      force: true,
+    });
+    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedProfilePath, { recursive: true });
+    expect(mkdirSyncMock).not.toHaveBeenCalledWith(expectedPgDataPath, { recursive: true });
+  });
+
+  it('resetLocalDatabase recreates an unset-runtime existing PGlite profile as a fresh Turso-default profile', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     vi.resetModules();
 
     const { resetLocalDatabase } = await import('../../db-main');

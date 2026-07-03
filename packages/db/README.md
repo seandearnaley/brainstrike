@@ -1,6 +1,6 @@
 # @brainstrike/db
 
-Utilities for working with a local SQLite database powered by PGlite. The package exposes migration helpers, repositories for file/embedding data, and a durable JobQueue used by the embedding worker.
+Utilities for Brainstrike's local database runtimes. The package exposes migration helpers, repositories for file/embedding data, and durable queue primitives used by the embedding worker.
 
 ## Installation
 
@@ -137,13 +137,15 @@ baseline.
 ### Runtime selection seam
 
 `src/architecture/db-runtime-selection.ts` is the fail-closed selector for the
-PGlite-to-Turso migration. It keeps the current defaults in place
-(desktop/filesystem PGlite, web/IndexedDB PGlite, node-test/memory PGlite),
-preserves caller source provenance for diagnostics, allows an explicit Turso
-runtime only on desktop, and rejects unknown runtime strings instead of silently
-degrading to PGlite. Turso support here means equivalent Brainstrike application
-behavior, not PostgreSQL extension parity; web and node-test stay on PGlite until
-they have supported runtime adapters with the same DB client contract.
+PGlite-to-Turso migration. Desktop empty profiles default to Turso when the
+runtime is unset, while the desktop host preserves an unset existing PGlite
+profile when `<profile>/pgdata` already exists. Web/IndexedDB and
+node-test/memory defaults stay on PGlite. The selector preserves caller source
+provenance for diagnostics, allows an explicit Turso runtime only on desktop,
+and rejects unknown runtime strings instead of silently degrading to PGlite.
+Turso support here means equivalent Brainstrike application behavior, not
+PostgreSQL extension parity; web and node-test stay on PGlite until they have
+supported runtime adapters with the same DB client contract.
 
 ## Domain Ownership
 
