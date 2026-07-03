@@ -50,6 +50,8 @@ export interface DesktopPlatformDiagnosticsSnapshot {
 
 export interface DesktopDimensionIndexMaintenanceSnapshot {
   readonly maintenance: readonly DimensionIndexMaintenanceRow[];
+  readonly reason?: 'runtime-not-pglite';
+  readonly status?: 'available' | 'unsupported';
   readonly suspensions: readonly DimensionIndexSuspensionRow[];
 }
 
@@ -136,6 +138,12 @@ function getStringOrNullValue(record: unknown, key: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+function getDatabaseRuntimeEngine(database: unknown): string | null {
+  const profileBootstrapReport = getRecordValue(database, 'profileBootstrapReport');
+  const runtime = getRecordValue(profileBootstrapReport, 'runtime');
+  return getStringOrNullValue(runtime, 'engine');
+}
+
 export async function collectDesktopPlatformDiagnostics(
   providers: DesktopPlatformDiagnosticsProviders
 ): Promise<DesktopPlatformDiagnosticsSnapshot> {
@@ -158,12 +166,20 @@ export async function collectDesktopPlatformDiagnostics(
     () => providers.indexing.getBackfillsInFlight(),
     []
   );
-  const dimensionIndexMaintenance = await readDiagnosticsProvider(
-    errors,
-    'dimensionIndexMaintenance',
-    () => providers.indexing.getDimensionIndexMaintenanceSnapshot(),
-    { maintenance: [], suspensions: [] }
-  );
+  const dimensionIndexMaintenance =
+    getDatabaseRuntimeEngine(database) === 'turso'
+      ? {
+          maintenance: [],
+          reason: 'runtime-not-pglite' as const,
+          status: 'unsupported' as const,
+          suspensions: [],
+        }
+      : await readDiagnosticsProvider(
+          errors,
+          'dimensionIndexMaintenance',
+          () => providers.indexing.getDimensionIndexMaintenanceSnapshot(),
+          { maintenance: [], suspensions: [] }
+        );
   const reset = await readDiagnosticsProvider(
     errors,
     'reset',

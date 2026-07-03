@@ -98,6 +98,8 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly databaseWork: unknown;
     readonly dimensionIndexMaintenance?: {
       readonly maintenance: readonly DimensionIndexMaintenanceRow[];
+      readonly reason?: 'runtime-not-pglite';
+      readonly status?: 'available' | 'unsupported';
       readonly suspensions: readonly DimensionIndexSuspensionRow[];
     };
   };
@@ -370,6 +372,9 @@ function getDimensionMaintenanceLabel(snapshot: DesktopPlatformDiagnosticsSnapsh
   const dimensionIndexMaintenance = snapshot.indexing?.dimensionIndexMaintenance;
   if (!dimensionIndexMaintenance) {
     return 'unavailable';
+  }
+  if (dimensionIndexMaintenance.status === 'unsupported') {
+    return 'unsupported';
   }
   const pending = dimensionIndexMaintenance.maintenance.filter(
     (row) => row.state === 'pending'

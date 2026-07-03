@@ -11,7 +11,7 @@ describe('desktop platform diagnostics', () => {
       lastInitializationFailure: null,
       lastInitializationSucceededAt: '2026-05-20T18:00:00.000Z',
       profileBootstrapReport: {
-        runtime: { engine: 'turso' },
+        runtime: { engine: 'pglite' },
       },
       runtimeCorruptionRecoveryCount: 1,
       lastRuntimeCorruptionAt: '2026-05-20T18:01:00.000Z',
@@ -228,11 +228,11 @@ describe('desktop platform diagnostics', () => {
         backgroundRuntimeMetrics: runtimeMetrics,
       },
       tursoQueueProfile: {
-        observedBackgroundWork: true,
-        observedForegroundWork: true,
+        observedBackgroundWork: false,
+        observedForegroundWork: false,
         ownerSlowForegroundQueuedOperationCount: 0,
-        reason: 'within-thresholds',
-        status: 'accepted',
+        reason: 'runtime-not-turso',
+        status: 'unavailable',
       },
     });
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
@@ -304,5 +304,104 @@ describe('desktop platform diagnostics', () => {
       suspensions: [],
     });
     expect(snapshot.reset.userDataPath).toBe('<redacted>');
+  });
+
+  it('does not query PGlite dimension-index diagnostics for Turso runtimes', async () => {
+    const getDimensionIndexMaintenanceSnapshot = vi.fn(() => {
+      throw new Error('dimension index diagnostics should not run for Turso');
+    });
+
+    const snapshot = await collectDesktopPlatformDiagnostics({
+      crashRecovery: {
+        getSnapshot: vi.fn(() => ({
+          lastRendererCrashAt: null,
+          lastRendererCrashReason: null,
+          lastRendererReloadAt: null,
+          pendingRendererRecovery: false,
+          rendererCrashCount: 0,
+          rendererReloadAttemptCount: 0,
+          suppressedRendererReloadCount: 0,
+        })),
+      },
+      database: {
+        getDiagnostics: vi.fn(async () => ({
+          profileBootstrapReport: {
+            runtime: { engine: 'turso' },
+          },
+        })),
+      },
+      databaseScheduler: { getSnapshot: vi.fn(() => null as never) },
+      embeddingHost: {
+        getPlatformStatus: vi.fn(() => ({
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'embedding-host:stopped',
+          runtimeKind: 'embedding-host' as const,
+          sourceState: 'stopped' as const,
+          state: 'stopped' as const,
+        })),
+      },
+      indexing: {
+        getBackfillsInFlight: vi.fn(() => []),
+        getDimensionIndexMaintenanceSnapshot,
+      },
+      llmHost: {
+        getPlatformStatus: vi.fn(() => ({
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'llm-host:stopped',
+          runtimeKind: 'llm-host' as const,
+          sourceState: 'stopped' as const,
+          state: 'stopped' as const,
+        })),
+      },
+      logging: {
+        getState: vi.fn(() => ({
+          capabilities: {
+            canSelectDestination: false,
+            defaultDestination: null,
+            fileLoggingSupported: false,
+            runtime: 'electron' as const,
+          },
+          preferences: {
+            consoleEnabled: false,
+            consoleLevel: LogLevel.INFO,
+            file: {
+              append: true,
+              destination: null,
+              enabled: false,
+              level: LogLevel.INFO,
+              mkdir: true,
+            },
+            includeTimestamp: false,
+            level: LogLevel.INFO,
+            redactPaths: [],
+          },
+        })),
+      },
+      reset: {
+        getSnapshot: vi.fn(() => ({
+          lastCompletedAt: null,
+          lastDeletedPathCount: 0,
+          lastError: null,
+          lastFailedAt: null,
+          lastPreservedPathCount: 0,
+          status: 'idle' as const,
+          userDataPath: '/tmp/brainstrike-user-data',
+        })),
+      },
+      telemetry: { getRuntimeMetrics: vi.fn(() => []) },
+    });
+
+    expect(getDimensionIndexMaintenanceSnapshot).not.toHaveBeenCalled();
+    expect(snapshot.errors).not.toHaveProperty('dimensionIndexMaintenance');
+    expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({
+      maintenance: [],
+      reason: 'runtime-not-pglite',
+      status: 'unsupported',
+      suspensions: [],
+    });
   });
 });

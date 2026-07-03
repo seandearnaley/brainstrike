@@ -60,6 +60,28 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   };
 }
 
+function createReadyPgliteProfileBootstrapReport() {
+  return {
+    checks: [],
+    failure: null,
+    phase: 'ready',
+    profileId: 'test',
+    ready: true,
+    runtime: {
+      engine: 'pglite',
+      host: 'electron-utility',
+      persistence: 'filesystem',
+    },
+    search: {
+      indexedSearch: 'available',
+      message: 'PGlite search is ready',
+      ownershipMode: 'primary-store-indexes',
+    },
+    startedAt: '2026-07-03T10:00:00.000Z',
+    updatedAt: '2026-07-03T10:00:01.000Z',
+  } as const;
+}
+
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
@@ -360,7 +382,51 @@ describe('DbProvider initializing state', () => {
     });
   });
 
-  it('records Electron IPC pgvector failures during capability probing', async () => {
+  it('fails closed when Electron IPC bootstrap diagnostics are unavailable after a successful test', async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run without IPC runtime classification');
+      }
+      return { rows: [] };
+    });
+    setWindowElectronDbBridge({
+      diagnostics: vi.fn(async () => null),
+      exec: vi.fn(async () => undefined),
+      query,
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => {
+        const initializationStatus = useDbInitializationStatus();
+        const report = useProfileBootstrapReport();
+        const db = usePGliteDatabase();
+        return { db, initializationStatus, report };
+      },
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    expect(result.current.db).toBeNull();
+    expect(result.current.report).toMatchObject({
+      phase: 'failed',
+      ready: false,
+      failure: {
+        message:
+          'Electron database bootstrap report is unavailable; cannot classify desktop database runtime.',
+        phase: 'uninitialized',
+      },
+    });
+  });
+
+  it('records Electron IPC pgvector failures during PGlite capability probing', async () => {
     setWindowElectronDbBridge({
       diagnostics: vi.fn(async () => null),
       exec: vi.fn(async () => undefined),
@@ -370,7 +436,11 @@ describe('DbProvider initializing state', () => {
         }
         return { rows: [] };
       }),
-      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+      test: vi.fn(async () => ({
+        success: true,
+        message: 'ok',
+        profileBootstrapReport: createReadyPgliteProfileBootstrapReport(),
+      })),
     });
 
     const { result } = renderHook(
@@ -418,7 +488,11 @@ describe('DbProvider initializing state', () => {
       exec: vi.fn(async () => undefined),
       query,
       runTransaction,
-      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+      test: vi.fn(async () => ({
+        success: true,
+        message: 'ok',
+        profileBootstrapReport: createReadyPgliteProfileBootstrapReport(),
+      })),
     });
 
     const { result } = renderHook(
@@ -915,6 +989,90 @@ describe('DbProvider initializing state', () => {
       ready: true,
       runtime: { engine: 'turso' },
       search: { ownershipMode: 'split-search-index-store' },
+    });
+  });
+
+  it('uses Turso IPC diagnostics when the test result omits the bootstrap report', async () => {
+    const profileBootstrapReport = {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'split search store required',
+        ownershipMode: 'split-search-index-store',
+      },
+      startedAt: '2026-06-22T19:00:00.000Z',
+      updatedAt: '2026-06-22T19:00:01.000Z',
+    } as const;
+    const diagnostics = vi.fn(async () => ({
+      appDataDir: '/mock/userData',
+      databaseLockHeld: false,
+      databaseLockPath: null,
+      databaseProfile: 'test',
+      dataDir: '/mock/userData/profiles/test/turso-primary.db',
+      hasDatabaseHandle: true,
+      initializationAttemptCount: 1,
+      initializationInFlight: false,
+      lastInitializationFailure: null,
+      lastInitializationStartedAt: '2026-06-22T19:00:00.000Z',
+      lastInitializationSucceededAt: '2026-06-22T19:00:01.000Z',
+      lastRuntimeCorruptionAt: null,
+      lastRuntimeCorruptionContext: null,
+      nodeEnv: 'test',
+      profileBootstrapReport,
+      runtimeCorruptionRecoveryCount: 0,
+    }));
+    const query = vi.fn(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        throw new Error('pgvector probe should not run for diagnostics-classified Turso runtime');
+      }
+      return { rows: [] };
+    });
+    setWindowElectronDbBridge({
+      diagnostics,
+      exec: vi.fn(async () => {}),
+      query,
+      runTransaction: vi.fn(async () => ({ rows: [] })),
+      test: vi.fn(async () => ({ success: true, message: 'ok' })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        chunkRepository: useFileChunkRepository(),
+        initializationStatus: useDbInitializationStatus(),
+        pgliteDb: usePGliteDatabase(),
+        report: useProfileBootstrapReport(),
+        tokenCacheStore: useTokenCacheStore(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).not.toBe('initializing');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.initializationStatus).toBe('ready');
+    expect(diagnostics).toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalledWith(migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY);
+    expect(result.current.pgliteDb).toBeNull();
+    expect(result.current.chunkRepository?.constructor.name).toBe(
+      'ElectronProviderTursoFileChunkRepository'
+    );
+    expect(result.current.tokenCacheStore?.constructor.name).toBe('TursoTokenCacheStore');
+    expect(result.current.report).toMatchObject({
+      ready: true,
+      runtime: { engine: 'turso' },
     });
   });
 

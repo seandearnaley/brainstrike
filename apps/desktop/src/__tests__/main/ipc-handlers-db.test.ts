@@ -1026,6 +1026,63 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('db:test returns the DB-host bootstrap report from diagnostics', async () => {
+    const handler = handlers.get('db:test');
+    const profileBootstrapReport = {
+      checks: [],
+      failure: null,
+      phase: 'ready',
+      profileId: 'test',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+      search: {
+        indexedSearch: 'available',
+        message: 'Turso search is ready',
+        ownershipMode: 'primary-store-indexes',
+      },
+      startedAt: '2026-07-03T05:00:00.000Z',
+      updatedAt: '2026-07-03T05:00:01.000Z',
+    };
+    getDatabaseDiagnosticsMock.mockReturnValueOnce({
+      appDataDir: '/mock/userData',
+      databaseLockHeld: true,
+      databaseLockPath: '/mock/userData/profiles/test/.db-process.lock',
+      databaseProfile: 'test',
+      dataDir: '/mock/userData/profiles/test/turso-primary.db',
+      hasDatabaseHandle: true,
+      initializationAttemptCount: 1,
+      initializationInFlight: false,
+      lastInitializationFailure: null,
+      lastInitializationStartedAt: '2026-07-03T05:00:00.000Z',
+      lastInitializationSucceededAt: '2026-07-03T05:00:01.000Z',
+      lastRuntimeCorruptionAt: null,
+      lastRuntimeCorruptionContext: null,
+      nodeEnv: 'test',
+      profileBootstrapReport,
+      runtimeCorruptionRecoveryCount: 0,
+      tursoOwnerClientQoS: { available: true, slowQueuedOperationCount: 0 },
+    });
+    mockDb.query.mockResolvedValue({ rows: [{ ok: 1 }] });
+
+    const result = await handler?.({} as unknown);
+
+    expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
+    expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      dbLocation: 'DB Host',
+      message: 'Database connection successful',
+      profileBootstrapReport: {
+        ready: true,
+        runtime: { engine: 'turso' },
+      },
+      success: true,
+    });
+  });
+
   it('db:test failure path', async () => {
     const handler = handlers.get('db:test');
     mockDb.query.mockRejectedValue(new Error('oops'));

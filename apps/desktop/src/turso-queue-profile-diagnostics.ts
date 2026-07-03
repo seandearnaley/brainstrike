@@ -15,6 +15,7 @@ export type TursoQueueProfileReason =
   | 'foreground-scheduler-wait-threshold-exceeded'
   | 'missing-background-work'
   | 'missing-foreground-work'
+  | 'missing-owner-work'
   | 'owner-diagnostics-malformed'
   | 'owner-client-not-open'
   | 'owner-diagnostics-unsupported'
@@ -64,7 +65,13 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function isOwnerOperationKind(value: unknown): boolean {
-  return value === 'exec' || value === 'query' || value === 'transaction';
+  return (
+    value === 'close' ||
+    value === 'exec' ||
+    value === 'exclusiveTransaction' ||
+    value === 'query' ||
+    value === 'transaction'
+  );
 }
 
 function isOwnerOperationPriority(value: unknown): boolean {
@@ -222,6 +229,18 @@ function getForegroundWorstWaitMs(scheduler: DatabaseWorkSchedulerSnapshot): num
   );
 }
 
+function hasOwnerWork(
+  qos: Extract<DatabaseTursoOwnerClientQoSDiagnostics, { available: true }>
+): boolean {
+  return (
+    qos.totalQueuedOperations > 0 ||
+    qos.totalStartedOperations > 0 ||
+    qos.totalCompletedOperations > 0 ||
+    qos.activeOperation !== null ||
+    qos.queuedOperationCount > 0
+  );
+}
+
 export function createTursoQueueProfileDiagnostics({
   databaseDiagnostics,
   foregroundWaitThresholdMs,
@@ -322,6 +341,22 @@ export function createTursoQueueProfileDiagnostics({
       ownerSlowForegroundQueuedOperationCount,
       ownerSlowQueuedOperationCount: ownerQoS.slowQueuedOperationCount,
       reason: 'missing-background-work',
+      status: 'insufficient-evidence',
+      thresholdMs,
+    };
+  }
+  if (!hasOwnerWork(ownerQoS)) {
+    return {
+      backgroundCompleted: scheduler.priorityStats.background.completed,
+      blockingForegroundLabels,
+      foregroundWaitP95Ms,
+      foregroundWorstWaitMs,
+      observedBackgroundWork,
+      observedForegroundWork,
+      ownerQueuedOperationCount: ownerQoS.queuedOperationCount,
+      ownerSlowForegroundQueuedOperationCount,
+      ownerSlowQueuedOperationCount: ownerQoS.slowQueuedOperationCount,
+      reason: 'missing-owner-work',
       status: 'insufficient-evidence',
       thresholdMs,
     };

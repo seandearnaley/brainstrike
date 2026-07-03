@@ -716,6 +716,23 @@ async function getElectronDiagnostics(
   }
 }
 
+async function resolveElectronRuntimeBootstrapReport(
+  electronDB: ElectronDatabaseAPI,
+  testResult: DatabaseTestResult
+): Promise<DatabaseProfileBootstrapReportSnapshot | null> {
+  if (testResult.profileBootstrapReport) {
+    return testResult.profileBootstrapReport;
+  }
+  const diagnostics = await getElectronDiagnostics(electronDB);
+  const report = diagnostics?.profileBootstrapReport ?? null;
+  if (!report) {
+    throw new Error(
+      'Electron database bootstrap report is unavailable; cannot classify desktop database runtime.'
+    );
+  }
+  return report;
+}
+
 function getReadyElectronTursoBootstrapReport(
   report: DatabaseProfileBootstrapReportSnapshot | null | undefined
 ): ProfileBootstrapReport | null {
@@ -1114,8 +1131,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         electronRunTransaction
       );
 
+      const bootstrapReport = await resolveElectronRuntimeBootstrapReport(electronDB, testResult);
       const tursoRepositories = await createElectronTursoRuntimeRepositories(
-        testResult?.profileBootstrapReport,
+        bootstrapReport,
         repositoryDb
       );
       if (tursoRepositories) {

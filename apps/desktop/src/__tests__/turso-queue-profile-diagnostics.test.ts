@@ -155,6 +155,51 @@ describe('createTursoQueueProfileDiagnostics', () => {
     });
   });
 
+  it('accepts every owner QoS operation kind exposed by the shared diagnostics contract', () => {
+    const diagnostics = createTursoQueueProfileDiagnostics({
+      databaseDiagnostics: {
+        profileBootstrapReport: {
+          runtime: { engine: 'turso' },
+        },
+        tursoOwnerClientQoS: ownerQoS({
+          activeOperation: {
+            activeDurationMs: 20,
+            id: 1,
+            kind: 'exclusiveTransaction',
+            label: 'turso schema readiness',
+            priority: 'background',
+            queuedAt: 1000,
+            queueWaitMs: 0,
+            startedAt: 1000,
+          },
+          queuedOperations: [
+            {
+              id: 2,
+              kind: 'close',
+              label: 'close stale owner',
+              priority: 'background',
+              queuedAt: 1010,
+              queuedForMs: 5,
+            },
+          ],
+          queuedOperationCount: 1,
+        }),
+      },
+      scheduler: schedulerSnapshot({
+        priorityStats: {
+          background: priorityStats({ completed: 1, started: 1 }),
+          foreground: priorityStats({ completed: 1, started: 1 }),
+          normal: priorityStats(),
+        },
+      }),
+    });
+
+    expect(diagnostics).toMatchObject({
+      reason: 'within-thresholds',
+      status: 'accepted',
+    });
+  });
+
   it('reports insufficient evidence until both foreground and background database work have been observed', () => {
     const diagnostics = createTursoQueueProfileDiagnostics({
       databaseDiagnostics: {
@@ -197,6 +242,33 @@ describe('createTursoQueueProfileDiagnostics', () => {
 
     expect(diagnostics).toMatchObject({
       reason: 'missing-background-work',
+      status: 'insufficient-evidence',
+    });
+  });
+
+  it('reports insufficient evidence when scheduler work has no matching owner activity', () => {
+    const diagnostics = createTursoQueueProfileDiagnostics({
+      databaseDiagnostics: {
+        profileBootstrapReport: {
+          runtime: { engine: 'turso' },
+        },
+        tursoOwnerClientQoS: ownerQoS({
+          totalCompletedOperations: 0,
+          totalQueuedOperations: 0,
+          totalStartedOperations: 0,
+        }),
+      },
+      scheduler: schedulerSnapshot({
+        priorityStats: {
+          background: priorityStats({ completed: 2, started: 2 }),
+          foreground: priorityStats({ completed: 1, started: 1 }),
+          normal: priorityStats(),
+        },
+      }),
+    });
+
+    expect(diagnostics).toMatchObject({
+      reason: 'missing-owner-work',
       status: 'insufficient-evidence',
     });
   });
