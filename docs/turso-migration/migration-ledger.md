@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-final-runtime-scan-20260703`,
+Last updated: 2026-07-03 on `codex/turso-final-runtime-audit-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1460 at `61c933af`. This branch cuts empty desktop profiles over to
+through #1461 at `2d1777864`. This branch cuts empty desktop profiles over to
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
@@ -168,6 +168,19 @@ Merged slices:
 - #1458 `Default desktop runtime to Turso`
 - #1459 `docs(turso): neutralize stale runtime wording`
 - #1460 `fix(turso): harden runtime SQL seams`
+- #1461 `test(turso): guard live query consumers`
+
+Recently completed live-query guardrail slice: #1461 added
+`packages/db/__tests__/architecture-turso-live-query-guardrails.test.ts`. The
+test scans production `apps/` and `packages/` source for root-barrel named
+`useBrainstrikeLiveQuery` imports from `@brainstrike/db` and requires every
+consumer to stay policy-classified with concrete Turso-safe markers: direct
+live-query capability gates, explicit PGlite/Turso runtime snapshot splits, or
+provider-owned live-query metric flags paired with repository snapshots. This
+turns the 2026-07-03 manual live-query sweep into an executable regression
+guard before the final PGlite dependency/removal audit. If the hook later gains
+namespace or subpath import surfaces, the guardrail must be tightened in the
+same PR that adds those surfaces.
 
 Recently completed runtime-SQL hardening slice: #1460 turned the
 final-runtime-audit follow-up into concrete behavior checks. The shared
@@ -179,16 +192,6 @@ registry absence is classified with the same fallback behavior as PostgreSQL
 Turso-marked DB handle lacks the injected DB-host managed-cache applier, rather
 than falling through to the PostgreSQL-shaped standalone managed-cache
 implementation.
-
-In-flight live-query guardrail slice: `codex/turso-final-runtime-scan-20260703`
-adds `packages/db/__tests__/architecture-turso-live-query-guardrails.test.ts`.
-The test scans production `apps/` and `packages/` source for
-`useBrainstrikeLiveQuery` imports and requires every consumer to stay
-policy-classified with concrete Turso-safe markers: direct live-query
-capability gates, explicit PGlite/Turso runtime snapshot splits, or
-provider-owned live-query metric flags paired with repository snapshots. This
-turns the 2026-07-03 manual live-query sweep into an executable regression
-guard before the final PGlite dependency/removal audit.
 
 Recently completed stale-wording cleanup slice: #1459 refreshed this ledger
 through #1458/default-runtime state and neutralized stale PGlite-only comments
@@ -243,7 +246,7 @@ profile directory for both runtimes, then recreates the runtime-owned empty
 directory: explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not tracked in this branch at feature head `61c933af` through the 2026-07-03
+is not tracked in this branch at feature head `2d1777864` through the 2026-07-03
 reconciliation pass. Do not cite that report as reconciled work until the
 artifact is restored or this ledger links to the correct audit artifact.
 
@@ -254,7 +257,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1460 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1461 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -278,7 +281,9 @@ semantic recall dimension lookup, and workspace-root loading are not current
 Turso-default bugs because they route through the owner DB host and libSQL
 accepts their `$1` bindings; the real fixes were explicit metadata SQL dialect
 generation, SQLite missing-models-table classification, and fail-closed Turso
-re-index fallback behavior.
+re-index fallback behavior. #1461 codified the production live-query consumer
+sweep as an architecture guardrail so new root-barrel named imports of
+`useBrainstrikeLiveQuery` cannot enter the feature branch unclassified.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
@@ -653,9 +658,9 @@ Latest live-query sweep (2026-07-03): production `useBrainstrikeLiveQuery`
 references under `apps/` and `packages/` are either the package-owned live-query
 implementation/tests, PGlite-only live query paths paired with Turso repository
 snapshot readers, or explicit fail-closed capability gates. No additional
-unmapped production live-query consumer was found in this pass. The in-flight
-guardrail slice now codifies the production consumer list and policy markers so
-new live-query usage cannot enter the Turso feature branch silently.
+unmapped production live-query consumer was found in this pass. #1461 codifies
+the production consumer list and policy markers so new root-barrel named
+live-query usage cannot enter the Turso feature branch silently.
 
 ### 3. Background Indexing And Embedding Host
 
@@ -981,6 +986,15 @@ split-search implementation creates stores outside the active profile directory.
 PGlite packages, Vite aliases, type shims, and WASM packaging remain necessary
 while web/PGlite and compatibility paths exist. Final removal should happen
 only after the runtime audit proves no production path imports PGlite.
+
+Current direct PGlite import guardrail: this audit branch adds
+`packages/db/__tests__/architecture-pglite-import-guardrails.test.ts`. The test
+scans production `apps/` and `packages/` TypeScript sources for direct
+`@electric-sql/pglite*` imports, requires every file to be explicitly
+allowlisted with an owner and reason, and pins the expected PGlite package
+specifiers per file. This does not remove PGlite; it turns the final dependency
+audit into a controlled inventory so new direct imports cannot appear without
+review.
 
 Known production touchpoints:
 
