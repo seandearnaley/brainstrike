@@ -23,6 +23,9 @@
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/src/local-llm.ts"
       ],
+      "@brainstrike/db/turso/owner-client": [
+        "../../packages/db/src/turso/owner-client.ts"
+      ],
       "@brainstrike/utils": [
         "../../packages/utils/src/index.ts"
       ],

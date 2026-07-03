@@ -267,7 +267,11 @@ export default defineConfig({
       // renderer on startup (dev is unaffected). See the vite-alias coverage test.
       '@brainstrike/commands': path.resolve(__dirname, '../../packages/commands/src'),
       '@brainstrike/context-actions': path.resolve(__dirname, '../../packages/context-actions/src'),
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/db/turso/owner-client': path.resolve(
+        __dirname,
+        '../../packages/db/src/turso/owner-client.ts'
+      ),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src'),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         __dirname,
@@ -466,12 +470,23 @@ function devChatApiPlugin() {
   return {
     name: 'dev-chat-api',
     async configureServer(server: import('vite').ViteDevServer) {
+      await installWebMastraStorageDisposal(server);
       server.middlewares.use(await createApiMiddleware('dev'));
     },
     async configurePreviewServer(server: import('vite').ViteDevServer) {
+      await installWebMastraStorageDisposal(server);
       server.middlewares.use(await createApiMiddleware('preview'));
     },
   };
+}
+
+async function installWebMastraStorageDisposal(server: import('vite').ViteDevServer) {
+  const { disposeWebMastraStorage } = await import('./src/server/web-mastra-storage.ts');
+  server.httpServer?.once('close', () => {
+    disposeWebMastraStorage().catch((error) => {
+      viteLogger.warn('[dev-chat-api] failed to dispose web Mastra storage', { error });
+    });
+  });
 }
 
 // Dev proxy for /api/hf/* – uses fetch() (which follows 307 redirects) instead

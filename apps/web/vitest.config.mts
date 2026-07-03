@@ -49,7 +49,11 @@ export default defineConfig({
       '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
       ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
-      '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/db/turso/owner-client': resolve(
+        import.meta.dirname,
+        '../../packages/db/src/turso/owner-client.ts'
+      ),
+      '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src'),
       '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings/runtime-config': resolve(
         import.meta.dirname,
