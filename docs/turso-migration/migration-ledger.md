@@ -1,6 +1,7 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `feature/turso-migration`.
+Last updated: 2026-07-03 on `codex/turso-mastra-vector-memory`, targeting
+`feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
 PGlite to Turso. It is not a go/no-go memo. Treat the "Remaining Work" section
@@ -8,7 +9,11 @@ as the implementation backlog.
 
 ## Current Branch State
 
-`feature/turso-migration` currently contains these Turso migration slices:
+`feature/turso-migration` currently contains merged Turso migration slices
+through #1444. This PR branch adds #1445; after merge it becomes the next
+feature-branch slice.
+
+Merged slices:
 
 - #1304 `feat(db): add profile bootstrap readiness report`
 - #1305 `feat(db): add bootstrap capability probe`
@@ -120,6 +125,10 @@ as the implementation backlog.
 - #1442 `Gate tools settings live queries by capability`
 - #1443 `Fix model registry toggle SQL by runtime`
 - #1444 `Add Turso snapshot invalidation triggers`
+
+In-flight slice on this branch:
+
+- #1445 `Add Turso Mastra vector memory store`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -606,7 +615,9 @@ Concrete status and remaining work:
   sentinel-row index metadata model as `PgliteVectorStore`, supports equality,
   `$eq`, `$in`, and `$and` metadata filters, returns high-score-is-better
   cosine/euclidean/dot-product results, and emits the same nonblocking semantic
-  memory run events.
+  memory run events. Real Turso-engine tests cover cosine, euclidean, and
+  dot-product ranking and fail closed if persisted metadata names an
+  unsupported metric.
 - The Turso factory now passes the vector store to `Memory`, so semantic recall
   and observational vector retrieval can run when an explicit embedder is
   configured. Those paths still fail closed with deterministic configuration
@@ -626,10 +637,11 @@ Concrete status and remaining work:
 Completed slices have wired the desktop assistant server to select the Turso
 factory from the ready runtime/bootstrap verdict, included runtime/profile/store
 identity in the memory cache key, replayed live-loop persistence against Turso,
-and added Turso vector memory parity for Mastra semantic recall/observational
-vector retrieval. Remaining work in this area is performance characterization:
-prove the exact-scan Turso memory vector path at expected local profile sizes
-and decide whether native Turso vector indexes are needed before release.
+and, on this branch, added Turso vector memory parity for Mastra semantic
+recall/observational vector retrieval. Remaining work in this area is
+performance characterization: prove the exact-scan Turso memory vector path at
+expected local profile sizes and decide whether native Turso vector indexes are
+needed before release.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 

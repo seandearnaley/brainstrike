@@ -135,6 +135,38 @@ describe('TursoVectorStore', () => {
     });
   });
 
+  it.each([
+    'euclidean',
+    'dotproduct',
+  ] as const)('orders %s vector queries with real Turso vector functions', async (metric) => {
+    const indexName = `memory_messages_${metric}`;
+    await store.createIndex({ indexName, dimension: 3, metric });
+    await store.upsert({
+      indexName,
+      ids: ['message-a', 'message-b', 'message-c'],
+      vectors: [
+        [1, 0, 0],
+        [0.8, 0.2, 0],
+        [0, 1, 0],
+      ],
+      metadata: [
+        { message_id: 'message-a' },
+        { message_id: 'message-b' },
+        { message_id: 'message-c' },
+      ],
+    });
+
+    const results = await store.query({
+      indexName,
+      queryVector: [1, 0, 0],
+      topK: 3,
+    });
+
+    expect(results.map((result) => result.id)).toEqual(['message-a', 'message-b', 'message-c']);
+    expect(results.map((result) => Number.isFinite(result.score))).toEqual([true, true, true]);
+    expect(results[0]?.score).toBeGreaterThan(results[1]?.score ?? 0);
+  });
+
   it('requires deleteVectors to specify ids or a filter', async () => {
     await store.createIndex({ indexName: 'memory_messages', dimension: 3, metric: 'cosine' });
     await store.upsert({
@@ -263,5 +295,31 @@ describe('TursoVectorStore', () => {
         topK: 1001,
       })
     ).rejects.toThrow(/topK must be between 1 and 1000/i);
+  });
+
+  it('fails before building query SQL for unsupported stored metrics', async () => {
+    const mockDb: TursoMastraSqlClient = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn().mockResolvedValueOnce({
+        rows: [
+          {
+            count: 1,
+            dimension: 3,
+            indexName: 'memory_messages',
+            metric: 'unsupported_metric',
+          },
+        ],
+      }),
+    };
+    const mockStore = new TursoVectorStore({ database: mockDb });
+
+    await expect(
+      mockStore.query({
+        indexName: 'memory_messages',
+        queryVector: [1, 0, 0],
+        topK: 1,
+      })
+    ).rejects.toThrow(/unsupported vector metric/i);
+    expect(mockDb.query).toHaveBeenCalledTimes(1);
   });
 });

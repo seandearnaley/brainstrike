@@ -48,6 +48,7 @@ const MAX_TOP_K = 1000;
 const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
 const INDEX_METADATA_ID = '__index_metadata__';
 const EMBEDDING_COLUMN_SQL = `${MASTRA_VECTOR_TABLE}.embedding`;
+type TursoVectorMetric = NonNullable<IndexStats['metric']>;
 
 function vectorLiteral(vector: number[]): string {
   if (vector.length === 0) {
@@ -218,25 +219,47 @@ function appendFilterSql(
   }
 }
 
+function readVectorMetric(metric: IndexStats['metric']): TursoVectorMetric {
+  const metricName = metric ?? DEFAULT_METRIC;
+  switch (metricName) {
+    case 'dotproduct':
+    case 'euclidean':
+    case 'cosine':
+      return metricName;
+    default:
+      throw new Error(`Unsupported vector metric: ${String(metricName)}`);
+  }
+}
+
+function assertUnsupportedVectorMetric(metric: never): never {
+  throw new Error(`Unsupported vector metric: ${String(metric)}`);
+}
+
 function scoreSqlForMetric(metric: IndexStats['metric']): string {
-  switch (metric ?? DEFAULT_METRIC) {
+  const metricName = readVectorMetric(metric);
+  switch (metricName) {
     case 'dotproduct':
       return `-vector_distance_dot(${EMBEDDING_COLUMN_SQL}, q.value)`;
     case 'euclidean':
       return `1 / (1 + vector_distance_l2(${EMBEDDING_COLUMN_SQL}, q.value))`;
     case 'cosine':
       return `1 - vector_distance_cos(${EMBEDDING_COLUMN_SQL}, q.value)`;
+    default:
+      return assertUnsupportedVectorMetric(metricName);
   }
 }
 
 function orderSqlForMetric(metric: IndexStats['metric']): string {
-  switch (metric ?? DEFAULT_METRIC) {
+  const metricName = readVectorMetric(metric);
+  switch (metricName) {
     case 'dotproduct':
       return `vector_distance_dot(${EMBEDDING_COLUMN_SQL}, q.value)`;
     case 'euclidean':
       return `vector_distance_l2(${EMBEDDING_COLUMN_SQL}, q.value)`;
     case 'cosine':
       return `vector_distance_cos(${EMBEDDING_COLUMN_SQL}, q.value)`;
+    default:
+      return assertUnsupportedVectorMetric(metricName);
   }
 }
 
