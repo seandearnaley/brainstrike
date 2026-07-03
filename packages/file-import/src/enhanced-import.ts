@@ -577,6 +577,14 @@ async function insertEmbeddingSet(
 ): Promise<string> {
   const newId = generateUUID();
   const { modelKey, modelId, dimensions, distance } = params;
+  if (sql.runtimeEngine === 'turso') {
+    await sql.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES (${sqlPlaceholders(sql, 6)})`,
+      [newId, modelKey, modelId, dimensions, distance, new Date().toISOString()]
+    );
+    return newId;
+  }
   const insert = await sql.query<{ id: string }>(
     `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
        VALUES (${sqlPlaceholders(sql, 6)})
