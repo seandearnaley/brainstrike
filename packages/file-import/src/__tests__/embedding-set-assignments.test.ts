@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { backfillEmbeddingSetAssignments } from '../embedding-set-assignments';
 
+const FORBIDDEN_TURSO_SQL =
+  /\$\d+|::|\bANY\s*\(|\bILIKE\b|\bjsonb\b|\btimestamptz\b|\bDISTINCT\s+ON\b|\bNULLS\s+(?:FIRST|LAST)\b|\bIS\s+DISTINCT\s+FROM\b/iu;
+
+function expectTursoSql(sql: string, params?: unknown[]): void {
+  expect(sql).not.toMatch(FORBIDDEN_TURSO_SQL);
+  if ((params?.length ?? 0) > 0) {
+    expect(sql).toContain('?');
+    expect(sql.match(/\?/gu)?.length ?? 0).toBe(params?.length);
+    expect(params?.some(Array.isArray)).toBe(false);
+  }
+}
+
 describe('backfillEmbeddingSetAssignments', () => {
   it('uses a single array parameter instead of expanding one placeholder per file id', async () => {
     const query = vi.fn(async () => ({ rows: [] }));
@@ -25,7 +37,10 @@ describe('backfillEmbeddingSetAssignments', () => {
   });
 
   it('uses SQLite-compatible placeholder lists for Turso assignments', async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expectTursoSql(sql, params);
+      return { rows: [] };
+    });
     const sql = { query, runtimeEngine: 'turso' as const };
 
     await backfillEmbeddingSetAssignments(sql, 'set-1', ['file-1', 'file-2', 'file-2']);

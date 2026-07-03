@@ -851,9 +851,10 @@ function drainQueue(): void {
   if (draining) {
     return;
   }
-  // PGlite runs through a single connection in this host. Serial dispatch keeps live-query,
-  // transaction, and reset ordering deterministic; foreground/background fairness happens
-  // in the main-process scheduler before requests reach this utility process.
+  // The DB host dispatches one request at a time. Serial dispatch keeps PGlite
+  // live-query/transaction/reset ordering deterministic and keeps Turso owner-client
+  // request ordering explicit; foreground/background fairness happens in the main-process
+  // scheduler before requests reach this utility process.
   const envelope = nextRunnableRequest();
   if (!envelope) {
     return;

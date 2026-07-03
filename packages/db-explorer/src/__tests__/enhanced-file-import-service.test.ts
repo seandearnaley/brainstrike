@@ -505,6 +505,31 @@ describe('useEnhancedFileImportService', () => {
           }),
         })
       );
+      const forwardedSql = runEnhancedImportMock.mock.calls[0]?.[0]?.ports?.sql;
+      const chunk = {
+        id: 'chunk-turso-bridge',
+        fileRecordId: 'file-turso',
+        content: 'runtime Turso bridge content',
+        contentHash: 'hash-turso-bridge',
+      };
+      await forwardedSql?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-turso', {
+        model: 'local::bridge-model',
+        provider: 'local',
+        signal: null,
+        targetDimension: 384,
+        targetEmbeddingSetId: 'set-turso',
+      });
+
+      expect(createEmbeddingJobQueuePortMock).not.toHaveBeenCalled();
+      expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+        [chunk],
+        'file-turso',
+        expect.objectContaining({
+          model: 'local::bridge-model',
+          targetEmbeddingSetId: 'set-turso',
+          targetDimension: 384,
+        })
+      );
       expect(onComplete).toHaveBeenCalledWith([
         expect.objectContaining({
           id: 'file-turso',

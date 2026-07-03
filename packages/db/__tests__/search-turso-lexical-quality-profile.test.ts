@@ -26,6 +26,9 @@ const qualityReportPath = join(
 );
 const migrationLedgerPath = join(repoRoot, 'docs/turso-migration/migration-ledger.md');
 const searchArchitecturePath = join(repoRoot, 'docs/turso-migration/search-index-architecture.md');
+const appShellReadmePath = join(repoRoot, 'packages/app-shell/README.md');
+const dbHostEntryPath = join(repoRoot, 'apps/desktop/src/db-host-entry.ts');
+const hybridSearchServicePath = join(repoRoot, 'packages/db/src/search/hybrid-search-service.ts');
 
 describe('Turso primary-store lexical search quality profile', () => {
   let client: TursoOwnerClient;
@@ -140,17 +143,42 @@ describe('Turso primary-store lexical search quality profile', () => {
   });
 
   it('records the lexical-search decision boundary in migration docs', async () => {
-    const [qualityReport, migrationLedger, searchArchitecture] = await Promise.all([
+    const [
+      qualityReport,
+      migrationLedger,
+      searchArchitecture,
+      appShellReadme,
+      dbHostEntry,
+      hybridSearchService,
+    ] = await Promise.all([
       readFile(qualityReportPath, 'utf8'),
       readFile(migrationLedgerPath, 'utf8'),
       readFile(searchArchitecturePath, 'utf8'),
+      readFile(appShellReadmePath, 'utf8'),
+      readFile(dbHostEntryPath, 'utf8'),
+      readFile(hybridSearchServicePath, 'utf8'),
     ]);
 
     expect(qualityReport).toContain('precision@5 = 0.400');
     expect(qualityReport).toContain('recall@5 = 1.000');
     expect(qualityReport).toContain('chunk-near-stem');
+    expect(migrationLedger).toContain('#1456 `Profile Turso lexical search quality`');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
+    expect(migrationLedger).toContain('quick-open filename lookup uses `file_record_name_grams`');
+    expect(migrationLedger).not.toContain('In-flight slice on this branch');
+    expect(migrationLedger).not.toContain('through #1455 at `cb9ab61ce`');
+    expect(migrationLedger).not.toContain(
+      'grep, quick-open, DB Explorer search, and hybrid lexical search use'
+    );
     expect(searchArchitecture).toContain('Split native FTS/search-index ownership is triggered');
+    expect(searchArchitecture).toContain(
+      'Quick-open filename search is a separate name-gram sidecar path'
+    );
+    expect(appShellReadme).toContain('runtime-backed thread and run-record persistence');
+    expect(appShellReadme).not.toContain('PGlite-backed thread and run-record persistence');
+    expect(dbHostEntry).toContain('The DB host dispatches one request at a time');
+    expect(dbHostEntry).not.toContain('PGlite runs through a single connection in this host');
+    expect(hybridSearchService).toContain('Drizzle, Electron, PGlite, Turso');
   });
 });
 
