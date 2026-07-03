@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-search-quality-profile`,
+Last updated: 2026-07-03 on `codex/turso-final-runtime-audit`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,9 +10,12 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1455 at `cb9ab61ce`. This PR branch adds a primary-store gram lexical
-search-quality characterization layer on top of the Mastra vector exact-scan and
-sustained queue-profile proofs.
+through #1456 at `665e6fac9`. This branch reconciles the post-#1456 ledger and
+stale runtime wording after the primary-store gram lexical search-quality
+profile merged. It also fixes the enhanced manual import Turso SQL dialect leak
+found during the final runtime audit: `runEnhancedImport` now emits
+SQLite/Turso `?` placeholders for Turso metadata and embedding-set SQL while
+retaining the existing PGlite/PostgreSQL-shaped statements for PGlite.
 
 Merged slices:
 
@@ -160,17 +163,17 @@ Merged slices:
 - #1453 `Prove Turso queue topology`
 - #1454 `Prove sustained Turso queue profiling`
 - #1455 `Add Turso Mastra vector profile benchmark`
+- #1456 `Profile Turso lexical search quality`
 
-In-flight slice on this branch:
-
-- Add a real-engine primary-store gram lexical search-quality profile for the
-  current Turso repository path. The profile seeds a tiny code-search corpus into
-  a real Turso owner client, verifies exact query relevance metrics, proves real
-  hybrid search still uses the repository lexical source, checks query-plan
-  evidence for gram sidecars, and writes the durable report
-  `docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md`.
-  It deliberately characterizes the current non-FTS gram path rather than adding
-  a split native Tantivy search-index store.
+Recently completed lexical-quality profile slice: #1456 added a real-engine
+primary-store gram lexical search-quality profile for the current Turso
+repository path. The profile seeds a tiny code-search corpus into a real Turso
+owner client, verifies exact query relevance metrics, proves real hybrid search
+still uses the repository lexical source, checks query-plan evidence for gram
+sidecars, and writes the durable report
+`docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md`.
+It deliberately characterizes the current non-FTS gram path rather than adding a
+split native Tantivy search-index store.
 
 Recently completed Mastra vector profile slice: #1455 added the real-engine
 Mastra Turso vector exact-scan benchmark harness and CLI:
@@ -206,7 +209,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1455 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1456 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -214,13 +217,18 @@ retirement should stay out of the remaining backlog except where the ledger
 names a narrower follow-up. Queue profiling now has owner QoS
 labels/priorities for hidden worker paths plus a desktop diagnostics verdict
 surface for foreground/background evidence, and the sustained hidden-worker
-profile proof is merged. This branch also adds exact-scan Mastra vector-memory
+profile proof is merged. #1455 also adds exact-scan Mastra vector-memory
 characterization: 5,000 rows x 384 dimensions, 12 measured queries, exact top-K
 match 12/12, recall@K 1.000, query p95 30.411 ms, with query-plan evidence in
 `docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
-This branch adds lexical search-quality characterization on top of that state.
+#1456 adds lexical search-quality characterization on top of that state:
+precision@5 0.400, recall@5 1.000 for the tiny seeded corpus, plus query-plan
+evidence that gram sidecars supply the lexical candidate source.
 The verified remaining backlog is now:
 
+- desktop default-runtime cutover: `BRAINSTRIKE_DB_RUNTIME` unset still resolves
+  to PGlite on desktop, so Turso is opt-in rather than the default desktop
+  runtime;
 - product search-quality decision for primary-store gram lexical search versus
   a split native Tantivy search-index owner;
 - explicit reset targets only if future Turso sync or split-search stores live
@@ -719,9 +727,11 @@ Remaining search decisions:
 
 Brainstrike's current Turso lexical path remains primary-store gram search, not
 native Tantivy FTS. The primary Turso store is the durable MVCC application
-store; grep, quick-open, DB Explorer search, and hybrid lexical search use
-generated gram sidecars plus exact normalized-content checks, gated by
-`search.grep-content-grams`.
+store. Grep, DB Explorer content search, and hybrid lexical search use generated
+content gram sidecars plus exact normalized-content checks, gated by
+`search.grep-content-grams`; quick-open filename lookup uses `file_record_name_grams`
+and `file_record_name_index` through the file-record repository's indexed
+name-substring capability; it is not gated by the content grep capability.
 
 Current Turso docs document a real Tantivy FTS surface: `CREATE INDEX ... USING
 fts`, `fts_match`, `fts_score`, `fts_highlight`, per-column tokenizers including

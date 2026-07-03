@@ -268,6 +268,14 @@ function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgr
   };
 }
 
+function sqlPlaceholder(sql: SqlExecutorPort, index: number): string {
+  return sql.runtimeEngine === 'turso' ? '?' : `$${index}`;
+}
+
+function sqlPlaceholders(sql: SqlExecutorPort, count: number): string {
+  return Array.from({ length: count }, (_, index) => sqlPlaceholder(sql, index + 1)).join(', ');
+}
+
 async function resolveModelKeyFromTargetSet(
   targetSetId: string,
   sql: SqlExecutorPort | null | undefined
@@ -283,7 +291,7 @@ async function resolveModelKeyFromTargetSet(
 
   try {
     const result = await sql.query<{ modelKey: string }>(
-      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+      `SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = ${sqlPlaceholder(sql, 1)} LIMIT 1`,
       [targetSetId]
     );
     const fetchedModelKey = result.rows[0]?.modelKey;
@@ -356,7 +364,7 @@ async function resolveTargetEmbeddingSetMetadata(
       distance?: string;
       modelKey?: string;
     }>(
-      'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+      `SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = ${sqlPlaceholder(sql, 1)} LIMIT 1`,
       [targetSetId]
     );
     const row = result.rows[0];
@@ -469,7 +477,7 @@ async function resolvePreferredSet(
       distance?: string;
       modelKey?: string;
     }>(
-      'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+      `SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = ${sqlPlaceholder(sql, 1)} LIMIT 1`,
       [preferredId]
     );
     const row = result.rows[0];
@@ -519,9 +527,9 @@ async function findMatchingSet(
   modelId: string
 ): Promise<string | undefined> {
   const candidates = getModelKeyVariants(modelKey, provider, modelId);
-  const placeholders = candidates.map((_, idx) => `$${idx + 1}`).join(', ');
-  const dimensionParam = `$${candidates.length + 1}`;
-  const distanceParam = `$${candidates.length + 2}`;
+  const placeholders = sqlPlaceholders(sql, candidates.length);
+  const dimensionParam = sqlPlaceholder(sql, candidates.length + 1);
+  const distanceParam = sqlPlaceholder(sql, candidates.length + 2);
   const query = `
     SELECT s.id,
            s.model_key AS "modelKey",
@@ -545,7 +553,10 @@ async function findMatchingSet(
       return;
     }
     if (row.modelKey !== modelKey) {
-      await sql.query('UPDATE embedding_sets SET model_key = $1 WHERE id = $2', [modelKey, row.id]);
+      await sql.query(
+        `UPDATE embedding_sets SET model_key = ${sqlPlaceholder(sql, 1)} WHERE id = ${sqlPlaceholder(sql, 2)}`,
+        [modelKey, row.id]
+      );
     }
     return String(row.id);
   } catch (error) {
@@ -566,9 +577,17 @@ async function insertEmbeddingSet(
 ): Promise<string> {
   const newId = generateUUID();
   const { modelKey, modelId, dimensions, distance } = params;
+  if (sql.runtimeEngine === 'turso') {
+    await sql.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES (${sqlPlaceholders(sql, 6)})`,
+      [newId, modelKey, modelId, dimensions, distance, new Date().toISOString()]
+    );
+    return newId;
+  }
   const insert = await sql.query<{ id: string }>(
     `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES (${sqlPlaceholders(sql, 6)})
        ON CONFLICT (model_key, dimensions, distance)
        DO UPDATE SET model_id = EXCLUDED.model_id
        RETURNING id`,
@@ -628,8 +647,9 @@ async function resolveEnabledEmbeddingModel(
   }
 
   if (config.model && resolved.targetSetId && ports?.sql) {
+    const sql = ports.sql;
     const preferredRow = await ports.sql.query<{ modelKey?: string }>(
-      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+      `SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = ${sqlPlaceholder(sql, 1)} LIMIT 1`,
       [resolved.targetSetId]
     );
     const preferredKey = preferredRow.rows[0]?.modelKey;
@@ -830,7 +850,7 @@ async function resolveLocalModelEntry(
   }
 
   const result = await sql.query<DbModelRow>(
-    'SELECT id, provider_id AS "providerId", capabilities FROM models WHERE id = $1 LIMIT 1',
+    `SELECT id, provider_id AS "providerId", capabilities FROM models WHERE id = ${sqlPlaceholder(sql, 1)} LIMIT 1`,
     [modelId]
   );
   const row = result.rows[0];

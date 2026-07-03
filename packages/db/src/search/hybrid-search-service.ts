@@ -20,7 +20,7 @@ import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } 
 /**
  * Minimal interface for repositories that support hybrid search.
  * Defines only the methods required by HybridSearchService, allowing
- * any repository implementation (Drizzle, Electron, PGlite) to be used.
+ * any repository implementation (Drizzle, Electron, PGlite, Turso) to be used.
  */
 export interface HybridSearchRepository {
   /** Full-text keyword search */

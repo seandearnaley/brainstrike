@@ -59,8 +59,11 @@ ready Turso report:
 Desktop assistant grep and semantic vector retrieval are routed through those
 proofs. Hybrid retrieval can use the repository lexical source backed by
 `file_chunk_content_grams` and `file_chunk_content_index`, which satisfies the
-"Turso-compatible non-FTS search implementation" ownership path above. Do not
-route native Tantivy FTS through the primary MVCC store until a split
+"Turso-compatible non-FTS search implementation" ownership path above.
+Quick-open filename search is a separate name-gram sidecar path backed by
+`file_record_name_grams` and `file_record_name_index`, not by
+`search.grep-content-grams`. Do not route native Tantivy FTS through the primary
+MVCC store until a split
 search-index owner or a future MVCC-compatible Turso FTS runtime is proven.
 
 ## Split Native FTS Trigger

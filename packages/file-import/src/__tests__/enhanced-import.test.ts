@@ -1,3 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createTursoOwnerClient } from '@brainstrike/db/turso/owner-client';
+import { applyTursoSchemaBaseline } from '@brainstrike/db/turso/schema-baseline';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseImportRunner,
@@ -15,6 +20,18 @@ const { resolveHostedProviderApiKeyMock } = vi.hoisted(() => ({
 vi.mock('@brainstrike/embeddings', () => ({
   resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
 }));
+
+const FORBIDDEN_TURSO_SQL =
+  /\$\d+|::|\bANY\s*\(|\bILIKE\b|\bjsonb\b|\btimestamptz\b|\bDISTINCT\s+ON\b|\bNULLS\s+(?:FIRST|LAST)\b|\bIS\s+DISTINCT\s+FROM\b/iu;
+
+function expectTursoSql(sql: string, params?: unknown[]): void {
+  expect(sql).not.toMatch(FORBIDDEN_TURSO_SQL);
+  if ((params?.length ?? 0) > 0) {
+    expect(sql).toContain('?');
+    expect(sql.match(/\?/gu)?.length ?? 0).toBe(params?.length);
+    expect(params?.some(Array.isArray)).toBe(false);
+  }
+}
 
 function createBaseRunner(
   results: EnhancedImportResult[],
@@ -1715,6 +1732,325 @@ describe('runEnhancedImport', () => {
       })
     );
     expect(queuePort.enqueueBatch).not.toHaveBeenCalled();
+  });
+
+  it('uses SQLite placeholders when Turso resolves selected hosted collection metadata', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const onResolvedTargetSetId = vi.fn();
+    const statements: string[] = [];
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string, params?: unknown[]) => {
+      statements.push(sql);
+      expectTursoSql(sql, params);
+      if (sql.includes('FROM embedding_sets WHERE id = ?')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'hosted-turso-set',
+              modelKey: 'openai::text-embedding-3-large',
+              dimensions: 1536,
+              distance: 'cosine',
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const chunk = {
+      id: 'chunk-turso-hosted',
+      fileRecordId: '1',
+      content: 'hosted turso content',
+      contentHash: 'hash-turso-hosted',
+    } as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        service: null,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'hosted-turso-set',
+        onResolvedTargetSetId,
+      },
+      ports: {
+        sql: {
+          query: sqlPortQuery,
+          runtimeEngine: 'turso',
+          insertChunksAndEnqueueEmbeddingJobs,
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(statements).toEqual(
+      expect.arrayContaining([expect.stringContaining('FROM embedding_sets WHERE id = ?')])
+    );
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [chunk],
+      '1',
+      expect.objectContaining({
+        model: 'openai::text-embedding-3-large',
+        targetEmbeddingSetId: 'hosted-turso-set',
+        provider: 'openai',
+        targetDimension: 1536,
+      })
+    );
+    expect(onResolvedTargetSetId).toHaveBeenCalledWith('hosted-turso-set');
+  });
+
+  it('uses SQLite placeholders when Turso creates a local embedding set for chunk enqueue', async () => {
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+    const onResolvedTargetSetId = vi.fn();
+    const statements: string[] = [];
+    let insertedEmbeddingSetId: string | undefined;
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string, params?: unknown[]) => {
+      statements.push(sql);
+      expectTursoSql(sql, params);
+      if (sql.includes('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = ?')) {
+        return Promise.resolve({ rows: [{ modelKey: 'local::turso-created-model' }] });
+      }
+      if (sql.includes('SELECT id, provider_id AS "providerId", capabilities FROM models')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'turso-created-model',
+              providerId: 'transformers',
+              capabilities: { type: 'embedding', defaultDimension: 384 },
+            },
+          ],
+        });
+      }
+      if (
+        sql.includes(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = ?'
+        )
+      ) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        expect(sql).not.toMatch(/\bON\s+CONFLICT\b/iu);
+        insertedEmbeddingSetId = String(params?.[0]);
+        return Promise.resolve({ rows: [] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const chunk = {
+      id: 'chunk-turso-local',
+      fileRecordId: '1',
+      content: 'local turso content',
+      contentHash: 'hash-turso-local',
+    } as never;
+    const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+      await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+      return [
+        {
+          id: '1',
+          imported: true,
+          existed: false,
+          chunksCreated: 1,
+        } satisfies EnhancedImportResult,
+      ];
+    });
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'local::turso-created-model',
+        service: null,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'preferred-turso-create-set',
+        onResolvedTargetSetId,
+      },
+      ports: {
+        sql: {
+          query: sqlPortQuery,
+          runtimeEngine: 'turso',
+          insertChunksAndEnqueueEmbeddingJobs,
+        },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(statements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('FROM models WHERE id = ?'),
+        expect.stringContaining('model_key IN (?, ?, ?, ?)'),
+        expect.stringContaining('VALUES (?, ?, ?, ?, ?, ?)'),
+      ])
+    );
+    expect(insertedEmbeddingSetId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+    );
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [chunk],
+      '1',
+      expect.objectContaining({
+        model: 'local::turso-created-model',
+        targetEmbeddingSetId: insertedEmbeddingSetId,
+        provider: 'local',
+        targetDimension: 384,
+      })
+    );
+    expect(onResolvedTargetSetId).toHaveBeenCalledWith(insertedEmbeddingSetId);
+  });
+
+  it('creates a local embedding set against the real Turso schema baseline', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-enhanced-import-turso-'));
+    const client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+    try {
+      await applyTursoSchemaBaseline(client);
+      await client.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+        [
+          'real-turso-preferred-set',
+          'local::Xenova/all-MiniLM-L6-v2',
+          'Xenova/all-MiniLM-L6-v2',
+          1024,
+          'cosine',
+        ]
+      );
+      const insertChunksAndEnqueueEmbeddingJobs = vi.fn().mockResolvedValue(undefined);
+      const onResolvedTargetSetId = vi.fn();
+      const chunk = {
+        id: 'chunk-real-turso-local',
+        fileRecordId: '1',
+        content: 'real turso content',
+        contentHash: 'hash-real-turso-local',
+      } as never;
+      const chunkingImpl = vi.fn().mockImplementation(async (_results, _deps, options) => {
+        await options.insertChunksAndEnqueueEmbeddingJobs?.([chunk], '1');
+        return [
+          {
+            id: '1',
+            imported: true,
+            existed: false,
+            chunksCreated: 1,
+          } satisfies EnhancedImportResult,
+        ];
+      });
+      const sqlPort: SqlExecutorPort & {
+        insertChunksAndEnqueueEmbeddingJobs: typeof insertChunksAndEnqueueEmbeddingJobs;
+      } = {
+        insertChunksAndEnqueueEmbeddingJobs,
+        query: async <TRecord = unknown>(sql: string, params?: unknown[]) => {
+          const result = await client.query<TRecord>(sql, params);
+          return { rows: [...result.rows] };
+        },
+        runtimeEngine: 'turso',
+      };
+
+      await runEnhancedImport({
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: createBaseRunner([
+          { id: '1', imported: true, existed: false, chunksCreated: 1 },
+        ]),
+        chunking: {
+          enabled: true,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        embedding: {
+          enabled: true,
+          model: 'local::Xenova/all-MiniLM-L6-v2',
+          service: null,
+          chunkRepository: {} as never,
+          resolveTargetEmbeddingSetId: () => 'real-turso-preferred-set',
+          onResolvedTargetSetId,
+        },
+        ports: {
+          sql: sqlPort,
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+        processChunkingImpl: chunkingImpl,
+      });
+
+      const resolvedSetId = onResolvedTargetSetId.mock.calls[0]?.[0];
+      expect(resolvedSetId).toEqual(expect.any(String));
+      expect(resolvedSetId).not.toBe('real-turso-preferred-set');
+      expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+        [chunk],
+        '1',
+        expect.objectContaining({
+          model: 'local::Xenova/all-MiniLM-L6-v2',
+          provider: 'local',
+          targetDimension: 384,
+          targetEmbeddingSetId: resolvedSetId,
+        })
+      );
+      await expect(
+        client.query<{
+          dimensions: number;
+          distance: string;
+          model_id: string;
+          model_key: string;
+        }>(
+          `SELECT model_key, model_id, dimensions, distance
+             FROM embedding_sets
+            WHERE id = ?`,
+          [resolvedSetId]
+        )
+      ).resolves.toEqual({
+        rows: [
+          {
+            dimensions: 384,
+            distance: 'cosine',
+            model_id: 'Xenova/all-MiniLM-L6-v2',
+            model_key: 'local::Xenova/all-MiniLM-L6-v2',
+          },
+        ],
+      });
+    } finally {
+      await client.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
   });
 
   it('uses desktop atomic chunk/job enqueue when no callback queue port is available', async () => {
