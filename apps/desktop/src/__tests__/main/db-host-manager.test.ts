@@ -11,6 +11,10 @@ interface PostedMessage {
     readonly payload?: unknown;
     readonly sql?: string;
     readonly transactionId?: string;
+    readonly workOptions?: {
+      readonly label?: string;
+      readonly priority?: 'background' | 'foreground' | 'normal';
+    };
   };
 }
 
@@ -523,6 +527,54 @@ describe('DbHostManager', () => {
       dataDir: '/mock/pgdata',
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards work options on remote query and exec requests for Turso QoS profiling', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    const initMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(initMessage as PostedMessage, {
+      bootstrapReport: {
+        ...createReadyTursoBootstrapReport(),
+        runtime: {
+          engine: 'turso',
+          host: 'electron-utility',
+          persistence: 'filesystem',
+        },
+      },
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
+    const database = await databasePromise;
+
+    const queryPromise = database.query('SELECT * FROM file_records WHERE id = ?', ['file-1'], {
+      label: 'assistant foreground query',
+      priority: 'foreground',
+    });
+    const queryMessage = latestProcess().messages.at(-1);
+    expect(queryMessage?.request).toMatchObject({
+      kind: 'query',
+      params: ['file-1'],
+      sql: 'SELECT * FROM file_records WHERE id = ?',
+      workOptions: { label: 'assistant foreground query', priority: 'foreground' },
+    });
+    latestProcess().reply(queryMessage as PostedMessage, { rows: [] });
+    await expect(queryPromise).resolves.toEqual({ rows: [] });
+
+    const execPromise = database.exec('DELETE FROM file_records WHERE id = ?', ['file-1'], {
+      label: 'foreground delete',
+      priority: 'foreground',
+    });
+    const execMessage = latestProcess().messages.at(-1);
+    expect(execMessage?.request).toMatchObject({
+      kind: 'exec',
+      params: ['file-1'],
+      sql: 'DELETE FROM file_records WHERE id = ?',
+      workOptions: { label: 'foreground delete', priority: 'foreground' },
+    });
+    latestProcess().reply(execMessage as PostedMessage, undefined);
+    await expect(execPromise).resolves.toBeUndefined();
   });
 
   it('closes and clears the default utility DB host manager singleton', async () => {

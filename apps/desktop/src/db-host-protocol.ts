@@ -13,8 +13,18 @@ export interface DbHostQueryResult<TRecord = unknown> {
 
 export type DbHostRequest =
   | { readonly kind: 'init' }
-  | { readonly kind: 'query'; readonly sql: string; readonly params?: readonly unknown[] }
-  | { readonly kind: 'exec'; readonly sql: string; readonly params?: readonly unknown[] }
+  | {
+      readonly kind: 'query';
+      readonly sql: string;
+      readonly params?: readonly unknown[];
+      readonly workOptions?: DatabaseWorkOptions;
+    }
+  | {
+      readonly kind: 'exec';
+      readonly sql: string;
+      readonly params?: readonly unknown[];
+      readonly workOptions?: DatabaseWorkOptions;
+    }
   | {
       readonly kind: 'maintenance:exec';
       readonly sql: string;

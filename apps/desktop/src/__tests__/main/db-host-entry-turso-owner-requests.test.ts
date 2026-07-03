@@ -416,4 +416,76 @@ describe('db-host-entry Turso owner requests', () => {
       await rm(tempDir, { force: true, recursive: true });
     }
   });
+
+  it('reports foreground-labeled generic query work in Turso owner QoS while background owner work is active', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-turso-owner-qos-query-'));
+    let client: TursoOwnerClient | undefined;
+    let releaseBackground: (() => void) | null = null;
+    try {
+      client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+      await applyTursoSchemaBaseline(client);
+      dbMainMocks.getDatabase.mockResolvedValue(client);
+      const backgroundEntered = new Promise<void>((resolve) => {
+        const background = client?.transaction(
+          async () => {
+            resolve();
+            await new Promise<void>((release) => {
+              releaseBackground = release;
+            });
+          },
+          {
+            label: 'turso.embedding-worker.queue.complete',
+            priority: 'background',
+          }
+        );
+        background?.catch(() => undefined);
+      });
+      await backgroundEntered;
+      const { listeners, parentPort } = installParentPortMock();
+      await import('../../db-host-entry');
+
+      sendRequest(listeners[0], 'foreground-query', {
+        kind: 'query',
+        params: [1],
+        sql: 'SELECT ? AS value',
+        workOptions: {
+          label: 'assistant foreground query',
+          priority: 'foreground',
+        },
+      });
+
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const foregroundOperation = client
+          .getQoSDiagnostics()
+          .queuedOperations.find((operation) => operation.label === 'assistant foreground query');
+        if (foregroundOperation) {
+          expect(foregroundOperation).toMatchObject({
+            kind: 'query',
+            priority: 'foreground',
+          });
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(
+        client
+          .getQoSDiagnostics()
+          .queuedOperations.some(
+            (operation) =>
+              operation.label === 'assistant foreground query' &&
+              operation.priority === 'foreground'
+          )
+      ).toBe(true);
+
+      releaseBackground?.();
+      await expect(waitForResponse(parentPort, 'foreground-query')).resolves.toMatchObject({
+        ok: true,
+        result: { rows: [{ value: 1 }] },
+      });
+    } finally {
+      releaseBackground?.();
+      await client?.close();
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
 });

@@ -270,14 +270,15 @@ describe('database IPC handlers', () => {
   it('db:query accepts database work options as the second argument when params are omitted', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
-    mockDb.query.mockResolvedValue(rows);
-
-    const result = await handler?.({} as unknown, 'SELECT 1', {
+    const workOptions = {
       label: 'collection page',
       priority: 'foreground',
-    });
+    };
+    mockDb.query.mockResolvedValue(rows);
 
-    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
+    const result = await handler?.({} as unknown, 'SELECT 1', workOptions);
+
+    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1', undefined, workOptions);
     expect(result).toBe(rows);
   });
 

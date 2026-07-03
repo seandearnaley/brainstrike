@@ -71,6 +71,9 @@ interface QueryableDatabaseContext {
   readonly engine: 'pglite' | 'turso';
 }
 
+type DbHostQueryWorkOptions = Extract<DbHostRequest, { kind: 'query' }>['workOptions'];
+type DbHostExecWorkOptions = Extract<DbHostRequest, { kind: 'exec' }>['workOptions'];
+
 interface LiveQueryHandle {
   readonly initialResults: DbHostQueryResult;
   readonly refresh: (options?: {
@@ -397,12 +400,37 @@ function requireParamsArray(params: unknown, context: string): readonly unknown[
 async function execSql(
   db: QueryableDatabase,
   sql: string,
-  params?: readonly unknown[]
+  params?: readonly unknown[],
+  workOptions?: DbHostExecWorkOptions
 ): Promise<unknown> {
   if (typeof db.exec === 'function') {
-    return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
+    if (params === undefined && workOptions === undefined) {
+      return await db.exec(sql);
+    }
+    return params === undefined
+      ? await db.exec(sql, undefined, workOptions)
+      : await db.exec(sql, params, workOptions);
   }
-  return params === undefined ? await db.query(sql) : await db.query(sql, params);
+  if (params === undefined && workOptions === undefined) {
+    return await db.query(sql);
+  }
+  return params === undefined
+    ? await db.query(sql, undefined, workOptions)
+    : await db.query(sql, params, workOptions);
+}
+
+async function querySql<TRecord>(
+  db: QueryableDatabase,
+  sql: string,
+  params?: readonly unknown[],
+  workOptions?: DbHostQueryWorkOptions
+): Promise<unknown> {
+  if (params === undefined && workOptions === undefined) {
+    return await db.query<TRecord>(sql);
+  }
+  return params === undefined
+    ? await db.query<TRecord>(sql, undefined, workOptions)
+    : await db.query<TRecord>(sql, params, workOptions);
 }
 
 function throwUnknownRequestKind(request: never): never {
@@ -684,13 +712,16 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
     case 'query': {
       const db = await getQueryableDatabase();
       const params = requireParamsArray(request.params, 'query');
-      return params === undefined
-        ? await db.query(request.sql)
-        : await db.query(request.sql, params);
+      return await querySql(db, request.sql, params, request.workOptions);
     }
     case 'exec': {
       const db = await getQueryableDatabase();
-      return await execSql(db, request.sql, requireParamsArray(request.params, 'exec'));
+      return await execSql(
+        db,
+        request.sql,
+        requireParamsArray(request.params, 'exec'),
+        request.workOptions
+      );
     }
     case 'maintenance:exec': {
       const db = await getQueryableDatabase();

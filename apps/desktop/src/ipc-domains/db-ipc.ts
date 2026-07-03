@@ -432,7 +432,15 @@ export function registerDatabaseIpcHandlers(
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
-          return params === undefined ? await db.query(sql) : await db.query(sql, params);
+          if (params === undefined && workOptions === undefined) {
+            return await db.query(sql);
+          }
+          if (workOptions === undefined) {
+            return await db.query(sql, params);
+          }
+          return params === undefined
+            ? await db.query(sql, undefined, workOptions)
+            : await db.query(sql, params, workOptions);
         }, 'db:query')
       );
     }
@@ -457,7 +465,15 @@ export function registerDatabaseIpcHandlers(
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
-          return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
+          if (params === undefined && workOptions === undefined) {
+            return await db.exec(sql);
+          }
+          if (workOptions === undefined) {
+            return await db.exec(sql, params);
+          }
+          return params === undefined
+            ? await db.exec(sql, undefined, workOptions)
+            : await db.exec(sql, params, workOptions);
         }, 'db:exec')
       );
     }
