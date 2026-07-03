@@ -240,10 +240,13 @@ export function createTursoQueueProfileDiagnostics({
     return unavailable('owner-diagnostics-malformed', thresholdMs);
   }
   if (!ownerQoS?.available) {
+    const ownerReason = ownerQoS?.reason;
     return unavailable(
-      ownerQoS?.reason === 'diagnostics-unsupported'
+      ownerReason === 'diagnostics-unsupported'
         ? 'owner-diagnostics-unsupported'
-        : 'owner-client-not-open',
+        : ownerReason === 'runtime-not-turso'
+          ? 'runtime-not-turso'
+          : 'owner-client-not-open',
       thresholdMs
     );
   }

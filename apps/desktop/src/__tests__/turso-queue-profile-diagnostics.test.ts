@@ -252,6 +252,29 @@ describe('createTursoQueueProfileDiagnostics', () => {
     });
   });
 
+  it('preserves a runtime-not-turso owner QoS unavailable reason under a Turso bootstrap report', () => {
+    const diagnostics = createTursoQueueProfileDiagnostics({
+      databaseDiagnostics: {
+        profileBootstrapReport: {
+          runtime: { engine: 'turso' },
+        },
+        tursoOwnerClientQoS: { available: false, reason: 'runtime-not-turso' },
+      },
+      scheduler: schedulerSnapshot({
+        priorityStats: {
+          background: priorityStats({ completed: 1, started: 1 }),
+          foreground: priorityStats({ completed: 1, started: 1 }),
+          normal: priorityStats(),
+        },
+      }),
+    });
+
+    expect(diagnostics).toMatchObject({
+      reason: 'runtime-not-turso',
+      status: 'unavailable',
+    });
+  });
+
   it('stays unavailable when runtime diagnostics are not Turso owner diagnostics', () => {
     const diagnostics = createTursoQueueProfileDiagnostics({
       databaseDiagnostics: {
