@@ -421,11 +421,16 @@ Known production touchpoints:
 
 - `packages/db-explorer/src/database-demo-panel.tsx`
 - `packages/db-explorer/src/use-database-demo-data.ts`
+- `packages/db-explorer/src/hooks/use-document-count.ts`
+- `packages/db-explorer/src/hooks/use-file-collection-status.ts`
+- `packages/db-explorer/src/hooks/use-collection-embedding-coverage.ts`
 - `packages/preferences/src/settings/tools/unified-tools-settings.tsx`
 - `packages/app-shell/src/use-quick-open-files.ts`
 - `packages/app-shell/src/use-file-mentions.ts`
 - `packages/app-shell/src/cost-tracking/use-cross-root-cost.ts`
 - `packages/app-shell/src/use-om-segment-row.ts`
+- `packages/vector-management/src/collection-select/collection-select.tsx`
+- `packages/vector-management/src/vector-status/use-vector-queue-state.ts`
 
 Completed UI snapshot slices now cover selected collection browsing, indexed
 chunk count, requested file status lookups, collection embedding coverage banner
@@ -456,6 +461,12 @@ real assistant stream (`Observations updated`, `Buffered observations updated`,
 or `Buffered observations activated`) and derives the active thread/resource
 lookup key. The hooks still keep PGlite on live queries and Turso on event-driven
 repository/SQLite snapshots; no polling or live-query fallback is introduced.
+
+Latest live-query sweep (2026-07-03): production `useBrainstrikeLiveQuery`
+references under `apps/` and `packages/` are either the package-owned live-query
+implementation/tests, PGlite-only live query paths paired with Turso repository
+snapshot readers, or explicit fail-closed capability gates. No additional
+unmapped production live-query consumer was found in this pass.
 
 ### 3. Background Indexing And Embedding Host
 
