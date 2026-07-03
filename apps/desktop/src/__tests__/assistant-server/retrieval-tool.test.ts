@@ -798,6 +798,11 @@ describe('retrieval-tool', () => {
         tool.execute({
           context: { query: 'hello', embeddingSetId: 'set-1' },
         })
+      ).rejects.toThrow('Unable to retrieve context right now. Try again.');
+      await expect(
+        tool.execute({
+          context: { query: 'hello', embeddingSetId: 'set-1' },
+        })
       ).rejects.not.toThrow('/private/workspace');
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
