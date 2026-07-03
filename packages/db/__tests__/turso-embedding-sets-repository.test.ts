@@ -55,6 +55,25 @@ function createSqlTrackingClient(delegate: TursoOwnerClient): {
   };
 }
 
+function createMissingModelsTableClient(delegate: TursoOwnerClient): BrainstrikeDbExecutionClient {
+  return {
+    exec: (sql, params, options) => delegate.exec(sql, params, options),
+    query: async <TRecord = unknown>(
+      sql: string,
+      params?: readonly unknown[],
+      options?: BrainstrikeDbWorkOptions
+    ) => {
+      if (/\bFROM\s+models\b/i.test(sql)) {
+        const error = new Error('SQLITE_ERROR: no such table: models');
+        Object.assign(error, { code: 'SQLITE_ERROR' });
+        throw error;
+      }
+      return delegate.query<TRecord>(sql, params, options);
+    },
+    transaction: (callback, options) => delegate.transaction(callback, options),
+  };
+}
+
 function findPostgresOnlySql(statements: readonly string[]): string[] {
   return statements.filter(
     (statement) =>
@@ -342,6 +361,24 @@ describe('TursoEmbeddingSetsRepository', () => {
     });
 
     expect(findPostgresOnlySql(tracked.statements)).toEqual([]);
+  });
+
+  it('treats SQLite missing models table errors like the existing metadata fallback', async () => {
+    const missingModelsRepository = new TursoEmbeddingSetsRepository(
+      createMissingModelsTableClient(client)
+    );
+
+    await expect(
+      missingModelsRepository.getOrCreateSet(
+        'unregistered-model-key',
+        'unregistered-model-id',
+        32,
+        'cosine'
+      )
+    ).resolves.toMatchObject({
+      modelKey: 'unregistered-model-key',
+      modelId: 'unregistered-model-id',
+    });
   });
 
   it('deletes chunks associated with the set while clearing file record embedding metadata', async () => {

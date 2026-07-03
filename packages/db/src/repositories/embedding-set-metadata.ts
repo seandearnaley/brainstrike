@@ -45,7 +45,14 @@ function isMissingModelsTableError(error: unknown): boolean {
   if (!(typeof error === 'object' && error !== null && 'code' in error)) {
     return false;
   }
-  return error.code === '42P01';
+  if (error.code === '42P01') {
+    return true;
+  }
+  if (error.code !== 'SQLITE_ERROR') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : '';
+  return /\bno such table:\s*models\b/i.test(message);
 }
 
 async function findRegistryCandidatesById(
