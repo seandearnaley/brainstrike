@@ -114,6 +114,7 @@
   "private": true,
   "scripts": {
     "build": "tsup",
+    "bench:turso-vector-memory": "pnpm run build && node dist/turso-mastra-memory/vector-exact-scan-benchmark-cli.mjs",
     "clean": "rimraf dist",
     "dev": "tsup --watch",
     "lint": "pnpm -w lint",

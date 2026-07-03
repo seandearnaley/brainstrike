@@ -18,6 +18,7 @@ export default defineConfig((_options) => ({
     'src/pglite-mastra-memory/schema.ts',
     'src/turso-mastra-memory/index.ts',
     'src/turso-mastra-memory/schema.ts',
+    'src/turso-mastra-memory/vector-exact-scan-benchmark-cli.ts',
   ],
   format: ['esm', 'cjs'],
   dts: {
@@ -36,6 +37,7 @@ export default defineConfig((_options) => ({
       'src/pglite-mastra-memory/schema.ts',
       'src/turso-mastra-memory/index.ts',
       'src/turso-mastra-memory/schema.ts',
+      'src/turso-mastra-memory/vector-exact-scan-benchmark-cli.ts',
     ],
     compilerOptions: {
       composite: false,
@@ -60,5 +62,6 @@ export default defineConfig((_options) => ({
     '@mastra/core',
     '@mastra/mcp',
     '@mastra/memory',
+    '@tursodatabase/database',
   ],
 }));
