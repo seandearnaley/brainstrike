@@ -2,7 +2,7 @@
  * useTokenCache React Hook
  *
  * Provides a React-friendly API for the persistent token cache.
- * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
+ * Manages hot cache (in-memory) and cold cache (persistent store) with background worker.
  */
 
 import {

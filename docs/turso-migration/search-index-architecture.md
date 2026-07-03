@@ -41,7 +41,7 @@ Do not silently replace indexed search with an unbounded scan. If a search index
   and vector sources as repository-provided inputs; keep this shape, but Turso
   repositories must be explicit about whether they provide primary-store lexical
   scoring or native Tantivy FTS ranking/snippets.
-- `packages/db/src/search/grep-search-service.ts`: current PGlite path relies on trigram candidate prefilter plus authoritative JavaScript matching. Turso must provide an indexed candidate source or expose bounded scan limits explicitly.
+- `packages/db/src/search/grep-search-service.ts`: current PGlite path relies on trigram candidate prefilter plus authoritative JavaScript matching. Turso now provides gram-backed bounded candidate sources; keep them bootstrap-gated and continue surfacing bounded scan limits explicitly.
 - `packages/db/src/repositories/drizzle/*`: current repositories are Postgres/PGlite Drizzle shaped. Turso will need dialect-specific repositories rather than SQL string compatibility.
 - `packages/db/src/drizzle/migrate.ts`: current migration runner is PGlite/Postgres specific. Turso migration work should add a separate migration ledger instead of forcing existing generated SQL through libSQL.
 - `apps/desktop/src/db-main.ts`: desktop remains the likely owner for filesystem Turso runtime and bootstrap reporting.

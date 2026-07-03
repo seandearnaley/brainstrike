@@ -437,8 +437,8 @@ function assertUsageTokenCount(value: number, fieldName: string): void {
 }
 
 /**
- * Coerce a SUM() aggregate (PGlite returns ::bigint as a string) into a
- * non-negative integer, throwing if the DB hands back something unparseable.
+ * Coerce a SUM() aggregate into a non-negative integer. Some runtimes return
+ * aggregate counts as strings.
  */
 function requireNonNegativeInteger(value: unknown, fieldName: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);

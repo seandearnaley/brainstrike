@@ -27,7 +27,37 @@ const qualityReportPath = join(
 const migrationLedgerPath = join(repoRoot, 'docs/turso-migration/migration-ledger.md');
 const searchArchitecturePath = join(repoRoot, 'docs/turso-migration/search-index-architecture.md');
 const appShellReadmePath = join(repoRoot, 'packages/app-shell/README.md');
+const assistantMemoryRepositoryPath = join(
+  repoRoot,
+  'packages/app-shell/src/assistant-memory-repository.ts'
+);
+const assistantOmSegmentPath = join(repoRoot, 'packages/app-shell/src/assistant-om-segment.ts');
+const desktopGrepSearchToolPath = join(
+  repoRoot,
+  'apps/desktop/src/assistant-server/grep-search-tool.ts'
+);
+const desktopRendererMainPath = join(repoRoot, 'apps/desktop/src/renderer/main.tsx');
+const embeddingHostAppPath = join(
+  repoRoot,
+  'apps/desktop/src/renderer/components/embedding-host-app.tsx'
+);
+const atomicTransactionPath = join(repoRoot, 'packages/db/src/atomic-transaction.ts');
 const dbHostEntryPath = join(repoRoot, 'apps/desktop/src/db-host-entry.ts');
+const dbIpcPath = join(repoRoot, 'apps/desktop/src/ipc-domains/db-ipc.ts');
+const dbMainPath = join(repoRoot, 'apps/desktop/src/db-main.ts');
+const desktopPreloadPath = join(repoRoot, 'apps/desktop/src/preload.ts');
+const electronApiTypesPath = join(repoRoot, 'packages/types/src/electron-api.ts');
+const quickOpenQueryPath = join(repoRoot, 'packages/db/src/search/quick-open-query.ts');
+const persistentTokenCachePath = join(
+  repoRoot,
+  'packages/file-explorer-ui/src/indexing/use-persistent-token-cache.ts'
+);
+const tokenCacheContextPath = join(
+  repoRoot,
+  'packages/file-explorer-ui/src/indexing/token-cache-context.tsx'
+);
+const tokenCacheIndexPath = join(repoRoot, 'packages/token-cache/src/index.ts');
+const useTokenCachePath = join(repoRoot, 'packages/token-cache/src/use-token-cache.ts');
 const hybridSearchServicePath = join(repoRoot, 'packages/db/src/search/hybrid-search-service.ts');
 
 describe('Turso primary-store lexical search quality profile', () => {
@@ -148,14 +178,44 @@ describe('Turso primary-store lexical search quality profile', () => {
       migrationLedger,
       searchArchitecture,
       appShellReadme,
+      assistantMemoryRepository,
+      assistantOmSegment,
+      desktopGrepSearchTool,
+      desktopRendererMain,
+      embeddingHostApp,
+      atomicTransaction,
       dbHostEntry,
+      dbIpc,
+      dbMain,
+      desktopPreload,
+      electronApiTypes,
+      quickOpenQuery,
+      persistentTokenCache,
+      tokenCacheContext,
+      tokenCacheIndex,
+      useTokenCache,
       hybridSearchService,
     ] = await Promise.all([
       readFile(qualityReportPath, 'utf8'),
       readFile(migrationLedgerPath, 'utf8'),
       readFile(searchArchitecturePath, 'utf8'),
       readFile(appShellReadmePath, 'utf8'),
+      readFile(assistantMemoryRepositoryPath, 'utf8'),
+      readFile(assistantOmSegmentPath, 'utf8'),
+      readFile(desktopGrepSearchToolPath, 'utf8'),
+      readFile(desktopRendererMainPath, 'utf8'),
+      readFile(embeddingHostAppPath, 'utf8'),
+      readFile(atomicTransactionPath, 'utf8'),
       readFile(dbHostEntryPath, 'utf8'),
+      readFile(dbIpcPath, 'utf8'),
+      readFile(dbMainPath, 'utf8'),
+      readFile(desktopPreloadPath, 'utf8'),
+      readFile(electronApiTypesPath, 'utf8'),
+      readFile(quickOpenQueryPath, 'utf8'),
+      readFile(persistentTokenCachePath, 'utf8'),
+      readFile(tokenCacheContextPath, 'utf8'),
+      readFile(tokenCacheIndexPath, 'utf8'),
+      readFile(useTokenCachePath, 'utf8'),
       readFile(hybridSearchServicePath, 'utf8'),
     ]);
 
@@ -163,10 +223,18 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(qualityReport).toContain('recall@5 = 1.000');
     expect(qualityReport).toContain('chunk-near-stem');
     expect(migrationLedger).toContain('#1456 `Profile Turso lexical search quality`');
+    expect(migrationLedger).toContain('#1458 `Default desktop runtime to Turso`');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
     expect(migrationLedger).toContain('quick-open filename lookup uses `file_record_name_grams`');
     expect(migrationLedger).not.toContain('In-flight slice on this branch');
     expect(migrationLedger).not.toContain('through #1455 at `cb9ab61ce`');
+    expect(migrationLedger).not.toContain('through #1457 at `036962da6`');
+    expect(migrationLedger).not.toContain('feature head `23d2ac3d`');
+    expect(migrationLedger).not.toContain('post-#1456 branch');
+    expect(migrationLedger).toContain('post-#1458 branch');
+    expect(migrationLedger).toContain(
+      'explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`'
+    );
     expect(migrationLedger).not.toContain(
       'grep, quick-open, DB Explorer search, and hybrid lexical search use'
     );
@@ -178,6 +246,24 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(appShellReadme).not.toContain('PGlite-backed thread and run-record persistence');
     expect(dbHostEntry).toContain('The DB host dispatches one request at a time');
     expect(dbHostEntry).not.toContain('PGlite runs through a single connection in this host');
+    expect(dbMain).not.toContain('profile-scoped pgdata and lock files');
+    expect(atomicTransaction).not.toContain('PGlite lives in the main process');
+    expect(atomicTransaction).not.toContain('pglite.transaction() in the main process');
+    expect(dbIpc).not.toContain('pglite.transaction() in main');
+    expect(desktopPreload).not.toContain('inside one pglite.transaction()');
+    expect(electronApiTypes).not.toContain('inside ONE\n   * `pglite.transaction()`');
+    expect(desktopGrepSearchTool).not.toContain('indexed PGlite file chunks');
+    expect(desktopGrepSearchTool).not.toContain('INDEXED (PGlite trigram) search');
+    expect(desktopRendererMain).not.toContain('main-process\n  // filesystem PGlite');
+    expect(embeddingHostApp).not.toContain('main-process filesystem PGlite');
+    expect(quickOpenQuery).toContain('runtime-specific file-record repositories');
+    expect(persistentTokenCache).not.toContain('stored in PGlite');
+    expect(tokenCacheContext).not.toContain('PGlite database type');
+    expect(tokenCacheIndex).not.toContain('PGlite-backed persistent storage');
+    expect(useTokenCache).not.toContain('cold cache (PGlite)');
+    expect(assistantMemoryRepository).not.toContain('PGlite returns ::bigint as a string');
+    expect(assistantOmSegment).not.toContain('pglite-mastra-memory/memory-factory.ts');
+    expect(searchArchitecture).not.toContain('Turso must provide an indexed candidate source');
     expect(hybridSearchService).toContain('Drizzle, Electron, PGlite, Turso');
   });
 });

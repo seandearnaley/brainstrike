@@ -1,12 +1,12 @@
 /**
  * Shared SQL for the ⌘P quick-open file finder (PR-6.3).
  *
- * One source of truth for the substring-match SHAPE so the renderer's reactive
- * `usePGliteLiveQuery` (which runs this raw SQL string) and the typed repository
- * method (`DrizzleFileRecordRepository.findByNameSubstring`, which rebuilds the
- * same query with the Drizzle builder for type-safety) return identical rows.
- * The two implementations CAN drift, so an equivalence test asserts they agree
- * row-for-row (see `findByNameSubstring (quick-open)` in
+ * One source of truth for the substring-match SHAPE so the PGlite live-query
+ * path and runtime-specific file-record repositories return identical rows.
+ * PGlite runs this raw SQL string; typed repositories rebuild the same query
+ * shape with their runtime's query surface. The implementations CAN drift, so
+ * an equivalence test asserts they agree row-for-row (see
+ * `findByNameSubstring (quick-open)` in
  * drizzle-file-record-repository.test.ts). The trigram GIN index
  * `idx_file_records_name_trgm` (migration 048) makes the `name ILIKE` filter an
  * index scan.

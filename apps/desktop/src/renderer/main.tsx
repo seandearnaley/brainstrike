@@ -320,10 +320,10 @@ declare global {
 }
 
 function App() {
-  // With useElectronIPC below, the renderer routes all DB ops to the main-process
-  // filesystem PGlite (engine-versioned via the pg-data-version guard). This idb
-  // path is just a stable IPC-channel identifier — no renderer-side PGlite database
-  // is opened here, so it intentionally is NOT engine-versioned like idb://app-pg18.
+  // With useElectronIPC below, the renderer routes DB ops to the main-process database
+  // runtime selected by profile bootstrap. This idb path is just a stable IPC-channel
+  // identifier; no renderer-side database is opened here, so it intentionally is not
+  // engine-versioned like idb://app-pg18.
   const dbPath = 'idb://brainstrike-desktop';
 
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.

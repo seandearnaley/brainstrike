@@ -53,7 +53,7 @@ import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url
 const logger = createLogger('TokenCacheContext');
 
 /**
- * PGlite database type (subset of @electric-sql/pglite)
+ * Query-capable token-cache database fallback.
  */
 interface PGliteDB {
   query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; affectedRows?: number }>;

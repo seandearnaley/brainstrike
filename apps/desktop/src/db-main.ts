@@ -1954,8 +1954,8 @@ async function handleLocalRuntimeCorruption(context: string): Promise<any> {
 
 /**
  * Reset local database by removing the active profile directory and closing any open connection.
- * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
- * Next access will lazily recreate and migrate from scratch.
+ * This deletes runtime-owned files for the active profile while leaving other profiles untouched.
+ * Next access will lazily recreate and migrate/bootstrap from scratch.
  */
 async function resetLocalDatabaseInternal(): Promise<void> {
   // Ensure any existing handle is closed

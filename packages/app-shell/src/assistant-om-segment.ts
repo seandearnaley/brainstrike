@@ -5,8 +5,8 @@
  * An earlier "tri-segment" model (chat + observation + free vs ONE
  * effectiveInputBudget) was arithmetically incoherent and was removed:
  *   - With the default `retrievalMode: 'off'`, the observation is NOT injected
- *     into the prompt (packages/agent/src/pglite-mastra-memory/memory-factory.ts
- *     only wires `retrieval` for 'messages'/'vector'), so observationTokenCount
+ *     into the prompt (the Mastra memory factory for the active runtime only
+ *     wires `retrieval` for 'messages'/'vector'), so observationTokenCount
  *     does NOT consume the input budget — painting it as a budget segment is false.
  *   - When retrieval IS on, the injected observation is ALREADY counted inside the
  *     last turn's inputTokens (= the meter's chat usage), so chat + observation

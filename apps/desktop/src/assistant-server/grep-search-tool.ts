@@ -28,7 +28,7 @@ export const GREP_SEARCH_TOOL_ID = 'brainstrike.grepSearch' as const;
 
 /**
  * Which engine produced a match:
- * - 'index' — from the indexed PGlite file chunks (may be STALE after an edit).
+ * - 'index' — from the indexed file-chunk repository (may be STALE after an edit).
  * - 'live'  — from a fresh on-disk pass (ripgrep / JS-walk); reflects the file
  *             as it is NOW, so just-edited / unindexed content shows up here.
  * - 'both'  — the same (path, line) was found by both passes (fresh + indexed).
@@ -437,7 +437,7 @@ function resolveLiveRoots(
   return [resolveWorkspaceRoot(runtimeData, rootInput)];
 }
 
-/** Run the INDEXED (PGlite trigram) search — unchanged behaviour, extracted for clarity. */
+/** Run the INDEXED repository-backed search - unchanged behavior, extracted for clarity. */
 function runIndexSearch(args: {
   service: GrepSearchService;
   input: GrepSearchInput;
