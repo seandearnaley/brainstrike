@@ -149,12 +149,14 @@ describe('db-main lazy-load getDatabase', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
     existsSyncMock.mockReturnValue(true);
     mkdirSyncMock.mockImplementation(() => {});
   });
 
   afterEach(() => {
     restoreParentPort();
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
   });
 
   it('lazy-loads database on first getDatabase call when uninitialized', async () => {

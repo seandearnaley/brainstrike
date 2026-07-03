@@ -133,11 +133,11 @@ vi.mock('@brainstrike/db', () => ({
       source?: 'env' | 'default';
     }) => ({
       bootstrapRuntime: {
-        engine: input.requestedEngine ?? 'pglite',
+        engine: input.requestedEngine ?? 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
-      engine: input.requestedEngine ?? 'pglite',
+      engine: input.requestedEngine ?? 'turso',
       platform: input.platform,
       source: input.source ?? (input.requestedEngine ? 'env' : 'default'),
     })
@@ -181,7 +181,7 @@ describe('initializeMainDatabase', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     process.argv = [...originalArgv];
     runPgliteBootstrapCapabilityProbeMock.mockResolvedValue(createReadyBootstrapProbeReport());
@@ -362,6 +362,39 @@ describe('initializeMainDatabase', () => {
       rows: [{ sql: 'SELECT ? AS value', params: ['ok'], value: 'ok' }],
     });
     expect(tursoOwnerQueryMock).toHaveBeenCalledWith('SELECT ? AS value', ['ok']);
+  });
+
+  it('defaults an unset desktop runtime to the Turso owner client', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
+    const result = await initializeMainDatabaseWithBootstrapReport();
+
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+      profileId: 'test',
+      runtime: {
+        engine: 'turso',
+        host: 'electron-utility',
+        persistence: 'filesystem',
+      },
+    });
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
+    expect(migrateMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      bootstrapReport: {
+        ready: true,
+        runtime: { engine: 'turso' },
+      },
+      capabilities: { liveQuery: false },
+      initialized: true,
+    });
   });
 
   it('getDatabase uses the runtime-aware Turso bootstrap path without explicit pre-initialization', async () => {

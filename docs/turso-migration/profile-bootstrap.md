@@ -10,7 +10,9 @@
 
 ## Desktop Runtime Switch
 
-Set `BRAINSTRIKE_DB_RUNTIME=turso` in the desktop DB utility process environment to run the Turso profile bootstrap path.
+Desktop now runs the Turso profile bootstrap path by default when
+`BRAINSTRIKE_DB_RUNTIME` is unset. Set `BRAINSTRIKE_DB_RUNTIME=pglite` only for
+explicit desktop PGlite compatibility checks.
 
 Current behavior:
 

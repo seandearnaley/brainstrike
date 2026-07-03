@@ -73,7 +73,7 @@ function parseRequestedRuntimeEngine(
   source: BrainstrikeDbRuntimeSelectionSource
 ): BrainstrikeDbRuntimeEngine {
   if (input.requestedEngine === undefined) {
-    return 'pglite';
+    return defaultRuntimeEngineForPlatform(input.platform);
   }
 
   if (input.requestedEngine === 'pglite' || input.requestedEngine === 'turso') {
@@ -89,6 +89,20 @@ function parseRequestedRuntimeEngine(
       source,
     }
   );
+}
+
+function defaultRuntimeEngineForPlatform(
+  platform: BrainstrikeDbRuntimePlatform
+): BrainstrikeDbRuntimeEngine {
+  switch (platform) {
+    case 'desktop':
+      return 'turso';
+    case 'node-test':
+    case 'web':
+      return 'pglite';
+    default:
+      return assertUnreachableRuntimePlatform(platform);
+  }
 }
 
 function runtimeForSelection(

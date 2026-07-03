@@ -161,11 +161,13 @@ describe('db-main coverage helpers', () => {
     });
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.env['BRAINSTRIKE_DB_RUNTIME'] = 'pglite';
   });
 
   afterEach(() => {
     vi.resetModules();
     restoreParentPort();
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
   });
 
   it('fails fast when pgvector extension cannot be loaded', async () => {

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-final-runtime-audit`,
+Last updated: 2026-07-03 on `codex/turso-default-runtime`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,12 +10,10 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1456 at `665e6fac9`. This branch reconciles the post-#1456 ledger and
-stale runtime wording after the primary-store gram lexical search-quality
-profile merged. It also fixes the enhanced manual import Turso SQL dialect leak
-found during the final runtime audit: `runEnhancedImport` now emits
-SQLite/Turso `?` placeholders for Turso metadata and embedding-set SQL while
-retaining the existing PGlite/PostgreSQL-shaped statements for PGlite.
+through #1457 at `036962da6`. This branch cuts desktop over to the Turso
+runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while preserving
+explicit desktop PGlite compatibility with `BRAINSTRIKE_DB_RUNTIME=pglite` and
+keeping web/node-test defaults on PGlite.
 
 Merged slices:
 
@@ -164,6 +162,13 @@ Merged slices:
 - #1454 `Prove sustained Turso queue profiling`
 - #1455 `Add Turso Mastra vector profile benchmark`
 - #1456 `Profile Turso lexical search quality`
+- #1457 `Fix Turso enhanced import SQL dialect`
+
+Recently completed final-runtime-audit slice: #1457 fixed the enhanced manual
+import Turso SQL dialect leak found during the final runtime audit:
+`runEnhancedImport` now emits SQLite/Turso `?` placeholders for Turso metadata
+and embedding-set SQL while retaining the existing PGlite/PostgreSQL-shaped
+statements for PGlite.
 
 Recently completed lexical-quality profile slice: #1456 added a real-engine
 primary-store gram lexical search-quality profile for the current Turso
@@ -226,9 +231,6 @@ precision@5 0.400, recall@5 1.000 for the tiny seeded corpus, plus query-plan
 evidence that gram sidecars supply the lexical candidate source.
 The verified remaining backlog is now:
 
-- desktop default-runtime cutover: `BRAINSTRIKE_DB_RUNTIME` unset still resolves
-  to PGlite on desktop, so Turso is opt-in rather than the default desktop
-  runtime;
 - product search-quality decision for primary-store gram lexical search versus
   a split native Tantivy search-index owner;
 - explicit reset targets only if future Turso sync or split-search stores live
@@ -277,7 +279,9 @@ Primary docs consulted:
 
 The branch currently has a real Turso runtime seam:
 
-- Runtime selection uses `BRAINSTRIKE_DB_RUNTIME=turso`.
+- Desktop runtime selection defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is
+  unset; set `BRAINSTRIKE_DB_RUNTIME=pglite` only for explicit desktop PGlite
+  compatibility checks.
 - Desktop bootstrap opens the Turso primary store and reports typed
   capabilities.
 - The Turso primary store uses a greenfield baseline ledger rather than the
