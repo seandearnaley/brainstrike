@@ -442,6 +442,14 @@ handle" as "PGlite". Vector, FTS, and grep methods on the chunk repository must
 stay capability-gated by the concrete repository and bootstrap proofs instead
 of a raw database-handle assumption.
 
+Residual provider cleanup from the 2026-07-03 audit:
+
+- `DbProvider` still exports `clearQueuesAndEmbeddingSets`, which sends raw
+  Electron SQL and soft-fails around the explicit owner-action pattern used by
+  Turso vector queue mutations. Search found no production consumer beyond the
+  exported hook/tests. Either retire this helper or replace it with an explicit
+  Turso owner-IPC action before final runtime cleanup.
+
 Model-registry toggle writes now use a runtime-specific SQL helper instead of
 depending on dialect lenience. PGlite keeps the existing Postgres-shaped `$1`
 placeholder and boolean parameter path; Turso and libSQL emit SQLite-compatible
@@ -617,6 +625,12 @@ Remaining search decisions:
    for product search quality, or whether native Tantivy FTS ranking/snippets
    still justify a split search-index owner described in
    `docs/turso-migration/search-index-architecture.md`.
+3. Decide the fate of the assistant `brainstrike.hybridSearch` native tool.
+   The shared hybrid search service is now repository-compatible, but the tool
+   is not registered in the desktop assistant tool surface or the assistant
+   contract registries. Either register it with explicit Turso capability gates
+   or retire the unused native-tool wrapper and keep hybrid search as an
+   internal DB service.
 
 ### 5. Mastra Memory And Assistant Persistence
 
@@ -660,7 +674,10 @@ Concrete status and remaining work:
   and GIN indexes. `TursoVectorStore` intentionally uses exact vector-distance
   ordering for Mastra memory parity in this slice; native vector index/ANN
   tuning remains a separate performance decision once real memory volume
-  requires it.
+  requires it. The Turso vector memory schema is also lazily owned by the
+  Mastra memory store rather than the profile bootstrap baseline; keep that
+  ownership explicit unless release readiness requires bootstrap-level vector
+  schema proof.
 - The renderer thread repository still contains separate PGlite and Turso read
   query dialects. Current tests cover the major Turso read surfaces: latest-run
   listing, message hydration, usage aggregation, thread metadata, and thread
@@ -745,6 +762,11 @@ explicit named reset targets with tests; do not delete guessed names such as
 `db:clearAll` is a separate SQL-only live-handle data clear path. It is not the
 barrier-coordinated factory reset/profile cleanup path and must not be cited as
 proof that runtime-owned profile files or future sidecars were removed.
+The next reset/clear follow-up is real-engine Turso proof for `db:clearAll`, or
+replacement with runtime repository/owner actions. The handler currently runs
+generic SQL over the owner client; Turso sidecars should clear through foreign
+key cascades, but existing coverage is mocked and desktop E2E setup calls this
+path directly.
 
 Known production touchpoints:
 
@@ -773,6 +795,12 @@ Known production touchpoints:
 Preferred next slice: keep PGlite-specific files until the final runtime removal
 pass; premature cleanup would break current PGlite-mode tests and web paths
 without advancing Turso parity.
+
+Stale wording cleanup is a final-pass task after release decisions are made.
+Examples from the 2026-07-03 audit: DB host queue comments still describe the
+host as PGlite single-connection only even though Turso requests share the same
+host dispatch surface, and hybrid-search service docs do not yet name Turso as
+a repository-backed source.
 
 ## Historical Implementation Order
 
