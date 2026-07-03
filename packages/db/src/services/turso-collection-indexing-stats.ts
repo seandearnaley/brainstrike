@@ -1,4 +1,7 @@
-import type { BrainstrikeDbTransactionClient } from '../architecture/brainstrike-db-client-contract.js';
+import type {
+  BrainstrikeDbTransactionClient,
+  BrainstrikeDbWorkOptions,
+} from '../architecture/brainstrike-db-client-contract.js';
 
 function createPlaceholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
@@ -6,7 +9,8 @@ function createPlaceholders(count: number): string {
 
 export async function markTursoCollectionIndexingStatsDirty(
   db: BrainstrikeDbTransactionClient,
-  embeddingSetIds: readonly string[]
+  embeddingSetIds: readonly string[],
+  options?: BrainstrikeDbWorkOptions
 ): Promise<void> {
   const uniqueIds = [...new Set(embeddingSetIds)];
   if (uniqueIds.length === 0) {
@@ -16,7 +20,8 @@ export async function markTursoCollectionIndexingStatsDirty(
     `UPDATE collection_indexing_stats
         SET dirty = 1
       WHERE embedding_set_id IN (${createPlaceholders(uniqueIds.length)})`,
-    uniqueIds
+    uniqueIds,
+    options
   );
 }
 

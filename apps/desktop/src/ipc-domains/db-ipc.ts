@@ -652,7 +652,10 @@ export function registerDatabaseIpcHandlers(
         async () =>
           withCorruptionRecovery(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
-            return await getDbHostManager().runTursoEmbeddingWorkerQueueOperation(parsedRequest);
+            return await getDbHostManager().runTursoEmbeddingWorkerQueueOperation(
+              parsedRequest,
+              workOptions
+            );
           }, DB_TURSO_EMBEDDING_WORKER_QUEUE_CHANNEL)
       );
     }
@@ -676,7 +679,10 @@ export function registerDatabaseIpcHandlers(
         async () =>
           withCorruptionRecovery(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
-            return await getDbHostManager().runTursoEmbeddingWorkerStatsOperation(parsedRequest);
+            return await getDbHostManager().runTursoEmbeddingWorkerStatsOperation(
+              parsedRequest,
+              workOptions
+            );
           }, DB_TURSO_EMBEDDING_WORKER_STATS_CHANNEL)
       );
     }
@@ -700,7 +706,7 @@ export function registerDatabaseIpcHandlers(
         async () =>
           withCorruptionRecovery(async () => {
             const { getDbHostManager } = await import('../db-host-manager');
-            return await getDbHostManager().runTursoVectorQueueAction(parsedRequest);
+            return await getDbHostManager().runTursoVectorQueueAction(parsedRequest, workOptions);
           }, DB_TURSO_VECTOR_QUEUE_ACTION_CHANNEL)
       );
     }

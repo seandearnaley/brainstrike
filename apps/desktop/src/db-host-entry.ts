@@ -46,7 +46,7 @@ interface ParentPortLike {
 }
 
 interface QueryableDatabase {
-  readonly exec?: (sql: string, params?: readonly unknown[]) => Promise<void>;
+  readonly exec?: BrainstrikeDbExecutionClient['exec'];
   readonly live?: {
     readonly incrementalQuery?: (payload: {
       readonly key: string;
@@ -62,19 +62,8 @@ interface QueryableDatabase {
       readonly query: string;
     }) => Promise<LiveQueryHandle>;
   };
-  readonly query: <TRecord = unknown>(
-    sql: string,
-    params?: readonly unknown[]
-  ) => Promise<DbHostQueryResult<TRecord>>;
-  readonly transaction: <TResult>(
-    callback: (tx: {
-      readonly exec: (sql: string, params?: readonly unknown[]) => Promise<void>;
-      readonly query: <TRecord = unknown>(
-        sql: string,
-        params?: readonly unknown[]
-      ) => Promise<DbHostQueryResult<TRecord>>;
-    }) => Promise<TResult>
-  ) => Promise<TResult>;
+  readonly query: BrainstrikeDbExecutionClient['query'];
+  readonly transaction: BrainstrikeDbExecutionClient['transaction'];
 }
 
 interface QueryableDatabaseContext {
@@ -522,19 +511,23 @@ async function handleTursoEmbeddingWorkerQueueOperation(
   const queue = new TursoJobQueue(executionDb);
   switch (request.payload.operation) {
     case 'claimMany':
-      return await queue.claimMany(request.payload.payload);
+      return await queue.claimMany(request.payload.payload, request.workOptions);
     case 'completeBatch':
-      return await queue.completeBatch([...request.payload.payload]);
+      return await queue.completeBatch([...request.payload.payload], request.workOptions);
     case 'completeEmbeddingChunkBatch':
-      return await queue.completeEmbeddingChunkBatch([...request.payload.payload]);
+      return await queue.completeEmbeddingChunkBatch(
+        [...request.payload.payload],
+        request.workOptions
+      );
     case 'fail':
-      return await queue.fail(request.payload.payload);
+      return await queue.fail(request.payload.payload, request.workOptions);
     case 'failBatch':
-      return await queue.failBatch(request.payload.payload);
+      return await queue.failBatch(request.payload.payload, request.workOptions);
     case 'heartbeatBatch':
       return await queue.heartbeatBatch(
         [...request.payload.payload.jobs],
-        request.payload.payload.extendMs
+        request.payload.payload.extendMs,
+        request.workOptions
       );
     default:
       return assertNeverTursoEmbeddingWorkerQueueOperation(request.payload);
@@ -552,12 +545,16 @@ async function handleTursoEmbeddingWorkerStatsOperation(
   const executionDb = requireTursoExecutionClient(db, engine);
   switch (request.payload.operation) {
     case 'markDirty':
-      await markTursoCollectionIndexingStatsDirty(executionDb, request.payload.embeddingSetIds);
+      await markTursoCollectionIndexingStatsDirty(
+        executionDb,
+        request.payload.embeddingSetIds,
+        request.workOptions
+      );
       return;
     case 'refresh':
       await executionDb.transaction(async (tx) => {
         await refreshTursoCollectionIndexingStats(tx, request.payload.embeddingSetIds);
-      });
+      }, request.workOptions);
       return;
     default:
       return assertNeverTursoEmbeddingWorkerStatsOperation(request.payload.operation);
@@ -578,7 +575,8 @@ async function handleTursoVectorQueueAction(
       const chunkRepository = new TursoFileChunkRepository(executionDb);
       return {
         cleared: await chunkRepository.clearEmbeddingsForSet(
-          request.payload.payload.embeddingSetId
+          request.payload.payload.embeddingSetId,
+          request.workOptions
         ),
       };
     }
@@ -587,17 +585,23 @@ async function handleTursoVectorQueueAction(
       return {
         cleared: await queue.clear(
           EMBEDDINGS_QUEUE,
-          request.payload.payload.states ? [...request.payload.payload.states] : undefined
+          request.payload.payload.states ? [...request.payload.payload.states] : undefined,
+          request.workOptions
         ),
       };
     }
     case 'retryFailed': {
       const queue = new TursoJobQueue(executionDb);
-      return await queue.retryFailed(EMBEDDINGS_QUEUE, request.payload.payload.limit);
+      return await queue.retryFailed(
+        EMBEDDINGS_QUEUE,
+        request.payload.payload.limit,
+        {},
+        request.workOptions
+      );
     }
     case 'wipeQueue': {
       const queue = new TursoJobQueue(executionDb);
-      return { cleared: await queue.clear(EMBEDDINGS_QUEUE) };
+      return { cleared: await queue.clear(EMBEDDINGS_QUEUE, undefined, request.workOptions) };
     }
     default:
       return assertNeverTursoVectorQueueAction(request.payload);

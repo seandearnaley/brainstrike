@@ -2,6 +2,7 @@ import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbTransactionClient,
+  BrainstrikeDbWorkOptions,
 } from '../architecture/brainstrike-db-client-contract.js';
 import type { EmbeddingDistance } from '../models/embedding-set.js';
 import type {
@@ -1084,7 +1085,10 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
     }
   }
 
-  async clearEmbeddingsForSet(embeddingSetId: string): Promise<number> {
+  async clearEmbeddingsForSet(
+    embeddingSetId: string,
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<number> {
     if (!embeddingSetId) {
       throw new Error('embeddingSetId is required');
     }
@@ -1121,7 +1125,7 @@ export class TursoFileChunkRepository implements TursoFileChunkRepositoryMarker 
       );
       await refreshTursoCollectionIndexingStats(tx, [embeddingSetId]);
       return clearedResult.rows.length;
-    });
+    }, options);
     return cleared;
   }
 

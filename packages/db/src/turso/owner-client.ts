@@ -65,11 +65,13 @@ export interface TursoOwnerClientQoSDiagnostics {
 export interface TursoOwnerClient extends BrainstrikeDbTransactionClient {
   readonly close: () => Promise<void>;
   readonly exclusiveTransaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<TResult>;
   readonly getQoSDiagnostics: () => TursoOwnerClientQoSDiagnostics;
   readonly transaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<TResult>;
 }
 
@@ -199,7 +201,8 @@ export async function createTursoOwnerClient(
       });
     },
     exclusiveTransaction: async <TResult>(
-      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+      operationOptions?: BrainstrikeDbWorkOptions
     ): Promise<TResult> =>
       runTransaction({
         assertOpen,
@@ -208,6 +211,7 @@ export async function createTursoOwnerClient(
         callback,
         database,
         operationKind: 'exclusiveTransaction',
+        operationOptions,
         ownerClientId,
         runExclusive,
       }),
@@ -220,7 +224,8 @@ export async function createTursoOwnerClient(
         ...qosCounters,
       }),
     transaction: async <TResult>(
-      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+      operationOptions?: BrainstrikeDbWorkOptions
     ): Promise<TResult> =>
       runTransaction({
         assertOpen,
@@ -229,6 +234,7 @@ export async function createTursoOwnerClient(
         callback,
         database,
         operationKind: 'transaction',
+        operationOptions,
         ownerClientId,
         runExclusive,
       }),
@@ -244,6 +250,7 @@ async function runTransaction<TResult>(params: {
   readonly callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>;
   readonly database: TursoDatabase;
   readonly operationKind: TursoOwnerClientOperationKind;
+  readonly operationOptions?: BrainstrikeDbWorkOptions | undefined;
   readonly ownerClientId: symbol;
   readonly runExclusive: <TValue>(
     operationInput: {
@@ -254,23 +261,26 @@ async function runTransaction<TResult>(params: {
   ) => Promise<TValue>;
 }): Promise<TResult> {
   params.assertOuterClientAvailable();
-  return params.runExclusive({ kind: params.operationKind }, async () => {
-    params.assertOpen();
-    await params.database.exec(params.beginSql);
-    const transactionClient = createTursoTransactionClient(params.database, params.assertOpen);
-    try {
-      const result = await transactionCallbackContext.run(params.ownerClientId, () =>
-        params.callback(transactionClient.client)
-      );
-      transactionClient.deactivate();
-      await params.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      transactionClient.deactivate();
-      await rollbackIgnoringFailure(params.database);
-      throw error;
+  return params.runExclusive(
+    { kind: params.operationKind, label: params.operationOptions?.label },
+    async () => {
+      params.assertOpen();
+      await params.database.exec(params.beginSql);
+      const transactionClient = createTursoTransactionClient(params.database, params.assertOpen);
+      try {
+        const result = await transactionCallbackContext.run(params.ownerClientId, () =>
+          params.callback(transactionClient.client)
+        );
+        transactionClient.deactivate();
+        await params.database.exec('COMMIT');
+        return result;
+      } catch (error) {
+        transactionClient.deactivate();
+        await rollbackIgnoringFailure(params.database);
+        throw error;
+      }
     }
-  });
+  );
 }
 
 function createQoSDiagnosticsSnapshot(

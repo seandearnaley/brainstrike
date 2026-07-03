@@ -333,16 +333,19 @@ describe('database IPC domain', () => {
         state: 'running',
       }),
     ]);
-    expect(dbHostManagerMock.runTursoEmbeddingWorkerQueueOperation).toHaveBeenCalledWith({
-      operation: 'claimMany',
-      payload: {
-        leaseMs: 60_000,
-        limit: 1,
-        now: '2026-06-30T10:01:00.000Z',
-        queue: 'embeddings',
-        workerId: 'worker-1',
+    expect(dbHostManagerMock.runTursoEmbeddingWorkerQueueOperation).toHaveBeenCalledWith(
+      {
+        operation: 'claimMany',
+        payload: {
+          leaseMs: 60_000,
+          limit: 1,
+          now: '2026-06-30T10:01:00.000Z',
+          queue: 'embeddings',
+          workerId: 'worker-1',
+        },
       },
-    });
+      { label: 'turso.embedding-worker.queue.claimMany', priority: 'background' }
+    );
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
   });
@@ -357,10 +360,13 @@ describe('database IPC domain', () => {
       )
     ).resolves.toBeUndefined();
 
-    expect(dbHostManagerMock.runTursoEmbeddingWorkerStatsOperation).toHaveBeenCalledWith({
-      embeddingSetIds: ['set-1'],
-      operation: 'refresh',
-    });
+    expect(dbHostManagerMock.runTursoEmbeddingWorkerStatsOperation).toHaveBeenCalledWith(
+      {
+        embeddingSetIds: ['set-1'],
+        operation: 'refresh',
+      },
+      { label: 'turso.embedding-worker.stats.refresh', priority: 'background' }
+    );
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(querySpy).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
@@ -378,10 +384,13 @@ describe('database IPC domain', () => {
       repairedQueued: 1,
       requeuedFailed: 1,
     });
-    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith({
-      operation: 'retryFailed',
-      payload: { limit: 5 },
-    });
+    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith(
+      {
+        operation: 'retryFailed',
+        payload: { limit: 5 },
+      },
+      { label: 'turso.vector-queue.action.retryFailed', priority: 'normal' }
+    );
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
   });
@@ -397,10 +406,13 @@ describe('database IPC domain', () => {
     );
 
     expect(result).toEqual({ cleared: 1 });
-    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith({
-      operation: 'clearQueue',
-      payload: {},
-    });
+    expect(dbHostManagerMock.runTursoVectorQueueAction).toHaveBeenCalledWith(
+      {
+        operation: 'clearQueue',
+        payload: {},
+      },
+      { label: 'turso.vector-queue.action.clearQueue', priority: 'normal' }
+    );
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(querySpy).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
