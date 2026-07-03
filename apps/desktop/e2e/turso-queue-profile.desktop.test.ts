@@ -6,6 +6,7 @@ import {
   withTemporaryProcessEnv,
 } from './embedding-worker-renderer/electron-app-fixture';
 import {
+  cancelAllEmbeddingBackfillsAndDrain,
   clearEmbeddingQueue,
   getEmbeddingHostPage,
   getMainBufferedLogs,
@@ -94,7 +95,7 @@ test.describe('Turso queue profile proof', () => {
       expect(summary.hiddenWorkerOwnerLabelCount).toBeGreaterThan(0);
       expect(summary.activeBackfillProbeSamples).toBeGreaterThanOrEqual(3);
       expect(summary.foregroundProbeOwnerLabelCount).toBeGreaterThanOrEqual(3);
-      expect(summary.foregroundProbeSamples).toBeGreaterThanOrEqual(3);
+      expect(summary.foregroundProbeAttemptCount).toBeGreaterThanOrEqual(3);
       expect(summary.finalProfile.ownerSlowForegroundQueuedOperationCount).toBe(0);
       expect(summary.finalProfile.foregroundWorstWaitMs).toBeLessThan(
         summary.finalProfile.thresholdMs
@@ -263,8 +264,8 @@ interface SustainedQueueProfile {
 
 interface SustainedQueueProfileSample {
   readonly activeBackfillProbeSamples: number;
+  readonly foregroundProbeAttemptIndex: number;
   readonly foregroundProbeOwnerLabelCount: number;
-  readonly foregroundProbeSamples: number;
   readonly hiddenWorkerOwnerLabelCount: number;
   readonly ownerLabels: readonly string[];
   readonly profile: SustainedQueueProfile;
@@ -277,8 +278,8 @@ interface SustainedQueueProfileSample {
 interface SustainedQueueProfileSummary {
   readonly activeBackfillProbeSamples: number;
   readonly finalProfile: SustainedQueueProfile;
+  readonly foregroundProbeAttemptCount: number;
   readonly foregroundProbeOwnerLabelCount: number;
-  readonly foregroundProbeSamples: number;
   readonly hiddenWorkerOwnerLabelCount: number;
   readonly samples: readonly SustainedQueueProfileSample[];
   readonly totalChunks: number;
@@ -408,7 +409,7 @@ async function runSustainedHiddenWorkerQueueProfile(
       summary.hiddenWorkerOwnerLabelCount > 0 &&
       summary.activeBackfillProbeSamples >= 3 &&
       summary.foregroundProbeOwnerLabelCount >= 3 &&
-      summary.foregroundProbeSamples >= 3
+      summary.foregroundProbeAttemptCount >= 3
     ) {
       return summary;
     }
@@ -535,8 +536,8 @@ async function sampleTursoSustainedQueueProfile(
 
     return {
       activeBackfillProbeSamples: hadActiveBackfillBeforeProbe ? 1 : 0,
+      foregroundProbeAttemptIndex: input.probeIndex,
       foregroundProbeOwnerLabelCount,
-      foregroundProbeSamples: input.probeIndex,
       hiddenWorkerOwnerLabelCount,
       ownerLabels,
       profile,
@@ -595,10 +596,12 @@ function summarizeSustainedQueueProfileSamples(
   return {
     activeBackfillProbeSamples,
     finalProfile: finalSample.profile,
+    foregroundProbeAttemptCount: Math.max(
+      ...samples.map((sample) => sample.foregroundProbeAttemptIndex)
+    ),
     foregroundProbeOwnerLabelCount: Math.max(
       ...samples.map((sample) => sample.foregroundProbeOwnerLabelCount)
     ),
-    foregroundProbeSamples: Math.max(...samples.map((sample) => sample.foregroundProbeSamples)),
     hiddenWorkerOwnerLabelCount: Math.max(
       ...samples.map((sample) => sample.hiddenWorkerOwnerLabelCount)
     ),
@@ -608,12 +611,22 @@ function summarizeSustainedQueueProfileSamples(
 }
 
 async function cancelSustainedBackfills(page: Page): Promise<void> {
-  await page
-    .evaluate(async () => {
-      await window.embeddingHost?.cancelAllBackfills?.();
-    })
-    .catch(() => undefined);
-  await clearEmbeddingQueue(page).catch(() => undefined);
+  let cleanupError: unknown = null;
+  try {
+    await cancelAllEmbeddingBackfillsAndDrain(page);
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  try {
+    await clearEmbeddingQueue(page);
+  } catch (error) {
+    cleanupError ??= error;
+  }
+
+  if (cleanupError) {
+    throw cleanupError;
+  }
 }
 
 async function seedQueuedEmbeddingJob(page: Page): Promise<void> {

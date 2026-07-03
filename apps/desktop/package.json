@@ -40,6 +40,8 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/pipeline": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
