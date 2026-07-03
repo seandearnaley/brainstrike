@@ -269,8 +269,11 @@ function isMissingRelationError(error: unknown): boolean {
   if (code === '42P01') {
     return true;
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('relation') && message.includes('does not exist');
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    (message.includes('relation') && message.includes('does not exist')) ||
+    message.includes('no such table')
+  );
 }
 
 async function clearOptionalRelation(

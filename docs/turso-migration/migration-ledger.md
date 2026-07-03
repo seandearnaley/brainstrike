@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-mastra-vector-memory`, targeting
+Last updated: 2026-07-03 on `codex/turso-clear-all-proof`, targeting
 `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,8 +10,8 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1444 at `d957516a7`. This PR branch adds #1445; after merge it becomes
-the next feature-branch slice.
+through #1446 at `23d2ac3d`. This PR branch adds the real-engine Turso
+`db:clearAll` proof/fix; after merge it becomes the next feature-branch slice.
 
 Merged slices:
 
@@ -150,20 +150,21 @@ Merged slices:
 - #1442 `Gate tools settings live queries by capability`
 - #1443 `Fix model registry toggle SQL by runtime`
 - #1444 `Add Turso snapshot invalidation triggers`
-
-In-flight slice on this branch:
-
 - #1445 `Add Turso Mastra vector memory store`
+- #1446 `Retire raw queue purge helper`
+
+In-flight slice on this branch (#1447, head `cf565af`):
+
+- Real-engine Turso `db:clearAll` proof and missing optional-table handling.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
   directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not present in this branch at feature head `d957516a7` or on the #1445 PR
-branch through the 2026-07-03 reconciliation pass. Do not cite that report as
-reconciled work until the artifact is restored or this ledger links to the
-correct audit artifact.
+is not tracked in this branch at feature head `23d2ac3d` through the 2026-07-03
+reconciliation pass. Do not cite that report as reconciled work until the
+artifact is restored or this ledger links to the correct audit artifact.
 
 Ledger reconciliation pass (2026-07-03): compared this ledger with
 `git log --first-parent origin/feature/turso-migration` and
@@ -171,6 +172,27 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 #1416 through #1440, which were landed on the feature branch but missing from a
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
+
+Ledger reconciliation checkpoint (2026-07-03, #1447 live branch): the
+`db:clearAll` real-engine proof is now represented by this PR, not a separate
+future slice. The raw queue purge helper removal, live-query sweep, Turso vector
+memory parity, and reset-directory recreation work should stay out of the
+remaining backlog except where the ledger names a narrower follow-up. The
+verified remaining backlog is now:
+
+- queue-topology release profiling under hidden embedding-worker/background
+  Turso writes plus foreground-labeled DB work;
+- assistant `brainstrike.hybridSearch` decision: register with explicit Turso
+  capability gates or retire the unregistered native-tool wrapper;
+- Mastra Turso vector memory performance characterization for exact-scan recall
+  at expected local profile sizes;
+- product search-quality decision for primary-store gram lexical search versus
+  a split native Tantivy search-index owner;
+- explicit reset targets only if future Turso sync or split-search stores live
+  outside the active profile directory;
+- final PGlite dependency/removal audit after web/runtime ownership decisions;
+- final stale wording cleanup for comments/docs that still describe supported
+  Turso paths as PGlite-only.
 
 ## Turso Docs Guardrail
 
@@ -764,11 +786,15 @@ explicit named reset targets with tests; do not delete guessed names such as
 `db:clearAll` is a separate SQL-only live-handle data clear path. It is not the
 barrier-coordinated factory reset/profile cleanup path and must not be cited as
 proof that runtime-owned profile files or future sidecars were removed.
-The next reset/clear follow-up is real-engine Turso proof for `db:clearAll`, or
-replacement with runtime repository/owner actions. The handler currently runs
-generic SQL over the owner client; Turso sidecars should clear through foreign
-key cascades, but existing coverage is mocked and desktop E2E setup calls this
-path directly.
+Real-engine Turso coverage now exercises this path against the production
+desktop IPC handler and a real Turso owner client. The test seeds file records,
+chunks, roots, embedding sets, collection stats, embedding jobs, selection
+snapshots, assistant run usage, and the Turso grep/quick-open sidecar tables;
+then it proves `db:clearAll` returns the deleted file/chunk counts and clears
+the seeded rows, with sidecars removed by foreign-key cascades. The same test
+surface also drops an optional Turso table and verifies SQLite `no such table`
+errors are treated as missing optional relations, matching the existing
+Postgres `42P01` handling.
 
 Known production touchpoints:
 
