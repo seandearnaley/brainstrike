@@ -58,18 +58,6 @@ const DIRECT_PGLITE_IMPORT_POLICIES = new Map<
     },
   ],
   [
-    'apps/web/src/server/web-mastra-storage.ts',
-    {
-      owner: 'web Mastra storage',
-      reason: 'Web/server storage still defaults to PGlite until web runtime ownership changes.',
-      specifiers: [
-        '@electric-sql/pglite',
-        '@electric-sql/pglite/contrib/pg_trgm',
-        '@electric-sql/pglite-pgvector',
-      ],
-    },
-  ],
-  [
     'packages/db/src/architecture/db-migration-authority.ts',
     {
       owner: 'DB migration authority',
@@ -279,5 +267,14 @@ describe('PGlite import architecture guardrails', () => {
     }
 
     expect(policyViolations).toEqual([]);
+  });
+
+  it('keeps web server Mastra storage off PGlite-specific memory factories', () => {
+    const source = readFileSync(
+      path.join(REPO_ROOT, 'apps/web/src/server/web-mastra-storage.ts'),
+      'utf8'
+    );
+
+    expect(source).not.toContain('@brainstrike/agent/pglite-mastra-memory');
   });
 });

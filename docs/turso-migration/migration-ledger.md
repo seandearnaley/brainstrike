@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-final-runtime-audit-20260703`,
+Last updated: 2026-07-03 on `codex/turso-web-runtime-audit-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,12 +10,14 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1461 at `2d1777864`. This branch cuts empty desktop profiles over to
+through #1462 at `3d08589a`. This branch migrates the web Vite Node server's
+Mastra workflow-storage singleton to embedded Turso. Desktop fresh profiles use
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
 `BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
-`BRAINSTRIKE_DB_RUNTIME=turso`, and web/node-test defaults stay on PGlite.
+`BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage still owns the
+PGlite worker path until a separate browser-runtime decision replaces it.
 
 Merged slices:
 
@@ -169,6 +171,26 @@ Merged slices:
 - #1459 `docs(turso): neutralize stale runtime wording`
 - #1460 `fix(turso): harden runtime SQL seams`
 - #1461 `test(turso): guard live query consumers`
+- #1462 `test(turso): guard pglite import inventory`
+
+Current web-server Mastra storage slice: this branch moves
+`apps/web/src/server/web-mastra-storage.ts` off direct PGlite construction and
+onto a temp embedded Turso profile opened through the shared Turso owner client.
+The singleton still has process lifetime, so suspended web tool-approval
+snapshots survive separate HTTP requests in the same Vite server but do not
+silently become durable across server restarts. The focused web test now asserts
+real Turso `TursoMemoryStore`, `TursoVectorStore`, and `TursoWorkflowsStore`
+instances, and the import guardrail rejects both direct `@electric-sql/pglite*`
+imports and the PGlite Mastra memory factory from the web server storage file.
+
+Recently completed import-inventory guardrail slice: #1462 added
+`packages/db/__tests__/architecture-pglite-import-guardrails.test.ts`. The test
+scans production `apps/` and `packages/` TypeScript sources for direct
+`@electric-sql/pglite*` imports, requires every file to be explicitly
+allowlisted with an owner and reason, and pins the expected PGlite package
+specifiers per file. This does not remove PGlite; it turns the final dependency
+audit into a controlled inventory so new direct imports cannot appear without
+review.
 
 Recently completed live-query guardrail slice: #1461 added
 `packages/db/__tests__/architecture-turso-live-query-guardrails.test.ts`. The
@@ -257,7 +279,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1461 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1462 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -283,14 +305,18 @@ accepts their `$1` bindings; the real fixes were explicit metadata SQL dialect
 generation, SQLite missing-models-table classification, and fail-closed Turso
 re-index fallback behavior. #1461 codified the production live-query consumer
 sweep as an architecture guardrail so new root-barrel named imports of
-`useBrainstrikeLiveQuery` cannot enter the feature branch unclassified.
+`useBrainstrikeLiveQuery` cannot enter the feature branch unclassified. #1462
+codified the direct production PGlite import inventory, making every remaining
+direct `@electric-sql/pglite*` import explicit and owned before the final
+dependency-removal pass.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
   a split native Tantivy search-index owner;
 - explicit reset targets only if future Turso sync or split-search stores live
   outside the active profile directory;
-- final PGlite dependency/removal audit after web/runtime ownership decisions;
+- final PGlite dependency/removal audit after browser-runtime ownership and
+  explicit desktop PGlite compatibility decisions;
 - follow-up stale wording cleanup only for future surfaces found after the
   final PGlite dependency/removal audit.
 
@@ -984,29 +1010,32 @@ split-search implementation creates stores outside the active profile directory.
 ### 8. Dependency And Build Cleanup
 
 PGlite packages, Vite aliases, type shims, and WASM packaging remain necessary
-while web/PGlite and compatibility paths exist. Final removal should happen
-only after the runtime audit proves no production path imports PGlite.
+while browser/PGlite and explicit desktop compatibility paths exist. Final
+removal should happen only after the runtime audit proves no supported
+production path imports PGlite.
 
-Current direct PGlite import guardrail: this audit branch adds
-`packages/db/__tests__/architecture-pglite-import-guardrails.test.ts`. The test
-scans production `apps/` and `packages/` TypeScript sources for direct
+Current direct PGlite import guardrail: #1462 added
+`packages/db/__tests__/architecture-pglite-import-guardrails.test.ts`, and this
+branch removes web server Mastra storage from that allowlist. The test scans
+production `apps/` and `packages/` TypeScript sources for direct
 `@electric-sql/pglite*` imports, requires every file to be explicitly
-allowlisted with an owner and reason, and pins the expected PGlite package
-specifiers per file. This does not remove PGlite; it turns the final dependency
-audit into a controlled inventory so new direct imports cannot appear without
-review.
+allowlisted with an owner and reason, pins the expected PGlite package
+specifiers per file, and rejects the PGlite Mastra memory factory from web
+server storage.
 
 Known production touchpoints:
 
 - `apps/desktop/package.json`
 - `apps/desktop/vite.config.mts`
+- `apps/web/package.json`
+- `apps/web/vite.config.mts`
 - `packages/db/src/wasm-loader.ts`
 - `packages/build-utils`
 - `apps/desktop/src/types/pglite*.d.ts`
 
 Preferred next slice: keep PGlite-specific files until the final runtime removal
-pass; premature cleanup would break current PGlite-mode tests and web paths
-without advancing Turso parity.
+pass; premature cleanup would break current explicit PGlite-mode tests and
+browser storage paths without advancing Turso parity.
 
 Stale wording cleanup is a final-pass task after release decisions are made.
 Do not repeat already-closed wording items from #1459/#1460 unless a fresh
@@ -1017,8 +1046,9 @@ current-code audit finds a new stale surface.
 The original implementation order was collection/import, assistant memory,
 search, live-query strategy, reset/maintenance, then final runtime audit. Most
 of those slices have landed. Keep the remaining work focused on runtime-removal
-audits, web/runtime ownership decisions, native FTS snippet/ranking decisions,
-and stale PGlite-only surfaces that no longer serve a supported runtime.
+audits, browser/runtime ownership decisions, explicit desktop PGlite
+compatibility decisions, native FTS snippet/ranking decisions, and stale
+PGlite-only surfaces that no longer serve a supported runtime.
 
 ## Verification Policy
 
