@@ -15,6 +15,8 @@ import {
 const transactionCallbackContext = new AsyncLocalStorage<symbol>();
 const DEFAULT_SLOW_QUEUE_THRESHOLD_MS = 1000;
 
+type TursoOwnerClientOperationPriority = NonNullable<BrainstrikeDbWorkOptions['priority']>;
+
 export interface TursoOwnerClientOptions {
   readonly dbPath: string;
   readonly now?: () => number;
@@ -37,6 +39,7 @@ export interface TursoOwnerClientActiveOperationDiagnostic {
   readonly id: number;
   readonly kind: TursoOwnerClientOperationKind;
   readonly label: string;
+  readonly priority: TursoOwnerClientOperationPriority | null;
   readonly queuedAt: number;
   readonly queueWaitMs: number;
   readonly startedAt: number;
@@ -46,6 +49,7 @@ export interface TursoOwnerClientQueuedOperationDiagnostic {
   readonly id: number;
   readonly kind: TursoOwnerClientOperationKind;
   readonly label: string;
+  readonly priority: TursoOwnerClientOperationPriority | null;
   readonly queuedAt: number;
   readonly queuedForMs: number;
 }
@@ -65,11 +69,13 @@ export interface TursoOwnerClientQoSDiagnostics {
 export interface TursoOwnerClient extends BrainstrikeDbTransactionClient {
   readonly close: () => Promise<void>;
   readonly exclusiveTransaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<TResult>;
   readonly getQoSDiagnostics: () => TursoOwnerClientQoSDiagnostics;
   readonly transaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<TResult>;
 }
 
@@ -77,6 +83,7 @@ interface TursoOwnerClientOperationState {
   readonly id: number;
   readonly kind: TursoOwnerClientOperationKind;
   readonly label: string;
+  readonly priority: TursoOwnerClientOperationPriority | null;
   readonly queuedAt: number;
   startedAt: number | null;
 }
@@ -129,6 +136,7 @@ export async function createTursoOwnerClient(
     operationInput: {
       readonly kind: TursoOwnerClientOperationKind;
       readonly label?: string | undefined;
+      readonly priority?: TursoOwnerClientOperationPriority | undefined;
     },
     work: () => Promise<TResult>
   ): Promise<TResult> => {
@@ -136,6 +144,7 @@ export async function createTursoOwnerClient(
       id: nextOperationId,
       kind: operationInput.kind,
       label: operationInput.label ?? operationInput.kind,
+      priority: operationInput.priority ?? null,
       queuedAt: now(),
       startedAt: null,
     };
@@ -182,10 +191,17 @@ export async function createTursoOwnerClient(
     },
     exec: async (sql, params, operationOptions) => {
       assertOuterClientAvailable();
-      return runExclusive({ kind: 'exec', label: operationOptions?.label }, async () => {
-        assertOpen();
-        await execTursoSql(database, sql, params);
-      });
+      return runExclusive(
+        {
+          kind: 'exec',
+          label: operationOptions?.label,
+          priority: operationOptions?.priority,
+        },
+        async () => {
+          assertOpen();
+          await execTursoSql(database, sql, params);
+        }
+      );
     },
     query: async <TRecord = unknown>(
       sql: string,
@@ -193,13 +209,21 @@ export async function createTursoOwnerClient(
       operationOptions?: BrainstrikeDbWorkOptions
     ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
       assertOuterClientAvailable();
-      return runExclusive({ kind: 'query', label: operationOptions?.label }, async () => {
-        assertOpen();
-        return queryTursoSql(database, sql, params);
-      });
+      return runExclusive(
+        {
+          kind: 'query',
+          label: operationOptions?.label,
+          priority: operationOptions?.priority,
+        },
+        async () => {
+          assertOpen();
+          return queryTursoSql(database, sql, params);
+        }
+      );
     },
     exclusiveTransaction: async <TResult>(
-      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+      operationOptions?: BrainstrikeDbWorkOptions
     ): Promise<TResult> =>
       runTransaction({
         assertOpen,
@@ -208,6 +232,7 @@ export async function createTursoOwnerClient(
         callback,
         database,
         operationKind: 'exclusiveTransaction',
+        operationOptions,
         ownerClientId,
         runExclusive,
       }),
@@ -220,7 +245,8 @@ export async function createTursoOwnerClient(
         ...qosCounters,
       }),
     transaction: async <TResult>(
-      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+      operationOptions?: BrainstrikeDbWorkOptions
     ): Promise<TResult> =>
       runTransaction({
         assertOpen,
@@ -229,6 +255,7 @@ export async function createTursoOwnerClient(
         callback,
         database,
         operationKind: 'transaction',
+        operationOptions,
         ownerClientId,
         runExclusive,
       }),
@@ -244,33 +271,42 @@ async function runTransaction<TResult>(params: {
   readonly callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>;
   readonly database: TursoDatabase;
   readonly operationKind: TursoOwnerClientOperationKind;
+  readonly operationOptions?: BrainstrikeDbWorkOptions | undefined;
   readonly ownerClientId: symbol;
   readonly runExclusive: <TValue>(
     operationInput: {
       readonly kind: TursoOwnerClientOperationKind;
       readonly label?: string | undefined;
+      readonly priority?: TursoOwnerClientOperationPriority | undefined;
     },
     work: () => Promise<TValue>
   ) => Promise<TValue>;
 }): Promise<TResult> {
   params.assertOuterClientAvailable();
-  return params.runExclusive({ kind: params.operationKind }, async () => {
-    params.assertOpen();
-    await params.database.exec(params.beginSql);
-    const transactionClient = createTursoTransactionClient(params.database, params.assertOpen);
-    try {
-      const result = await transactionCallbackContext.run(params.ownerClientId, () =>
-        params.callback(transactionClient.client)
-      );
-      transactionClient.deactivate();
-      await params.database.exec('COMMIT');
-      return result;
-    } catch (error) {
-      transactionClient.deactivate();
-      await rollbackIgnoringFailure(params.database);
-      throw error;
+  return params.runExclusive(
+    {
+      kind: params.operationKind,
+      label: params.operationOptions?.label,
+      priority: params.operationOptions?.priority,
+    },
+    async () => {
+      params.assertOpen();
+      await params.database.exec(params.beginSql);
+      const transactionClient = createTursoTransactionClient(params.database, params.assertOpen);
+      try {
+        const result = await transactionCallbackContext.run(params.ownerClientId, () =>
+          params.callback(transactionClient.client)
+        );
+        transactionClient.deactivate();
+        await params.database.exec('COMMIT');
+        return result;
+      } catch (error) {
+        transactionClient.deactivate();
+        await rollbackIgnoringFailure(params.database);
+        throw error;
+      }
     }
-  });
+  );
 }
 
 function createQoSDiagnosticsSnapshot(
@@ -314,6 +350,7 @@ function createActiveOperationDiagnostic(
     id: operation.id,
     kind: operation.kind,
     label: operation.label,
+    priority: operation.priority,
     queueWaitMs: Math.max(0, operation.startedAt - operation.queuedAt),
     queuedAt: operation.queuedAt,
     startedAt: operation.startedAt,
@@ -328,6 +365,7 @@ function createQueuedOperationDiagnostic(
     id: operation.id,
     kind: operation.kind,
     label: operation.label,
+    priority: operation.priority,
     queuedAt: operation.queuedAt,
     queuedForMs: Math.max(0, now - operation.queuedAt),
   };

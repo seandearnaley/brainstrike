@@ -97,8 +97,8 @@ export class TursoJobQueue {
     return Math.min(cap, Math.max(base, jitter));
   }
 
-  async enqueue(params: EnqueueParams): Promise<Job> {
-    const jobs = await this.enqueueBatch([params]);
+  async enqueue(params: EnqueueParams, options?: BrainstrikeDbWorkOptions): Promise<Job> {
+    const jobs = await this.enqueueBatch([params], options);
     const job = jobs[0];
     if (!job) {
       throw new Error('Failed to insert Turso job.');
@@ -106,7 +106,7 @@ export class TursoJobQueue {
     return job;
   }
 
-  async enqueueBatch(params: EnqueueParams[]): Promise<Job[]> {
+  async enqueueBatch(params: EnqueueParams[], options?: BrainstrikeDbWorkOptions): Promise<Job[]> {
     if (params.length === 0) {
       return [];
     }
@@ -117,7 +117,7 @@ export class TursoJobQueue {
     }
 
     const result = await withTursoWriteRetry('enqueueBatch', async () =>
-      this.db.transaction(async (tx) => enqueueJobs(tx, params, this.defaults.maxAttempts))
+      this.db.transaction(async (tx) => enqueueJobs(tx, params, this.defaults.maxAttempts), options)
     );
     const { jobs } = result;
     if (jobs.length > 0) {
@@ -127,12 +127,15 @@ export class TursoJobQueue {
     return jobs;
   }
 
-  async claim(params: ClaimParams): Promise<Job | null> {
-    const jobs = await this.claimMany({ ...params, limit: 1 });
+  async claim(params: ClaimParams, options?: BrainstrikeDbWorkOptions): Promise<Job | null> {
+    const jobs = await this.claimMany({ ...params, limit: 1 }, options);
     return jobs[0] ?? null;
   }
 
-  async claimMany(params: ClaimParams & { limit?: number }): Promise<Job[]> {
+  async claimMany(
+    params: ClaimParams & { limit?: number },
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<Job[]> {
     const now = params.now ?? new Date().toISOString();
     const leaseToken = generateUUID();
     const leasedUntil = addMs(now, params.leaseMs);
@@ -142,15 +145,15 @@ export class TursoJobQueue {
       this.db.transaction(async (tx) => {
         const candidates = await tx.query<JobRow>(
           `SELECT *
-             FROM job_queue
-            WHERE queue = ?
-              AND attempts < max_attempts
-              AND (
-                    (state = 'queued' AND run_at <= ?)
-                 OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
-                  )
-            ORDER BY run_at ASC, id ASC
-            LIMIT ?`,
+               FROM job_queue
+              WHERE queue = ?
+                AND attempts < max_attempts
+                AND (
+                      (state = 'queued' AND run_at <= ?)
+                   OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
+                    )
+              ORDER BY run_at ASC, id ASC
+              LIMIT ?`,
           [params.queue, now, now, limit]
         );
 
@@ -158,19 +161,19 @@ export class TursoJobQueue {
         for (const row of candidates.rows) {
           const result = await tx.query<JobRow>(
             `UPDATE job_queue
-                SET state = 'running',
-                    attempts = attempts + 1,
-                    lease_token = ?,
-                    leased_until = ?,
-                    worker_id = ?,
-                    updated_at = ?
-              WHERE id = ?
-                AND attempts < max_attempts
-                AND (
-                      (state = 'queued' AND run_at <= ?)
-                   OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
-                    )
-            RETURNING *`,
+                  SET state = 'running',
+                      attempts = attempts + 1,
+                      lease_token = ?,
+                      leased_until = ?,
+                      worker_id = ?,
+                      updated_at = ?
+                WHERE id = ?
+                  AND attempts < max_attempts
+                  AND (
+                        (state = 'queued' AND run_at <= ?)
+                     OR (state = 'running' AND (leased_until IS NULL OR leased_until <= ?))
+                      )
+              RETURNING *`,
             [leaseToken, leasedUntil, params.workerId ?? null, now, row.id, now, now]
           );
           if (result.rows[0]) {
@@ -178,7 +181,7 @@ export class TursoJobQueue {
           }
         }
         return claimed;
-      })
+      }, options)
     );
 
     if (jobs.length > 0) {
@@ -207,21 +210,26 @@ export class TursoJobQueue {
     return jobs;
   }
 
-  async heartbeat(params: {
-    extendMs: number;
-    id: string;
-    leaseToken: string;
-  }): Promise<Job | null> {
+  async heartbeat(
+    params: {
+      extendMs: number;
+      id: string;
+      leaseToken: string;
+    },
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<Job | null> {
     const jobs = await this.heartbeatBatch(
       [{ id: params.id, leaseToken: params.leaseToken }],
-      params.extendMs
+      params.extendMs,
+      options
     );
     return jobs[0] ?? null;
   }
 
   async heartbeatBatch(
     jobs: { id: string; leaseToken: string }[],
-    extendMs: number
+    extendMs: number,
+    options?: BrainstrikeDbWorkOptions
   ): Promise<Job[]> {
     if (jobs.length === 0) {
       return [];
@@ -239,7 +247,8 @@ export class TursoJobQueue {
             AND lease_token = ?
             AND state = 'running'
         RETURNING *`,
-          [newLease, now, job.id, job.leaseToken]
+          [newLease, now, job.id, job.leaseToken],
+          options
         );
         if (result.rows[0]) {
           updatedJobs.push(fromRow(result.rows[0]));
@@ -253,12 +262,12 @@ export class TursoJobQueue {
     return updated;
   }
 
-  async complete(params: CompleteParams): Promise<Job | null> {
-    const jobs = await this.completeBatch([params]);
+  async complete(params: CompleteParams, options?: BrainstrikeDbWorkOptions): Promise<Job | null> {
+    const jobs = await this.completeBatch([params], options);
     return jobs[0] ?? null;
   }
 
-  async completeBatch(jobs: CompleteParams[]): Promise<Job[]> {
+  async completeBatch(jobs: CompleteParams[], options?: BrainstrikeDbWorkOptions): Promise<Job[]> {
     if (jobs.length === 0) {
       return [];
     }
@@ -270,13 +279,13 @@ export class TursoJobQueue {
         for (const job of jobs) {
           const result = await tx.query<JobRow>(
             `UPDATE job_queue
-              SET state = 'succeeded',
-                  leased_until = NULL,
-                  updated_at = ?
-            WHERE id = ?
-              AND lease_token = ?
-              AND state = 'running'
-          RETURNING *`,
+                SET state = 'succeeded',
+                    leased_until = NULL,
+                    updated_at = ?
+              WHERE id = ?
+                AND lease_token = ?
+                AND state = 'running'
+            RETURNING *`,
             [updatedAt, job.id, job.leaseToken]
           );
           if (result.rows[0]) {
@@ -284,7 +293,7 @@ export class TursoJobQueue {
           }
         }
         return completedJobs;
-      })
+      }, options)
     );
     if (completed.length > 0) {
       logger.trace('Turso jobs completed in batch', { count: completed.length });
@@ -293,14 +302,19 @@ export class TursoJobQueue {
     return completed;
   }
 
-  async completeEmbeddingChunkBatch(jobs: CompleteEmbeddingChunkParams[]): Promise<Job[]> {
+  async completeEmbeddingChunkBatch(
+    jobs: CompleteEmbeddingChunkParams[],
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<Job[]> {
     if (jobs.length === 0) {
       return [];
     }
     const updatedAt = new Date().toISOString();
     const completed = await withTursoWriteRetry('completeEmbeddingChunkBatch', async () =>
-      this.db.transaction(async (tx) =>
-        completeEmbeddingChunkJobs(tx, new TursoFileChunkRepository(this.db), jobs, updatedAt)
+      this.db.transaction(
+        async (tx) =>
+          completeEmbeddingChunkJobs(tx, new TursoFileChunkRepository(this.db), jobs, updatedAt),
+        options
       )
     );
     if (completed.length > 0) {
@@ -310,7 +324,7 @@ export class TursoJobQueue {
     return completed;
   }
 
-  async fail(params: FailParams): Promise<Job | null> {
+  async fail(params: FailParams, options?: BrainstrikeDbWorkOptions): Promise<Job | null> {
     const batchParams: FailBatchParams = {
       jobs: [{ id: params.id, leaseToken: params.leaseToken }],
       error: params.error,
@@ -321,19 +335,21 @@ export class TursoJobQueue {
     if (params.terminal !== undefined) {
       batchParams.terminal = params.terminal;
     }
-    const jobs = await this.failBatch(batchParams);
+    const jobs = await this.failBatch(batchParams, options);
     return jobs[0] ?? null;
   }
 
-  async failBatch(params: FailBatchParams): Promise<Job[]> {
+  async failBatch(params: FailBatchParams, options?: BrainstrikeDbWorkOptions): Promise<Job[]> {
     if (params.jobs.length === 0) {
       return [];
     }
     const now = new Date();
     const updatedAt = now.toISOString();
     const results = await withTursoWriteRetry('failBatch', async () =>
-      this.db.transaction(async (tx) =>
-        failJobsWithTx(tx, params, now, updatedAt, (attempts) => this.retryPolicy(attempts))
+      this.db.transaction(
+        async (tx) =>
+          failJobsWithTx(tx, params, now, updatedAt, (attempts) => this.retryPolicy(attempts)),
+        options
       )
     );
     const failed = results.map((result) => result.job);
@@ -507,7 +523,11 @@ export class TursoJobQueue {
     return this.readModel.getQueueStats(queue, options);
   }
 
-  async clear(queue?: string, states?: JobState[]): Promise<number> {
+  async clear(
+    queue?: string,
+    states?: JobState[],
+    options?: BrainstrikeDbWorkOptions
+  ): Promise<number> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (queue) {
@@ -520,7 +540,7 @@ export class TursoJobQueue {
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await withTursoWriteRetry('clear', async () =>
-      this.db.query<{ id: string }>(`DELETE FROM job_queue ${where} RETURNING id`, params)
+      this.db.query<{ id: string }>(`DELETE FROM job_queue ${where} RETURNING id`, params, options)
     );
     const removed = result.rows.length;
     if (removed > 0) {
@@ -566,25 +586,29 @@ export class TursoJobQueue {
   async retryFailed(
     queue?: string,
     limit = 20,
-    options: QueueRetryOptions = {}
+    options: QueueRetryOptions = {},
+    workOptions?: BrainstrikeDbWorkOptions
   ): Promise<{ repairedQueued: number; requeuedFailed: number }> {
     return withTursoWriteRetry('retryFailed', async () =>
-      this.db.transaction(async (tx) => ({
-        repairedQueued: await resetJobsForRetryWithTx(
-          tx,
-          "state = 'queued' AND attempts >= max_attempts",
-          queue,
-          limit,
-          options.embeddingSetId
-        ),
-        requeuedFailed: await resetJobsForRetryWithTx(
-          tx,
-          "state = 'failed'",
-          queue,
-          limit,
-          options.embeddingSetId
-        ),
-      }))
+      this.db.transaction(
+        async (tx) => ({
+          repairedQueued: await resetJobsForRetryWithTx(
+            tx,
+            "state = 'queued' AND attempts >= max_attempts",
+            queue,
+            limit,
+            options.embeddingSetId
+          ),
+          requeuedFailed: await resetJobsForRetryWithTx(
+            tx,
+            "state = 'failed'",
+            queue,
+            limit,
+            options.embeddingSetId
+          ),
+        }),
+        workOptions
+      )
     );
   }
 }

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-hybrid-search-tool`, targeting
+Last updated: 2026-07-03 on `codex/turso-queue-profiling`, targeting
 `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,9 +10,11 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1447 at `d0dfcf5d`. This PR branch retires the unregistered assistant
-`brainstrike.hybridSearch` wrapper while keeping the repository-backed hybrid
-search service used by DB Explorer.
+through #1450 at `e6d97d1c`. This PR branch threads foreground/background
+work labels and priorities through Turso owner-client transaction and DB-host
+queue paths so queue-topology profiling can distinguish hidden
+embedding-worker/background writes from foreground DB work in owner QoS
+diagnostics.
 
 Merged slices:
 
@@ -154,14 +156,16 @@ Merged slices:
 - #1445 `Add Turso Mastra vector memory store`
 - #1446 `Retire raw queue purge helper`
 - #1447 `Prove Turso clear-all path`
+- #1450 `Retire unregistered hybrid search assistant wrapper`
 
 In-flight slice on this branch:
 
-- Retire the unregistered assistant `brainstrike.hybridSearch` wrapper. A
-  future model-facing hybrid search tool should be built as a desktop adapter
-  with explicit Turso capability gates, output budgeting, workspace-index
-  defaulting, root scoping, and live assistant-loop coverage rather than wiring
-  the stale package-level helper.
+- Propagate `DatabaseWorkOptions` labels and priorities through Turso
+  owner-client transactions, hidden embedding-worker queue/stats DB-host
+  requests, and visible vector-queue owner actions. This does not complete the
+  release profiling gate by itself; it makes the required
+  foreground/background evidence observable in Turso owner-client QoS
+  snapshots.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -179,12 +183,14 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1447 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1450 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
-decision should stay out of the remaining backlog except where the ledger names
-a narrower follow-up. The verified remaining backlog is now:
+retirement should stay out of the remaining backlog except where the ledger
+names a narrower follow-up. The current queue-profiling slice covers owner QoS
+label propagation only; real hidden-worker profiling remains required. The
+verified remaining backlog is now:
 
 - queue-topology release profiling under hidden embedding-worker/background
   Turso writes plus foreground-labeled DB work;
@@ -264,6 +270,13 @@ The branch currently has a real Turso runtime seam:
   wedged behind a timed-out operation. PGlite keeps the existing policy where
   plain query/exec timeouts do not kill the host, while transaction timeouts
   remain process-poisoning for both runtimes.
+- Queue-profiling work now carries operation labels and structured priorities
+  into owner-client transaction diagnostics for Turso `TursoJobQueue`
+  operations, hidden embedding-worker queue/stats DB-host requests, and vector
+  queue owner actions. This lets profiling snapshots identify foreground versus
+  background work inside owner QoS diagnostics; it is observability for the
+  release gate, not a claim that the shared owner-client topology is
+  latency-safe under load.
 - Connection-model decision for the hidden embedding worker: desktop Turso
   worker DB mutations use the shared main-process owner client through explicit
   command-style IPC and the existing database work scheduler's `background`
@@ -572,6 +585,12 @@ Completed low-risk queue UI slices:
   the bootstrap runtime, constructs `JobQueue` only for PGlite, exposes Turso
   queue snapshots, and wires the desktop Turso action service only when the
   owner-IPC bridge is present.
+- Turso embedding-worker queue/stats requests and vector queue owner actions
+  now carry `DatabaseWorkOptions` labels and priorities through desktop IPC,
+  `DbHostManager`, DB-host protocol messages, and owner-client `TursoJobQueue`
+  transactions. Profiling can now compare scheduler priority snapshots with
+  owner-client QoS labels/priorities for the same foreground/background
+  workload.
 - `useEmbeddingRuntimeController()` now treats Electron as a host-required
   runtime: if `window.electronAPI` exists but `window.embeddingHost` is missing,
   backfill/start/status/reset/stop operations fail closed instead of falling

@@ -36,6 +36,31 @@ describe('TursoFileChunkRepository', () => {
     await rm(tempDir, { force: true, recursive: true });
   });
 
+  it('passes work options to clear-embeddings transactions', async () => {
+    const workOptions = {
+      label: 'turso.vector-queue.action.clearEmbeddingsForSet',
+      priority: 'normal',
+    } as const;
+    const tx = {
+      exec: vi.fn(async () => undefined),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ id: 'set-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'chunk-1' }, { id: 'chunk-2' }] }),
+    };
+    const transaction = vi.fn(async (callback) => callback(tx));
+    const db = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction,
+    } as unknown as BrainstrikeDbExecutionClient;
+    const fakeRepository = new TursoFileChunkRepository(db);
+
+    await expect(fakeRepository.clearEmbeddingsForSet('set-1', workOptions)).resolves.toBe(2);
+
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), workOptions);
+  });
+
   it('inserts, upserts, and reads chunks through the Turso schema shape', async () => {
     await fileRecordsRepository.createWithContent(createRecord({ id: 'file-1' }));
     await fileRecordsRepository.createWithContent(

@@ -394,6 +394,40 @@ describe('TursoJobQueue runtime operations', () => {
     );
   });
 
+  it('passes work options into transaction-backed Turso queue operations', async () => {
+    const tx: BrainstrikeDbTransactionClient = {
+      exec: vi.fn<BrainstrikeDbTransactionClient['exec']>(),
+      query: vi.fn<BrainstrikeDbTransactionClient['query']>().mockResolvedValue({ rows: [] }),
+    };
+    const executionClient: BrainstrikeDbExecutionClient = {
+      exec: vi.fn<BrainstrikeDbExecutionClient['exec']>(),
+      query: vi.fn<BrainstrikeDbExecutionClient['query']>(),
+      transaction: vi.fn<BrainstrikeDbExecutionClient['transaction']>(
+        async (callback) => await callback(tx)
+      ),
+    };
+    const retryQueue = new TursoJobQueue(executionClient);
+    const workOptions = {
+      label: 'turso.embedding-worker.queue.claimMany',
+      priority: 'background',
+    } as const;
+
+    await expect(
+      retryQueue.claimMany(
+        {
+          leaseMs: 60_000,
+          limit: 1,
+          now: '2026-06-23T08:00:00.000Z',
+          queue: 'embeddings',
+          workerId: 'worker-1',
+        },
+        workOptions
+      )
+    ).resolves.toEqual([]);
+
+    expect(executionClient.transaction).toHaveBeenCalledWith(expect.any(Function), workOptions);
+  });
+
   it('retries transient Turso write contention while requeueing failed jobs', async () => {
     const runningRow = createJobRow({
       attempts: 1,

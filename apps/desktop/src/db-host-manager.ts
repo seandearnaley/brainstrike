@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY } from '@brainstrike/types';
+import { BRAINSTRIKE_DB_EXECUTION_RUNTIME_KEY, type DatabaseWorkOptions } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
@@ -148,13 +148,16 @@ export interface DbHostManager {
     payload: ParsedTursoEmbeddingBackfillOperationRequest
   ) => Promise<TResult>;
   readonly runTursoEmbeddingWorkerQueueOperation: (
-    payload: ParsedTursoEmbeddingWorkerQueueRequest
+    payload: ParsedTursoEmbeddingWorkerQueueRequest,
+    workOptions?: DatabaseWorkOptions
   ) => Promise<unknown>;
   readonly runTursoEmbeddingWorkerStatsOperation: (
-    payload: ParsedTursoEmbeddingWorkerStatsRequest
+    payload: ParsedTursoEmbeddingWorkerStatsRequest,
+    workOptions?: DatabaseWorkOptions
   ) => Promise<void>;
   readonly runTursoVectorQueueAction: (
-    payload: ParsedTursoVectorQueueActionRequest
+    payload: ParsedTursoVectorQueueActionRequest,
+    workOptions?: DatabaseWorkOptions
   ) => Promise<unknown>;
 }
 
@@ -649,10 +652,15 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async runTursoEmbeddingWorkerQueueOperation(
-    payload: ParsedTursoEmbeddingWorkerQueueRequest
+    payload: ParsedTursoEmbeddingWorkerQueueRequest,
+    workOptions?: DatabaseWorkOptions
   ): Promise<unknown> {
     await this.#ensureRuntimeInitialized();
-    return await this.send({ kind: 'turso:embedding-worker:queue', payload });
+    return await this.send({
+      kind: 'turso:embedding-worker:queue',
+      payload,
+      ...(workOptions ? { workOptions } : {}),
+    });
   }
 
   async runTursoEmbeddingBackfillOperation<TResult = unknown>(
@@ -663,15 +671,27 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async runTursoEmbeddingWorkerStatsOperation(
-    payload: ParsedTursoEmbeddingWorkerStatsRequest
+    payload: ParsedTursoEmbeddingWorkerStatsRequest,
+    workOptions?: DatabaseWorkOptions
   ): Promise<void> {
     await this.#ensureRuntimeInitialized();
-    await this.send({ kind: 'turso:embedding-worker:stats', payload });
+    await this.send({
+      kind: 'turso:embedding-worker:stats',
+      payload,
+      ...(workOptions ? { workOptions } : {}),
+    });
   }
 
-  async runTursoVectorQueueAction(payload: ParsedTursoVectorQueueActionRequest): Promise<unknown> {
+  async runTursoVectorQueueAction(
+    payload: ParsedTursoVectorQueueActionRequest,
+    workOptions?: DatabaseWorkOptions
+  ): Promise<unknown> {
     await this.#ensureRuntimeInitialized();
-    return await this.send({ kind: 'turso:vector-queue:action', payload });
+    return await this.send({
+      kind: 'turso:vector-queue:action',
+      payload,
+      ...(workOptions ? { workOptions } : {}),
+    });
   }
 
   async #ensureRuntimeInitialized(): Promise<void> {

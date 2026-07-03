@@ -135,7 +135,8 @@ export interface BrainstrikeDbTransactionClient {
 
 export interface BrainstrikeDbExecutionClient extends BrainstrikeDbTransactionClient {
   readonly transaction: <TResult>(
-    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+    options?: BrainstrikeDbWorkOptions
   ) => Promise<TResult>;
 }
 

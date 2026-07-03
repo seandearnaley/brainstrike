@@ -297,12 +297,14 @@ describe('Turso owner client', () => {
     try {
       const firstQuery = client.query<{ value: string }>('SELECT 1 AS value', undefined, {
         label: 'first query',
+        priority: 'background',
       });
       await waitFor(() => client.getQoSDiagnostics().activeOperation?.label === 'first query');
 
       now = 1010;
       const secondQuery = client.query<{ value: string }>('SELECT 2 AS value', undefined, {
         label: 'queued query',
+        priority: 'foreground',
       });
       await waitFor(() => client.getQoSDiagnostics().queuedOperationCount === 1);
 
@@ -312,6 +314,7 @@ describe('Turso owner client', () => {
           activeDurationMs: 75,
           kind: 'query',
           label: 'first query',
+          priority: 'background',
           queueWaitMs: 0,
         },
         queuedOperationCount: 1,
@@ -319,6 +322,7 @@ describe('Turso owner client', () => {
           {
             kind: 'query',
             label: 'queued query',
+            priority: 'foreground',
             queuedForMs: 65,
           },
         ],
@@ -346,6 +350,63 @@ describe('Turso owner client', () => {
       });
     } finally {
       firstQueryGate.resolve();
+      await client.close();
+    }
+  });
+
+  it('reports transaction operation labels in owner QoS diagnostics for foreground/background profiling', async () => {
+    let now = 2000;
+    const transactionGate = createDeferred<void>();
+    const client = await createTursoOwnerClient({
+      dbPath: join(tempDir, 'transaction-qos-diagnostics.db'),
+      now: () => now,
+      slowQueueThresholdMs: 25,
+    });
+
+    try {
+      await client.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
+      const backgroundTransaction = client.transaction(
+        async (tx) => {
+          await tx.exec('INSERT INTO notes (value) VALUES (?)', ['background']);
+          await transactionGate.promise;
+        },
+        { label: 'turso.embedding-worker.queue.claimMany', priority: 'background' }
+      );
+      await waitFor(() => client.getQoSDiagnostics().activeOperation?.kind === 'transaction');
+
+      now = 2010;
+      const foregroundTransaction = client.transaction(
+        async (tx) => {
+          await tx.exec('INSERT INTO notes (value) VALUES (?)', ['foreground']);
+        },
+        { label: 'foreground collection refresh', priority: 'foreground' }
+      );
+      await waitFor(() => client.getQoSDiagnostics().queuedOperationCount === 1);
+
+      now = 2040;
+      expect(client.getQoSDiagnostics()).toMatchObject({
+        activeOperation: {
+          kind: 'transaction',
+          label: 'turso.embedding-worker.queue.claimMany',
+          priority: 'background',
+          queueWaitMs: 0,
+        },
+        queuedOperations: [
+          {
+            kind: 'transaction',
+            label: 'foreground collection refresh',
+            priority: 'foreground',
+            queuedForMs: 30,
+          },
+        ],
+        slowQueuedOperationCount: 1,
+      });
+
+      transactionGate.resolve();
+      await expect(backgroundTransaction).resolves.toBeUndefined();
+      await expect(foregroundTransaction).resolves.toBeUndefined();
+    } finally {
+      transactionGate.resolve();
       await client.close();
     }
   });

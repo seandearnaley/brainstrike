@@ -922,6 +922,18 @@ describe('db-host-entry', () => {
     dbMainMocks.getDatabase.mockResolvedValue(db);
     const { listeners, parentPort } = installParentPortMock();
     await import('../../db-host-entry');
+    const queueWorkOptions = {
+      label: 'turso.embedding-worker.queue.claimMany',
+      priority: 'background',
+    } as const;
+    const statsWorkOptions = {
+      label: 'turso.embedding-worker.stats.markDirty',
+      priority: 'background',
+    } as const;
+    const vectorWorkOptions = {
+      label: 'turso.vector-queue.action.clearEmbeddingsForSet',
+      priority: 'normal',
+    } as const;
 
     listeners[0]?.({
       data: {
@@ -939,6 +951,7 @@ describe('db-host-entry', () => {
               workerId: 'worker-1',
             },
           },
+          workOptions: queueWorkOptions,
         },
       },
     });
@@ -952,6 +965,7 @@ describe('db-host-entry', () => {
             embeddingSetIds: ['set-1'],
             operation: 'markDirty',
           },
+          workOptions: statsWorkOptions,
         },
       },
     });
@@ -965,23 +979,30 @@ describe('db-host-entry', () => {
             operation: 'clearEmbeddingsForSet',
             payload: { embeddingSetId: 'set-1' },
           },
+          workOptions: vectorWorkOptions,
         },
       },
     });
     await flushMicrotasks();
 
-    expect(dbPackageMocks.tursoJobQueueClaimMany).toHaveBeenCalledWith({
-      leaseMs: 60_000,
-      limit: 1,
-      now: '2026-06-30T10:01:00.000Z',
-      queue: 'embeddings',
-      workerId: 'worker-1',
-    });
-    expect(dbPackageMocks.markTursoCollectionIndexingStatsDirty).toHaveBeenCalledWith(db, [
-      'set-1',
-    ]);
+    expect(dbPackageMocks.tursoJobQueueClaimMany).toHaveBeenCalledWith(
+      {
+        leaseMs: 60_000,
+        limit: 1,
+        now: '2026-06-30T10:01:00.000Z',
+        queue: 'embeddings',
+        workerId: 'worker-1',
+      },
+      queueWorkOptions
+    );
+    expect(dbPackageMocks.markTursoCollectionIndexingStatsDirty).toHaveBeenCalledWith(
+      db,
+      ['set-1'],
+      statsWorkOptions
+    );
     expect(dbPackageMocks.tursoFileChunkRepositoryClearEmbeddingsForSet).toHaveBeenCalledWith(
-      'set-1'
+      'set-1',
+      vectorWorkOptions
     );
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       id: 'turso-queue',
@@ -1013,6 +1034,18 @@ describe('db-host-entry', () => {
     dbMainMocks.getDatabase.mockResolvedValue(db);
     const { listeners, parentPort } = installParentPortMock();
     await import('../../db-host-entry');
+    const queueWorkOptions = {
+      label: 'db-host-entry.queue-variant',
+      priority: 'background',
+    } as const;
+    const statsWorkOptions = {
+      label: 'db-host-entry.stats-refresh',
+      priority: 'background',
+    } as const;
+    const vectorWorkOptions = {
+      label: 'db-host-entry.vector-action',
+      priority: 'normal',
+    } as const;
 
     const queueRequests = [
       {
@@ -1089,6 +1122,7 @@ describe('db-host-entry', () => {
           request: {
             kind: 'turso:embedding-worker:queue',
             payload: request.payload,
+            workOptions: queueWorkOptions,
           },
         },
       });
@@ -1104,6 +1138,7 @@ describe('db-host-entry', () => {
             embeddingSetIds: ['set-2'],
             operation: 'refresh',
           },
+          workOptions: statsWorkOptions,
         },
       },
     });
@@ -1116,31 +1151,42 @@ describe('db-host-entry', () => {
           request: {
             kind: 'turso:vector-queue:action',
             payload: request.payload,
+            workOptions: vectorWorkOptions,
           },
         },
       });
       await flushMicrotasks();
     }
 
-    expect(dbPackageMocks.tursoJobQueueCompleteBatch).toHaveBeenCalledWith([
-      { id: 'job-1', leaseToken: 'lease-1' },
-    ]);
-    expect(dbPackageMocks.tursoJobQueueCompleteEmbeddingChunkBatch).toHaveBeenCalledWith([
-      { id: 'job-2', leaseToken: 'lease-2' },
-    ]);
-    expect(dbPackageMocks.tursoJobQueueFail).toHaveBeenCalledWith({
-      error: 'boom',
-      id: 'job-3',
-      leaseToken: 'lease-3',
-    });
-    expect(dbPackageMocks.tursoJobQueueFailBatch).toHaveBeenCalledWith({
-      error: 'boom',
-      jobs: [{ id: 'job-4', leaseToken: 'lease-4' }],
-    });
+    expect(dbPackageMocks.tursoJobQueueCompleteBatch).toHaveBeenCalledWith(
+      [{ id: 'job-1', leaseToken: 'lease-1' }],
+      queueWorkOptions
+    );
+    expect(dbPackageMocks.tursoJobQueueCompleteEmbeddingChunkBatch).toHaveBeenCalledWith(
+      [{ id: 'job-2', leaseToken: 'lease-2' }],
+      queueWorkOptions
+    );
+    expect(dbPackageMocks.tursoJobQueueFail).toHaveBeenCalledWith(
+      {
+        error: 'boom',
+        id: 'job-3',
+        leaseToken: 'lease-3',
+      },
+      queueWorkOptions
+    );
+    expect(dbPackageMocks.tursoJobQueueFailBatch).toHaveBeenCalledWith(
+      {
+        error: 'boom',
+        jobs: [{ id: 'job-4', leaseToken: 'lease-4' }],
+      },
+      queueWorkOptions
+    );
     expect(dbPackageMocks.tursoJobQueueHeartbeatBatch).toHaveBeenCalledWith(
       [{ id: 'job-5', leaseToken: 'lease-5' }],
-      30_000
+      30_000,
+      queueWorkOptions
     );
+    expect(db.transaction).toHaveBeenCalledWith(expect.any(Function), statsWorkOptions);
     expect(dbPackageMocks.refreshTursoCollectionIndexingStats).toHaveBeenCalledWith(
       expect.objectContaining({
         exec: expect.any(Function),
@@ -1148,14 +1194,29 @@ describe('db-host-entry', () => {
       }),
       ['set-2']
     );
-    expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(1, 'embeddings', ['failed']);
-    expect(dbPackageMocks.tursoJobQueueRetryFailed).toHaveBeenCalledWith('embeddings', 5);
+    expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(
+      1,
+      'embeddings',
+      ['failed'],
+      vectorWorkOptions
+    );
+    expect(dbPackageMocks.tursoJobQueueRetryFailed).toHaveBeenCalledWith(
+      'embeddings',
+      5,
+      {},
+      vectorWorkOptions
+    );
     expect(dbPackageMocks.tursoJobQueueRepairUnclaimableQueued).not.toHaveBeenCalledWith(
       'embeddings',
       5
     );
     expect(dbPackageMocks.tursoJobQueueRequeueFailed).not.toHaveBeenCalledWith('embeddings', 5);
-    expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(2, 'embeddings');
+    expect(dbPackageMocks.tursoJobQueueClear).toHaveBeenNthCalledWith(
+      2,
+      'embeddings',
+      undefined,
+      vectorWorkOptions
+    );
     expect(parentPort.postMessage).toHaveBeenCalledWith({
       id: 'retry-failed',
       kind: 'response',

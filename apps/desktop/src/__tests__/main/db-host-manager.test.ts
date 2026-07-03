@@ -843,16 +843,19 @@ describe('DbHostManager', () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
 
-    const queuePromise = manager.runTursoEmbeddingWorkerQueueOperation({
-      operation: 'claimMany',
-      payload: {
-        leaseMs: 60_000,
-        limit: 1,
-        now: '2026-06-30T10:01:00.000Z',
-        queue: 'embeddings',
-        workerId: 'worker-1',
+    const queuePromise = manager.runTursoEmbeddingWorkerQueueOperation(
+      {
+        operation: 'claimMany',
+        payload: {
+          leaseMs: 60_000,
+          limit: 1,
+          now: '2026-06-30T10:01:00.000Z',
+          queue: 'embeddings',
+          workerId: 'worker-1',
+        },
       },
-    });
+      { label: 'turso.embedding-worker.queue.claimMany', priority: 'background' }
+    );
     const firstHost = latestProcess();
     firstHost.reply(
       firstHost.messages.at(-1) as PostedMessage,
@@ -876,15 +879,22 @@ describe('DbHostManager', () => {
             workerId: 'worker-1',
           },
         },
+        workOptions: {
+          label: 'turso.embedding-worker.queue.claimMany',
+          priority: 'background',
+        },
       },
     });
     firstHost.reply(firstHost.messages[1] as PostedMessage, [{ id: 'job-1' }]);
     await expect(queuePromise).resolves.toEqual([{ id: 'job-1' }]);
 
-    const statsPromise = manager.runTursoEmbeddingWorkerStatsOperation({
-      embeddingSetIds: ['set-1'],
-      operation: 'refresh',
-    });
+    const statsPromise = manager.runTursoEmbeddingWorkerStatsOperation(
+      {
+        embeddingSetIds: ['set-1'],
+        operation: 'refresh',
+      },
+      { label: 'turso.embedding-worker.stats.refresh', priority: 'background' }
+    );
     await waitForHostMessageCount(firstHost, 3);
     expect(firstHost.messages[2]).toMatchObject({
       request: {
@@ -892,6 +902,10 @@ describe('DbHostManager', () => {
         payload: {
           embeddingSetIds: ['set-1'],
           operation: 'refresh',
+        },
+        workOptions: {
+          label: 'turso.embedding-worker.stats.refresh',
+          priority: 'background',
         },
       },
     });
