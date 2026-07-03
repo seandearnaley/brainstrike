@@ -10,8 +10,8 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1444. This PR branch adds #1445; after merge it becomes the next
-feature-branch slice.
+through #1444 at `d957516a7`. This PR branch adds #1445; after merge it becomes
+the next feature-branch slice.
 
 Merged slices:
 
@@ -121,6 +121,31 @@ Merged slices:
 - #1413 `Neutralize file status backend error copy`
 - #1414 `Remove stale Turso queue boundary`
 - #1415 `Neutralize collection browser snapshot copy`
+- #1416 `docs(turso): refresh migration wording`
+- #1417 `fix(desktop): skip dimension probe for turso startup`
+- #1418 `Route Turso manual imports through managed cache`
+- #1419 `Batch background cache removals for Turso`
+- #1420 `Make index debug SQL portable for Turso`
+- #1421 `Fail closed on managed cache apply errors`
+- #1422 `fix(db-explorer): gate import queue on runtime client`
+- #1423 `fix(app-shell): gate file search on live-query capability`
+- #1424 `Use live-query capability in db explorer hooks`
+- #1425 `Route Turso queue owner requests through DB host`
+- #1426 `Fix Turso DB Explorer collection snapshot mode`
+- #1427 `Surface Turso vector queue action failures`
+- #1428 `Clear stale Turso schema readiness`
+- #1429 `Make Turso retry failed queue action atomic`
+- #1430 `Guard Turso background imports behind atomic enqueue`
+- #1431 `Mark DB execution runtime explicitly`
+- #1432 `Require explicit desktop Turso readiness seams`
+- #1433 `Guard PGlite-gated hook imports`
+- #1434 `Route desktop token cache through runtime store`
+- #1435 `Resolve DB Explorer search metadata through repositories`
+- #1436 `Stop DB Explorer panel using PGlite DB hook`
+- #1437 `Gate visible embedding worker by runtime`
+- #1438 `Use live-query capability for collection selector`
+- #1439 `Move schema readiness into db capability hook`
+- #1440 `Report ready Turso runtime status`
 - #1441 `Expose runtime execution DB client hook`
 - #1442 `Gate tools settings live queries by capability`
 - #1443 `Fix model registry toggle SQL by runtime`
@@ -135,9 +160,16 @@ Recently completed reset slice: desktop reset now removes the whole active
   directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not present in this branch at `0a62b270`. Do not cite that report as
-reconciled work until the artifact is restored or this ledger links to the
-correct audit artifact.
+is not present in this branch at feature head `d957516a7` or on the #1445 PR
+branch at `c3b4ce19a`. Do not cite that report as reconciled work until the
+artifact is restored or this ledger links to the correct audit artifact.
+
+Ledger reconciliation pass (2026-07-03): compared this ledger with
+`git log --first-parent origin/feature/turso-migration` and
+`gh pr list --base feature/turso-migration`; the merged-slice list now includes
+#1416 through #1440, which were landed on the feature branch but missing from a
+prior ledger pass. The remaining-work sections below should not re-list those
+slices as TODO unless they name a concrete follow-up still absent from code.
 
 ## Turso Docs Guardrail
 
@@ -598,6 +630,7 @@ Known production touchpoints:
 
 - `apps/desktop/src/assistant-server.ts`
 - `packages/agent/src/pglite-mastra-memory`
+- `packages/agent/src/turso-mastra-memory`
 - `packages/app-shell/src/assistant-memory-repository.ts`
 - `packages/app-shell/src/assistant-ui-panel-wrapper.tsx`
 - `packages/app-shell/src/threads-panel.tsx`
