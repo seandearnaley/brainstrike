@@ -18,7 +18,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
-import { migrate, wasmLoader } from '@brainstrike/db';
+import { markBrainstrikeDbExecutionRuntime, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,6 +33,7 @@ vi.mock('electron', () => ({
 }));
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { reindexEditedFile } from '../../assistant-server/reindex-edited-file';
 
 const ROOT_ID = 'root-1';
 const EMBEDDING_SET_ID = 'set-1';
@@ -282,6 +283,36 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
       ],
     });
     dbHolder.db = db;
+  });
+
+  it('fails closed for Turso when the DB-host managed-cache applier is missing', async () => {
+    await fsPromises.mkdir(path.join(rootPath, 'src'), { recursive: true });
+    await fsPromises.writeFile(path.join(rootPath, 'src', 'indexed.ts'), 'old', 'utf8');
+    await seedIndexedFile('export const value = 1;\n');
+
+    const transaction = vi.fn(db.transaction.bind(db));
+    const tursoMarkedDb = markBrainstrikeDbExecutionRuntime(
+      {
+        query: db.query.bind(db),
+        transaction,
+      },
+      'turso'
+    );
+
+    const newContent = 'export const value = 654;\n';
+    await expect(
+      reindexEditedFile(tursoMarkedDb, {
+        content: newContent,
+        mtimeMs: null,
+        name: 'indexed.ts',
+        relativePath: INDEXED_REL_PATH,
+        rootId: ROOT_ID,
+        size: Buffer.byteLength(newContent, 'utf8'),
+        workspaceIndexEmbeddingSetId: EMBEDDING_SET_ID,
+      })
+    ).rejects.toThrow('Turso re-index requires the DB-host managed-cache applier');
+
+    expect(transaction).not.toHaveBeenCalled();
   });
 });
 

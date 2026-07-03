@@ -1,4 +1,5 @@
 import { formatProviderModelKey, parseProviderModelKey } from '@brainstrike/utils';
+import type { BrainstrikeDbSqlDialect } from '../architecture/brainstrike-db-client-contract.js';
 
 interface ModelRegistryRow {
   id: string;
@@ -7,6 +8,7 @@ interface ModelRegistryRow {
 }
 
 interface QueryableDb {
+  readonly dialect: BrainstrikeDbSqlDialect;
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
@@ -27,15 +29,30 @@ function uniqueNonEmpty(values: readonly string[]): string[] {
   );
 }
 
-function buildPlaceholderList(values: readonly string[], startIndex = 1): string {
-  return values.map((_, index) => `$${startIndex + index}`).join(', ');
+function buildPlaceholder(dialect: BrainstrikeDbSqlDialect, index: number): string {
+  return dialect === 'sqlite' ? '?' : `$${index}`;
+}
+
+function buildPlaceholderList(
+  dialect: BrainstrikeDbSqlDialect,
+  values: readonly string[],
+  startIndex = 1
+): string {
+  return values.map((_, index) => buildPlaceholder(dialect, startIndex + index)).join(', ');
 }
 
 function isMissingModelsTableError(error: unknown): boolean {
   if (!(typeof error === 'object' && error !== null && 'code' in error)) {
     return false;
   }
-  return error.code === '42P01';
+  if (error.code === '42P01') {
+    return true;
+  }
+  if (error.code !== 'SQLITE_ERROR') {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : '';
+  return /\bno such table:\s*models\b/i.test(message);
 }
 
 async function findRegistryCandidatesById(
@@ -45,7 +62,7 @@ async function findRegistryCandidatesById(
   if (!values.length) {
     return [];
   }
-  const placeholderList = buildPlaceholderList(values);
+  const placeholderList = buildPlaceholderList(db.dialect, values);
   try {
     const result = await db.query<ModelRegistryRow>(
       `SELECT id,
@@ -71,7 +88,7 @@ async function findRegistryCandidatesByName(
   if (!values.length) {
     return [];
   }
-  const placeholderList = buildPlaceholderList(values);
+  const placeholderList = buildPlaceholderList(db.dialect, values);
   try {
     const result = await db.query<ModelRegistryRow>(
       `SELECT id,
@@ -174,9 +191,9 @@ export async function repairPersistedEmbeddingSetMetadata(
 
   await db.query(
     `UPDATE embedding_sets
-        SET model_key = $1,
-            model_id = $2
-      WHERE id = $3`,
+        SET model_key = ${buildPlaceholder(db.dialect, 1)},
+            model_id = ${buildPlaceholder(db.dialect, 2)}
+      WHERE id = ${buildPlaceholder(db.dialect, 3)}`,
     [resolved.modelKey, resolved.modelId, metadata.id]
   );
 

@@ -331,6 +331,7 @@ export class DrizzleEmbeddingSetsRepository {
   }
 
   private createQueryAdapter(): {
+    readonly dialect: 'postgres';
     exec: (sql: string) => Promise<void>;
     query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
   } {
@@ -342,6 +343,7 @@ export class DrizzleEmbeddingSetsRepository {
           })
         : null;
     return {
+      dialect: 'postgres',
       exec: async (sql: string) => {
         if (rawDb) {
           await rawDb.exec(sql);
