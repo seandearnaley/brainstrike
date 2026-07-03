@@ -62,3 +62,34 @@ proofs. Hybrid retrieval can use the repository lexical source backed by
 "Turso-compatible non-FTS search implementation" ownership path above. Do not
 route native Tantivy FTS through the primary MVCC store until a split
 search-index owner or a future MVCC-compatible Turso FTS runtime is proven.
+
+## Split Native FTS Trigger
+
+The current migration path keeps primary-store gram lexical search for parity.
+The real-engine quality profile in
+`docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md`
+records exact-match code-search behavior: the gram path finds chunks containing
+all positive query terms, respects phrase/exclusion syntax used by the current
+websearch parser, and feeds `HybridSearchService` as a repository lexical source.
+It also documents the limitation that near-stem variants such as
+`chunk-near-stem` do not match unless the normalized substring is present.
+
+Split native FTS/search-index ownership is triggered only if product quality or
+release profiling requires behavior the primary-store gram path does not
+provide:
+
+- BM25 ranking as a first-class quality signal;
+- field weighting;
+- Tantivy query syntax beyond the current websearch-compatible subset;
+- tokenizer-specific behavior such as native token-boundary matching;
+- engine-owned highlighting or snippets;
+- stemming, fuzzy matching, or synonym expansion;
+- unacceptable write amplification, storage growth, or foreground DB contention
+  from primary-store gram sidecars.
+
+If split native FTS is adopted, treat it as rebuildable derived state with an
+explicit owner. It needs bootstrap checks, reset/backup/sync ownership,
+rebuild/reconciliation rules, freshness diagnostics, and fail-closed behavior.
+Do not attach or co-locate that store with the MVCC primary store unless current
+Turso docs and a real-engine capability probe prove that journal-mode and custom
+index ownership shape.

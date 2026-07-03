@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-mastra-vector-profile`,
+Last updated: 2026-07-03 on `codex/turso-search-quality-profile`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,8 +10,9 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1454 at `914201922`. This PR branch adds the Mastra Turso vector-memory
-exact-scan characterization layer on top of the sustained queue-profile proof.
+through #1455 at `cb9ab61ce`. This PR branch adds a primary-store gram lexical
+search-quality characterization layer on top of the Mastra vector exact-scan and
+sustained queue-profile proofs.
 
 Merged slices:
 
@@ -158,17 +159,28 @@ Merged slices:
 - #1452 `Add Turso queue profile verdict`
 - #1453 `Prove Turso queue topology`
 - #1454 `Prove sustained Turso queue profiling`
+- #1455 `Add Turso Mastra vector profile benchmark`
 
 In-flight slice on this branch:
 
-- Add a real-engine Mastra Turso vector exact-scan benchmark harness and CLI:
-  `pnpm --filter @brainstrike/agent run bench:turso-vector-memory`.
-  The harness seeds deterministic vectors into the current `TursoVectorStore`,
-  compares query results against an independent JavaScript scorer, records
-  compact query timing and `EXPLAIN QUERY PLAN` evidence, and writes the durable
-  report `docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
-  It deliberately characterizes the current exact-scan path rather than adding
-  a native ANN/vector-index schema rewrite.
+- Add a real-engine primary-store gram lexical search-quality profile for the
+  current Turso repository path. The profile seeds a tiny code-search corpus into
+  a real Turso owner client, verifies exact query relevance metrics, proves real
+  hybrid search still uses the repository lexical source, checks query-plan
+  evidence for gram sidecars, and writes the durable report
+  `docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md`.
+  It deliberately characterizes the current non-FTS gram path rather than adding
+  a split native Tantivy search-index store.
+
+Recently completed Mastra vector profile slice: #1455 added the real-engine
+Mastra Turso vector exact-scan benchmark harness and CLI:
+`pnpm --filter @brainstrike/agent run bench:turso-vector-memory`. The harness
+seeds deterministic vectors into the current `TursoVectorStore`, compares query
+results against a deterministic JavaScript scorer, records compact query timing
+and `EXPLAIN QUERY PLAN` evidence, and writes the durable report
+`docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
+It deliberately characterizes the current exact-scan path rather than adding a
+native ANN/vector-index schema rewrite.
 
 Recently completed queue profile slice: the sustained Turso queue-profile E2E
 lane is merged in #1454. It runs `BRAINSTRIKE_DB_RUNTIME=turso`, seeds a real
@@ -194,7 +206,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1454 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1455 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -206,6 +218,7 @@ profile proof is merged. This branch also adds exact-scan Mastra vector-memory
 characterization: 5,000 rows x 384 dimensions, 12 measured queries, exact top-K
 match 12/12, recall@K 1.000, query p95 30.411 ms, with query-plan evidence in
 `docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
+This branch adds lexical search-quality characterization on top of that state.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
@@ -689,16 +702,56 @@ Remaining search decisions:
 
 1. Keep assistant retrieval tools gated by the repository capabilities and
    bootstrap reports that now prove Turso grep/vector support.
-2. Decide whether the current primary-store lexical implementation is enough
-   for product search quality, or whether native Tantivy FTS ranking/snippets
-   still justify a split search-index owner described in
-   `docs/turso-migration/search-index-architecture.md`.
+2. The current primary-store lexical implementation remains the Turso migration
+   path for parity, backed by
+   `docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md`.
+   Native Tantivy FTS remains a split search-index-owner decision only if product
+   search quality or release profiling requires behavior the gram path cannot
+   honestly provide.
 3. The assistant `brainstrike.hybridSearch` native-tool wrapper is retired on
    this branch because it was never registered in the desktop assistant tool
    surface or assistant contract registries. Hybrid search remains an internal
    DB/UI service. A future model-facing hybrid tool should be a new desktop
    adapter with explicit Turso capability gates, not a revival of the stale
    package-level helper.
+
+#### Turso Lexical Search Decision Boundary
+
+Brainstrike's current Turso lexical path remains primary-store gram search, not
+native Tantivy FTS. The primary Turso store is the durable MVCC application
+store; grep, quick-open, DB Explorer search, and hybrid lexical search use
+generated gram sidecars plus exact normalized-content checks, gated by
+`search.grep-content-grams`.
+
+Current Turso docs document a real Tantivy FTS surface: `CREATE INDEX ... USING
+fts`, `fts_match`, `fts_score`, `fts_highlight`, per-column tokenizers including
+`ngram`, field weights, phrase/prefix/boolean/column/boost query syntax, and
+automatic DML index updates. They also document limitations: no snippet
+function, manual `OPTIMIZE INDEX`, no read-your-writes for FTS inside an open
+transaction, and no `MATCH` syntax.
+
+Those docs do not by themselves justify moving Brainstrike search into native
+FTS. The local capability spike still proves the relevant architecture boundary
+for this branch: native FTS works in a non-MVCC Turso database, but same-file FTS
+custom indexes fail under the MVCC primary store. Until a current real-engine
+probe proves FTS custom indexes work inside the MVCC primary store, native
+Tantivy FTS must not be routed through the primary store.
+
+Split native FTS/search-index ownership is triggered only if product search
+quality requires native FTS behavior that the gram path cannot honestly provide:
+BM25 ranking as a first-class quality signal, field weighting, Tantivy query
+syntax, tokenizer-specific behavior, engine-owned highlighting, or
+search-quality evaluation showing primary-store gram ranking/snippets are
+insufficient. It is also triggered if primary-store gram sidecars create
+unacceptable write amplification, storage growth, or foreground DB contention in
+release profiling.
+
+If split FTS is adopted, the search-index store must be explicitly owned as
+rebuildable derived state. It must have bootstrap checks, reset/backup/sync
+ownership, rebuild/reconciliation rules, freshness diagnostics, and failure
+behavior that fails closed instead of falling back to scans. A non-MVCC FTS
+store should not be treated as attached to the MVCC primary store unless current
+Turso docs/runtime prove the journal-mode and ownership model support that shape.
 
 ### 5. Mastra Memory And Assistant Persistence
 
