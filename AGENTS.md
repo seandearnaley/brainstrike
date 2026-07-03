@@ -456,11 +456,13 @@ extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.tes
 
 ## TURSO RUNTIME INVARIANT
 
-Desktop defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is unset. PGlite remains
-available only through explicit runtime selection (`BRAINSTRIKE_DB_RUNTIME=pglite`)
-or non-desktop runtimes that still own the PGlite path. Do not infer a Turso
-runtime from a generic DB handle, and do not add a PGlite fallback for missing
-Turso behavior.
+Desktop defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is unset and the active
+profile does not already contain a PGlite `pgdata` store. Existing PGlite
+desktop profiles stay on PGlite unless a runtime is selected explicitly, so the
+cutover does not silently strand local profile data. This is a profile-continuity
+gate, not a fallback for missing Turso behavior. Do not infer a Turso runtime
+from a generic DB handle, and do not add a PGlite fallback for missing Turso
+behavior.
 
 Rules:
 - Desktop owns the long-lived Turso owner client through the DB host. Renderers

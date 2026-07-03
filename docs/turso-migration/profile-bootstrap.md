@@ -11,12 +11,17 @@
 ## Desktop Runtime Switch
 
 Desktop now runs the Turso profile bootstrap path by default when
-`BRAINSTRIKE_DB_RUNTIME` is unset. Set `BRAINSTRIKE_DB_RUNTIME=pglite` only for
-explicit desktop PGlite compatibility checks.
+`BRAINSTRIKE_DB_RUNTIME` is unset and the active profile does not already contain
+a PGlite `pgdata` store. If `pgdata` exists and no runtime override is set, the
+desktop host keeps that profile on PGlite so the cutover does not silently strand
+local data. Set `BRAINSTRIKE_DB_RUNTIME=pglite` for explicit desktop PGlite
+compatibility checks, or set `BRAINSTRIKE_DB_RUNTIME=turso` to force the Turso
+greenfield path.
 
-Current behavior:
+When Turso is selected, current behavior is:
 
-1. Resolve the desktop runtime selection.
+1. Resolve the desktop runtime selection, including the existing-`pgdata`
+   profile-continuity gate.
 2. Open `<profile>/turso-primary.db`.
 3. Enable `PRAGMA journal_mode = 'mvcc'`.
 4. Apply the Turso greenfield schema baseline through `brainstrike_turso_schema_ledger`.
@@ -25,6 +30,11 @@ Current behavior:
 6. Return a ready bootstrap report with `search.ownershipMode = "split-search-index-store"`.
 7. Open a long-lived Turso owner client for the same primary database.
 8. Return `initialized: true` only after the Turso owner handle is live, with `capabilities.liveQuery = false`.
+
+When the existing-`pgdata` gate selects PGlite, the desktop host uses the
+existing PGlite bootstrap/probe/migration path and reports
+`capabilities.liveQuery = true`. That path remains compatibility-preserving
+only; it is not proof of a Turso fallback for unsupported capabilities.
 
 The host manager validates Turso reports against Turso-required checks
 (`store.open`, `primary-store.mvcc`, `schema.baseline`,

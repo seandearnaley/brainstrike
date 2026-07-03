@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+const originalDbRuntime = process.env['BRAINSTRIKE_DB_RUNTIME'];
 
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
@@ -24,6 +25,14 @@ function restoreParentPort(): void {
     value: undefined,
     writable: true,
   });
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+    return;
+  }
+  process.env[key] = value;
 }
 
 const fsMocks = vi.hoisted(() => ({
@@ -167,7 +176,7 @@ describe('db-main coverage helpers', () => {
   afterEach(() => {
     vi.resetModules();
     restoreParentPort();
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
+    restoreEnvValue('BRAINSTRIKE_DB_RUNTIME', originalDbRuntime);
   });
 
   it('fails fast when pgvector extension cannot be loaded', async () => {

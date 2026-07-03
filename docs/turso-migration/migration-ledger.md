@@ -10,10 +10,12 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1457 at `036962da6`. This branch cuts desktop over to the Turso
-runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while preserving
-explicit desktop PGlite compatibility with `BRAINSTRIKE_DB_RUNTIME=pglite` and
-keeping web/node-test defaults on PGlite.
+through #1457 at `036962da6`. This branch cuts empty desktop profiles over to
+the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
+preserving existing desktop PGlite profiles when `<profile>/pgdata` already
+exists. Explicit desktop PGlite compatibility remains available with
+`BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
+`BRAINSTRIKE_DB_RUNTIME=turso`, and web/node-test defaults stay on PGlite.
 
 Merged slices:
 
@@ -279,9 +281,10 @@ Primary docs consulted:
 
 The branch currently has a real Turso runtime seam:
 
-- Desktop runtime selection defaults to Turso when `BRAINSTRIKE_DB_RUNTIME` is
-  unset; set `BRAINSTRIKE_DB_RUNTIME=pglite` only for explicit desktop PGlite
-  compatibility checks.
+- Desktop runtime selection defaults empty profiles to Turso when
+  `BRAINSTRIKE_DB_RUNTIME` is unset. If the active desktop profile already has a
+  PGlite `pgdata` store, unset runtime selection preserves PGlite until the user
+  explicitly selects Turso or a real data migration/import path exists.
 - Desktop bootstrap opens the Turso primary store and reports typed
   capabilities.
 - The Turso primary store uses a greenfield baseline ledger rather than the

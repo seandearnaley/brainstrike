@@ -1577,13 +1577,46 @@ function getRequestedDbRuntimeEngineFromEnv(): unknown {
   return requestedRuntime;
 }
 
+interface DesktopRuntimeRequest {
+  readonly requestedEngine: unknown;
+  readonly source: BrainstrikeDbRuntimeSelection['source'];
+}
+
+function resolveDefaultDesktopDbRuntimeEngine():
+  | BrainstrikeDbRuntimeSelection['engine']
+  | undefined {
+  const pgliteDataDir = getDatabasePath();
+  if (!existsSync(pgliteDataDir)) {
+    return;
+  }
+  logger.info(
+    'Existing PGlite profile detected; preserving PGlite runtime while no DB runtime is set',
+    {
+      dataDir: pgliteDataDir,
+      profileId: getDatabaseProfile(),
+    }
+  );
+  return 'pglite';
+}
+
+function resolveDesktopRuntimeRequest(): DesktopRuntimeRequest {
+  const requestedEngineFromEnv = getRequestedDbRuntimeEngineFromEnv();
+  if (requestedEngineFromEnv !== undefined) {
+    return { requestedEngine: requestedEngineFromEnv, source: 'env' };
+  }
+  return {
+    requestedEngine: resolveDefaultDesktopDbRuntimeEngine(),
+    source: 'default',
+  };
+}
+
 async function resolveCurrentDesktopDbRuntimeSelection(): Promise<BrainstrikeDbRuntimeSelection> {
   const { resolveBrainstrikeDbRuntimeSelection } = await import('@brainstrike/db');
-  const requestedEngine = getRequestedDbRuntimeEngineFromEnv();
+  const runtimeRequest = resolveDesktopRuntimeRequest();
   return resolveBrainstrikeDbRuntimeSelection({
     platform: 'desktop',
-    requestedEngine,
-    source: requestedEngine === undefined ? 'default' : 'env',
+    requestedEngine: runtimeRequest.requestedEngine,
+    source: runtimeRequest.source,
   });
 }
 

@@ -476,7 +476,7 @@ vi.mock('@brainstrike/db', () => ({
         });
         return await tursoGetByIdMock(embeddingSetId);
       },
-      getOrCreateWorkspaceIndexSet: tursoGetOrCreateWorkspaceIndexSetMock,
+      getOrCreateWorkspaceIndexSet: async () => await tursoGetOrCreateWorkspaceIndexSetMock(db),
     };
   }),
   TursoFileChunkRepository: vi.fn(function MockTursoFileChunkRepository() {
@@ -835,6 +835,167 @@ describe('WorkspaceCollectionSyncProvider', () => {
         undefined,
         expect.objectContaining({
           priority: 'background',
+        })
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
+  it('bootstraps a fresh Turso workspace index without forwarding undefined native query options', async () => {
+    const workspaceIndex: EmbeddingSet = {
+      id: '00000000-0000-0000-0000-000000000302',
+      name: 'Workspace Index',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine',
+      createdAt: new Date().toISOString(),
+      systemRole: 'workspace-index',
+    };
+    const priorityOptionsError =
+      'Cannot apply database work options to an unscheduled DB handle when native query options are already provided.';
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    const electronInvalidateManagedCacheEntriesByIdentity = vi.fn(async () => ({
+      canceledEmbeddingJobCount: 0,
+      deletedChunkIds: [],
+      deletedFileRecordIds: [],
+    }));
+    const electronRunTransaction = vi.fn(async () => ({ rows: [] }));
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    const tursoDb = {
+      ...tursoExecutionClient,
+      insertChunksAndEnqueueEmbeddingJobs,
+      raw: tursoExecutionClient,
+    };
+    createPriorityDbHandleMock.mockImplementationOnce((db, priority) => {
+      if (!db.transaction) {
+        throw new Error('Test Turso DB handle must expose transaction support.');
+      }
+      const query = vi.fn(async (...args: unknown[]) => {
+        if (args.length > 2 && args[2] === undefined) {
+          throw new Error(priorityOptionsError);
+        }
+        return await (
+          db.query as unknown as (
+            sql: unknown,
+            params?: unknown,
+            options?: unknown
+          ) => Promise<unknown>
+        )(args[0], args[1], { priority });
+      });
+      const exec = vi.fn(async (...args: unknown[]) => {
+        if (args.length > 2 && args[2] === undefined) {
+          throw new Error(priorityOptionsError);
+        }
+        return await (
+          db.exec as unknown as (
+            sql: unknown,
+            params?: unknown,
+            options?: unknown
+          ) => Promise<unknown>
+        )(args[0], args[1], { priority });
+      });
+      return {
+        ...db,
+        query,
+        exec,
+        transaction: db.transaction,
+      };
+    });
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'desktop-ipc', persistence: 'filesystem' },
+    };
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: false,
+    });
+    tursoGetOrCreateWorkspaceIndexSetMock.mockImplementationOnce(
+      async (db: {
+        query: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<unknown>;
+        transaction: <TResult>(
+          callback: (tx: {
+            exec: (sql: string, params?: readonly unknown[], options?: unknown) => Promise<void>;
+          }) => Promise<TResult>
+        ) => Promise<TResult>;
+      }) => {
+        await db.query('SELECT * FROM embedding_sets WHERE system_role = ? LIMIT 1', [
+          'workspace-index',
+        ]);
+        await db.transaction(async (tx) => {
+          await tx.exec('INSERT OR IGNORE INTO embedding_sets (id) VALUES (?)', [
+            workspaceIndex.id,
+          ]);
+        });
+        return workspaceIndex;
+      }
+    );
+    tursoGetByIdMock.mockResolvedValue(workspaceIndex);
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+          invalidateManagedCacheEntriesByIdentity: electronInvalidateManagedCacheEntriesByIdentity,
+          runTransaction: electronRunTransaction,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(tursoGetOrCreateWorkspaceIndexSetMock).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+          workspaceIndex.id
+        )
+      );
+      expect(electronRunTransaction).toHaveBeenCalledWith(
+        [
+          {
+            params: [workspaceIndex.id],
+            sql: 'INSERT OR IGNORE INTO embedding_sets (id) VALUES (?)',
+          },
+        ],
+        0,
+        expect.objectContaining({
+          label: 'background indexing',
+          priority: 'background',
+        })
+      );
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            managedCollectionId: workspaceIndex.id,
+            managedCollectionName: 'Workspace Index',
+            lastError: null,
+          })
+        )
+      );
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          managedCollectionId: workspaceIndex.id,
+          managedCollectionName: 'Workspace Index',
+          lastError: null,
         })
       );
     } finally {
