@@ -1,3 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createTursoOwnerClient, type TursoOwnerClient } from '@brainstrike/db/turso/owner-client';
+import { applyTursoSchemaBaseline } from '@brainstrike/db/turso/schema-baseline';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyManagedCacheBatchMock,
@@ -19,6 +24,150 @@ import {
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
 } from './ipc-handlers-db-test-fixture';
+
+type ClearAllSeededTable =
+  | 'brainstrike_assistant_run_usage'
+  | 'collection_indexing_stats'
+  | 'embedding_sets'
+  | 'file_chunk_content_grams'
+  | 'file_chunk_content_index'
+  | 'file_chunks'
+  | 'file_record_name_grams'
+  | 'file_record_name_index'
+  | 'file_records'
+  | 'job_queue'
+  | 'roots'
+  | 'selection_snapshot_files'
+  | 'selection_snapshots';
+
+async function withTursoClearAllFixture(
+  testBody: (client: TursoOwnerClient) => Promise<void>
+): Promise<void> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-clear-all-turso-'));
+  let client: TursoOwnerClient | undefined;
+  try {
+    client = await createTursoOwnerClient({ dbPath: join(tempDir, 'profile.db') });
+    await applyTursoSchemaBaseline(client);
+    await seedTursoClearAllRows(client);
+    await testBody(client);
+  } finally {
+    await client?.close();
+    await rm(tempDir, { force: true, recursive: true });
+  }
+}
+
+async function seedTursoClearAllRows(client: TursoOwnerClient): Promise<void> {
+  await client.exec("INSERT INTO roots (id, kind, display_name, path) VALUES (?, 'path', ?, ?)", [
+    'root-clear',
+    'Clear Fixture',
+    '/tmp/brainstrike-clear',
+  ]);
+  await client.exec(
+    'INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance) VALUES (?, ?, ?, ?, ?)',
+    ['set-clear', 'local:test-model', 'test-model', 3, 'cosine']
+  );
+  await client.exec(
+    `INSERT INTO file_records (id, name, path, root_id, size, embedding_set_id, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ['file-clear', 'index.ts', 'src/index.ts', 'root-clear', 42, 'set-clear', 'const value = 1;']
+  );
+  await client.exec(
+    `INSERT INTO file_record_name_index (file_record_id, normalized_name)
+       VALUES (?, ?)`,
+    ['file-clear', 'index.ts']
+  );
+  await client.exec(
+    `INSERT INTO file_record_name_grams (file_record_id, gram)
+       VALUES (?, ?)`,
+    ['file-clear', 'ind']
+  );
+  await client.exec(
+    `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    ['chunk-clear', 'file-clear', 0, 'const value = 1;', 'set-clear']
+  );
+  await client.exec(
+    `INSERT INTO file_chunk_content_index (file_chunk_id, normalized_content)
+       VALUES (?, ?)`,
+    ['chunk-clear', 'const value = 1;']
+  );
+  await client.exec(
+    `INSERT INTO file_chunk_content_grams (file_chunk_id, case_sensitive, gram)
+       VALUES (?, ?, ?)`,
+    ['chunk-clear', 0, 'con']
+  );
+  await client.exec(
+    `INSERT INTO collection_indexing_stats (
+       embedding_set_id, file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ['set-clear', 1, 1, 1, 0, 0]
+  );
+  await client.exec(
+    `INSERT INTO job_queue (id, queue, job_type, payload, chunk_id, embedding_set_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      'job-clear',
+      'embeddings',
+      'embed_chunk',
+      '{"chunkId":"chunk-clear","embeddingSetId":"set-clear"}',
+      'chunk-clear',
+      'set-clear',
+    ]
+  );
+  await client.exec('INSERT INTO selection_snapshots (id) VALUES (?)', ['snapshot-clear']);
+  await client.exec(
+    `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+       VALUES (?, ?)`,
+    ['snapshot-clear', 'src/index.ts']
+  );
+  await client.exec(
+    `INSERT INTO brainstrike_assistant_run_usage (
+       id, thread_id, run_id, resource_id, model, provider, input_tokens, output_tokens, root_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      'usage-clear',
+      'thread-clear',
+      'run-clear',
+      'resource-clear',
+      'model-clear',
+      'test',
+      11,
+      7,
+      'root-clear',
+    ]
+  );
+}
+
+async function countTursoRows(
+  client: TursoOwnerClient,
+  tableName: ClearAllSeededTable
+): Promise<number> {
+  const result = await client.query<{ count: number | string }>(
+    `SELECT COUNT(*) AS count FROM ${tableName}`
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function expectTursoTablesCleared(client: TursoOwnerClient): Promise<void> {
+  const tables: ClearAllSeededTable[] = [
+    'brainstrike_assistant_run_usage',
+    'collection_indexing_stats',
+    'embedding_sets',
+    'file_chunk_content_grams',
+    'file_chunk_content_index',
+    'file_chunks',
+    'file_record_name_grams',
+    'file_record_name_index',
+    'file_records',
+    'job_queue',
+    'roots',
+    'selection_snapshot_files',
+    'selection_snapshots',
+  ];
+  for (const table of tables) {
+    await expect(countTursoRows(client, table)).resolves.toBe(0);
+  }
+}
 
 describe('database IPC handlers', () => {
   beforeEach(async () => {
@@ -950,6 +1099,44 @@ describe('database IPC handlers', () => {
       // Factory-reset contract: stale roots must not survive a clear and
       // resurface as ghost workspaces once consumers read the roots table.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM roots');
+    });
+
+    it('clears seeded Turso profile data and cascaded search sidecars on the real owner client', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      await withTursoClearAllFixture(async (client) => {
+        getDatabaseMock.mockResolvedValueOnce(client);
+
+        const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+        expect(result).toEqual({
+          success: true,
+          message: 'Database cleared successfully',
+          deletedFiles: 1,
+          deletedChunks: 1,
+        });
+        await expectTursoTablesCleared(client);
+      });
+    });
+
+    it('treats missing optional Turso tables as absent instead of failing the clear', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      await withTursoClearAllFixture(async (client) => {
+        await client.exec('DROP TABLE brainstrike_assistant_run_usage');
+        getDatabaseMock.mockResolvedValueOnce(client);
+
+        const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+        expect(result).toEqual({
+          success: true,
+          message: 'Database cleared successfully',
+          deletedFiles: 1,
+          deletedChunks: 1,
+        });
+        await expect(countTursoRows(client, 'file_records')).resolves.toBe(0);
+        await expect(countTursoRows(client, 'job_queue')).resolves.toBe(0);
+      });
     });
 
     it('handles database errors gracefully', async () => {
