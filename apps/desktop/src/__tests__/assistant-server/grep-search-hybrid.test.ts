@@ -230,13 +230,17 @@ describe('grepSearch hybrid — candidate path filtering', () => {
   it('detects exact .git path segments without splitting candidate paths', () => {
     const splitSpy = vi.spyOn(String.prototype, 'split');
 
-    expect(hasDotGitSegmentForTests('.git/config')).toBe(true);
-    expect(hasDotGitSegmentForTests('src/.git/hooks/pre-commit')).toBe(true);
-    expect(hasDotGitSegmentForTests('src/.github/workflows/ci.yml')).toBe(false);
-    expect(hasDotGitSegmentForTests('src/.gitignore')).toBe(false);
-    expect(hasDotGitSegmentForTests('src/git/config')).toBe(false);
+    try {
+      expect(hasDotGitSegmentForTests('.git/config')).toBe(true);
+      expect(hasDotGitSegmentForTests('src/.git/hooks/pre-commit')).toBe(true);
+      expect(hasDotGitSegmentForTests('src/.github/workflows/ci.yml')).toBe(false);
+      expect(hasDotGitSegmentForTests('src/.gitignore')).toBe(false);
+      expect(hasDotGitSegmentForTests('src/git/config')).toBe(false);
 
-    expect(splitSpy).not.toHaveBeenCalled();
+      expect(splitSpy).not.toHaveBeenCalled();
+    } finally {
+      splitSpy.mockRestore();
+    }
   });
 });
 
