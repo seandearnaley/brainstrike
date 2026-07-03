@@ -1,5 +1,6 @@
 import type { DatabaseWorkSchedulerSnapshot } from '@brainstrike/db';
 import type {
+  DatabaseTursoOwnerClientCompletedOperationDiagnostic,
   DatabaseTursoOwnerClientQoSDiagnostics,
   DatabaseTursoOwnerClientQueuedOperationDiagnostic,
 } from '@brainstrike/types';
@@ -98,6 +99,18 @@ function isQueuedOwnerOperationDiagnostic(
   );
 }
 
+function isCompletedOwnerOperationDiagnostic(
+  operation: unknown
+): operation is DatabaseTursoOwnerClientCompletedOperationDiagnostic {
+  return (
+    isBaseOwnerOperationDiagnostic(operation) &&
+    isFiniteNumber(getRecordValue(operation, 'completedAt')) &&
+    isFiniteNumber(getRecordValue(operation, 'durationMs')) &&
+    isFiniteNumber(getRecordValue(operation, 'queueWaitMs')) &&
+    isFiniteNumber(getRecordValue(operation, 'startedAt'))
+  );
+}
+
 function isActiveOwnerOperationDiagnostic(operation: unknown): boolean {
   return (
     isBaseOwnerOperationDiagnostic(operation) &&
@@ -112,12 +125,15 @@ function isAvailableOwnerQoS(
 ): qos is Extract<DatabaseTursoOwnerClientQoSDiagnostics, { available: true }> {
   const activeOperation = getRecordValue(qos, 'activeOperation');
   const queuedOperations = getRecordValue(qos, 'queuedOperations');
+  const recentCompletedOperations = getRecordValue(qos, 'recentCompletedOperations');
   return (
     Boolean(qos && typeof qos === 'object') &&
     getRecordValue(qos, 'available') === true &&
     (activeOperation === null || isActiveOwnerOperationDiagnostic(activeOperation)) &&
     Array.isArray(queuedOperations) &&
     queuedOperations.every(isQueuedOwnerOperationDiagnostic) &&
+    Array.isArray(recentCompletedOperations) &&
+    recentCompletedOperations.every(isCompletedOwnerOperationDiagnostic) &&
     isFiniteNumber(getRecordValue(qos, 'queuedOperationCount')) &&
     isFiniteNumber(getRecordValue(qos, 'slowQueuedOperationCount')) &&
     isFiniteNumber(getRecordValue(qos, 'slowQueueThresholdMs')) &&
@@ -215,6 +231,53 @@ function hasSchedulerWork(
   );
 }
 
+type SchedulerPriority = 'background' | 'foreground' | 'normal';
+
+interface SchedulerProfileEvidenceOperation {
+  readonly completedAt?: number;
+  readonly enqueuedAt?: number;
+  readonly label: string;
+  readonly priority: SchedulerPriority;
+  readonly startedAt?: number;
+}
+
+function collectSchedulerEvidenceOperations(
+  scheduler: DatabaseWorkSchedulerSnapshot,
+  priorities: readonly SchedulerPriority[]
+): SchedulerProfileEvidenceOperation[] {
+  const operations: SchedulerProfileEvidenceOperation[] = [];
+  for (const operation of scheduler.recentCompletedOperations) {
+    if (operation.label && priorities.includes(operation.priority)) {
+      operations.push({
+        completedAt: operation.completedAt,
+        enqueuedAt: operation.enqueuedAt,
+        label: operation.label,
+        priority: operation.priority,
+        startedAt: operation.startedAt,
+      });
+    }
+  }
+  for (const priority of priorities) {
+    for (const label of scheduler.queuedLabels[priority]) {
+      if (label) {
+        operations.push({ label, priority });
+      }
+    }
+    if (scheduler.runningPriority === priority && scheduler.runningLabel) {
+      const operation: SchedulerProfileEvidenceOperation = {
+        label: scheduler.runningLabel,
+        priority,
+      };
+      if (scheduler.lastStartedAt === null) {
+        operations.push(operation);
+      } else {
+        operations.push({ ...operation, startedAt: scheduler.lastStartedAt });
+      }
+    }
+  }
+  return operations;
+}
+
 function getForegroundWaitP95Ms(scheduler: DatabaseWorkSchedulerSnapshot): number {
   return Math.max(
     scheduler.priorityStats.foreground.waitP95Ms,
@@ -229,15 +292,85 @@ function getForegroundWorstWaitMs(scheduler: DatabaseWorkSchedulerSnapshot): num
   );
 }
 
-function hasOwnerWork(
+type OwnerProfileEvidenceOperation =
+  | NonNullable<
+      Extract<DatabaseTursoOwnerClientQoSDiagnostics, { available: true }>['activeOperation']
+    >
+  | DatabaseTursoOwnerClientQueuedOperationDiagnostic
+  | DatabaseTursoOwnerClientCompletedOperationDiagnostic;
+
+function getOwnerProfileEvidenceOperations(
   qos: Extract<DatabaseTursoOwnerClientQoSDiagnostics, { available: true }>
+): OwnerProfileEvidenceOperation[] {
+  return [
+    ...(qos.activeOperation ? [qos.activeOperation] : []),
+    ...qos.queuedOperations,
+    ...qos.recentCompletedOperations,
+  ];
+}
+
+function isCompletedOwnerEvidenceOperation(
+  operation: OwnerProfileEvidenceOperation
+): operation is DatabaseTursoOwnerClientCompletedOperationDiagnostic {
+  return 'completedAt' in operation;
+}
+
+function ownerCompletedInsideSchedulerWindow(
+  ownerOperation: DatabaseTursoOwnerClientCompletedOperationDiagnostic,
+  schedulerOperation: SchedulerProfileEvidenceOperation
 ): boolean {
+  if (schedulerOperation.completedAt === undefined || schedulerOperation.enqueuedAt === undefined) {
+    return false;
+  }
   return (
-    qos.totalQueuedOperations > 0 ||
-    qos.totalStartedOperations > 0 ||
-    qos.totalCompletedOperations > 0 ||
-    qos.activeOperation !== null ||
-    qos.queuedOperationCount > 0
+    ownerOperation.queuedAt >= schedulerOperation.enqueuedAt &&
+    ownerOperation.startedAt >= schedulerOperation.enqueuedAt &&
+    ownerOperation.completedAt <= schedulerOperation.completedAt
+  );
+}
+
+function hasMatchingOwnerOperation(
+  operations: readonly OwnerProfileEvidenceOperation[],
+  schedulerOperations: readonly SchedulerProfileEvidenceOperation[],
+  priorities: readonly SchedulerPriority[]
+): boolean {
+  return schedulerOperations.some((schedulerOperation) =>
+    operations.some((ownerOperation) => {
+      if (
+        ownerOperation.priority === null ||
+        ownerOperation.priority !== schedulerOperation.priority ||
+        !priorities.includes(ownerOperation.priority) ||
+        ownerOperation.label !== schedulerOperation.label
+      ) {
+        return false;
+      }
+      if (schedulerOperation.completedAt !== undefined) {
+        return (
+          isCompletedOwnerEvidenceOperation(ownerOperation) &&
+          ownerCompletedInsideSchedulerWindow(ownerOperation, schedulerOperation)
+        );
+      }
+      return !isCompletedOwnerEvidenceOperation(ownerOperation);
+    })
+  );
+}
+
+function hasOwnerProfileWork(
+  qos: Extract<DatabaseTursoOwnerClientQoSDiagnostics, { available: true }>,
+  scheduler: DatabaseWorkSchedulerSnapshot
+): boolean {
+  const operations = getOwnerProfileEvidenceOperations(qos);
+  return (
+    hasMatchingOwnerOperation(
+      operations,
+      collectSchedulerEvidenceOperations(scheduler, ['background']),
+      ['background']
+    ) &&
+    hasMatchingOwnerOperation(
+      operations,
+      collectSchedulerEvidenceOperations(scheduler, ['foreground', 'normal']),
+      ['foreground', 'normal']
+    )
   );
 }
 
@@ -345,7 +478,7 @@ export function createTursoQueueProfileDiagnostics({
       thresholdMs,
     };
   }
-  if (!hasOwnerWork(ownerQoS)) {
+  if (!hasOwnerProfileWork(ownerQoS, scheduler)) {
     return {
       backgroundCompleted: scheduler.priorityStats.background.completed,
       blockingForegroundLabels,

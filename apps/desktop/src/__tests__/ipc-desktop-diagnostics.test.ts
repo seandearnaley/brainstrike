@@ -36,7 +36,10 @@ describe('desktop diagnostics IPC', () => {
           suppressedRendererReloadCount: 0,
         })),
       },
-      database: { getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })) },
+      database: {
+        getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })),
+        getRuntimeEngine: vi.fn(async () => 'pglite' as const),
+      },
       databaseScheduler: { getSnapshot: vi.fn(() => ({ activeCount: 0 })) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => ({
@@ -49,7 +52,10 @@ describe('desktop diagnostics IPC', () => {
           state: 'stopped',
         })),
       },
-      indexing: { getBackfillsInFlight: vi.fn(() => []) },
+      indexing: {
+        getBackfillsInFlight: vi.fn(() => []),
+        getDimensionIndexMaintenanceSnapshot: vi.fn(() => ({ maintenance: [], suspensions: [] })),
+      },
       llmHost: {
         getPlatformStatus: vi.fn(() => ({
           active: false,

@@ -38,11 +38,14 @@ test.describe('Turso queue profile proof', () => {
       expect(profile).toMatchObject({
         observedBackgroundWork: true,
         observedForegroundWork: true,
+        ownerRecentLabels: expect.arrayContaining([
+          'background:turso.embedding-worker.queue.claimMany',
+          'foreground:turso.queue-profile.foreground-probe',
+        ]),
         reason: 'within-thresholds',
         status: 'accepted',
       });
       expect(profile.backgroundCompleted ?? 0).toBeGreaterThan(0);
-      expect(profile.ownerCompleted ?? 0).toBeGreaterThan(0);
       expect(profile.schedulerForegroundCompleted ?? 0).toBeGreaterThan(0);
     } finally {
       restoreEnv();
@@ -52,10 +55,11 @@ test.describe('Turso queue profile proof', () => {
 
 async function runQueueProfileProbe(page: Page): Promise<{
   backgroundCompleted?: number;
-  ownerCompleted?: number;
   observedBackgroundWork: boolean;
   observedForegroundWork: boolean;
+  ownerRecentLabels: string[];
   reason: string;
+  schedulerLabels: string[];
   schedulerForegroundCompleted?: number;
   status: string;
 }> {
@@ -97,8 +101,9 @@ async function runQueueProfileProbe(page: Page): Promise<{
     backgroundCompleted?: number;
     observedBackgroundWork: boolean;
     observedForegroundWork: boolean;
-    ownerCompleted?: number;
+    ownerRecentLabels: string[];
     reason: string;
+    schedulerLabels: string[];
     schedulerForegroundCompleted?: number;
     status: string;
   } | null = null;
@@ -139,8 +144,18 @@ async function runQueueProfileProbe(page: Page): Promise<{
             backgroundCompleted: profile.backgroundCompleted,
             observedBackgroundWork: profile.observedBackgroundWork,
             observedForegroundWork: profile.observedForegroundWork,
-            ownerCompleted: diagnostics.tursoOwnerClientQoS.totalCompletedOperations,
+            ownerRecentLabels: diagnostics.tursoOwnerClientQoS.recentCompletedOperations.map(
+              (operation) => `${operation.priority}:${operation.label}`
+            ),
             reason: profile.reason,
+            schedulerLabels: [
+              scheduler.priorityStats.background.lastStartedLabel,
+              scheduler.priorityStats.background.lastCompletedLabel,
+              scheduler.priorityStats.foreground.lastStartedLabel,
+              scheduler.priorityStats.foreground.lastCompletedLabel,
+              scheduler.priorityStats.normal.lastStartedLabel,
+              scheduler.priorityStats.normal.lastCompletedLabel,
+            ].filter((label): label is string => typeof label === 'string'),
             schedulerForegroundCompleted: scheduler.priorityStats.foreground.completed,
             status: profile.status,
           };
@@ -155,6 +170,10 @@ async function runQueueProfileProbe(page: Page): Promise<{
     .toMatchObject({
       observedBackgroundWork: true,
       observedForegroundWork: true,
+      ownerRecentLabels: expect.arrayContaining([
+        'background:turso.embedding-worker.queue.claimMany',
+        'foreground:turso.queue-profile.foreground-probe',
+      ]),
       reason: 'within-thresholds',
       status: 'accepted',
     });

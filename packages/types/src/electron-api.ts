@@ -139,10 +139,23 @@ export interface DatabaseTursoOwnerClientQueuedOperationDiagnostic {
   readonly queuedForMs: number;
 }
 
+export interface DatabaseTursoOwnerClientCompletedOperationDiagnostic {
+  readonly completedAt: number;
+  readonly durationMs: number;
+  readonly id: number;
+  readonly kind: DatabaseTursoOwnerClientOperationKind;
+  readonly label: string;
+  readonly priority: DatabaseWorkPriority | null;
+  readonly queuedAt: number;
+  readonly queueWaitMs: number;
+  readonly startedAt: number;
+}
+
 export interface DatabaseTursoOwnerClientQoSSnapshot {
   readonly activeOperation: DatabaseTursoOwnerClientActiveOperationDiagnostic | null;
   readonly queuedOperationCount: number;
   readonly queuedOperations: readonly DatabaseTursoOwnerClientQueuedOperationDiagnostic[];
+  readonly recentCompletedOperations: readonly DatabaseTursoOwnerClientCompletedOperationDiagnostic[];
   readonly slowQueuedOperationCount: number;
   readonly slowQueueThresholdMs: number;
   readonly totalCompletedOperations: number;
@@ -198,6 +211,16 @@ export interface DatabaseWorkOptions {
   readonly priority?: DatabaseWorkPriority;
 }
 
+export interface DatabaseWorkSchedulerCompletedOperation {
+  readonly completedAt: number;
+  readonly enqueuedAt: number;
+  readonly label: string | null;
+  readonly priority: DatabaseWorkPriority;
+  readonly serviceMs: number;
+  readonly startedAt: number;
+  readonly waitMs: number;
+}
+
 export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
@@ -212,6 +235,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly queuedLabels: Record<DatabaseWorkPriority, readonly (string | null)[]>;
+  readonly recentCompletedOperations: readonly DatabaseWorkSchedulerCompletedOperation[];
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
   readonly snapshotAt: number;

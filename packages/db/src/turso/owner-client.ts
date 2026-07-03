@@ -14,6 +14,7 @@ import {
 
 const transactionCallbackContext = new AsyncLocalStorage<symbol>();
 const DEFAULT_SLOW_QUEUE_THRESHOLD_MS = 1000;
+const MAX_RECENT_COMPLETED_OPERATIONS = 256;
 
 type TursoOwnerClientOperationPriority = NonNullable<BrainstrikeDbWorkOptions['priority']>;
 
@@ -54,10 +55,23 @@ export interface TursoOwnerClientQueuedOperationDiagnostic {
   readonly queuedForMs: number;
 }
 
+export interface TursoOwnerClientCompletedOperationDiagnostic {
+  readonly completedAt: number;
+  readonly durationMs: number;
+  readonly id: number;
+  readonly kind: TursoOwnerClientOperationKind;
+  readonly label: string;
+  readonly priority: TursoOwnerClientOperationPriority | null;
+  readonly queuedAt: number;
+  readonly queueWaitMs: number;
+  readonly startedAt: number;
+}
+
 export interface TursoOwnerClientQoSDiagnostics {
   readonly activeOperation: TursoOwnerClientActiveOperationDiagnostic | null;
   readonly queuedOperationCount: number;
   readonly queuedOperations: readonly TursoOwnerClientQueuedOperationDiagnostic[];
+  readonly recentCompletedOperations: readonly TursoOwnerClientCompletedOperationDiagnostic[];
   readonly slowQueuedOperationCount: number;
   readonly slowQueueThresholdMs: number;
   readonly totalCompletedOperations: number;
@@ -107,6 +121,7 @@ export async function createTursoOwnerClient(
   let nextOperationId = 1;
   let activeOperation: TursoOwnerClientOperationState | null = null;
   const queuedOperations: TursoOwnerClientOperationState[] = [];
+  const recentCompletedOperations: TursoOwnerClientCompletedOperationDiagnostic[] = [];
   const qosCounters: TursoOwnerClientQoSCounters = {
     totalCompletedOperations: 0,
     totalFailedOperations: 0,
@@ -166,6 +181,7 @@ export async function createTursoOwnerClient(
     try {
       const result = await work();
       qosCounters.totalCompletedOperations += 1;
+      recordCompletedOperation(recentCompletedOperations, operation, now());
       return result;
     } catch (error) {
       qosCounters.totalFailedOperations += 1;
@@ -241,6 +257,7 @@ export async function createTursoOwnerClient(
         activeOperation,
         now: now(),
         queuedOperations,
+        recentCompletedOperations,
         slowQueueThresholdMs,
         ...qosCounters,
       }),
@@ -314,6 +331,7 @@ function createQoSDiagnosticsSnapshot(
     readonly activeOperation: TursoOwnerClientOperationState | null;
     readonly now: number;
     readonly queuedOperations: readonly TursoOwnerClientOperationState[];
+    readonly recentCompletedOperations: readonly TursoOwnerClientCompletedOperationDiagnostic[];
     readonly slowQueueThresholdMs: number;
   }
 ): TursoOwnerClientQoSDiagnostics {
@@ -326,6 +344,7 @@ function createQoSDiagnosticsSnapshot(
       : null,
     queuedOperationCount: queuedOperations.length,
     queuedOperations,
+    recentCompletedOperations: [...input.recentCompletedOperations],
     slowQueuedOperationCount: queuedOperations.filter(
       (operation) => operation.queuedForMs >= input.slowQueueThresholdMs
     ).length,
@@ -336,6 +355,33 @@ function createQoSDiagnosticsSnapshot(
     totalStartedOperations: input.totalStartedOperations,
   } satisfies DatabaseTursoOwnerClientQoSSnapshot;
   return snapshot;
+}
+
+function recordCompletedOperation(
+  recentCompletedOperations: TursoOwnerClientCompletedOperationDiagnostic[],
+  operation: TursoOwnerClientOperationState,
+  completedAt: number
+): void {
+  if (operation.startedAt === null) {
+    throw new Error('Completed Turso owner operation is missing a start timestamp.');
+  }
+  recentCompletedOperations.push({
+    completedAt,
+    durationMs: Math.max(0, completedAt - operation.startedAt),
+    id: operation.id,
+    kind: operation.kind,
+    label: operation.label,
+    priority: operation.priority,
+    queuedAt: operation.queuedAt,
+    queueWaitMs: Math.max(0, operation.startedAt - operation.queuedAt),
+    startedAt: operation.startedAt,
+  });
+  if (recentCompletedOperations.length > MAX_RECENT_COMPLETED_OPERATIONS) {
+    recentCompletedOperations.splice(
+      0,
+      recentCompletedOperations.length - MAX_RECENT_COMPLETED_OPERATIONS
+    );
+  }
 }
 
 function createActiveOperationDiagnostic(

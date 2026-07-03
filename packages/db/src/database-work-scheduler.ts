@@ -15,6 +15,16 @@ export interface DatabaseWorkRunOptions {
   readonly priority: DatabaseWorkPriority;
 }
 
+export interface DatabaseWorkSchedulerCompletedOperation {
+  readonly completedAt: number;
+  readonly enqueuedAt: number;
+  readonly label: string | null;
+  readonly priority: DatabaseWorkPriority;
+  readonly serviceMs: number;
+  readonly startedAt: number;
+  readonly waitMs: number;
+}
+
 export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
@@ -29,6 +39,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly queuedLabels: Record<DatabaseWorkPriority, readonly (string | null)[]>;
+  readonly recentCompletedOperations: readonly DatabaseWorkSchedulerCompletedOperation[];
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
   readonly snapshotAt: number;
@@ -93,6 +104,7 @@ type CallableUnknown = (...args: unknown[]) => unknown;
 const PRIORITY_ORDER: readonly DatabaseWorkPriority[] = ['foreground', 'normal', 'background'];
 const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
+const RECENT_COMPLETED_OPERATION_WINDOW_SIZE = 256;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
 // PGliteWorker listener methods use private fields, so they need the raw worker receiver.
@@ -294,6 +306,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
   readonly #now: () => number;
   readonly #priorityStats = createEmptyPriorityStats();
+  readonly #recentCompletedOperations: DatabaseWorkSchedulerCompletedOperation[] = [];
   readonly #queues = createEmptyQueues();
   readonly #serviceSamples = createEmptyMetricSamples();
   readonly #waitSamples = createEmptyMetricSamples();
@@ -333,6 +346,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
       queuedLabels: createQueuedLabels(this.#queues),
+      recentCompletedOperations: this.#recentCompletedOperations.slice(),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
       snapshotAt: now,
@@ -539,8 +553,24 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
   #recordTaskCompleted(task: QueuedTask, startedAt: number, completedAt: number): void {
     const serviceMs = Math.max(0, completedAt - startedAt);
+    const waitMs = Math.max(0, startedAt - task.enqueuedAt);
     const serviceSamples = this.#serviceSamples[task.priority];
     addMetricSample(serviceSamples, serviceMs);
+    this.#recentCompletedOperations.push({
+      completedAt,
+      enqueuedAt: task.enqueuedAt,
+      label: task.label,
+      priority: task.priority,
+      serviceMs,
+      startedAt,
+      waitMs,
+    });
+    if (this.#recentCompletedOperations.length > RECENT_COMPLETED_OPERATION_WINDOW_SIZE) {
+      this.#recentCompletedOperations.splice(
+        0,
+        this.#recentCompletedOperations.length - RECENT_COMPLETED_OPERATION_WINDOW_SIZE
+      );
+    }
     const current = this.#priorityStats[task.priority];
     patchPriorityStat(this.#priorityStats, task.priority, {
       completed: current.completed + 1,

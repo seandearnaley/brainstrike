@@ -208,6 +208,48 @@ describe('DatabaseWorkScheduler', () => {
     });
   });
 
+  it('retains recent completed operation labels after later work overwrites the last label', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+
+    await scheduler.run(async () => 'background', {
+      priority: 'background',
+      label: 'turso.embedding-worker.queue.claimMany',
+    });
+    await scheduler.run(async () => 'foreground', {
+      priority: 'foreground',
+      label: 'turso.queue-profile.foreground-probe',
+    });
+    await scheduler.run(async () => 'diagnostics', {
+      priority: 'foreground',
+      label: 'db.diagnostics',
+    });
+
+    expect(scheduler.getSnapshot()).toMatchObject({
+      priorityStats: {
+        background: {
+          lastCompletedLabel: 'turso.embedding-worker.queue.claimMany',
+        },
+        foreground: {
+          lastCompletedLabel: 'db.diagnostics',
+        },
+      },
+      recentCompletedOperations: [
+        {
+          label: 'turso.embedding-worker.queue.claimMany',
+          priority: 'background',
+        },
+        {
+          label: 'turso.queue-profile.foreground-probe',
+          priority: 'foreground',
+        },
+        {
+          label: 'db.diagnostics',
+          priority: 'foreground',
+        },
+      ],
+    });
+  });
+
   it('tracks rolling wait and service metrics by priority', async () => {
     const waits = [3, 9, 20, 40];
     const services = [7, 11, 13, 17];

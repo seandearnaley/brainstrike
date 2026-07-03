@@ -1,4 +1,5 @@
 import type {
+  BrainstrikeDbRuntimeSelection,
   DatabaseWorkSchedulerSnapshot,
   DimensionIndexMaintenanceRow,
   DimensionIndexSuspensionRow,
@@ -61,6 +62,9 @@ export interface DesktopPlatformDiagnosticsProviders {
   };
   readonly database: {
     readonly getDiagnostics: () => Promise<unknown> | unknown;
+    readonly getRuntimeEngine: () =>
+      | BrainstrikeDbRuntimeSelection['engine']
+      | Promise<BrainstrikeDbRuntimeSelection['engine']>;
   };
   readonly databaseScheduler: {
     readonly getSnapshot: () => DatabaseWorkSchedulerSnapshot;
@@ -94,6 +98,7 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'activeBackfills'
   | 'crashRecovery'
   | 'database'
+  | 'databaseRuntime'
   | 'databaseScheduler'
   | 'dimensionIndexMaintenance'
   | 'embeddingHost'
@@ -166,20 +171,27 @@ export async function collectDesktopPlatformDiagnostics(
     () => providers.indexing.getBackfillsInFlight(),
     []
   );
+  const explicitDatabaseRuntimeEngine = await readDiagnosticsProvider(
+    errors,
+    'databaseRuntime',
+    () => providers.database.getRuntimeEngine(),
+    null
+  );
+  const databaseRuntimeEngine = explicitDatabaseRuntimeEngine ?? getDatabaseRuntimeEngine(database);
   const dimensionIndexMaintenance =
-    getDatabaseRuntimeEngine(database) === 'turso'
-      ? {
-          maintenance: [],
-          reason: 'runtime-not-pglite' as const,
-          status: 'unsupported' as const,
-          suspensions: [],
-        }
-      : await readDiagnosticsProvider(
+    databaseRuntimeEngine === 'pglite'
+      ? await readDiagnosticsProvider(
           errors,
           'dimensionIndexMaintenance',
           () => providers.indexing.getDimensionIndexMaintenanceSnapshot(),
           { maintenance: [], suspensions: [] }
-        );
+        )
+      : {
+          maintenance: [],
+          reason: 'runtime-not-pglite' as const,
+          status: 'unsupported' as const,
+          suspensions: [],
+        };
   const reset = await readDiagnosticsProvider(
     errors,
     'reset',

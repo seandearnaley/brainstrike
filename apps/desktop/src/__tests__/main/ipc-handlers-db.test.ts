@@ -1064,7 +1064,19 @@ describe('database IPC handlers', () => {
       nodeEnv: 'test',
       profileBootstrapReport,
       runtimeCorruptionRecoveryCount: 0,
-      tursoOwnerClientQoS: { available: true, slowQueuedOperationCount: 0 },
+      tursoOwnerClientQoS: {
+        activeOperation: null,
+        available: true,
+        queuedOperationCount: 0,
+        queuedOperations: [],
+        recentCompletedOperations: [],
+        slowQueuedOperationCount: 0,
+        slowQueueThresholdMs: 1000,
+        totalCompletedOperations: 0,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 0,
+        totalStartedOperations: 0,
+      },
     });
     mockDb.query.mockResolvedValue({ rows: [{ ok: 1 }] });
 
