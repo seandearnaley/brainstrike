@@ -256,4 +256,65 @@ describe('useCrossRootCost', () => {
     expect(result.current.available).toBe(true);
     expect(result.current.error).toBeNull();
   });
+
+  it('refreshes Turso durable usage after an assistant-memory usage invalidation event', async () => {
+    const snapshots = [
+      [
+        {
+          rootId: 'root-a',
+          rootDisplayName: 'project-alpha',
+          provider: 'openai',
+          model: 'gpt-5.2',
+          inputTokens: 1500,
+          outputTokens: 300,
+        },
+      ],
+      [
+        {
+          rootId: 'root-a',
+          rootDisplayName: 'project-alpha',
+          provider: 'openai',
+          model: 'gpt-5.2',
+          inputTokens: 2000,
+          outputTokens: 450,
+        },
+      ],
+    ];
+    let queryIndex = 0;
+    const tursoDb = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => {
+        const rows = snapshots[Math.min(queryIndex, snapshots.length - 1)];
+        queryIndex += 1;
+        return { rows };
+      }),
+    };
+    useAssistantMemoryDbClientMock.mockReturnValue({
+      db: tursoDb,
+      runtimeEngine: 'turso',
+    });
+    useBrainstrikeLiveQueryMock.mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useCrossRootCost());
+
+    await waitFor(() => {
+      expect(result.current.rows).toEqual(snapshots[0]);
+    });
+
+    window.dispatchEvent(
+      new CustomEvent('brainstrike:assistant-memory-invalidated', {
+        detail: { kind: 'usage', resourceId: 'brainstrike:workspace' },
+      })
+    );
+
+    await waitFor(() => {
+      expect(tursoDb.query).toHaveBeenCalledTimes(2);
+      expect(result.current.rows).toEqual(snapshots[1]);
+    });
+  });
 });

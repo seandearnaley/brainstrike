@@ -34,6 +34,11 @@ repositories and search ownership are still being converted.
 
 `initialized` means the current engine-specific execution surface is open. It does not mean every PGlite capability exists. Turso live queries are rejected locally by the remote DB client before any `live:start` request is sent to the host.
 
+Release risks: the Turso runtime hard-requires MVCC and owner transactions use
+`BEGIN CONCURRENT`. Treat this as requiring explicit team signoff, backup/reset
+validation, real-engine tests, and the queue-topology profiling gate in the
+migration ledger. Do not add a PGlite fallback for these risks.
+
 ## Owner Client
 
 `@brainstrike/db/turso/owner-client` is the first production Turso execution surface.
@@ -69,68 +74,24 @@ can use them.
 
 ## Repository Coverage
 
-Current desktop Turso provider coverage:
+Current desktop Turso provider/runtime coverage includes `embedding_sets`,
+`file_records`, `file_chunks`, `view_filter_presets`, `file_token_cache`,
+managed-cache apply/invalidate, atomic chunk insert plus embedding job enqueue,
+Turso job queue claim/lease/heartbeat/completion/failure/retry/clear/read-model
+metrics, vector-management owner-IPC queue actions, hidden embedding-host worker
+storage through owner IPC, and assistant grep/vector/hybrid search gated by
+bootstrap checks.
 
-- `embedding_sets`
-- `file_records`
-- `view_filter_presets`
-- `file_token_cache`
+Default imports now commit file records, chunks, and embedding jobs atomically
+through Turso managed-cache and owner-client transaction paths. User-visible
+Turso re-embed is composed as owner-IPC clear-embeddings followed by hidden-host
+backfill; keep that split.
 
-Turso file-record repository is exposed through the desktop Turso provider for
-CRUD, content import, managed-cache metadata, stat stamping, and bulk import.
-This is repository coverage, not full import parity: default imports still need
-Turso chunk storage plus embedding-job enqueue support before file records,
-chunks, and jobs are committed atomically in Turso mode.
-
-Turso file-chunk repository implementation is now staged as repository-level
-groundwork for persistence and native search: ordered reads, single and batched
-upserts, transaction-scoped batch inserts, content/position/embedding metadata
-updates, delete/clear operations, coverage counts, stats, explicit
-embedding-clearing stats refresh, trigram-backed grep candidates, and native
-`vector32(?)` similarity search. Repository-authored embeddings are stored as
-Turso vector blobs and decoded from the raw BLOB on reads, so ordinary reads do
-not depend on vector SQL functions. Legacy JSON embedding blobs from the
-pre-vector Turso slice remain readable for cleanup or re-embedding, but new
-writes use native Turso vector storage. `fullTextSearch` is backed by the
-primary-store gram/content index for lexical hybrid retrieval, while a split
-Tantivy/native FTS owner remains a future search-quality option.
-Repository-authored chunks must also carry the non-null `FileChunk`
-identity/type fields (`contentHash`, `chunkType`); if another raw Turso path
-writes nullable baseline rows that violate that contract, repository reads fail
-loudly instead of coalescing malformed data.
-
-The first Turso-native chunk/job orchestration seam is also staged:
-`insertTursoChunksAndEnqueueEmbeddingJobs()` inserts chunks through the Turso
-chunk repository and queues `embed_chunk` jobs in the same owner-client
-transaction. It uses SQLite-compatible statements and active-job dedupe instead
-of the Postgres `JobQueue` batch SQL. This is only the import write-side
-primitive; it does not port job claiming, heartbeats, completion, retries, or
-search indexing.
-
-Vector-management queue status resolves through runtime-keyed snapshot readers.
-PGlite profiles still construct the existing `JobQueue`; ready Turso profiles
-read queue snapshots through the Turso read model and route retry/repair,
-queue clear, queue wipe, and embedding clearing through explicit desktop owner
-IPC. The visible renderer must not construct `TursoJobQueue` for Turso
-mutations. Desktop embedding execution and backfill orchestration still run
-through the hidden embedding host; a future slice should compose user-visible
-re-embed as owner-IPC embedding clearing followed by embedding-host backfill.
-
-Turso managed-cache apply/invalidation is now staged for the desktop DB host.
-`applyTursoManagedCacheBatch()` writes imported file records, replaces stale
-file chunks, cancels active embedding jobs for replaced chunks, calls the
-Turso-native chunk/job write primitive, and refreshes collection indexing stats
-inside one owner-client transaction. `invalidateTursoManagedCacheEntriesByIdentity()`
-matches exact/prefix cache identities with SQLite-compatible statements, deletes
-matched file records, cancels active embedding jobs for deleted chunks, and
-returns the deleted ids. The DB host dispatches managed-cache apply,
-managed-cache invalidation, and atomic chunk/job enqueue requests to Turso
-implementations when the bootstrap report runtime engine is `turso`; unsupported
-engines fail loudly before mutation.
-
-The provider still does not expose a generic `db` handle or `file_chunks` in
-Turso mode. Those remain explicit migration work rather than silent PGlite
-compatibility.
+The visible renderer must not construct `TursoJobQueue` for Turso mutations.
+Mutation paths requiring transactions or query-capable writes stay on explicit
+desktop owner-client IPC/action surfaces. The provider still does not expose a
+generic live-query-compatible `db` handle in Turso mode; that remains an
+explicit unsupported capability, not a silent PGlite compatibility layer.
 
 ## Next Touchpoint
 

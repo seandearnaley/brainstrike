@@ -3,8 +3,9 @@ import {
   useAssistantMemoryDbClient,
   useBrainstrikeLiveQuery,
 } from '@brainstrike/db';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
+import { useAssistantMemoryInvalidationToken } from '../assistant-memory-invalidation';
 import {
   CROSS_ROOT_USAGE_AGGREGATION_SQL,
   type CrossRootUsageRow,
@@ -99,6 +100,13 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
   const params = useMemo(() => [resourceId], [resourceId]);
   const pgliteLiveEnabled = available && runtimeEngine === 'pglite';
   const tursoSnapshotEnabled = available && runtimeEngine === 'turso';
+  const tursoInvalidationToken = useAssistantMemoryInvalidationToken(
+    useCallback(
+      (detail) =>
+        detail.kind === 'all' || (detail.kind === 'usage' && detail.resourceId === resourceId),
+      [resourceId]
+    )
+  );
   const repository = useMemo(
     () =>
       database && runtimeEngine === 'turso'
@@ -142,7 +150,7 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
     return () => {
       cancelled = true;
     };
-  }, [repository, resourceId, tursoSnapshotEnabled]);
+  }, [repository, resourceId, tursoInvalidationToken, tursoSnapshotEnabled]);
 
   const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);
 

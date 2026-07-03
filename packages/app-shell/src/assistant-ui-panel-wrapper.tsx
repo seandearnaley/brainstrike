@@ -1,4 +1,4 @@
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import type { AssistantRunEvent, LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
   getProviderModelDefinitions,
   isSupportedProvider,
@@ -55,6 +55,11 @@ import {
   resolveCumulativeUsageDisplay,
 } from './assistant-cumulative-usage';
 import { hasDurableAssistantUsageCapability } from './assistant-durable-usage-capability';
+import {
+  dispatchAssistantMemoryInvalidated,
+  dispatchObservationalMemoryInvalidatedForActiveScope,
+  isObservationalMemoryWriteRunEvent,
+} from './assistant-memory-invalidation';
 import {
   createAssistantThreadHistoryAdapter,
   createAssistantThreadRepository,
@@ -1298,7 +1303,15 @@ export function AssistantUiPanelWrapper({
         })
         // Re-read the cumulative total from the write's OWN completion so the
         // SELECT provably follows the INSERT on the active runtime.
-        .then(() => refreshCumulativeUsage())
+        .then(() => {
+          dispatchAssistantMemoryInvalidated({
+            kind: 'usage',
+            resourceId: memoryResourceId,
+            runId: runContext.runId,
+            threadId: selectedMemoryThreadId,
+          });
+          return refreshCumulativeUsage();
+        })
         .catch((error: unknown) => {
           // Never swallow silently — durable usage is best-effort relative to the
           // turn, but a failure must be observable.
@@ -1312,6 +1325,20 @@ export function AssistantUiPanelWrapper({
       refreshCumulativeUsage,
       selectedMemoryThreadId,
     ]
+  );
+
+  const handleRunEvent = useCallback(
+    (event: AssistantRunEvent) => {
+      if (!isObservationalMemoryWriteRunEvent(event)) {
+        return;
+      }
+      dispatchObservationalMemoryInvalidatedForActiveScope({
+        resourceId: memoryResourceId,
+        scope: observationalMemorySettings.scope,
+        threadId: selectedMemoryThreadId,
+      });
+    },
+    [memoryResourceId, observationalMemorySettings.scope, selectedMemoryThreadId]
   );
 
   // Initial / thread-switch load. The post-write refresh rides handleUsage's
@@ -1374,6 +1401,7 @@ export function AssistantUiPanelWrapper({
       effectiveInputBudget={effectiveInputBudget}
       omSegment={omSegment}
       onProviderSettingsChange={handleProviderSettingsChange}
+      onRunEvent={handleRunEvent}
       onStreamActivity={renewActiveAssistantForegroundActivity}
       onUsage={handleUsage}
       pickerModels={pickerModels}

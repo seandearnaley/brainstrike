@@ -1,4 +1,5 @@
 import type { ThreadMessage } from '@assistant-ui/react';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import {
   AssistantMessageAccumulator,
@@ -989,6 +990,60 @@ describe('assistant-stream integration', () => {
 
     // Exact wire values forwarded to the callback.
     expect(usageEvents).toEqual([{ inputTokens: 123, outputTokens: 45 }]);
+  });
+
+  it('fires onRunEvent for assistant run-event data parts', async () => {
+    const runEvents: unknown[] = [];
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          dataStreamFromLines([
+            'f:{"messageId":"msg-test"}',
+            `aui-data:${JSON.stringify({
+              name: ASSISTANT_RUN_EVENT_DATA_NAME,
+              data: {
+                id: 'event-om-updated',
+                kind: 'memory.observation.completed',
+                label: 'Observations updated',
+                metadata: { resourceId: 'brainstrike:workspace', threadId: 'thread-abc' },
+                status: 'completed',
+                timestamp: '2026-07-03T01:00:00.000Z',
+              },
+            })}`,
+            '0:"Hello"',
+            'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
+          ])
+        )
+    ) as typeof fetch;
+    const adapter = new BrainstrikeDataStreamRuntimeAdapter({
+      api: 'http://assistant.test/api/assistant',
+      onRunEvent: (event: unknown) => {
+        runEvents.push(event);
+      },
+    } as unknown as ConstructorParameters<typeof BrainstrikeDataStreamRuntimeAdapter>[0]);
+
+    const yielded: unknown[] = [];
+    for await (const nextMessage of adapter.run({
+      abortSignal: new AbortController().signal,
+      context: { callSettings: {}, config: {}, tools: {} },
+      messages: [message('user', 'user')],
+      runConfig: undefined,
+      unstable_getMessage: () => ({ metadata: {} }),
+    } as unknown as Parameters<typeof adapter.run>[0])) {
+      yielded.push(nextMessage);
+    }
+
+    expect(yielded.length).toBeGreaterThan(0);
+    expect(runEvents).toEqual([
+      {
+        id: 'event-om-updated',
+        kind: 'memory.observation.completed',
+        label: 'Observations updated',
+        metadata: { resourceId: 'brainstrike:workspace', threadId: 'thread-abc' },
+        status: 'completed',
+        timestamp: '2026-07-03T01:00:00.000Z',
+      },
+    ]);
   });
 
   it('completes normally and does not call onUsage when finish-message chunk has no usage field', async () => {
