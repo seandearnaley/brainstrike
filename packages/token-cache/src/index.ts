@@ -4,10 +4,10 @@
  * Persistent token cache with background worker for file explorer.
  *
  * Features:
- * - PGlite-backed persistent storage
+ * - runtime-store-backed persistent storage
  * - xxHash64 content hashing for change detection
  * - Background Web Worker for non-blocking token counting
- * - Two-level caching (hot memory + cold PGlite)
+ * - Two-level caching (hot memory + cold persistent store)
  * - React hook for easy integration
  */
 

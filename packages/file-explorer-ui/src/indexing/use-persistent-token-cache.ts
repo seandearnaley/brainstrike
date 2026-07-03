@@ -5,7 +5,7 @@
  * Uses the TokenCacheContext when available, otherwise keeps a strict in-memory request/cache layer.
  *
  * Key Benefits:
- * - Token counts persist across sessions (stored in PGlite)
+ * - Token counts persist across sessions (stored in the configured persistent token-cache store)
  * - Content-based invalidation using xxHash64
  * - Background worker for non-blocking counting
  * - SQL-based aggregation for total token counts

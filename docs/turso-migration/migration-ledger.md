@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-default-runtime`,
+Last updated: 2026-07-03 on `codex/turso-stale-wording-cleanup-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1457 at `036962da6`. This branch cuts empty desktop profiles over to
+through #1458 at `be220c05e`. This branch cuts empty desktop profiles over to
 the Turso runtime by default when `BRAINSTRIKE_DB_RUNTIME` is unset, while
 preserving existing desktop PGlite profiles when `<profile>/pgdata` already
 exists. Explicit desktop PGlite compatibility remains available with
@@ -165,6 +165,14 @@ Merged slices:
 - #1455 `Add Turso Mastra vector profile benchmark`
 - #1456 `Profile Turso lexical search quality`
 - #1457 `Fix Turso enhanced import SQL dialect`
+- #1458 `Default desktop runtime to Turso`
+
+Recently completed default-runtime slice: #1458 made unset desktop runtime
+selection default fresh profiles to Turso while preserving existing PGlite
+profiles that already contain `<profile>/pgdata`. Reset now bypasses the
+existing-profile preservation gate, so an unset-runtime reset of a former
+PGlite profile recreates the fresh Turso default profile directory instead of
+manufacturing an empty `pgdata` directory.
 
 Recently completed final-runtime-audit slice: #1457 fixed the enhanced manual
 import Turso SQL dialect leak found during the final runtime audit:
@@ -201,11 +209,11 @@ probes while set-scoped backfill jobs are still queued or running, and requires
 owner labels and foreground wait metrics below threshold.
 
 Recently completed reset slice: desktop reset now removes the whole active
-  profile directory for both runtimes, then recreates the runtime-owned empty
-  directory: `<profile>/pgdata` for PGlite and `<profile>` for Turso.
+profile directory for both runtimes, then recreates the runtime-owned empty
+directory: explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`.
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
-is not tracked in this branch at feature head `23d2ac3d` through the 2026-07-03
+is not tracked in this branch at feature head `be220c05e` through the 2026-07-03
 reconciliation pass. Do not cite that report as reconciled work until the
 artifact is restored or this ledger links to the correct audit artifact.
 
@@ -216,7 +224,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1456 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1458 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -230,7 +238,10 @@ match 12/12, recall@K 1.000, query p95 30.411 ms, with query-plan evidence in
 `docs/turso-migration/2026-07-03-turso-mastra-vector-exact-scan-baseline.md`.
 #1456 adds lexical search-quality characterization on top of that state:
 precision@5 0.400, recall@5 1.000 for the tiny seeded corpus, plus query-plan
-evidence that gram sidecars supply the lexical candidate source.
+evidence that gram sidecars supply the lexical candidate source. #1457 fixed the
+enhanced manual-import SQL dialect leak for Turso metadata and embedding-set
+paths. #1458 made fresh unset-runtime desktop profiles default to Turso while
+preserving existing PGlite profiles and keeping reset on the fresh Turso default.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus

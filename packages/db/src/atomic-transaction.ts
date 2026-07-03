@@ -2,13 +2,12 @@
  * Atomic transaction helper for the desktop `db:transaction` IPC channel (#1141).
  *
  * The renderer can't pass a callback across the IPC boundary (the callback would run
- * in the renderer, but PGlite lives in the main process), so the atomic primitive
- * ships an ORDERED LIST of statements as data. This helper runs them inside a single
- * `pglite.transaction()` in the main process and returns the rows of one designated
- * statement. Because PGlite's `transaction()` holds the single-connection lock, a
- * concurrent `query()` (e.g. the FTS half of HybridSearchService's `Promise.all`)
- * cannot interleave — restoring the isolation that raw BEGIN/COMMIT over separate IPC
- * calls leaves open.
+ * in the renderer while the transaction-capable owner lives in the DB host), so the
+ * atomic primitive ships an ORDERED LIST of statements as data. This helper runs
+ * them inside a single owner transaction and returns the rows of one designated
+ * statement. PGlite's single-connection transaction lock and Turso's owner-client
+ * transaction boundary both prevent a concurrent `query()` from interleaving with
+ * the ordered statement list.
  */
 
 /** One statement to run inside the transaction. */
@@ -17,7 +16,7 @@ export interface TransactionStatement {
   sql: string;
 }
 
-/** Minimal transactional surface of a PGlite instance (`db.transaction`). */
+/** Minimal transaction-capable owner surface. */
 export interface TransactionalDb {
   transaction: <T>(
     fn: (tx: {

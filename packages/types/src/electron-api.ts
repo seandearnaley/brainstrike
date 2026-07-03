@@ -380,11 +380,10 @@ export interface ElectronDatabaseAPI {
 
   /**
    * Atomic transaction over IPC (#1141): run `statements` in order inside ONE
-   * `pglite.transaction()` in the main process and return the rows of
-   * `statements[resultIndex]`. A callback transaction cannot cross the IPC
-   * boundary; statements are shipped as data. PGlite's transaction lock
-   * serializes a concurrent `query()` (e.g. the FTS half of a hybrid search)
-   * so it can't interleave.
+   * DB-host owner transaction and return the rows of `statements[resultIndex]`.
+   * A callback transaction cannot cross the IPC boundary; statements are shipped
+   * as data. PGlite's single-connection lock and Turso's owner-client transaction
+   * boundary both prevent concurrent `query()` work from interleaving.
    */
   runTransaction?: (
     statements: { sql: string; params?: unknown[] }[],

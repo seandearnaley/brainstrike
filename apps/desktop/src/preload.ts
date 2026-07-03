@@ -576,7 +576,7 @@ if (shouldExposeBridge('electronAPI')) {
       exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
         ipcRenderer.invoke(DB_EXEC_CHANNEL, sql, params, options),
       // Atomic transaction over IPC (#1141): ships an ordered statement list to main
-      // to run inside one pglite.transaction() and return statements[resultIndex] rows.
+      // to run inside one DB-host owner transaction and return statements[resultIndex] rows.
       runTransaction: (
         statements: { sql: string; params?: unknown[] }[],
         resultIndex: number,

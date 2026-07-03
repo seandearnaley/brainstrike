@@ -480,10 +480,9 @@ export function registerDatabaseIpcHandlers(
   );
 
   // Atomic transaction over IPC (#1141): run an ordered statement list inside ONE
-  // pglite.transaction() in main and return statements[resultIndex] rows. PGlite's
-  // transaction lock serializes a concurrent db:query (e.g. the FTS half of a hybrid
-  // search) so it can't interleave — the isolation/error-coupling fix that raw
-  // BEGIN/COMMIT over separate IPC calls can't provide.
+  // DB-host owner transaction and return statements[resultIndex] rows. PGlite's
+  // single-connection lock and Turso's owner-client transaction boundary both
+  // prevent concurrent db:query work from interleaving with the statement list.
   registry.registerInvoke(
     'db',
     DESKTOP_IPC_CHANNELS.db.transaction,
