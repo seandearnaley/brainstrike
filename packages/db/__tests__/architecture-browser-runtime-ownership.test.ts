@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -18,9 +18,12 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 const TURSO_BROWSER_DB_CLIENT_IMPORT_PATTERN =
   /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@tursodatabase\/(?:database|sync|serverless)|@libsql\/client(?:\/web)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@tursodatabase\/(?:database|sync|serverless)|@libsql\/client(?:\/web)?)['"]\s*\)/g;
+const LOCAL_STATIC_SPECIFIER_PATTERN =
+  /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<specifier>\.{1,2}\/[^'"]+)['"]/g;
 
 const BROWSER_BUNDLE_ENTRYPOINTS = [
-  'apps/web/src',
+  'apps/web/src/main.tsx',
+  'apps/web/src/workers',
   'packages/db/src/browser-pglite-storage.ts',
   'packages/db/src/db-provider.tsx',
   'packages/db/src/index.ts',
@@ -41,8 +44,15 @@ interface BrowserDbClientImport {
   readonly specifier: string;
 }
 
+type SourceReader = (absolutePath: string) => string;
+
 function listSourceFiles(entrypoint: string): string[] {
   const absolutePath = path.join(REPO_ROOT, entrypoint);
+  expect(
+    existsSync(absolutePath),
+    `${entrypoint} must exist; update BROWSER_BUNDLE_ENTRYPOINTS if the browser DB entry surface changes`
+  ).toBe(true);
+
   const stat = statSync(absolutePath);
   if (stat.isFile()) {
     return [absolutePath];
@@ -69,6 +79,14 @@ function normalizeRelativePath(filePath: string): string {
   return path.relative(REPO_ROOT, filePath).split(path.sep).join('/');
 }
 
+function extractLocalStaticSpecifiers(source: string): string[] {
+  return Array.from(source.matchAll(LOCAL_STATIC_SPECIFIER_PATTERN), (match) => {
+    const specifier = match.groups?.['specifier'];
+    expect(specifier, 'local static import/export regex must capture a specifier').toBeTruthy();
+    return specifier as string;
+  });
+}
+
 function extractTursoBrowserDbClientImports(
   source: string,
   relativePath: string
@@ -86,15 +104,63 @@ function extractTursoBrowserDbClientImports(
   return imports;
 }
 
-function findTursoBrowserDbClientImports(): BrowserDbClientImport[] {
+function resolveLocalSourceSpecifier(fromFilePath: string, specifier: string): string | null {
+  const basePath = path.resolve(path.dirname(fromFilePath), specifier);
+  const candidates = path.extname(basePath)
+    ? [
+        basePath,
+        basePath.replace(/\.(?:js|mjs)$/, '.ts'),
+        basePath.replace(/\.(?:js|mjs)$/, '.tsx'),
+        basePath.replace(/\.(?:js|mjs)$/, '.mts'),
+      ]
+    : [
+        ...Array.from(SOURCE_EXTENSIONS, (extension) => `${basePath}${extension}`),
+        ...Array.from(SOURCE_EXTENSIONS, (extension) => path.join(basePath, `index${extension}`)),
+      ];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function findTursoBrowserDbClientImportsFromFiles(
+  entryFiles: readonly string[],
+  readSource: SourceReader = (absolutePath) => readFileSync(absolutePath, 'utf8')
+): BrowserDbClientImport[] {
   const imports: BrowserDbClientImport[] = [];
-  for (const entrypoint of BROWSER_BUNDLE_ENTRYPOINTS) {
-    for (const filePath of listSourceFiles(entrypoint)) {
-      const source = readFileSync(filePath, 'utf8');
-      imports.push(...extractTursoBrowserDbClientImports(source, normalizeRelativePath(filePath)));
+  const pending = [...entryFiles];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const filePath = pending.shift();
+    expect(filePath, 'pending browser scan file path must be defined').toBeTruthy();
+    const absolutePath = filePath as string;
+    if (visited.has(absolutePath)) {
+      continue;
+    }
+    visited.add(absolutePath);
+
+    const source = readSource(absolutePath);
+    imports.push(
+      ...extractTursoBrowserDbClientImports(source, normalizeRelativePath(absolutePath))
+    );
+
+    for (const specifier of extractLocalStaticSpecifiers(source)) {
+      const resolvedPath = resolveLocalSourceSpecifier(absolutePath, specifier);
+      if (resolvedPath) {
+        pending.push(resolvedPath);
+      }
     }
   }
+
   return imports;
+}
+
+function findTursoBrowserDbClientImports(): BrowserDbClientImport[] {
+  // This is a deliberate browser entrypoint allowlist: add new browser DB
+  // entrypoints here when the runtime surface changes. Server-only web code
+  // belongs outside this list because it may legitimately use Turso directly.
+  return findTursoBrowserDbClientImportsFromFiles(
+    BROWSER_BUNDLE_ENTRYPOINTS.flatMap(listSourceFiles)
+  );
 }
 
 describe('browser runtime ownership guardrails', () => {
@@ -123,6 +189,31 @@ describe('browser runtime ownership guardrails', () => {
       {
         relativePath: 'packages/db/src/index.ts',
         specifier: '@libsql/client/web',
+      },
+    ]);
+  });
+
+  it('follows local re-exports from browser-facing barrels', () => {
+    const barrelPath = path.join(REPO_ROOT, 'packages/db/src/index.ts');
+    const localModulePath = path.join(REPO_ROOT, 'packages/db/src/turso/owner-client.ts');
+    const sources = new Map([
+      [barrelPath, "export * from './turso/owner-client.js';"],
+      [localModulePath, "import { connect } from '@tursodatabase/database';"],
+    ]);
+
+    expect(
+      findTursoBrowserDbClientImportsFromFiles([barrelPath], (absolutePath) => {
+        const source = sources.get(absolutePath);
+        expect(
+          source,
+          `test source missing for ${normalizeRelativePath(absolutePath)}`
+        ).toBeTruthy();
+        return source as string;
+      })
+    ).toEqual([
+      {
+        relativePath: 'packages/db/src/turso/owner-client.ts',
+        specifier: '@tursodatabase/database',
       },
     ]);
   });
