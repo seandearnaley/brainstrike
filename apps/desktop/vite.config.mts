@@ -158,6 +158,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/file-explorer/src'),
       },
       {
+        find: '@brainstrike/indexing-contract',
+        replacement: path.resolve(__dirname, '../../packages/indexing-contract/src'),
+      },
+      {
+        find: '@brainstrike/pipeline',
+        replacement: path.resolve(__dirname, '../../packages/pipeline/src'),
+      },
+      {
         find: '@brainstrike/db',
         replacement: path.resolve(__dirname, '../../packages/db/src/index.ts'),
       },

@@ -141,6 +141,12 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../../packages/indexing-contract
+      '@brainstrike/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../../packages/platform-utils
