@@ -594,17 +594,28 @@ Known production touchpoints:
 - `packages/app-shell/src/threads-panel.tsx`
 - `packages/app-shell/src/assistant-thread-tabs-workspace.tsx`
 
-Concrete status and remaining blocker:
+Concrete status and remaining work:
 
 - `TursoMemoryStore` and `TursoWorkflowsStore` now exist under
   `@brainstrike/agent/turso-mastra-memory`, with SQLite-compatible schema,
   thread/message/resource persistence, non-vector observational memory, and
   workflow snapshots.
-- The Turso factory intentionally does not expose vector memory yet. Semantic
-  recall and observational vector retrieval fail closed with deterministic
-  configuration errors instead of silently disabling vector behavior.
+- `TursoVectorStore` now exposes the Mastra vector contract under
+  `@brainstrike/agent/turso-mastra-memory`. It stores embeddings as Turso
+  `vector32(?)` BLOBs in the shared `mastra_vectors` table, keeps the same
+  sentinel-row index metadata model as `PgliteVectorStore`, supports equality,
+  `$eq`, `$in`, and `$and` metadata filters, returns high-score-is-better
+  cosine/euclidean/dot-product results, and emits the same nonblocking semantic
+  memory run events.
+- The Turso factory now passes the vector store to `Memory`, so semantic recall
+  and observational vector retrieval can run when an explicit embedder is
+  configured. Those paths still fail closed with deterministic configuration
+  errors when vector-enabled memory is requested without an embedder.
 - `PgliteVectorStore` creates `vector` extension, `embedding vector`, JSONB,
-  and GIN indexes.
+  and GIN indexes. `TursoVectorStore` intentionally uses exact vector-distance
+  ordering for Mastra memory parity in this slice; native vector index/ANN
+  tuning remains a separate performance decision once real memory volume
+  requires it.
 - The renderer thread repository still contains separate PGlite and Turso read
   query dialects. Current tests cover the major Turso read surfaces: latest-run
   listing, message hydration, usage aggregation, thread metadata, and thread
@@ -614,10 +625,11 @@ Concrete status and remaining blocker:
 
 Completed slices have wired the desktop assistant server to select the Turso
 factory from the ready runtime/bootstrap verdict, included runtime/profile/store
-identity in the memory cache key, and replayed live-loop persistence against
-Turso. Remaining work in this area is vector semantic memory parity: the Turso
-factory intentionally fails closed for vector memory until a Turso-compatible
-vector store and recall contract exist.
+identity in the memory cache key, replayed live-loop persistence against Turso,
+and added Turso vector memory parity for Mastra semantic recall/observational
+vector retrieval. Remaining work in this area is performance characterization:
+prove the exact-scan Turso memory vector path at expected local profile sizes
+and decide whether native Turso vector indexes are needed before release.
 
 ### 6. Schema Authority, Maintenance, And Data Migration
 
