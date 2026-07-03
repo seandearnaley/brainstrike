@@ -161,8 +161,9 @@ Recently completed reset slice: desktop reset now removes the whole active
 
 Independent audit artifact status: `docs/turso-migration/2026-07-02-independent-audit-report.md`
 is not present in this branch at feature head `d957516a7` or on the #1445 PR
-branch at `c3b4ce19a`. Do not cite that report as reconciled work until the
-artifact is restored or this ledger links to the correct audit artifact.
+branch through the 2026-07-03 reconciliation pass. Do not cite that report as
+reconciled work until the artifact is restored or this ledger links to the
+correct audit artifact.
 
 Ledger reconciliation pass (2026-07-03): compared this ledger with
 `git log --first-parent origin/feature/turso-migration` and
