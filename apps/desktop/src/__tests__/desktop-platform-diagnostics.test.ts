@@ -10,9 +10,24 @@ describe('desktop platform diagnostics', () => {
       initializationInFlight: false,
       lastInitializationFailure: null,
       lastInitializationSucceededAt: '2026-05-20T18:00:00.000Z',
+      profileBootstrapReport: {
+        runtime: { engine: 'turso' },
+      },
       runtimeCorruptionRecoveryCount: 1,
       lastRuntimeCorruptionAt: '2026-05-20T18:01:00.000Z',
       lastRuntimeCorruptionContext: 'db:query',
+      tursoOwnerClientQoS: {
+        activeOperation: null,
+        available: true,
+        queuedOperationCount: 0,
+        queuedOperations: [],
+        slowQueuedOperationCount: 0,
+        slowQueueThresholdMs: 1000,
+        totalCompletedOperations: 4,
+        totalFailedOperations: 0,
+        totalQueuedOperations: 4,
+        totalStartedOperations: 4,
+      },
     };
     const priorityStats = {
       completed: 0,
@@ -40,11 +55,25 @@ describe('desktop platform diagnostics', () => {
       lastNormalAt: null,
       lastStartedAt: null,
       priorityStats: {
-        background: priorityStats,
-        foreground: priorityStats,
+        background: {
+          ...priorityStats,
+          completed: 2,
+          lastCompletedLabel: 'turso.embedding-worker.queue.complete',
+          started: 2,
+          waitP95Ms: 120,
+        },
+        foreground: {
+          ...priorityStats,
+          completed: 2,
+          lastCompletedLabel: 'assistant foreground query',
+          longestWaitMs: 64,
+          started: 2,
+          waitP95Ms: 64,
+        },
         normal: priorityStats,
       },
       queued: { background: 0, foreground: 0, normal: 0 },
+      queuedLabels: { background: [], foreground: [], normal: [] },
       runningLabel: null,
       runningPriority: null,
       snapshotAt: 1,
@@ -197,6 +226,13 @@ describe('desktop platform diagnostics', () => {
       },
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,
+      },
+      tursoQueueProfile: {
+        observedBackgroundWork: true,
+        observedForegroundWork: true,
+        ownerSlowForegroundQueuedOperationCount: 0,
+        reason: 'within-thresholds',
+        status: 'accepted',
       },
     });
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();

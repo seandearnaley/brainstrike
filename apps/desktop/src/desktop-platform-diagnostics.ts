@@ -11,6 +11,10 @@ import type { EmbeddingHostBackfillInfo } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import type { RuntimeHostPlatformStatus } from './platform/runtime-host-state';
+import {
+  createTursoQueueProfileDiagnostics,
+  type TursoQueueProfileDiagnostics,
+} from './turso-queue-profile-diagnostics';
 
 export const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL =
   DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot;
@@ -41,6 +45,7 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
   };
+  readonly tursoQueueProfile: TursoQueueProfileDiagnostics;
 }
 
 export interface DesktopDimensionIndexMaintenanceSnapshot {
@@ -268,5 +273,9 @@ export async function collectDesktopPlatformDiagnostics(
         []
       ),
     },
+    tursoQueueProfile: createTursoQueueProfileDiagnostics({
+      databaseDiagnostics: database,
+      scheduler: databaseScheduler,
+    }),
   };
 }

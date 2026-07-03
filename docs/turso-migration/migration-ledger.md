@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-queue-profiling`, targeting
+Last updated: 2026-07-03 on `codex/turso-queue-profile-gate`, targeting
 `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,11 +10,9 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1450 at `e6d97d1c`. This PR branch threads foreground/background
-work labels and priorities through Turso owner-client transaction and DB-host
-queue paths so queue-topology profiling can distinguish hidden
-embedding-worker/background writes from foreground DB work in owner QoS
-diagnostics.
+through #1451 at `03d17bd5`. This PR branch adds the queue-profile verdict
+surface for Turso diagnostics and closes the remaining owner-observability gap
+for generic foreground `query`/`exec` DB-host work.
 
 Merged slices:
 
@@ -157,15 +155,17 @@ Merged slices:
 - #1446 `Retire raw queue purge helper`
 - #1447 `Prove Turso clear-all path`
 - #1450 `Retire unregistered hybrid search assistant wrapper`
+- #1451 `Label Turso queue work for profiling`
 
 In-flight slice on this branch:
 
-- Propagate `DatabaseWorkOptions` labels and priorities through Turso
-  owner-client transactions, hidden embedding-worker queue/stats DB-host
-  requests, and visible vector-queue owner actions. This does not complete the
-  release profiling gate by itself; it makes the required
-  foreground/background evidence observable in Turso owner-client QoS
-  snapshots.
+- Add a deterministic Turso queue-profile diagnostics verdict that combines
+  desktop scheduler timing with Turso owner-client QoS snapshots. Generic
+  foreground `query`/`exec` DB-host work now forwards `DatabaseWorkOptions` into
+  the Turso owner client, so manual foreground probes can appear in owner QoS
+  snapshots instead of only in the main-process scheduler. This still does not
+  replace the manual/opt-in hidden-worker profiling pass; it creates the stable
+  evidence surface and tests that pass/fail the release-gate thresholds.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -183,17 +183,21 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1450 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1451 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
 retirement should stay out of the remaining backlog except where the ledger
-names a narrower follow-up. The current queue-profiling slice covers owner QoS
-label propagation only; real hidden-worker profiling remains required. The
-verified remaining backlog is now:
+names a narrower follow-up. Queue profiling now has owner QoS
+labels/priorities for hidden worker paths plus a desktop diagnostics verdict
+surface for foreground/background evidence; real hidden-worker profiling remains
+required. The verified remaining backlog is now:
 
 - queue-topology release profiling under hidden embedding-worker/background
-  Turso writes plus foreground-labeled DB work;
+  Turso writes plus foreground-labeled DB work using
+  `window.desktopDiagnostics.getSnapshot().tursoQueueProfile`,
+  `window.electronAPI.db.diagnostics()`, and
+  `window.electronAPI.db.schedulerSnapshot()`;
 - Mastra Turso vector memory performance characterization for exact-scan recall
   at expected local profile sizes;
 - product search-quality decision for primary-store gram lexical search versus
@@ -271,12 +275,16 @@ The branch currently has a real Turso runtime seam:
   plain query/exec timeouts do not kill the host, while transaction timeouts
   remain process-poisoning for both runtimes.
 - Queue-profiling work now carries operation labels and structured priorities
-  into owner-client transaction diagnostics for Turso `TursoJobQueue`
-  operations, hidden embedding-worker queue/stats DB-host requests, and vector
-  queue owner actions. This lets profiling snapshots identify foreground versus
-  background work inside owner QoS diagnostics; it is observability for the
-  release gate, not a claim that the shared owner-client topology is
-  latency-safe under load.
+  into owner-client diagnostics for Turso `TursoJobQueue` operations, hidden
+  embedding-worker queue/stats DB-host requests, visible vector queue owner
+  actions, and generic foreground `query`/`exec` DB-host work. Desktop platform
+  diagnostics now expose `tursoQueueProfile`, a verdict derived from the
+  scheduler snapshot plus Turso owner QoS. Status is `accepted` only when both
+  foreground and background work have been observed and foreground waits stay
+  below the configured threshold; `blocked` names the foreground labels queued
+  behind background owner work or exceeding the foreground wait threshold; and
+  `insufficient-evidence` keeps an idle or one-sided sample from being mistaken
+  for release proof.
 - Connection-model decision for the hidden embedding worker: desktop Turso
   worker DB mutations use the shared main-process owner client through explicit
   command-style IPC and the existing database work scheduler's `background`
@@ -292,11 +300,14 @@ The branch currently has a real Turso runtime seam:
   work repeatedly waits more than 1000ms behind embedding-worker/background
   operations during manual or e2e profiling. Until that profiling exists, do not
   claim this topology proves foreground latency under active background writes.
-- Remaining queue-topology release gate: capture a manual or e2e profiling pass
-  with hidden embedding-worker/background Turso writes active and
-  foreground-labeled DB work in flight. Record owner-client QoS snapshots and
-  scheduler timing. Accept the shared owner-client topology only if
-  `slowQueuedOperationCount` stays 0 for foreground-labeled work and foreground
+- Remaining queue-topology release gate: capture a manual or opt-in e2e
+  profiling pass with hidden embedding-worker/background Turso writes active
+  and foreground-labeled DB work in flight. Record
+  `window.desktopDiagnostics.getSnapshot().tursoQueueProfile`,
+  `window.electronAPI.db.diagnostics().tursoOwnerClientQoS`, and
+  `window.electronAPI.db.schedulerSnapshot()`. Accept the shared owner-client
+  topology only if the queue profile reaches `accepted`, foreground owner work
+  is not queued behind background work at or above the threshold, and foreground
   DB work does not repeatedly wait more than 1000ms behind
   background/embedding operations. If either threshold is observed, reopen the
   separate Turso connection design before release.
@@ -585,12 +596,13 @@ Completed low-risk queue UI slices:
   the bootstrap runtime, constructs `JobQueue` only for PGlite, exposes Turso
   queue snapshots, and wires the desktop Turso action service only when the
   owner-IPC bridge is present.
-- Turso embedding-worker queue/stats requests and vector queue owner actions
-  now carry `DatabaseWorkOptions` labels and priorities through desktop IPC,
-  `DbHostManager`, DB-host protocol messages, and owner-client `TursoJobQueue`
-  transactions. Profiling can now compare scheduler priority snapshots with
-  owner-client QoS labels/priorities for the same foreground/background
-  workload.
+- Turso embedding-worker queue/stats requests, vector queue owner actions, and
+  generic foreground `query`/`exec` DB-host requests now carry
+  `DatabaseWorkOptions` labels and priorities through desktop IPC,
+  `DbHostManager`, DB-host protocol messages, and the Turso owner client.
+  Profiling can now compare scheduler priority snapshots with owner-client QoS
+  labels/priorities for the same foreground/background workload, and
+  `desktopDiagnostics.getSnapshot().tursoQueueProfile` summarizes the result.
 - `useEmbeddingRuntimeController()` now treats Electron as a host-required
   runtime: if `window.electronAPI` exists but `window.embeddingHost` is missing,
   backfill/start/status/reset/stop operations fail closed instead of falling

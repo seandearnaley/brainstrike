@@ -102,6 +102,11 @@ export interface RemoteDbLiveQuery<TRecord = unknown> {
 
 export interface RemoteDbClient extends RemoteDbTransaction {
   readonly capabilities: DbHostCapabilities;
+  readonly exec: (
+    sql: string,
+    params?: readonly unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<unknown>;
   readonly live: {
     readonly incrementalQuery: <TRecord = unknown>(
       payload:
@@ -131,6 +136,11 @@ export interface RemoteDbClient extends RemoteDbTransaction {
   readonly maintenance: {
     readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
   };
+  readonly query: <TRecord = unknown>(
+    sql: string,
+    params?: readonly unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<DbHostQueryResult<TRecord>>;
   readonly transaction: <TResult>(
     fn: (tx: RemoteDbTransaction) => Promise<TResult>
   ) => Promise<TResult>;
@@ -813,18 +823,28 @@ class DefaultDbHostManager implements DbHostManager {
   #createClient(initResult: DbHostInitResult): RemoteDbClient {
     const client: RemoteDbClient = {
       capabilities: initResult.capabilities,
-      exec: async (sql, params) =>
-        await this.send({ kind: 'exec', sql, ...(params ? { params } : {}) }),
+      exec: async (sql, params, workOptions) =>
+        await this.send({
+          kind: 'exec',
+          sql,
+          ...(params ? { params } : {}),
+          ...(workOptions ? { workOptions } : {}),
+        }),
       live: this.#createLiveNamespace(initResult),
       maintenance: {
         exec: async (sql, params) =>
           await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
-      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
+      query: async <TRecord = unknown>(
+        sql: string,
+        params?: readonly unknown[],
+        workOptions?: DatabaseWorkOptions
+      ) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'query',
           sql,
           ...(params ? { params } : {}),
+          ...(workOptions ? { workOptions } : {}),
         }),
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
         await this.#transaction(fn),
