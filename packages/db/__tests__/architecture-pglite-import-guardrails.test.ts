@@ -32,7 +32,8 @@ const DIRECT_PGLITE_IMPORT_POLICIES = new Map<
     'apps/desktop/src/assistant-server/retrieval-tool.ts',
     {
       owner: 'desktop assistant retrieval',
-      reason: 'PGlite compatibility path while Turso retrieval uses repository capabilities.',
+      reason:
+        'Explicit BRAINSTRIKE_DB_RUNTIME=pglite compatibility path while Turso retrieval uses repository capabilities.',
       specifiers: ['@electric-sql/pglite'],
     },
   ],
@@ -263,6 +264,27 @@ describe('PGlite import architecture guardrails', () => {
       }
       if (!policy.reason.trim()) {
         policyViolations.push(`${relativePath}: missing reason`);
+      }
+    }
+
+    expect(policyViolations).toEqual([]);
+  });
+
+  it('keeps desktop PGlite import reasons explicit-only', () => {
+    const policyViolations: string[] = [];
+
+    for (const [relativePath, policy] of DIRECT_PGLITE_IMPORT_POLICIES) {
+      if (!relativePath.startsWith('apps/desktop/')) {
+        continue;
+      }
+      const reason = policy.reason.toLowerCase();
+      if (!reason.includes('explicit')) {
+        policyViolations.push(`${relativePath}: desktop PGlite reason must be explicit`);
+      }
+      if (reason.includes('fallback') || reason.includes('profile-continuity')) {
+        policyViolations.push(
+          `${relativePath}: desktop PGlite reason must not describe fallback/profile continuity`
+        );
       }
     }
 

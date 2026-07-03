@@ -1582,48 +1582,17 @@ interface DesktopRuntimeRequest {
   readonly source: BrainstrikeDbRuntimeSelection['source'];
 }
 
-interface DesktopRuntimeRequestOptions {
-  readonly preserveExistingPgliteProfile?: boolean;
-}
-
-function resolveDefaultDesktopDbRuntimeEngine():
-  | BrainstrikeDbRuntimeSelection['engine']
-  | undefined {
-  const pgliteDataDir = getDatabasePath();
-  if (!existsSync(pgliteDataDir)) {
-    return;
-  }
-  logger.info(
-    'Existing PGlite profile detected; preserving PGlite runtime while no DB runtime is set',
-    {
-      dataDir: pgliteDataDir,
-      profileId: getDatabaseProfile(),
-    }
-  );
-  return 'pglite';
-}
-
-function resolveDesktopRuntimeRequest(
-  options: DesktopRuntimeRequestOptions = {}
-): DesktopRuntimeRequest {
+function resolveDesktopRuntimeRequest(): DesktopRuntimeRequest {
   const requestedEngineFromEnv = getRequestedDbRuntimeEngineFromEnv();
   if (requestedEngineFromEnv !== undefined) {
     return { requestedEngine: requestedEngineFromEnv, source: 'env' };
   }
-  return {
-    requestedEngine:
-      options.preserveExistingPgliteProfile === false
-        ? undefined
-        : resolveDefaultDesktopDbRuntimeEngine(),
-    source: 'default',
-  };
+  return { requestedEngine: undefined, source: 'default' };
 }
 
-async function resolveCurrentDesktopDbRuntimeSelection(
-  options: DesktopRuntimeRequestOptions = {}
-): Promise<BrainstrikeDbRuntimeSelection> {
+async function resolveCurrentDesktopDbRuntimeSelection(): Promise<BrainstrikeDbRuntimeSelection> {
   const { resolveBrainstrikeDbRuntimeSelection } = await import('@brainstrike/db');
-  const runtimeRequest = resolveDesktopRuntimeRequest(options);
+  const runtimeRequest = resolveDesktopRuntimeRequest();
   return resolveBrainstrikeDbRuntimeSelection({
     platform: 'desktop',
     requestedEngine: runtimeRequest.requestedEngine,
@@ -1967,9 +1936,7 @@ async function resetLocalDatabaseInternal(): Promise<void> {
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
-  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection({
-    preserveExistingPgliteProfile: false,
-  });
+  const runtimeSelection = await resolveCurrentDesktopDbRuntimeSelection();
   const directoryToCreate = getRuntimeDirectoryToCreate(
     runtimeSelection.engine,
     appDataDir,

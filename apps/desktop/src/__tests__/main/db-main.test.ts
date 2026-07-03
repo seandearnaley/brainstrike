@@ -407,7 +407,7 @@ describe('initializeMainDatabase', () => {
     });
   });
 
-  it('keeps an unset desktop runtime on PGlite when the profile already has pgdata', async () => {
+  it('defaults an unset desktop runtime to Turso even when a legacy pgdata directory exists', async () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_RUNTIME');
     appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
     const existingPgliteDataDir = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
@@ -416,28 +416,26 @@ describe('initializeMainDatabase', () => {
     const { initializeMainDatabaseWithBootstrapReport } = await import('../../db-main');
     const result = await initializeMainDatabaseWithBootstrapReport();
 
-    expect(runPgliteBootstrapCapabilityProbeMock).toHaveBeenCalledWith({
-      dataDir: existingPgliteDataDir,
+    expect(runTursoProfileBootstrapMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
       profileId: 'test',
       runtime: {
-        engine: 'pglite',
+        engine: 'turso',
         host: 'electron-utility',
         persistence: 'filesystem',
       },
     });
-    expect(PGliteMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dataDir: existingPgliteDataDir,
-      })
-    );
-    expect(runTursoProfileBootstrapMock).not.toHaveBeenCalled();
-    expect(createTursoOwnerClientMock).not.toHaveBeenCalled();
+    expect(createTursoOwnerClientMock).toHaveBeenCalledWith({
+      dbPath: path.join('/mock/userData', 'profiles', 'test', 'turso-primary.db'),
+    });
+    expect(runPgliteBootstrapCapabilityProbeMock).not.toHaveBeenCalled();
+    expect(PGliteMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       bootstrapReport: {
         ready: true,
-        runtime: { engine: 'pglite' },
+        runtime: { engine: 'turso' },
       },
-      capabilities: { liveQuery: true },
+      capabilities: { liveQuery: false },
       initialized: true,
     });
   });
