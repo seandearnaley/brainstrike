@@ -167,6 +167,55 @@ describe('TursoVectorStore', () => {
     expect(results[0]?.score).toBeGreaterThan(results[1]?.score ?? 0);
   });
 
+  it('filters vector queries with Mastra recall timestamp comparisons', async () => {
+    await store.createIndex({ indexName: 'memory_observations', dimension: 3, metric: 'cosine' });
+    await store.upsert({
+      indexName: 'memory_observations',
+      ids: ['message-a', 'message-b', 'message-c'],
+      vectors: [
+        [1, 0, 0],
+        [0.9, 0.1, 0],
+        [0.8, 0.2, 0],
+      ],
+      metadata: [
+        { observed_at: '2026-01-01T00:00:00.000Z', resource_id: 'workspace-a' },
+        { observed_at: '2026-01-02T00:00:00.000Z', resource_id: 'workspace-a' },
+        { observed_at: '2026-01-03T00:00:00.000Z', resource_id: 'workspace-a' },
+      ],
+    });
+
+    const exclusiveWindow = await store.query({
+      indexName: 'memory_observations',
+      queryVector: [1, 0, 0],
+      topK: 10,
+      filter: {
+        observed_at: {
+          $gt: '2026-01-01T12:00:00.000Z',
+          $lt: '2026-01-03T00:00:00.000Z',
+        },
+      },
+    });
+    expect(exclusiveWindow.map((result) => result.id)).toEqual(['message-b']);
+
+    const inclusiveWindow = await store.query({
+      indexName: 'memory_observations',
+      queryVector: [1, 0, 0],
+      topK: 10,
+      filter: {
+        $and: [
+          { resource_id: 'workspace-a' },
+          {
+            observed_at: {
+              $gte: '2026-01-02T00:00:00.000Z',
+              $lte: new Date('2026-01-03T00:00:00.000Z'),
+            },
+          },
+        ],
+      },
+    });
+    expect(inclusiveWindow.map((result) => result.id)).toEqual(['message-b', 'message-c']);
+  });
+
   it('requires deleteVectors to specify ids or a filter', async () => {
     await store.createIndex({ indexName: 'memory_messages', dimension: 3, metric: 'cosine' });
     await store.upsert({

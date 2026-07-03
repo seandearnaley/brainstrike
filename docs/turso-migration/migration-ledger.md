@@ -613,11 +613,12 @@ Concrete status and remaining work:
   `@brainstrike/agent/turso-mastra-memory`. It stores embeddings as Turso
   `vector32(?)` BLOBs in the shared `mastra_vectors` table, keeps the same
   sentinel-row index metadata model as `PgliteVectorStore`, supports equality,
-  `$eq`, `$in`, and `$and` metadata filters, returns high-score-is-better
-  cosine/euclidean/dot-product results, and emits the same nonblocking semantic
-  memory run events. Real Turso-engine tests cover cosine, euclidean, and
-  dot-product ranking and fail closed if persisted metadata names an
-  unsupported metric.
+  `$eq`, `$in`, `$and`, and Mastra recall timestamp comparison filters
+  (`$lt`/`$lte`/`$gt`/`$gte`) on metadata, returns high-score-is-better
+  cosine/euclidean/dot-product results, and emits the same nonblocking
+  semantic memory run events. Real Turso-engine tests cover cosine, euclidean,
+  dot-product ranking, and `observed_at` recall windows, and fail closed if
+  persisted metadata names an unsupported metric.
 - The Turso factory now passes the vector store to `Memory`, so semantic recall
   and observational vector retrieval can run when an explicit embedder is
   configured. Those paths still fail closed with deterministic configuration

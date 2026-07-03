@@ -49,6 +49,13 @@ const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
 const INDEX_METADATA_ID = '__index_metadata__';
 const EMBEDDING_COLUMN_SQL = `${MASTRA_VECTOR_TABLE}.embedding`;
 type TursoVectorMetric = NonNullable<IndexStats['metric']>;
+const COMPARISON_OPERATOR_SQL = {
+  $gt: '>',
+  $gte: '>=',
+  $lt: '<',
+  $lte: '<=',
+} as const;
+type ComparisonOperator = keyof typeof COMPARISON_OPERATOR_SQL;
 
 function vectorLiteral(vector: number[]): string {
   if (vector.length === 0) {
@@ -155,25 +162,64 @@ function appendOperatorFilter(
   values: TursoMastraQueryValue[],
   clauses: string[]
 ): void {
-  if ('$eq' in value) {
-    appendEqualityFilter(key, value['$eq'], values, clauses);
+  const operators = Object.entries(value);
+  if (operators.length === 0) {
+    throw new Error(`Unsupported vector filter operator for key: ${key}`);
+  }
+  for (const [operator, operatorValue] of operators) {
+    if (operator === '$eq') {
+      appendEqualityFilter(key, operatorValue, values, clauses);
+      continue;
+    }
+    if (operator === '$in') {
+      const inValues = operatorValue;
+      if (!Array.isArray(inValues)) {
+        throw new Error('$in vector filter value must be an array');
+      }
+      if (inValues.length === 0) {
+        clauses.push('0 = 1');
+        continue;
+      }
+      const path = `$.${key}`;
+      values.push(path, path, ...inValues.map((entry) => filterValueLiteral(entry)));
+      clauses.push(`${metadataTextSql()} IN (${inValues.map(() => '?').join(', ')})`);
+      continue;
+    }
+    if (isComparisonOperator(operator)) {
+      appendComparisonFilter(key, operator, operatorValue, values, clauses);
+      continue;
+    }
+    throw new Error(`Unsupported vector filter operator for key: ${key}`);
+  }
+}
+
+function isComparisonOperator(operator: string): operator is ComparisonOperator {
+  return Object.hasOwn(COMPARISON_OPERATOR_SQL, operator);
+}
+
+function appendComparisonFilter(
+  key: string,
+  operator: ComparisonOperator,
+  value: unknown,
+  values: TursoMastraQueryValue[],
+  clauses: string[]
+): void {
+  const sqlOperator = COMPARISON_OPERATOR_SQL[operator];
+  const path = `$.${key}`;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error(`${operator} vector filter value must be finite`);
+    }
+    values.push(path, value);
+    clauses.push(`CAST(json_extract(metadata, ?) AS REAL) ${sqlOperator} ?`);
     return;
   }
-  if ('$in' in value) {
-    const inValues = value['$in'];
-    if (!Array.isArray(inValues)) {
-      throw new Error('$in vector filter value must be an array');
-    }
-    if (inValues.length === 0) {
-      clauses.push('0 = 1');
-      return;
-    }
-    const path = `$.${key}`;
-    values.push(path, path, ...inValues.map((entry) => filterValueLiteral(entry)));
-    clauses.push(`${metadataTextSql()} IN (${inValues.map(() => '?').join(', ')})`);
+  if (typeof value === 'string' || value instanceof Date) {
+    values.push(path, path, filterValueLiteral(value));
+    clauses.push(`${metadataTextSql()} ${sqlOperator} ?`);
     return;
   }
-  throw new Error(`Unsupported vector filter operator for key: ${key}`);
+  throw new Error(`${operator} vector filter value must be a string, number, or Date`);
 }
 
 function appendAndFilter(value: unknown, values: TursoMastraQueryValue[], clauses: string[]): void {
