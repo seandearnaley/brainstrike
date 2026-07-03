@@ -225,6 +225,7 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(migrationLedger).toContain('#1456 `Profile Turso lexical search quality`');
     expect(migrationLedger).toContain('#1458 `Default desktop runtime to Turso`');
     expect(migrationLedger).toContain('#1459 `docs(turso): neutralize stale runtime wording`');
+    expect(migrationLedger).toContain('#1460 `fix(turso): harden runtime SQL seams`');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
     expect(migrationLedger).toContain('quick-open filename lookup uses `file_record_name_grams`');
     expect(migrationLedger).not.toContain('In-flight slice on this branch');
@@ -233,7 +234,8 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(migrationLedger).not.toContain('feature head `23d2ac3d`');
     expect(migrationLedger).not.toContain('post-#1456 branch');
     expect(migrationLedger).not.toContain('post-#1458 branch');
-    expect(migrationLedger).toContain('post-#1459 branch');
+    expect(migrationLedger).not.toContain('post-#1459 branch');
+    expect(migrationLedger).toContain('post-#1460 branch');
     expect(migrationLedger).toContain(
       'explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`'
     );
