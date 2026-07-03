@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const DB_PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(DB_PACKAGE_ROOT, '../..');
-const PRODUCTION_SOURCE_ROOTS = ['apps', 'packages'] as const;
+const PRODUCTION_TYPESCRIPT_SOURCE_ROOTS = ['apps', 'packages'] as const;
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts']);
 const SKIPPED_DIRECTORIES = new Set([
   '__tests__',
@@ -18,7 +18,7 @@ const SKIPPED_DIRECTORIES = new Set([
   'test-results',
 ]);
 const DIRECT_PGLITE_IMPORT_PATTERN =
-  /\bimport\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@electric-sql\/pglite(?:[^'"]*)?|@electric-sql\/pglite-pgvector(?:[^'"]*)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@electric-sql\/pglite(?:[^'"]*)?|@electric-sql\/pglite-pgvector(?:[^'"]*)?)['"]\s*\)/g;
+  /\bimport\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@electric-sql\/pglite(?:[^'"]*)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@electric-sql\/pglite(?:[^'"]*)?)['"]\s*\)/g;
 
 const DIRECT_PGLITE_IMPORT_POLICIES = new Map<
   string,
@@ -230,7 +230,7 @@ function normalizeRelativePath(filePath: string): string {
 
 function findDirectPGliteImports(): DirectPGliteImport[] {
   const imports: DirectPGliteImport[] = [];
-  for (const sourceRoot of PRODUCTION_SOURCE_ROOTS) {
+  for (const sourceRoot of PRODUCTION_TYPESCRIPT_SOURCE_ROOTS) {
     for (const filePath of listProductionSourceFiles(path.join(REPO_ROOT, sourceRoot))) {
       const source = readFileSync(filePath, 'utf8');
       const specifiers = new Set<string>();
@@ -248,14 +248,14 @@ function findDirectPGliteImports(): DirectPGliteImport[] {
       }
     }
   }
-  return imports.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return imports;
 }
 
 describe('PGlite import architecture guardrails', () => {
   it('keeps every production direct PGlite import explicitly owned', () => {
     const imports = findDirectPGliteImports();
 
-    expect(imports.map((entry) => entry.relativePath)).toEqual(
+    expect(imports.map((entry) => entry.relativePath).sort()).toEqual(
       [...DIRECT_PGLITE_IMPORT_POLICIES.keys()].sort()
     );
 
