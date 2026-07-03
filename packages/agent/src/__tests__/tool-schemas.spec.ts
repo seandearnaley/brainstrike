@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
 import { UpdateWorkspaceTapestrySelectionsInputSchema, validateToolInput } from '../tools/schemas';
@@ -15,6 +16,11 @@ describe('tool schemas', () => {
 
   it('does not advertise legacy filesystem aliases in schema display metadata', () => {
     expect(getToolSchemaDisplay('filesystem.list')).toBeUndefined();
+  });
+
+  it('does not export the retired unregistered hybridSearch assistant wrapper', () => {
+    const agentBarrel = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+    expect(agentBarrel).not.toContain('./tools/hybrid-search-tool');
   });
 
   it('validates workspace context read input', () => {

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-clear-all-proof`, targeting
+Last updated: 2026-07-03 on `codex/turso-hybrid-search-tool`, targeting
 `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,8 +10,9 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1446 at `23d2ac3d`. This PR branch adds the real-engine Turso
-`db:clearAll` proof/fix; after merge it becomes the next feature-branch slice.
+through #1447 at `d0dfcf5d`. This PR branch retires the unregistered assistant
+`brainstrike.hybridSearch` wrapper while keeping the repository-backed hybrid
+search service used by DB Explorer.
 
 Merged slices:
 
@@ -152,10 +153,15 @@ Merged slices:
 - #1444 `Add Turso snapshot invalidation triggers`
 - #1445 `Add Turso Mastra vector memory store`
 - #1446 `Retire raw queue purge helper`
+- #1447 `Prove Turso clear-all path`
 
-In-flight slice on this branch (#1447, head `cf565af`):
+In-flight slice on this branch:
 
-- Real-engine Turso `db:clearAll` proof and missing optional-table handling.
+- Retire the unregistered assistant `brainstrike.hybridSearch` wrapper. A
+  future model-facing hybrid search tool should be built as a desktop adapter
+  with explicit Turso capability gates, output budgeting, workspace-index
+  defaulting, root scoping, and live assistant-loop coverage rather than wiring
+  the stale package-level helper.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -173,17 +179,15 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, #1447 live branch): the
-`db:clearAll` real-engine proof is now represented by this PR, not a separate
-future slice. The raw queue purge helper removal, live-query sweep, Turso vector
-memory parity, and reset-directory recreation work should stay out of the
-remaining backlog except where the ledger names a narrower follow-up. The
-verified remaining backlog is now:
+Ledger reconciliation checkpoint (2026-07-03, post-#1447 branch): the
+`db:clearAll` real-engine proof is now merged, not a separate future slice. The
+raw queue purge helper removal, live-query sweep, Turso vector memory parity,
+reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
+decision should stay out of the remaining backlog except where the ledger names
+a narrower follow-up. The verified remaining backlog is now:
 
 - queue-topology release profiling under hidden embedding-worker/background
   Turso writes plus foreground-labeled DB work;
-- assistant `brainstrike.hybridSearch` decision: register with explicit Turso
-  capability gates or retire the unregistered native-tool wrapper;
 - Mastra Turso vector memory performance characterization for exact-scan recall
   at expected local profile sizes;
 - product search-quality decision for primary-store gram lexical search versus
@@ -649,12 +653,12 @@ Remaining search decisions:
    for product search quality, or whether native Tantivy FTS ranking/snippets
    still justify a split search-index owner described in
    `docs/turso-migration/search-index-architecture.md`.
-3. Decide the fate of the assistant `brainstrike.hybridSearch` native tool.
-   The shared hybrid search service is now repository-compatible, but the tool
-   is not registered in the desktop assistant tool surface or the assistant
-   contract registries. Either register it with explicit Turso capability gates
-   or retire the unused native-tool wrapper and keep hybrid search as an
-   internal DB service.
+3. The assistant `brainstrike.hybridSearch` native-tool wrapper is retired on
+   this branch because it was never registered in the desktop assistant tool
+   surface or assistant contract registries. Hybrid search remains an internal
+   DB/UI service. A future model-facing hybrid tool should be a new desktop
+   adapter with explicit Turso capability gates, not a revival of the stale
+   package-level helper.
 
 ### 5. Mastra Memory And Assistant Persistence
 
