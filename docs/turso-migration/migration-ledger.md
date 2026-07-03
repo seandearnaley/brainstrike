@@ -161,11 +161,13 @@ In-flight slice on this branch:
 
 - Add a deterministic Turso queue-profile diagnostics verdict that combines
   desktop scheduler timing with Turso owner-client QoS snapshots. Generic
-  foreground `query`/`exec` DB-host work now forwards `DatabaseWorkOptions` into
-  the Turso owner client, so manual foreground probes can appear in owner QoS
-  snapshots instead of only in the main-process scheduler. This still does not
-  replace the manual/opt-in hidden-worker profiling pass; it creates the stable
-  evidence surface and tests that pass/fail the release-gate thresholds.
+  foreground `query`/`exec` DB-host work, including renderer-facing
+  `window.electronAPI.db.query()` / `exec()` calls, now forwards
+  `DatabaseWorkOptions` into the Turso owner client, so manual foreground probes
+  can appear in owner QoS snapshots instead of only in the main-process
+  scheduler. This still does not replace the manual/opt-in hidden-worker
+  profiling pass; it creates the stable evidence surface and tests that
+  pass/fail the release-gate thresholds.
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty
@@ -277,14 +279,14 @@ The branch currently has a real Turso runtime seam:
 - Queue-profiling work now carries operation labels and structured priorities
   into owner-client diagnostics for Turso `TursoJobQueue` operations, hidden
   embedding-worker queue/stats DB-host requests, visible vector queue owner
-  actions, and generic foreground `query`/`exec` DB-host work. Desktop platform
-  diagnostics now expose `tursoQueueProfile`, a verdict derived from the
-  scheduler snapshot plus Turso owner QoS. Status is `accepted` only when both
-  foreground and background work have been observed and foreground waits stay
-  below the configured threshold; `blocked` names the foreground labels queued
-  behind background owner work or exceeding the foreground wait threshold; and
-  `insufficient-evidence` keeps an idle or one-sided sample from being mistaken
-  for release proof.
+  actions, generic foreground `query`/`exec` DB-host work, and renderer IPC
+  query/exec calls. Desktop platform diagnostics now expose
+  `tursoQueueProfile`, a verdict derived from the scheduler snapshot plus Turso
+  owner QoS. Status is `accepted` only when both foreground and background work
+  have been observed and foreground waits stay below the configured threshold;
+  `blocked` names the foreground labels queued behind background owner work or
+  exceeding the foreground wait threshold; and `insufficient-evidence` keeps an
+  idle or one-sided sample from being mistaken for release proof.
 - Connection-model decision for the hidden embedding worker: desktop Turso
   worker DB mutations use the shared main-process owner client through explicit
   command-style IPC and the existing database work scheduler's `background`
@@ -596,8 +598,9 @@ Completed low-risk queue UI slices:
   the bootstrap runtime, constructs `JobQueue` only for PGlite, exposes Turso
   queue snapshots, and wires the desktop Turso action service only when the
   owner-IPC bridge is present.
-- Turso embedding-worker queue/stats requests, vector queue owner actions, and
-  generic foreground `query`/`exec` DB-host requests now carry
+- Turso embedding-worker queue/stats requests, vector queue owner actions,
+  generic foreground `query`/`exec` DB-host requests, and renderer-facing
+  `window.electronAPI.db.query()` / `exec()` probes now carry
   `DatabaseWorkOptions` labels and priorities through desktop IPC,
   `DbHostManager`, DB-host protocol messages, and the Turso owner client.
   Profiling can now compare scheduler priority snapshots with owner-client QoS

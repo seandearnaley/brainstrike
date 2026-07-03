@@ -30,111 +30,118 @@ vi.mock('electron', () => ({
 // Fake main-process PGlite whose transaction() runs the callback against a tx that
 // echoes the statements, so the db:transaction success path can be exercised without
 // a real database.
-const { createDefaultMockDatabase, getDatabaseMock, querySpy, transactionSpy } = vi.hoisted(() => {
-  const querySpy = vi.fn();
-  const transactionSpy = vi.fn();
-  const createDefaultMockDatabase = () => ({
-    query: async (sql: string, params?: unknown[]) => {
-      querySpy({ params, sql });
-      return { rows: [{ id: 'deleted-job-1' }] };
-    },
-    transaction: async (
-      fn: (tx: {
-        exec?: (sql: string, params?: unknown[]) => Promise<void>;
-        query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-      }) => Promise<unknown>
-    ) => {
-      const queries: { sql: string; params?: unknown[] }[] = [];
-      const result = await fn({
-        exec: async (sql: string, params?: unknown[]) => {
-          queries.push({ sql, params });
-        },
-        query: async (sql: string, params?: unknown[]) => {
-          queries.push({ sql, params });
-          if (sql.includes('FROM job_queue') && sql.includes('LIMIT ?')) {
-            return {
-              rows: [
-                {
-                  attempts: 0,
-                  backoff_ms: 0,
-                  chunk_id: 'chunk-1',
-                  created_at: '2026-06-30T10:00:00.000Z',
-                  dedupe_key: null,
-                  embedding_set_id: 'embedding-set-1',
-                  error: null,
-                  id: 'job-1',
-                  job_type: 'embed_chunk',
-                  lease_token: null,
-                  leased_until: null,
-                  max_attempts: 5,
-                  payload: JSON.stringify({
-                    chunkId: 'chunk-1',
-                    embeddingSetId: 'embedding-set-1',
-                  }),
-                  queue: 'embeddings',
-                  run_at: '2026-06-30T10:00:00.000Z',
-                  state: 'queued',
-                  updated_at: '2026-06-30T10:00:00.000Z',
-                  worker_id: null,
-                },
-              ],
-            };
-          }
-          if (sql.includes('UPDATE job_queue') && sql.includes('RETURNING *')) {
-            return {
-              rows: [
-                {
-                  attempts: 1,
-                  backoff_ms: 0,
-                  chunk_id: 'chunk-1',
-                  created_at: '2026-06-30T10:00:00.000Z',
-                  dedupe_key: null,
-                  embedding_set_id: 'embedding-set-1',
-                  error: null,
-                  id: 'job-1',
-                  job_type: 'embed_chunk',
-                  lease_token: String(params?.[0]),
-                  leased_until: String(params?.[1]),
-                  max_attempts: 5,
-                  payload: JSON.stringify({
-                    chunkId: 'chunk-1',
-                    embeddingSetId: 'embedding-set-1',
-                  }),
-                  queue: 'embeddings',
-                  run_at: '2026-06-30T10:00:00.000Z',
-                  state: 'running',
-                  updated_at: String(params?.[3]),
-                  worker_id: String(params?.[2]),
-                },
-              ],
-            };
-          }
-          if (sql.includes('SELECT id') && sql.includes("state = 'failed'")) {
-            return { rows: [{ id: 'failed-job-1' }] };
-          }
-          if (
-            sql.includes('SELECT id') &&
-            sql.includes("state = 'queued' AND attempts >= max_attempts")
-          ) {
-            return { rows: [{ id: 'blocked-queued-job-1' }] };
-          }
-          if (sql.includes('SET state =') && sql.includes('WHERE id IN')) {
-            return { rows: [{ id: String(params?.[2] ?? 'reset-job-1') }] };
-          }
-          return { rows: [{ sql }] };
-        },
-      });
-      transactionSpy(queries);
-      return result;
-    },
+const { createDefaultMockDatabase, execSpy, getDatabaseMock, querySpy, transactionSpy } =
+  vi.hoisted(() => {
+    const querySpy = vi.fn();
+    const execSpy = vi.fn();
+    const transactionSpy = vi.fn();
+    const createDefaultMockDatabase = () => ({
+      exec: async (sql: string, params?: unknown[], workOptions?: unknown) => {
+        execSpy({ params, sql, workOptions });
+        return { rows: [] };
+      },
+      query: async (sql: string, params?: unknown[], workOptions?: unknown) => {
+        querySpy({ params, sql, workOptions });
+        return { rows: [{ id: 'deleted-job-1' }] };
+      },
+      transaction: async (
+        fn: (tx: {
+          exec?: (sql: string, params?: unknown[]) => Promise<void>;
+          query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+        }) => Promise<unknown>
+      ) => {
+        const queries: { sql: string; params?: unknown[] }[] = [];
+        const result = await fn({
+          exec: async (sql: string, params?: unknown[]) => {
+            queries.push({ sql, params });
+          },
+          query: async (sql: string, params?: unknown[]) => {
+            queries.push({ sql, params });
+            if (sql.includes('FROM job_queue') && sql.includes('LIMIT ?')) {
+              return {
+                rows: [
+                  {
+                    attempts: 0,
+                    backoff_ms: 0,
+                    chunk_id: 'chunk-1',
+                    created_at: '2026-06-30T10:00:00.000Z',
+                    dedupe_key: null,
+                    embedding_set_id: 'embedding-set-1',
+                    error: null,
+                    id: 'job-1',
+                    job_type: 'embed_chunk',
+                    lease_token: null,
+                    leased_until: null,
+                    max_attempts: 5,
+                    payload: JSON.stringify({
+                      chunkId: 'chunk-1',
+                      embeddingSetId: 'embedding-set-1',
+                    }),
+                    queue: 'embeddings',
+                    run_at: '2026-06-30T10:00:00.000Z',
+                    state: 'queued',
+                    updated_at: '2026-06-30T10:00:00.000Z',
+                    worker_id: null,
+                  },
+                ],
+              };
+            }
+            if (sql.includes('UPDATE job_queue') && sql.includes('RETURNING *')) {
+              return {
+                rows: [
+                  {
+                    attempts: 1,
+                    backoff_ms: 0,
+                    chunk_id: 'chunk-1',
+                    created_at: '2026-06-30T10:00:00.000Z',
+                    dedupe_key: null,
+                    embedding_set_id: 'embedding-set-1',
+                    error: null,
+                    id: 'job-1',
+                    job_type: 'embed_chunk',
+                    lease_token: String(params?.[0]),
+                    leased_until: String(params?.[1]),
+                    max_attempts: 5,
+                    payload: JSON.stringify({
+                      chunkId: 'chunk-1',
+                      embeddingSetId: 'embedding-set-1',
+                    }),
+                    queue: 'embeddings',
+                    run_at: '2026-06-30T10:00:00.000Z',
+                    state: 'running',
+                    updated_at: String(params?.[3]),
+                    worker_id: String(params?.[2]),
+                  },
+                ],
+              };
+            }
+            if (sql.includes('SELECT id') && sql.includes("state = 'failed'")) {
+              return { rows: [{ id: 'failed-job-1' }] };
+            }
+            if (
+              sql.includes('SELECT id') &&
+              sql.includes("state = 'queued' AND attempts >= max_attempts")
+            ) {
+              return { rows: [{ id: 'blocked-queued-job-1' }] };
+            }
+            if (sql.includes('SET state =') && sql.includes('WHERE id IN')) {
+              return { rows: [{ id: String(params?.[2] ?? 'reset-job-1') }] };
+            }
+            return { rows: [{ sql }] };
+          },
+        });
+        transactionSpy(queries);
+        return result;
+      },
+    });
+    return {
+      createDefaultMockDatabase,
+      execSpy,
+      getDatabaseMock: vi.fn(async () => createDefaultMockDatabase()),
+      querySpy,
+      transactionSpy,
+    };
   });
-  return {
-    createDefaultMockDatabase,
-    getDatabaseMock: vi.fn(async () => createDefaultMockDatabase()),
-    querySpy,
-    transactionSpy,
-  };
-});
 const { dbHostManagerMock } = vi.hoisted(() => ({
   dbHostManagerMock: {
     insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
@@ -160,6 +167,7 @@ describe('database IPC domain', () => {
     removeHandler.mockClear();
     getDatabaseMock.mockReset();
     getDatabaseMock.mockImplementation(async () => createDefaultMockDatabase());
+    execSpy.mockClear();
     querySpy.mockClear();
     transactionSpy.mockClear();
     dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
@@ -217,6 +225,40 @@ describe('database IPC domain', () => {
         'ALTER TABLE file_records DROP COLUMN path'
       )
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
+  });
+
+  it('forwards renderer query and exec work options to the runtime DB client', async () => {
+    const queryWorkOptions = { label: 'assistant foreground query', priority: 'foreground' };
+    const execWorkOptions = { label: 'assistant foreground exec', priority: 'normal' };
+
+    await expect(
+      handlers.get('db:query')?.(
+        {} as IpcMainInvokeEvent,
+        'SELECT id FROM file_records WHERE id = $1',
+        ['file-1'],
+        queryWorkOptions
+      )
+    ).resolves.toEqual({ rows: [{ id: 'deleted-job-1' }] });
+
+    await expect(
+      handlers.get('db:exec')?.(
+        {} as IpcMainInvokeEvent,
+        'UPDATE file_records SET updated_at = $1 WHERE id = $2',
+        ['2026-07-03T08:00:00.000Z', 'file-1'],
+        execWorkOptions
+      )
+    ).resolves.toEqual({ rows: [] });
+
+    expect(querySpy).toHaveBeenCalledWith({
+      params: ['file-1'],
+      sql: 'SELECT id FROM file_records WHERE id = $1',
+      workOptions: queryWorkOptions,
+    });
+    expect(execSpy).toHaveBeenCalledWith({
+      params: ['2026-07-03T08:00:00.000Z', 'file-1'],
+      sql: 'UPDATE file_records SET updated_at = $1 WHERE id = $2',
+      workOptions: execWorkOptions,
+    });
   });
 
   it('validates the db:transaction statement list and guards each statement SQL', async () => {
