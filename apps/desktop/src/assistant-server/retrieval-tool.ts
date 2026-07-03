@@ -768,11 +768,6 @@ function handleRetrievalError(error: unknown): never {
     throw new Error(message);
   }
   logger.error('Retrieval tool failed', { error });
-  if (process.env['NODE_ENV'] === 'development') {
-    const debugMessage =
-      error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
-    throw new Error(`${ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
-  }
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 

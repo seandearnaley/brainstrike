@@ -786,6 +786,23 @@ describe('retrieval-tool', () => {
       })
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
   });
+
+  it('does not expose raw unexpected retrieval errors in development mode', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/workspace'));
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    try {
+      await expect(
+        tool.execute({
+          context: { query: 'hello', embeddingSetId: 'set-1' },
+        })
+      ).rejects.not.toThrow('/private/workspace');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
 });
 
 describe('retrieval-tool multi-root', () => {
