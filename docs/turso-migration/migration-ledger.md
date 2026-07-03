@@ -119,6 +119,7 @@ as the implementation backlog.
 - #1441 `Expose runtime execution DB client hook`
 - #1442 `Gate tools settings live queries by capability`
 - #1443 `Fix model registry toggle SQL by runtime`
+- #1444 `Add Turso snapshot invalidation triggers`
 
 Recently completed reset slice: desktop reset now removes the whole active
   profile directory for both runtimes, then recreates the runtime-owned empty

@@ -74,13 +74,25 @@ can use them.
 
 ## Repository Coverage
 
-Current desktop Turso provider/runtime coverage includes `embedding_sets`,
-`file_records`, `file_chunks`, `view_filter_presets`, `file_token_cache`,
-managed-cache apply/invalidate, atomic chunk insert plus embedding job enqueue,
-Turso job queue claim/lease/heartbeat/completion/failure/retry/clear/read-model
-metrics, vector-management owner-IPC queue actions, hidden embedding-host worker
-storage through owner IPC, and assistant grep/vector/hybrid search gated by
-bootstrap checks.
+Current desktop Turso provider/runtime coverage:
+
+- `embedding_sets`
+- `file_records`
+- `file_chunks` when `tursoRepositories.fileChunkRepository` is available;
+  otherwise it is explicitly reported unavailable.
+- `view_filter_presets`
+- `file_token_cache`
+- managed-cache apply/invalidate
+- atomic chunk insert plus embedding job enqueue
+- Turso job queue claim/lease/heartbeat/completion/failure/retry/clear/read-model
+  metrics
+- vector-management owner-IPC queue actions
+- hidden embedding-host worker storage through owner IPC
+- assistant grep/vector/hybrid search gated by bootstrap checks
+
+Turso file-record repository is exposed through the desktop Turso provider and
+`file_chunks` is an explicit conditional repository capability, not an inferred
+generic-DB compatibility layer.
 
 Default imports now commit file records, chunks, and embedding jobs atomically
 through Turso managed-cache and owner-client transaction paths. User-visible
@@ -92,6 +104,8 @@ Mutation paths requiring transactions or query-capable writes stay on explicit
 desktop owner-client IPC/action surfaces. The provider still does not expose a
 generic live-query-compatible `db` handle in Turso mode; that remains an
 explicit unsupported capability, not a silent PGlite compatibility layer.
+`file_chunks` remains explicit/conditional through
+`tursoRepositories.fileChunkRepository`, not silent PGlite compatibility.
 
 ## Next Touchpoint
 
