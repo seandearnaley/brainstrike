@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-04 on `codex/turso-browser-wasm-reset-ownership-20260704`,
+Last updated: 2026-07-04 on `feat/turso-browser-wal-contract`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -31,6 +31,20 @@ only until the WASM runtime has provider integration, backup/export ownership,
 offline semantics, and runtime parity tests. This current reset-ownership slice
 adds explicit factory reset ownership for the planned browser Turso WASM OPFS
 database file and sidecars; it does not switch the browser provider.
+
+The browser journal-mode contract slice (`feat/turso-browser-wal-contract`)
+supersedes the fail-closed smoke state described above: the browser bootstrap
+no longer issues the MVCC pragma (it panics and wedges the wasm instance
+upstream), requires `PRAGMA journal_mode` to report `wal`, records
+`capabilities: { journalMode: 'wal', concurrentWrites: false }` on the
+readiness report, and runs plain `BEGIN` for both `transaction()` and
+`exclusiveTransaction()`. The earlier Chromium `whenLoaded` store-open failure
+was root-caused as a deterministic @emnapi/core version skew (not a startup
+race) and fixed with browser-project emnapi aliases pinned to
+database-wasm-common's own versions; the real Chromium smoke is now a
+READINESS proof — schema baseline, gram-index, and vector32 probes execute
+for real in the browser and pass. See "Browser Journal-Mode Contract Decision
+(2026-07-04)".
 
 Merged slices:
 
@@ -485,9 +499,63 @@ Current browser-WASM bootstrap slice: add an explicit web/browser Turso runtime
 branch and a browser-only readiness report, not a hidden replacement behind
 `wasmLoader` or `idb://` PGlite paths. It opens Turso WASM through the
 browser-only client seam and publishes a Turso bootstrap report with explicit
-search ownership. Real browser coverage currently blocks the report at the MVCC
-probe before schema/search readiness; live-query and embedding-worker features
-remain fail-closed until their Turso storage ports are wired.
+search ownership. Real browser coverage now reaches a READY report under the
+WAL single-writer contract (see "Browser Journal-Mode Contract Decision
+(2026-07-04)"); live-query and embedding-worker features remain fail-closed
+until their Turso storage ports are wired.
+
+## Browser Journal-Mode Contract Decision (2026-07-04)
+
+Decision: the browser Turso WASM runtime runs under a WAL single-writer
+journal-mode contract, fail-closed. The desktop/native MVCC + `BEGIN
+CONCURRENT` invariant is untouched.
+
+- `PRAGMA journal_mode = 'mvcc'` must NEVER be issued in the browser. Every
+  published `@tursodatabase/database-wasm` build (reproduced 2026-07-04 on
+  0.6.1 and 0.7.0-pre.17) panics on it — a Rust `RefCell` BorrowError in
+  turso's `lib.rs` surfaces as an `unreachable` wasm trap — and the trap
+  WEDGES the wasm instance: even a follow-up `PRAGMA journal_mode = 'wal'`
+  hangs afterwards.
+- Independently of the panic, the browser OPFS VFS never registers MVCC's
+  `<db>.db-log` file, so MVCC cannot open in the browser today (native-only).
+- Contract implementation (`packages/db/src/bootstrap/turso-browser-wasm-bootstrap.ts`):
+  query-only `PRAGMA journal_mode` probe (`primary-store.journal-mode` check;
+  WAL is the package default so no explicit set is required), literal `wal`
+  required, fail closed with a message naming the browser WAL contract on any
+  other mode. Both `transaction()` and `exclusiveTransaction()` on the browser
+  exec client emit plain `BEGIN`; `BEGIN CONCURRENT` is MVCC-only syntax and
+  is forbidden in the browser client.
+- Report surface: `ProfileBootstrapReport.capabilities` is a first-class
+  record — browser reports `{ journalMode: 'wal', concurrentWrites: false }`,
+  native desktop reports `{ journalMode: 'mvcc', concurrentWrites: true }`.
+  Consumers that need concurrent writes must gate on `concurrentWrites`,
+  never on the engine name or a URL match.
+- Store-open reliability finding (supersedes the #1473 "transient startup
+  race" characterization): the Chromium `whenLoaded` store-open failure is a
+  DETERMINISTIC dependency-resolution fault, not a race.
+  `@tursodatabase/database-wasm-common` imports emnapi through
+  `@napi-rs/wasm-runtime` (range `^1.5.0` → resolved `@emnapi/core` 1.10.0),
+  while the package pins and was built against `@emnapi/core` 1.8.1;
+  emnapi-core ≥ 1.10 rewrote the async-work pool and its `initWorkers`
+  dereferences `PThread.pthreads[tid].whenLoaded`, which always faults against
+  turso's wasm. The vitest browser project now aliases `@emnapi/core`,
+  `@emnapi/runtime`, and `@emnapi/wasi-threads` to the exact copies nested
+  next to database-wasm-common (guarded by
+  `vitest-browser-project-config.test.ts`); the #1473 bounded retry remains as
+  a narrow guard but cannot rescue the skew. Follow-up: decide whether the
+  workspace wants a pnpm-level scoped override (or an upstream report to
+  turso/napi-rs) so non-vite consumers get the same pinning.
+- With journal-mode passing, the schema-baseline, gram-index
+  (`file_chunk_content_index`/`file_chunk_content_grams` +
+  `idx_file_chunk_content_grams_lookup`), and vector32
+  (`vector_distance_cos/l2/dot`, `vector_extract`) probes executed for real in
+  Chromium for the first time and ALL PASS — no dialect or WASM-build gaps
+  surfaced.
+- Upstream watch items: turso `lib.rs` RefCell BorrowError panic on the MVCC
+  pragma; browser OPFS `.db-log` registration gap; upstream PR #7349 is
+  insufficient (does not fix the browser path); #7500 remains open. Re-probe
+  MVCC in the browser only behind an explicit experiment flag and only after
+  upstream ships browser MVCC tests.
 
 ## Implemented Runtime Shape
 

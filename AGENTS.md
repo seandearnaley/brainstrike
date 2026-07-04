@@ -489,10 +489,23 @@ Rules:
   PGlite live-query metadata must either use a proven repository snapshot path
   with explicit refresh triggers, or fail closed with diagnostics. No silent
   snapshot substitution for a configured live-query surface.
-- Brainstrike's Turso path hard-requires `PRAGMA journal_mode = 'mvcc'` and
-  owner transactions use `BEGIN CONCURRENT`. Treat Turso MVCC/concurrent-write
-  maturity as a release-readiness risk requiring explicit signoff and
-  real-engine tests; do not hide it behind compatibility shims.
+- Brainstrike's DESKTOP/NATIVE Turso path hard-requires
+  `PRAGMA journal_mode = 'mvcc'` and owner transactions use `BEGIN CONCURRENT`.
+  Treat Turso MVCC/concurrent-write maturity as a release-readiness risk
+  requiring explicit signoff and real-engine tests; do not hide it behind
+  compatibility shims.
+- BROWSER WASM runtime journal-mode contract: the browser Turso WASM store runs
+  WAL single-writer. `PRAGMA journal_mode = 'mvcc'` is FORBIDDEN in the browser
+  — every published `@tursodatabase/database-wasm` (verified 0.6.1 and
+  0.7.0-pre.17) panics on it (Rust RefCell BorrowError → `unreachable` wasm
+  trap) and the trap wedges the wasm instance (even a follow-up pragma hangs);
+  the browser OPFS VFS also never registers MVCC's `<db>.db-log`. The browser
+  bootstrap queries `PRAGMA journal_mode`, requires literal `wal`, fails closed
+  otherwise, and both `transaction()` and `exclusiveTransaction()` emit plain
+  `BEGIN` (never `BEGIN CONCURRENT`). The readiness report records
+  `capabilities: { journalMode: 'wal', concurrentWrites: false }`; any consumer
+  assuming concurrent writes must gate on that capability, never on engine
+  name. The desktop/native MVCC invariant above is unchanged.
 - Factory reset/profile cleanup is separate from SQL-only clears. `db:resetLocal`
   owns barrier-coordinated profile deletion/recreation; `db:clearAll` must not be
   cited as proof that runtime-owned profile files or sidecars were removed.
