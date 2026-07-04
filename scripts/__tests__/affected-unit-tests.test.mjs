@@ -7,6 +7,7 @@ import {
   buildPackageLanePackageNames,
   buildTurboBuildFilterOutput,
   buildWeightedPackageLanes,
+  changedFilesTouchDbGuardrailInputs,
   createDbCoverageLaneCommands,
   createDbLaneCommands,
   dbChangeRequiresDependentUnitExpansion,
@@ -14,6 +15,7 @@ import {
   filterTestablePackages,
   listCiDbCoverageLanes,
   listCiDbLaneGroups,
+  listDbGuardrailExternalInputPaths,
   modeIncludesDependentPackages,
   parsePnpmListJson,
   runCommandSequence,
@@ -412,6 +414,122 @@ test('mixed narrow and unknown DB changes keep the full DB unit and coverage sur
     listCiDbLaneGroups().map((group) => group.groupName)
   );
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('migration-ledger guardrail doc changes flag DB work and select its scanning lanes', () => {
+  const changedFiles = ['docs/turso-migration/migration-ledger.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['schema-migration', 'search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture', 'search']);
+});
+
+test('root AGENTS.md guardrail changes flag DB work and select only the guardrail lane', () => {
+  const changedFiles = ['AGENTS.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['schema-migration']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture']);
+});
+
+test('search quality-profile doc changes flag DB work and select only the search lanes', () => {
+  const changedFiles = ['docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['search']);
+});
+
+test('search-index-architecture doc changes flag DB work and select only the search lanes', () => {
+  const changedFiles = ['docs/turso-migration/search-index-architecture.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['search']);
+});
+
+test('other docs-only changes still report no DB guardrail work', () => {
+  const changedFiles = [
+    'docs/some-other-doc.md',
+    'docs/turso-migration/touchpoint-primer.md',
+    'README.md',
+  ];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), false);
+});
+
+test('guardrail doc plus narrow DB changes union their lane selections', () => {
+  const changedFiles = [
+    'docs/turso-migration/migration-ledger.md',
+    'packages/db/__tests__/turso-token-cache-store.test.ts',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'schema-migration', 'search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), [
+    'architecture',
+    'repositories',
+    'search',
+  ]);
+});
+
+test('DB guardrail external input paths are derived from the scanning DB lane tests', () => {
+  // The scanner tests read these repo files at runtime via join(repoRoot, '<literal>').
+  // Derive every non-package external input they scan (docs/*.md literals plus the
+  // root AGENTS.md literal) from the scanner sources so the planner constant cannot
+  // silently drift when a scanner starts asserting against a new doc. Package-owned
+  // paths the scanners also read (e.g. packages/app-shell/README.md) are excluded:
+  // those map to workspace packages and are out of this external-input contract.
+  const scannerSources = [
+    'packages/db/__tests__/architecture-browser-runtime-ownership.test.ts',
+    'packages/db/__tests__/search-turso-lexical-quality-profile.test.ts',
+  ].map((filePath) => readFileSync(filePath, 'utf8'));
+  const scannedExternalInputs = new Set(
+    scannerSources.flatMap((source) => [
+      ...[...source.matchAll(/'(docs\/[^']+\.md)'/g)].map((match) => match[1]),
+      ...(source.includes("'AGENTS.md'") ? ['AGENTS.md'] : []),
+    ])
+  );
+
+  assert.deepEqual(listDbGuardrailExternalInputPaths(), [...scannedExternalInputs].sort());
+});
+
+test('scanner tests build external doc paths from single-segment quoted literals only', () => {
+  // The derivation above only sees single-quoted 'docs/...' literals. A scanner
+  // that reached a doc via a multi-segment join (join(repoRoot, 'docs', ...)) or
+  // a template literal would evade that contract and silently reopen the planner
+  // blind spot. Detect those shapes in the scanner sources and fail with the
+  // required fix instead.
+  const evasiveDocPathPatterns = [
+    // e.g. join(repoRoot, 'docs', 'turso-migration', 'new.md')
+    /join\(\s*(?:REPO_ROOT|repoRoot)\s*,\s*'docs'\s*,/,
+    // e.g. join(repoRoot, `docs/turso-migration/${name}.md`)
+    /`[^`\n]*docs\/[^`\n]*`/,
+  ];
+  const evasiveFixtures = [
+    "const docPath = join(repoRoot, 'docs', 'turso-migration', 'new.md');",
+    'const docPath = path.join(REPO_ROOT, `docs/turso-migration/${name}.md`);',
+  ];
+  for (const fixture of evasiveFixtures) {
+    assert.ok(
+      evasiveDocPathPatterns.some((pattern) => pattern.test(fixture)),
+      `Evasive doc-path detector failed to fire on fixture: ${fixture}`
+    );
+  }
+
+  const scannerFiles = [
+    'packages/db/__tests__/architecture-browser-runtime-ownership.test.ts',
+    'packages/db/__tests__/search-turso-lexical-quality-profile.test.ts',
+  ];
+  for (const filePath of scannerFiles) {
+    const source = readFileSync(filePath, 'utf8');
+    for (const pattern of evasiveDocPathPatterns) {
+      assert.doesNotMatch(
+        source,
+        pattern,
+        `${filePath} builds a docs path with a multi-segment join or template literal, which evades the DB guardrail planner contract in this suite. Use a single-segment single-quoted literal, e.g. join(repoRoot, 'docs/dir/file.md'), so the contract test can derive it.`
+      );
+    }
+  }
 });
 
 test('narrow DB lane selections preserve workflow matrix order', () => {

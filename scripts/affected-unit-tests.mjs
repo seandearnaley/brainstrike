@@ -32,6 +32,32 @@ const TURSO_SCHEMA_INTERNAL_SOURCE_PATHS = [
 const TURSO_SCHEMA_INTERNAL_SOURCE_PATH_SET = new Set(TURSO_SCHEMA_INTERNAL_SOURCE_PATHS);
 const DB_QUEUE_INTERNAL_SOURCE_PATHS = ['packages/db/src/queue/chunk-embedding-job-batch-impl.ts'];
 const DB_QUEUE_INTERNAL_SOURCE_PATH_SET = new Set(DB_QUEUE_INTERNAL_SOURCE_PATHS);
+// These files live outside every workspace package (pnpm's affected-package
+// filter maps them to no package), but DB lane tests string-match their
+// contents, so changes to them must still run the matching DB lanes. Skipping
+// them is the #1470 incident class: a docs-only ledger reword kept CI green
+// while the schema-migration lane was red until the next packages/db PR.
+// - docs/turso-migration/migration-ledger.md is asserted by
+//   architecture-browser-runtime-ownership.test.ts (unit lane schema-migration,
+//   coverage lane architecture) AND search-turso-lexical-quality-profile.test.ts
+//   (unit lane search, coverage lane search).
+// - Root AGENTS.md is asserted by architecture-browser-runtime-ownership.test.ts.
+// - The lexical quality-profile and search-index-architecture docs are asserted
+//   by search-turso-lexical-quality-profile.test.ts only.
+// The affected-unit-tests suite derives this membership from the scanner test
+// sources, so a scanner asserting against a new doc fails that contract test
+// until the mapping here is extended.
+const DB_GUARDRAIL_LEDGER_INPUT_PATHS = new Set(['docs/turso-migration/migration-ledger.md']);
+const DB_GUARDRAIL_AGENTS_INPUT_PATHS = new Set(['AGENTS.md']);
+const DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS = new Set([
+  'docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md',
+  'docs/turso-migration/search-index-architecture.md',
+]);
+const DB_GUARDRAIL_EXTERNAL_INPUT_PATHS = new Set([
+  ...DB_GUARDRAIL_LEDGER_INPUT_PATHS,
+  ...DB_GUARDRAIL_AGENTS_INPUT_PATHS,
+  ...DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS,
+]);
 const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
 const CI_DB_LANE_GROUPS = new Map([
   ['repository', ['repository']],
@@ -68,6 +94,21 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     files: DB_QUEUE_INTERNAL_SOURCE_PATH_SET,
     unitLane: 'queue',
     coverageLane: 'queue',
+  },
+  {
+    files: DB_GUARDRAIL_LEDGER_INPUT_PATHS,
+    unitLanes: ['schema-migration', 'search'],
+    coverageLanes: ['architecture', 'search'],
+  },
+  {
+    files: DB_GUARDRAIL_AGENTS_INPUT_PATHS,
+    unitLanes: ['schema-migration'],
+    coverageLanes: ['architecture'],
+  },
+  {
+    files: DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS,
+    unitLanes: ['search'],
+    coverageLanes: ['search'],
   },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
@@ -201,8 +242,19 @@ function getKnownDbLaneSelection(filePath) {
   );
 }
 
+export function changedFilesTouchDbGuardrailInputs(changedFiles = []) {
+  return changedFiles.some((filePath) => DB_GUARDRAIL_EXTERNAL_INPUT_PATHS.has(filePath));
+}
+
+export function listDbGuardrailExternalInputPaths() {
+  return [...DB_GUARDRAIL_EXTERNAL_INPUT_PATHS].sort();
+}
+
 function selectKnownDbLaneSelections(changedFiles = []) {
-  const dbFiles = changedFiles.filter((filePath) => filePath.startsWith('packages/db/'));
+  const dbFiles = changedFiles.filter(
+    (filePath) =>
+      filePath.startsWith('packages/db/') || DB_GUARDRAIL_EXTERNAL_INPUT_PATHS.has(filePath)
+  );
   if (dbFiles.length === 0) {
     return null;
   }
@@ -624,16 +676,25 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     const manifestsByName = readWorkspaceManifests(options.repoRoot);
     const testablePackages = filterTestablePackages(affectedPackages, manifestsByName);
     const coveragePackages = filterCoveragePackages(affectedPackages, manifestsByName);
+    const dbGuardrailInputsChanged = changedFilesTouchDbGuardrailInputs(changedFiles);
     if (options.mode === 'db') {
       if (!testablePackages.includes(DB_PACKAGE_NAME)) {
-        console.log('No affected DB package selected for this unit run.');
-        writeGithubOutput(options.githubOutput, { has_work: 'false' });
-        return 0;
+        if (!dbGuardrailInputsChanged) {
+          console.log('No affected DB package selected for this unit run.');
+          writeGithubOutput(options.githubOutput, { has_work: 'false' });
+          return 0;
+        }
+        console.log(
+          'DB guardrail-scanned inputs changed; treating @brainstrike/db as having unit work.'
+        );
       }
+      const dbUnitPlanningReason = testablePackages.includes(DB_PACKAGE_NAME)
+        ? 'Affected DB package selected'
+        : 'DB lane planning active via guardrail-scanned docs';
       const selectedDbLanes = selectDbUnitCiLanes(changedFiles);
       if (!selectedDbLanes.includes(options.dbLane)) {
         console.log(
-          `Affected DB package selected, but DB unit lane ${options.dbLane} is not in the selected lane set: ${selectedDbLanes.join(', ')}`
+          `${dbUnitPlanningReason}, but DB unit lane ${options.dbLane} is not in the selected lane set: ${selectedDbLanes.join(', ')}`
         );
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
@@ -642,7 +703,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
         has_work: 'true',
       });
-      console.log(`Affected DB package selected; DB unit lane: ${options.dbLane}`);
+      console.log(`${dbUnitPlanningReason}; DB unit lane: ${options.dbLane}`);
       for (const [command, commandArgs] of createDbLaneCommands(options.dbLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
       }
@@ -653,14 +714,22 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
     }
     if (options.mode === 'coverage-db') {
       if (!coveragePackages.includes(DB_PACKAGE_NAME)) {
-        console.log('No directly affected DB package selected for this coverage run.');
-        writeGithubOutput(options.githubOutput, { has_work: 'false' });
-        return 0;
+        if (!dbGuardrailInputsChanged) {
+          console.log('No directly affected DB package selected for this coverage run.');
+          writeGithubOutput(options.githubOutput, { has_work: 'false' });
+          return 0;
+        }
+        console.log(
+          'DB guardrail-scanned inputs changed; treating @brainstrike/db as having coverage work.'
+        );
       }
+      const dbCoveragePlanningReason = coveragePackages.includes(DB_PACKAGE_NAME)
+        ? 'Affected DB package selected'
+        : 'DB lane planning active via guardrail-scanned docs';
       const selectedDbCoverageLanes = selectDbCoverageCiLanes(changedFiles);
       if (!selectedDbCoverageLanes.includes(options.dbCoverageLane)) {
         console.log(
-          `Affected DB package selected, but DB coverage lane ${options.dbCoverageLane} is not in the selected lane set: ${selectedDbCoverageLanes.join(', ')}`
+          `${dbCoveragePlanningReason}, but DB coverage lane ${options.dbCoverageLane} is not in the selected lane set: ${selectedDbCoverageLanes.join(', ')}`
         );
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
@@ -669,7 +738,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
         has_work: 'true',
       });
-      console.log(`Affected DB package selected; DB coverage lane: ${options.dbCoverageLane}`);
+      console.log(`${dbCoveragePlanningReason}; DB coverage lane: ${options.dbCoverageLane}`);
       for (const [command, commandArgs] of createDbCoverageLaneCommands(options.dbCoverageLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
       }
