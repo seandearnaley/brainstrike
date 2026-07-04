@@ -76,7 +76,7 @@ describe('Turso browser WASM bootstrap worker-init fault handling', () => {
             message: expect.stringContaining('emnapi worker-init'),
             status: 'passed',
           }),
-          expect.objectContaining({ id: 'primary-store.mvcc', status: 'passed' }),
+          expect.objectContaining({ id: 'primary-store.journal-mode', status: 'passed' }),
           expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
           expect.objectContaining({ id: 'store.close', status: 'passed' }),
         ])
@@ -220,7 +220,7 @@ function createMockBrowserTursoDatabase() {
   const createStatement = (sql: string) => ({
     all: vi.fn(async (_params?: readonly unknown[]) => {
       if (sql === 'PRAGMA journal_mode') {
-        return [{ journal_mode: 'mvcc' }];
+        return [{ journal_mode: 'wal' }];
       }
       if (sql.includes('idx_file_chunk_content_grams_lookup')) {
         return [
