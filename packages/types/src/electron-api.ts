@@ -76,6 +76,19 @@ export interface DatabaseInitFailureSnapshot {
 }
 
 export interface DatabaseProfileBootstrapReportSnapshot {
+  /**
+   * Store write-capability record mirrored from ProfileBootstrapReport
+   * (packages/db). Present on every report produced by current bootstraps
+   * (null = the producer does not declare capabilities, e.g. PGlite);
+   * optional here because this snapshot is a structural IPC mirror.
+   * Native/desktop Turso reports `{ journalMode: 'mvcc', concurrentWrites:
+   * true }`; the browser WASM runtime reports `{ journalMode: 'wal',
+   * concurrentWrites: false }`.
+   */
+  capabilities?: {
+    concurrentWrites: boolean;
+    journalMode: 'mvcc' | 'wal';
+  } | null;
   checks: readonly {
     id: string;
     label: string;
