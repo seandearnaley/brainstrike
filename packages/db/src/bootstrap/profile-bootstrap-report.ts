@@ -27,7 +27,7 @@ export interface ProfileBootstrapRuntime {
     | 'electron-utility'
     | 'node'
     | 'worker';
-  readonly persistence: 'filesystem' | 'idb' | 'memory' | 'remote' | 'unknown';
+  readonly persistence: 'filesystem' | 'idb' | 'memory' | 'opfs' | 'remote' | 'unknown';
 }
 
 export type ProfileBootstrapSearchOwnershipMode =

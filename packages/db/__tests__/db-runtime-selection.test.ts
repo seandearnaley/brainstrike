@@ -94,22 +94,38 @@ describe('Brainstrike DB runtime selection', () => {
     });
   });
 
-  it.each([
-    'node-test',
-    'web',
-  ] as const)('rejects Turso on %s instead of falling back to PGlite', (platform) => {
+  it('allows explicit Turso on web through the browser WASM runtime', () => {
+    expect(
+      resolveBrainstrikeDbRuntimeSelection({
+        platform: 'web',
+        requestedEngine: 'turso',
+        source: 'env',
+      })
+    ).toEqual({
+      bootstrapRuntime: {
+        engine: 'turso',
+        host: 'browser',
+        persistence: 'opfs',
+      },
+      engine: 'turso',
+      platform: 'web',
+      source: 'env',
+    });
+  });
+
+  it('rejects Turso on node-test instead of falling back to PGlite', () => {
     expectSelectionError(
       () =>
         resolveBrainstrikeDbRuntimeSelection({
-          platform,
+          platform: 'node-test',
           requestedEngine: 'turso',
           source: 'env',
         }),
       {
         code: 'turso_runtime_platform_unsupported',
         message:
-          'Turso DB runtime is desktop-only until Brainstrike wires a production adapter behind the desktop host.',
-        platform,
+          'Turso DB runtime is unsupported on node-test. Browser Turso requires the browser WASM runtime; desktop Turso requires the desktop owner client.',
+        platform: 'node-test',
         requestedEngine: 'turso',
         source: 'env',
       }

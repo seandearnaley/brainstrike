@@ -14,6 +14,42 @@ This document describes the desktop filesystem Turso bootstrap. Browser-local
 Turso WASM requires a separate browser bootstrap/readiness contract and must not
 reuse the desktop owner-client report as proof.
 
+## Browser WASM Runtime
+
+Browser-local Turso uses the owned `@brainstrike/db/turso/browser-wasm-client`
+seam, which imports `@tursodatabase/database-wasm/vite`. It is an OPFS-backed
+browser runtime and reports `{ engine: "turso", host: "browser",
+persistence: "opfs" }`.
+
+The browser bootstrap report is separate from the desktop owner-client report.
+It must fail closed unless it proves:
+
+1. The code is running in a browser runtime.
+2. `crossOriginIsolated` and `SharedArrayBuffer` are available.
+3. OPFS is available through `navigator.storage.getDirectory`.
+4. The Turso WASM store opens at the configured OPFS database name.
+5. `PRAGMA journal_mode = 'mvcc'` succeeds.
+6. The Turso schema baseline applies.
+7. Required gram-search and `vector32` search primitives are available.
+8. Search ownership is reported as `split-search-index-store`.
+9. The store closes cleanly.
+
+Current real-browser evidence: Chromium/Vitest can satisfy the browser runtime,
+cross-origin isolation, and OPFS checks. The real Turso WASM boundary is still
+environment-sensitive: a fresh Linux Playwright container currently fails while
+opening the store with the package's `whenLoaded` path, while the local macOS
+browser smoke can open the store and then fail the MVCC probe before schema
+baseline or search probes can run. Both outcomes are fail-closed readiness
+reports, and neither is browser-ready. Browser PGlite remains the production
+browser provider until a current real-engine smoke passes the full list above.
+
+This readiness report is not a production web-storage switch by itself. Browser
+`DbProvider` storage remains on PGlite until provider integration,
+reset/backup ownership, offline behavior, and runtime parity tests are wired for
+the Turso WASM path. Turso live-query capability is still false; browser
+surfaces must use proven repository snapshot paths or fail closed with
+diagnostics.
+
 Desktop now runs the Turso profile bootstrap path by default when
 `BRAINSTRIKE_DB_RUNTIME` is unset, even if the active profile already contains a
 legacy PGlite `pgdata` store. Existing `pgdata` is not a runtime-selection

@@ -38,7 +38,8 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm` is the only approved browser-local Turso database package',
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
-  'Browser PGlite remains only until the WASM runtime has bootstrap readiness, reset/backup ownership, and runtime parity tests',
+  'Browser Turso WASM has a dedicated bootstrap readiness report',
+  'Browser PGlite remains only until the WASM runtime has provider integration, reset/backup ownership, and runtime parity tests',
 ] as const;
 
 const REJECTED_LEDGER_PHRASES = [
@@ -235,6 +236,12 @@ describe('browser runtime ownership guardrails', () => {
         specifier: specifiers[0],
       }))
     );
+  });
+
+  it('keeps the browser WASM bootstrap out of the browser-facing DB barrel until provider integration owns bundling', () => {
+    const dbBarrel = readFileSync(path.join(REPO_ROOT, 'packages/db/src/index.ts'), 'utf8');
+
+    expect(dbBarrel).not.toContain('./bootstrap/turso-browser-wasm-bootstrap.js');
   });
 
   it('detects non-WASM Turso and libSQL clients re-exported from browser-facing barrels', () => {

@@ -96,7 +96,7 @@ export interface DatabaseProfileBootstrapReportSnapshot {
   runtime: {
     engine: 'libsql' | 'pglite' | 'turso' | 'unknown';
     host: 'browser' | 'desktop-ipc' | 'electron-main' | 'electron-utility' | 'node' | 'worker';
-    persistence: 'filesystem' | 'idb' | 'memory' | 'remote' | 'unknown';
+    persistence: 'filesystem' | 'idb' | 'memory' | 'opfs' | 'remote' | 'unknown';
   };
   search: {
     indexedSearch: 'available' | 'unavailable';

@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-04 on `codex/turso-browser-wasm-capability-20260704`,
+Last updated: 2026-07-04 on `codex/turso-browser-wasm-bootstrap-20260704`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,17 +10,25 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1467 at `b5dbb035d`. The branch migrates the web Vite Node server's
+through #1468 at `8ea81e622`. The branch migrates the web Vite Node server's
 Mastra workflow-storage singleton to embedded Turso, and desktop unset-runtime
 profiles now select Turso even when a legacy `<profile>/pgdata` directory
-exists. This current browser-WASM capability slice updates the browser-runtime
-policy after current Turso docs introduced `@tursodatabase/database-wasm` for
-browser-local storage, adds the package dependency, and creates a separate
-browser-only Vite WASM client seam. Explicit desktop PGlite compatibility
-remains available only with `BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso
-remains available with `BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB
-storage remains on PGlite only until the WASM runtime has bootstrap readiness,
-reset/backup ownership, offline semantics, and runtime parity tests.
+exists. The browser-WASM capability slice updated the browser-runtime policy
+after current Turso docs introduced `@tursodatabase/database-wasm` for
+browser-local storage, added the package dependency, and created a separate
+browser-only Vite WASM client seam. This current bootstrap slice adds explicit
+web Turso runtime selection as `{ engine: "turso", host: "browser",
+persistence: "opfs" }` and a browser-only readiness report. Real Chromium smoke
+coverage now proves cross-origin isolation and OPFS access, then fails closed at
+the current Turso WASM package boundary: fresh Linux Playwright fails while
+opening the store on the package `whenLoaded` path, while local macOS Chromium
+can open the store and fail at the MVCC pragma probe. Schema baseline and search
+primitive readiness remain fail-closed behind those probes. Explicit desktop
+PGlite compatibility remains available only with
+`BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
+`BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage remains on PGlite
+only until the WASM runtime has provider integration, reset/backup ownership,
+offline semantics, and runtime parity tests.
 
 Merged slices:
 
@@ -180,16 +188,25 @@ Merged slices:
 - #1465 `docs(turso): reconcile ledger after browser runtime guard`
 - #1466 `fix(desktop): make unset legacy profiles use turso`
 - #1467 `docs(turso): refresh embedding runtime architecture`
+- #1468 `feat(db): add Turso browser WASM seam`
 
-Current browser-WASM capability slice: current Turso docs now document
-browser-local Turso WASM storage through `@tursodatabase/database-wasm`; this
-slice adds the package dependency, creates a separate browser-only
-`@brainstrike/db/turso/browser-wasm-client` subpath using the official Vite
-entrypoint, and changes the browser guardrail from "no Turso browser local
-replacement exists" to "only the WASM browser package is approved". The current
-production browser DB provider still uses PGlite until a later slice proves
-bootstrap readiness, reset/backup ownership, offline behavior, and runtime
-parity tests for the WASM path.
+Recently completed browser-WASM capability slice: current Turso docs now
+document browser-local Turso WASM storage through
+`@tursodatabase/database-wasm`; this slice adds the package dependency, creates
+a separate browser-only `@brainstrike/db/turso/browser-wasm-client` subpath
+using the official Vite entrypoint, and changes the browser guardrail from "no
+Turso browser local replacement exists" to "only the WASM browser package is
+approved".
+
+Current browser-WASM bootstrap slice: Browser Turso WASM has a dedicated
+bootstrap readiness report plus real Chromium smoke coverage. The current
+runtime is not browser-ready yet: fresh Linux Playwright fails while opening the
+store on the package `whenLoaded` path, while local macOS Chromium can open the
+real WASM/OPFS path and then fail `PRAGMA journal_mode = 'mvcc'` before schema
+baseline or vector/gram probes can run. The current production browser DB
+provider still uses PGlite until store-open/MVCC readiness, provider
+integration, reset/backup ownership, offline behavior, and runtime parity tests
+are wired for the WASM path.
 
 Recently completed AGENTS embedding architecture docs slice: #1467 refreshed
 root `AGENTS.md`. It no longer
@@ -446,17 +463,17 @@ Forbidden browser-local storage replacements:
 Release implication: do not import Turso/libSQL database clients into browser
 DB bundle entrypoints except the owned `@tursodatabase/database-wasm/vite`
 browser seam, and do not replace the browser PGlite worker with a remote
-serverless client as a silent compatibility shim. Browser PGlite remains only until the WASM runtime has bootstrap readiness, reset/backup ownership, and runtime parity tests.
+serverless client as a silent compatibility shim. Browser Turso WASM has a dedicated bootstrap readiness report, but Browser PGlite remains only until the WASM runtime has provider integration, reset/backup ownership, and runtime parity tests.
 Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
 reset cleanup remain supported code rather than removable residue.
 
-Next browser runtime slice: add an explicit web/browser Turso runtime branch,
-not a hidden replacement behind `wasmLoader` or `idb://` PGlite paths. It should
-open Turso WASM through the browser-only client seam, run the Turso schema
-baseline, publish a Turso bootstrap report with explicit search ownership,
-expose runtime-scoped repositories/token cache where proven, and keep live-query
-and embedding-worker features fail-closed until their Turso storage ports are
-wired.
+Current browser-WASM bootstrap slice: add an explicit web/browser Turso runtime
+branch and a browser-only readiness report, not a hidden replacement behind
+`wasmLoader` or `idb://` PGlite paths. It opens Turso WASM through the
+browser-only client seam and publishes a Turso bootstrap report with explicit
+search ownership. Real browser coverage currently blocks the report at the MVCC
+probe before schema/search readiness; live-query and embedding-worker features
+remain fail-closed until their Turso storage ports are wired.
 
 ## Implemented Runtime Shape
 

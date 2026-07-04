@@ -48,9 +48,9 @@ export function resolveBrainstrikeDbRuntimeSelection(
   const source = input.source ?? (input.requestedEngine === undefined ? 'default' : 'config');
   const engine = parseRequestedRuntimeEngine(input, source);
 
-  if (engine === 'turso' && input.platform !== 'desktop') {
+  if (engine === 'turso' && input.platform === 'node-test') {
     throw new BrainstrikeDbRuntimeSelectionError(
-      'Turso DB runtime is desktop-only until Brainstrike wires a production adapter behind the desktop host.',
+      'Turso DB runtime is unsupported on node-test. Browser Turso requires the browser WASM runtime; desktop Turso requires the desktop owner client.',
       {
         code: 'turso_runtime_platform_unsupported',
         platform: input.platform,
@@ -117,6 +117,13 @@ function runtimeForSelection(
         persistence: 'filesystem',
       };
     case 'web':
+      if (engine === 'turso') {
+        return {
+          engine,
+          host: 'browser',
+          persistence: 'opfs',
+        };
+      }
       return {
         engine,
         host: 'worker',
