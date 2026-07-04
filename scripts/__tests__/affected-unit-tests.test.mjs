@@ -7,6 +7,7 @@ import {
   buildPackageLanePackageNames,
   buildTurboBuildFilterOutput,
   buildWeightedPackageLanes,
+  changedFilesTouchDbGuardrailInputs,
   createDbCoverageLaneCommands,
   createDbLaneCommands,
   dbChangeRequiresDependentUnitExpansion,
@@ -412,6 +413,61 @@ test('mixed narrow and unknown DB changes keep the full DB unit and coverage sur
     listCiDbLaneGroups().map((group) => group.groupName)
   );
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), listCiDbCoverageLanes());
+});
+
+test('migration-ledger guardrail doc changes flag DB work and select its scanning lanes', () => {
+  const changedFiles = ['docs/turso-migration/migration-ledger.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['schema-migration', 'search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture', 'search']);
+});
+
+test('root AGENTS.md guardrail changes flag DB work and select only the guardrail lane', () => {
+  const changedFiles = ['AGENTS.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['schema-migration']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture']);
+});
+
+test('other docs-only changes still report no DB guardrail work', () => {
+  const changedFiles = [
+    'docs/some-other-doc.md',
+    'docs/turso-migration/touchpoint-primer.md',
+    'README.md',
+  ];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), false);
+});
+
+test('guardrail doc plus narrow DB changes union their lane selections', () => {
+  const changedFiles = [
+    'docs/turso-migration/migration-ledger.md',
+    'packages/db/__tests__/turso-token-cache-store.test.ts',
+  ];
+
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['repository', 'schema-migration', 'search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), [
+    'architecture',
+    'repositories',
+    'search',
+  ]);
+});
+
+test('DB guardrail external input paths mirror the scanning DB lane tests', () => {
+  const ownershipGuardrail = readFileSync(
+    'packages/db/__tests__/architecture-browser-runtime-ownership.test.ts',
+    'utf8'
+  );
+  const searchQualityProfile = readFileSync(
+    'packages/db/__tests__/search-turso-lexical-quality-profile.test.ts',
+    'utf8'
+  );
+
+  assert.match(ownershipGuardrail, /docs\/turso-migration\/migration-ledger\.md/);
+  assert.match(ownershipGuardrail, /'AGENTS\.md'/);
+  assert.match(searchQualityProfile, /docs\/turso-migration\/migration-ledger\.md/);
 });
 
 test('narrow DB lane selections preserve workflow matrix order', () => {
