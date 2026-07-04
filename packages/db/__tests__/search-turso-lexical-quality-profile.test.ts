@@ -239,7 +239,8 @@ describe('Turso primary-store lexical search quality profile', () => {
     );
     expect(migrationLedger).toContain('web Vite Node server');
     expect(migrationLedger).toContain('direct PGlite import guardrail');
-    expect(migrationLedger).toContain('Current browser-WASM capability slice');
+    expect(migrationLedger).toContain('Recently completed browser-WASM capability slice');
+    expect(migrationLedger).toContain('Current browser-WASM bootstrap slice');
     expect(migrationLedger).toContain(
       'Recently completed AGENTS embedding architecture docs slice'
     );

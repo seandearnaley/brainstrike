@@ -782,6 +782,12 @@ describe('Turso schema baseline', () => {
     expect(TURSO_SCHEMA_BASELINE_CHECKSUM).not.toBe(sqlOnlyChecksum);
   });
 
+  it('computes standard SHA-256 checksums without depending on Node crypto', () => {
+    expect(computeTursoSchemaChecksum(['abc'])).toBe(
+      'c3f23b27db1340790643161df06ef309593f771785f68f8c6dd98ebfc16c9e9a'
+    );
+  });
+
   it('pins the historical v2 checksum instead of deriving it from mutable baseline declarations', async () => {
     expect(TURSO_SCHEMA_BASELINE_V2_CHECKSUM).toBe(
       '9886965b9577881c6af49ffd179c43d25eada1622390d4c223d6bc4e2e92bd1a'

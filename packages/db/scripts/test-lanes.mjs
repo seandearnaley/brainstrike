@@ -20,7 +20,10 @@ function collectTests(dir = testsRoot, prefix = '') {
       tests.push(...collectTests(fullPath, relativePath));
       continue;
     }
-    if (/\.(browser\.)?test\.(ts|tsx)$/.test(relativePath)) {
+    if (
+      /\.test\.(ts|tsx)$/.test(relativePath) &&
+      !/\.browser\.test\.(ts|tsx)$/.test(relativePath)
+    ) {
       tests.push(relativePath);
     }
   }

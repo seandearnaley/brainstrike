@@ -40,6 +40,11 @@ const unitAliases: Record<string, string> = {
   ...sharedAliases,
 };
 
+const crossOriginIsolationHeaders = {
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+} as const;
+
 /**
  * November 2025 Vitest 4 configuration for @brainstrike/db
  *
@@ -50,8 +55,17 @@ const unitAliases: Record<string, string> = {
  * Browser tests use *.browser.test.ts naming convention.
  */
 export default defineConfig({
+  define: {
+    'process.env.NODE_DEBUG_NATIVE': 'false',
+  },
+  optimizeDeps: {
+    exclude: ['@tursodatabase/database-wasm', '@tursodatabase/database-wasm-common'],
+  },
   resolve: {
     alias: sharedAliases,
+  },
+  server: {
+    headers: crossOriginIsolationHeaders,
   },
   test: {
     projects: [
@@ -82,6 +96,12 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: sharedAliases,
+        },
+        server: {
+          headers: crossOriginIsolationHeaders,
+        },
         test: {
           name: 'browser',
           include: ['__tests__/**/*.browser.test.{ts,tsx}'],
