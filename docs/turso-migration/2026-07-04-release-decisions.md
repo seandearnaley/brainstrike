@@ -1,9 +1,10 @@
 # Turso Migration — Release-Readiness Decision Records (PROPOSED)
 
 **Date:** 2026-07-04
-**Status:** PROPOSED — each record below requires explicit signoff from Sean
-before it is treated as accepted. Signoff is recorded by changing a record's
-status line and adding the date.
+**Status:** ACCEPTED — signed off by Sean Dearnaley on 2026-07-04 (blanket
+signoff given in-session: "I trust you can make the best decision overall so
+you have my signoff"). Individual records below are marked accordingly; each
+still names its own review trigger.
 **Context:** remaining-work items B1–B3 and C1–C3 from
 `2026-07-04-remaining-work-report.md`; audit follow-ups from
 `2026-07-02-independent-audit-report.md`.
@@ -12,7 +13,7 @@ status line and adding the date.
 
 ## DR-1 (B1): MVCC / `BEGIN CONCURRENT` vendor-maturity acceptance
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** Accept the MVCC-beta risk for the current no-users phase, with
 the mitigations below, and re-verify vendor status at every
 `@tursodatabase/database` version bump.
@@ -50,13 +51,13 @@ before any release that carries user data.
 announcement moving MVCC to stable, or the first release candidate with real
 users — whichever comes first.
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
 
 ---
 
 ## DR-2 (B2): Two-process queue topology — acceptance thresholds
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** Keep the single-owner-client serialized topology. Adopt the
 following as *release-checklist items* (not aspirations):
 
@@ -75,13 +76,13 @@ following as *release-checklist items* (not aspirations):
 explicit monitored acceptance; #1453/#1454 delivered the test, this record
 makes the acceptance and its triggers explicit.
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
 
 ---
 
 ## DR-3 (B3): Mastra vector memory exact-scan budget
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** Exact-scan vector retrieval is accepted for Mastra memory up to
 **25,000 vectors per profile** at 384–1024 dimensions. Measured baseline
 (2026-07-03): 5,000×384 rows, recall@K 1.000, p95 30.4ms. Linear
@@ -95,13 +96,13 @@ observed volume; if p95 exceeds 250ms, open the native vector-index/ANN
 decision (schema change owned by the Mastra memory store, not the bootstrap
 baseline).
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
 
 ---
 
 ## DR-4 (C1): Lexical search — primary-store grams for v1, FTS deferred
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** The primary-store gram path ships v1. The split native
 Tantivy FTS search-index store is NOT pursued now.
 
@@ -121,13 +122,13 @@ Tantivy FTS search-index store is NOT pursued now.
 **Standing task:** re-probe FTS-under-MVCC (the spike) at each Turso minor
 release; the decision flips only via a new dated record.
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
 
 ---
 
 ## DR-5 (C2): Desktop PGlite compatibility retirement plan
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** Retire `BRAINSTRIKE_DB_RUNTIME=pglite` (and its test lanes) only
 after BOTH:
 
@@ -144,17 +145,17 @@ removal, migration-chain retirement) is gated on this record flipping to
 ACCEPTED, per the ledger's warning that premature cleanup breaks supported
 paths.
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
 
 ---
 
 ## DR-6 (C3): Live-query stance under Turso
 
-**Status:** PROPOSED
+**Status:** ACCEPTED (2026-07-04, Sean Dearnaley)
 **Decision:** Event-driven repository snapshots (explicit invalidation
 triggers, no polling) are the *permanent* Turso answer for reactive UI, not a
 stopgap. The live-query capability stays `false` for Turso; guardrail test
 #1461 remains the enforcement point. Upstream Turso CDC/reactivity features
 may reopen this with a new record, but nothing is tracked or awaited.
 
-**Signoff:** ___ (pending)
+**Signoff:** Sean Dearnaley, 2026-07-04
