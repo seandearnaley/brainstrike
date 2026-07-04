@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-embedding-architecture-docs-20260703`,
+Last updated: 2026-07-04 on `codex/turso-browser-wasm-capability-20260704`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,17 +10,17 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1466 at `0a89f4a14`. The branch migrates the web Vite Node server's
+through #1467 at `b5dbb035d`. The branch migrates the web Vite Node server's
 Mastra workflow-storage singleton to embedded Turso, and desktop unset-runtime
 profiles now select Turso even when a legacy `<profile>/pgdata` directory
-exists. This current docs guardrail slice refreshes the root `AGENTS.md`
-embedding-host wording so it describes runtime-owned worker storage instead of
-a PGlite-only queue path. Explicit desktop PGlite
-compatibility remains available only with `BRAINSTRIKE_DB_RUNTIME=pglite`,
-explicit Turso remains available with `BRAINSTRIKE_DB_RUNTIME=turso`, and
-browser/client DB storage remains PGlite-backed by an explicit, tested
-browser-runtime ownership decision until a supported browser-local Turso
-replacement exists or browser support is deliberately changed.
+exists. This current browser-WASM capability slice updates the browser-runtime
+policy after current Turso docs introduced `@tursodatabase/database-wasm` for
+browser-local storage, adds the package dependency, and creates a separate
+browser-only Vite WASM client seam. Explicit desktop PGlite compatibility
+remains available only with `BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso
+remains available with `BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB
+storage remains on PGlite only until the WASM runtime has bootstrap readiness,
+reset/backup ownership, offline semantics, and runtime parity tests.
 
 Merged slices:
 
@@ -179,8 +179,20 @@ Merged slices:
 - #1464 `test(turso): guard browser runtime ownership`
 - #1465 `docs(turso): reconcile ledger after browser runtime guard`
 - #1466 `fix(desktop): make unset legacy profiles use turso`
+- #1467 `docs(turso): refresh embedding runtime architecture`
 
-Current AGENTS embedding architecture docs slice: root `AGENTS.md` no longer
+Current browser-WASM capability slice: current Turso docs now document
+browser-local Turso WASM storage through `@tursodatabase/database-wasm`; this
+slice adds the package dependency, creates a separate browser-only
+`@brainstrike/db/turso/browser-wasm-client` subpath using the official Vite
+entrypoint, and changes the browser guardrail from "no Turso browser local
+replacement exists" to "only the WASM browser package is approved". The current
+production browser DB provider still uses PGlite until a later slice proves
+bootstrap readiness, reset/backup ownership, offline behavior, and runtime
+parity tests for the WASM path.
+
+Recently completed AGENTS embedding architecture docs slice: #1467 refreshed
+root `AGENTS.md`. It no longer
 describes the hidden embedding host as pulling exclusively from a PGlite-backed
 `job_queue`. It documents runtime-specific embedding worker storage, the
 PGlite/browser queue path, the desktop Turso embedding worker adapter, and the
@@ -366,6 +378,10 @@ Sync:
   remote primary by default and are then reflected into the local replica.
 - The TypeScript client reference states that `@libsql/client/web` does not
   support local file URLs.
+- The JavaScript connect guide now links a Wasm + Vite browser example, and the
+  browser launch note names `@tursodatabase/database-wasm` as the browser-local
+  package with OPFS, worker, SharedArrayBuffer, and bundler-entrypoint
+  requirements.
 - Turso recommends Turso Sync for new projects that need local-first writes:
   reads and writes are local, and applications call explicit `push()` /
   `pull()`.
@@ -388,27 +404,35 @@ shipping. Do not hide that risk behind a PGlite fallback.
 Primary docs consulted:
 
 - <https://docs.turso.tech/features/embedded-replicas/introduction>
+- <https://docs.turso.tech/connect/javascript>
 - <https://docs.turso.tech/sdk/ts/reference>
 - <https://docs.turso.tech/sync/usage>
 - <https://docs.turso.tech/tursodb/quickstart>
+- <https://turso.tech/blog/introducing-turso-in-the-browser>
 - <https://turso.tech/blog/turso-0.5.0>
 
 ## Browser Runtime Ownership Decision
 
-Current browser/client DB storage remains PGlite-backed by design. This is not
-a Turso parity gap being hidden behind a fallback; it is an explicit runtime
-ownership boundary for the web/browser build. Browser storage today is a local
-PGlite worker path using `idb://` / OPFS-AHP persistence, and the web startup
-smoke still proves that `pglite-worker-entry` owns the browser database worker.
+Current browser/client DB storage is entering a staged Turso WASM migration.
+The current production browser DB provider remains PGlite-backed by design
+until a proven browser-local Turso WASM runtime intentionally replaces it. This
+is not a Turso parity gap being hidden behind a fallback; it is an explicit
+runtime ownership boundary for the web/browser build while the WASM path is
+proved.
 
-The current official Turso TypeScript docs do not provide an equivalent
-browser-local embedded database surface:
+`@tursodatabase/database-wasm` is the only approved browser-local Turso database package.
+`@tursodatabase/database-wasm/vite` is the Vite/browser import surface for
+Brainstrike's web build; `@tursodatabase/database-wasm/turbopack` remains an
+upstream bundler entrypoint but is not used by this Vite app. The package is
+still beta and requires explicit browser capability proof around OPFS,
+SharedArrayBuffer, COOP/COEP headers, worker lifecycle, and reset ownership
+before it can replace the current PGlite worker.
 
-- `@tursodatabase/database and @tursodatabase/sync are not browser-local storage replacements`.
-  The TypeScript reference presents both as native local-file packages; the
-  compatible environments listed there are Node.js, Deno, Cloudflare Workers,
-  and Netlify/Vercel Edge Functions, not a normal browser tab with IndexedDB or
-  OPFS ownership.
+Forbidden browser-local storage replacements:
+
+- `@tursodatabase/database` and `@tursodatabase/sync` are native local-file
+  packages for Node/Electron-style local storage, not the approved browser
+  import surface for Brainstrike's web bundle.
 - `@tursodatabase/serverless is a remote fetch client, not a local-first browser database`.
   It is browser-compatible because it uses `fetch`, but adopting it for the
   client DB would turn latency-critical local writes into remote Turso Cloud
@@ -420,16 +444,19 @@ browser-local embedded database surface:
   browser PGlite worker.
 
 Release implication: do not import Turso/libSQL database clients into browser
-DB bundle entrypoints, and do not replace the browser PGlite worker with a remote
-serverless client as a silent compatibility shim. A future browser Turso path
-must be a named product/runtime mode with explicit user-facing semantics:
-remote-only, server-backed, or a future Turso-supported browser-local engine.
-It must include bootstrap readiness, reset/backup/sync ownership, credential
-handling, offline behavior, and tests before it can retire browser PGlite.
+DB bundle entrypoints except the owned `@tursodatabase/database-wasm/vite`
+browser seam, and do not replace the browser PGlite worker with a remote
+serverless client as a silent compatibility shim. Browser PGlite remains only until the WASM runtime has bootstrap readiness, reset/backup ownership, and runtime parity tests.
+Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
+reset cleanup remain supported code rather than removable residue.
 
-`The final PGlite dependency-removal pass is blocked until browser-local storage has a supported Turso replacement or browser support is explicitly dropped`.
-Until then, PGlite packages, Vite aliases, the browser worker entry, and
-browser reset cleanup remain supported code rather than removable residue.
+Next browser runtime slice: add an explicit web/browser Turso runtime branch,
+not a hidden replacement behind `wasmLoader` or `idb://` PGlite paths. It should
+open Turso WASM through the browser-only client seam, run the Turso schema
+baseline, publish a Turso bootstrap report with explicit search ownership,
+expose runtime-scoped repositories/token cache where proven, and keep live-query
+and embedding-worker features fail-closed until their Turso storage ports are
+wired.
 
 ## Implemented Runtime Shape
 

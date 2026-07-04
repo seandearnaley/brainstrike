@@ -119,6 +119,12 @@ export default defineConfig({
     // HuggingFace proxy is handled by devHfProxyPlugin() below instead of
     // Vite's built-in http-proxy (which cannot follow 307 redirects from HF CDN).
   },
+  preview: {
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
+  },
   define: {
     'process.env': {},
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(
@@ -375,6 +381,10 @@ export default defineConfig({
       // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
       // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
       '@electric-sql/pglite-pgvector',
+      // Turso browser WASM ships worker/WASM assets through package entrypoints.
+      // Keep Vite out of that graph until the browser runtime has full parity tests.
+      '@tursodatabase/database-wasm',
+      '@tursodatabase/database-wasm-common',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',

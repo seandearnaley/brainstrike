@@ -10,6 +10,10 @@
 
 ## Desktop Runtime Switch
 
+This document describes the desktop filesystem Turso bootstrap. Browser-local
+Turso WASM requires a separate browser bootstrap/readiness contract and must not
+reuse the desktop owner-client report as proof.
+
 Desktop now runs the Turso profile bootstrap path by default when
 `BRAINSTRIKE_DB_RUNTIME` is unset, even if the active profile already contains a
 legacy PGlite `pgdata` store. Existing `pgdata` is not a runtime-selection
@@ -115,7 +119,7 @@ through Turso managed-cache and owner-client transaction paths. User-visible
 Turso re-embed is composed as owner-IPC clear-embeddings followed by hidden-host
 backfill; keep that split.
 
-The visible renderer must not construct `TursoJobQueue` for Turso mutations.
+The desktop visible renderer must not construct `TursoJobQueue` for Turso mutations.
 Mutation paths requiring transactions or query-capable writes stay on explicit
 desktop owner-client IPC/action surfaces. The provider still does not expose a
 generic live-query-compatible `db` handle in Turso mode; that remains an
