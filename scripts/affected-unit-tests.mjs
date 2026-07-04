@@ -42,11 +42,21 @@ const DB_QUEUE_INTERNAL_SOURCE_PATH_SET = new Set(DB_QUEUE_INTERNAL_SOURCE_PATHS
 //   coverage lane architecture) AND search-turso-lexical-quality-profile.test.ts
 //   (unit lane search, coverage lane search).
 // - Root AGENTS.md is asserted by architecture-browser-runtime-ownership.test.ts.
+// - The lexical quality-profile and search-index-architecture docs are asserted
+//   by search-turso-lexical-quality-profile.test.ts only.
+// The affected-unit-tests suite derives this membership from the scanner test
+// sources, so a scanner asserting against a new doc fails that contract test
+// until the mapping here is extended.
 const DB_GUARDRAIL_LEDGER_INPUT_PATHS = new Set(['docs/turso-migration/migration-ledger.md']);
 const DB_GUARDRAIL_AGENTS_INPUT_PATHS = new Set(['AGENTS.md']);
+const DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS = new Set([
+  'docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md',
+  'docs/turso-migration/search-index-architecture.md',
+]);
 const DB_GUARDRAIL_EXTERNAL_INPUT_PATHS = new Set([
   ...DB_GUARDRAIL_LEDGER_INPUT_PATHS,
   ...DB_GUARDRAIL_AGENTS_INPUT_PATHS,
+  ...DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS,
 ]);
 const DB_DEPENDENT_EXPANSION_PUBLIC_PATHS = new Set(['packages/db/src/repositories/index.ts']);
 const CI_DB_LANE_GROUPS = new Map([
@@ -94,6 +104,11 @@ const KNOWN_DB_SOURCE_LANE_RULES = [
     files: DB_GUARDRAIL_AGENTS_INPUT_PATHS,
     unitLanes: ['schema-migration'],
     coverageLanes: ['architecture'],
+  },
+  {
+    files: DB_GUARDRAIL_SEARCH_DOC_INPUT_PATHS,
+    unitLanes: ['search'],
+    coverageLanes: ['search'],
   },
 ];
 const PACKAGE_TEST_WEIGHTS_MS = new Map([
@@ -229,6 +244,10 @@ function getKnownDbLaneSelection(filePath) {
 
 export function changedFilesTouchDbGuardrailInputs(changedFiles = []) {
   return changedFiles.some((filePath) => DB_GUARDRAIL_EXTERNAL_INPUT_PATHS.has(filePath));
+}
+
+export function listDbGuardrailExternalInputPaths() {
+  return [...DB_GUARDRAIL_EXTERNAL_INPUT_PATHS].sort();
 }
 
 function selectKnownDbLaneSelections(changedFiles = []) {

@@ -15,6 +15,7 @@ import {
   filterTestablePackages,
   listCiDbCoverageLanes,
   listCiDbLaneGroups,
+  listDbGuardrailExternalInputPaths,
   modeIncludesDependentPackages,
   parsePnpmListJson,
   runCommandSequence,
@@ -431,6 +432,22 @@ test('root AGENTS.md guardrail changes flag DB work and select only the guardrai
   assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['architecture']);
 });
 
+test('search quality-profile doc changes flag DB work and select only the search lanes', () => {
+  const changedFiles = ['docs/turso-migration/2026-07-03-turso-lexical-search-quality-profile.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['search']);
+});
+
+test('search-index-architecture doc changes flag DB work and select only the search lanes', () => {
+  const changedFiles = ['docs/turso-migration/search-index-architecture.md'];
+
+  assert.equal(changedFilesTouchDbGuardrailInputs(changedFiles), true);
+  assert.deepEqual(selectDbUnitCiLanes(changedFiles), ['search']);
+  assert.deepEqual(selectDbCoverageCiLanes(changedFiles), ['search']);
+});
+
 test('other docs-only changes still report no DB guardrail work', () => {
   const changedFiles = [
     'docs/some-other-doc.md',
@@ -455,19 +472,25 @@ test('guardrail doc plus narrow DB changes union their lane selections', () => {
   ]);
 });
 
-test('DB guardrail external input paths mirror the scanning DB lane tests', () => {
-  const ownershipGuardrail = readFileSync(
+test('DB guardrail external input paths are derived from the scanning DB lane tests', () => {
+  // The scanner tests read these repo files at runtime via join(repoRoot, '<literal>').
+  // Derive every non-package external input they scan (docs/*.md literals plus the
+  // root AGENTS.md literal) from the scanner sources so the planner constant cannot
+  // silently drift when a scanner starts asserting against a new doc. Package-owned
+  // paths the scanners also read (e.g. packages/app-shell/README.md) are excluded:
+  // those map to workspace packages and are out of this external-input contract.
+  const scannerSources = [
     'packages/db/__tests__/architecture-browser-runtime-ownership.test.ts',
-    'utf8'
-  );
-  const searchQualityProfile = readFileSync(
     'packages/db/__tests__/search-turso-lexical-quality-profile.test.ts',
-    'utf8'
+  ].map((filePath) => readFileSync(filePath, 'utf8'));
+  const scannedExternalInputs = new Set(
+    scannerSources.flatMap((source) => [
+      ...[...source.matchAll(/'(docs\/[^']+\.md)'/g)].map((match) => match[1]),
+      ...(source.includes("'AGENTS.md'") ? ['AGENTS.md'] : []),
+    ])
   );
 
-  assert.match(ownershipGuardrail, /docs\/turso-migration\/migration-ledger\.md/);
-  assert.match(ownershipGuardrail, /'AGENTS\.md'/);
-  assert.match(searchQualityProfile, /docs\/turso-migration\/migration-ledger\.md/);
+  assert.deepEqual(listDbGuardrailExternalInputPaths(), [...scannedExternalInputs].sort());
 });
 
 test('narrow DB lane selections preserve workflow matrix order', () => {
