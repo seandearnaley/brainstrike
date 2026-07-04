@@ -1838,7 +1838,7 @@ describe('assistant-tools', () => {
       }
     });
 
-    it('THROWS on an ambiguous single-line old_str and writes NOTHING', async () => {
+    it('THROWS on an ambiguous single-line oldStr and writes NOTHING', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'src', 'dup.ts');
       const original = 'count++;\ndoThing();\ncount++;\ndoOther();\ncount++;\n';
@@ -1886,7 +1886,7 @@ describe('assistant-tools', () => {
       }
     });
 
-    it('THROWS when old_str is not found and writes NOTHING', async () => {
+    it('THROWS when oldStr is not found and writes NOTHING', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
       const original = await fsPromises.readFile(filePath, 'utf8');
