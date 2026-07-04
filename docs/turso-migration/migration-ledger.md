@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-04 on `codex/turso-browser-wasm-bootstrap-20260704`,
+Last updated: 2026-07-04 on `codex/turso-browser-wasm-reset-ownership-20260704`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,7 +10,7 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1468 at `8ea81e622`. The branch migrates the web Vite Node server's
+through #1469 at `e9fb0af1f`. The branch migrates the web Vite Node server's
 Mastra workflow-storage singleton to embedded Turso, and desktop unset-runtime
 profiles now select Turso even when a legacy `<profile>/pgdata` directory
 exists. The browser-WASM capability slice updated the browser-runtime policy
@@ -27,8 +27,10 @@ primitive readiness remain fail-closed behind those probes. Explicit desktop
 PGlite compatibility remains available only with
 `BRAINSTRIKE_DB_RUNTIME=pglite`, explicit Turso remains available with
 `BRAINSTRIKE_DB_RUNTIME=turso`, and browser/client DB storage remains on PGlite
-only until the WASM runtime has provider integration, reset/backup ownership,
-offline semantics, and runtime parity tests.
+only until the WASM runtime has provider integration, backup/export ownership,
+offline semantics, and runtime parity tests. This current reset-ownership slice
+adds explicit factory reset ownership for the planned browser Turso WASM OPFS
+database file and sidecars; it does not switch the browser provider.
 
 Merged slices:
 
@@ -189,6 +191,7 @@ Merged slices:
 - #1466 `fix(desktop): make unset legacy profiles use turso`
 - #1467 `docs(turso): refresh embedding runtime architecture`
 - #1468 `feat(db): add Turso browser WASM seam`
+- #1469 `feat(db): add Turso browser WASM bootstrap`
 
 Recently completed browser-WASM capability slice: current Turso docs now
 document browser-local Turso WASM storage through
@@ -205,8 +208,9 @@ store on the package `whenLoaded` path, while local macOS Chromium can open the
 real WASM/OPFS path and then fail `PRAGMA journal_mode = 'mvcc'` before schema
 baseline or vector/gram probes can run. The current production browser DB
 provider still uses PGlite until store-open/MVCC readiness, provider
-integration, reset/backup ownership, offline behavior, and runtime parity tests
-are wired for the WASM path.
+integration, backup/export ownership, offline behavior, and runtime parity
+tests are wired for the WASM path. Factory reset now owns the planned browser
+Turso WASM OPFS database file and sidecars.
 
 Recently completed AGENTS embedding architecture docs slice: #1467 refreshed
 root `AGENTS.md`. It no longer
@@ -463,7 +467,10 @@ Forbidden browser-local storage replacements:
 Release implication: do not import Turso/libSQL database clients into browser
 DB bundle entrypoints except the owned `@tursodatabase/database-wasm/vite`
 browser seam, and do not replace the browser PGlite worker with a remote
-serverless client as a silent compatibility shim. Browser Turso WASM has a dedicated bootstrap readiness report, but Browser PGlite remains only until the WASM runtime has provider integration, reset/backup ownership, and runtime parity tests.
+serverless client as a silent compatibility shim. Browser Turso WASM has a
+dedicated bootstrap readiness report, but Browser PGlite remains only until the
+WASM runtime has provider integration, backup/export ownership, offline
+behavior, and runtime parity tests.
 Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
 reset cleanup remain supported code rather than removable residue.
 
@@ -1098,6 +1105,13 @@ recreates the fresh runtime-owned empty directory: explicit PGlite recreates
 desktop runtime selection; reset must not manufacture an empty PGlite store that
 pins a reset profile back to PGlite.
 
+Browser Turso WASM state is OPFS file state, not a PGlite OPFS-AHP directory.
+Factory reset now has an explicit `opfs-turso-browser-wasm` target for the
+planned browser database file `brainstrike-web-turso.db` plus `-wal`, `-shm`,
+and `-tshm` sidecars. Enumeration-based cleanup is scoped to those exact names
+so unrelated OPFS consumers are not swept; fallback cleanup uses the same
+allowlist when `FileSystemDirectoryHandle.keys()` is unavailable or fails.
+
 No production Turso sync/search metadata path currently exists outside the
 profile directory. Future out-of-profile sync or search stores must be added as
 explicit named reset targets with tests; do not delete guessed names such as
@@ -1123,8 +1137,9 @@ Known production touchpoints:
 - `apps/desktop/src/db-main.ts`
 - `apps/desktop/src/desktop-reset-platform.ts`
 
-Remaining reset follow-up: add explicit reset targets if a future Turso sync or
-split-search implementation creates stores outside the active profile directory.
+Remaining reset follow-up: add explicit reset targets if a future Turso sync,
+backup/export, or split-search implementation creates stores outside the active
+profile directory or the owned browser Turso WASM OPFS file set.
 
 ### 8. Dependency And Build Cleanup
 

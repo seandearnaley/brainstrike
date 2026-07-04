@@ -45,7 +45,10 @@ export interface ClearPersistentUiStateOptions {
   skipIndexedDb?: boolean;
 }
 
-export type ClearPersistentUiStateTarget = 'cache-storage' | 'opfs-pglite';
+export type ClearPersistentUiStateTarget =
+  | 'cache-storage'
+  | 'opfs-pglite'
+  | 'opfs-turso-browser-wasm';
 
 export type ClearPersistentUiStateOperation =
   | 'clear'
@@ -206,6 +209,20 @@ export const FALLBACK_OPFS_DIR_NAMES = ['app-pg18', 'web-pg18', 'app', 'web'] as
 const OPFS_PGLITE_DIR_RE = /^(?:app|web)(?:-pg\d+)?$/;
 
 /**
+ * Browser Turso WASM stores are OPFS files, not PGlite OPFS-AHP directories.
+ * Keep this list in sync with the browser Turso WASM provider path when that
+ * provider graduates from readiness/bootstrap probing to production storage.
+ */
+export const FALLBACK_OPFS_TURSO_BROWSER_WASM_FILE_NAMES = [
+  'brainstrike-web-turso.db',
+  'brainstrike-web-turso.db-wal',
+  'brainstrike-web-turso.db-shm',
+  'brainstrike-web-turso.db-tshm',
+] as const;
+
+const OPFS_TURSO_BROWSER_WASM_FILE_RE = /^brainstrike-web-turso\.db(?:-(?:wal|shm|tshm))?$/;
+
+/**
  * Removes Brainstrike's PGlite OPFS-AHP stores so a factory reset is a true fresh
  * start for users who opted into OPFS storage. The rest of this module is
  * IndexedDB-only; OPFS is a separate persistent location made first-class (and
@@ -277,6 +294,66 @@ async function clearOpfsPGliteStores(): Promise<ClearPersistentUiStateFailure[]>
   return [...failures, ...removalFailures];
 }
 
+async function clearOpfsTursoBrowserWasmStores(): Promise<ClearPersistentUiStateFailure[]> {
+  if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
+    return [];
+  }
+
+  let root: (FileSystemDirectoryHandle & { keys?: () => AsyncIterable<string> }) | null = null;
+  try {
+    root = (await navigator.storage.getDirectory()) as FileSystemDirectoryHandle & {
+      keys?: () => AsyncIterable<string>;
+    };
+  } catch (error) {
+    logger.warn('Failed to open OPFS root during Turso browser WASM reset', { error });
+    return [{ error, operation: 'getDirectory', target: 'opfs-turso-browser-wasm' }];
+  }
+
+  const failures: ClearPersistentUiStateFailure[] = [];
+  const names: string[] = [];
+  if (typeof root.keys === 'function') {
+    try {
+      for await (const name of root.keys()) {
+        if (OPFS_TURSO_BROWSER_WASM_FILE_RE.test(name)) {
+          names.push(name);
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to enumerate OPFS root; falling back to known Turso browser files', {
+        error,
+      });
+      failures.push({ error, operation: 'enumerate', target: 'opfs-turso-browser-wasm' });
+    }
+  }
+  if (names.length === 0) {
+    names.push(...FALLBACK_OPFS_TURSO_BROWSER_WASM_FILE_NAMES);
+  }
+
+  const opfsRoot = root;
+  const removalResults = await Promise.all(
+    [...new Set(names)].map(async (name): Promise<ClearPersistentUiStateFailure | null> => {
+      try {
+        await opfsRoot.removeEntry(name);
+        return null;
+      } catch (error) {
+        if (isMissingStorageEntryError(error)) {
+          return null;
+        }
+        return {
+          error,
+          name,
+          operation: 'removeEntry',
+          target: 'opfs-turso-browser-wasm',
+        } satisfies ClearPersistentUiStateFailure;
+      }
+    })
+  );
+  const removalFailures = removalResults.filter(
+    (failure): failure is ClearPersistentUiStateFailure => failure !== null
+  );
+  return [...failures, ...removalFailures];
+}
+
 function isMissingStorageEntryError(error: unknown): boolean {
   if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
     return error.name === 'NotFoundError';
@@ -332,6 +409,7 @@ async function collectPersistentUiStateResetFailures(
       .then(noFailures)
       .catch((error: unknown) => [{ error, operation: 'clear', target: 'cache-storage' }]),
     clearOpfsPGliteStores(),
+    clearOpfsTursoBrowserWasmStores(),
   ];
   if (!skipIndexedDb) {
     tasks.push(clearIndexedDbDatabases().then(noFailures));

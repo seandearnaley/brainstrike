@@ -313,6 +313,31 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     expect(removed).not.toContain('some-other-lib');
   });
 
+  it('removes browser Turso WASM OPFS database files and sidecars without sweeping unrelated files', async () => {
+    async function* keys(): AsyncGenerator<string> {
+      yield 'brainstrike-web-turso.db';
+      yield 'brainstrike-web-turso.db-wal';
+      yield 'brainstrike-web-turso.db-shm';
+      yield 'some-other-lib.db';
+    }
+    Object.defineProperty(nav, 'storage', {
+      configurable: true,
+      value: { getDirectory: vi.fn(async () => ({ keys, removeEntry })) },
+    });
+
+    await clearPersistentUiState();
+
+    const removed = removeEntry.mock.calls.map(([name]) => name);
+    expect(removed).toEqual(
+      expect.arrayContaining([
+        'brainstrike-web-turso.db',
+        'brainstrike-web-turso.db-wal',
+        'brainstrike-web-turso.db-shm',
+      ])
+    );
+    expect(removed).not.toContain('some-other-lib.db');
+  });
+
   it('reports incomplete reset results when an OPFS pglite directory cannot be removed', async () => {
     const resetFailure = new Error('locked opfs directory');
     removeEntry.mockImplementation(async (name: string) => {
@@ -348,12 +373,20 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
 
     expect(removeEntry).toHaveBeenCalledWith('app-pg18', { recursive: true });
     expect(result.success).toBe(false);
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]).toMatchObject({
-      error: enumerateFailure,
-      operation: 'enumerate',
-      target: 'opfs-pglite',
-    });
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          error: enumerateFailure,
+          operation: 'enumerate',
+          target: 'opfs-pglite',
+        }),
+        expect.objectContaining({
+          error: enumerateFailure,
+          operation: 'enumerate',
+          target: 'opfs-turso-browser-wasm',
+        }),
+      ])
+    );
   });
 
   it('rejects the void reset API when OPFS cleanup is incomplete', async () => {

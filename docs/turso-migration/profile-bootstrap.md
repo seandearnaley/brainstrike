@@ -45,10 +45,11 @@ browser provider until a current real-engine smoke passes the full list above.
 
 This readiness report is not a production web-storage switch by itself. Browser
 `DbProvider` storage remains on PGlite until provider integration,
-reset/backup ownership, offline behavior, and runtime parity tests are wired for
-the Turso WASM path. Turso live-query capability is still false; browser
-surfaces must use proven repository snapshot paths or fail closed with
-diagnostics.
+backup/export ownership, offline behavior, and runtime parity tests are wired
+for the Turso WASM path. Factory reset now owns the planned browser Turso WASM
+OPFS database file and sidecars; it is not a provider cutover. Turso live-query
+capability is still false; browser surfaces must use proven repository snapshot
+paths or fail closed with diagnostics.
 
 Desktop now runs the Turso profile bootstrap path by default when
 `BRAINSTRIKE_DB_RUNTIME` is unset, even if the active profile already contains a
