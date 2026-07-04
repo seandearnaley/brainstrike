@@ -96,6 +96,19 @@ export default defineConfig({
         },
       },
       {
+        // Inline projects do not inherit the top-level Vite options (same
+        // reason resolve.alias is duplicated above), so the Turso WASM
+        // optimizeDeps exclusions and the NODE_DEBUG_NATIVE define are
+        // declared again here. Without the exclusions the dep optimizer
+        // bundles @tursodatabase/database-wasm into one esbuild artifact that
+        // leaves @tybys/wasm-util as a bare import, which fails at runtime
+        // with "Failed to fetch dynamically imported module" on store open.
+        define: {
+          'process.env.NODE_DEBUG_NATIVE': 'false',
+        },
+        optimizeDeps: {
+          exclude: ['@tursodatabase/database-wasm', '@tursodatabase/database-wasm-common'],
+        },
         resolve: {
           alias: sharedAliases,
         },
@@ -128,7 +141,9 @@ export default defineConfig({
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
           },
-          testTimeout: 30_000,
+          // Turso browser WASM worker/OPFS startup is slow; upstream turso's
+          // own browser suite runs with a 120s timeout for the same reason.
+          testTimeout: 120_000,
           hookTimeout: 30_000,
         },
       },

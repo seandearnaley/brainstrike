@@ -95,6 +95,7 @@ export const dbUnitLaneDefinitions = [
       /^shared-helpers\.test\.ts$/,
       /^use-/,
       /^validate-embedding-batch\.test\.ts$/,
+      /^vitest-browser-project-config\.test\.ts$/,
       /^wasm-loader/,
     ],
   },
