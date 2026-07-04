@@ -68,6 +68,7 @@ export const dbUnitLaneDefinitions = [
       /^turso-capability-spike\.test\.ts$/,
       /^turso-owner-client\.test\.ts$/,
       /^turso-browser-wasm-bootstrap\.test\.ts$/,
+      /^turso-browser-wasm-bootstrap-worker-init\.test\.ts$/,
       /^turso-profile-bootstrap\.test\.ts$/,
       /^turso-schema-baseline\.test\.ts$/,
       /^uuidv7-primary-keys\.integration\.test\.ts$/,

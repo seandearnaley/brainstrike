@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbQueryResult,
@@ -105,6 +106,20 @@ const DEFAULT_RUNTIME: ProfileBootstrapRuntime = {
   persistence: 'opfs',
 };
 
+const logger = createLogger('DB:TursoBrowserWasmBootstrap');
+
+/**
+ * turso's connect() -> initThreadPool() exercises @emnapi/core's async-work
+ * pool, whose initWorkers has an unguarded `PThread.pthreads[tid].whenLoaded`
+ * dereference (with a negative-index `>>>= 0` fallthrough). On slow hosts that
+ * startup race surfaces as `TypeError: Cannot read properties of undefined
+ * (reading 'whenLoaded')` during store open. It is transient vendor-glue
+ * fragility, so store open retries ONLY that narrow signature a bounded number
+ * of times (logged, never silent) and fails closed on every other error.
+ */
+const WORKER_INIT_FAULT_SIGNATURE = 'whenLoaded';
+const MAX_WORKER_INIT_RETRIES = 2;
+
 const TURSO_BROWSER_SPLIT_SEARCH_OWNERSHIP: ProfileBootstrapSearchOwnership = {
   indexedSearch: 'available',
   message:
@@ -140,8 +155,18 @@ export async function runTursoBrowserWasmBootstrap(
 
     phase = 'opening-store';
     currentCheckId = 'store.open';
-    db = await openDatabase(options.dbPath);
-    checks = setCheck(checks, 'store.open', 'passed');
+    const storeOpen = await openStoreWithBoundedWorkerInitRetry(openDatabase, options.dbPath);
+    db = storeOpen.database;
+    checks = setCheck(
+      checks,
+      'store.open',
+      'passed',
+      storeOpen.retries > 0
+        ? `Store opened after ${storeOpen.retries} bounded ${
+            storeOpen.retries === 1 ? 'retry' : 'retries'
+          } of the upstream emnapi worker-init fault.`
+        : undefined
+    );
 
     phase = 'probing-capabilities';
     currentCheckId = 'primary-store.mvcc';
@@ -220,6 +245,52 @@ async function openBrowserTursoWasmDatabase(
   dbPath: string
 ): Promise<TursoBrowserWasmBootstrapDatabase> {
   return openTursoBrowserWasmDatabase({ path: dbPath });
+}
+
+interface StoreOpenOutcome {
+  readonly database: TursoBrowserWasmBootstrapDatabase;
+  readonly retries: number;
+}
+
+function isEmnapiWorkerInitFault(error: unknown): error is TypeError {
+  return error instanceof TypeError && error.message.includes(WORKER_INIT_FAULT_SIGNATURE);
+}
+
+async function openStoreWithBoundedWorkerInitRetry(
+  openDatabase: (dbPath: string) => Promise<TursoBrowserWasmBootstrapDatabase>,
+  dbPath: string
+): Promise<StoreOpenOutcome> {
+  let lastWorkerInitFault: TypeError | null = null;
+  for (let attempt = 0; attempt <= MAX_WORKER_INIT_RETRIES; attempt += 1) {
+    try {
+      const database = await openDatabase(dbPath);
+      return { database, retries: attempt };
+    } catch (error) {
+      if (!isEmnapiWorkerInitFault(error)) {
+        // Only the narrow emnapi worker-init startup race is retryable; every
+        // other open error fails closed immediately (no blanket retries).
+        throw error;
+      }
+      lastWorkerInitFault = error;
+      if (attempt < MAX_WORKER_INIT_RETRIES) {
+        logger.warn(
+          'Turso browser WASM store open hit the upstream emnapi worker-init startup race; retrying.',
+          {
+            attempt: attempt + 1,
+            fault: error.message,
+            maxRetries: MAX_WORKER_INIT_RETRIES,
+          }
+        );
+      }
+    }
+  }
+  throw new Error(
+    'Turso browser WASM store open kept failing with the upstream emnapi worker-init fault ' +
+      `(@emnapi/core initWorkers '${WORKER_INIT_FAULT_SIGNATURE}' startup race) and ` +
+      `${MAX_WORKER_INIT_RETRIES} bounded retries were exhausted: ${
+        lastWorkerInitFault?.message ?? 'unknown worker-init fault'
+      }`
+  );
 }
 
 function createBrowserWasmExecutionClient(
