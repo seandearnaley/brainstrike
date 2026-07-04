@@ -233,9 +233,11 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(migrationLedger).toContain(
       '#1465 `docs(turso): reconcile ledger after browser runtime guard`'
     );
+    expect(migrationLedger).toContain('#1466 `fix(desktop): make unset legacy profiles use turso`');
     expect(migrationLedger).toContain('web Vite Node server');
     expect(migrationLedger).toContain('direct PGlite import guardrail');
-    expect(migrationLedger).toContain('Current desktop PGlite-retirement slice');
+    expect(migrationLedger).toContain('Current AGENTS embedding architecture docs slice');
+    expect(migrationLedger).toContain('Recently completed desktop PGlite-retirement slice');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
     expect(migrationLedger).toContain('quick-open filename lookup uses `file_record_name_grams`');
     expect(migrationLedger).not.toContain('In-flight slice on this branch');
@@ -246,6 +248,7 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(migrationLedger).not.toContain('through #1460 at `61c933af`');
     expect(migrationLedger).not.toContain('through #1461 at `2d1777864`');
     expect(migrationLedger).not.toContain('through #1464 at `71b9952a`');
+    expect(migrationLedger).not.toContain('through #1465 at `c0140f600`');
     expect(migrationLedger).not.toContain('feature head `23d2ac3d`');
     expect(migrationLedger).not.toContain('post-#1456 branch');
     expect(migrationLedger).not.toContain('post-#1458 branch');
@@ -253,7 +256,8 @@ describe('Turso primary-store lexical search quality profile', () => {
     expect(migrationLedger).not.toContain('post-#1460 branch');
     expect(migrationLedger).not.toContain('post-#1461 branch');
     expect(migrationLedger).not.toContain('post-#1462 branch');
-    expect(migrationLedger).toContain('post-#1464 branch');
+    expect(migrationLedger).not.toContain('post-#1464 branch');
+    expect(migrationLedger).toContain('post-#1466 branch');
     expect(migrationLedger).toContain(
       'explicit PGlite reset recreates `<profile>/pgdata`; Turso and unset-runtime reset recreate only `<profile>`'
     );
