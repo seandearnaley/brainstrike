@@ -379,6 +379,13 @@ product has an explicit browser-local replacement, remote-only mode, or browser
 support change. #1465 reconciled this ledger after the browser-runtime guard,
 and #1466 removed the remaining implicit existing-`pgdata` desktop runtime
 selection gate.
+Proposed decision records for the release-readiness and product-decision
+items below live in `docs/turso-migration/2026-07-04-release-decisions.md`
+(DR-1 MVCC acceptance, DR-2 queue-topology thresholds, DR-3 vector exact-scan
+budget, DR-4 gram-vs-FTS, DR-5 desktop PGlite retirement, DR-6 live-query
+stance). All six were ACCEPTED by Sean Dearnaley on 2026-07-04; each record
+names its own review trigger.
+
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus
