@@ -39,7 +39,7 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
   'Browser Turso WASM has a dedicated bootstrap readiness report',
-  'Browser PGlite remains only until the WASM runtime has provider integration, reset/backup ownership, and runtime parity tests',
+  'Browser PGlite remains only until the WASM runtime has provider integration, backup/export ownership, offline behavior, and runtime parity tests',
 ] as const;
 
 const REJECTED_LEDGER_PHRASES = [
@@ -200,11 +200,15 @@ describe('browser runtime ownership guardrails', () => {
       'utf8'
     );
 
+    // Prose in the ledger is hard-wrapped, so phrase checks must survive
+    // re-wrapping; only real wording changes should fail this guardrail.
+    const normalizedLedger = ledger.replace(/\s+/g, ' ');
+
     for (const phrase of REQUIRED_LEDGER_PHRASES) {
-      expect(ledger).toContain(phrase);
+      expect(normalizedLedger).toContain(phrase.replace(/\s+/g, ' '));
     }
     for (const phrase of REJECTED_LEDGER_PHRASES) {
-      expect(ledger).not.toContain(phrase);
+      expect(normalizedLedger).not.toContain(phrase.replace(/\s+/g, ' '));
     }
   });
 
