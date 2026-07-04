@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-03 on `codex/turso-pglite-retirement-scan-20260703`,
+Last updated: 2026-07-03 on `codex/turso-embedding-architecture-docs-20260703`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -10,10 +10,12 @@ as the implementation backlog.
 ## Current Branch State
 
 `feature/turso-migration` currently contains merged Turso migration slices
-through #1465 at `c0140f600`. The branch migrates the web Vite Node server's
-Mastra workflow-storage singleton to embedded Turso. This current desktop
-retirement slice makes unset desktop runtime selection use Turso even when a
-legacy `<profile>/pgdata` directory exists. Explicit desktop PGlite
+through #1466 at `0a89f4a14`. The branch migrates the web Vite Node server's
+Mastra workflow-storage singleton to embedded Turso, and desktop unset-runtime
+profiles now select Turso even when a legacy `<profile>/pgdata` directory
+exists. This current docs guardrail slice refreshes the root `AGENTS.md`
+embedding-host wording so it describes runtime-owned worker storage instead of
+a PGlite-only queue path. Explicit desktop PGlite
 compatibility remains available only with `BRAINSTRIKE_DB_RUNTIME=pglite`,
 explicit Turso remains available with `BRAINSTRIKE_DB_RUNTIME=turso`, and
 browser/client DB storage remains PGlite-backed by an explicit, tested
@@ -176,8 +178,15 @@ Merged slices:
 - #1463 `feat(web): use Turso for web Mastra storage`
 - #1464 `test(turso): guard browser runtime ownership`
 - #1465 `docs(turso): reconcile ledger after browser runtime guard`
+- #1466 `fix(desktop): make unset legacy profiles use turso`
 
-Current desktop PGlite-retirement slice: unset desktop runtime selection now
+Current AGENTS embedding architecture docs slice: root `AGENTS.md` no longer
+describes the hidden embedding host as pulling exclusively from a PGlite-backed
+`job_queue`. It documents runtime-specific embedding worker storage, the
+PGlite/browser queue path, the desktop Turso embedding worker adapter, and the
+DB-host owner IPC/action boundary for Turso queue mutations.
+
+Recently completed desktop PGlite-retirement slice: unset desktop runtime selection now
 chooses Turso even when a legacy `<profile>/pgdata` directory exists. Existing
 `pgdata` is no longer a runtime-selection signal. Explicit desktop PGlite
 compatibility remains available with `BRAINSTRIKE_DB_RUNTIME=pglite`, and
@@ -298,7 +307,7 @@ Ledger reconciliation pass (2026-07-03): compared this ledger with
 prior ledger pass. The remaining-work sections below should not re-list those
 slices as TODO unless they name a concrete follow-up still absent from code.
 
-Ledger reconciliation checkpoint (2026-07-03, post-#1464 branch): the
+Ledger reconciliation checkpoint (2026-07-03, post-#1466 branch): the
 `db:clearAll` real-engine proof is now merged, not a separate future slice. The
 raw queue purge helper removal, live-query sweep, Turso vector memory parity,
 reset-directory recreation, and assistant `brainstrike.hybridSearch` wrapper
@@ -334,7 +343,9 @@ dependency-removal pass. #1463 moved the web Vite Node server's Mastra storage
 singleton to embedded Turso. #1464 codified the browser runtime boundary: the
 browser DB bundle must not import Turso/libSQL database clients until the
 product has an explicit browser-local replacement, remote-only mode, or browser
-support change.
+support change. #1465 reconciled this ledger after the browser-runtime guard,
+and #1466 removed the remaining implicit existing-`pgdata` desktop runtime
+selection gate.
 The verified remaining backlog is now:
 
 - product search-quality decision for primary-store gram lexical search versus

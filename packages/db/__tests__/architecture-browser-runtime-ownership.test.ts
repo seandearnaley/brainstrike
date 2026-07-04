@@ -175,6 +175,16 @@ describe('browser runtime ownership guardrails', () => {
     }
   });
 
+  it('keeps root AGENTS embedding-host storage wording aligned with runtime ownership', () => {
+    const agents = readFileSync(path.join(REPO_ROOT, 'AGENTS.md'), 'utf8');
+
+    expect(agents).not.toMatch(
+      /Hidden host renderer[\s\S]*It pulls jobs from the PGlite-backed `job_queue`\./
+    );
+    expect(agents).toContain('The hidden host selects runtime-specific embedding worker storage.');
+    expect(agents).toContain('Desktop Turso queue mutations go through DB-host owner IPC/actions.');
+  });
+
   it('keeps Turso and libSQL database clients out of browser DB bundle entrypoints', () => {
     expect(findTursoBrowserDbClientImports()).toEqual([]);
   });

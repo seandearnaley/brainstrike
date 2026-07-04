@@ -165,7 +165,11 @@ Flow:
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
-   - It pulls jobs from the PGlite-backed `job_queue`.
+   - The hidden host selects runtime-specific embedding worker storage.
+     Explicit PGlite/browser storage reads the PGlite-backed `job_queue`,
+     while desktop Turso uses the Turso embedding worker adapter and owner-client
+     IPC/action surfaces.
+   - Desktop Turso queue mutations go through DB-host owner IPC/actions.
    - Local models still execute in browser/Web Worker context only.
 2. Visible renderer
    - File: packages/vector-management/src/vector-status/use-embedding-worker-controls.ts
@@ -179,8 +183,11 @@ Flow:
    - Visible window uses default background throttling; only the hidden host disables throttling.
    - `powerSaveBlocker` is allowed only while the hidden host reports active embedding work.
 4. Job Queue
-   - File: packages/db/src/queue/job-queue.ts
-   - Backed by job_queue table.
+   - Files:
+     - packages/db/src/queue/job-queue.ts (PGlite/Postgres queue implementation)
+     - packages/db/src/queue/turso-job-queue.ts (Turso queue implementation)
+     - packages/embeddings/src/worker/embedding-worker-storage.ts (runtime storage port)
+   - Backed by the runtime-owned `job_queue` table.
    - Lease-based locking, retries, dedupe, failure tracking.
 
 Foreground query coordination (desktop):
