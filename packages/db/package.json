@@ -10,6 +10,7 @@
     "@electric-sql/pglite": "0.5.1",
     "@electric-sql/pglite-pgvector": "0.0.2",
     "@tursodatabase/database": "^0.6.1",
+    "@tursodatabase/database-wasm": "^0.6.1",
     "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
@@ -63,6 +64,11 @@
       "types": "./dist/turso/schema-baseline.d.ts",
       "import": "./dist/turso/schema-baseline.js",
       "require": "./dist/turso/schema-baseline.js"
+    },
+    "./turso/browser-wasm-client": {
+      "types": "./dist/turso/browser-wasm-client.d.ts",
+      "import": "./dist/turso/browser-wasm-client.js",
+      "require": "./dist/turso/browser-wasm-client.js"
     }
   },
   "files": [

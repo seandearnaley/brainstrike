@@ -17,7 +17,7 @@ const SKIPPED_DIRECTORIES = new Set([
   'test-results',
 ]);
 const TURSO_BROWSER_DB_CLIENT_IMPORT_PATTERN =
-  /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@tursodatabase\/(?:database|sync|serverless)|@libsql\/client(?:\/web)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@tursodatabase\/(?:database|sync|serverless)|@libsql\/client(?:\/web)?)['"]\s*\)/g;
+  /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@tursodatabase\/(?:database(?:-wasm)?(?:\/(?:vite|bundle|turbopack))?|sync|serverless)|@libsql\/client(?:\/web)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@tursodatabase\/(?:database(?:-wasm)?(?:\/(?:vite|bundle|turbopack))?|sync|serverless)|@libsql\/client(?:\/web)?)['"]\s*\)/g;
 const LOCAL_STATIC_SPECIFIER_PATTERN =
   /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<specifier>\.{1,2}\/[^'"]+)['"]/g;
 
@@ -28,16 +28,31 @@ const BROWSER_BUNDLE_ENTRYPOINTS = [
   'packages/db/src/db-provider.tsx',
   'packages/db/src/index.ts',
   'packages/db/src/pglite-worker-entry.ts',
+  'packages/db/src/turso/browser-wasm-client.ts',
   'packages/db/src/wasm-loader.ts',
 ] as const;
 
 const REQUIRED_LEDGER_PHRASES = [
   '## Browser Runtime Ownership Decision',
-  'Current browser/client DB storage remains PGlite-backed by design',
-  '@tursodatabase/database and @tursodatabase/sync are not browser-local storage replacements',
+  'Current browser/client DB storage is entering a staged Turso WASM migration',
+  '`@tursodatabase/database-wasm` is the only approved browser-local Turso database package',
+  '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
+  'Browser PGlite remains only until the WASM runtime has bootstrap readiness, reset/backup ownership, and runtime parity tests',
+] as const;
+
+const REJECTED_LEDGER_PHRASES = [
+  'The current official Turso TypeScript docs do not provide an equivalent browser-local embedded database surface',
   'The final PGlite dependency-removal pass is blocked until browser-local storage has a supported Turso replacement or browser support is explicitly dropped',
 ] as const;
+
+const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([
+  ['packages/db/src/turso/browser-wasm-client.ts', ['@tursodatabase/database-wasm/vite']],
+]);
+const REQUIRED_CROSS_ORIGIN_HEADERS = {
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+} as const;
 
 interface BrowserDbClientImport {
   readonly relativePath: string;
@@ -154,12 +169,26 @@ function findTursoBrowserDbClientImportsFromFiles(
   return imports;
 }
 
+function uniqueBrowserDbClientImports(
+  imports: readonly BrowserDbClientImport[]
+): BrowserDbClientImport[] {
+  const seen = new Set<string>();
+  return imports.filter((entry) => {
+    const key = `${entry.relativePath}\0${entry.specifier}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 function findTursoBrowserDbClientImports(): BrowserDbClientImport[] {
   // This is a deliberate browser entrypoint allowlist: add new browser DB
   // entrypoints here when the runtime surface changes. Server-only web code
   // belongs outside this list because it may legitimately use Turso directly.
-  return findTursoBrowserDbClientImportsFromFiles(
-    BROWSER_BUNDLE_ENTRYPOINTS.flatMap(listSourceFiles)
+  return uniqueBrowserDbClientImports(
+    findTursoBrowserDbClientImportsFromFiles(BROWSER_BUNDLE_ENTRYPOINTS.flatMap(listSourceFiles))
   );
 }
 
@@ -173,6 +202,20 @@ describe('browser runtime ownership guardrails', () => {
     for (const phrase of REQUIRED_LEDGER_PHRASES) {
       expect(ledger).toContain(phrase);
     }
+    for (const phrase of REJECTED_LEDGER_PHRASES) {
+      expect(ledger).not.toContain(phrase);
+    }
+  });
+
+  it('pins the Turso browser WASM package in the DB package dependency graph', () => {
+    const dbPackage = JSON.parse(
+      readFileSync(path.join(DB_PACKAGE_ROOT, 'package.json'), 'utf8')
+    ) as {
+      readonly dependencies?: Record<string, string>;
+    };
+
+    expect(dbPackage.dependencies?.['@tursodatabase/database']).toBe('^0.6.1');
+    expect(dbPackage.dependencies?.['@tursodatabase/database-wasm']).toBe('^0.6.1');
   });
 
   it('keeps root AGENTS embedding-host storage wording aligned with runtime ownership', () => {
@@ -185,11 +228,16 @@ describe('browser runtime ownership guardrails', () => {
     expect(agents).toContain('Desktop Turso queue mutations go through DB-host owner IPC/actions.');
   });
 
-  it('keeps Turso and libSQL database clients out of browser DB bundle entrypoints', () => {
-    expect(findTursoBrowserDbClientImports()).toEqual([]);
+  it('allows only the owned Turso WASM client seam in browser DB bundle entrypoints', () => {
+    expect(findTursoBrowserDbClientImports()).toEqual(
+      [...APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS.entries()].map(([relativePath, specifiers]) => ({
+        relativePath,
+        specifier: specifiers[0],
+      }))
+    );
   });
 
-  it('detects Turso and libSQL clients re-exported from browser-facing barrels', () => {
+  it('detects non-WASM Turso and libSQL clients re-exported from browser-facing barrels', () => {
     expect(
       extractTursoBrowserDbClientImports(
         "export { createClient } from '@libsql/client/web';",
@@ -226,5 +274,62 @@ describe('browser runtime ownership guardrails', () => {
         specifier: '@tursodatabase/database',
       },
     ]);
+  });
+
+  it('classifies approved browser WASM imports separately from rejected Turso clients', () => {
+    expect(
+      extractTursoBrowserDbClientImports(
+        "import { connect } from '@tursodatabase/database-wasm/vite';",
+        'packages/db/src/turso/browser-wasm-client.ts'
+      )
+    ).toEqual([
+      {
+        relativePath: 'packages/db/src/turso/browser-wasm-client.ts',
+        specifier: '@tursodatabase/database-wasm/vite',
+      },
+    ]);
+  });
+
+  it('keeps web dev preview and Vercel responses cross-origin isolated for browser WASM', () => {
+    const viteConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/vite.config.mts'), 'utf8');
+    const vercelConfig = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, 'apps/web/vercel.json'), 'utf8')
+    ) as {
+      readonly headers?: Array<{
+        readonly headers?: Array<{ readonly key?: string; readonly value?: string }>;
+        readonly source?: string;
+      }>;
+    };
+
+    for (const [header, value] of Object.entries(REQUIRED_CROSS_ORIGIN_HEADERS)) {
+      expect(viteConfig).toMatch(
+        new RegExp(
+          `server:\\s*{[\\s\\S]*headers:\\s*{[\\s\\S]*['"]${header}['"]:\\s*['"]${value}['"]`
+        )
+      );
+      expect(viteConfig).toMatch(
+        new RegExp(
+          `preview:\\s*{[\\s\\S]*headers:\\s*{[\\s\\S]*['"]${header}['"]:\\s*['"]${value}['"]`
+        )
+      );
+    }
+
+    const allRouteHeaders = vercelConfig.headers?.find((entry) => entry.source === '/(.*)');
+    expect(allRouteHeaders, 'apps/web/vercel.json must define all-route headers').toBeTruthy();
+    const productionHeaders = new Map(
+      allRouteHeaders?.headers?.map((entry) => [entry.key, entry.value]) ?? []
+    );
+    expect(Object.fromEntries(productionHeaders)).toMatchObject(REQUIRED_CROSS_ORIGIN_HEADERS);
+  });
+
+  it('keeps Turso browser WASM packages out of Vite dependency prebundling', () => {
+    const viteConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/vite.config.mts'), 'utf8');
+
+    expect(viteConfig).toMatch(
+      /optimizeDeps:\s*{[\s\S]*exclude:\s*\[[\s\S]*['"]@tursodatabase\/database-wasm['"]/
+    );
+    expect(viteConfig).toMatch(
+      /optimizeDeps:\s*{[\s\S]*exclude:\s*\[[\s\S]*['"]@tursodatabase\/database-wasm-common['"]/
+    );
   });
 });

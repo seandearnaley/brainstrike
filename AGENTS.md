@@ -166,9 +166,11 @@ Flow:
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - The hidden host selects runtime-specific embedding worker storage.
-     Explicit PGlite/browser storage reads the PGlite-backed `job_queue`,
-     while desktop Turso uses the Turso embedding worker adapter and owner-client
-     IPC/action surfaces.
+     Current explicit PGlite storage and the current browser storage path read
+     the PGlite-backed `job_queue`; a browser-local Turso replacement may use
+     only the separate `@tursodatabase/database-wasm` browser runtime contract
+     after capability/reset/offline proof. Desktop Turso uses the Turso
+     embedding worker adapter and owner-client IPC/action surfaces.
    - Desktop Turso queue mutations go through DB-host owner IPC/actions.
    - Local models still execute in browser/Web Worker context only.
 2. Visible renderer
@@ -475,10 +477,10 @@ empty `<profile>/pgdata` directory that pins the reset profile back to PGlite.
 Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` still recreates `<profile>/pgdata`.
 
 Rules:
-- Desktop owns the long-lived Turso owner client through the DB host. Renderers
-  and hidden hosts must not construct independent mutation repositories or
-  `TursoJobQueue` instances; transaction-capable writes go through explicit
-  owner-client IPC/actions.
+- Desktop owns the long-lived Turso owner client through the DB host. Desktop
+  renderers and desktop hidden hosts must not construct independent mutation
+  repositories or `TursoJobQueue` instances; transaction-capable writes go
+  through explicit owner-client IPC/actions.
 - The typed profile/bootstrap readiness report is the authority for Turso
   capabilities. Search, vector, live query, schema readiness, and diagnostics
   must be gated by that report or by concrete repository capabilities, never by

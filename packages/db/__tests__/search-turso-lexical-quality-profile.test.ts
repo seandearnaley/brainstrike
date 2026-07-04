@@ -234,9 +234,15 @@ describe('Turso primary-store lexical search quality profile', () => {
       '#1465 `docs(turso): reconcile ledger after browser runtime guard`'
     );
     expect(migrationLedger).toContain('#1466 `fix(desktop): make unset legacy profiles use turso`');
+    expect(migrationLedger).toContain(
+      '#1467 `docs(turso): refresh embedding runtime architecture`'
+    );
     expect(migrationLedger).toContain('web Vite Node server');
     expect(migrationLedger).toContain('direct PGlite import guardrail');
-    expect(migrationLedger).toContain('Current AGENTS embedding architecture docs slice');
+    expect(migrationLedger).toContain('Current browser-WASM capability slice');
+    expect(migrationLedger).toContain(
+      'Recently completed AGENTS embedding architecture docs slice'
+    );
     expect(migrationLedger).toContain('Recently completed desktop PGlite-retirement slice');
     expect(migrationLedger).toContain('Turso Lexical Search Decision Boundary');
     expect(migrationLedger).toContain('quick-open filename lookup uses `file_record_name_grams`');
