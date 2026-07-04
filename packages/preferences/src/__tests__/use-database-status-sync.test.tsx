@@ -36,6 +36,9 @@ describe('useDatabaseStatusSync', () => {
     mockUseOptionalProfileBootstrapReport.mockReset();
     mockUseOptionalDbInitializationStatus.mockReturnValue('idle');
     mockUseOptionalProfileBootstrapReport.mockReturnValue({
+      // PGlite bootstraps do not declare store write capabilities (matches the
+      // real producers, which leave createProfileBootstrapReport's default).
+      capabilities: null,
       checks: [],
       failure: null,
       phase: 'opening-store',
@@ -100,6 +103,8 @@ describe('useDatabaseStatusSync', () => {
     mockUseOptionalDbInitializationStatus.mockReturnValue('ready');
     mockUseFileRecordRepository.mockReturnValue(null);
     mockUseOptionalProfileBootstrapReport.mockReturnValue({
+      // Desktop/native Turso reports the MVCC concurrent-write contract.
+      capabilities: { concurrentWrites: true, journalMode: 'mvcc' },
       checks: [],
       failure: null,
       phase: 'ready',
@@ -133,6 +138,8 @@ describe('useDatabaseStatusSync', () => {
     mockUseOptionalDbInitializationStatus.mockReturnValue('ready');
     mockUseFileRecordRepository.mockReturnValue({} as FileRecordRepository);
     mockUseOptionalProfileBootstrapReport.mockReturnValue({
+      // Desktop/native Turso reports the MVCC concurrent-write contract.
+      capabilities: { concurrentWrites: true, journalMode: 'mvcc' },
       checks: [],
       failure: null,
       phase: 'ready',

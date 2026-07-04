@@ -5,7 +5,10 @@ import type {
   BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { markBrainstrikeDbExecutionRuntime } from '../architecture/brainstrike-db-client-contract.js';
-import type { TursoBrowserWasmDatabase } from '../turso/browser-wasm-client.js';
+import type {
+  TursoBrowserWasmDatabase,
+  TursoBrowserWasmStatement,
+} from '../turso/browser-wasm-client.js';
 import { openTursoBrowserWasmDatabase } from '../turso/browser-wasm-client.js';
 import { applyTursoSchemaBaseline } from '../turso/schema-baseline.js';
 import {
@@ -18,6 +21,7 @@ import {
   type ProfileBootstrapReport,
   type ProfileBootstrapRuntime,
   type ProfileBootstrapSearchOwnership,
+  type ProfileBootstrapStoreCapabilities,
 } from './profile-bootstrap-report.js';
 
 export interface TursoBrowserWasmBootstrapReport {
@@ -36,20 +40,39 @@ export interface TursoBrowserWasmBootstrapOptions {
   readonly runtime?: ProfileBootstrapRuntime;
 }
 
-type TursoBrowserWasmBootstrapDatabase = Pick<
-  TursoBrowserWasmDatabase,
-  'close' | 'exec' | 'prepare'
+/**
+ * Narrowed injectable seam: the bootstrap only calls all/run/close on
+ * prepared statements, so the seam accepts any statement carrying just those
+ * members instead of the full vendor `Statement` class (whose private fields
+ * make honest test mocks impossible). The real vendor Database stays
+ * assignable via covariant `prepare` returns.
+ */
+export type TursoBrowserWasmBootstrapStatement = Pick<
+  TursoBrowserWasmStatement,
+  'all' | 'close' | 'run'
 >;
 
-type TursoBrowserWasmBootstrapStatement = Awaited<
-  ReturnType<TursoBrowserWasmBootstrapDatabase['prepare']>
->;
+export interface TursoBrowserWasmBootstrapDatabase
+  extends Pick<TursoBrowserWasmDatabase, 'close' | 'exec'> {
+  readonly prepare: (sql: string) => Promise<TursoBrowserWasmBootstrapStatement>;
+}
+
+/**
+ * Browser Turso WASM execution client: single-writer WAL semantics, so BOTH
+ * transaction() and exclusiveTransaction() run plain `BEGIN` (never the
+ * MVCC-only `BEGIN CONCURRENT`).
+ */
+export interface TursoBrowserWasmExecutionClient extends BrainstrikeDbExecutionClient {
+  readonly exclusiveTransaction: <TResult>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+  ) => Promise<TResult>;
+}
 
 type TursoBrowserWasmBootstrapCheckId =
   | 'browser.cross-origin-isolated'
   | 'browser.opfs'
   | 'browser.runtime'
-  | 'primary-store.mvcc'
+  | 'primary-store.journal-mode'
   | 'schema.baseline'
   | 'search.grep-content-grams'
   | 'search.ownership'
@@ -73,8 +96,8 @@ const CHECK_DEFINITIONS: readonly CheckDefinition[] = [
   { id: 'browser.opfs', label: 'Browser OPFS storage is available', required: true },
   { id: 'store.open', label: 'Browser Turso WASM store opens', required: true },
   {
-    id: 'primary-store.mvcc',
-    label: 'Browser Turso WASM store enables MVCC concurrent-write mode',
+    id: 'primary-store.journal-mode',
+    label: 'Browser Turso WASM store reports the WAL journal mode',
     required: true,
   },
   {
@@ -123,8 +146,25 @@ const MAX_WORKER_INIT_RETRIES = 2;
 const TURSO_BROWSER_SPLIT_SEARCH_OWNERSHIP: ProfileBootstrapSearchOwnership = {
   indexedSearch: 'available',
   message:
-    'Browser Turso WASM primary store requires explicitly owned gram/vector search tables; live query remains unavailable.',
+    'Browser Turso WASM primary store is single-writer (WAL journal mode, plain BEGIN transactions) and requires explicitly owned gram/vector search tables; live query remains unavailable.',
   ownershipMode: 'split-search-index-store',
+};
+
+/**
+ * Browser journal-mode contract: the store must report WAL and concurrent
+ * writes stay disabled. `PRAGMA journal_mode = 'mvcc'` must NEVER be issued in
+ * the browser — every published @tursodatabase/database-wasm build (verified
+ * on 0.6.1 and 0.7.0-pre.17) panics on it (Rust RefCell BorrowError ->
+ * `unreachable` wasm trap) and the trap WEDGES the wasm instance: even a
+ * follow-up `PRAGMA journal_mode = 'wal'` hangs afterwards. Separately, the
+ * browser OPFS VFS never registers MVCC's `<db>.db-log` file, so MVCC cannot
+ * open in the browser today. Native/desktop Turso keeps the MVCC + BEGIN
+ * CONCURRENT invariant (see turso-profile-bootstrap.ts); it is untouched by
+ * this contract.
+ */
+const TURSO_BROWSER_WASM_STORE_CAPABILITIES: ProfileBootstrapStoreCapabilities = {
+  concurrentWrites: false,
+  journalMode: 'wal',
 };
 
 export async function runTursoBrowserWasmBootstrap(
@@ -172,15 +212,17 @@ export async function runTursoBrowserWasmBootstrap(
     );
 
     phase = 'probing-capabilities';
-    currentCheckId = 'primary-store.mvcc';
-    await runTursoBrowserWasmSql(db, "PRAGMA journal_mode = 'mvcc'");
+    currentCheckId = 'primary-store.journal-mode';
+    // Query-only probe: never set the journal mode here. Issuing the MVCC
+    // pragma wedges the wasm instance (see TURSO_BROWSER_WASM_STORE_CAPABILITIES),
+    // and WAL is the package default, so an explicit set is not required.
     const journalModeRows = await queryTursoBrowserWasmSql(db, 'PRAGMA journal_mode');
-    assertTursoMvccJournalMode(journalModeRows);
-    checks = setCheck(checks, 'primary-store.mvcc', 'passed');
+    assertTursoBrowserWalJournalMode(journalModeRows);
+    checks = setCheck(checks, 'primary-store.journal-mode', 'passed');
 
     phase = 'migrating-schema';
     currentCheckId = 'schema.baseline';
-    await applyTursoSchemaBaseline(createBrowserWasmExecutionClient(db));
+    await applyTursoSchemaBaseline(createTursoBrowserWasmExecutionClient(db));
     checks = setCheck(checks, 'schema.baseline', 'passed');
 
     phase = 'probing-capabilities';
@@ -201,6 +243,7 @@ export async function runTursoBrowserWasmBootstrap(
     );
 
     bootstrapReport = createProfileBootstrapReport({
+      capabilities: TURSO_BROWSER_WASM_STORE_CAPABILITIES,
       checks,
       phase: hasBlockingCheck(checks) ? 'blocked' : 'ready',
       profileId,
@@ -214,6 +257,7 @@ export async function runTursoBrowserWasmBootstrap(
     checks = setCheck(checks, currentCheckId, 'failed', message);
     bootstrapReport = failProfileBootstrapReport(
       createProfileBootstrapReport({
+        capabilities: TURSO_BROWSER_WASM_STORE_CAPABILITIES,
         checks,
         phase,
         profileId,
@@ -303,9 +347,9 @@ export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
   );
 }
 
-function createBrowserWasmExecutionClient(
+export function createTursoBrowserWasmExecutionClient(
   database: TursoBrowserWasmBootstrapDatabase
-): BrainstrikeDbExecutionClient {
+): TursoBrowserWasmExecutionClient {
   return markBrainstrikeDbExecutionRuntime(
     {
       exec: async (sql, params) => {
@@ -313,7 +357,7 @@ function createBrowserWasmExecutionClient(
       },
       exclusiveTransaction: async <TResult>(
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-      ): Promise<TResult> => runBrowserWasmTransaction(database, 'BEGIN', callback),
+      ): Promise<TResult> => runBrowserWasmTransaction(database, callback),
       query: async <TRecord = unknown>(
         sql: string,
         params?: readonly unknown[]
@@ -323,18 +367,23 @@ function createBrowserWasmExecutionClient(
       },
       transaction: async <TResult>(
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-      ): Promise<TResult> => runBrowserWasmTransaction(database, 'BEGIN CONCURRENT', callback),
+      ): Promise<TResult> => runBrowserWasmTransaction(database, callback),
     },
     'turso'
   );
 }
 
+/**
+ * Browser transactions are single-writer plain `BEGIN` for BOTH transaction()
+ * and exclusiveTransaction(): `BEGIN CONCURRENT` is MVCC-only syntax and the
+ * browser store runs under the WAL journal-mode contract
+ * (TURSO_BROWSER_WASM_STORE_CAPABILITIES, `concurrentWrites: false`).
+ */
 async function runBrowserWasmTransaction<TResult>(
   database: TursoBrowserWasmBootstrapDatabase,
-  beginSql: 'BEGIN' | 'BEGIN CONCURRENT',
   callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
 ): Promise<TResult> {
-  await database.exec(beginSql);
+  await database.exec('BEGIN');
   const tx = createBrowserWasmTransactionClient(database);
   try {
     const result = await callback(tx);
@@ -380,23 +429,6 @@ async function execTursoBrowserWasmSql(
   }
 }
 
-async function runTursoBrowserWasmSql(
-  database: TursoBrowserWasmBootstrapDatabase,
-  sql: string,
-  params?: readonly unknown[]
-): Promise<void> {
-  const statement = await database.prepare(sql);
-  try {
-    if (params && params.length > 0) {
-      await statement.run([...params]);
-      return;
-    }
-    await statement.run();
-  } finally {
-    await closeBrowserWasmStatement(statement);
-  }
-}
-
 async function queryTursoBrowserWasmSql<TRecord = unknown>(
   database: TursoBrowserWasmBootstrapDatabase,
   sql: string,
@@ -415,7 +447,7 @@ async function queryTursoBrowserWasmSql<TRecord = unknown>(
 async function closeBrowserWasmStatement(
   statement: TursoBrowserWasmBootstrapStatement
 ): Promise<void> {
-  await statement.close?.();
+  await statement.close();
 }
 
 async function rollbackBrowserWasmTransactionIgnoringFailure(
@@ -479,11 +511,11 @@ async function assertOpfsAvailable(): Promise<void> {
   await navigator.storage.getDirectory();
 }
 
-function assertTursoMvccJournalMode(rows: readonly unknown[]): void {
-  const appliedJournalMode = readTursoJournalMode(rows);
-  if (appliedJournalMode !== 'mvcc') {
+function assertTursoBrowserWalJournalMode(rows: readonly unknown[]): void {
+  const reportedJournalMode = readTursoJournalMode(rows);
+  if (reportedJournalMode !== 'wal') {
     throw new Error(
-      `Turso browser WASM journal_mode pragma returned ${formatJournalMode(appliedJournalMode)} instead of 'mvcc'.`
+      `Turso browser WASM PRAGMA journal_mode reported ${formatJournalMode(reportedJournalMode)} but the browser WAL contract requires 'wal' (single-writer; the MVCC pragma is never issued in the browser because it panics and wedges the wasm instance).`
     );
   }
 }
@@ -576,6 +608,7 @@ async function closeDatabaseAndUpdateReport(
     await db.close();
     const checks = setCheck(report.checks, 'store.close', 'passed');
     return createProfileBootstrapReport({
+      capabilities: report.capabilities,
       checks,
       failure: report.failure,
       phase: report.failure ? report.phase : hasBlockingCheck(checks) ? 'blocked' : 'ready',
@@ -587,6 +620,7 @@ async function closeDatabaseAndUpdateReport(
     });
   } catch (error) {
     return createProfileBootstrapReport({
+      capabilities: report.capabilities,
       checks: setCheck(
         report.checks,
         'store.close',

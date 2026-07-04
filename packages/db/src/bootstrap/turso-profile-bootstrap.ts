@@ -19,6 +19,7 @@ import {
   type ProfileBootstrapReport,
   type ProfileBootstrapRuntime,
   type ProfileBootstrapSearchOwnership,
+  type ProfileBootstrapStoreCapabilities,
 } from './profile-bootstrap-report.js';
 
 export interface TursoProfileBootstrapReport {
@@ -96,6 +97,16 @@ const DEFAULT_RUNTIME: ProfileBootstrapRuntime = {
   persistence: 'filesystem',
 };
 
+/**
+ * Native/desktop Turso hard-requires MVCC concurrent-write mode; this is the
+ * runtime invariant the browser WASM bootstrap explicitly does NOT share (the
+ * browser runs WAL single-writer — see turso-browser-wasm-bootstrap.ts).
+ */
+const TURSO_NATIVE_STORE_CAPABILITIES: ProfileBootstrapStoreCapabilities = {
+  concurrentWrites: true,
+  journalMode: 'mvcc',
+};
+
 const TURSO_SPLIT_SEARCH_OWNERSHIP: ProfileBootstrapSearchOwnership = {
   indexedSearch: 'available',
   message:
@@ -133,6 +144,7 @@ export async function runTursoProfileBootstrap(
     checks = setCheck(checks, 'search.ownership', 'passed', TURSO_SPLIT_SEARCH_OWNERSHIP.message);
 
     bootstrapReport = createProfileBootstrapReport({
+      capabilities: TURSO_NATIVE_STORE_CAPABILITIES,
       checks,
       phase: hasBlockingCheck(checks) ? 'blocked' : 'ready',
       profileId,
@@ -146,6 +158,7 @@ export async function runTursoProfileBootstrap(
     checks = setCheck(failure.checks, failure.checkId, 'failed', failure.message);
     bootstrapReport = failProfileBootstrapReport(
       createProfileBootstrapReport({
+        capabilities: TURSO_NATIVE_STORE_CAPABILITIES,
         checks,
         phase,
         profileId,
@@ -429,6 +442,7 @@ async function closeDatabaseAndUpdateReport(
     await db.close();
     const checks = setCheck(report.checks, 'store.close', 'passed');
     return createProfileBootstrapReport({
+      capabilities: report.capabilities,
       checks,
       failure: report.failure,
       phase: report.failure ? report.phase : hasBlockingCheck(checks) ? 'blocked' : 'ready',
@@ -440,6 +454,7 @@ async function closeDatabaseAndUpdateReport(
     });
   } catch (error) {
     return createProfileBootstrapReport({
+      capabilities: report.capabilities,
       checks: setCheck(
         report.checks,
         'store.close',

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
   runTursoBrowserWasmBootstrap,
+  type TursoBrowserWasmBootstrapDatabase,
 } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
 /**
@@ -76,7 +77,7 @@ describe('Turso browser WASM bootstrap worker-init fault handling', () => {
             message: expect.stringContaining('emnapi worker-init'),
             status: 'passed',
           }),
-          expect.objectContaining({ id: 'primary-store.mvcc', status: 'passed' }),
+          expect.objectContaining({ id: 'primary-store.journal-mode', status: 'passed' }),
           expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
           expect.objectContaining({ id: 'store.close', status: 'passed' }),
         ])
@@ -220,7 +221,7 @@ function createMockBrowserTursoDatabase() {
   const createStatement = (sql: string) => ({
     all: vi.fn(async (_params?: readonly unknown[]) => {
       if (sql === 'PRAGMA journal_mode') {
-        return [{ journal_mode: 'mvcc' }];
+        return [{ journal_mode: 'wal' }];
       }
       if (sql.includes('idx_file_chunk_content_grams_lookup')) {
         return [
@@ -235,14 +236,16 @@ function createMockBrowserTursoDatabase() {
       return [];
     }),
     close: vi.fn(async () => undefined),
-    run: vi.fn(async (_params?: readonly unknown[]) => undefined),
+    run: vi.fn(async (_params?: readonly unknown[]) => ({ changes: 0, lastInsertRowid: 0 })),
   });
 
+  // `satisfies` keeps the mock honestly type-checked against the narrowed
+  // bootstrap seam (prepare returns all/run/close-shaped statements).
   return {
     close: vi.fn(async () => undefined),
     exec: vi.fn(async () => undefined),
     prepare: vi.fn(async (sql: string) => createStatement(sql)),
-  };
+  } satisfies TursoBrowserWasmBootstrapDatabase;
 }
 
 function createClock(): () => string {

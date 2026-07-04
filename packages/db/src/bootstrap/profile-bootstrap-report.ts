@@ -30,6 +30,19 @@ export interface ProfileBootstrapRuntime {
   readonly persistence: 'filesystem' | 'idb' | 'memory' | 'opfs' | 'remote' | 'unknown';
 }
 
+export type ProfileBootstrapJournalMode = 'mvcc' | 'wal';
+
+/**
+ * First-class store write-capability record. Consumers must gate
+ * concurrent-write behavior on `concurrentWrites`, never on string-matching a
+ * database URL or assuming engine parity: the browser Turso WASM runtime is
+ * WAL single-writer (`concurrentWrites: false`) while native Turso is MVCC.
+ */
+export interface ProfileBootstrapStoreCapabilities {
+  readonly concurrentWrites: boolean;
+  readonly journalMode: ProfileBootstrapJournalMode;
+}
+
 export type ProfileBootstrapSearchOwnershipMode =
   | 'external-search-service'
   | 'non-fts-primary-store'
@@ -70,6 +83,7 @@ export interface ProfileBootstrapBlockingIssue {
 }
 
 export interface ProfileBootstrapReport {
+  readonly capabilities: ProfileBootstrapStoreCapabilities | null;
   readonly checks: readonly ProfileBootstrapCheck[];
   readonly failure: ProfileBootstrapFailureSnapshot | null;
   readonly phase: ProfileBootstrapPhase;
@@ -82,6 +96,7 @@ export interface ProfileBootstrapReport {
 }
 
 export interface CreateProfileBootstrapReportInput {
+  readonly capabilities?: ProfileBootstrapStoreCapabilities | null;
   readonly checks: readonly ProfileBootstrapCheck[];
   readonly failure?: ProfileBootstrapFailureSnapshot | null;
   readonly phase: ProfileBootstrapPhase;
@@ -103,6 +118,7 @@ export function createProfileBootstrapReport(
   input: CreateProfileBootstrapReportInput
 ): ProfileBootstrapReport {
   const reportWithoutReady = {
+    capabilities: input.capabilities ?? null,
     checks: input.checks,
     failure: input.failure ?? null,
     phase: input.phase,
@@ -133,6 +149,7 @@ export function failProfileBootstrapReport(
   };
 
   return createProfileBootstrapReport({
+    capabilities: report.capabilities,
     checks: report.checks,
     failure,
     phase: 'failed',

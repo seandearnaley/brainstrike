@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { runTursoBrowserWasmBootstrap } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
+/**
+ * Readiness proof for the real browser Turso WASM path (real
+ * @tursodatabase/database-wasm store over OPFS, no mocks).
+ *
+ * Under the browser WAL journal-mode contract the bootstrap must reach a
+ * ready report: the MVCC pragma is never issued (it panics upstream and
+ * wedges the wasm instance), PRAGMA journal_mode reports 'wal', and the
+ * schema-baseline + gram-index + vector32 probes execute for real. Store-open
+ * reliability (the transient emnapi worker-init race) is covered by the
+ * bounded retry inside the bootstrap.
+ */
 describe('Turso browser WASM bootstrap smoke', () => {
   const openedDbPaths: string[] = [];
 
@@ -12,7 +23,7 @@ describe('Turso browser WASM bootstrap smoke', () => {
     }
   });
 
-  it('runs the real browser WASM path and fails closed before claiming readiness', async () => {
+  it('runs the real browser WASM path to a ready WAL single-writer report', async () => {
     const dbPath = `brainstrike-turso-browser-smoke-${crypto.randomUUID()}.db`;
     openedDbPaths.push(dbPath);
 
@@ -28,60 +39,38 @@ describe('Turso browser WASM bootstrap smoke', () => {
     });
 
     expect(report.bootstrapReport).toMatchObject({
-      failure: {
-        code: 'turso_browser_wasm_bootstrap_failed',
+      capabilities: {
+        concurrentWrites: false,
+        journalMode: 'wal',
       },
-      phase: 'failed',
-      ready: false,
+      failure: null,
+      phase: 'ready',
+      profileId: 'browser-smoke',
+      ready: true,
+      runtime: {
+        engine: 'turso',
+        host: 'browser',
+        persistence: 'opfs',
+      },
+      search: {
+        indexedSearch: 'available',
+        ownershipMode: 'split-search-index-store',
+      },
     });
-    expect(report.blockingIssues).toEqual([
-      expect.objectContaining({
-        message: expect.stringContaining(
-          `Bootstrap failed during ${report.bootstrapReport.failure?.phase}`
-        ),
-        phase: 'failed',
-        severity: 'blocking',
-      }),
+    expect(report.bootstrapReport.search.message).toContain('single-writer');
+    expect(report.blockingIssues).toEqual([]);
+    expect(report.checks).toEqual([
+      expect.objectContaining({ id: 'browser.runtime', status: 'passed' }),
+      expect.objectContaining({ id: 'browser.cross-origin-isolated', status: 'passed' }),
+      expect.objectContaining({ id: 'browser.opfs', status: 'passed' }),
+      expect.objectContaining({ id: 'store.open', status: 'passed' }),
+      expect.objectContaining({ id: 'primary-store.journal-mode', status: 'passed' }),
+      expect.objectContaining({ id: 'schema.baseline', status: 'passed' }),
+      expect.objectContaining({ id: 'search.grep-content-grams', status: 'passed' }),
+      expect.objectContaining({ id: 'search.vector32-functions', status: 'passed' }),
+      expect.objectContaining({ id: 'search.ownership', status: 'passed' }),
+      expect.objectContaining({ id: 'store.close', status: 'passed' }),
     ]);
-    expect(report.checks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'browser.cross-origin-isolated', status: 'passed' }),
-        expect.objectContaining({ id: 'browser.opfs', status: 'passed' }),
-        expect.objectContaining({ id: 'schema.baseline', status: 'pending' }),
-      ])
-    );
-
-    if (report.bootstrapReport.failure?.phase === 'opening-store') {
-      expect(report.checks).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: 'store.open',
-            message: expect.stringContaining("reading 'whenLoaded'"),
-            status: 'failed',
-          }),
-          expect.objectContaining({ id: 'primary-store.mvcc', status: 'pending' }),
-        ])
-      );
-      return;
-    }
-
-    if (report.bootstrapReport.failure?.phase === 'probing-capabilities') {
-      expect(report.checks).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: 'store.open', status: 'passed' }),
-          expect.objectContaining({
-            id: 'primary-store.mvcc',
-            message: 'unreachable',
-            status: 'failed',
-          }),
-        ])
-      );
-      return;
-    }
-
-    throw new Error(
-      `Unexpected Turso browser WASM smoke failure phase: ${report.bootstrapReport.failure?.phase}`
-    );
   });
 });
 

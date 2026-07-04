@@ -62,6 +62,12 @@ describe('Turso profile bootstrap', () => {
     );
     expect(close).toHaveBeenCalledTimes(1);
     expect(report.bootstrapReport).toMatchObject({
+      // Desktop/native Turso keeps the MVCC concurrent-write contract; only
+      // the browser WASM runtime downgrades to WAL single-writer.
+      capabilities: {
+        concurrentWrites: true,
+        journalMode: 'mvcc',
+      },
       phase: 'ready',
       profileId: 'branch-turso',
       ready: true,
