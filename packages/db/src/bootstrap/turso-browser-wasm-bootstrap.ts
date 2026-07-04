@@ -46,6 +46,17 @@ type TursoBrowserWasmBootstrapStatement = Awaited<
   ReturnType<TursoBrowserWasmBootstrapDatabase['prepare']>
 >;
 
+/**
+ * Browser Turso WASM execution client: single-writer WAL semantics, so BOTH
+ * transaction() and exclusiveTransaction() run plain `BEGIN` (never the
+ * MVCC-only `BEGIN CONCURRENT`).
+ */
+export interface TursoBrowserWasmExecutionClient extends BrainstrikeDbExecutionClient {
+  readonly exclusiveTransaction: <TResult>(
+    callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+  ) => Promise<TResult>;
+}
+
 type TursoBrowserWasmBootstrapCheckId =
   | 'browser.cross-origin-isolated'
   | 'browser.opfs'
@@ -200,7 +211,7 @@ export async function runTursoBrowserWasmBootstrap(
 
     phase = 'migrating-schema';
     currentCheckId = 'schema.baseline';
-    await applyTursoSchemaBaseline(createBrowserWasmExecutionClient(db));
+    await applyTursoSchemaBaseline(createTursoBrowserWasmExecutionClient(db));
     checks = setCheck(checks, 'schema.baseline', 'passed');
 
     phase = 'probing-capabilities';
@@ -325,9 +336,9 @@ export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
   );
 }
 
-function createBrowserWasmExecutionClient(
+export function createTursoBrowserWasmExecutionClient(
   database: TursoBrowserWasmBootstrapDatabase
-): BrainstrikeDbExecutionClient {
+): TursoBrowserWasmExecutionClient {
   return markBrainstrikeDbExecutionRuntime(
     {
       exec: async (sql, params) => {

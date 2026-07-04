@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runTursoBrowserWasmBootstrap } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
+import {
+  createTursoBrowserWasmExecutionClient,
+  runTursoBrowserWasmBootstrap,
+} from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
 describe('Turso browser WASM bootstrap', () => {
   const originalCrossOriginIsolated = Object.getOwnPropertyDescriptor(
@@ -238,6 +241,56 @@ describe('Turso browser WASM bootstrap', () => {
         }),
       ])
     );
+  });
+});
+
+describe('Turso browser WASM execution client', () => {
+  it('runs transaction() as a plain single-writer BEGIN, never BEGIN CONCURRENT', async () => {
+    const database = createMockBrowserTursoDatabase();
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    const result = await client.transaction(async (tx) => {
+      await tx.exec('INSERT INTO roots (id) VALUES (?)', ['root-1']);
+      return 'committed';
+    });
+
+    expect(result).toBe('committed');
+    expect(database.exec.mock.calls.map(([sql]) => sql)).toEqual(
+      expect.arrayContaining(['BEGIN', 'COMMIT'])
+    );
+    expect(database.exec).not.toHaveBeenCalledWith('BEGIN CONCURRENT');
+  });
+
+  it('runs exclusiveTransaction() as a plain single-writer BEGIN, never BEGIN CONCURRENT', async () => {
+    const database = createMockBrowserTursoDatabase();
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    await client.exclusiveTransaction(async (tx) => {
+      await tx.query('SELECT 1');
+      return;
+    });
+
+    expect(database.exec.mock.calls.map(([sql]) => sql)).toEqual(
+      expect.arrayContaining(['BEGIN', 'COMMIT'])
+    );
+    expect(database.exec).not.toHaveBeenCalledWith('BEGIN CONCURRENT');
+  });
+
+  it('rolls back a failed transaction with plain single-writer semantics', async () => {
+    const database = createMockBrowserTursoDatabase();
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    await expect(
+      client.transaction(async () => {
+        throw new Error('write failed');
+      })
+    ).rejects.toThrow('write failed');
+
+    expect(database.exec.mock.calls.map(([sql]) => sql)).toEqual(
+      expect.arrayContaining(['BEGIN', 'ROLLBACK'])
+    );
+    expect(database.exec).not.toHaveBeenCalledWith('BEGIN CONCURRENT');
+    expect(database.exec).not.toHaveBeenCalledWith('COMMIT');
   });
 });
 
