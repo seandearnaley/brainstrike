@@ -5,7 +5,10 @@ import type {
   BrainstrikeDbTransactionClient,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { markBrainstrikeDbExecutionRuntime } from '../architecture/brainstrike-db-client-contract.js';
-import type { TursoBrowserWasmDatabase } from '../turso/browser-wasm-client.js';
+import type {
+  TursoBrowserWasmDatabase,
+  TursoBrowserWasmStatement,
+} from '../turso/browser-wasm-client.js';
 import { openTursoBrowserWasmDatabase } from '../turso/browser-wasm-client.js';
 import { applyTursoSchemaBaseline } from '../turso/schema-baseline.js';
 import {
@@ -37,14 +40,22 @@ export interface TursoBrowserWasmBootstrapOptions {
   readonly runtime?: ProfileBootstrapRuntime;
 }
 
-type TursoBrowserWasmBootstrapDatabase = Pick<
-  TursoBrowserWasmDatabase,
-  'close' | 'exec' | 'prepare'
+/**
+ * Narrowed injectable seam: the bootstrap only calls all/run/close on
+ * prepared statements, so the seam accepts any statement carrying just those
+ * members instead of the full vendor `Statement` class (whose private fields
+ * make honest test mocks impossible). The real vendor Database stays
+ * assignable via covariant `prepare` returns.
+ */
+export type TursoBrowserWasmBootstrapStatement = Pick<
+  TursoBrowserWasmStatement,
+  'all' | 'close' | 'run'
 >;
 
-type TursoBrowserWasmBootstrapStatement = Awaited<
-  ReturnType<TursoBrowserWasmBootstrapDatabase['prepare']>
->;
+export interface TursoBrowserWasmBootstrapDatabase
+  extends Pick<TursoBrowserWasmDatabase, 'close' | 'exec'> {
+  readonly prepare: (sql: string) => Promise<TursoBrowserWasmBootstrapStatement>;
+}
 
 /**
  * Browser Turso WASM execution client: single-writer WAL semantics, so BOTH
@@ -436,7 +447,7 @@ async function queryTursoBrowserWasmSql<TRecord = unknown>(
 async function closeBrowserWasmStatement(
   statement: TursoBrowserWasmBootstrapStatement
 ): Promise<void> {
-  await statement.close?.();
+  await statement.close();
 }
 
 async function rollbackBrowserWasmTransactionIgnoringFailure(

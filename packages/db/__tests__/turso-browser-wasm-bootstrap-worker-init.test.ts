@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
   runTursoBrowserWasmBootstrap,
+  type TursoBrowserWasmBootstrapDatabase,
 } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
 /**
@@ -235,14 +236,16 @@ function createMockBrowserTursoDatabase() {
       return [];
     }),
     close: vi.fn(async () => undefined),
-    run: vi.fn(async (_params?: readonly unknown[]) => undefined),
+    run: vi.fn(async (_params?: readonly unknown[]) => ({ changes: 0, lastInsertRowid: 0 })),
   });
 
+  // `satisfies` keeps the mock honestly type-checked against the narrowed
+  // bootstrap seam (prepare returns all/run/close-shaped statements).
   return {
     close: vi.fn(async () => undefined),
     exec: vi.fn(async () => undefined),
     prepare: vi.fn(async (sql: string) => createStatement(sql)),
-  };
+  } satisfies TursoBrowserWasmBootstrapDatabase;
 }
 
 function createClock(): () => string {

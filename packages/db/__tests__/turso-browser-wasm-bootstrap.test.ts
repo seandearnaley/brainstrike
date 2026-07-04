@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createTursoBrowserWasmExecutionClient,
   runTursoBrowserWasmBootstrap,
+  type TursoBrowserWasmBootstrapDatabase,
 } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
 describe('Turso browser WASM bootstrap', () => {
@@ -363,30 +364,34 @@ function createMockBrowserTursoDatabase(
           ];
         }
         if (sql.includes('vector_distance_cos')) {
-          return (
-            options.vectorRows ?? [
+          return [
+            ...(options.vectorRows ?? [
               { cos_distance: 0, dot_distance: -1, extracted: '[1,0]', l2_distance: 0 },
-            ]
-          );
+            ]),
+          ];
         }
         return [];
       }),
       close: vi.fn(async () => undefined),
-      run: vi.fn(async (_params?: readonly unknown[]) => undefined),
+      run: vi.fn(async (_params?: readonly unknown[]) => ({ changes: 0, lastInsertRowid: 0 })),
     };
     statementsBySql.set(sql, statement);
     return statement;
   };
 
+  // `satisfies` keeps the mock honestly type-checked against the narrowed
+  // bootstrap seam (prepare returns all/run/close-shaped statements).
   return {
     close: vi.fn(async () => {
       if (options.closeError) {
         throw options.closeError;
       }
     }),
-    exec: vi.fn(async () => undefined),
+    exec: vi.fn(async (_sql: string) => undefined),
     prepare: vi.fn(async (sql: string) => createStatement(sql)),
     statementsBySql,
+  } satisfies TursoBrowserWasmBootstrapDatabase & {
+    readonly statementsBySql: typeof statementsBySql;
   };
 }
 
