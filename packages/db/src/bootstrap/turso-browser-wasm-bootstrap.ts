@@ -155,7 +155,10 @@ export async function runTursoBrowserWasmBootstrap(
 
     phase = 'opening-store';
     currentCheckId = 'store.open';
-    const storeOpen = await openStoreWithBoundedWorkerInitRetry(openDatabase, options.dbPath);
+    const storeOpen = await openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
+      openDatabase,
+      options.dbPath
+    );
     db = storeOpen.database;
     checks = setCheck(
       checks,
@@ -256,7 +259,12 @@ function isEmnapiWorkerInitFault(error: unknown): error is TypeError {
   return error instanceof TypeError && error.message.includes(WORKER_INIT_FAULT_SIGNATURE);
 }
 
-async function openStoreWithBoundedWorkerInitRetry(
+/**
+ * Exported for direct unit assertions on the retry-exhaustion error's `cause`
+ * chain: the bootstrap report layer sanitizes failures down to message/name
+ * strings, so the original worker-init TypeError is only observable here.
+ */
+export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
   openDatabase: (dbPath: string) => Promise<TursoBrowserWasmBootstrapDatabase>,
   dbPath: string
 ): Promise<StoreOpenOutcome> {
@@ -289,7 +297,9 @@ async function openStoreWithBoundedWorkerInitRetry(
       `(@emnapi/core initWorkers '${WORKER_INIT_FAULT_SIGNATURE}' startup race) and ` +
       `${MAX_WORKER_INIT_RETRIES} bounded retries were exhausted: ${
         lastWorkerInitFault?.message ?? 'unknown worker-init fault'
-      }`
+      }`,
+    // Chain the original fault so the upstream stack survives for debugging.
+    { cause: lastWorkerInitFault }
   );
 }
 

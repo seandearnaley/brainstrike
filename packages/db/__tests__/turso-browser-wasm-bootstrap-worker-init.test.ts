@@ -1,6 +1,9 @@
 import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runTursoBrowserWasmBootstrap } from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
+import {
+  openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
+  runTursoBrowserWasmBootstrap,
+} from '../src/bootstrap/turso-browser-wasm-bootstrap.js';
 
 /**
  * Store-open reliability contract for the browser Turso WASM bootstrap.
@@ -117,6 +120,30 @@ describe('Turso browser WASM bootstrap worker-init fault handling', () => {
         status: 'failed',
       })
     );
+  });
+
+  it('chains the original worker-init fault as cause on the retry-exhaustion error', async () => {
+    // The bootstrap report layer sanitizes failures to message/name strings,
+    // so the cause chain is asserted at the store-open seam directly.
+    const originalFault = new TypeError(WORKER_INIT_FAULT_MESSAGE);
+    const openDatabase = vi.fn(async (_path: string) => {
+      throw originalFault;
+    });
+
+    let thrown: unknown = null;
+    try {
+      await openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
+        openDatabase,
+        'brainstrike-web-turso.db'
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(openDatabase).toHaveBeenCalledTimes(3);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain('retries were exhausted');
+    expect((thrown as Error).cause).toBe(originalFault);
   });
 
   it('does not retry open errors outside the worker-init signature', async () => {
