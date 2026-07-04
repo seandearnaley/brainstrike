@@ -493,6 +493,45 @@ test('DB guardrail external input paths are derived from the scanning DB lane te
   assert.deepEqual(listDbGuardrailExternalInputPaths(), [...scannedExternalInputs].sort());
 });
 
+test('scanner tests build external doc paths from single-segment quoted literals only', () => {
+  // The derivation above only sees single-quoted 'docs/...' literals. A scanner
+  // that reached a doc via a multi-segment join (join(repoRoot, 'docs', ...)) or
+  // a template literal would evade that contract and silently reopen the planner
+  // blind spot. Detect those shapes in the scanner sources and fail with the
+  // required fix instead.
+  const evasiveDocPathPatterns = [
+    // e.g. join(repoRoot, 'docs', 'turso-migration', 'new.md')
+    /join\(\s*(?:REPO_ROOT|repoRoot)\s*,\s*'docs'\s*,/,
+    // e.g. join(repoRoot, `docs/turso-migration/${name}.md`)
+    /`[^`\n]*docs\/[^`\n]*`/,
+  ];
+  const evasiveFixtures = [
+    "const docPath = join(repoRoot, 'docs', 'turso-migration', 'new.md');",
+    'const docPath = path.join(REPO_ROOT, `docs/turso-migration/${name}.md`);',
+  ];
+  for (const fixture of evasiveFixtures) {
+    assert.ok(
+      evasiveDocPathPatterns.some((pattern) => pattern.test(fixture)),
+      `Evasive doc-path detector failed to fire on fixture: ${fixture}`
+    );
+  }
+
+  const scannerFiles = [
+    'packages/db/__tests__/architecture-browser-runtime-ownership.test.ts',
+    'packages/db/__tests__/search-turso-lexical-quality-profile.test.ts',
+  ];
+  for (const filePath of scannerFiles) {
+    const source = readFileSync(filePath, 'utf8');
+    for (const pattern of evasiveDocPathPatterns) {
+      assert.doesNotMatch(
+        source,
+        pattern,
+        `${filePath} builds a docs path with a multi-segment join or template literal, which evades the DB guardrail planner contract in this suite. Use a single-segment single-quoted literal, e.g. join(repoRoot, 'docs/dir/file.md'), so the contract test can derive it.`
+      );
+    }
+  }
+});
+
 test('narrow DB lane selections preserve workflow matrix order', () => {
   const changedFiles = [
     'packages/db/__tests__/db-provider-initializing.test.tsx',

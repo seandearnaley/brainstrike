@@ -688,10 +688,13 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
           'DB guardrail-scanned inputs changed; treating @brainstrike/db as having unit work.'
         );
       }
+      const dbUnitPlanningReason = testablePackages.includes(DB_PACKAGE_NAME)
+        ? 'Affected DB package selected'
+        : 'DB lane planning active via guardrail-scanned docs';
       const selectedDbLanes = selectDbUnitCiLanes(changedFiles);
       if (!selectedDbLanes.includes(options.dbLane)) {
         console.log(
-          `Affected DB package selected, but DB unit lane ${options.dbLane} is not in the selected lane set: ${selectedDbLanes.join(', ')}`
+          `${dbUnitPlanningReason}, but DB unit lane ${options.dbLane} is not in the selected lane set: ${selectedDbLanes.join(', ')}`
         );
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
@@ -700,7 +703,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
         has_work: 'true',
       });
-      console.log(`Affected DB package selected; DB unit lane: ${options.dbLane}`);
+      console.log(`${dbUnitPlanningReason}; DB unit lane: ${options.dbLane}`);
       for (const [command, commandArgs] of createDbLaneCommands(options.dbLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
       }
@@ -720,10 +723,13 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
           'DB guardrail-scanned inputs changed; treating @brainstrike/db as having coverage work.'
         );
       }
+      const dbCoveragePlanningReason = coveragePackages.includes(DB_PACKAGE_NAME)
+        ? 'Affected DB package selected'
+        : 'DB lane planning active via guardrail-scanned docs';
       const selectedDbCoverageLanes = selectDbCoverageCiLanes(changedFiles);
       if (!selectedDbCoverageLanes.includes(options.dbCoverageLane)) {
         console.log(
-          `Affected DB package selected, but DB coverage lane ${options.dbCoverageLane} is not in the selected lane set: ${selectedDbCoverageLanes.join(', ')}`
+          `${dbCoveragePlanningReason}, but DB coverage lane ${options.dbCoverageLane} is not in the selected lane set: ${selectedDbCoverageLanes.join(', ')}`
         );
         writeGithubOutput(options.githubOutput, { has_work: 'false' });
         return 0;
@@ -732,7 +738,7 @@ export function main(args = process.argv.slice(2), platform = process.platform) 
         build_filters: buildTurboBuildFilterOutput([DB_PACKAGE_NAME]),
         has_work: 'true',
       });
-      console.log(`Affected DB package selected; DB coverage lane: ${options.dbCoverageLane}`);
+      console.log(`${dbCoveragePlanningReason}; DB coverage lane: ${options.dbCoverageLane}`);
       for (const [command, commandArgs] of createDbCoverageLaneCommands(options.dbCoverageLane)) {
         console.log(`- ${[command, ...commandArgs].join(' ')}`);
       }
