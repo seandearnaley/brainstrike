@@ -41,14 +41,29 @@ describe('replaceGrepContentIndex', () => {
     );
     expect(Number(first.rows[0]?.n)).toBeGreaterThan(0);
 
+    // 'alpha beta gamma' -> 'completely different text here' deliberately
+    // share coincidental grams (e.g. 'et', from both "beta" and "text"/
+    // "different"). The old row for 'alp' (unique to the first string) must
+    // be gone, AND the overlapping 'et' must be present exactly once — this
+    // proves the DELETE-then-INSERT cycle handles gram overlap correctly,
+    // not just non-overlapping grams.
     await client.transaction(async (tx) => {
       await replaceGrepContentIndex(tx, 'chunk-1', 'completely different text here');
     });
-    const second = await client.query<{ gram: string }>(
+    const stale = await client.query<{ gram: string }>(
       'SELECT gram FROM file_chunk_content_grams WHERE file_chunk_id = ? AND gram = ?',
       ['chunk-1', 'alp']
     );
-    expect(second.rows).toEqual([]);
+    expect(stale.rows).toEqual([]);
+    // The content is already all-lowercase, so the case-sensitive AND
+    // case-insensitive passes both produce 'et' — two distinct rows
+    // (different case_sensitive values, same gram string). Filter to one
+    // to assert that variant exists exactly once (not zero, not duplicated).
+    const overlapping = await client.query<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM file_chunk_content_grams WHERE file_chunk_id = ? AND case_sensitive = ? AND gram = ?',
+      ['chunk-1', 1, 'et']
+    );
+    expect(Number(overlapping.rows[0]?.n)).toBe(1);
   });
 
   it('does not throw when a stale row for the SAME (file_chunk_id, case_sensitive, gram) tuple survives ahead of the insert (core regression proof against the real Turso engine)', async () => {
@@ -103,6 +118,32 @@ describe('replaceGrepContentIndex', () => {
         query: async () => ({ rows: [{ n: 0 }] }) as never,
       };
       await replaceGrepContentIndex(scriptedClient, 'chunk-mismatch', 'alpha beta gamma');
+      expect(warnings.length).toBe(1);
+    } finally {
+      stop();
+    }
+  });
+
+  it('warns (does not throw) when the verification query itself fails', async () => {
+    const warnings: unknown[] = [];
+    const stop = addLogListener((record) => {
+      if (record.scope === 'DB:GrepContentGrams' && record.level === 'warn') {
+        warnings.push(record);
+      }
+    });
+    try {
+      let queryCount = 0;
+      const scriptedClient: BrainstrikeDbTransactionClient = {
+        exec: async () => undefined,
+        query: async () => {
+          queryCount += 1;
+          throw new Error('simulated verification query failure');
+        },
+      };
+      await expect(
+        replaceGrepContentIndex(scriptedClient, 'chunk-query-failure', 'alpha beta gamma')
+      ).resolves.toBeUndefined();
+      expect(queryCount).toBe(1);
       expect(warnings.length).toBe(1);
     } finally {
       stop();

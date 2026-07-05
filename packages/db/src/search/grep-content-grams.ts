@@ -63,22 +63,35 @@ export async function replaceGrepContentIndex(
 // give: if the actual row count ever diverges from what this call attempted
 // to insert, that is real signal (either stale rows the DELETE didn't clear,
 // or duplicate content within the batch), logged loudly rather than silently
-// dropped.
+// dropped. Caveat: a matching count is not proof of gram-identity
+// correctness — it only rules out net row-count drift, not the (much less
+// likely) case of stale rows and failed inserts coincidentally netting the
+// same total. The count query itself is wrapped so a query failure here
+// (distinct from a mismatch) is also surfaced rather than thrown, keeping
+// this helper's failure mode strictly additive to replaceGrepContentIndex.
 async function verifyGrepContentGramCount(
   db: BrainstrikeDbTransactionClient,
   fileChunkId: string,
   expectedCount: number
 ): Promise<void> {
-  const result = await db.query<{ n: number | string | null }>(
-    'SELECT COUNT(*) AS n FROM file_chunk_content_grams WHERE file_chunk_id = ?',
-    [fileChunkId]
-  );
-  const actualCount = Number(result.rows[0]?.n ?? 0);
-  if (actualCount !== expectedCount) {
-    logger.warn('grep content gram count mismatch after replace', {
+  try {
+    const result = await db.query<{ n: number | string | null }>(
+      'SELECT COUNT(*) AS n FROM file_chunk_content_grams WHERE file_chunk_id = ?',
+      [fileChunkId]
+    );
+    const actualCount = Number(result.rows[0]?.n ?? 0);
+    if (actualCount !== expectedCount) {
+      logger.warn('grep content gram count mismatch after replace', {
+        fileChunkId,
+        expectedCount,
+        actualCount,
+      });
+    }
+  } catch (error) {
+    logger.warn('grep content gram count verification failed', {
       fileChunkId,
       expectedCount,
-      actualCount,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }
