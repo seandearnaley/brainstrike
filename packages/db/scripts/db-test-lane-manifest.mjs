@@ -4,6 +4,7 @@ export const dbUnitLaneDefinitions = [
     matches: [
       /^architecture-/,
       /^bootstrap-capability-probe\.test\.ts$/,
+      /^browser-storage-persistence\.test\.ts$/,
       /^brainstrike-db-client-contract\.test\.ts$/,
       /^bootstrap\.test\.ts$/,
       /^db-migration-authority\.test\.ts$/,

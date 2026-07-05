@@ -35,6 +35,7 @@ import type {
   BrainstrikeDbRuntimeEngine,
   BrainstrikeDbRuntimeSelection,
 } from './architecture/db-runtime-selection.js';
+import { requestBrowserTursoPersistentStorage } from './bootstrap/browser-storage-persistence.js';
 import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
@@ -1697,6 +1698,11 @@ export function DbProvider({
   const initializeBrowserTursoWasm = useCallback(
     async (cancelled: { value: boolean }) => {
       logger.debug('Using browser Turso WASM connection');
+      // A7 cutover follow-up: ask the browser to exempt the origin bucket
+      // (and the OPFS db file family) from LRU eviction. Fire-and-forget by
+      // contract — the helper logs the boolean outcome and never rejects, so
+      // a denial can never gate or fail Turso initialization.
+      void requestBrowserTursoPersistentStorage();
       const {
         applyTursoBrowserWasmForeignKeys,
         createTursoBrowserWasmExecutionClient,

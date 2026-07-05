@@ -131,7 +131,7 @@ function createFakeBrowserTursoDatabase(store: FakeBrowserTursoStore): FakeBrows
   };
 }
 
-function installBrowserWasmPrerequisites(): void {
+function installBrowserWasmPrerequisites(): { persist: ReturnType<typeof vi.fn> } {
   Object.defineProperty(globalThis, 'crossOriginIsolated', {
     configurable: true,
     value: true,
@@ -140,14 +140,17 @@ function installBrowserWasmPrerequisites(): void {
     configurable: true,
     value: SharedArrayBuffer,
   });
+  const persist = vi.fn(async () => true);
   Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
     value: {
       storage: {
         getDirectory: vi.fn(async () => ({})),
+        persist,
       },
     },
   });
+  return { persist };
 }
 
 function restoreDescriptor<T extends object>(
@@ -323,6 +326,36 @@ describe('DbProvider browser Turso WASM runtime', () => {
 
     // No PGlite fallback anywhere on the browser Turso path.
     expect(createPGliteClientSpy).not.toHaveBeenCalled();
+  });
+
+  it('requests persistent storage once at browser Turso initialization (fire-and-forget, non-gating)', async () => {
+    const { persist } = installBrowserWasmPrerequisites();
+    // A DENIED request must not gate readiness — the pre-cutover best-effort
+    // eviction posture is acceptable, only the outcome logging is mandatory.
+    persist.mockImplementation(async () => false);
+    const store = createFakeBrowserTursoStore();
+    openTursoBrowserWasmDatabaseMock.mockImplementation(
+      async () =>
+        createFakeBrowserTursoDatabase(store) as unknown as Awaited<
+          ReturnType<typeof openTursoBrowserWasmDatabase>
+        >
+    );
+
+    const { result } = renderHook(useBrowserTursoProviderProbe, {
+      wrapper: browserTursoWrapper,
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.error).toBeNull();
+    // Once per runtime initialization — not once per store open (the
+    // bootstrap probe store and the long-lived store are two opens).
+    expect(persist).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed on a non-ready bootstrap report without any PGlite fallback', async () => {
