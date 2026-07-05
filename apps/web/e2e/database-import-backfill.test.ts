@@ -445,6 +445,24 @@ async function readHeapSnapshot(page: Page, label: string): Promise<HeapSnapshot
   }, label);
 }
 
+/**
+ * These flows exercise MANUAL import/backfill; the workspace background
+ * indexer would race them on the same fixture root (it auto-imports the
+ * fixture files and its refresh events clear the in-flight manual selection).
+ * The race became reliably visible once the A7 cutover made browser DB
+ * startup fast (Turso WASM); background indexing itself is covered by
+ * workspace-index-background-indexing.test.ts. Seed the preference OFF
+ * (persisted-store shape, version 4) before the post-reset reload.
+ */
+async function disableBackgroundIndexing(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'background-indexing-preferences.v1',
+      JSON.stringify({ state: { enabled: false }, version: 4 })
+    );
+  });
+}
+
 async function releaseImportedAppState(page: Page): Promise<void> {
   await page.evaluate(async () => {
     localStorage.clear();
@@ -470,6 +488,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await waitForAppLoad(page);
 
     await resetAppState(page);
+    await disableBackgroundIndexing(page);
     await page.reload();
     await waitForAppLoad(page);
     await expect
@@ -553,6 +572,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await waitForAppLoad(page);
 
     await resetAppState(page);
+    await disableBackgroundIndexing(page);
     await page.reload();
     await waitForAppLoad(page);
 
@@ -641,6 +661,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await waitForAppLoad(page);
 
     await resetAppState(page);
+    await disableBackgroundIndexing(page);
     await page.reload();
     await waitForAppLoad(page);
 
@@ -688,6 +709,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await waitForAppLoad(page);
 
     await resetAppState(page);
+    await disableBackgroundIndexing(page);
     await page.reload();
     await waitForAppLoad(page);
     await clearPersistedExplorerIncludeFilters(page);
