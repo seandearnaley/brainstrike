@@ -14,6 +14,7 @@ import {
   useFileRecordRepository,
   useViewFilterPresetsRepository,
 } from '../src/db-provider.js';
+import { TursoFileChunkRepository } from '../src/repositories/turso-file-chunk-repository.js';
 
 /**
  * REAL browser proof for the browser Turso reset-ownership slice (the
@@ -104,7 +105,16 @@ describe('DbProvider browser Turso reset ownership (real browser)', () => {
         tokenCount: 8,
         updatedAt: now(),
       });
-      await chunkRepository.insert({
+      // Chunk seeding uses a test-local (UNGATED) repository over the
+      // provider-owned execution client: the provider's chunk repository is
+      // fail-closed for inserts while the vendor indexed-insert lockup gate
+      // is active (browser-chunk-indexing-gate.ts), and this suite proves the
+      // RESET contract, not chunk indexing. The tiny fixture row is safely
+      // below the vendor landmines (same row this suite always wrote).
+      const seedChunkRepository = new TursoFileChunkRepository(
+        executionDb as unknown as ConstructorParameters<typeof TursoFileChunkRepository>[0]
+      );
+      await seedChunkRepository.insert({
         chunkIndex: 0,
         chunkSize: 18,
         chunkType: 'code',

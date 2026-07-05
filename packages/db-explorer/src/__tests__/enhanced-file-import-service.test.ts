@@ -8,8 +8,10 @@ const TURSO_FILE_CHUNK_REPOSITORY_MARKER = 'brainstrike:turso-file-chunk-reposit
 const {
   ensureStartedMock,
   runEnhancedImportMock,
+  mockIsBrowserTursoChunkIndexingEnabled,
   mockUseBrainstrikeDbClient,
   mockUseManualImportDbClient,
+  mockUseOptionalProfileBootstrapReport,
   mockUsePGliteDatabase,
   mockUseFileChunkRepository,
   mockUseFileRecordRepository,
@@ -48,7 +50,14 @@ const {
       terminate: vi.fn(),
     })),
     runEnhancedImportMock: vi.fn(),
+    mockIsBrowserTursoChunkIndexingEnabled: vi.fn(() => false),
     mockUseBrainstrikeDbClient: vi.fn(() => mockDb),
+    mockUseOptionalProfileBootstrapReport: vi.fn(
+      (): null | {
+        ready: boolean;
+        runtime: { engine: string; host: string; persistence: string };
+      } => null
+    ),
     mockUseManualImportDbClient: vi.fn(() => ({
       db: mockDb,
       runtimeEngine: 'pglite' as const,
@@ -105,6 +114,17 @@ vi.mock('@brainstrike/db', () => ({
   useFileChunkRepository: mockUseFileChunkRepository,
   useBrainstrikeDbClient: mockUseBrainstrikeDbClient,
   useManualImportDbClient: mockUseManualImportDbClient,
+  useOptionalProfileBootstrapReport: mockUseOptionalProfileBootstrapReport,
+  isBrowserTursoChunkIndexingEnabled: mockIsBrowserTursoChunkIndexingEnabled,
+  BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE:
+    'browser turso chunked indexing blocked (vendor indexed-insert lockup; test message)',
+  BrowserTursoChunkIndexingBlockedError: class BrowserTursoChunkIndexingBlockedError extends Error {
+    readonly code = 'browser_turso_chunk_indexing_blocked';
+    constructor() {
+      super('browser turso chunked indexing blocked (vendor indexed-insert lockup; test message)');
+      this.name = 'BrowserTursoChunkIndexingBlockedError';
+    }
+  },
   usePGliteDatabase: mockUsePGliteDatabase,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
@@ -189,6 +209,10 @@ describe('useEnhancedFileImportService', () => {
       db: { query: vi.fn().mockResolvedValue({ rows: [] }) },
       runtimeEngine: 'pglite',
     });
+    mockUseOptionalProfileBootstrapReport.mockReset();
+    mockUseOptionalProfileBootstrapReport.mockReturnValue(null);
+    mockIsBrowserTursoChunkIndexingEnabled.mockReset();
+    mockIsBrowserTursoChunkIndexingEnabled.mockReturnValue(false);
     mockUseFileRecordRepository.mockClear();
     mockUseFileRecordRepository.mockReturnValue({ findById: vi.fn(), update: vi.fn() });
     mockUseFileChunkRepository.mockClear();
@@ -389,6 +413,57 @@ describe('useEnhancedFileImportService', () => {
       expect(onError).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Manual imports require an initialized database.',
+        })
+      );
+    });
+
+    it('refuses chunked manual imports on browser Turso while the chunk-indexing gate is closed', async () => {
+      // A7 fail-closed ship decision: chunked manual imports would hit the
+      // vendor indexed-insert lockup; refuse BEFORE the base import runs (no
+      // partial file-record writes) with the actionable typed diagnostic.
+      const onError = vi.fn();
+      const mockBaseImport = vi.fn();
+
+      const baseService = await import('../base-file-import-service');
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
+        isImporting: false,
+        progress: null,
+      });
+      mockUseManualImportDbClient.mockReturnValue({
+        db: {
+          query: vi.fn(async () => ({ rows: [] })),
+          transaction: vi.fn(),
+          applyManagedCacheBatch: vi.fn(),
+          insertChunksAndEnqueueEmbeddingJobs: vi.fn(),
+        },
+        runtimeEngine: 'turso',
+      } as never);
+      mockUseOptionalProfileBootstrapReport.mockReturnValue({
+        ready: true,
+        runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+      });
+      mockIsBrowserTursoChunkIndexingEnabled.mockReturnValue(false);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onError,
+          enableChunking: true,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+      expect(mockBaseImport).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'browser_turso_chunk_indexing_blocked',
+          message: expect.stringContaining('indexed-insert lockup'),
         })
       );
     });

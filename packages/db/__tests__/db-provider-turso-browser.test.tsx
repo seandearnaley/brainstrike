@@ -20,6 +20,10 @@ import {
   useTokenCacheStore,
   useViewFilterPresetsRepository,
 } from '../src/db-provider';
+import {
+  BrowserTursoChunkIndexingBlockedError,
+  isBrowserTursoChunkIndexingEnabled,
+} from '../src/turso/browser-chunk-indexing-gate';
 import { openTursoBrowserWasmDatabase } from '../src/turso/browser-wasm-client';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
@@ -347,7 +351,95 @@ describe('DbProvider browser Turso WASM runtime', () => {
     expect(createPGliteClientSpy).not.toHaveBeenCalled();
   });
 
-  it('exposes atomic chunk/job enqueue on the browser Turso handle (web background import contract)', async () => {
+  const CHUNK_INDEXING_GATE_SUITE = isBrowserTursoChunkIndexingEnabled()
+    ? 'browser Turso chunk indexing ENABLED (post vendor fix)'
+    : 'browser Turso chunk indexing FAIL-CLOSED (vendor indexed-insert lockup)';
+
+  it(`refuses chunk persistence on the browser Turso handle before any write [${CHUNK_INDEXING_GATE_SUITE}]`, async () => {
+    // Skipped once the vendor fix lands and the gate flips: the success-path
+    // test below takes over. See BROWSER_TURSO_CHUNK_INDEXING_ENABLED.
+    if (isBrowserTursoChunkIndexingEnabled()) {
+      return;
+    }
+    installBrowserWasmPrerequisites();
+    const store = createFakeBrowserTursoStore();
+    const openedDatabases: FakeBrowserTursoDatabase[] = [];
+    openTursoBrowserWasmDatabaseMock.mockImplementation(async () => {
+      const database = createFakeBrowserTursoDatabase(store);
+      openedDatabases.push(database);
+      return database as unknown as Awaited<ReturnType<typeof openTursoBrowserWasmDatabase>>;
+    });
+
+    const { result } = renderHook(useBrowserTursoProviderProbe, {
+      wrapper: browserTursoWrapper,
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    const handle = result.current.modelRegistryDb;
+    const chunk = {
+      chunkIndex: 0,
+      chunkSize: 5,
+      chunkType: 'text' as const,
+      content: 'hello',
+      contentHash: 'hash-1',
+      createdAt: '2026-07-05T00:00:00.000Z',
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+      tokenCount: 2,
+      updatedAt: '2026-07-05T00:00:00.000Z',
+    };
+
+    // Atomic enqueue refuses with the typed vendor diagnostic...
+    await expect(
+      handle?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-1', {
+        model: 'local:Xenova/bge-m3',
+        targetDimension: 384,
+        targetEmbeddingSetId: null,
+      })
+    ).rejects.toThrow(BrowserTursoChunkIndexingBlockedError);
+
+    // ...and so does the provider-constructed chunk repository's insert
+    // surface (the direct path manual chunking uses when no embedding queue
+    // is active).
+    const chunkRepository = result.current.chunkRepository as unknown as {
+      insertMany?: (chunks: unknown[]) => Promise<unknown>;
+    } | null;
+    await expect(chunkRepository?.insertMany?.([chunk])).rejects.toThrow(
+      BrowserTursoChunkIndexingBlockedError
+    );
+
+    // No chunk/gram/job write ever reached the store — the refusal happens
+    // BEFORE the statements that trip the vendor indexed-insert lockup.
+    const longLivedStore = openedDatabases[1];
+    const issuedSql = longLivedStore?.issuedSql.join('\n') ?? '';
+    expect(issuedSql).not.toContain('INSERT INTO file_chunks');
+    expect(issuedSql).not.toContain('INSERT INTO job_queue');
+    expect(issuedSql).not.toContain('file_chunk_content_grams');
+
+    // The diagnostic is actionable: names the vendor defect, the ledger
+    // finding, and the PGlite opt-out.
+    await expect(
+      handle?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-1', {
+        model: 'local:Xenova/bge-m3',
+        targetDimension: 384,
+      })
+    ).rejects.toThrow(/indexed-insert lockup.*VITE_BRAINSTRIKE_DB_RUNTIME=pglite/s);
+  });
+
+  it(`exposes atomic chunk/job enqueue on the browser Turso handle [${CHUNK_INDEXING_GATE_SUITE}]`, async () => {
+    // REGRESSION TRIGGER for re-enabling: flip
+    // BROWSER_TURSO_CHUNK_INDEXING_ENABLED when the vendor fixes the
+    // indexed-insert lockup and this success path takes over from the
+    // fail-closed test above.
+    if (!isBrowserTursoChunkIndexingEnabled()) {
+      return;
+    }
     installBrowserWasmPrerequisites();
     const store = createFakeBrowserTursoStore();
     const openedDatabases: FakeBrowserTursoDatabase[] = [];
