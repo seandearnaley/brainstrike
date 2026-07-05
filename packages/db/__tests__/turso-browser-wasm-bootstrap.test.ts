@@ -1,5 +1,7 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  BROWSER_WASM_QUEUE_WAIT_WARNING_MS,
   createTursoBrowserWasmExecutionClient,
   runTursoBrowserWasmBootstrap,
   type TursoBrowserWasmBootstrapDatabase,
@@ -336,6 +338,78 @@ describe('Turso browser WASM execution client', () => {
     expect(firstInsert).toBeLessThan(firstCommit);
   });
 
+  it('logs a watchdog error when a queued operation waits past the threshold behind a held transaction', async () => {
+    vi.useFakeTimers();
+    const records: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      records.push(record);
+    });
+    try {
+      const database = createMockBrowserTursoDatabase();
+      const client = createTursoBrowserWasmExecutionClient(database);
+
+      let releaseTransaction: () => void = () => {
+        throw new Error('transaction gate was not initialized');
+      };
+      const gate = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+      const held = client.transaction(async (tx) => {
+        await tx.exec('INSERT INTO job_queue (id) VALUES (?)', ['job-a']);
+        await gate;
+      });
+      const blocked = client.query('SELECT 1', undefined, { label: 'blocked-probe' });
+
+      await vi.advanceTimersByTimeAsync(BROWSER_WASM_QUEUE_WAIT_WARNING_MS + 1);
+
+      const watchdogRecords = records.filter((record) =>
+        record.message?.includes('single-writer connection')
+      );
+      // Exactly ONE watchdog record: the blocked query. The transaction
+      // itself started immediately and must not trigger its own watchdog.
+      expect(watchdogRecords).toHaveLength(1);
+      expect(watchdogRecords[0]?.level).toBe(LogLevel.ERROR);
+      const meta = JSON.stringify(watchdogRecords[0]?.args ?? []);
+      expect(meta).toContain('"kind":"query"');
+      expect(meta).toContain('"label":"blocked-probe"');
+
+      // Log-only contract: the blocked operation is NOT rejected — it
+      // completes normally once the transaction releases the connection.
+      releaseTransaction();
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(blocked).resolves.toEqual({ rows: [] });
+      await held;
+    } finally {
+      removeListener();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not log the watchdog for operations that acquire the connection promptly', async () => {
+    vi.useFakeTimers();
+    const records: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      records.push(record);
+    });
+    try {
+      const database = createMockBrowserTursoDatabase();
+      const client = createTursoBrowserWasmExecutionClient(database);
+
+      await client.query('SELECT 1');
+      await client.transaction(async (tx) => {
+        await tx.exec('INSERT INTO job_queue (id) VALUES (?)', ['job-b']);
+      });
+      await vi.advanceTimersByTimeAsync(BROWSER_WASM_QUEUE_WAIT_WARNING_MS * 2);
+
+      expect(
+        records.filter((record) => record.message?.includes('single-writer connection'))
+      ).toHaveLength(0);
+    } finally {
+      removeListener();
+      vi.useRealTimers();
+    }
+  });
+
   it('releases the serialization queue after a rolled-back transaction', async () => {
     const database = createMockBrowserTursoDatabase();
     const client = createTursoBrowserWasmExecutionClient(database);
@@ -348,6 +422,24 @@ describe('Turso browser WASM execution client', () => {
 
     // A failed (rolled back) transaction must not wedge the queue: the next
     // operation acquires the connection normally.
+    await expect(client.query('SELECT 1')).resolves.toEqual({ rows: [] });
+  });
+
+  it('preserves the original failure and releases the queue when ROLLBACK itself throws', async () => {
+    const database = createMockBrowserTursoDatabase({
+      rollbackError: new Error('rollback io failure'),
+    });
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    await expect(
+      client.transaction(async () => {
+        throw new Error('write failed');
+      })
+    ).rejects.toThrow('write failed');
+    expect(database.exec).toHaveBeenCalledWith('ROLLBACK');
+
+    // A throwing ROLLBACK must not wedge the FIFO queue: the next operation
+    // still acquires the connection.
     await expect(client.query('SELECT 1')).resolves.toEqual({ rows: [] });
   });
 
@@ -429,6 +521,7 @@ function createMockBrowserTursoDatabase(
   options: {
     readonly closeError?: Error;
     readonly journalMode?: string;
+    readonly rollbackError?: Error;
     readonly vectorRows?: readonly Record<string, unknown>[];
   } = {}
 ) {
@@ -481,6 +574,9 @@ function createMockBrowserTursoDatabase(
     }),
     exec: vi.fn(async (sql: string) => {
       issuedSqlInOrder.push(sql);
+      if (sql === 'ROLLBACK' && options.rollbackError) {
+        throw options.rollbackError;
+      }
       return;
     }),
     issuedSqlInOrder,

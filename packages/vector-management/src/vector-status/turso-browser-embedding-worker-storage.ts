@@ -151,7 +151,13 @@ export function createTursoBrowserEmbeddingWorkerStorage(
             client.transaction((tx) => refreshTursoCollectionIndexingStats(tx, embeddingSetIds))
           ),
       }),
-    getModelConfig: (modelId) => baseStorage.getModelConfig(modelId),
+    // NOTE: the shared Turso storage's model-config lookup swallows query
+    // errors internally (logs + returns null), so an ownership loss during
+    // this call currently surfaces as a missing model rather than through
+    // this wrapper — the wrap is kept for surface consistency and so any
+    // future rethrowing path inherits the same diagnostic.
+    getModelConfig: (modelId) =>
+      failClosedOnOwnershipLoss('getModelConfig', () => baseStorage.getModelConfig(modelId)),
     loadChunksByIds: (ids) =>
       failClosedOnOwnershipLoss('loadChunksByIds', () => baseStorage.loadChunksByIds(ids)),
     queue: wrapQueuePortWithOwnershipDiagnostics(baseStorage.queue),

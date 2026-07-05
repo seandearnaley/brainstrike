@@ -1,5 +1,4 @@
 import {
-  type BrainstrikeDbExecutionClient,
   createTursoJobQueueReadModel,
   JobQueue,
   useBrainstrikeExecutionDbClient,
@@ -122,9 +121,10 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
         );
       }
       return createTursoBrowserEmbeddingWorkerStorage({
-        // The execution-client hook only returns capability-complete clients;
-        // the adapter re-asserts execution capabilities before use.
-        client: executionClient.db as unknown as BrainstrikeDbExecutionClient,
+        // BrainstrikeExecutionDbClient.db is typed as an execution client
+        // (capability-proven inside the hook); the adapter still re-asserts
+        // execution capabilities at construction.
+        client: executionClient.db,
         report: bootstrapReport,
       });
     };

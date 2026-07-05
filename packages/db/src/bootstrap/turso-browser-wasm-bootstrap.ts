@@ -3,6 +3,7 @@ import type {
   BrainstrikeDbExecutionClient,
   BrainstrikeDbQueryResult,
   BrainstrikeDbTransactionClient,
+  BrainstrikeDbWorkOptions,
 } from '../architecture/brainstrike-db-client-contract.js';
 import { markBrainstrikeDbExecutionRuntime } from '../architecture/brainstrike-db-client-contract.js';
 import type {
@@ -348,6 +349,23 @@ export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
 }
 
 /**
+ * How long a queued operation may wait for the single-writer connection
+ * before the queue logs an error naming the operation. Log-only by design:
+ * a slow-but-legitimate holder (e.g. a large import transaction) must not
+ * get its waiters killed, but a silent infinite wait must be loudly visible.
+ * The canonical infinite wait is outer-client use inside a transaction
+ * callback — the native owner client detects that with AsyncLocalStorage
+ * and throws, but AsyncLocalStorage does not exist in browsers, so the
+ * misuse HANGS here and this watchdog is what surfaces it.
+ */
+export const BROWSER_WASM_QUEUE_WAIT_WARNING_MS = 10_000;
+
+interface BrowserWasmQueuedOperationInfo {
+  readonly kind: 'exec' | 'exclusiveTransaction' | 'query' | 'transaction';
+  readonly label?: string | undefined;
+}
+
+/**
  * FIFO serialization queue for the single-writer browser connection.
  *
  * The vendor Database only serializes INDIVIDUAL statements (its internal
@@ -362,14 +380,42 @@ export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
  * Discipline (same rule the native owner client enforces by throwing):
  * transaction callbacks MUST use the callback `tx` client. Awaiting the OUTER
  * client from inside a transaction callback deadlocks, because the outer
- * operation queues behind the transaction that is waiting on it.
+ * operation queues behind the transaction that is waiting on it. That misuse
+ * cannot be detected synchronously in a browser, so a per-operation wait
+ * watchdog (BROWSER_WASM_QUEUE_WAIT_WARNING_MS) logs an error — never a
+ * rejection — when an operation waits suspiciously long for the connection.
  */
-function createBrowserWasmSerialQueue(): <TResult>(
+function createBrowserWasmSerialQueue(
+  waitWarningMs: number = BROWSER_WASM_QUEUE_WAIT_WARNING_MS
+): <TResult>(
+  operation: BrowserWasmQueuedOperationInfo,
   work: () => Promise<TResult>
 ) => Promise<TResult> {
   let tail: Promise<void> = Promise.resolve();
-  return <TResult>(work: () => Promise<TResult>): Promise<TResult> => {
-    const result = tail.then(work);
+  return <TResult>(
+    operation: BrowserWasmQueuedOperationInfo,
+    work: () => Promise<TResult>
+  ): Promise<TResult> => {
+    const queuedAt = Date.now();
+    // Log-only wait watchdog: cleared the moment the operation acquires the
+    // connection; fires at most once per queued operation.
+    const watchdog = setTimeout(() => {
+      logger.error(
+        'Browser Turso WASM operation is still waiting for the browser Turso single-writer connection. ' +
+          'A long-running holder may be legitimate, but if a transaction callback is awaiting the OUTER ' +
+          'execution client this wait will never end — use the callback tx client inside transactions.',
+        {
+          kind: operation.kind,
+          ...(operation.label === undefined ? {} : { label: operation.label }),
+          waitedMs: Date.now() - queuedAt,
+          waitWarningMs,
+        }
+      );
+    }, waitWarningMs);
+    const result = tail.then(() => {
+      clearTimeout(watchdog);
+      return work();
+    });
     tail = result.then(
       () => undefined,
       () => undefined
@@ -384,26 +430,33 @@ export function createTursoBrowserWasmExecutionClient(
   const runSerialized = createBrowserWasmSerialQueue();
   return markBrainstrikeDbExecutionRuntime(
     {
-      exec: async (sql, params) =>
-        runSerialized(async () => {
+      exec: async (sql, params, options) =>
+        runSerialized({ kind: 'exec', label: options?.label }, async () => {
           await execTursoBrowserWasmSql(database, sql, params);
         }),
       exclusiveTransaction: async <TResult>(
-        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+        options?: BrainstrikeDbWorkOptions
       ): Promise<TResult> =>
-        runSerialized(async () => runBrowserWasmTransaction(database, callback)),
+        runSerialized({ kind: 'exclusiveTransaction', label: options?.label }, async () =>
+          runBrowserWasmTransaction(database, callback)
+        ),
       query: async <TRecord = unknown>(
         sql: string,
-        params?: readonly unknown[]
+        params?: readonly unknown[],
+        options?: BrainstrikeDbWorkOptions
       ): Promise<BrainstrikeDbQueryResult<TRecord>> =>
-        runSerialized(async () => {
+        runSerialized({ kind: 'query', label: options?.label }, async () => {
           const rows = await queryTursoBrowserWasmSql<TRecord>(database, sql, params);
           return { rows };
         }),
       transaction: async <TResult>(
-        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>,
+        options?: BrainstrikeDbWorkOptions
       ): Promise<TResult> =>
-        runSerialized(async () => runBrowserWasmTransaction(database, callback)),
+        runSerialized({ kind: 'transaction', label: options?.label }, async () =>
+          runBrowserWasmTransaction(database, callback)
+        ),
     },
     'turso'
   );
