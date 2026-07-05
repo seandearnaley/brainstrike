@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-05 on `feat/turso-browser-embedding-worker-storage`,
+Last updated: 2026-07-05 on `test/turso-browser-runtime-parity`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -63,6 +63,44 @@ job end-to-end (enqueue → lease-token claim → chunk load → complete with a
 deterministic fake-embedder vector → stats refresh) and proves the OPFS
 single-writer ownership mechanism (see "Browser Single-Writer Ownership
 Finding (2026-07-05)" under the Browser Runtime Ownership Decision).
+
+The current browser runtime parity lane slice
+(`test/turso-browser-runtime-parity`) satisfies the "runtime parity tests"
+browser-cutover gate named throughout this ledger. Shared contract bodies
+(`packages/db/__tests__/helpers/turso-runtime-parity-contracts.ts`) run
+IDENTICAL row-level assertions in two lanes: the node lane
+(`turso-runtime-parity.test.ts`, native Turso owner client, registered in the
+db lane manifest) and the browser lane
+(`turso-browser-runtime-parity.browser.test.ts`, real
+`@tursodatabase/database-wasm` store over OPFS through the FIFO-serialized WAL
+single-writer execution client). Covered contracts: embedding_sets CRUD +
+seeded indexing stats, file_records persistence/validation/bulk-import dedupe,
+managed-cache identity + stat metadata, file_chunks non-search persistence and
+embedding-update validation, effective embedding-set membership (explicit
+chunk set id wins, NULL inherits from file_records — coverage, clear, and
+stats), quick-open name-gram lookup consistency across writes, gram-indexed
+grep candidates with filters/escapes, vector32 `searchSimilar` with
+set/root/path filters + inheritance + dimension-mismatch fail-closed, view
+filter preset defaults/CRUD/protected deletes, file_token_cache
+upserts/batch/folder-scoped deletes, `TursoJobQueue` full lease-token
+lifecycle (enqueue → claim → heartbeat → fail/retry → complete → counts,
+including stale-lease CAS rejection), managed-cache batch
+import/replace/invalidate, and collection stats dirty-marking/refresh with
+inherited ownership. Zero parity gaps were found: every contract passed on the
+browser WASM runtime unmodified. Documented runtime (non-contract) tolerances:
+transaction concurrency model (desktop `BEGIN CONCURRENT` vs browser
+single-writer FIFO plain `BEGIN`), journal mode, timings, SQL dialect/plan
+shapes, and raw-SQL integer typing at the driver boundary (raw reads normalize
+via `Number()`; repository APIs are asserted exactly). The browser lane opens
+ONE OPFS store per suite and resets tables between contracts; the full db
+browser project runs in ~4s locally (well under the 60s CI budget). The slice
+also moved the db package's test runner to vitest 4.1.9: 4.1.4's browser mode
+wedged nondeterministically at the orchestrator/tester handshake on local
+macOS (silent hang, same signature as vitest-dev/vitest#10520, fixed upstream
+by 4.1.9); the bump is scoped to the `@brainstrike/db` importer only. Browser
+cutover remains gated on the still-open items (backup/export ownership,
+offline semantics) — this slice proves repository-contract parity, it does not
+flip the browser default.
 
 Merged slices:
 
@@ -227,6 +265,7 @@ Merged slices:
 - #1475 `fix(ci): run db guardrail lane when guardrail-scanned docs change`
 - #1476 `feat(db): browser turso journal-mode contract (wal, fail-closed)`
 - #1477 `feat(db): wire browser Turso WASM runtime through DbProvider`
+- #1478 `feat(embeddings): browser Turso embedding worker storage`
 
 Recently completed browser-WASM capability slice: current Turso docs now
 document browser-local Turso WASM storage through
@@ -513,8 +552,11 @@ serverless client as a silent compatibility shim. Browser Turso WASM has a
 dedicated bootstrap readiness report and DbProvider integration behind an
 explicit runtime-selection opt-in ({ engine: 'turso', host: 'browser' } from
 the runtime selection seam — never a default); Browser PGlite remains the
-browser default until backup/export ownership, offline behavior, and runtime
-parity tests are proven and the cutover decision flips the default.
+browser default until backup/export ownership and offline behavior are proven
+and the cutover decision flips the default. Runtime parity tests are now
+proven by the two-lane parity contract suite (see the browser runtime parity
+lane slice above): the browser WASM runtime passes the same row-level
+repository contracts as the native Turso runtime.
 Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
 reset cleanup remain supported code rather than removable residue.
 

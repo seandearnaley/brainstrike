@@ -44,7 +44,8 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
   'Browser Turso WASM has a dedicated bootstrap readiness report and DbProvider integration behind an explicit runtime-selection opt-in',
-  'Browser PGlite remains the browser default until backup/export ownership, offline behavior, and runtime parity tests are proven and the cutover decision flips the default',
+  'Browser PGlite remains the browser default until backup/export ownership and offline behavior are proven and the cutover decision flips the default',
+  'Runtime parity tests are now proven by the two-lane parity contract suite',
 ] as const;
 
 const REJECTED_LEDGER_PHRASES = [
@@ -53,6 +54,9 @@ const REJECTED_LEDGER_PHRASES = [
   // Superseded by the A4 provider-integration slice: the ledger must not
   // regress to claiming provider integration is still outstanding.
   'Browser PGlite remains only until the WASM runtime has provider integration',
+  // Superseded by the A6 runtime-parity slice: the ledger must not regress to
+  // listing runtime parity tests as an outstanding browser-cutover gate.
+  'Browser PGlite remains the browser default until backup/export ownership, offline behavior, and runtime parity tests are proven',
 ] as const;
 
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([
