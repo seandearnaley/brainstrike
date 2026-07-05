@@ -40,6 +40,7 @@ export const dbUnitLaneDefinitions = [
       /^managed-cache-batch\.test\.ts$/,
       /^repository-/,
       /^turso-managed-cache-batch\.test\.ts$/,
+      /^turso-runtime-parity\.test\.ts$/,
       /^turso-token-cache-store\.test\.ts$/,
     ],
   },
