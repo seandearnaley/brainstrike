@@ -21,11 +21,13 @@ vi.mock('../src/turso/browser-wasm-client', () => ({
 const openTursoBrowserWasmDatabaseMock = vi.mocked(openTursoBrowserWasmDatabase);
 
 const TEST_DB_PATH = 'brainstrike-test-web-turso-reset.db';
+// Deletion order contract: sidecars first, main db LAST, so a partial
+// failure can never leave an orphan stale WAL without its main db.
 const OPFS_FAMILY = [
-  TEST_DB_PATH,
   `${TEST_DB_PATH}-wal`,
   `${TEST_DB_PATH}-shm`,
   `${TEST_DB_PATH}-tshm`,
+  TEST_DB_PATH,
 ] as const;
 
 /**

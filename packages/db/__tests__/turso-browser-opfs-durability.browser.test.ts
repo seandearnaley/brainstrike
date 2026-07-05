@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  applyTursoBrowserWasmForeignKeys,
   createTursoBrowserWasmExecutionClient,
   openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
   runTursoBrowserWasmBootstrap,
@@ -126,6 +127,9 @@ async function openStore(path: string): Promise<TursoBrowserWasmBootstrapDatabas
     async (dbPath: string) => openTursoBrowserWasmDatabase({ path: dbPath }),
     path
   );
+  // Production-client fidelity: every post-bootstrap open applies the
+  // per-connection foreign-keys pragma, exactly like the provider open.
+  await applyTursoBrowserWasmForeignKeys(opened.database);
   return opened.database;
 }
 

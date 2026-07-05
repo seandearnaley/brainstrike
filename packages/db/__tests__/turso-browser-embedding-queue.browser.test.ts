@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  applyTursoBrowserWasmForeignKeys,
   createTursoBrowserWasmExecutionClient,
   openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
   runTursoBrowserWasmBootstrap,
@@ -199,6 +200,10 @@ describe('browser Turso embedding queue (real browser)', () => {
       dbPath
     );
     openDatabase = database;
+    // Production-client fidelity: the provider applies the per-connection
+    // foreign-keys pragma on every post-bootstrap open, so this lane must
+    // run FK-ON exactly like the client it claims to mirror.
+    await applyTursoBrowserWasmForeignKeys(database);
     return { client: createTursoBrowserWasmExecutionClient(database), database };
   }
 });

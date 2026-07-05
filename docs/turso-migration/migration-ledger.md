@@ -676,8 +676,12 @@ survived a clear). The provider open path
 (`openBrowserTursoRuntimeResources`) now enables AND verifies
 `PRAGMA foreign_keys = ON` on the long-lived connection, fail closed —
 mirroring the native owner client's per-connection `applyTursoForeignKeys`.
-Any future browser store construction site must apply the same
-per-connection pragma discipline.
+The helper is exported from the bootstrap module
+(`applyTursoBrowserWasmForeignKeys`), and the browser parity,
+embedding-queue, and durability test harnesses apply it on their
+post-bootstrap opens so those lanes run FK-ON exactly like the production
+client they mirror. Any future browser store construction site must apply
+the same per-connection pragma discipline.
 
 ### Browser OPFS Durability And Storage Pressure (2026-07-05)
 

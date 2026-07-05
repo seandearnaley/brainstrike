@@ -233,6 +233,7 @@ async function loadTursoBrowserWasmRuntime() {
     import('./turso/browser-wasm-client.js'),
   ]);
   return {
+    applyTursoBrowserWasmForeignKeys: bootstrapModule.applyTursoBrowserWasmForeignKeys,
     createTursoBrowserWasmExecutionClient: bootstrapModule.createTursoBrowserWasmExecutionClient,
     openTursoBrowserWasmDatabase: clientModule.openTursoBrowserWasmDatabase,
     openTursoBrowserWasmStoreWithBoundedWorkerInitRetry:
@@ -271,13 +272,17 @@ interface BrowserTursoRuntimeResources {
  * connection-scoped in SQLite (the schema baseline only enabled it on the
  * bootstrap's PROBE connection), and without it the gram/index search
  * sidecars silently stop cascading on this long-lived connection — proven
- * red by the browser reset suite before this apply existed. Mirrors the
- * native owner client's per-connection applyTursoForeignKeys, fail closed.
+ * red by the browser reset suite before this apply existed. The shared,
+ * fail-closed helper lives in the bootstrap module
+ * (applyTursoBrowserWasmForeignKeys) so the browser test harnesses apply the
+ * exact same per-connection discipline.
  */
 async function openBrowserTursoRuntimeResources(
   runtime: Pick<
     Awaited<ReturnType<typeof loadTursoBrowserWasmRuntime>>,
-    'openTursoBrowserWasmDatabase' | 'openTursoBrowserWasmStoreWithBoundedWorkerInitRetry'
+    | 'applyTursoBrowserWasmForeignKeys'
+    | 'openTursoBrowserWasmDatabase'
+    | 'openTursoBrowserWasmStoreWithBoundedWorkerInitRetry'
   >,
   dbPath: string
 ): Promise<BrowserTursoRuntimeResources> {
@@ -287,7 +292,7 @@ async function openBrowserTursoRuntimeResources(
   );
 
   try {
-    await applyBrowserTursoForeignKeys(database);
+    await runtime.applyTursoBrowserWasmForeignKeys(database);
     const [
       TursoEmbeddingSetsRepo,
       TursoFileChunkRepo,
@@ -325,36 +330,6 @@ async function closeBrowserTursoDatabaseIgnoringFailure(
   } catch (closeError) {
     // Preserve the original failure; a close error here is secondary.
     logger.error('Failed to close browser Turso WASM store after a setup failure:', closeError);
-  }
-}
-
-/**
- * Enables and VERIFIES `PRAGMA foreign_keys = ON` on the long-lived browser
- * Turso connection (connection-scoped in SQLite; the schema baseline's apply
- * only covered the bootstrap probe connection). Fail closed: without enforced
- * foreign keys the ON DELETE CASCADE search sidecars silently orphan.
- */
-async function applyBrowserTursoForeignKeys(
-  database: TursoBrowserWasmBootstrapDatabase
-): Promise<void> {
-  await database.exec('PRAGMA foreign_keys = ON');
-  const statement = await database.prepare('PRAGMA foreign_keys');
-  try {
-    const rows = await statement.all();
-    const firstRow = rows[0];
-    const reported =
-      firstRow && typeof firstRow === 'object' && 'foreign_keys' in firstRow
-        ? (firstRow as { readonly foreign_keys?: unknown }).foreign_keys
-        : undefined;
-    if (Number(reported) !== 1) {
-      throw new Error(
-        `Browser Turso store failed to enable foreign keys (PRAGMA foreign_keys reported ${String(
-          reported
-        )}).`
-      );
-    }
-  } finally {
-    await statement.close();
   }
 }
 
@@ -428,13 +403,19 @@ async function clearBrowserTursoData(
 }
 
 /**
- * The OPFS file family owned by one browser Turso store. Keep in sync with
- * FALLBACK_OPFS_TURSO_BROWSER_WASM_FILE_NAMES in packages/preferences
- * factory-reset-helpers.ts (the preferences-side safety net for the default
- * store name).
+ * The OPFS file family owned by one browser Turso store, in DELETION order:
+ * sidecars first, main db last. If deletion fails partway, the worst leftover
+ * is an intact main db missing sidecars (a consistent checkpointed database)
+ * — never a deleted main db with an orphan stale WAL that a future store
+ * created at the same path could encounter (canonical SQLite ignores a WAL
+ * whose header salt doesn't match, but the Turso engine's handling of that
+ * case is unproven, so the order simply never creates it). Keep the name set
+ * in sync with FALLBACK_OPFS_TURSO_BROWSER_WASM_FILE_NAMES in
+ * packages/preferences factory-reset-helpers.ts (the preferences-side safety
+ * net for the default store name).
  */
 function getBrowserTursoOpfsFileFamily(dbPath: string): readonly string[] {
-  return [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-tshm`];
+  return [`${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-tshm`, dbPath];
 }
 
 function isMissingOpfsEntryError(error: unknown): boolean {
@@ -1717,6 +1698,7 @@ export function DbProvider({
     async (cancelled: { value: boolean }) => {
       logger.debug('Using browser Turso WASM connection');
       const {
+        applyTursoBrowserWasmForeignKeys,
         createTursoBrowserWasmExecutionClient,
         openTursoBrowserWasmDatabase,
         openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
@@ -1745,7 +1727,11 @@ export function DbProvider({
       // helper closes the store itself if a repository chunk fails to load
       // (see openBrowserTursoRuntimeResources — no untracked open handle).
       const { database, repositoryClasses } = await openBrowserTursoRuntimeResources(
-        { openTursoBrowserWasmDatabase, openTursoBrowserWasmStoreWithBoundedWorkerInitRetry },
+        {
+          applyTursoBrowserWasmForeignKeys,
+          openTursoBrowserWasmDatabase,
+          openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
+        },
         resolvedPath
       );
       // The ONE execution client for this store (see the DbConnection comment:
@@ -2197,6 +2183,12 @@ export function DbProvider({
       connectionRef.current = null;
       logger.info('[DbProvider] Closed browser Turso WASM store during factory reset');
     }
+    // If this deletion throws AFTER the close above, provider state is
+    // deliberately NOT reset: repositories stay non-null over a now-CLOSED
+    // store, so any further use fails loudly with vendor closed-connection
+    // errors instead of silently reading a half-deleted profile. The reset
+    // stays invocable — a retry skips the close (connection already nulled)
+    // and reattempts the deletion.
     await deleteBrowserTursoOpfsFileFamily(resolvedPath);
     logger.info('[DbProvider] Deleted browser Turso OPFS store file family during factory reset');
 
