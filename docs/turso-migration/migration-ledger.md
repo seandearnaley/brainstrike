@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-04 on `feat/turso-browser-wal-contract`,
+Last updated: 2026-07-05 on `feat/turso-browser-embedding-worker-storage`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -45,6 +45,24 @@ database-wasm-common's own versions; the real Chromium smoke is now a
 READINESS proof — schema baseline, gram-index, and vector32 probes execute
 for real in the browser and pass. See "Browser Journal-Mode Contract Decision
 (2026-07-04)".
+
+The current browser embedding-worker-storage slice
+(`feat/turso-browser-embedding-worker-storage`) wires the browser Turso
+embedding queue path behind the same explicit runtime-selection opt-in:
+`createTursoBrowserEmbeddingWorkerStorage` satisfies the embedding worker
+storage port over the provider-owned WAL single-writer execution client (no
+IPC — the browser has no separate owner process), the shared embedding
+runtime provider selects it for ready browser Turso reports while PGlite
+browser runtimes keep the default PGlite storage, and a non-ready report or
+missing execution client fails worker start closed with a visible error. The
+browser WASM execution client now serializes ALL operations FIFO (the vendor
+Database only serializes individual statements; concurrent logical
+transactions interleaved BEGIN/COMMIT on the one connection — proven red in
+unit tests before the fix). Real Chromium coverage processes one embedding
+job end-to-end (enqueue → lease-token claim → chunk load → complete with a
+deterministic fake-embedder vector → stats refresh) and proves the OPFS
+single-writer ownership mechanism (see "Browser Single-Writer Ownership
+Finding (2026-07-05)" under the Browser Runtime Ownership Decision).
 
 Merged slices:
 
@@ -206,6 +224,9 @@ Merged slices:
 - #1467 `docs(turso): refresh embedding runtime architecture`
 - #1468 `feat(db): add Turso browser WASM seam`
 - #1469 `feat(db): add Turso browser WASM bootstrap`
+- #1475 `fix(ci): run db guardrail lane when guardrail-scanned docs change`
+- #1476 `feat(db): browser turso journal-mode contract (wal, fail-closed)`
+- #1477 `feat(db): wire browser Turso WASM runtime through DbProvider`
 
 Recently completed browser-WASM capability slice: current Turso docs now
 document browser-local Turso WASM storage through
@@ -521,6 +542,49 @@ sqlite capability metadata (unlike Electron-hosted Turso, which returns null
 and routes mutations through owner IPC/actions). Live query stays
 unavailable; browser Turso clear-all and factory reset fail closed until they
 own OPFS store deletion explicitly.
+
+Embedding-worker slice (browser workstream A5): the embedding worker storage
+port is now wired for browser Turso.
+`createTursoBrowserEmbeddingWorkerStorage`
+(packages/vector-management/src/vector-status/turso-browser-embedding-worker-storage.ts)
+delegates queue claim/heartbeat/complete/fail, chunk loading, model config,
+embedding-set dimensions, and stats refresh to the shared Turso worker
+storage directly over the provider-owned execution client, keeps lease-token
+CAS guards (multiple tabs stay a modeled hazard even though a second tab
+fails at store open), and wraps ownership-loss signatures (vendor
+closed-connection errors, OPFS access-handle faults) in an explicit
+fail-closed single-writer diagnostic. Live query remains unavailable.
+
+### Browser Single-Writer Ownership Finding (2026-07-05)
+
+Empirical (real Chromium, `turso-browser-embedding-queue.browser.test.ts`):
+while the browser Turso WASM store is open, a second worker context calling
+`createSyncAccessHandle` on the same OPFS database path fails with
+`NoModificationAllowedError`, and the same probe succeeds after the store is
+closed. This is the exact mechanism the vendor OPFS worker uses at store
+open, so a SECOND TAB opening the same profile fails closed at `connect()` —
+cross-tab split-brain is prevented by OPFS access-handle exclusivity itself.
+
+Source-verified caveat (vendor `@tursodatabase/database-wasm-common` 0.6.1
+`OpfsDirectory.registerFile`): registration dedupes by path and early-returns
+if the file is already registered, so a second `connect()` in the SAME page
+silently shares the one access handle instead of failing. The DbProvider must
+therefore remain the single construction site for the browser store, and
+worker storage must always be built over the provider-owned client — never a
+second `connect()` to the same path in-page.
+
+Serialization decision: the vendor Database's internal execLock serializes
+individual statements only, NOT logical transactions. The browser execution
+client (`createTursoBrowserWasmExecutionClient`) therefore runs every
+query/exec/transaction through a FIFO queue and a transaction holds the
+connection for its whole BEGIN..COMMIT/ROLLBACK span — the browser mirror of
+the native owner client's exclusive operation queue. Same discipline applies:
+transaction callbacks must use the callback tx client; awaiting the outer
+client inside a transaction callback deadlocks by design instead of
+corrupting the transaction. TursoJobQueue needs no MVCC/`BEGIN CONCURRENT`
+semantics on this path: plain serialized `BEGIN` transactions satisfy its
+atomicity needs, and its busy/locked contention-retry classifier is simply
+inert on a single-writer connection.
 
 ## Browser Journal-Mode Contract Decision (2026-07-04)
 
@@ -919,9 +983,13 @@ live-query usage cannot enter the Turso feature branch silently.
 ### 3. Background Indexing And Embedding Host
 
 The hidden embedding host now reaches Turso through the desktop embedding worker
-storage adapter and owner IPC paths. Keep new work on that owner-mediated path:
-renderer workers must not construct independent Turso job queues or bypass the
-DB host.
+storage adapter and owner IPC paths. Keep new DESKTOP work on that
+owner-mediated path: desktop renderer workers must not construct independent
+Turso job queues or bypass the DB host. The BROWSER is the deliberate
+exception (workstream A5): it has no separate owner process, so the browser
+Turso worker storage constructs its queue over the provider-owned WAL
+single-writer execution client — the one client the DbProvider opened — and
+never over a second store connection.
 
 Known production touchpoints:
 
@@ -981,7 +1049,23 @@ User-visible Turso re-embed is now composed as clear-embeddings through the DB
 owner IPC followed by backfill through the existing embedding runtime
 controller. Keep that split: preserve the hidden-renderer worker boundary, do
 not move backfill into the vector queue DB action channel, and do not construct
-`TursoJobQueue` in the visible renderer.
+`TursoJobQueue` in the DESKTOP visible renderer (the browser worker storage
+path constructs its queue over the provider-owned browser execution client by
+design — see the browser exception above).
+
+Browser Turso local worker path (workstream A5, current slice):
+
+- `useEmbeddingRuntimeController()` accepts a lazy `createLocalWorkerStorage`
+  factory; when present, the local worker starts over the returned storage
+  port instead of a raw db handle, and factory failures surface as a visible
+  error status.
+- `EmbeddingRuntimeProvider` supplies the factory only for browser Turso
+  runtimes; it builds `createTursoBrowserEmbeddingWorkerStorage` from the
+  ready bootstrap report + `useBrainstrikeExecutionDbClient()`. PGlite browser
+  runtimes keep the default PGlite worker storage; a browser Turso runtime
+  without a ready report or execution client fails worker start closed.
+- The end-to-end queue lifecycle is proven in real Chromium over the real
+  WASM/OPFS store (`packages/db/__tests__/turso-browser-embedding-queue.browser.test.ts`).
 
 ### 4. Assistant Search And Retrieval
 
