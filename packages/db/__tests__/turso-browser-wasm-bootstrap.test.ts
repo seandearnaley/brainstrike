@@ -47,8 +47,9 @@ describe('Turso browser WASM bootstrap', () => {
     // BorrowError -> unreachable trap) and wedges the wasm instance, so the
     // browser bootstrap must NEVER issue it in any form.
     for (const sql of collectIssuedSql(database)) {
-      expect(sql).not.toContain("journal_mode = 'mvcc'");
-      expect(sql).not.toContain('journal_mode=mvcc');
+      // Broad guard on purpose: no issued SQL may mention MVCC in ANY form
+      // (pragma spellings, BEGIN CONCURRENT rewrites, etc.).
+      expect(sql).not.toMatch(/mvcc/i);
     }
     expect(database.prepare).toHaveBeenCalledWith('PRAGMA journal_mode');
     expect(database.statementsBySql.get('PRAGMA journal_mode')?.all).toHaveBeenCalledTimes(1);
@@ -103,7 +104,7 @@ describe('Turso browser WASM bootstrap', () => {
     });
 
     for (const sql of collectIssuedSql(database)) {
-      expect(sql).not.toContain("journal_mode = 'mvcc'");
+      expect(sql).not.toMatch(/mvcc/i);
     }
     expect(report.bootstrapReport).toMatchObject({
       failure: {

@@ -20,6 +20,11 @@ const TURSO_BROWSER_DB_CLIENT_IMPORT_PATTERN =
   /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<staticSpecifier>@tursodatabase\/(?:database(?:-wasm)?(?:\/(?:vite|bundle|turbopack))?|sync|serverless)|@libsql\/client(?:\/web)?)['"]|\bimport\s*\(\s*['"](?<dynamicSpecifier>@tursodatabase\/(?:database(?:-wasm)?(?:\/(?:vite|bundle|turbopack))?|sync|serverless)|@libsql\/client(?:\/web)?)['"]\s*\)/g;
 const LOCAL_STATIC_SPECIFIER_PATTERN =
   /\b(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s*)?['"](?<specifier>\.{1,2}\/[^'"]+)['"]/g;
+// Local DYNAMIC imports are followed too: db-provider reaches the browser
+// Turso WASM bootstrap through a lazy `import('./bootstrap/...')` loader, and
+// the scan must not lose that edge just because it is code-split.
+const LOCAL_DYNAMIC_SPECIFIER_PATTERN =
+  /\bimport\s*\(\s*['"](?<specifier>\.{1,2}\/[^'"]+)['"]\s*\)/g;
 
 const BROWSER_BUNDLE_ENTRYPOINTS = [
   'apps/web/src/main.tsx',
@@ -38,13 +43,16 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm` is the only approved browser-local Turso database package',
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
-  'Browser Turso WASM has a dedicated bootstrap readiness report',
-  'Browser PGlite remains only until the WASM runtime has provider integration, backup/export ownership, offline behavior, and runtime parity tests',
+  'Browser Turso WASM has a dedicated bootstrap readiness report and DbProvider integration behind an explicit runtime-selection opt-in',
+  'Browser PGlite remains the browser default until backup/export ownership, offline behavior, and runtime parity tests are proven and the cutover decision flips the default',
 ] as const;
 
 const REJECTED_LEDGER_PHRASES = [
   'The current official Turso TypeScript docs do not provide an equivalent browser-local embedded database surface',
   'The final PGlite dependency-removal pass is blocked until browser-local storage has a supported Turso replacement or browser support is explicitly dropped',
+  // Superseded by the A4 provider-integration slice: the ledger must not
+  // regress to claiming provider integration is still outstanding.
+  'Browser PGlite remains only until the WASM runtime has provider integration',
 ] as const;
 
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([
@@ -96,11 +104,20 @@ function normalizeRelativePath(filePath: string): string {
 }
 
 function extractLocalStaticSpecifiers(source: string): string[] {
-  return Array.from(source.matchAll(LOCAL_STATIC_SPECIFIER_PATTERN), (match) => {
+  const staticSpecifiers = Array.from(source.matchAll(LOCAL_STATIC_SPECIFIER_PATTERN), (match) => {
     const specifier = match.groups?.['specifier'];
     expect(specifier, 'local static import/export regex must capture a specifier').toBeTruthy();
     return specifier as string;
   });
+  const dynamicSpecifiers = Array.from(
+    source.matchAll(LOCAL_DYNAMIC_SPECIFIER_PATTERN),
+    (match) => {
+      const specifier = match.groups?.['specifier'];
+      expect(specifier, 'local dynamic import regex must capture a specifier').toBeTruthy();
+      return specifier as string;
+    }
+  );
+  return [...staticSpecifiers, ...dynamicSpecifiers];
 }
 
 function extractTursoBrowserDbClientImports(
@@ -242,10 +259,43 @@ describe('browser runtime ownership guardrails', () => {
     );
   });
 
-  it('keeps the browser WASM bootstrap out of the browser-facing DB barrel until provider integration owns bundling', () => {
+  it('keeps the browser WASM bootstrap out of the browser-facing DB barrel (DbProvider owns bundling via its lazy loader)', () => {
+    // Provider integration owns bundling now: db-provider reaches the
+    // bootstrap through a code-split dynamic import. The barrel must still
+    // never re-export the bootstrap statically — that would eagerly pull the
+    // Turso WASM runtime into every browser bundle, including PGlite-default
+    // builds.
     const dbBarrel = readFileSync(path.join(REPO_ROOT, 'packages/db/src/index.ts'), 'utf8');
 
     expect(dbBarrel).not.toContain('./bootstrap/turso-browser-wasm-bootstrap.js');
+  });
+
+  it('follows local dynamic imports from browser bundle entrypoints', () => {
+    const providerPath = path.join(REPO_ROOT, 'packages/db/src/db-provider.tsx');
+    const bootstrapPath = path.join(
+      REPO_ROOT,
+      'packages/db/src/bootstrap/turso-browser-wasm-bootstrap.ts'
+    );
+    const sources = new Map([
+      [providerPath, "await import('./bootstrap/turso-browser-wasm-bootstrap.js');"],
+      [bootstrapPath, "import { connect } from '@tursodatabase/database-wasm/vite';"],
+    ]);
+
+    expect(
+      findTursoBrowserDbClientImportsFromFiles([providerPath], (absolutePath) => {
+        const source = sources.get(absolutePath);
+        expect(
+          source,
+          `test source missing for ${normalizeRelativePath(absolutePath)}`
+        ).toBeTruthy();
+        return source as string;
+      })
+    ).toEqual([
+      {
+        relativePath: 'packages/db/src/bootstrap/turso-browser-wasm-bootstrap.ts',
+        specifier: '@tursodatabase/database-wasm/vite',
+      },
+    ]);
   });
 
   it('detects non-WASM Turso and libSQL clients re-exported from browser-facing barrels', () => {
