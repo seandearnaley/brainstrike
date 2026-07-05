@@ -49,9 +49,14 @@ export function createTursoWasmRuntimeAliasMap(fromDir) {
   const runtimeDir = resolveNodePackageDir('@emnapi/runtime', wasmCommonDir);
   // wasi-threads is a dependency of @emnapi/core, so resolve it from there.
   const wasiThreadsDir = resolveNodePackageDir('@emnapi/wasi-threads', coreDir);
-  // wasm-util is a dependency of @napi-rs/wasm-runtime, so resolve it from there.
-  const napiWasmRuntimeDir = resolveNodePackageDir('@napi-rs/wasm-runtime', wasmCommonDir);
-  const wasmUtilDir = resolveNodePackageDir('@tybys/wasm-util', napiWasmRuntimeDir);
+  // wasm-util is declared by @napi-rs/wasm-runtime, but resolving it from the
+  // wasm-runtime store dir is NOT portable: Vercel's pnpm store does not link
+  // the sibling there (the very failure that motivated this module). It is
+  // therefore a DIRECT dependency of packages/db (see its package.json +
+  // knip.jsonc allowlist entry) and resolves deterministically from fromDir.
+  // The vitest guard test still asserts the resolved copy satisfies
+  // wasm-runtime's declared range.
+  const wasmUtilDir = resolveNodePackageDir('@tybys/wasm-util', fromDir);
   return {
     '@emnapi/core': requireEsmDist(coreDir, 'dist/emnapi-core.mjs'),
     '@emnapi/runtime': requireEsmDist(runtimeDir, 'dist/emnapi.mjs'),
