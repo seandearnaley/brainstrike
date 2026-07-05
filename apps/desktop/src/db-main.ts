@@ -1157,6 +1157,9 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     profileBootstrapReport: profileBootstrapReport
       ? {
           ...profileBootstrapReport,
+          capabilities: profileBootstrapReport.capabilities
+            ? { ...profileBootstrapReport.capabilities }
+            : null,
           checks: [...profileBootstrapReport.checks],
           failure: profileBootstrapReport.failure ? { ...profileBootstrapReport.failure } : null,
           runtime: { ...profileBootstrapReport.runtime },

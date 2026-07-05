@@ -489,9 +489,11 @@ Release implication: do not import Turso/libSQL database clients into browser
 DB bundle entrypoints except the owned `@tursodatabase/database-wasm/vite`
 browser seam, and do not replace the browser PGlite worker with a remote
 serverless client as a silent compatibility shim. Browser Turso WASM has a
-dedicated bootstrap readiness report, but Browser PGlite remains only until the
-WASM runtime has provider integration, backup/export ownership, offline
-behavior, and runtime parity tests.
+dedicated bootstrap readiness report and DbProvider integration behind an
+explicit runtime-selection opt-in ({ engine: 'turso', host: 'browser' } from
+the runtime selection seam — never a default); Browser PGlite remains the
+browser default until backup/export ownership, offline behavior, and runtime
+parity tests are proven and the cutover decision flips the default.
 Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
 reset cleanup remain supported code rather than removable residue.
 
@@ -503,6 +505,22 @@ search ownership. Real browser coverage now reaches a READY report under the
 WAL single-writer contract (see "Browser Journal-Mode Contract Decision
 (2026-07-04)"); live-query and embedding-worker features remain fail-closed
 until their Turso storage ports are wired.
+
+Provider-integration slice (browser workstream A4): `DbProvider` accepts an
+explicit `runtimeSelection` opt-in. When it resolves to browser Turso the
+provider runs the browser WASM bootstrap, publishes its typed report through
+the same provider state fields and capability gates as the desktop bootstrap
+report path, and on a ready report re-opens the long-lived WAL single-writer
+store and constructs the full Turso repositories (embedding_sets,
+file_records, file_chunks, file_token_cache, view_filter_presets) over the
+browser WASM execution client. A non-ready report fails closed through the
+provider error path with no PGlite fallback. The browser has no separate
+owner process, so that single bootstrap-proven execution client IS the owner
+client for the profile: `useBrainstrikeExecutionDbClient()` returns it with
+sqlite capability metadata (unlike Electron-hosted Turso, which returns null
+and routes mutations through owner IPC/actions). Live query stays
+unavailable; browser Turso clear-all and factory reset fail closed until they
+own OPFS store deletion explicitly.
 
 ## Browser Journal-Mode Contract Decision (2026-07-04)
 
@@ -542,7 +560,13 @@ CONCURRENT` invariant is untouched.
   `@emnapi/runtime`, and `@emnapi/wasi-threads` to the exact copies nested
   next to database-wasm-common (guarded by
   `vitest-browser-project-config.test.ts`); the #1473 bounded retry remains as
-  a narrow guard but cannot rescue the skew. Follow-up: decide whether the
+  a narrow guard but cannot rescue the skew. The alias map is now shared with
+  apps/web's production Vite config via
+  `packages/db/config/turso-wasm-runtime-aliases.mjs` (it also pins
+  `@tybys/wasm-util` to an absolute path — Vite 8's worker sub-build for
+  database-wasm's worker failed to resolve the bare import from the pnpm
+  store on Vercel), so the shipped web bundle and the browser test project
+  resolve the SAME wasm-runtime graph. Follow-up: decide whether the
   workspace wants a pnpm-level scoped override (or an upstream report to
   turso/napi-rs) so non-vite consumers get the same pinning.
 - With journal-mode passing, the schema-baseline, gram-index
@@ -798,7 +822,10 @@ returns `null` unless the ready provider handle has query, exec, and callback
 transaction capabilities. Electron-hosted Turso currently returns `null` on
 purpose: renderer-facing Turso mutations must go through repository/bootstrap
 capabilities or explicit owner-IPC action surfaces, not a raw callback-style SQL
-client. Consumer migrations should use this hook only when they truly need a
+client. Browser-hosted Turso returns the execution client with sqlite
+capability metadata on purpose: the browser has no separate owner process, so
+the WAL single-writer WASM execution client is both query-capable and the
+owner client, satisfying the hook's contract directly. Consumer migrations should use this hook only when they truly need a
 generic execution client; do not use it to infer runtime readiness, live-query,
 vector, grep, or FTS availability. Those capabilities remain
 schema-readiness-, repository-, or bootstrap-gated.

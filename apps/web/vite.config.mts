@@ -12,6 +12,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
+import { createTursoWasmRuntimeAliasMap } from '../../packages/db/config/turso-wasm-runtime-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -213,6 +214,16 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: {
+      // Turso browser WASM runtime graph pinning, shared with packages/db's
+      // vitest browser project (same module = tests and the shipped bundle
+      // resolve the SAME graph): @emnapi/* pinned to the versions
+      // database-wasm-common declares (@emnapi/core >= 1.10 deterministically
+      // faults turso's wasm store open), and @tybys/wasm-util aliased to an
+      // absolute path because Vite 8's worker sub-build for database-wasm's
+      // worker.js failed to resolve the bare import from the pnpm store on
+      // Vercel ("Rolldown failed to resolve import"). Rationale in
+      // packages/db/config/turso-wasm-runtime-aliases.mjs.
+      ...createTursoWasmRuntimeAliasMap(path.resolve(__dirname, '../../packages/db')),
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
       // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js

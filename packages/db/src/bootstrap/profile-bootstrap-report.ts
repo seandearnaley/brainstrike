@@ -37,6 +37,11 @@ export type ProfileBootstrapJournalMode = 'mvcc' | 'wal';
  * concurrent-write behavior on `concurrentWrites`, never on string-matching a
  * database URL or assuming engine parity: the browser Turso WASM runtime is
  * WAL single-writer (`concurrentWrites: false`) while native Turso is MVCC.
+ *
+ * These capabilities describe the runtime's DECLARED contract, not a probed
+ * outcome: they are trustworthy only on `ready: true` reports. A failed or
+ * blocked report still carries the contract the bootstrap was enforcing (so
+ * failure surfaces can name it), but nothing was proven against the store.
  */
 export interface ProfileBootstrapStoreCapabilities {
   readonly concurrentWrites: boolean;

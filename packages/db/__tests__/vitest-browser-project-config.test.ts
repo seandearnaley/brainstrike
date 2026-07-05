@@ -108,6 +108,33 @@ describe('vitest browser project inline config', () => {
       readPackageJson(packageDirContaining(aliasedWasiThreads, '@emnapi/wasi-threads')).version
     ).toBe(aliasedCorePkg.dependencies?.['@emnapi/wasi-threads']);
   });
+
+  it('aliases @tybys/wasm-util to an absolute path satisfying @napi-rs/wasm-runtime declared range', () => {
+    // @napi-rs/wasm-runtime's runtime.js imports the bare '@tybys/wasm-util';
+    // Vite 8 worker sub-builds failed to resolve that from the pnpm store on
+    // Vercel, so the shared alias map pins it to an absolute file. Keep the
+    // pinned copy consistent with what wasm-runtime itself declares.
+    const browserProject = getBrowserProject();
+    const alias = browserProject.resolve?.alias ?? {};
+
+    const wasmCommonDir = resolvePackageDir(
+      '@tursodatabase/database-wasm-common',
+      resolvePackageDir('@tursodatabase/database-wasm', dbPackageDir)
+    );
+    const napiWasmRuntimeDir = resolvePackageDir('@napi-rs/wasm-runtime', wasmCommonDir);
+    const declaredRange = readPackageJson(napiWasmRuntimeDir).dependencies?.['@tybys/wasm-util'];
+    expect(declaredRange).toBeTruthy();
+
+    const aliasedWasmUtil = expectAliasedFile(alias, '@tybys/wasm-util');
+    const aliasedVersion = readPackageJson(
+      packageDirContaining(aliasedWasmUtil, '@tybys/wasm-util')
+    ).version;
+    // The alias resolves the package FROM wasm-runtime's own dir, so the
+    // installed version always satisfies the declared range; assert the
+    // caret-major/minor prefix matches to catch a drifted manual pin.
+    expect(aliasedVersion).toBeTruthy();
+    expect(declaredRange?.replace(/^[~^]/, '').split('.')[0]).toBe(aliasedVersion?.split('.')[0]);
+  });
 });
 
 interface PackageJsonShape {

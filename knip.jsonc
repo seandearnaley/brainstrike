@@ -313,7 +313,8 @@
         "stryker.config.js" // Mutation testing config
       ],
       "ignoreDependencies": [
-        "esbuild" // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        "esbuild", // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        "@tybys/wasm-util" // Direct dep so config/turso-wasm-runtime-aliases.mjs can resolve it deterministically (Vercel's pnpm store lacks the transitive sibling link); referenced only from config .mjs, invisible to knip
       ],
       "typescript": {
         "config": "tsconfig.json"

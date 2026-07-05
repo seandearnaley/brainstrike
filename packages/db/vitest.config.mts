@@ -1,76 +1,21 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { createTursoWasmRuntimeAliasMap } from './config/turso-wasm-runtime-aliases.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Pin the @emnapi/* modules served to the browser project to the EXACT
- * versions @tursodatabase/database-wasm-common declares.
- *
- * database-wasm-common's emnapi imports flow through @napi-rs/wasm-runtime,
- * whose looser ^ range resolves a NEWER @emnapi/core than the exact 1.8.x the
- * turso wasm binary was built against. @emnapi/core >= 1.10 rewrote the
- * async-work pool: its `initWorkers` dereferences
- * `PThread.pthreads[tid].whenLoaded` with a tid read from the pthread struct,
- * which faults DETERMINISTICALLY against turso's wasm
- * (`TypeError: Cannot read properties of undefined (reading 'whenLoaded')`)
- * — store open never succeeds, and retries cannot rescue it. Aliasing the
- * three emnapi packages to the copies nested next to database-wasm-common
- * honors upstream's own pins and self-heals on vendor upgrades. Guarded by
- * vitest-browser-project-config.test.ts (alias versions must equal the pins).
+ * Pin the turso wasm-runtime module graph (@emnapi/* to the EXACT versions
+ * @tursodatabase/database-wasm-common declares, plus an absolute-path alias
+ * for @tybys/wasm-util) — shared with apps/web's production Vite config via
+ * packages/db/config/turso-wasm-runtime-aliases.mjs so the browser test
+ * project and the shipped web bundle resolve the SAME graph. Rationale lives
+ * in that module. Guarded by vitest-browser-project-config.test.ts (alias
+ * versions must equal the vendor pins).
  */
-function resolveTursoWasmEmnapiAliases(): Record<string, string> {
-  // database-wasm-common is a transitive dependency (via database-wasm), so
-  // resolve it the way node would: from the database-wasm package dir.
-  const wasmDir = resolveNodePackageDir('@tursodatabase/database-wasm', __dirname);
-  const wasmCommonDir = resolveNodePackageDir('@tursodatabase/database-wasm-common', wasmDir);
-  const coreDir = resolveNodePackageDir('@emnapi/core', wasmCommonDir);
-  const runtimeDir = resolveNodePackageDir('@emnapi/runtime', wasmCommonDir);
-  // wasi-threads is a dependency of @emnapi/core, so resolve it from there.
-  const wasiThreadsDir = resolveNodePackageDir('@emnapi/wasi-threads', coreDir);
-  return {
-    '@emnapi/core': requireEsmDist(coreDir, 'dist/emnapi-core.mjs'),
-    '@emnapi/runtime': requireEsmDist(runtimeDir, 'dist/emnapi.mjs'),
-    '@emnapi/wasi-threads': requireEsmDist(wasiThreadsDir, 'dist/wasi-threads.mjs'),
-  };
-}
-
-/**
- * Node-style node_modules walk. The turso wasm chain packages expose
- * import-only `exports` maps, so createRequire cannot resolve them.
- */
-function resolveNodePackageDir(packageName: string, fromDir: string): string {
-  let dir = fs.realpathSync(fromDir);
-  for (;;) {
-    const base = path.basename(dir) === 'node_modules' ? dir : path.join(dir, 'node_modules');
-    const candidate = path.join(base, ...packageName.split('/'));
-    if (fs.existsSync(path.join(candidate, 'package.json'))) {
-      return fs.realpathSync(candidate);
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      throw new Error(
-        `Could not resolve ${packageName} from ${fromDir} for the turso wasm emnapi aliases.`
-      );
-    }
-    dir = parent;
-  }
-}
-
-function requireEsmDist(packageDir: string, distRelativePath: string): string {
-  const target = path.join(packageDir, distRelativePath);
-  if (!fs.existsSync(target)) {
-    throw new Error(
-      `Expected ESM dist at ${target}; the emnapi packaging layout changed — update the turso wasm emnapi alias wiring in vitest.config.mts.`
-    );
-  }
-  return target;
-}
-
-const tursoWasmEmnapiAliases = resolveTursoWasmEmnapiAliases();
+const tursoWasmEmnapiAliases = createTursoWasmRuntimeAliasMap(__dirname);
 
 /**
  * Shared workspace source aliases. Vitest inline `projects` do NOT inherit the
@@ -183,6 +128,26 @@ export default defineConfig({
             '@emnapi/core',
             '@emnapi/runtime',
             '@emnapi/wasi-threads',
+          ],
+          // The provider-integration browser test imports db-provider, whose
+          // dependency graph (React + testing-library + PGlite subpaths +
+          // drizzle) would otherwise be DISCOVERED mid-run and force a page
+          // reload ("Vite unexpectedly reloaded a test"). Pre-bundle them
+          // deterministically instead.
+          include: [
+            '@electric-sql/pglite',
+            '@electric-sql/pglite-pgvector',
+            '@electric-sql/pglite/contrib/pg_trgm',
+            '@electric-sql/pglite/live',
+            '@electric-sql/pglite/worker',
+            '@testing-library/react',
+            'drizzle-orm',
+            'drizzle-orm/pg-core',
+            'drizzle-orm/pglite',
+            'react',
+            'react-dom',
+            'react-dom/client',
+            'react/jsx-dev-runtime',
           ],
         },
         resolve: {
