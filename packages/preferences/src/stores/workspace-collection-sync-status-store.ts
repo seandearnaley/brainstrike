@@ -13,7 +13,9 @@ export type WorkspaceCollectionSyncState =
   | 'embedding'
   | 'error';
 
-export type WorkspaceCollectionSyncBlockedReason = 'missing-provider-key';
+export type WorkspaceCollectionSyncBlockedReason =
+  | 'browser-turso-chunk-indexing'
+  | 'missing-provider-key';
 
 export interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;

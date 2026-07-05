@@ -78,6 +78,7 @@ import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
 import type { TursoFileChunkRepository } from './repositories/turso-file-chunk-repository.js';
+import { assertBrowserTursoChunkIndexingEnabled } from './turso/browser-chunk-indexing-gate.js';
 import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
@@ -306,6 +307,10 @@ function createBrowserTursoProviderExecutor(
     fileRecordId: string,
     options: DbInsertChunksAndEnqueueEmbeddingJobsOptions
   ): Promise<void> => {
+    // Fail-closed BEFORE any statement: chunk+gram writes are the surface
+    // that trips the vendor indexed-insert lockup (see
+    // turso/browser-chunk-indexing-gate.ts).
+    assertBrowserTursoChunkIndexingEnabled();
     const insertTursoChunksAndEnqueueEmbeddingJobs =
       await loadInsertTursoChunksAndEnqueueEmbeddingJobs();
     await insertTursoChunksAndEnqueueEmbeddingJobs(
@@ -314,6 +319,36 @@ function createBrowserTursoProviderExecutor(
     );
   };
   return executor;
+}
+
+/**
+ * Gates the provider-constructed browser chunk repository's chunk-INSERT
+ * surfaces behind the vendor indexed-insert lockup (see
+ * turso/browser-chunk-indexing-gate.ts). Inserts are what write the
+ * gram/index sidecars that trip the lockup; reads, coverage, updates
+ * (embedding completion), and deletes stay enabled. Own methods on a
+ * prototype child keep the rest of the repository surface untouched, and
+ * delegation resumes unchanged when the gate flips.
+ */
+function createBrowserTursoGatedChunkRepository(
+  repository: TursoFileChunkRepository
+): TursoFileChunkRepository {
+  const gated = Object.create(repository) as TursoFileChunkRepository;
+  gated.insert = async (...args: Parameters<TursoFileChunkRepository['insert']>) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insert(...args);
+  };
+  gated.insertMany = async (...args: Parameters<TursoFileChunkRepository['insertMany']>) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insertMany(...args);
+  };
+  gated.insertManyWithTx = async (
+    ...args: Parameters<TursoFileChunkRepository['insertManyWithTx']>
+  ) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insertManyWithTx(...args);
+  };
+  return gated;
 }
 
 async function loadTursoBrowserWasmRuntime() {
@@ -1882,7 +1917,9 @@ export function DbProvider({
       );
       setExposedDb(createDbHandle(scheduledExecutor as unknown as QueryExecutor));
       setFileRecordRepository(new TursoFileRecordRepo(executionClient));
-      setChunkRepository(new TursoFileChunkRepo(executionClient));
+      setChunkRepository(
+        createBrowserTursoGatedChunkRepository(new TursoFileChunkRepo(executionClient))
+      );
       setEmbeddingSetsRepository(new TursoEmbeddingSetsRepo(executionClient));
       setViewFilterPresetsRepository(new TursoViewFilterPresetsRepo(executionClient));
       setTokenCacheStore(new TursoTokenCacheStore(executionClient));

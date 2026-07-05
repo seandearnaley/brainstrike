@@ -72,7 +72,11 @@ function getStatusBadge(
     case 'blocked':
       return {
         label:
-          status.blockedReason === 'missing-provider-key' ? 'Waiting for OpenAI key' : 'Blocked',
+          status.blockedReason === 'missing-provider-key'
+            ? 'Waiting for OpenAI key'
+            : status.blockedReason === 'browser-turso-chunk-indexing'
+              ? 'Web indexing unavailable (browser database engine defect)'
+              : 'Blocked',
         icon: AlertTriangle,
         variant: 'destructive' as const,
         iconClassName: 'size-3.5',

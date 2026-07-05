@@ -179,6 +179,7 @@ export {
   markTursoCollectionIndexingStatsDirty,
   refreshTursoCollectionIndexingStats,
 } from './services/turso-collection-indexing-stats.js';
+export * from './turso/browser-chunk-indexing-gate.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';

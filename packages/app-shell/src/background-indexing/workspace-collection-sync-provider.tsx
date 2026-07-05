@@ -1,6 +1,7 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   applyTursoManagedCacheBatch,
+  BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE,
   type BrainstrikeDbExecutionClient,
   type BrainstrikeDbTransactionClient,
   createDatabasePressureController,
@@ -15,6 +16,7 @@ import {
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
   invalidateTursoManagedCacheEntriesByIdentity,
+  isBrowserTursoChunkIndexingEnabled,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
@@ -2011,9 +2013,37 @@ export function WorkspaceCollectionSyncProvider({
     setSyncStatus,
   ]);
 
+  // A7 fail-closed ship decision: browser Turso chunk persistence is blocked
+  // by the vendor indexed-insert lockup (see the migration ledger finding
+  // 2026-07-05 and @brainstrike/db's browser-chunk-indexing-gate). Refuse the
+  // WHOLE sync before any write — no workspace-index bootstrap, no partial
+  // file-record imports — and surface the actionable diagnostic on the status
+  // surface. Desktop Turso and web PGlite are untouched. Returns true when it
+  // emitted the block (the caller must then stop before any DB mutation).
+  const emitBrowserTursoChunkIndexingBlockIfNeeded = useCallback((): boolean => {
+    if (!(enabled && browserTursoRuntime) || isBrowserTursoChunkIndexingEnabled()) {
+      return false;
+    }
+    setSyncStatus({
+      state: 'blocked',
+      managedCollectionId,
+      managedCollectionName: null,
+      activeRootPath: rootDirectoryHandle?.path ?? null,
+      ...createClearedProgressPatch(),
+      blockedReason: 'browser-turso-chunk-indexing',
+      lastError: BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE,
+    });
+    return true;
+  }, [browserTursoRuntime, enabled, managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]);
+
   const triggerSync = useCallback(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the A7 fail-closed browser-Turso gate guard must sit atop this already-at-ceiling guard ladder before any DB work; the block-status emission is extracted to emitBrowserTursoChunkIndexingBlockIfNeeded and the residual +2 is a single early-return guard.
     (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
       if (!hasHydrated) {
+        return;
+      }
+
+      if (emitBrowserTursoChunkIndexingBlockIfNeeded()) {
         return;
       }
 
@@ -2316,6 +2346,7 @@ export function WorkspaceCollectionSyncProvider({
     },
     [
       backgroundDb,
+      emitBrowserTursoChunkIndexingBlockIfNeeded,
       enabled,
       hasHydrated,
       indexingPolicyPreset,
