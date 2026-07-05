@@ -2,7 +2,7 @@
   "framework": "vite",
   "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
   "outputDirectory": "dist",
-  "installCommand": "cd ../.. && pnpm install",
+  "installCommand": "cd ../.. && rm -f node_modules/.pnpm-workspace-state-v1.json && pnpm install",
   "ignoreCommand": "exit 1",
   "headers": [
     {
