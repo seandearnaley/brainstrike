@@ -392,6 +392,37 @@ describe('DbProvider browser Turso WASM runtime', () => {
     expect(openTursoBrowserWasmDatabaseMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a non-browser Turso runtime selection (desktop Turso is classified from the Electron report)', async () => {
+    installBrowserWasmPrerequisites();
+    const desktopSelection = resolveBrainstrikeDbRuntimeSelection({
+      platform: 'desktop',
+      requestedEngine: 'turso',
+      source: 'test',
+    });
+
+    function desktopSelectionWrapper({ children }: { children: React.ReactNode }) {
+      return (
+        <DbProvider dbPath="brainstrike-test-web-turso.db" runtimeSelection={desktopSelection}>
+          {children}
+        </DbProvider>
+      );
+    }
+
+    const { result } = renderHook(useBrowserTursoProviderProbe, {
+      wrapper: desktopSelectionWrapper,
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('error');
+      },
+      { timeout: 10_000 }
+    );
+
+    expect(result.current.error?.message).toContain('not supported by DbProvider');
+    expect(openTursoBrowserWasmDatabaseMock).not.toHaveBeenCalled();
+  });
+
   it('keeps the default browser PGlite path away from the Turso browser client when no Turso selection is passed', async () => {
     function pgliteWrapper({ children }: { children: React.ReactNode }) {
       return <DbProvider dbPath="memory://">{children}</DbProvider>;

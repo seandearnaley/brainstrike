@@ -226,6 +226,85 @@ async function loadTursoBrowserWasmRuntime() {
   };
 }
 
+interface BrowserTursoRuntimeResources {
+  readonly database: TursoBrowserWasmBootstrapDatabase;
+  readonly repositoryClasses: {
+    readonly TursoEmbeddingSetsRepo: Awaited<ReturnType<typeof loadTursoEmbeddingSetsRepository>>;
+    readonly TursoFileChunkRepo: Awaited<ReturnType<typeof loadTursoFileChunkRepository>>;
+    readonly TursoFileRecordRepo: Awaited<ReturnType<typeof loadTursoFileRecordRepository>>;
+    readonly TursoTokenCacheStoreClass: Awaited<ReturnType<typeof loadTursoTokenCacheStore>>;
+    readonly TursoViewFilterPresetsRepo: Awaited<
+      ReturnType<typeof loadTursoViewFilterPresetsRepository>
+    >;
+  };
+}
+
+/**
+ * Re-opens the long-lived browser Turso WAL store and loads the repository
+ * classes. Module-level on purpose (throw-in-catch would make the React
+ * Compiler bail on the provider component): if any repository chunk fails to
+ * load AFTER the store was opened, the store is CLOSED before rethrowing —
+ * leaking an open OPFS single-writer handle can block every later open of the
+ * same file in this session.
+ *
+ * Journal mode is intentionally NOT re-verified on this open: WAL persists in
+ * the SQLite file header, and the bootstrap that just ran proved the WAL
+ * contract on this exact file (see turso-browser-wasm-bootstrap.ts for the
+ * full journal-mode contract rationale).
+ */
+async function openBrowserTursoRuntimeResources(
+  runtime: Pick<
+    Awaited<ReturnType<typeof loadTursoBrowserWasmRuntime>>,
+    'openTursoBrowserWasmDatabase' | 'openTursoBrowserWasmStoreWithBoundedWorkerInitRetry'
+  >,
+  dbPath: string
+): Promise<BrowserTursoRuntimeResources> {
+  const { database } = await runtime.openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
+    async (path: string) => runtime.openTursoBrowserWasmDatabase({ path }),
+    dbPath
+  );
+
+  try {
+    const [
+      TursoEmbeddingSetsRepo,
+      TursoFileChunkRepo,
+      TursoFileRecordRepo,
+      TursoTokenCacheStoreClass,
+      TursoViewFilterPresetsRepo,
+    ] = await Promise.all([
+      loadTursoEmbeddingSetsRepository(),
+      loadTursoFileChunkRepository(),
+      loadTursoFileRecordRepository(),
+      loadTursoTokenCacheStore(),
+      loadTursoViewFilterPresetsRepository(),
+    ]);
+    return {
+      database,
+      repositoryClasses: {
+        TursoEmbeddingSetsRepo,
+        TursoFileChunkRepo,
+        TursoFileRecordRepo,
+        TursoTokenCacheStoreClass,
+        TursoViewFilterPresetsRepo,
+      },
+    };
+  } catch (error) {
+    await closeBrowserTursoDatabaseIgnoringFailure(database);
+    throw error;
+  }
+}
+
+async function closeBrowserTursoDatabaseIgnoringFailure(
+  database: TursoBrowserWasmBootstrapDatabase
+): Promise<void> {
+  try {
+    await database.close();
+  } catch (closeError) {
+    // Preserve the original failure; a close error here is secondary.
+    logger.error('Failed to close browser Turso WASM store after a setup failure:', closeError);
+  }
+}
+
 function isBrowserTursoRuntimeSelection(
   runtimeSelection: BrainstrikeDbRuntimeSelection | undefined
 ): boolean {
@@ -233,6 +312,30 @@ function isBrowserTursoRuntimeSelection(
     runtimeSelection?.bootstrapRuntime.engine === 'turso' &&
     runtimeSelection.bootstrapRuntime.host === 'browser'
   );
+}
+
+/**
+ * Fail-closed runtime-selection guards, kept at module level on purpose: a
+ * `throw` inside the provider's try/catch makes the React Compiler bail on
+ * the whole component ("Support ThrowStatement inside of try/catch"). The
+ * thrown errors surface identically through the caller's catch.
+ */
+function assertSupportedDbProviderRuntimeSelection(input: {
+  readonly browserTursoSelected: boolean;
+  readonly runtimeSelection: BrainstrikeDbRuntimeSelection | undefined;
+  readonly useElectronIPC: boolean | undefined;
+}): void {
+  const { browserTursoSelected, runtimeSelection, useElectronIPC } = input;
+  if (runtimeSelection && runtimeSelection.engine === 'turso' && !browserTursoSelected) {
+    throw new Error(
+      `Turso runtime selection with host '${runtimeSelection.bootstrapRuntime.host}' is not supported by DbProvider; desktop Turso is classified from the Electron bootstrap report.`
+    );
+  }
+  if (browserTursoSelected && useElectronIPC) {
+    throw new Error(
+      'A browser Turso runtime selection cannot be combined with the Electron IPC bridge; desktop Turso goes through the DB-host owner client.'
+    );
+  }
 }
 
 async function loadDrizzleEmbeddingSetsRepository() {
@@ -1438,27 +1541,27 @@ export function DbProvider({
       }
 
       // The bootstrap closes its probe store after the readiness checks;
-      // re-open the long-lived single-writer store for the provider.
-      const { database } = await openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
-        async (path: string) => openTursoBrowserWasmDatabase({ path }),
+      // re-open the long-lived single-writer store for the provider. The
+      // helper closes the store itself if a repository chunk fails to load
+      // (see openBrowserTursoRuntimeResources — no untracked open handle).
+      const { database, repositoryClasses } = await openBrowserTursoRuntimeResources(
+        { openTursoBrowserWasmDatabase, openTursoBrowserWasmStoreWithBoundedWorkerInitRetry },
         resolvedPath
       );
+      // Track the handle IMMEDIATELY (mirrors the direct-PGlite ordering) so
+      // the unmount cleanup and reset paths can always close it.
+      connectionRef.current = { kind: 'turso-browser', db: database, dbPath: resolvedPath };
 
-      const [
+      const {
         TursoEmbeddingSetsRepo,
         TursoFileChunkRepo,
         TursoFileRecordRepo,
-        TursoTokenCacheStore,
+        TursoTokenCacheStoreClass: TursoTokenCacheStore,
         TursoViewFilterPresetsRepo,
-      ] = await Promise.all([
-        loadTursoEmbeddingSetsRepository(),
-        loadTursoFileChunkRepository(),
-        loadTursoFileRecordRepository(),
-        loadTursoTokenCacheStore(),
-        loadTursoViewFilterPresetsRepository(),
-      ]);
+      } = repositoryClasses;
 
       if (cancelled.value) {
+        connectionRef.current = null;
         await database.close();
         return;
       }
@@ -1473,7 +1576,6 @@ export function DbProvider({
           'view_filter_presets',
         ],
       });
-      connectionRef.current = { kind: 'turso-browser', db: database, dbPath: resolvedPath };
       setExposedDb(createDbHandle(executionClient as unknown as QueryExecutor));
       setFileRecordRepository(new TursoFileRecordRepo(executionClient));
       setChunkRepository(new TursoFileChunkRepo(executionClient));
@@ -1512,16 +1614,11 @@ export function DbProvider({
 
     initializingPromiseRef.current = (async () => {
       try {
-        if (runtimeSelection && runtimeSelection.engine === 'turso' && !browserTursoSelected) {
-          throw new Error(
-            `Turso runtime selection with host '${runtimeSelection.bootstrapRuntime.host}' is not supported by DbProvider; desktop Turso is classified from the Electron bootstrap report.`
-          );
-        }
-        if (browserTursoSelected && useElectronIPC) {
-          throw new Error(
-            'A browser Turso runtime selection cannot be combined with the Electron IPC bridge; desktop Turso goes through the DB-host owner client.'
-          );
-        }
+        assertSupportedDbProviderRuntimeSelection({
+          browserTursoSelected,
+          runtimeSelection,
+          useElectronIPC,
+        });
         const isElectronInitialized = await initializeElectronIPC({ value: false });
         if (!isElectronInitialized) {
           if (browserTursoSelected) {
