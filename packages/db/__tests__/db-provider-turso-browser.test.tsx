@@ -66,6 +66,11 @@ function createFakeBrowserTursoDatabase(store: FakeBrowserTursoStore): FakeBrows
     if (sql === 'PRAGMA journal_mode') {
       return [{ journal_mode: 'wal' }];
     }
+    if (sql.includes('INSERT INTO file_records') && sql.includes('RETURNING id')) {
+      // The managed-cache batch asserts the RETURNING ids match the imports;
+      // the first bound value per row is the record id.
+      return [{ id: String(params?.[0]) }];
+    }
     if (sql === 'PRAGMA foreign_keys') {
       return [{ foreign_keys: 1 }];
     }
@@ -406,6 +411,67 @@ describe('DbProvider browser Turso WASM runtime', () => {
         model: 'local:Xenova/bge-m3',
       })
     ).rejects.toThrow('Atomic chunk/job enqueue requires a positive targetDimension.');
+  });
+
+  it('exposes managed-cache batch apply on the browser Turso handle (web manual import contract)', async () => {
+    installBrowserWasmPrerequisites();
+    const store = createFakeBrowserTursoStore();
+    const openedDatabases: FakeBrowserTursoDatabase[] = [];
+    openTursoBrowserWasmDatabaseMock.mockImplementation(async () => {
+      const database = createFakeBrowserTursoDatabase(store);
+      openedDatabases.push(database);
+      return database as unknown as Awaited<ReturnType<typeof openTursoBrowserWasmDatabase>>;
+    });
+
+    const { result } = renderHook(useBrowserTursoProviderProbe, {
+      wrapper: browserTursoWrapper,
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    // The web manual import flow (db-explorer) gates Turso imports on
+    // db.applyManagedCacheBatch; on desktop the IPC bridge provides it, on
+    // the browser it must ride the provider-owned execution client.
+    const handle = result.current.modelRegistryDb;
+    expect(typeof handle?.applyManagedCacheBatch).toBe('function');
+
+    await handle?.applyManagedCacheBatch?.({
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: '00000000-0000-4000-8000-00000000aa01',
+            name: 'notes.ts',
+            path: 'docs/notes.ts',
+            type: 'typescript',
+            size: 5,
+            mtimeMs: 1_700_000_000_000,
+            content: 'hello',
+            contentHash: 'hash-1',
+            tokenCount: 2,
+            processedAt: '2026-07-05T00:00:00.000Z',
+            createdAt: '2026-07-05T00:00:00.000Z',
+            updatedAt: '2026-07-05T00:00:00.000Z',
+          },
+        },
+      ],
+      embeddingSetId: '00000000-0000-4000-8000-00000000bb01',
+      rootId: '00000000-0000-4000-8000-00000000cc01',
+    } as unknown as Parameters<
+      NonNullable<NonNullable<typeof handle>['applyManagedCacheBatch']>
+    >[0]);
+
+    const longLivedStore = openedDatabases[1];
+    const issuedSql = longLivedStore?.issuedSql.join('\n') ?? '';
+    expect(issuedSql).toContain('INSERT INTO file_records');
+    expect(longLivedStore?.issuedSql).toContain('BEGIN');
+    expect(longLivedStore?.issuedSql).toContain('COMMIT');
+    expect(issuedSql).not.toContain('BEGIN CONCURRENT');
   });
 
   it('requests persistent storage once at browser Turso initialization (fire-and-forget, non-gating)', async () => {

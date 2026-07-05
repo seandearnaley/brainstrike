@@ -428,6 +428,13 @@ function createBrowserWasmSerialQueue(
   work: () => Promise<TResult>
 ) => Promise<TResult> {
   let tail: Promise<void> = Promise.resolve();
+  let runningOperation: BrowserWasmQueuedOperationInfo | null = null;
+  const describeOperation = (info: BrowserWasmQueuedOperationInfo | null): string => {
+    if (!info) {
+      return 'none';
+    }
+    return info.label === undefined ? info.kind : `${info.kind} (label: ${info.label})`;
+  };
   return <TResult>(
     operation: BrowserWasmQueuedOperationInfo,
     work: () => Promise<TResult>
@@ -436,11 +443,16 @@ function createBrowserWasmSerialQueue(
     // Log-only wait watchdog: cleared the moment the operation acquires the
     // connection; fires at most once per queued operation.
     const watchdog = setTimeout(() => {
+      // The waiter AND holder identities are part of the MESSAGE (not only
+      // structured metadata) so browser console/E2E captures always name them.
       logger.error(
-        'Browser Turso WASM operation is still waiting for the browser Turso single-writer connection. ' +
-          'A long-running holder may be legitimate, but if a transaction callback is awaiting the OUTER ' +
-          'execution client this wait will never end — use the callback tx client inside transactions.',
+        `Browser Turso WASM ${describeOperation(operation)} operation is still waiting for the ` +
+          `browser Turso single-writer connection after ${Date.now() - queuedAt}ms ` +
+          `(current holder: ${describeOperation(runningOperation)}). A long-running holder may be ` +
+          'legitimate, but if a transaction callback is awaiting the OUTER execution client this ' +
+          'wait will never end — use the callback tx client inside transactions.',
         {
+          holder: describeOperation(runningOperation),
           kind: operation.kind,
           ...(operation.label === undefined ? {} : { label: operation.label }),
           waitedMs: Date.now() - queuedAt,
@@ -450,11 +462,16 @@ function createBrowserWasmSerialQueue(
     }, waitWarningMs);
     const result = tail.then(() => {
       clearTimeout(watchdog);
+      runningOperation = operation;
       return work();
     });
     tail = result.then(
-      () => undefined,
-      () => undefined
+      () => {
+        runningOperation = null;
+      },
+      () => {
+        runningOperation = null;
+      }
     );
     return result;
   };

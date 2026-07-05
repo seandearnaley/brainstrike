@@ -234,6 +234,11 @@ async function loadInsertTursoChunksAndEnqueueEmbeddingJobs() {
   return mod.insertTursoChunksAndEnqueueEmbeddingJobs;
 }
 
+async function loadApplyTursoManagedCacheBatch() {
+  const mod = await import('./managed-cache/index.js');
+  return mod.applyTursoManagedCacheBatch;
+}
+
 /**
  * Strict-parse mapping from the renderer DbHandle atomic-enqueue call shape
  * to the shared Turso batch args (mirrors the desktop IPC payload parse in
@@ -270,23 +275,31 @@ function buildBrowserTursoAtomicEnqueueArgs(
 
 /**
  * The browser Turso provider executor: the WAL single-writer execution client
- * plus the atomic chunk-insert + embedding-job-enqueue seam that web
- * background indexing requires on the exposed handle (desktop gets it from
- * the DB-host IPC bridge; the browser owner IS this client). Defined as an
- * own method on a prototype child of the execution client so the runtime
- * marker and capability surface are preserved.
+ * plus the mutation seams web import paths require on the exposed handle —
+ * atomic chunk-insert + embedding-job-enqueue (background indexing's
+ * sync-import contract) and managed-cache batch apply (db-explorer's manual
+ * import contract). Desktop gets both from the DB-host IPC bridge; the
+ * browser owner IS this client. Defined as own methods on a prototype child
+ * of the execution client so the runtime marker and capability surface are
+ * preserved.
  */
 function createBrowserTursoProviderExecutor(
   executionClient: TursoBrowserWasmExecutionClient
 ): TursoBrowserWasmExecutionClient & {
+  applyManagedCacheBatch: NonNullable<QueryExecutor['applyManagedCacheBatch']>;
   insertChunksAndEnqueueEmbeddingJobs: NonNullable<
     QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
   >;
 } {
   const executor = Object.create(executionClient) as TursoBrowserWasmExecutionClient & {
+    applyManagedCacheBatch: NonNullable<QueryExecutor['applyManagedCacheBatch']>;
     insertChunksAndEnqueueEmbeddingJobs: NonNullable<
       QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
     >;
+  };
+  executor.applyManagedCacheBatch = async (payload: ApplyManagedCacheBatchArgs): Promise<void> => {
+    const applyTursoManagedCacheBatch = await loadApplyTursoManagedCacheBatch();
+    await applyTursoManagedCacheBatch(executionClient, payload);
   };
   executor.insertChunksAndEnqueueEmbeddingJobs = async (
     chunks: readonly FileChunk[],
