@@ -4,22 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingRuntimeProvider, useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 
 const {
+  createTursoBrowserEmbeddingWorkerStorageMock,
   createTursoVectorQueueSnapshotReaderMock,
   createVectorQueueServiceForRuntimeMock,
   createTursoJobQueueReadModelMock,
   JobQueueMock,
+  useBrainstrikeExecutionDbClientMock,
   useEmbeddingRuntimeControllerMock,
   useFileChunkRepositoryMock,
   useModelRegistryDbClientMock,
   useOptionalProfileBootstrapReportMock,
   useVectorPreferencesStoreMock,
 } = vi.hoisted(() => ({
+  createTursoBrowserEmbeddingWorkerStorageMock: vi.fn(),
   createTursoVectorQueueSnapshotReaderMock: vi.fn(),
   createVectorQueueServiceForRuntimeMock: vi.fn(),
   createTursoJobQueueReadModelMock: vi.fn((db: unknown) => ({ db })),
   JobQueueMock: vi.fn(function MockJobQueue(this: { db: unknown }, db: unknown) {
     this.db = db;
   }),
+  useBrainstrikeExecutionDbClientMock: vi.fn(),
   useEmbeddingRuntimeControllerMock: vi.fn(),
   useFileChunkRepositoryMock: vi.fn(),
   useModelRegistryDbClientMock: vi.fn(),
@@ -30,9 +34,14 @@ const {
 vi.mock('@brainstrike/db', () => ({
   createTursoJobQueueReadModel: createTursoJobQueueReadModelMock,
   JobQueue: JobQueueMock,
+  useBrainstrikeExecutionDbClient: useBrainstrikeExecutionDbClientMock,
   useFileChunkRepository: useFileChunkRepositoryMock,
   useModelRegistryDbClient: useModelRegistryDbClientMock,
   useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
+}));
+
+vi.mock('../vector-status/turso-browser-embedding-worker-storage', () => ({
+  createTursoBrowserEmbeddingWorkerStorage: createTursoBrowserEmbeddingWorkerStorageMock,
 }));
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
@@ -55,6 +64,7 @@ describe('EmbeddingRuntimeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useModelRegistryDbClientMock.mockReturnValue({ dialect: 'pglite' });
+    useBrainstrikeExecutionDbClientMock.mockReturnValue(null);
     useOptionalProfileBootstrapReportMock.mockReturnValue({
       runtime: { engine: 'pglite', host: 'browser', persistence: 'memory' },
     });
@@ -140,6 +150,7 @@ describe('EmbeddingRuntimeProvider', () => {
       expect.objectContaining({ db: { dialect: 'pglite' } })
     );
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
+      createLocalWorkerStorage: null,
       db: { dialect: 'pglite' },
       devicePreference: 'webgpu',
       reinitEveryN: 250,
@@ -170,6 +181,7 @@ describe('EmbeddingRuntimeProvider', () => {
       runtimeEngine: 'pglite',
     });
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
+      createLocalWorkerStorage: null,
       db: { dialect: 'pglite' },
       devicePreference: 'webgpu',
       reinitEveryN: 250,
@@ -210,6 +222,7 @@ describe('EmbeddingRuntimeProvider', () => {
       jobQueue: { db: { dialect: 'turso' } },
     });
     expect(useEmbeddingRuntimeControllerMock).toHaveBeenCalledWith({
+      createLocalWorkerStorage: null,
       db: null,
       devicePreference: 'webgpu',
       reinitEveryN: 250,
@@ -221,6 +234,73 @@ describe('EmbeddingRuntimeProvider', () => {
     );
     expect(result.current.serviceUnavailableReason).toBe('missing-turso-vector-queue-adapter');
     expect(result.current.liveQueryMetricsEnabled).toBe(false);
+  });
+
+  it('wires browser Turso local worker storage from the ready report and execution client', () => {
+    const executionDbHandle = { dialect: 'turso-browser' };
+    const readyBrowserReport = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    };
+    const adapterStorage = { queue: {} };
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue(readyBrowserReport);
+    useBrainstrikeExecutionDbClientMock.mockReturnValue({
+      db: executionDbHandle,
+      runtimeEngine: 'turso',
+      sqlCapabilities: { dialect: 'sqlite' },
+    });
+    createTursoBrowserEmbeddingWorkerStorageMock.mockReturnValue(adapterStorage);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+    renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    const controllerParams = useEmbeddingRuntimeControllerMock.mock.calls[0]?.[0];
+    expect(controllerParams).toMatchObject({ db: null });
+    expect(typeof controllerParams?.createLocalWorkerStorage).toBe('function');
+    // The factory is lazy: nothing constructed until the worker actually starts.
+    expect(createTursoBrowserEmbeddingWorkerStorageMock).not.toHaveBeenCalled();
+
+    const storage = controllerParams?.createLocalWorkerStorage?.();
+    expect(storage).toBe(adapterStorage);
+    expect(createTursoBrowserEmbeddingWorkerStorageMock).toHaveBeenCalledWith({
+      client: executionDbHandle,
+      report: readyBrowserReport,
+    });
+  });
+
+  it('fails closed when browser Turso is selected but no execution client is exposed', () => {
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: false,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    });
+    useBrainstrikeExecutionDbClientMock.mockReturnValue(null);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+    renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    const controllerParams = useEmbeddingRuntimeControllerMock.mock.calls[0]?.[0];
+    expect(typeof controllerParams?.createLocalWorkerStorage).toBe('function');
+    expect(() => controllerParams?.createLocalWorkerStorage?.()).toThrow(
+      /execution client.*fail(s|ing)? closed|fail(s|ing)? closed.*execution client/i
+    );
+    expect(createTursoBrowserEmbeddingWorkerStorageMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the default PGlite worker path storage-free', () => {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+    renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    const controllerParams = useEmbeddingRuntimeControllerMock.mock.calls[0]?.[0];
+    expect(controllerParams?.createLocalWorkerStorage).toBeNull();
+    expect(createTursoBrowserEmbeddingWorkerStorageMock).not.toHaveBeenCalled();
   });
 
   it('keeps Turso live metrics disabled when a queue action adapter is available', () => {

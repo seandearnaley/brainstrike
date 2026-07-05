@@ -3,6 +3,7 @@ import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/run
 import type {
   EmbeddingWorkerController,
   EmbeddingWorkerOptions,
+  EmbeddingWorkerStorage,
 } from '@brainstrike/embeddings/worker';
 import {
   type BackgroundRuntimeProgress,
@@ -114,6 +115,14 @@ interface LocalBackfillState {
 }
 
 interface UseEmbeddingRuntimeControllerParams {
+  /**
+   * Runtime-specific local worker storage factory (browser Turso path). When
+   * provided, the local worker starts over the returned storage port instead
+   * of the raw db handle. The factory runs at START time inside the error
+   * boundary so a not-ready runtime fails closed as a visible error status
+   * (never a silent PGlite fallback).
+   */
+  readonly createLocalWorkerStorage?: (() => EmbeddingWorkerStorage) | null;
   readonly db: EmbeddingWorkerOptions['db'] | null;
   readonly devicePreference: 'wasm' | 'webgpu';
   readonly reinitEveryN: number;
@@ -280,6 +289,15 @@ function getRequiredEmbeddingRuntimeConfig(): { readonly streamingWorkerUrl: str
   return config;
 }
 
+function requireLocalWorkerDb(
+  db: EmbeddingWorkerOptions['db'] | null
+): NonNullable<EmbeddingWorkerOptions['db']> {
+  if (!db) {
+    throw new Error('Database is required to start the local embedding worker.');
+  }
+  return db;
+}
+
 async function loadStartEmbeddingWorker(): Promise<
   typeof import('@brainstrike/embeddings/worker').startEmbeddingWorker
 > {
@@ -290,7 +308,7 @@ async function loadStartEmbeddingWorker(): Promise<
 export function useEmbeddingRuntimeController(
   params: UseEmbeddingRuntimeControllerParams
 ): EmbeddingRuntimeController {
-  const { db, devicePreference, reinitEveryN, service } = params;
+  const { createLocalWorkerStorage = null, db, devicePreference, reinitEveryN, service } = params;
   const desktopHostExpected = isElectronRendererRuntime();
   const desktopHost = getEmbeddingHostApi();
   const localRuntimeIdRef = useRef<string>(createRuntimeId('embedding-worker'));
@@ -387,7 +405,7 @@ export function useEmbeddingRuntimeController(
       if (localWorkerControllerRef.current) {
         return current;
       }
-      if (!db) {
+      if (!(db || createLocalWorkerStorage)) {
         throw new Error('Database is required to start the local embedding worker.');
       }
       const runtimeConfig = getRequiredEmbeddingRuntimeConfig();
@@ -397,9 +415,15 @@ export function useEmbeddingRuntimeController(
       );
 
       try {
+        // Runs inside the error boundary on purpose: a fail-closed storage
+        // factory (e.g. browser Turso without a ready bootstrap report)
+        // surfaces as a visible error status instead of an unhandled throw.
+        const storage = createLocalWorkerStorage ? createLocalWorkerStorage() : null;
         const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
-          db: createPriorityDbHandle(db, 'background'),
+          ...(storage
+            ? { storage }
+            : { db: createPriorityDbHandle(requireLocalWorkerDb(db), 'background') }),
           enable: true,
           reinitEveryN,
           device: devicePreference,
@@ -565,7 +589,15 @@ export function useEmbeddingRuntimeController(
         return updateLocalStatus(createStoppedLocalStatus(localRuntimeIdRef.current));
       },
     };
-  }, [db, desktopHost, desktopHostExpected, devicePreference, reinitEveryN, service]);
+  }, [
+    createLocalWorkerStorage,
+    db,
+    desktopHost,
+    desktopHostExpected,
+    devicePreference,
+    reinitEveryN,
+    service,
+  ]);
 
   return controller;
 }
