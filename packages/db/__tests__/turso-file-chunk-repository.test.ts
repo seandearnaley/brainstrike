@@ -129,8 +129,12 @@ describe('TursoFileChunkRepository', () => {
     const transactionClient = {
       exec: vi.fn(async () => {}),
       query: vi.fn(async (sql: string) => {
-        capturedInsertSql = sql;
-        return { rows: [insertedRow] };
+        if (sql.includes('INSERT INTO file_chunks')) {
+          capturedInsertSql = sql;
+          return { rows: [insertedRow] };
+        }
+        // grep-content-grams reindex + its post-insert gram-count verification.
+        return { rows: [{ n: 0 }] };
       }),
     };
     const repositoryWithoutVector = new TursoFileChunkRepository({
@@ -461,7 +465,9 @@ describe('TursoFileChunkRepository', () => {
         updatedAt: '2026-06-23T08:45:00.000Z',
       })
     ).resolves.toMatchObject({ content: 'const updated = true;', id: 'chunk-1' });
-    expect(queryCalls).toHaveLength(1);
+    // The UPDATE, then grep-content-grams's post-insert gram-count verification
+    // (a SELECT COUNT(*) over file_chunk_content_grams, not file_chunks).
+    expect(queryCalls).toHaveLength(2);
     expect(queryCalls[0]).toContain('UPDATE file_chunks');
   });
 
