@@ -59,6 +59,7 @@ export const dbUnitLaneDefinitions = [
   {
     name: 'search',
     matches: [
+      /^grep-content-grams\.test\.ts$/,
       /^hnsw-search-tuning\.integration\.test\.ts$/,
       /^hybrid-search-service\.test\.ts$/,
       /^retrieval-eval-runner\.test\.ts$/,
