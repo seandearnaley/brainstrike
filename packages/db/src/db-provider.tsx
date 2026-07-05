@@ -639,12 +639,14 @@ interface DbProviderProps {
   children: React.ReactNode;
   dbPath?: string;
   /**
-   * Explicit runtime opt-in seam (see resolveBrainstrikeDbRuntimeSelection).
+   * Explicit runtime selection seam (see resolveBrainstrikeDbRuntimeSelection).
    * Passing a `{ engine: 'turso', host: 'browser' }` selection routes the
-   * provider through the browser Turso WASM bootstrap + repositories. Without
-   * it the browser default remains PGlite until the cutover decision flips
-   * the default. A PGlite selection is the default behavior and changes
-   * nothing; any other Turso host here fails closed (desktop Turso is
+   * provider through the browser Turso WASM bootstrap + repositories — this is
+   * what apps/web passes by default since the A7 cutover (2026-07-05; the web
+   * PLATFORM default lives in the selection seam, this provider itself never
+   * defaults to Turso). Omitting the prop, or passing a PGlite selection (the
+   * `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` opt-out), keeps the legacy PGlite
+   * behavior; any other Turso host here fails closed (desktop Turso is
    * classified from the Electron bootstrap report, never from this prop).
    */
   runtimeSelection?: BrainstrikeDbRuntimeSelection;

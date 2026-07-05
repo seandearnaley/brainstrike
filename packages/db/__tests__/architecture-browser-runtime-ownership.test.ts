@@ -44,7 +44,8 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
   'Browser Turso WASM has a dedicated bootstrap readiness report and DbProvider integration behind an explicit runtime-selection opt-in',
-  'Browser PGlite remains the browser default only until the A7 cutover decision flips the default',
+  'Turso WASM is the browser default runtime as of the A7 cutover decision (2026-07-05)',
+  '`VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the explicit web PGlite opt-out',
   'runtime parity by the two-lane parity contract suite',
   'reset/clear (backup/export) ownership and OPFS offline durability by the browser reset-and-durability slice',
   'Browser OPFS Durability And Storage Pressure (2026-07-05)',
@@ -67,6 +68,13 @@ const REJECTED_LEDGER_PHRASES = [
   // Superseded by the same slice: browser Turso clear-all and factory reset
   // are implemented with explicit OPFS ownership, no longer fail-closed stubs.
   'clear-all and factory reset fail closed until they own OPFS store deletion explicitly',
+  // Superseded by the A7 cutover slice (2026-07-05): the web default IS Turso
+  // now; the ledger must not regress to describing PGlite as the browser
+  // default awaiting a future flip.
+  'Browser PGlite remains the browser default only until the A7 cutover decision flips the default',
+  // Superseded by the same slice: navigator.storage.persist() is requested at
+  // browser-Turso boot (log-only, non-gating), no longer a proposed follow-up.
+  'it is proposed as an explicit follow-up for the A7 cutover decision',
 ] as const;
 
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([

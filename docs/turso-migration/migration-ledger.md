@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-05 on `feat/turso-browser-reset-and-durability`,
+Last updated: 2026-07-05 on `feat/turso-browser-default-cutover`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -135,6 +135,46 @@ re-open of the same OPFS path — see "Browser OPFS Durability And Storage
 Pressure (2026-07-05)" for the reload-test limitation and the
 storage-eviction story. This slice proves the gates; the browser default
 flip itself remains the separate A7 cutover decision PR.
+
+The current browser cutover slice (`feat/turso-browser-default-cutover`) IS
+that A7 decision PR, taken with all former gates proven (WAL contract #1476,
+provider integration #1477, embedding worker storage #1478, zero-gap runtime
+parity #1481, reset ownership + OPFS durability + FK discipline #1482) and
+under Sean's 2026-07-04 release-decision signoff. Cutover decision
+(2026-07-05): the web platform default in the runtime selection seam
+(`resolveBrainstrikeDbRuntimeSelection`) flips to
+`{ engine: 'turso', host: 'browser', persistence: 'opfs' }`, and apps/web
+resolves its selection ONCE at boot and passes it to `DbProvider` — Turso
+WASM over the default OPFS store (`brainstrike-web-turso.db`) is the browser
+default. `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the explicit web PGlite
+opt-out (build-time env, strict-parsed: a present-but-malformed value THROWS
+at boot, mirroring desktop's `BRAINSTRIKE_DB_RUNTIME` handling). Because
+resolution is boot-time and reads nothing persisted, factory-reset default
+coherence falls out: a reset web profile with runtime unset bootstraps fresh
+browser Turso and can never be pinned back to PGlite by leftover state
+(asserted in apps/web unit tests; the fresh-store re-bootstrap itself is
+proven by the browser reset suite). The A7 persistence follow-up landed with
+the flip: `requestBrowserTursoPersistentStorage` asks
+`navigator.storage.persist()` once at browser-Turso initialization and logs
+the boolean outcome — log-only and non-gating, a denial keeps the
+pre-cutover best-effort eviction posture. Playwright web E2E sessions mint
+engine-aware isolated stores (`web-e2e-turso-<uuid>.db` under OPFS), and the
+web E2E introspection hooks are runtime-aware over the provider-owned
+execution client. Original WAL-plan slice 5 ("browser smoke as required
+gate") was verified de-facto satisfied rather than re-implemented: the real
+Chromium readiness smoke (`turso-browser-wasm-bootstrap.browser.test.ts`)
+has asserted a `phase: 'ready'` report since the WAL contract slice, and the
+`DB Browser` job in `.github/workflows/test.yml` runs it on every PR as a
+hard-failing check — no lane or config treats browser smoke failures as
+acceptable. Remaining for workstream D (gated on DR-5): after one full
+nightly cycle (web + desktop E2E regression) passes green with Turso as the
+only exercised runtime, retire the PGlite opt-ins and remove PGlite
+dependencies, Vite aliases/type shims, WASM packaging, the browser PGlite
+worker entry, PGlite reset/reclaim cleanup, and the numbered+drizzle
+migration chains. Known follow-up owned by that lane: browser Turso does not
+own `mastra_threads` (web local chat is session-only; hosted web memory is
+server-side), so E2E thread introspection against the browser store throws
+`no such table` honestly instead of returning a masked empty list.
 
 Merged slices:
 
@@ -585,15 +625,19 @@ browser seam, and do not replace the browser PGlite worker with a remote
 serverless client as a silent compatibility shim. Browser Turso WASM has a
 dedicated bootstrap readiness report and DbProvider integration behind an
 explicit runtime-selection opt-in ({ engine: 'turso', host: 'browser' } from
-the runtime selection seam — never a default); Browser PGlite remains the
-browser default only until the A7 cutover decision flips the default — the
-former gates are now proven: runtime parity by the two-lane parity contract
-suite (see the browser runtime parity lane slice above), reset/clear
-(backup/export) ownership and OPFS offline durability by the browser
-reset-and-durability slice (see the Current Branch State entry and "Browser
-OPFS Durability And Storage Pressure (2026-07-05)").
-Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
-reset cleanup remain supported code rather than removable residue.
+the runtime selection seam; `DbProvider` itself never defaults to Turso —
+apps/web resolves the selection at boot). Turso WASM is the browser default
+runtime as of the A7 cutover decision (2026-07-05), taken with every former
+gate proven: runtime parity by the two-lane parity contract suite (see the
+browser runtime parity lane slice above), reset/clear (backup/export)
+ownership and OPFS offline durability by the browser reset-and-durability
+slice (see the Current Branch State entry and "Browser OPFS Durability And
+Storage Pressure (2026-07-05)"). `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the
+explicit web PGlite opt-out — the DR-5 comparison oracle. Until DR-5 flips
+(the browser cutover has landed AND one full nightly cycle passes green with
+Turso as the only exercised runtime), PGlite packages, Vite aliases, the
+browser worker entry, and browser reset cleanup remain supported code rather
+than removable residue.
 
 Current browser-WASM bootstrap slice: add an explicit web/browser Turso runtime
 branch and a browser-only readiness report, not a hidden replacement behind
@@ -709,11 +753,16 @@ file family at once (a clean fresh-start, never a partial/corrupt store,
 but still silent local data loss). `navigator.storage.persist()` upgrades
 the origin to persistent storage and exempts it from automatic eviction.
 Decision: requesting persistent storage at browser-Turso boot is PRODUCT
-behavior (it can prompt the user in some browsers) and is deliberately NOT
-added in the reset-and-durability slice; it is proposed as an explicit
-follow-up for the A7 cutover decision. Until then, browser Turso data is
-best-effort persisted exactly like the current browser PGlite IndexedDB/OPFS
-stores — the cutover does not regress the existing eviction posture.
+behavior (it can prompt the user in some browsers) and was deliberately NOT
+added in the reset-and-durability slice. RESOLVED by the A7 cutover slice
+(2026-07-05): `requestBrowserTursoPersistentStorage`
+(packages/db/src/bootstrap/browser-storage-persistence.ts) requests
+`navigator.storage.persist()` once when the browser Turso runtime
+initializes and logs the boolean outcome — fire-and-forget and non-gating,
+so a denial (or an unsupported/failing StorageManager) keeps browser Turso
+data best-effort persisted exactly like the pre-cutover browser PGlite
+IndexedDB/OPFS stores. The cutover never regresses the existing eviction
+posture; a grant upgrades it.
 
 ## Browser Journal-Mode Contract Decision (2026-07-04)
 
