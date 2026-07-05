@@ -4,6 +4,7 @@ import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
 import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { resolveWebDbRuntimeEngine, WEB_TURSO_CHUNK_INDEXING_BLOCKED } from './utils/turso-gates';
 
 interface CollectionSummaryCounts {
   embeddedChunks: number;
@@ -463,6 +464,23 @@ async function disableBackgroundIndexing(page: Page): Promise<void> {
   });
 }
 
+/**
+ * REGRESSION TRIGGER for the vendor indexed-insert lockup: these full
+ * import/backfill flows are the real-engine proof for re-enabling browser
+ * Turso chunk persistence. They SKIP on the Turso default while the gate is
+ * closed (WEB_TURSO_CHUNK_INDEXING_BLOCKED / packages/db
+ * BROWSER_TURSO_CHUNK_INDEXING_ENABLED); the fail-closed contract lives in
+ * database-import-failclosed-turso.test.ts. The PGlite opt-out build
+ * (VITE_BRAINSTRIKE_DB_RUNTIME=pglite) always runs them.
+ */
+async function skipWhileTursoChunkIndexingBlocked(page: Page): Promise<void> {
+  const engine = await resolveWebDbRuntimeEngine(page);
+  test.skip(
+    engine === 'turso' && WEB_TURSO_CHUNK_INDEXING_BLOCKED,
+    'Browser Turso chunk persistence is fail-closed pending the @tursodatabase/database-wasm indexed-insert lockup fix (ledger finding 2026-07-05).'
+  );
+}
+
 async function releaseImportedAppState(page: Page): Promise<void> {
   await page.evaluate(async () => {
     localStorage.clear();
@@ -487,6 +505,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await page.goto('/');
     await waitForAppLoad(page);
 
+    await skipWhileTursoChunkIndexingBlocked(page);
     await resetAppState(page);
     await disableBackgroundIndexing(page);
     await page.reload();
@@ -571,6 +590,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await page.goto('/');
     await waitForAppLoad(page);
 
+    await skipWhileTursoChunkIndexingBlocked(page);
     await resetAppState(page);
     await disableBackgroundIndexing(page);
     await page.reload();
@@ -660,6 +680,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await page.goto('/');
     await waitForAppLoad(page);
 
+    await skipWhileTursoChunkIndexingBlocked(page);
     await resetAppState(page);
     await disableBackgroundIndexing(page);
     await page.reload();
@@ -708,6 +729,7 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await page.goto('/');
     await waitForAppLoad(page);
 
+    await skipWhileTursoChunkIndexingBlocked(page);
     await resetAppState(page);
     await disableBackgroundIndexing(page);
     await page.reload();
