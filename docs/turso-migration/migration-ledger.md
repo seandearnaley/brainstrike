@@ -560,7 +560,13 @@ CONCURRENT` invariant is untouched.
   `@emnapi/runtime`, and `@emnapi/wasi-threads` to the exact copies nested
   next to database-wasm-common (guarded by
   `vitest-browser-project-config.test.ts`); the #1473 bounded retry remains as
-  a narrow guard but cannot rescue the skew. Follow-up: decide whether the
+  a narrow guard but cannot rescue the skew. The alias map is now shared with
+  apps/web's production Vite config via
+  `packages/db/config/turso-wasm-runtime-aliases.mjs` (it also pins
+  `@tybys/wasm-util` to an absolute path — Vite 8's worker sub-build for
+  database-wasm's worker failed to resolve the bare import from the pnpm
+  store on Vercel), so the shipped web bundle and the browser test project
+  resolve the SAME wasm-runtime graph. Follow-up: decide whether the
   workspace wants a pnpm-level scoped override (or an upstream report to
   turso/napi-rs) so non-vite consumers get the same pinning.
 - With journal-mode passing, the schema-baseline, gram-index

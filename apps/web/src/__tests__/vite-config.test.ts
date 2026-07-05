@@ -7,6 +7,22 @@ function readWebViteConfig(): string {
 }
 
 describe('web vite config alias contract', () => {
+  it('pins the turso wasm runtime graph via the shared alias map (Vercel worker sub-build + emnapi contract)', () => {
+    // The production web bundle must resolve the SAME @emnapi/* +
+    // @tybys/wasm-util graph the packages/db vitest browser project proves:
+    // @emnapi/core >= 1.10 deterministically faults turso's wasm store open,
+    // and the vite:worker-import-meta-url sub-build for database-wasm's
+    // worker failed to resolve the bare '@tybys/wasm-util' import from the
+    // pnpm store on Vercel. Both are pinned by the shared alias module.
+    const config = readWebViteConfig();
+    expect(config).toContain(
+      "import { createTursoWasmRuntimeAliasMap } from '../../packages/db/config/turso-wasm-runtime-aliases.mjs'"
+    );
+    expect(config).toMatch(
+      /alias:\s*{[\s\S]*\.\.\.createTursoWasmRuntimeAliasMap\(path\.resolve\(__dirname, '\.\.\/\.\.\/packages\/db'\)\)/
+    );
+  });
+
   it('pins token-cache runtime imports to source entries', () => {
     const config = readWebViteConfig();
 
