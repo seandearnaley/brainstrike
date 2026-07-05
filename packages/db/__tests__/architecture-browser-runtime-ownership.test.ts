@@ -39,7 +39,8 @@ const BROWSER_BUNDLE_ENTRYPOINTS = [
 
 const REQUIRED_LEDGER_PHRASES = [
   '## Browser Runtime Ownership Decision',
-  'Current browser/client DB storage is entering a staged Turso WASM migration',
+  'Browser/client DB storage has completed the staged Turso WASM migration to its default flip',
+  'as of the A7 cutover (2026-07-05) the web platform default is browser Turso WASM',
   '`@tursodatabase/database-wasm` is the only approved browser-local Turso database package',
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
@@ -75,6 +76,11 @@ const REJECTED_LEDGER_PHRASES = [
   // Superseded by the same slice: navigator.storage.persist() is requested at
   // browser-Turso boot (log-only, non-gating), no longer a proposed follow-up.
   'it is proposed as an explicit follow-up for the A7 cutover decision',
+  // Superseded by the A7 cutover slice (2026-07-05): the migration has reached
+  // its default flip, so the ledger must not regress to describing it as still
+  // "entering a staged migration" with a PGlite-backed production default.
+  'Current browser/client DB storage is entering a staged Turso WASM migration',
+  'The current production browser DB provider remains PGlite-backed by design',
 ] as const;
 
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([

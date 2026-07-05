@@ -185,35 +185,67 @@ repositories/managed-cache/vector-queue-service compose browser-owned
 implementations when the typed report says host 'browser' (real callback
 transactions; `createBrowserTursoVectorQueueService` from TursoJobQueue +
 the Turso backfill/metrics repositories), and the web E2E hooks are
-runtime-aware. See "Browser Per-Transaction Write-Volume Lockup Finding
-(2026-07-05)" for the vendor blocker those seams surfaced.
+runtime-aware. See "Browser WASM Indexed-Insert Lockup (2026-07-05)" for the
+vendor blocker those seams surfaced and the fail-closed ship decision.
 
-### Browser Per-Transaction Write-Volume Lockup Finding (2026-07-05)
+### Browser WASM Indexed-Insert Lockup (2026-07-05)
 
-Empirical (real Chromium, `@tursodatabase/database-wasm` 0.6.1, WAL
-single-writer contract): a single transaction whose write volume crosses a
-low threshold hangs the engine MID-STATEMENT with no error — the statement's
-promise never settles and the wasm connection stays wedged (the FIFO queue
-watchdog then reports every later operation waiting on the transaction
-holder). Minimal repro: `TursoFileChunkRepository.insertMany` with ONE
-~3.1KB chunk (chunk row insert + content-index insert + several hundred
-gram rows in one plain-BEGIN transaction) hangs deterministically on a
-fresh store; a ~3.0KB chunk passes. Bisected out: NOT parameter count
-(750-param multi-row inserts pass alone), NOT statement count (10×250-row
-inserts in one transaction pass), NOT RETURNING or FK enforcement, NOT gram
-batch size (50-row batches still hang), NOT multi-row chunk statements
-(single-row batching still hangs). The trigger tracks total bytes written
-inside one transaction across the wide chunk row + index/gram sidecars.
+Empirical (real Chromium, `@tursodatabase/database-wasm` 0.6.1 AND
+0.7.0-pre.17, WAL single-writer contract): a transaction that inserts
+indexed rows (the chunk row plus the gram sidecars' PK/secondary btrees)
+can hang MID-STATEMENT with no error — the statement's promise never
+settles and the wasm connection stays wedged (the FIFO queue watchdog then
+reports every later operation waiting on the transaction holder).
 
-Impact: web-Turso chunk persistence (manual import chunking AND background
-indexing) locks up on realistic file sizes; tiny fixtures (a few lines)
-stay under the threshold, which is why the smoke lane and the browser
-vitest suites pass. `database-import-backfill.test.ts` fails honestly on
-the Turso default at the chunking stage. Resolution options (separate
-slice): vendor issue + version bump, chunked sub-transactions with an
-explicit atomicity-compensation design, or splitting gram/index writes out
-of the chunk transaction — each changes a proven contract and needs its
-own red/green pass and signoff.
+This is DATA-DEPENDENT, NOT a write-volume threshold. The trigger is a
+page-state/key-set coincidence tied to the specific bytes being indexed:
+`TursoFileChunkRepository.insertMany` with a single chunk whose content is
+2900 / 3000 / 3100 / 3200 bytes hangs deterministically on a fresh store,
+while 2850 / 3400 / 32K / 1MB payloads commit cleanly. It is reproducible
+per input (the same content always hangs / always passes), so it is NOT a
+volume ramp — a larger payload can pass where a smaller one hangs. Bisected
+out: NOT parameter count (750-param multi-row inserts pass alone), NOT
+statement count (10×250-row inserts in one transaction pass), NOT RETURNING
+or FK enforcement, NOT gram batch size (50-row batches still hang), NOT
+multi-row chunk statements (single-row batching still hangs).
+
+Native contrast: the desktop/native Turso engine commits the identical
+statement stream in milliseconds, so this is strictly a wasm-build defect.
+No workaround: `wal_autocheckpoint` is not a valid pragma in the wasm build,
+`wal_checkpoint` is unrelated, and no other pragma changes the behavior.
+Restructuring is unsound — chunked sub-transactions or splitting the
+gram/index writes out of the chunk transaction merely reshuffles which
+inputs land on a landmine (the trigger is per-key-set, not per-transaction)
+while breaking a proven atomicity contract. pre.17 verdict: the 0.7 pre-release
+does NOT fix it (verified), so a version bump is not a near-term escape.
+
+Ship decision (owner-approved): the A7 cutover ships with browser-Turso
+CHUNK PERSISTENCE fail-closed. `BROWSER_TURSO_CHUNK_INDEXING_ENABLED` in
+`packages/db/src/turso/browser-chunk-indexing-gate.ts` is `false`; the
+provider's atomic chunk/job enqueue and the chunk repository's
+insert/insertMany/insertManyWithTx surfaces throw the typed
+`BrowserTursoChunkIndexingBlockedError` BEFORE any statement is issued
+(no hanging write), and the manual-import service + background
+workspace-collection sync refuse loudly with the same diagnostic and surface
+it on the search-indexing status UI. Everything else on browser Turso stays
+enabled: boot/bootstrap, repositories, reset/durability, search over existing
+rows, file records, managed-cache reads, and chunk reads/updates/deletes.
+Desktop/native (unaffected engine) and the web PGlite opt-out
+(`VITE_BRAINSTRIKE_DB_RUNTIME=pglite`, the web-indexing escape hatch) stay
+fully enabled — the PGlite opt-out build passes the full
+`database-import-backfill.test.ts` import/backfill flows, and the Turso
+default now proves the refusal via `database-import-failclosed-turso.test.ts`
+(import refused with the vendor diagnostic, no partial write, app stays
+responsive — no hang).
+
+Vendor watch item / re-enable checklist: when a fixed
+`@tursodatabase/database-wasm` release lands, flip
+`BROWSER_TURSO_CHUNK_INDEXING_ENABLED` to `true`, flip
+`WEB_TURSO_CHUNK_INDEXING_BLOCKED` in `apps/web/e2e/utils/turso-gates.ts`
+(so the full import/backfill web E2E specs run again on the Turso default as
+the real-engine regression proof — the gated success-path unit tests in
+`db-provider-turso-browser.test.tsx` auto-activate too), and update this
+finding with the fixed version.
 
 Merged slices:
 
@@ -628,20 +660,25 @@ Primary docs consulted:
 
 ## Browser Runtime Ownership Decision
 
-Current browser/client DB storage is entering a staged Turso WASM migration.
-The current production browser DB provider remains PGlite-backed by design
-until a proven browser-local Turso WASM runtime intentionally replaces it. This
-is not a Turso parity gap being hidden behind a fallback; it is an explicit
-runtime ownership boundary for the web/browser build while the WASM path is
-proved.
+Browser/client DB storage has completed the staged Turso WASM migration to
+its default flip: as of the A7 cutover (2026-07-05) the web platform default
+is browser Turso WASM (OPFS, WAL single-writer), with
+`VITE_BRAINSTRIKE_DB_RUNTIME=pglite` as the explicit PGlite opt-out (the DR-5
+comparison oracle). PGlite remains supported code — the opt-out oracle and
+the web-indexing escape hatch while browser-Turso chunk persistence is
+fail-closed (see "Browser WASM Indexed-Insert Lockup (2026-07-05)") — not a
+silent fallback. The runtime boundary is now an explicit boot-time selection,
+never inferred from a handle or leftover store.
 
 `@tursodatabase/database-wasm` is the only approved browser-local Turso database package.
 `@tursodatabase/database-wasm/vite` is the Vite/browser import surface for
 Brainstrike's web build; `@tursodatabase/database-wasm/turbopack` remains an
 upstream bundler entrypoint but is not used by this Vite app. The package is
-still beta and requires explicit browser capability proof around OPFS,
-SharedArrayBuffer, COOP/COEP headers, worker lifecycle, and reset ownership
-before it can replace the current PGlite worker.
+still beta; the A7 default flip landed with explicit browser capability proof
+around OPFS, SharedArrayBuffer, COOP/COEP headers, worker lifecycle, and
+reset ownership. Its remaining known gap is the data-dependent indexed-insert
+lockup that keeps chunk persistence fail-closed (see "Browser WASM
+Indexed-Insert Lockup (2026-07-05)").
 
 Forbidden browser-local storage replacements:
 
