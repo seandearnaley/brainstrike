@@ -90,13 +90,13 @@ function requestOrigin(req: http.IncomingMessage): string | null {
   const protoHeader = req.headers['x-forwarded-proto'];
   const protocol =
     typeof protoHeader === 'string' ? protoHeader.split(',')[0]?.trim() || 'http' : 'http';
-  return parseOrigin(`${protocol || 'http'}://${host}`);
+  return parseOrigin(`${protocol}://${host}`);
 }
 
 function isTrustedSameOriginDevRequest(req: http.IncomingMessage): boolean {
   const secFetchSite = req.headers['sec-fetch-site'];
-  if (typeof secFetchSite === 'string' && secFetchSite !== 'same-origin') {
-    return false;
+  if (typeof secFetchSite === 'string') {
+    return secFetchSite === 'same-origin';
   }
 
   const expectedOrigin = requestOrigin(req);
@@ -106,7 +106,7 @@ function isTrustedSameOriginDevRequest(req: http.IncomingMessage): boolean {
     }
   }
 
-  return true;
+  return false;
 }
 
 interface InactivityAbort {
