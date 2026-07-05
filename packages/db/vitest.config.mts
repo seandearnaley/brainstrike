@@ -184,6 +184,26 @@ export default defineConfig({
             '@emnapi/runtime',
             '@emnapi/wasi-threads',
           ],
+          // The provider-integration browser test imports db-provider, whose
+          // dependency graph (React + testing-library + PGlite subpaths +
+          // drizzle) would otherwise be DISCOVERED mid-run and force a page
+          // reload ("Vite unexpectedly reloaded a test"). Pre-bundle them
+          // deterministically instead.
+          include: [
+            '@electric-sql/pglite',
+            '@electric-sql/pglite-pgvector',
+            '@electric-sql/pglite/contrib/pg_trgm',
+            '@electric-sql/pglite/live',
+            '@electric-sql/pglite/worker',
+            '@testing-library/react',
+            'drizzle-orm',
+            'drizzle-orm/pg-core',
+            'drizzle-orm/pglite',
+            'react',
+            'react-dom',
+            'react-dom/client',
+            'react/jsx-dev-runtime',
+          ],
         },
         resolve: {
           alias: {
