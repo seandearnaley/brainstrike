@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-05 on `test/turso-browser-runtime-parity`,
+Last updated: 2026-07-05 on `feat/turso-browser-reset-and-durability`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -101,6 +101,40 @@ by 4.1.9); the bump is scoped to the `@brainstrike/db` importer only. Browser
 cutover remains gated on the still-open items (backup/export ownership,
 offline semantics) — this slice proves repository-contract parity, it does not
 flip the browser default.
+
+The current browser reset-and-durability slice
+(`feat/turso-browser-reset-and-durability`) closes those two remaining
+browser-default gates. Reset/clear ownership: the #1477 fail-closed
+not-implemented throws in `DbProvider` are replaced with explicitly owned
+implementations, proven red-first in real Chromium over OPFS
+(`db-provider-turso-browser-reset.browser.test.tsx`). `clearAllData` is a
+SQL-only live-handle clear over the single provider-owned FIFO execution
+client (now carried on the provider's turso-browser connection handle so no
+second FIFO queue can ever interleave with it), mirroring the desktop Turso
+`db:clearAll` semantics: file/chunk/root/set/queue/snapshot/usage rows
+deleted in one serialized transaction, gram/index sidecars cascading via
+foreign keys, SQLite `no such table` treated as a missing optional relation,
+and seeded default view filter presets preserved. `factoryReset` closes the
+WAL single-writer store FIRST (fail closed with diagnostics when the OPFS
+access handle cannot be released), deletes the OPFS db file family (`<db>`,
+`-wal`, `-shm`, `-tshm` — kept in sync with the preferences-side fallback
+list), and resets provider state pending the caller-driven reload; it also
+runs when no connection was initialized this session so stale OPFS files
+from a previous session are still removed, and a fresh provider mount on the
+same path bootstraps a brand-new store. The red clear run surfaced a REAL
+latent defect, now fixed fail-closed: `PRAGMA foreign_keys` is
+connection-scoped and the provider's long-lived re-opened store never
+enabled it (only the bootstrap probe connection did via the schema
+baseline), so ON DELETE CASCADE search sidecars silently orphaned — the
+provider open path now enables AND verifies foreign keys on the long-lived
+connection, mirroring the native owner client's per-connection apply.
+Offline durability: `turso-browser-opfs-durability.browser.test.ts` proves
+rows written through the real WASM store (repository writes and a committed
+transaction, with no explicit WAL checkpoint) survive a store close and
+re-open of the same OPFS path — see "Browser OPFS Durability And Storage
+Pressure (2026-07-05)" for the reload-test limitation and the
+storage-eviction story. This slice proves the gates; the browser default
+flip itself remains the separate A7 cutover decision PR.
 
 Merged slices:
 
@@ -552,11 +586,12 @@ serverless client as a silent compatibility shim. Browser Turso WASM has a
 dedicated bootstrap readiness report and DbProvider integration behind an
 explicit runtime-selection opt-in ({ engine: 'turso', host: 'browser' } from
 the runtime selection seam — never a default); Browser PGlite remains the
-browser default until backup/export ownership and offline behavior are proven
-and the cutover decision flips the default. Runtime parity tests are now
-proven by the two-lane parity contract suite (see the browser runtime parity
-lane slice above): the browser WASM runtime passes the same row-level
-repository contracts as the native Turso runtime.
+browser default only until the A7 cutover decision flips the default — the
+former gates are now proven: runtime parity by the two-lane parity contract
+suite (see the browser runtime parity lane slice above), reset/clear
+(backup/export) ownership and OPFS offline durability by the browser
+reset-and-durability slice (see the Current Branch State entry and "Browser
+OPFS Durability And Storage Pressure (2026-07-05)").
 Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
 reset cleanup remain supported code rather than removable residue.
 
@@ -582,8 +617,10 @@ owner process, so that single bootstrap-proven execution client IS the owner
 client for the profile: `useBrainstrikeExecutionDbClient()` returns it with
 sqlite capability metadata (unlike Electron-hosted Turso, which returns null
 and routes mutations through owner IPC/actions). Live query stays
-unavailable; browser Turso clear-all and factory reset fail closed until they
-own OPFS store deletion explicitly.
+unavailable. (Historical note: this slice shipped clear-all and factory
+reset as fail-closed not-implemented throws; the browser
+reset-and-durability slice replaced them with explicitly owned
+implementations — see the Current Branch State entry.)
 
 Embedding-worker slice (browser workstream A5): the embedding worker storage
 port is now wired for browser Turso.
@@ -627,6 +664,52 @@ corrupting the transaction. TursoJobQueue needs no MVCC/`BEGIN CONCURRENT`
 semantics on this path: plain serialized `BEGIN` transactions satisfy its
 atomicity needs, and its busy/locked contention-retry classifier is simply
 inert on a single-writer connection.
+
+### Browser Foreign-Key Connection Scope Finding (2026-07-05)
+
+`PRAGMA foreign_keys` is connection-scoped. `applyTursoSchemaBaseline` enables
+it, but during browser bootstrap that only covers the PROBE connection, which
+closes after the readiness checks; the provider's long-lived re-opened store
+ran with foreign keys OFF, so the ON DELETE CASCADE gram/index search
+sidecars silently orphaned (proven red by the reset suite: 92 sidecar rows
+survived a clear). The provider open path
+(`openBrowserTursoRuntimeResources`) now enables AND verifies
+`PRAGMA foreign_keys = ON` on the long-lived connection, fail closed —
+mirroring the native owner client's per-connection `applyTursoForeignKeys`.
+Any future browser store construction site must apply the same
+per-connection pragma discipline.
+
+### Browser OPFS Durability And Storage Pressure (2026-07-05)
+
+Empirical durability contract (real Chromium,
+`turso-browser-opfs-durability.browser.test.ts`): rows written through the
+real `@tursodatabase/database-wasm` store — repository writes and a committed
+transaction, with NO explicit WAL checkpoint — survive a store close and a
+re-open of the same OPFS path in the same page session, including the
+quick-open name-gram sidecars, and the re-opened store still reports the WAL
+journal mode. The vendor close path is honest about WAL persistence; no rows
+were lost.
+
+Known proof limitation: a durability test ACROSS A PAGE RELOAD is not
+expressible in vitest browser mode — the tester runs in an orchestrated
+iframe and any page reload aborts the run ("Vitest unexpectedly reloaded a
+test"), so the reload-shaped proof belongs to the web E2E lane once the
+browser default flips (the provider unmount close and factory reset use the
+exact vendor close path this test exercises).
+
+Storage-pressure story (Chromium OPFS eviction rules): OPFS files live in
+the origin's storage bucket under best-effort persistence by default.
+Chromium evicts WHOLE origin buckets least-recently-used when disk pressure
+crosses its quota thresholds; an eviction would delete the entire Turso db
+file family at once (a clean fresh-start, never a partial/corrupt store,
+but still silent local data loss). `navigator.storage.persist()` upgrades
+the origin to persistent storage and exempts it from automatic eviction.
+Decision: requesting persistent storage at browser-Turso boot is PRODUCT
+behavior (it can prompt the user in some browsers) and is deliberately NOT
+added in the reset-and-durability slice; it is proposed as an explicit
+follow-up for the A7 cutover decision. Until then, browser Turso data is
+best-effort persisted exactly like the current browser PGlite IndexedDB/OPFS
+stores — the cutover does not regress the existing eviction posture.
 
 ## Browser Journal-Mode Contract Decision (2026-07-04)
 
@@ -1339,6 +1422,20 @@ planned browser database file `brainstrike-web-turso.db` plus `-wal`, `-shm`,
 and `-tshm` sidecars. Enumeration-based cleanup is scoped to those exact names
 so unrelated OPFS consumers are not swept; fallback cleanup uses the same
 allowlist when `FileSystemDirectoryHandle.keys()` is unavailable or fails.
+
+The provider now OWNS the live browser Turso reset (browser
+reset-and-durability slice): `DbProvider.factoryReset` on a browser Turso
+runtime closes the WAL single-writer store first (fail closed with
+diagnostics if the OPFS access handle cannot be released — OPFS `removeEntry`
+cannot delete a file with a live sync access handle), deletes the store's
+OPFS file family for the ACTIVE dbPath, and resets provider state pending the
+reload; the preferences-side `opfs-turso-browser-wasm` target above remains
+the reset-pipeline safety net for the default store name. The panel flow is
+unchanged: provider reset → `clearPersistentUiState` → reload. Browser Turso
+`clearAllData` is the SQL-only live-handle clear mirroring the desktop
+`db:clearAll` statement list (sidecars cascade, `no such table` = missing
+optional relation, seeded default presets preserved), proven in real Chromium
+by `db-provider-turso-browser-reset.browser.test.tsx`.
 
 No production Turso sync/search metadata path currently exists outside the
 profile directory. Future out-of-profile sync or search stores must be added as
