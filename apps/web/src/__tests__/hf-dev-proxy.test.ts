@@ -311,6 +311,27 @@ describe('hf dev proxy', () => {
       expect(res.ended).toBe(true);
     });
 
+    it('rejects cross-site browser requests before proxying to Hugging Face', async () => {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json',
+        {
+          headers: {
+            host: 'localhost:8080',
+            origin: 'https://attacker.example',
+            'sec-fetch-site': 'cross-site',
+          },
+        }
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(res.body()).toBe('Forbidden Hugging Face proxy request.');
+    });
+
     it('returns 502 when the upstream fetch throws', async () => {
       fetchMock.mockRejectedValue(new Error('socket hang up'));
       vi.stubGlobal('fetch', fetchMock);
