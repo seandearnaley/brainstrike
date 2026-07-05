@@ -176,6 +176,45 @@ own `mastra_threads` (web local chat is session-only; hosted web memory is
 server-side), so E2E thread introspection against the browser store throws
 `no such table` honestly instead of returning a masked empty list.
 
+The cutover slice also hardened the web mutation seams the flip exposed
+(each proven red-first): the browser Turso DbHandle rides the provider's
+database work scheduler (background-indexing QoS permits), exposes the
+atomic chunk-insert+job-enqueue and managed-cache batch-apply seams over
+the owner client (sync-import and manual-import contracts), background
+repositories/managed-cache/vector-queue-service compose browser-owned
+implementations when the typed report says host 'browser' (real callback
+transactions; `createBrowserTursoVectorQueueService` from TursoJobQueue +
+the Turso backfill/metrics repositories), and the web E2E hooks are
+runtime-aware. See "Browser Per-Transaction Write-Volume Lockup Finding
+(2026-07-05)" for the vendor blocker those seams surfaced.
+
+### Browser Per-Transaction Write-Volume Lockup Finding (2026-07-05)
+
+Empirical (real Chromium, `@tursodatabase/database-wasm` 0.6.1, WAL
+single-writer contract): a single transaction whose write volume crosses a
+low threshold hangs the engine MID-STATEMENT with no error — the statement's
+promise never settles and the wasm connection stays wedged (the FIFO queue
+watchdog then reports every later operation waiting on the transaction
+holder). Minimal repro: `TursoFileChunkRepository.insertMany` with ONE
+~3.1KB chunk (chunk row insert + content-index insert + several hundred
+gram rows in one plain-BEGIN transaction) hangs deterministically on a
+fresh store; a ~3.0KB chunk passes. Bisected out: NOT parameter count
+(750-param multi-row inserts pass alone), NOT statement count (10×250-row
+inserts in one transaction pass), NOT RETURNING or FK enforcement, NOT gram
+batch size (50-row batches still hang), NOT multi-row chunk statements
+(single-row batching still hangs). The trigger tracks total bytes written
+inside one transaction across the wide chunk row + index/gram sidecars.
+
+Impact: web-Turso chunk persistence (manual import chunking AND background
+indexing) locks up on realistic file sizes; tiny fixtures (a few lines)
+stay under the threshold, which is why the smoke lane and the browser
+vitest suites pass. `database-import-backfill.test.ts` fails honestly on
+the Turso default at the chunking stage. Resolution options (separate
+slice): vendor issue + version bump, chunked sub-transactions with an
+explicit atomicity-compensation design, or splitting gram/index writes out
+of the chunk transaction — each changes a proven contract and needs its
+own red/green pass and signoff.
+
 Merged slices:
 
 - #1304 `feat(db): add profile bootstrap readiness report`
