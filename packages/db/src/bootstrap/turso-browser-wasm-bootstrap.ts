@@ -347,27 +347,63 @@ export async function openTursoBrowserWasmStoreWithBoundedWorkerInitRetry(
   );
 }
 
+/**
+ * FIFO serialization queue for the single-writer browser connection.
+ *
+ * The vendor Database only serializes INDIVIDUAL statements (its internal
+ * execLock), not logical transactions: two concurrent `transaction()` callers
+ * would interleave `BEGIN`/statements/`COMMIT` on the one connection (a nested
+ * `BEGIN` error at best, foreign statements silently absorbed into the wrong
+ * commit/rollback at worst). The native desktop owner client solves this with
+ * its exclusive operation queue; this is the browser mirror of that
+ * discipline: every query/exec/transaction acquires the connection in FIFO
+ * order, and a transaction holds it for its whole BEGIN..COMMIT/ROLLBACK span.
+ *
+ * Discipline (same rule the native owner client enforces by throwing):
+ * transaction callbacks MUST use the callback `tx` client. Awaiting the OUTER
+ * client from inside a transaction callback deadlocks, because the outer
+ * operation queues behind the transaction that is waiting on it.
+ */
+function createBrowserWasmSerialQueue(): <TResult>(
+  work: () => Promise<TResult>
+) => Promise<TResult> {
+  let tail: Promise<void> = Promise.resolve();
+  return <TResult>(work: () => Promise<TResult>): Promise<TResult> => {
+    const result = tail.then(work);
+    tail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  };
+}
+
 export function createTursoBrowserWasmExecutionClient(
   database: TursoBrowserWasmBootstrapDatabase
 ): TursoBrowserWasmExecutionClient {
+  const runSerialized = createBrowserWasmSerialQueue();
   return markBrainstrikeDbExecutionRuntime(
     {
-      exec: async (sql, params) => {
-        await execTursoBrowserWasmSql(database, sql, params);
-      },
+      exec: async (sql, params) =>
+        runSerialized(async () => {
+          await execTursoBrowserWasmSql(database, sql, params);
+        }),
       exclusiveTransaction: async <TResult>(
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-      ): Promise<TResult> => runBrowserWasmTransaction(database, callback),
+      ): Promise<TResult> =>
+        runSerialized(async () => runBrowserWasmTransaction(database, callback)),
       query: async <TRecord = unknown>(
         sql: string,
         params?: readonly unknown[]
-      ): Promise<BrainstrikeDbQueryResult<TRecord>> => {
-        const rows = await queryTursoBrowserWasmSql<TRecord>(database, sql, params);
-        return { rows };
-      },
+      ): Promise<BrainstrikeDbQueryResult<TRecord>> =>
+        runSerialized(async () => {
+          const rows = await queryTursoBrowserWasmSql<TRecord>(database, sql, params);
+          return { rows };
+        }),
       transaction: async <TResult>(
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-      ): Promise<TResult> => runBrowserWasmTransaction(database, callback),
+      ): Promise<TResult> =>
+        runSerialized(async () => runBrowserWasmTransaction(database, callback)),
     },
     'turso'
   );

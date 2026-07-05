@@ -278,6 +278,79 @@ describe('Turso browser WASM execution client', () => {
     expect(database.exec).not.toHaveBeenCalledWith('BEGIN CONCURRENT');
   });
 
+  it('serializes overlapping transactions so the single-writer connection never interleaves BEGIN/COMMIT', async () => {
+    const database = createMockBrowserTursoDatabase();
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    let releaseFirst: () => void = () => {
+      throw new Error('first transaction gate was not initialized');
+    };
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = client.transaction(async (tx) => {
+      await tx.exec('INSERT INTO job_queue (id) VALUES (?)', ['job-a']);
+      await firstGate;
+      await tx.exec('INSERT INTO job_queue (id) VALUES (?)', ['job-a2']);
+      return 'first';
+    });
+    const second = client.transaction(async (tx) => {
+      await tx.exec('INSERT INTO file_chunks (id) VALUES (?)', ['chunk-b']);
+      return 'second';
+    });
+    const topLevel = client.query('SELECT id FROM job_queue');
+
+    // Give the second transaction and the top-level query every chance to
+    // interleave into the first (still-open) transaction before releasing it.
+    await drainMicrotasks();
+    releaseFirst();
+
+    const [firstResult, secondResult] = await Promise.all([first, second, topLevel]);
+    expect(firstResult).toBe('first');
+    expect(secondResult).toBe('second');
+
+    const orderedSql = collectOrderedSql(database);
+    const firstBegin = orderedSql.indexOf('BEGIN');
+    const firstCommit = orderedSql.indexOf('COMMIT');
+    const secondBegin = orderedSql.indexOf('BEGIN', firstBegin + 1);
+    const secondCommit = orderedSql.indexOf('COMMIT', firstCommit + 1);
+    const topLevelSelect = orderedSql.findIndex((sql) => sql.includes('SELECT id FROM job_queue'));
+    expect(firstBegin).toBeGreaterThanOrEqual(0);
+    expect(firstCommit).toBeGreaterThan(firstBegin);
+    // The second logical transaction must start only AFTER the first commits:
+    // the vendor execLock serializes single statements, not logical
+    // transactions, so without client-level serialization the second BEGIN
+    // would nest inside the open first transaction.
+    expect(secondBegin).toBeGreaterThan(firstCommit);
+    expect(secondCommit).toBeGreaterThan(secondBegin);
+    // A top-level statement must never execute inside someone else's open
+    // transaction (it would be absorbed into that transaction's commit or
+    // rollback). FIFO order places it after the second transaction here.
+    expect(topLevelSelect).toBeGreaterThan(secondCommit);
+    // Both transaction bodies stay inside their own BEGIN/COMMIT window.
+    const firstInsert = orderedSql.findIndex(
+      (sql) => sql.includes("'job-a'") || sql.includes('job_queue (id)')
+    );
+    expect(firstInsert).toBeGreaterThan(firstBegin);
+    expect(firstInsert).toBeLessThan(firstCommit);
+  });
+
+  it('releases the serialization queue after a rolled-back transaction', async () => {
+    const database = createMockBrowserTursoDatabase();
+    const client = createTursoBrowserWasmExecutionClient(database);
+
+    await expect(
+      client.transaction(async () => {
+        throw new Error('first write failed');
+      })
+    ).rejects.toThrow('first write failed');
+
+    // A failed (rolled back) transaction must not wedge the queue: the next
+    // operation acquires the connection normally.
+    await expect(client.query('SELECT 1')).resolves.toEqual({ rows: [] });
+  });
+
   it('rolls back a failed transaction with plain single-writer semantics', async () => {
     const database = createMockBrowserTursoDatabase();
     const client = createTursoBrowserWasmExecutionClient(database);
@@ -325,6 +398,22 @@ function restoreDescriptor<T extends object>(
     return;
   }
   Reflect.deleteProperty(target, property);
+}
+
+async function drainMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+function collectOrderedSql(database: {
+  readonly issuedSqlInOrder: readonly string[];
+}): readonly string[] {
+  return [...database.issuedSqlInOrder];
 }
 
 function collectIssuedSql(database: {
@@ -380,6 +469,8 @@ function createMockBrowserTursoDatabase(
     return statement;
   };
 
+  const issuedSqlInOrder: string[] = [];
+
   // `satisfies` keeps the mock honestly type-checked against the narrowed
   // bootstrap seam (prepare returns all/run/close-shaped statements).
   return {
@@ -388,10 +479,18 @@ function createMockBrowserTursoDatabase(
         throw options.closeError;
       }
     }),
-    exec: vi.fn(async (_sql: string) => undefined),
-    prepare: vi.fn(async (sql: string) => createStatement(sql)),
+    exec: vi.fn(async (sql: string) => {
+      issuedSqlInOrder.push(sql);
+      return;
+    }),
+    issuedSqlInOrder,
+    prepare: vi.fn(async (sql: string) => {
+      issuedSqlInOrder.push(sql);
+      return createStatement(sql);
+    }),
     statementsBySql,
   } satisfies TursoBrowserWasmBootstrapDatabase & {
+    readonly issuedSqlInOrder: string[];
     readonly statementsBySql: typeof statementsBySql;
   };
 }
