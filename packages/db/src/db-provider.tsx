@@ -55,6 +55,7 @@ import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
 } from './browser-pglite-storage.js';
+import type { InsertChunksAndEnqueueEmbeddingJobsArgs } from './chunk-embedding-job-batch.js';
 import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
@@ -227,6 +228,80 @@ async function loadTursoTokenCacheStore() {
  * share a storage path.
  */
 export const DEFAULT_BROWSER_TURSO_WASM_DB_PATH = 'brainstrike-web-turso.db';
+
+async function loadInsertTursoChunksAndEnqueueEmbeddingJobs() {
+  const mod = await import('./chunk-embedding-job-batch.js');
+  return mod.insertTursoChunksAndEnqueueEmbeddingJobs;
+}
+
+/**
+ * Strict-parse mapping from the renderer DbHandle atomic-enqueue call shape
+ * to the shared Turso batch args (mirrors the desktop IPC payload parse in
+ * apps/desktop/src/db-shared.ts): a missing model or non-positive
+ * targetDimension throws instead of enqueueing an unusable job.
+ */
+function buildBrowserTursoAtomicEnqueueArgs(
+  chunks: readonly FileChunk[],
+  fileRecordId: string,
+  options: DbInsertChunksAndEnqueueEmbeddingJobsOptions
+): InsertChunksAndEnqueueEmbeddingJobsArgs {
+  const model = options.model?.trim();
+  if (!model) {
+    throw new Error('Atomic chunk/job enqueue requires a model.');
+  }
+  const targetDimension = options.targetDimension;
+  if (
+    typeof targetDimension !== 'number' ||
+    !Number.isInteger(targetDimension) ||
+    targetDimension <= 0
+  ) {
+    throw new Error('Atomic chunk/job enqueue requires a positive targetDimension.');
+  }
+  return {
+    chunks: chunks as readonly FileChunkInsert[],
+    dimensionParameter: options.dimensionParameter ?? null,
+    fileRecordId,
+    model,
+    provider: options.provider ?? null,
+    targetDimension,
+    targetEmbeddingSetId: options.targetEmbeddingSetId ?? null,
+  };
+}
+
+/**
+ * The browser Turso provider executor: the WAL single-writer execution client
+ * plus the atomic chunk-insert + embedding-job-enqueue seam that web
+ * background indexing requires on the exposed handle (desktop gets it from
+ * the DB-host IPC bridge; the browser owner IS this client). Defined as an
+ * own method on a prototype child of the execution client so the runtime
+ * marker and capability surface are preserved.
+ */
+function createBrowserTursoProviderExecutor(
+  executionClient: TursoBrowserWasmExecutionClient
+): TursoBrowserWasmExecutionClient & {
+  insertChunksAndEnqueueEmbeddingJobs: NonNullable<
+    QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
+  >;
+} {
+  const executor = Object.create(executionClient) as TursoBrowserWasmExecutionClient & {
+    insertChunksAndEnqueueEmbeddingJobs: NonNullable<
+      QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
+    >;
+  };
+  executor.insertChunksAndEnqueueEmbeddingJobs = async (
+    chunks: readonly FileChunk[],
+    fileRecordId: string,
+    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions
+  ): Promise<void> => {
+    const insertTursoChunksAndEnqueueEmbeddingJobs =
+      await loadInsertTursoChunksAndEnqueueEmbeddingJobs();
+    await insertTursoChunksAndEnqueueEmbeddingJobs(
+      executionClient,
+      buildBrowserTursoAtomicEnqueueArgs(chunks, fileRecordId, options)
+    );
+  };
+  return executor;
+}
 
 async function loadTursoBrowserWasmRuntime() {
   const [bootstrapModule, clientModule] = await Promise.all([
@@ -1779,7 +1854,20 @@ export function DbProvider({
           'view_filter_presets',
         ],
       });
-      setExposedDb(createDbHandle(executionClient as unknown as QueryExecutor));
+      // QoS parity with the direct-PGlite renderer path: the exposed DbHandle
+      // routes through the provider's database work scheduler so web
+      // consumers of scheduler snapshots (background indexing permits and
+      // pressure reads — there is no electronAPI snapshot source on web) work
+      // on the browser Turso runtime. Admission-order QoS only: actual
+      // execution stays serialized by the single-writer FIFO execution
+      // client, and repositories keep using the raw client directly.
+      const scheduledExecutor = createScheduledDbHandle(
+        createBrowserTursoProviderExecutor(executionClient) as unknown as QueryExecutor &
+          ScheduledDbHandle,
+        databaseWorkSchedulerRef.current,
+        getRendererDefaultDatabaseWorkPriority()
+      );
+      setExposedDb(createDbHandle(scheduledExecutor as unknown as QueryExecutor));
       setFileRecordRepository(new TursoFileRecordRepo(executionClient));
       setChunkRepository(new TursoFileChunkRepo(executionClient));
       setEmbeddingSetsRepository(new TursoEmbeddingSetsRepo(executionClient));

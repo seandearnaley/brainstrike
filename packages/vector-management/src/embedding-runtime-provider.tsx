@@ -2,12 +2,17 @@ import {
   createTursoJobQueueReadModel,
   JobQueue,
   useBrainstrikeExecutionDbClient,
+  useEmbeddingSetsRepository,
   useFileChunkRepository,
   useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
+import {
+  createBrowserTursoVectorQueueService,
+  isBrowserTursoVectorQueueChunkRepository,
+} from './vector-status/browser-turso-vector-queue-service';
 import { createDesktopTursoVectorQueueService } from './vector-status/desktop-turso-vector-queue-service';
 import {
   type EmbeddingRuntimeController,
@@ -54,6 +59,7 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
   const executionClient = useBrainstrikeExecutionDbClient();
   const runtimeEngine = bootstrapReport?.runtime.engine ?? 'unknown';
   const chunkRepository = useFileChunkRepository();
+  const embeddingSetsRepository = useEmbeddingSetsRepository();
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const reinitEveryN = useVectorPreferencesStore((state) => state.reinitEveryN);
 
@@ -73,22 +79,56 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
     });
   }, [coverageRepository, db, runtimeEngine]);
 
+  const browserTursoRuntime =
+    bootstrapReport?.runtime.engine === 'turso' && bootstrapReport.runtime.host === 'browser';
+
   const serviceResolution = useMemo(
     () =>
       createVectorQueueServiceForRuntime({
         db,
         chunkRepository: coverageRepository,
         createPGliteJobQueue: (queueDb) => new JobQueue(queueDb),
-        createTursoVectorQueueService: ({ db: vectorQueueDb }) =>
-          tursoSnapshotReader
+        createTursoVectorQueueService: ({ db: vectorQueueDb }) => {
+          if (browserTursoRuntime) {
+            // A7 cutover: the browser has no desktop owner IPC — compose the
+            // vector queue service over the provider-owned execution client.
+            // Missing pieces keep the service unavailable (fail closed with
+            // the missing-turso-vector-queue-adapter diagnostics).
+            if (
+              !(
+                executionClient &&
+                embeddingSetsRepository &&
+                isBrowserTursoVectorQueueChunkRepository(chunkRepository)
+              )
+            ) {
+              return null;
+            }
+            return createBrowserTursoVectorQueueService({
+              chunkRepository,
+              db: vectorQueueDb,
+              embeddingSetsRepository,
+              executionClient: executionClient.db,
+            });
+          }
+          return tursoSnapshotReader
             ? createDesktopTursoVectorQueueService({
                 db: vectorQueueDb,
                 snapshotReader: tursoSnapshotReader,
               })
-            : null,
+            : null;
+        },
         runtimeEngine,
       }),
-    [coverageRepository, db, runtimeEngine, tursoSnapshotReader]
+    [
+      browserTursoRuntime,
+      chunkRepository,
+      coverageRepository,
+      db,
+      embeddingSetsRepository,
+      executionClient,
+      runtimeEngine,
+      tursoSnapshotReader,
+    ]
   );
   const service = serviceResolution.service;
   const serviceUnavailableReason = serviceResolution.available ? null : serviceResolution.reason;
@@ -106,8 +146,6 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
    * visible diagnostic (never a silent PGlite-storage fallback). PGlite
    * runtimes keep the default PGlite-backed worker storage (factory null).
    */
-  const browserTursoRuntime =
-    bootstrapReport?.runtime.engine === 'turso' && bootstrapReport.runtime.host === 'browser';
   const createLocalWorkerStorage = useMemo(() => {
     if (!(browserTursoRuntime && bootstrapReport)) {
       return null;

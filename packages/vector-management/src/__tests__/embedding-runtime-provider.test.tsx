@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingRuntimeProvider, useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 
 const {
+  createBrowserTursoVectorQueueServiceMock,
   createTursoBrowserEmbeddingWorkerStorageMock,
   createTursoVectorQueueSnapshotReaderMock,
   createVectorQueueServiceForRuntimeMock,
@@ -11,11 +12,13 @@ const {
   JobQueueMock,
   useBrainstrikeExecutionDbClientMock,
   useEmbeddingRuntimeControllerMock,
+  useEmbeddingSetsRepositoryMock,
   useFileChunkRepositoryMock,
   useModelRegistryDbClientMock,
   useOptionalProfileBootstrapReportMock,
   useVectorPreferencesStoreMock,
 } = vi.hoisted(() => ({
+  createBrowserTursoVectorQueueServiceMock: vi.fn(),
   createTursoBrowserEmbeddingWorkerStorageMock: vi.fn(),
   createTursoVectorQueueSnapshotReaderMock: vi.fn(),
   createVectorQueueServiceForRuntimeMock: vi.fn(),
@@ -25,6 +28,7 @@ const {
   }),
   useBrainstrikeExecutionDbClientMock: vi.fn(),
   useEmbeddingRuntimeControllerMock: vi.fn(),
+  useEmbeddingSetsRepositoryMock: vi.fn(),
   useFileChunkRepositoryMock: vi.fn(),
   useModelRegistryDbClientMock: vi.fn(),
   useOptionalProfileBootstrapReportMock: vi.fn(),
@@ -35,6 +39,7 @@ vi.mock('@brainstrike/db', () => ({
   createTursoJobQueueReadModel: createTursoJobQueueReadModelMock,
   JobQueue: JobQueueMock,
   useBrainstrikeExecutionDbClient: useBrainstrikeExecutionDbClientMock,
+  useEmbeddingSetsRepository: useEmbeddingSetsRepositoryMock,
   useFileChunkRepository: useFileChunkRepositoryMock,
   useModelRegistryDbClient: useModelRegistryDbClientMock,
   useOptionalProfileBootstrapReport: useOptionalProfileBootstrapReportMock,
@@ -43,6 +48,17 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('../vector-status/turso-browser-embedding-worker-storage', () => ({
   createTursoBrowserEmbeddingWorkerStorage: createTursoBrowserEmbeddingWorkerStorageMock,
 }));
+
+// Keep the REAL capability predicate so gating is exercised; only the
+// service factory itself is stubbed.
+vi.mock('../vector-status/browser-turso-vector-queue-service', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../vector-status/browser-turso-vector-queue-service')>();
+  return {
+    ...actual,
+    createBrowserTursoVectorQueueService: createBrowserTursoVectorQueueServiceMock,
+  };
+});
 
 vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: useVectorPreferencesStoreMock,
@@ -120,6 +136,74 @@ describe('EmbeddingRuntimeProvider', () => {
     createTursoVectorQueueSnapshotReaderMock.mockReturnValue({
       refresh: vi.fn(),
     });
+  });
+
+  it('composes the browser Turso vector queue service over the provider-owned client (A7 cutover)', () => {
+    const executionDbHandle = { dialect: 'turso-browser' };
+    const browserService = { backfill: vi.fn(), refresh: vi.fn() };
+    const fullTursoChunkRepository = {
+      clearEmbeddingsForSet: vi.fn(),
+      countEmbeddingBackfillCandidates: vi.fn(),
+      findEmbeddingBackfillCandidates: vi.fn(),
+      getCoverageForSet: vi.fn(),
+      getEmbeddingBackfillCandidateDiagnostics: vi.fn(),
+    };
+    const embeddingSetsRepository = { getById: vi.fn() };
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    });
+    useBrainstrikeExecutionDbClientMock.mockReturnValue({
+      db: executionDbHandle,
+      runtimeEngine: 'turso',
+      sqlCapabilities: { dialect: 'sqlite' },
+    });
+    useFileChunkRepositoryMock.mockReturnValue(fullTursoChunkRepository);
+    useEmbeddingSetsRepositoryMock.mockReturnValue(embeddingSetsRepository);
+    createBrowserTursoVectorQueueServiceMock.mockReturnValue(browserService);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+    const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    expect(createBrowserTursoVectorQueueServiceMock).toHaveBeenCalledWith({
+      chunkRepository: fullTursoChunkRepository,
+      db: { dialect: 'turso' },
+      embeddingSetsRepository,
+      executionClient: executionDbHandle,
+    });
+    expect(result.current.service).toBe(browserService);
+    expect(result.current.serviceUnavailableReason).toBeNull();
+  });
+
+  it('keeps the browser Turso service unavailable when the chunk repository lacks the backfill surface', () => {
+    useModelRegistryDbClientMock.mockReturnValue({ dialect: 'turso' });
+    useOptionalProfileBootstrapReportMock.mockReturnValue({
+      ready: true,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    });
+    useBrainstrikeExecutionDbClientMock.mockReturnValue({
+      db: { dialect: 'turso-browser' },
+      runtimeEngine: 'turso',
+      sqlCapabilities: { dialect: 'sqlite' },
+    });
+    // Coverage-capable but backfill-incapable: composition must fail closed.
+    useFileChunkRepositoryMock.mockReturnValue({
+      clearEmbeddingsForSet: vi.fn(),
+      getCoverageForSet: vi.fn(),
+    });
+    useEmbeddingSetsRepositoryMock.mockReturnValue({ getById: vi.fn() });
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <EmbeddingRuntimeProvider>{children}</EmbeddingRuntimeProvider>
+    );
+    const { result } = renderHook(() => useSharedEmbeddingRuntime(), { wrapper });
+
+    expect(createBrowserTursoVectorQueueServiceMock).not.toHaveBeenCalled();
+    expect(result.current.service).toBeNull();
+    expect(result.current.serviceUnavailableReason).toBe('missing-turso-vector-queue-adapter');
   });
 
   it('throws when the shared runtime hook is used outside the provider', () => {

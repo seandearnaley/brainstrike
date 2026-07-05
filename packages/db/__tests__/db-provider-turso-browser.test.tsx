@@ -2,6 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveBrainstrikeDbRuntimeSelection } from '../src/architecture/db-runtime-selection';
+import { getDatabaseWorkScheduler } from '../src/database-work-scheduler';
 import {
   DbProvider,
   useBrainstrikeDbClient,
@@ -13,6 +14,7 @@ import {
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
+  useModelRegistryDbClient,
   usePGliteDatabase,
   useProfileBootstrapReport,
   useTokenCacheStore,
@@ -194,6 +196,7 @@ function useBrowserTursoProviderProbe() {
     fileRecordRepository: useFileRecordRepository(),
     initializationStatus: useDbInitializationStatus(),
     liveQueryAvailable: useBrainstrikeLiveQueryCapability(),
+    modelRegistryDb: useModelRegistryDbClient(),
     pgliteDb: usePGliteDatabase(),
     profileBootstrapReport: useProfileBootstrapReport(),
     schemaReady: useBrainstrikeSchemaReadyCapability(),
@@ -300,6 +303,17 @@ describe('DbProvider browser Turso WASM runtime', () => {
     expect(result.current.executionDb?.runtimeEngine).toBe('turso');
     expect(result.current.executionDb?.sqlCapabilities).toMatchObject({ dialect: 'sqlite' });
 
+    // QoS parity with the direct-PGlite renderer path: the exposed DbHandle
+    // must carry the provider's database work scheduler. Without it, web
+    // consumers that need scheduler snapshots (background indexing's
+    // waitForBackgroundPermit / pressure reads) throw on the browser Turso
+    // runtime — there is no electronAPI snapshot source on web. Proven red by
+    // the first full-app web E2E boot on Turso (file tree remount loop from
+    // the unhandled 'Background indexing requires database QoS scheduler
+    // snapshots' error).
+    expect(result.current.modelRegistryDb).not.toBeNull();
+    expect(getDatabaseWorkScheduler(result.current.modelRegistryDb)).not.toBeNull();
+
     // Repository round trip through the provider-constructed repository.
     const presetsRepository = result.current.viewFilterPresetsRepository;
     if (!presetsRepository) {
@@ -326,6 +340,72 @@ describe('DbProvider browser Turso WASM runtime', () => {
 
     // No PGlite fallback anywhere on the browser Turso path.
     expect(createPGliteClientSpy).not.toHaveBeenCalled();
+  });
+
+  it('exposes atomic chunk/job enqueue on the browser Turso handle (web background import contract)', async () => {
+    installBrowserWasmPrerequisites();
+    const store = createFakeBrowserTursoStore();
+    const openedDatabases: FakeBrowserTursoDatabase[] = [];
+    openTursoBrowserWasmDatabaseMock.mockImplementation(async () => {
+      const database = createFakeBrowserTursoDatabase(store);
+      openedDatabases.push(database);
+      return database as unknown as Awaited<ReturnType<typeof openTursoBrowserWasmDatabase>>;
+    });
+
+    const { result } = renderHook(useBrowserTursoProviderProbe, {
+      wrapper: browserTursoWrapper,
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.initializationStatus).toBe('ready');
+      },
+      { timeout: 10_000 }
+    );
+
+    // Web background indexing requires the atomic enqueue seam on the
+    // exposed handle (workspace-collection-sync-import fails closed without
+    // it); on desktop it comes from the IPC bridge, on the browser it must
+    // ride the provider-owned WAL single-writer execution client.
+    const handle = result.current.modelRegistryDb;
+    expect(typeof handle?.insertChunksAndEnqueueEmbeddingJobs).toBe('function');
+
+    const chunk = {
+      chunkIndex: 0,
+      chunkSize: 5,
+      chunkType: 'text' as const,
+      content: 'hello',
+      contentHash: 'hash-1',
+      createdAt: '2026-07-05T00:00:00.000Z',
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+      tokenCount: 2,
+      updatedAt: '2026-07-05T00:00:00.000Z',
+    };
+    await handle?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-1', {
+      model: 'local:Xenova/bge-m3',
+      targetDimension: 384,
+      targetEmbeddingSetId: null,
+    });
+
+    const longLivedStore = openedDatabases[1];
+    const issuedSql = longLivedStore?.issuedSql.join('\n') ?? '';
+    expect(issuedSql).toContain('INSERT INTO file_chunks');
+    expect(issuedSql).toContain('INSERT INTO job_queue');
+    expect(longLivedStore?.issuedSql).toContain('BEGIN');
+    expect(longLivedStore?.issuedSql).toContain('COMMIT');
+    expect(issuedSql).not.toContain('BEGIN CONCURRENT');
+
+    // Strict parse: a missing model/targetDimension throws instead of
+    // enqueueing an unusable job (no silent coercion).
+    await expect(
+      handle?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-1', { targetDimension: 384 })
+    ).rejects.toThrow('Atomic chunk/job enqueue requires a model.');
+    await expect(
+      handle?.insertChunksAndEnqueueEmbeddingJobs?.([chunk], 'file-1', {
+        model: 'local:Xenova/bge-m3',
+      })
+    ).rejects.toThrow('Atomic chunk/job enqueue requires a positive targetDimension.');
   });
 
   it('requests persistent storage once at browser Turso initialization (fire-and-forget, non-gating)', async () => {
