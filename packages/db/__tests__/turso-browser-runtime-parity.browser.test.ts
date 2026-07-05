@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applyTursoBrowserWasmForeignKeys,
   createTursoBrowserWasmExecutionClient,
   openTursoBrowserWasmStoreWithBoundedWorkerInitRetry,
   runTursoBrowserWasmBootstrap,
@@ -55,6 +56,11 @@ describe('browser Turso runtime parity contracts (real browser WASM over OPFS)',
       dbPath
     );
     database = opened.database;
+    // Production-client fidelity: the provider applies the per-connection
+    // foreign-keys pragma on every post-bootstrap open (see the ledger's
+    // Browser Foreign-Key Connection Scope Finding), so this lane must run
+    // FK-ON exactly like the client it claims to mirror.
+    await applyTursoBrowserWasmForeignKeys(opened.database);
     client = createTursoBrowserWasmExecutionClient(opened.database);
   }, 120_000);
 

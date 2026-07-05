@@ -295,6 +295,42 @@ async function openBrowserTursoWasmDatabase(
   return openTursoBrowserWasmDatabase({ path: dbPath });
 }
 
+/**
+ * Enables and VERIFIES `PRAGMA foreign_keys = ON` on a browser Turso
+ * connection. `PRAGMA foreign_keys` is connection-scoped in SQLite: the
+ * schema baseline's apply only covers the connection it ran on (during
+ * bootstrap, the PROBE connection, which closes after the readiness checks),
+ * and without it the ON DELETE CASCADE gram/index search sidecars silently
+ * orphan — see "Browser Foreign-Key Connection Scope Finding (2026-07-05)"
+ * in the migration ledger. Every post-bootstrap browser store open (the
+ * DbProvider's long-lived store AND the browser test harnesses that claim
+ * production-client fidelity) must apply this, fail closed. Mirrors the
+ * native owner client's per-connection applyTursoForeignKeys.
+ */
+export async function applyTursoBrowserWasmForeignKeys(
+  database: TursoBrowserWasmBootstrapDatabase
+): Promise<void> {
+  await database.exec('PRAGMA foreign_keys = ON');
+  const statement = await database.prepare('PRAGMA foreign_keys');
+  try {
+    const rows = await statement.all();
+    const firstRow = rows[0];
+    const reported =
+      firstRow && typeof firstRow === 'object' && 'foreign_keys' in firstRow
+        ? (firstRow as { readonly foreign_keys?: unknown }).foreign_keys
+        : undefined;
+    if (Number(reported) !== 1) {
+      throw new Error(
+        `Browser Turso store failed to enable foreign keys (PRAGMA foreign_keys reported ${String(
+          reported
+        )}).`
+      );
+    }
+  } finally {
+    await statement.close();
+  }
+}
+
 interface StoreOpenOutcome {
   readonly database: TursoBrowserWasmBootstrapDatabase;
   readonly retries: number;

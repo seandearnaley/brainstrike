@@ -44,8 +44,11 @@ const REQUIRED_LEDGER_PHRASES = [
   '`@tursodatabase/database-wasm/vite` is the Vite/browser import surface',
   '@tursodatabase/serverless is a remote fetch client, not a local-first browser database',
   'Browser Turso WASM has a dedicated bootstrap readiness report and DbProvider integration behind an explicit runtime-selection opt-in',
-  'Browser PGlite remains the browser default until backup/export ownership and offline behavior are proven and the cutover decision flips the default',
-  'Runtime parity tests are now proven by the two-lane parity contract suite',
+  'Browser PGlite remains the browser default only until the A7 cutover decision flips the default',
+  'runtime parity by the two-lane parity contract suite',
+  'reset/clear (backup/export) ownership and OPFS offline durability by the browser reset-and-durability slice',
+  'Browser OPFS Durability And Storage Pressure (2026-07-05)',
+  'Browser Foreign-Key Connection Scope Finding (2026-07-05)',
 ] as const;
 
 const REJECTED_LEDGER_PHRASES = [
@@ -57,6 +60,13 @@ const REJECTED_LEDGER_PHRASES = [
   // Superseded by the A6 runtime-parity slice: the ledger must not regress to
   // listing runtime parity tests as an outstanding browser-cutover gate.
   'Browser PGlite remains the browser default until backup/export ownership, offline behavior, and runtime parity tests are proven',
+  // Superseded by the A7-prep reset-and-durability slice: the ledger must not
+  // regress to listing backup/export ownership or offline behavior as
+  // outstanding browser-cutover gates.
+  'Browser PGlite remains the browser default until backup/export ownership and offline behavior are proven',
+  // Superseded by the same slice: browser Turso clear-all and factory reset
+  // are implemented with explicit OPFS ownership, no longer fail-closed stubs.
+  'clear-all and factory reset fail closed until they own OPFS store deletion explicitly',
 ] as const;
 
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([

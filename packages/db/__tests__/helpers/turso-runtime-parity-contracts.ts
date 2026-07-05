@@ -443,10 +443,14 @@ export async function runEffectiveMembershipContract(
   const clearedExplicit = await repository.findById('chunk-explicit-a');
   expect(clearedExplicit).toMatchObject({ embeddingSetId: setA.id });
   expect(clearedExplicit).not.toHaveProperty('embedding');
+  expect(clearedExplicit).not.toHaveProperty('embeddingHash');
+  expect(clearedExplicit).not.toHaveProperty('embeddingUpdatedAt');
   const clearedInherited = await repository.findById('chunk-inherited');
   expect(clearedInherited).toMatchObject({ id: 'chunk-inherited' });
   expect(clearedInherited).not.toHaveProperty('embeddingSetId');
   expect(clearedInherited).not.toHaveProperty('embedding');
+  expect(clearedInherited).not.toHaveProperty('embeddingHash');
+  expect(clearedInherited).not.toHaveProperty('embeddingUpdatedAt');
   await expect(repository.findById('chunk-explicit-b')).resolves.toMatchObject({
     embedding: [0.2, 0.2, 0.2],
     embeddingSetId: setB.id,
@@ -1011,6 +1015,14 @@ export async function runJobQueueLifecycleContract(
   await expect(chunkRepository.findById('chunk-1')).resolves.toMatchObject({
     embeddingHash: 'parity-embedding-hash',
   });
+  // The rejected completion must leave the stale job untouched: still leased
+  // out under the stolen token, never flipped to succeeded (raw read — the
+  // queue API has no by-id getter).
+  const staleJobRows = await client.query<{ state: string }>(
+    'SELECT state FROM job_queue WHERE id = ?',
+    [stale.id]
+  );
+  expect(staleJobRows.rows.map((row) => row.state)).toEqual(['running']);
 }
 
 export async function runManagedCacheApplyContract(
