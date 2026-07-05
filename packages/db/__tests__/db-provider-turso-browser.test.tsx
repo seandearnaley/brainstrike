@@ -64,6 +64,9 @@ function createFakeBrowserTursoDatabase(store: FakeBrowserTursoStore): FakeBrows
     if (sql === 'PRAGMA journal_mode') {
       return [{ journal_mode: 'wal' }];
     }
+    if (sql === 'PRAGMA foreign_keys') {
+      return [{ foreign_keys: 1 }];
+    }
     if (sql.includes('idx_file_chunk_content_grams_lookup')) {
       return [
         { name: 'file_chunk_content_index', type: 'table' },

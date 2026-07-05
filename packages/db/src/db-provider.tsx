@@ -46,7 +46,10 @@ import {
 // Type-only edge on purpose: the runtime module is loaded lazily via
 // loadTursoBrowserWasmRuntime() so the Turso WASM bootstrap stays code-split
 // out of PGlite-only browser bundles.
-import type { TursoBrowserWasmBootstrapDatabase } from './bootstrap/turso-browser-wasm-bootstrap.js';
+import type {
+  TursoBrowserWasmBootstrapDatabase,
+  TursoBrowserWasmExecutionClient,
+} from './bootstrap/turso-browser-wasm-bootstrap.js';
 import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
@@ -89,7 +92,19 @@ function logDatabaseError(message: string, error: unknown): void {
 type DbConnection =
   | { kind: 'ipc'; bridge: ElectronDatabaseAPI }
   | { kind: 'direct'; db: PGliteRuntimeClient; dataDir: string }
-  | { kind: 'turso-browser'; db: TursoBrowserWasmBootstrapDatabase; dbPath: string };
+  | {
+      kind: 'turso-browser';
+      db: TursoBrowserWasmBootstrapDatabase;
+      dbPath: string;
+      /**
+       * The bootstrap-proven WAL single-writer FIFO execution client for this
+       * store. Reset/clear paths MUST reuse it — constructing a second client
+       * over the same Database would create a second FIFO queue whose logical
+       * transactions could interleave with the provider's (the vendor Database
+       * only serializes individual statements).
+       */
+      executionClient: TursoBrowserWasmExecutionClient;
+    };
 
 async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): Promise<void> {
   try {
@@ -251,6 +266,13 @@ interface BrowserTursoRuntimeResources {
  * the SQLite file header, and the bootstrap that just ran proved the WAL
  * contract on this exact file (see turso-browser-wasm-bootstrap.ts for the
  * full journal-mode contract rationale).
+ *
+ * Foreign keys ARE re-applied on this open: `PRAGMA foreign_keys` is
+ * connection-scoped in SQLite (the schema baseline only enabled it on the
+ * bootstrap's PROBE connection), and without it the gram/index search
+ * sidecars silently stop cascading on this long-lived connection — proven
+ * red by the browser reset suite before this apply existed. Mirrors the
+ * native owner client's per-connection applyTursoForeignKeys, fail closed.
  */
 async function openBrowserTursoRuntimeResources(
   runtime: Pick<
@@ -265,6 +287,7 @@ async function openBrowserTursoRuntimeResources(
   );
 
   try {
+    await applyBrowserTursoForeignKeys(database);
     const [
       TursoEmbeddingSetsRepo,
       TursoFileChunkRepo,
@@ -302,6 +325,175 @@ async function closeBrowserTursoDatabaseIgnoringFailure(
   } catch (closeError) {
     // Preserve the original failure; a close error here is secondary.
     logger.error('Failed to close browser Turso WASM store after a setup failure:', closeError);
+  }
+}
+
+/**
+ * Enables and VERIFIES `PRAGMA foreign_keys = ON` on the long-lived browser
+ * Turso connection (connection-scoped in SQLite; the schema baseline's apply
+ * only covered the bootstrap probe connection). Fail closed: without enforced
+ * foreign keys the ON DELETE CASCADE search sidecars silently orphan.
+ */
+async function applyBrowserTursoForeignKeys(
+  database: TursoBrowserWasmBootstrapDatabase
+): Promise<void> {
+  await database.exec('PRAGMA foreign_keys = ON');
+  const statement = await database.prepare('PRAGMA foreign_keys');
+  try {
+    const rows = await statement.all();
+    const firstRow = rows[0];
+    const reported =
+      firstRow && typeof firstRow === 'object' && 'foreign_keys' in firstRow
+        ? (firstRow as { readonly foreign_keys?: unknown }).foreign_keys
+        : undefined;
+    if (Number(reported) !== 1) {
+      throw new Error(
+        `Browser Turso store failed to enable foreign keys (PRAGMA foreign_keys reported ${String(
+          reported
+        )}).`
+      );
+    }
+  } finally {
+    await statement.close();
+  }
+}
+
+/**
+ * SQLite reports a missing relation as `no such table: <name>`; treat it as a
+ * missing OPTIONAL relation during clears, matching the desktop Turso
+ * `db:clearAll` handling (and the Postgres 42P01 equivalent).
+ */
+function isMissingTursoRelationError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes('no such table');
+}
+
+async function clearOptionalBrowserTursoRelation(
+  tx: BrainstrikeDbTransactionClient,
+  tableName: string
+): Promise<void> {
+  try {
+    await tx.exec(`DELETE FROM ${tableName}`);
+  } catch (error) {
+    if (isMissingTursoRelationError(error)) {
+      return;
+    }
+    logger.warn('[DbProvider] Failed to clear optional browser Turso table', { error, tableName });
+    throw error;
+  }
+}
+
+async function countBrowserTursoRows(
+  tx: BrainstrikeDbTransactionClient,
+  tableName: string
+): Promise<number> {
+  const result = await tx.query<{ count: number | string }>(
+    `SELECT COUNT(*) AS count FROM ${tableName}`
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+/**
+ * SQL-only live-handle clear for the browser Turso runtime, mirroring the
+ * desktop Turso `db:clearAll` semantics: chunks first (FK child), snapshots,
+ * records, then the optional relations — all inside ONE serialized
+ * transaction on the single-writer connection. Gram/index search sidecars
+ * cascade via their ON DELETE CASCADE foreign keys. This is NOT factory
+ * reset: it never touches the OPFS store files or seeded view filter presets.
+ */
+async function clearBrowserTursoData(
+  client: TursoBrowserWasmExecutionClient
+): Promise<{ deletedChunks: number; deletedFiles: number }> {
+  return await client.transaction(async (tx) => {
+    const deletedChunks = await countBrowserTursoRows(tx, 'file_chunks');
+    const deletedFiles = await countBrowserTursoRows(tx, 'file_records');
+
+    await tx.exec('DELETE FROM file_chunks');
+    await clearOptionalBrowserTursoRelation(tx, 'selection_snapshot_files');
+    await clearOptionalBrowserTursoRelation(tx, 'selection_snapshots');
+    await tx.exec('DELETE FROM file_records');
+    // After file_records (the FK child): stale roots would otherwise survive
+    // the clear and resurface as ghost workspaces once consumers read the
+    // roots table.
+    await clearOptionalBrowserTursoRelation(tx, 'roots');
+    await clearOptionalBrowserTursoRelation(tx, 'collection_indexing_stats');
+    await clearOptionalBrowserTursoRelation(tx, 'embedding_sets');
+    await clearOptionalBrowserTursoRelation(tx, 'job_queue');
+    // Durable per-thread token usage has no FK, so it must be explicitly
+    // purged (FACTORY RESET CONTRACT parity with the desktop clear).
+    await clearOptionalBrowserTursoRelation(tx, 'brainstrike_assistant_run_usage');
+
+    return { deletedChunks, deletedFiles };
+  });
+}
+
+/**
+ * The OPFS file family owned by one browser Turso store. Keep in sync with
+ * FALLBACK_OPFS_TURSO_BROWSER_WASM_FILE_NAMES in packages/preferences
+ * factory-reset-helpers.ts (the preferences-side safety net for the default
+ * store name).
+ */
+function getBrowserTursoOpfsFileFamily(dbPath: string): readonly string[] {
+  return [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-tshm`];
+}
+
+function isMissingOpfsEntryError(error: unknown): boolean {
+  return (
+    typeof DOMException !== 'undefined' &&
+    error instanceof DOMException &&
+    error.name === 'NotFoundError'
+  );
+}
+
+/**
+ * Factory-reset close for the browser Turso store. Fail closed with
+ * diagnostics: OPFS `removeEntry` cannot delete a file whose single-writer
+ * sync access handle is still open (see the Browser Single-Writer Ownership
+ * Finding in the migration ledger), so a close failure means the reset cannot
+ * guarantee a fresh store and must surface instead of half-deleting.
+ */
+async function closeBrowserTursoStoreForReset(
+  database: TursoBrowserWasmBootstrapDatabase
+): Promise<void> {
+  try {
+    await database.close();
+  } catch (error) {
+    throw new Error(
+      `Browser Turso factory reset could not release the OPFS single-writer store handle: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * Deletes the browser Turso OPFS db file family for a true fresh start.
+ * Missing entries are fine (sidecars may not exist); any other removal
+ * failure fails the reset closed with the per-file diagnostics.
+ */
+async function deleteBrowserTursoOpfsFileFamily(dbPath: string): Promise<void> {
+  if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
+    throw new Error(
+      'Browser Turso factory reset requires OPFS via navigator.storage.getDirectory.'
+    );
+  }
+  const root = await navigator.storage.getDirectory();
+  const failures: string[] = [];
+  for (const fileName of getBrowserTursoOpfsFileFamily(dbPath)) {
+    try {
+      await root.removeEntry(fileName);
+    } catch (error) {
+      if (isMissingOpfsEntryError(error)) {
+        continue;
+      }
+      failures.push(`${fileName} (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Browser Turso factory reset failed to delete OPFS store files: ${failures.join('; ')}`
+    );
   }
 }
 
@@ -1556,9 +1748,19 @@ export function DbProvider({
         { openTursoBrowserWasmDatabase, openTursoBrowserWasmStoreWithBoundedWorkerInitRetry },
         resolvedPath
       );
+      // The ONE execution client for this store (see the DbConnection comment:
+      // a second client would create a second FIFO queue over the same
+      // connection). Created before the connection is tracked so reset/clear
+      // paths can always reach it.
+      const executionClient = createTursoBrowserWasmExecutionClient(database);
       // Track the handle IMMEDIATELY (mirrors the direct-PGlite ordering) so
       // the unmount cleanup and reset paths can always close it.
-      connectionRef.current = { kind: 'turso-browser', db: database, dbPath: resolvedPath };
+      connectionRef.current = {
+        kind: 'turso-browser',
+        db: database,
+        dbPath: resolvedPath,
+        executionClient,
+      };
 
       const {
         TursoEmbeddingSetsRepo,
@@ -1574,7 +1776,6 @@ export function DbProvider({
         return;
       }
 
-      const executionClient = createTursoBrowserWasmExecutionClient(database);
       logger.info('Browser Turso DB provider initialized with migrated repository coverage', {
         migratedRepositories: [
           'embedding_sets',
@@ -1821,10 +2022,12 @@ export function DbProvider({
       return await clearViaElectronIPC();
     }
 
-    if (connectionRef.current?.kind === 'turso-browser') {
-      // Fail closed: SQL-only clears for the browser Turso runtime need their
-      // own explicitly owned path; never route them through the PGlite clear.
-      throw new Error('Clear-all data is not implemented for the browser Turso WASM runtime yet.');
+    const browserTursoConnection = connectionRef.current;
+    if (browserTursoConnection?.kind === 'turso-browser') {
+      // Explicitly owned browser Turso SQL-only clear over the SINGLE
+      // provider-owned execution client — never routed through the PGlite
+      // clear, never a second client over the same connection.
+      return await clearBrowserTursoData(browserTursoConnection.executionClient);
     }
 
     // For direct PGlite, use transaction
@@ -1929,13 +2132,13 @@ export function DbProvider({
     }
   }, [resolvedPath]);
 
-  const resetPGliteState = useCallback(async () => {
-    if (connectionRef.current) {
-      await purgeAndClosePGlite();
-    } else {
-      logger.warn('[DbProvider] No active database to purge during factory reset');
-    }
-
+  /**
+   * Shared post-reset provider state: everything nulls out, the bootstrap
+   * report returns to its initial pending shape, and re-initialization stays
+   * blocked (resetPendingReloadRef) until the caller-driven reload boots the
+   * renderer fresh (FACTORY RESET CONTRACT — do not skip the reload).
+   */
+  const resetProviderStateForPendingReload = useCallback(() => {
     resetPendingReloadRef.current = true;
     connectionRef.current = null;
     setExposedDb(null);
@@ -1960,15 +2163,45 @@ export function DbProvider({
 
     // Clear active embedding set ID from localStorage to prevent stale collections
     clearActiveEmbeddingSetIdFromStorage();
+  }, [publishProfileBootstrapReport, resolvedPath, bootstrapRuntime]);
+
+  const resetPGliteState = useCallback(async () => {
+    if (connectionRef.current) {
+      await purgeAndClosePGlite();
+    } else {
+      logger.warn('[DbProvider] No active database to purge during factory reset');
+    }
+
+    resetProviderStateForPendingReload();
 
     await cleanupAndWaitForReset();
-  }, [
-    purgeAndClosePGlite,
-    cleanupAndWaitForReset,
-    publishProfileBootstrapReport,
-    resolvedPath,
-    bootstrapRuntime,
-  ]);
+  }, [purgeAndClosePGlite, cleanupAndWaitForReset, resetProviderStateForPendingReload]);
+
+  /**
+   * Browser Turso factory reset: close the WAL single-writer store FIRST
+   * (OPFS cannot delete a file with a live sync access handle — fail closed
+   * on close errors), delete the OPFS db file family, then reset provider
+   * state so the next boot bootstraps a fresh store. Runs even when the
+   * connection was never initialized this session: stale OPFS files from a
+   * previous session must still be deleted for a true fresh start.
+   */
+  const resetBrowserTursoState = useCallback(async () => {
+    const conn = connectionRef.current;
+    if (conn && conn.kind !== 'turso-browser') {
+      throw new Error(
+        'Browser Turso factory reset was invoked while a non-Turso connection is active.'
+      );
+    }
+    if (conn) {
+      await closeBrowserTursoStoreForReset(conn.db);
+      connectionRef.current = null;
+      logger.info('[DbProvider] Closed browser Turso WASM store during factory reset');
+    }
+    await deleteBrowserTursoOpfsFileFamily(resolvedPath);
+    logger.info('[DbProvider] Deleted browser Turso OPFS store file family during factory reset');
+
+    resetProviderStateForPendingReload();
+  }, [resolvedPath, resetProviderStateForPendingReload]);
 
   const contextValue = useMemo(
     () => ({
@@ -1994,12 +2227,13 @@ export function DbProvider({
           return;
         }
 
-        if (connectionRef.current?.kind === 'turso-browser') {
-          // Fail closed: a real browser Turso factory reset must own OPFS
-          // store deletion; the PGlite reset path would silently skip it.
-          throw new Error(
-            'Factory reset is not implemented for the browser Turso WASM runtime yet.'
-          );
+        if (browserTursoSelected || connectionRef.current?.kind === 'turso-browser') {
+          // Explicitly owned browser Turso reset: close the store, delete the
+          // OPFS db file family, reset provider state. Never routed through
+          // the PGlite reset path (it would silently skip OPFS deletion).
+          await resetBrowserTursoState();
+          logger.info('[DbProvider] Browser Turso factory reset completed');
+          return;
         }
 
         await resetPGliteState();
@@ -2021,6 +2255,8 @@ export function DbProvider({
       initializeDatabase,
       vectorEnabled,
       tryElectronHardReset,
+      browserTursoSelected,
+      resetBrowserTursoState,
       resetPGliteState,
       exposedDb,
     ]
