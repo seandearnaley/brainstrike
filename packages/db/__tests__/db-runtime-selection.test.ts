@@ -17,8 +17,27 @@ describe('Brainstrike DB runtime selection', () => {
     });
   });
 
-  it('keeps web on the existing PGlite IndexedDB runtime by default', () => {
+  it('defaults web to the Turso browser WASM runtime (A7 cutover)', () => {
     expect(resolveBrainstrikeDbRuntimeSelection({ platform: 'web' })).toEqual({
+      bootstrapRuntime: {
+        engine: 'turso',
+        host: 'browser',
+        persistence: 'opfs',
+      },
+      engine: 'turso',
+      platform: 'web',
+      source: 'default',
+    });
+  });
+
+  it('keeps explicit PGlite opt-in available on web (DR-5 comparison oracle)', () => {
+    expect(
+      resolveBrainstrikeDbRuntimeSelection({
+        platform: 'web',
+        requestedEngine: 'pglite',
+        source: 'env',
+      })
+    ).toEqual({
       bootstrapRuntime: {
         engine: 'pglite',
         host: 'worker',
@@ -26,7 +45,7 @@ describe('Brainstrike DB runtime selection', () => {
       },
       engine: 'pglite',
       platform: 'web',
-      source: 'default',
+      source: 'env',
     });
   });
 
