@@ -3,14 +3,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebE2ETestHooks } from '../web-e2e-test-hooks';
 
 const usePGliteDatabaseMock = vi.hoisted(() => vi.fn());
+const useBrainstrikeExecutionDbClientMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
+  useBrainstrikeExecutionDbClient: useBrainstrikeExecutionDbClientMock,
 }));
 
 interface TestDbHandle {
   readonly query: ReturnType<typeof vi.fn>;
   readonly syncToFs?: ReturnType<typeof vi.fn>;
+}
+
+interface TestExecutionClient {
+  readonly db: { readonly query: ReturnType<typeof vi.fn> };
+  readonly runtimeEngine: 'turso';
+  readonly sqlCapabilities: { readonly dialect: 'sqlite' };
+}
+
+function createTursoExecutionClient(query: ReturnType<typeof vi.fn>): TestExecutionClient {
+  return {
+    db: { query },
+    runtimeEngine: 'turso',
+    sqlCapabilities: { dialect: 'sqlite' },
+  };
 }
 
 function setWebDriver(value: boolean): void {
@@ -21,6 +37,8 @@ describe('WebE2ETestHooks', () => {
   beforeEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
     usePGliteDatabaseMock.mockReset();
+    useBrainstrikeExecutionDbClientMock.mockReset();
+    useBrainstrikeExecutionDbClientMock.mockReturnValue(null);
     vi.restoreAllMocks();
   });
 
@@ -125,6 +143,61 @@ describe('WebE2ETestHooks', () => {
     await waitFor(() => {
       expect(window.__brainstrikeWebE2ETestHooks__).toBeUndefined();
     });
+  });
+
+  it('exposes hooks over the browser Turso execution client with SQLite placeholders (A7 cutover)', async () => {
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue(null);
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ is_enabled: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ is_enabled: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+    useBrainstrikeExecutionDbClientMock.mockReturnValue(createTursoExecutionClient(query));
+
+    const { unmount } = render(<WebE2ETestHooks dbPath="web-e2e-turso-test.db" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__?.dbPath).toBe('web-e2e-turso-test.db');
+    });
+
+    await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-1')).resolves.toBe(
+      true
+    );
+    await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-2')).resolves.toBe(
+      false
+    );
+    await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-3')).resolves.toBe(
+      null
+    );
+    expect(query).toHaveBeenCalledWith('SELECT is_enabled FROM models WHERE id = ?', ['model-1']);
+
+    // Browser Turso WAL commits are durable in OPFS without an explicit
+    // flush, so syncDatabase resolves without a driver call.
+    await expect(window.__brainstrikeWebE2ETestHooks__?.syncDatabase()).resolves.toBeUndefined();
+
+    unmount();
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeUndefined();
+    });
+  });
+
+  it('propagates browser Turso thread-read failures instead of masking them', async () => {
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue(null);
+    const query = vi.fn().mockRejectedValue(new Error('no such table: mastra_threads'));
+    useBrainstrikeExecutionDbClientMock.mockReturnValue(createTursoExecutionClient(query));
+
+    render(<WebE2ETestHooks dbPath="web-e2e-turso-test.db" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+
+    await expect(window.__brainstrikeWebE2ETestHooks__?.readAssistantThreads()).rejects.toThrow(
+      'no such table: mastra_threads'
+    );
   });
 
   it('fails loudly when webdriver tests require sync but the DB handle cannot provide it', async () => {
