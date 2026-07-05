@@ -650,6 +650,89 @@ describe('useEmbeddingRuntimeController', () => {
     expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
   });
 
+  it('starts the local worker over injected storage without requiring a db handle', async () => {
+    clearDesktopHostBridge();
+
+    const storage = { queue: {} } as never;
+    const createLocalWorkerStorage = vi.fn(() => storage);
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        createLocalWorkerStorage,
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(createLocalWorkerStorage).toHaveBeenCalledTimes(1);
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enable: true,
+        storage,
+        streamingWorkerUrl: '/worker/embedding.worker.js',
+      })
+    );
+    // The storage-backed path never routes through a priority db handle: the
+    // storage port owns database access.
+    expect(startEmbeddingWorkerMock.mock.calls[0]?.[0]).not.toHaveProperty('db');
+    expect(createPriorityDbHandleMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with an error status when the local worker storage factory throws', async () => {
+    clearDesktopHostBridge();
+
+    const createLocalWorkerStorage = vi.fn(() => {
+      throw new Error(
+        "Browser Turso embedding worker storage requires a ready bootstrap report; current phase is 'probing-capabilities'."
+      );
+    });
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        createLocalWorkerStorage,
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    let status: EmbeddingRuntimeStatus | null = null;
+    await act(async () => {
+      status = await result.current.start();
+    });
+
+    expect(status).toEqual(
+      expect.objectContaining({
+        lastError: expect.stringContaining('requires a ready bootstrap report'),
+        state: 'error',
+      })
+    );
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+  });
+
+  it('still requires a db handle when no local worker storage factory is provided', async () => {
+    clearDesktopHostBridge();
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await expect(act(async () => await result.current.start())).rejects.toThrow(
+      'Database is required to start the local embedding worker.'
+    );
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+  });
+
   it('tracks and cancels local backfills per embedding set', async () => {
     clearDesktopHostBridge();
 

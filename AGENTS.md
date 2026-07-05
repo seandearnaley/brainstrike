@@ -166,11 +166,15 @@ Flow:
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - The hidden host selects runtime-specific embedding worker storage.
-     Current explicit PGlite storage and the current browser storage path read
-     the PGlite-backed `job_queue`; a browser-local Turso replacement may use
-     only the separate `@tursodatabase/database-wasm` browser runtime contract
-     after capability/reset/offline proof. Desktop Turso uses the Turso
-     embedding worker adapter and owner-client IPC/action surfaces.
+     Explicit PGlite runtimes (desktop opt-in and the browser PGlite default)
+     read the PGlite-backed `job_queue`. An opt-in browser Turso runtime with
+     a READY bootstrap report uses `createTursoBrowserEmbeddingWorkerStorage`
+     (packages/vector-management/src/vector-status/turso-browser-embedding-worker-storage.ts)
+     over the provider-owned WAL single-writer execution client — the browser
+     has no separate owner process, so that client IS the owner; a non-ready
+     report fails worker start closed (no PGlite-storage fallback). Desktop
+     Turso uses the Turso embedding worker adapter and owner-client IPC/action
+     surfaces.
    - Desktop Turso queue mutations go through DB-host owner IPC/actions.
    - Local models still execute in browser/Web Worker context only.
 2. Visible renderer
@@ -178,6 +182,10 @@ Flow:
    - Does NOT start the embedding worker directly in desktop mode.
    - Talks to the hidden host over the preload bridge (`window.embeddingHost`).
    - Keeps UI controls/status in sync with host lifecycle.
+   - On the WEB (no Electron bridge) the controls start the local worker via
+     packages/vector-management/src/embedding-runtime-provider.tsx +
+     embedding-runtime-controller.ts, which select the worker storage per
+     runtime (PGlite default vs browser Turso, see hidden-host storage note).
 3. Main
    - File: apps/desktop/src/main.ts
    - Does NOT run embeddings in-process.

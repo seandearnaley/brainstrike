@@ -1,6 +1,7 @@
 import {
   createTursoJobQueueReadModel,
   JobQueue,
+  useBrainstrikeExecutionDbClient,
   useFileChunkRepository,
   useModelRegistryDbClient,
   useOptionalProfileBootstrapReport,
@@ -12,6 +13,7 @@ import {
   type EmbeddingRuntimeController,
   useEmbeddingRuntimeController,
 } from './vector-status/embedding-runtime-controller';
+import { createTursoBrowserEmbeddingWorkerStorage } from './vector-status/turso-browser-embedding-worker-storage';
 import { createTursoVectorQueueSnapshotReader } from './vector-status/turso-vector-queue-metrics-repository';
 import {
   createVectorQueueServiceForRuntime,
@@ -49,6 +51,7 @@ function toEmbeddingCoverageRepository(
 export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) {
   const db = useModelRegistryDbClient();
   const bootstrapReport = useOptionalProfileBootstrapReport();
+  const executionClient = useBrainstrikeExecutionDbClient();
   const runtimeEngine = bootstrapReport?.runtime.engine ?? 'unknown';
   const chunkRepository = useFileChunkRepository();
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
@@ -93,7 +96,42 @@ export function EmbeddingRuntimeProvider({ children }: { children: ReactNode }) 
   const controllerDb = runtimeEngine === 'pglite' ? db : null;
   const liveQueryMetricsEnabled = runtimeEngine === 'pglite' && Boolean(service);
 
+  /**
+   * Browser Turso local worker storage seam (mirrors the desktop hidden-host
+   * adapter selection): a browser Turso runtime routes the local embedding
+   * worker through the provider-owned WAL single-writer execution client via
+   * createTursoBrowserEmbeddingWorkerStorage. The factory is lazy and runs at
+   * worker start; while the bootstrap report is not ready or the execution
+   * client is not exposed, it throws so the worker start fails closed with a
+   * visible diagnostic (never a silent PGlite-storage fallback). PGlite
+   * runtimes keep the default PGlite-backed worker storage (factory null).
+   */
+  const browserTursoRuntime =
+    bootstrapReport?.runtime.engine === 'turso' && bootstrapReport.runtime.host === 'browser';
+  const createLocalWorkerStorage = useMemo(() => {
+    if (!(browserTursoRuntime && bootstrapReport)) {
+      return null;
+    }
+    return () => {
+      if (!executionClient) {
+        throw new Error(
+          'Browser Turso embedding worker storage requires the provider-owned execution client, ' +
+            'but the DB provider has not exposed a ready Turso execution client yet. ' +
+            'Failing closed — the browser Turso queue path has no PGlite fallback.'
+        );
+      }
+      return createTursoBrowserEmbeddingWorkerStorage({
+        // BrainstrikeExecutionDbClient.db is typed as an execution client
+        // (capability-proven inside the hook); the adapter still re-asserts
+        // execution capabilities at construction.
+        client: executionClient.db,
+        report: bootstrapReport,
+      });
+    };
+  }, [bootstrapReport, browserTursoRuntime, executionClient]);
+
   const controller = useEmbeddingRuntimeController({
+    createLocalWorkerStorage,
     db: controllerDb,
     devicePreference,
     reinitEveryN,

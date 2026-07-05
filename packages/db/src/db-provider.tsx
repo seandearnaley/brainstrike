@@ -381,7 +381,15 @@ export interface BrainstrikeRuntimeDbClient {
 type BrainstrikeExecutionRuntimeEngine = Extract<BrainstrikeDbRuntimeEngine, 'pglite' | 'turso'>;
 
 export interface BrainstrikeExecutionDbClient
-  extends Omit<BrainstrikeRuntimeDbClient, 'runtimeEngine'> {
+  extends Omit<BrainstrikeRuntimeDbClient, 'db' | 'runtimeEngine'> {
+  /**
+   * The provider DbHandle narrowed to the execution-client contract:
+   * `useBrainstrikeExecutionDbClient` only returns clients that pass
+   * getMissingBrainstrikeDbExecutionClientCapabilities, so query/exec/
+   * transaction are guaranteed present. The single runtime-checked cast
+   * lives at the hook's construction site — consumers must never re-cast.
+   */
+  readonly db: DbHandle & BrainstrikeDbExecutionClient;
   readonly runtimeEngine: BrainstrikeExecutionRuntimeEngine;
   readonly sqlCapabilities: BrainstrikeDbSqlCapabilities;
 }
@@ -2232,7 +2240,9 @@ export function useBrainstrikeExecutionDbClient(): BrainstrikeExecutionDbClient 
     }
 
     return {
-      db,
+      // Sole narrowing cast for BrainstrikeExecutionDbClient.db: proven by
+      // the capability check directly above (fail-closed null otherwise).
+      db: db as DbHandle & BrainstrikeDbExecutionClient,
       runtimeEngine,
       sqlCapabilities: resolveRuntimeSqlCapabilities(runtimeEngine),
     };

@@ -58,6 +58,25 @@ const REJECTED_LEDGER_PHRASES = [
 const APPROVED_TURSO_BROWSER_DB_CLIENT_IMPORTS = new Map<string, readonly string[]>([
   ['packages/db/src/turso/browser-wasm-client.ts', ['@tursodatabase/database-wasm/vite']],
 ]);
+
+/**
+ * Single-construction-site rule for the browser Turso WASM store (ledger:
+ * "Browser Single-Writer Ownership Finding (2026-07-05)"): the vendor OPFS
+ * worker dedupes file registration by path, so a second `connect()` in the
+ * SAME page silently SHARES the one sync access handle instead of failing —
+ * split-brain by construction. `./turso/browser-wasm-client` is a public
+ * subpath export, so the entrypoint-graph scan above would never see a rogue
+ * `connect()` from a feature package. This repo-wide scan pins the only
+ * production call sites of `openTursoBrowserWasmDatabase(` to the
+ * DbProvider-owned seam. The negative lookbehind excludes the function
+ * DECLARATION in browser-wasm-client.ts (a declaration is not a call site).
+ */
+const BROWSER_STORE_OPEN_CALL_PATTERN = /(?<!function )\bopenTursoBrowserWasmDatabase\s*\(/;
+const APPROVED_BROWSER_STORE_OPEN_CALL_SITES = [
+  'packages/db/src/bootstrap/turso-browser-wasm-bootstrap.ts',
+  'packages/db/src/db-provider.tsx',
+] as const;
+
 const REQUIRED_CROSS_ORIGIN_HEADERS = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -201,6 +220,19 @@ function uniqueBrowserDbClientImports(
   });
 }
 
+function findBrowserStoreOpenCallSites(
+  readSource: SourceReader = (absolutePath) => readFileSync(absolutePath, 'utf8')
+): string[] {
+  // Repo-wide production scan (apps/ + packages/), reusing the same
+  // directory-skip rules as the entrypoint walker: __tests__, dist,
+  // fixtures, mocks, node_modules, coverage, .turbo, test-results.
+  const files = [...listSourceFiles('apps'), ...listSourceFiles('packages')];
+  return files
+    .filter((filePath) => BROWSER_STORE_OPEN_CALL_PATTERN.test(readSource(filePath)))
+    .map(normalizeRelativePath)
+    .sort();
+}
+
 function findTursoBrowserDbClientImports(): BrowserDbClientImport[] {
   // This is a deliberate browser entrypoint allowlist: add new browser DB
   // entrypoints here when the runtime surface changes. Server-only web code
@@ -257,6 +289,39 @@ describe('browser runtime ownership guardrails', () => {
         specifier: specifiers[0],
       }))
     );
+  });
+
+  it('restricts production browser Turso store open call sites to the DbProvider-owned seam', () => {
+    expect(findBrowserStoreOpenCallSites()).toEqual([...APPROVED_BROWSER_STORE_OPEN_CALL_SITES]);
+  });
+
+  it('detects synthetic browser store open call sites and ignores the declaration', () => {
+    // Direct call, method-style call, and callback-wrapped call all count.
+    expect(
+      BROWSER_STORE_OPEN_CALL_PATTERN.test("await openTursoBrowserWasmDatabase({ path: 'x.db' });")
+    ).toBe(true);
+    expect(
+      BROWSER_STORE_OPEN_CALL_PATTERN.test('runtime.openTursoBrowserWasmDatabase({ path })')
+    ).toBe(true);
+    // The declaration in browser-wasm-client.ts is not a call site.
+    expect(
+      BROWSER_STORE_OPEN_CALL_PATTERN.test('export async function openTursoBrowserWasmDatabase(')
+    ).toBe(false);
+    // Bare references (re-exports, property shorthand) are not call sites.
+    expect(
+      BROWSER_STORE_OPEN_CALL_PATTERN.test(
+        'openTursoBrowserWasmDatabase: clientModule.openTursoBrowserWasmDatabase,'
+      )
+    ).toBe(false);
+
+    // A rogue call site introduced anywhere in the scanned tree is reported.
+    const rogueFile = path.join(REPO_ROOT, 'packages/db/src/turso/browser-wasm-client.ts');
+    const sites = findBrowserStoreOpenCallSites((absolutePath) =>
+      absolutePath === rogueFile
+        ? "const db = await openTursoBrowserWasmDatabase({ path: 'rogue.db' });"
+        : ''
+    );
+    expect(sites).toEqual(['packages/db/src/turso/browser-wasm-client.ts']);
   });
 
   it('keeps the browser WASM bootstrap out of the browser-facing DB barrel (DbProvider owns bundling via its lazy loader)', () => {
