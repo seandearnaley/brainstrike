@@ -68,8 +68,12 @@ function buildResponseHeaders(upstream: Response): Record<string, string> {
       headers[name] = value;
     }
   }
+  if (!upstream.ok && upstream.status !== 304) {
+    headers['cache-control'] = 'no-store';
+    return headers;
+  }
   if (!headers['cache-control']) {
-    headers['cache-control'] = upstream.ok ? 'public, max-age=31536000, immutable' : 'no-store';
+    headers['cache-control'] = 'public, max-age=31536000, immutable';
   }
   return headers;
 }
