@@ -1,6 +1,7 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   applyTursoManagedCacheBatch,
+  BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE,
   type BrainstrikeDbExecutionClient,
   type BrainstrikeDbTransactionClient,
   createDatabasePressureController,
@@ -14,6 +15,8 @@ import {
   getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   invalidateManagedCacheEntriesByIdentity as invalidateManagedCacheEntriesByIdentityLocally,
+  invalidateTursoManagedCacheEntriesByIdentity,
+  isBrowserTursoChunkIndexingEnabled,
   TursoEmbeddingSetsRepository,
   TursoFileChunkRepository,
   TursoFileRecordRepository,
@@ -366,6 +369,64 @@ function getBackgroundTursoRunTransaction(): BackgroundTursoRunTransaction | nul
       | undefined
   )?.runTransaction;
   return typeof runTransaction === 'function' ? runTransaction : null;
+}
+
+/**
+ * Browser Turso background execution client (A7 cutover): the browser has no
+ * separate owner process — the provider-owned WAL single-writer execution
+ * client IS the owner, reachable through the DbHandle's transaction wrapper —
+ * so background repository transactions run REAL callback transactions
+ * instead of the desktop statement-batch IPC adapter (which requires
+ * `window.electronAPI.db.runTransaction` and does not exist on web).
+ */
+function createBrowserTursoBackgroundExecutionClient(db: DbHandle): BrainstrikeDbExecutionClient {
+  if (typeof db.exec !== 'function') {
+    throw new Error('Workspace Index Turso background repositories require db.exec support.');
+  }
+  const dbTransaction = db.transaction;
+  if (typeof dbTransaction !== 'function') {
+    throw new Error(
+      'Workspace Index browser Turso background repositories require db.transaction support.'
+    );
+  }
+  const query = db.query.bind(db);
+  const exec = db.exec.bind(db);
+  return {
+    exec: async (sql, params, options) => {
+      const forwardedParams = params ? [...params] : undefined;
+      if (options === undefined) {
+        await exec(sql, forwardedParams);
+        return;
+      }
+      await exec(sql, forwardedParams, options);
+    },
+    query: async (sql, params, options) => {
+      const forwardedParams = params ? [...params] : undefined;
+      if (options === undefined) {
+        return await query(sql, forwardedParams);
+      }
+      return await query(sql, forwardedParams, options);
+    },
+    transaction: async <TResult,>(
+      callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+    ): Promise<TResult> =>
+      await dbTransaction(async (txHandle): Promise<TResult> => {
+        // The DbHandle transaction wrapper hands back a DbHandle-shaped tx
+        // client (exec is present whenever the underlying tx client has it).
+        const tx = txHandle as DbHandle;
+        return await callback({
+          exec: async (sql, params) => {
+            if (typeof tx.exec !== 'function') {
+              throw new Error(
+                'Workspace Index browser Turso transaction client requires exec support.'
+              );
+            }
+            await tx.exec(sql, params ? [...params] : undefined);
+          },
+          query: async (sql, params) => await tx.query(sql, params ? [...params] : undefined),
+        });
+      }),
+  };
 }
 
 function createBackgroundTursoExecutionClient(db: DbHandle): BrainstrikeDbExecutionClient {
@@ -1377,6 +1438,13 @@ export function WorkspaceCollectionSyncProvider({
     () => (runtimeEngine === 'turso' && db ? extractDbExecutionClient(db) : null),
     [db, runtimeEngine]
   );
+  // Typed-report authority (TURSO RUNTIME INVARIANT): browser-hosted Turso is
+  // classified from the bootstrap report, never inferred from a DB handle or
+  // bridge absence. On the browser the provider-owned single-writer client is
+  // the owner; on desktop, Turso mutations stay on owner IPC/actions.
+  const browserTursoRuntime =
+    profileBootstrapReport?.runtime.engine === 'turso' &&
+    profileBootstrapReport.runtime.host === 'browser';
 
   // Root registry: ensure a DB roots row exists for every adapter root.
   // Runs once per boot, before the first sync cycle writes file records.
@@ -1464,7 +1532,9 @@ export function WorkspaceCollectionSyncProvider({
       if (!tursoExecutionClient) {
         return null;
       }
-      const backgroundTursoExecutionClient = createBackgroundTursoExecutionClient(backgroundDb);
+      const backgroundTursoExecutionClient = browserTursoRuntime
+        ? createBrowserTursoBackgroundExecutionClient(backgroundDb)
+        : createBackgroundTursoExecutionClient(backgroundDb);
       const tursoChunkRepository = new TursoFileChunkRepository(backgroundTursoExecutionClient);
       return {
         chunkRepository: createTursoBackgroundChunkRepository(tursoChunkRepository),
@@ -1481,7 +1551,7 @@ export function WorkspaceCollectionSyncProvider({
       embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
       fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
     };
-  }, [backgroundDb, runtimeEngine, tursoExecutionClient]);
+  }, [backgroundDb, browserTursoRuntime, runtimeEngine, tursoExecutionClient]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const storeHasHydrated = useBackgroundIndexingPreferencesStore((state) => state.hasHydrated);
@@ -1748,6 +1818,13 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         if (runtimeEngine === 'turso') {
+          // Browser Turso (A7 cutover): the provider-owned execution client
+          // is the owner — run the local Turso batch over it. Desktop Turso
+          // without the IPC bridge stays fail-closed.
+          if (browserTursoRuntime && tursoExecutionClient) {
+            await applyTursoManagedCacheBatch(tursoExecutionClient, args);
+            return;
+          }
           throw new Error('Turso background indexing requires desktop managed-cache IPC support.');
         }
         await applyManagedCacheBatchLocally(backgroundDb, args);
@@ -1762,6 +1839,9 @@ export function WorkspaceCollectionSyncProvider({
           );
         }
         if (runtimeEngine === 'turso') {
+          if (browserTursoRuntime && tursoExecutionClient) {
+            return await invalidateTursoManagedCacheEntriesByIdentity(tursoExecutionClient, args);
+          }
           throw new Error(
             'Turso background indexing requires desktop managed-cache invalidation IPC support.'
           );
@@ -1839,6 +1919,7 @@ export function WorkspaceCollectionSyncProvider({
   }, [
     backgroundDb,
     backgroundRepositories,
+    browserTursoRuntime,
     db,
     ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
@@ -1849,6 +1930,7 @@ export function WorkspaceCollectionSyncProvider({
     runtimeController,
     setManagedCollectionId,
     setSyncStatus,
+    tursoExecutionClient,
     validateHostedProviderAccess,
     waitForBackgroundPermit,
   ]);
@@ -1931,9 +2013,37 @@ export function WorkspaceCollectionSyncProvider({
     setSyncStatus,
   ]);
 
+  // A7 fail-closed ship decision: browser Turso chunk persistence is blocked
+  // by the vendor indexed-insert lockup (see the migration ledger finding
+  // 2026-07-05 and @brainstrike/db's browser-chunk-indexing-gate). Refuse the
+  // WHOLE sync before any write — no workspace-index bootstrap, no partial
+  // file-record imports — and surface the actionable diagnostic on the status
+  // surface. Desktop Turso and web PGlite are untouched. Returns true when it
+  // emitted the block (the caller must then stop before any DB mutation).
+  const emitBrowserTursoChunkIndexingBlockIfNeeded = useCallback((): boolean => {
+    if (!(enabled && browserTursoRuntime) || isBrowserTursoChunkIndexingEnabled()) {
+      return false;
+    }
+    setSyncStatus({
+      state: 'blocked',
+      managedCollectionId,
+      managedCollectionName: null,
+      activeRootPath: rootDirectoryHandle?.path ?? null,
+      ...createClearedProgressPatch(),
+      blockedReason: 'browser-turso-chunk-indexing',
+      lastError: BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE,
+    });
+    return true;
+  }, [browserTursoRuntime, enabled, managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]);
+
   const triggerSync = useCallback(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the A7 fail-closed browser-Turso gate guard must sit atop this already-at-ceiling guard ladder before any DB work; the block-status emission is extracted to emitBrowserTursoChunkIndexingBlockIfNeeded and the residual +2 is a single early-return guard.
     (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
       if (!hasHydrated) {
+        return;
+      }
+
+      if (emitBrowserTursoChunkIndexingBlockIfNeeded()) {
         return;
       }
 
@@ -2236,6 +2346,7 @@ export function WorkspaceCollectionSyncProvider({
     },
     [
       backgroundDb,
+      emitBrowserTursoChunkIndexingBlockIfNeeded,
       enabled,
       hasHydrated,
       indexingPolicyPreset,

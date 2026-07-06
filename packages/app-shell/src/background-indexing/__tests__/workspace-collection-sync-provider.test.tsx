@@ -79,6 +79,7 @@ const {
   listManagedCacheEntryMetadataMock,
   applyManagedCacheBatchLocalMock,
   applyManagedCacheBatchTursoMock,
+  isBrowserTursoChunkIndexingEnabledMock,
   invalidateManagedCacheEntriesByIdentityLocalMock,
   invalidateManagedCacheEntriesByIdentityTursoMock,
   updateMock,
@@ -131,6 +132,7 @@ const {
     }
   ),
   applyManagedCacheBatchTursoMock: vi.fn(async () => undefined),
+  isBrowserTursoChunkIndexingEnabledMock: vi.fn(() => false),
   invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
     canceledEmbeddingJobCount: 0,
     deletedChunkIds: [],
@@ -187,7 +189,7 @@ const {
             return;
           }
           return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
-            async (tx: { query: ReturnType<typeof vi.fn> }) =>
+            async (tx: { exec?: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn> }) =>
               fn({
                 query: vi.fn(
                   async (sql: string, params?: unknown[]) =>
@@ -197,6 +199,21 @@ const {
                       { priority }
                     )
                 ),
+                // The real prioritized transaction passes the tx client
+                // through unchanged, so exec must survive when present
+                // (browser Turso transaction clients rely on it).
+                ...(typeof tx.exec === 'function'
+                  ? {
+                      exec: vi.fn(
+                        async (sql: string, params?: unknown[]) =>
+                          await (tx.exec as unknown as (...args: unknown[]) => Promise<unknown>)(
+                            sql,
+                            params,
+                            { priority }
+                          )
+                      ),
+                    }
+                  : {}),
               })
           );
         }),
@@ -425,6 +442,9 @@ vi.mock('@brainstrike/db', () => ({
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
   applyTursoManagedCacheBatch: applyManagedCacheBatchTursoMock,
+  isBrowserTursoChunkIndexingEnabled: isBrowserTursoChunkIndexingEnabledMock,
+  BROWSER_TURSO_CHUNK_INDEXING_BLOCKED_MESSAGE:
+    'browser turso chunked indexing blocked (vendor indexed-insert lockup; test message)',
   invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
   invalidateTursoManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityTursoMock,
   createDatabasePressureController: vi.fn(() => ({
@@ -627,6 +647,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     __resetAssistantForegroundActivityForTests();
     __resetBackgroundWorkArbiterForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
+    isBrowserTursoChunkIndexingEnabledMock.mockReturnValue(false);
     dbState.current = {
       query: vi.fn(async () => ({ rows: [] })),
       exec: vi.fn(async () => undefined),
@@ -840,6 +861,146 @@ describe('WorkspaceCollectionSyncProvider', () => {
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');
     }
+  });
+
+  it('blocks background indexing on browser Turso while the chunk-indexing gate is closed (vendor lockup)', async () => {
+    // A7 fail-closed ship decision: browser Turso chunk persistence is
+    // blocked by the @tursodatabase/database-wasm indexed-insert lockup. The
+    // sync must refuse BEFORE any write (no workspace-index bootstrap, no
+    // imports) with the actionable diagnostic on the status surface.
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    };
+    const tursoDb = {
+      ...tursoExecutionClient,
+      insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
+      raw: tursoExecutionClient,
+    };
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    };
+    isBrowserTursoChunkIndexingEnabledMock.mockReturnValue(false);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => {
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('blocked');
+    });
+    const status = useWorkspaceCollectionSyncStatusStore.getState();
+    expect(status.blockedReason).toBe('browser-turso-chunk-indexing');
+    expect(status.lastError).toContain('indexed-insert lockup');
+
+    // Nothing ran: no workspace-index bootstrap writes, no import, no
+    // embedding runtime start — the refusal happens before any DB mutation.
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+    expect(tursoDb.insertChunksAndEnqueueEmbeddingJobs).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatchTursoMock).not.toHaveBeenCalled();
+  });
+
+  it('starts background indexing on browser Turso through the provider-owned client (no desktop IPC)', async () => {
+    // A7 browser cutover wiring proof with the chunk-indexing gate OPEN
+    // (the post-vendor-fix contract; the gate default is closed — see the
+    // blocked test above): web Turso has NO electronAPI — the provider-owned
+    // WAL single-writer execution client is the owner, so background
+    // repository transactions, managed-cache batches, and the atomic
+    // chunk/job enqueue must all ride the exposed handle instead of failing
+    // closed on desktop-IPC requirements.
+    isBrowserTursoChunkIndexingEnabledMock.mockReturnValue(true);
+    const insertChunksAndEnqueueEmbeddingJobs = vi.fn(async () => undefined);
+    const transactionTxClient = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const tursoExecutionClient = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: typeof transactionTxClient) => unknown) =>
+        fn(transactionTxClient)
+      ),
+    };
+    const tursoDb = {
+      query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn: (tx: typeof transactionTxClient) => unknown) =>
+        fn(transactionTxClient)
+      ),
+      insertChunksAndEnqueueEmbeddingJobs,
+      raw: tursoExecutionClient,
+    };
+    dbState.current = null;
+    modelRegistryDbClientState.current = tursoDb;
+    workspaceRootsDbClientState.current = { db: tursoDb, runtimeEngine: 'turso' };
+    profileBootstrapReportState.current = {
+      ready: true,
+      runtime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+    };
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      const insertChunks = params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs;
+      if (typeof insertChunks !== 'function') {
+        throw new Error(
+          'Browser Turso background import requires atomic chunk/job enqueue support.'
+        );
+      }
+      await insertChunks([], 'file-record-id');
+      return [];
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledTimes(1));
+
+    // Managed-cache batches run the LOCAL Turso implementation over the
+    // provider-owned execution client — never the electron bridge or the
+    // PGlite local path.
+    expect(applyManagedCacheBatchTursoMock).toHaveBeenCalledWith(
+      tursoExecutionClient,
+      expect.any(Object)
+    );
+    expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+
+    // Background repository transactions are REAL callback transactions over
+    // the handle (the mocked Turso repository issues db.transaction on read).
+    expect(tursoDb.transaction).toHaveBeenCalled();
+
+    // The atomic chunk/job enqueue rides the handle's own seam.
+    expect(insertChunksAndEnqueueEmbeddingJobs).toHaveBeenCalledWith(
+      [],
+      'file-record-id',
+      undefined,
+      expect.objectContaining({
+        priority: 'background',
+      })
+    );
+
+    // The whole flow completes without the desktop-IPC fail-closed errors.
+    const status = useWorkspaceCollectionSyncStatusStore.getState();
+    expect(status.state).not.toBe('error');
+    expect(status.lastError ?? null).toBeNull();
   });
 
   it('bootstraps a fresh Turso workspace index without forwarding undefined native query options', async () => {

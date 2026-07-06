@@ -1,5 +1,5 @@
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
-import { DbProvider, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
+import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
@@ -15,6 +15,7 @@ import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-m
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
+import { resolveWebDbPath, resolveWebDbRuntimeSelection } from './db-runtime';
 import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
@@ -52,41 +53,6 @@ declare global {
 globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLanguages(
   window.location.search
 );
-
-// Engine-versioned (idb://web-pg18) so the Postgres 18 upgrade boots a clean
-// directory instead of failing to open a PG17 on-disk database.
-const DEFAULT_WEB_DB_PATH = getDefaultBrowserPGliteDataDir('web');
-const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';
-// Intentionally NOT engine-versioned (no `-pg18`): each Playwright session mints a
-// fresh UUID and a CI run pins a single engine, so an e2e store never has to be
-// opened across engine majors — the greenfield versioning that protects the real
-// `web-pg18` path is unnecessary here. Note the trade-off: because the base name
-// doesn't end in `-pg<N>`, `reclaimLegacyBrowserPGliteStorage` will NOT sweep
-// abandoned `web-e2e-*` stores; they're reclaimed only by factory-reset enumeration.
-const E2E_DB_PATH_PREFIX = 'idb://web-e2e-';
-
-function createE2eDbPath(): string {
-  if (typeof window.crypto?.randomUUID !== 'function') {
-    throw new Error('Playwright web E2E database isolation requires crypto.randomUUID');
-  }
-
-  return `${E2E_DB_PATH_PREFIX}${window.crypto.randomUUID()}`;
-}
-
-function resolveWebDbPath(): string {
-  if (window.navigator.webdriver !== true) {
-    return DEFAULT_WEB_DB_PATH;
-  }
-
-  const existingPath = window.sessionStorage.getItem(E2E_DB_PATH_SESSION_KEY);
-  if (existingPath?.startsWith(E2E_DB_PATH_PREFIX)) {
-    return existingPath;
-  }
-
-  const dbPath = createE2eDbPath();
-  window.sessionStorage.setItem(E2E_DB_PATH_SESSION_KEY, dbPath);
-  return dbPath;
-}
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -198,12 +164,18 @@ if (!existingRoot) {
   window.__BRAINSTRIKE_WEB_REACT_ROOT__ = root;
 }
 
-const webDbPath = resolveWebDbPath();
+// A7 browser cutover (2026-07-05): the web runtime selection is resolved ONCE
+// at boot, defaulting to Turso browser WASM; VITE_BRAINSTRIKE_DB_RUNTIME=pglite
+// is the explicit opt-out and a malformed value throws here (see db-runtime.ts).
+const webDbRuntimeSelection = resolveWebDbRuntimeSelection(
+  import.meta.env['VITE_BRAINSTRIKE_DB_RUNTIME']
+);
+const webDbPath = resolveWebDbPath(webDbRuntimeSelection.engine);
 
 root.render(
   <React.StrictMode>
     <HelmetProvider>
-      <DbProvider dbPath={webDbPath}>
+      <DbProvider dbPath={webDbPath} runtimeSelection={webDbRuntimeSelection}>
         <WebE2ETestHooks dbPath={webDbPath} />
         <DbSchemaVerifier>
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>

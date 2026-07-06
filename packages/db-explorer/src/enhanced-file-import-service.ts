@@ -5,10 +5,13 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import {
+  BrowserTursoChunkIndexingBlockedError,
+  isBrowserTursoChunkIndexingEnabled,
   JobQueue,
   useFileChunkRepository,
   useFileRecordRepository,
   useManualImportDbClient,
+  useOptionalProfileBootstrapReport,
 } from '@brainstrike/db';
 import type {
   BaseImportRunner,
@@ -103,12 +106,14 @@ function toManualImportChunkRepository(
 }
 
 function getManualImportCapabilityError({
+  browserTursoChunkIndexingBlocked,
   enableChunking,
   manualImportDbClient,
   repository,
   chunkRepository,
   rawChunkRepository,
 }: {
+  browserTursoChunkIndexingBlocked: boolean;
   chunkRepository: FileImportChunkRepository | null;
   enableChunking: boolean;
   manualImportDbClient: ManualImportDbClient;
@@ -117,6 +122,13 @@ function getManualImportCapabilityError({
 }): Error | null {
   if (!manualImportDbClient) {
     return new Error('Manual imports require an initialized database.');
+  }
+  if (enableChunking && browserTursoChunkIndexingBlocked) {
+    // A7 fail-closed ship decision: chunked imports on browser Turso would
+    // hit the vendor indexed-insert lockup — refuse BEFORE the base import
+    // runs so no partial file-record writes land (see @brainstrike/db's
+    // browser-chunk-indexing-gate and the ledger finding 2026-07-05).
+    return new BrowserTursoChunkIndexingBlockedError();
   }
   if (!repository) {
     return new Error('Manual imports require file record storage.');
@@ -355,6 +367,13 @@ export function useEnhancedFileImportService(
     [dbChunkRepository]
   );
   const manualImportDbClient = useManualImportDbClient();
+  const profileBootstrapReport = useOptionalProfileBootstrapReport();
+  // Typed-report authority (TURSO RUNTIME INVARIANT): browser-hosted Turso is
+  // classified from the bootstrap report, never inferred from a handle.
+  const browserTursoChunkIndexingBlocked =
+    profileBootstrapReport?.runtime.engine === 'turso' &&
+    profileBootstrapReport.runtime.host === 'browser' &&
+    !isBrowserTursoChunkIndexingEnabled();
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders
@@ -615,6 +634,7 @@ export function useEnhancedFileImportService(
       abortSignal?: AbortSignal
     ) => {
       const capabilityError = getManualImportCapabilityError({
+        browserTursoChunkIndexingBlocked,
         enableChunking: Boolean(options.enableChunking),
         manualImportDbClient,
         repository,
@@ -694,6 +714,7 @@ export function useEnhancedFileImportService(
     },
     [
       baseImportRunner,
+      browserTursoChunkIndexingBlocked,
       chunkRepository,
       chunkingWorkerPort,
       dbChunkRepository,

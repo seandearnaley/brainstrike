@@ -1,6 +1,6 @@
 # Turso Migration Ledger
 
-Last updated: 2026-07-05 on `feat/turso-browser-reset-and-durability`,
+Last updated: 2026-07-05 on `feat/turso-browser-default-cutover`,
 targeting `feature/turso-migration`.
 
 This ledger is the working map for finishing the greenfield migration from
@@ -135,6 +135,117 @@ re-open of the same OPFS path — see "Browser OPFS Durability And Storage
 Pressure (2026-07-05)" for the reload-test limitation and the
 storage-eviction story. This slice proves the gates; the browser default
 flip itself remains the separate A7 cutover decision PR.
+
+The current browser cutover slice (`feat/turso-browser-default-cutover`) IS
+that A7 decision PR, taken with all former gates proven (WAL contract #1476,
+provider integration #1477, embedding worker storage #1478, zero-gap runtime
+parity #1481, reset ownership + OPFS durability + FK discipline #1482) and
+under Sean's 2026-07-04 release-decision signoff. Cutover decision
+(2026-07-05): the web platform default in the runtime selection seam
+(`resolveBrainstrikeDbRuntimeSelection`) flips to
+`{ engine: 'turso', host: 'browser', persistence: 'opfs' }`, and apps/web
+resolves its selection ONCE at boot and passes it to `DbProvider` — Turso
+WASM over the default OPFS store (`brainstrike-web-turso.db`) is the browser
+default. `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the explicit web PGlite
+opt-out (build-time env, strict-parsed: a present-but-malformed value THROWS
+at boot, mirroring desktop's `BRAINSTRIKE_DB_RUNTIME` handling). Because
+resolution is boot-time and reads nothing persisted, factory-reset default
+coherence falls out: a reset web profile with runtime unset bootstraps fresh
+browser Turso and can never be pinned back to PGlite by leftover state
+(asserted in apps/web unit tests; the fresh-store re-bootstrap itself is
+proven by the browser reset suite). The A7 persistence follow-up landed with
+the flip: `requestBrowserTursoPersistentStorage` asks
+`navigator.storage.persist()` once at browser-Turso initialization and logs
+the boolean outcome — log-only and non-gating, a denial keeps the
+pre-cutover best-effort eviction posture. Playwright web E2E sessions mint
+engine-aware isolated stores (`web-e2e-turso-<uuid>.db` under OPFS), and the
+web E2E introspection hooks are runtime-aware over the provider-owned
+execution client. Original WAL-plan slice 5 ("browser smoke as required
+gate") was verified de-facto satisfied rather than re-implemented: the real
+Chromium readiness smoke (`turso-browser-wasm-bootstrap.browser.test.ts`)
+has asserted a `phase: 'ready'` report since the WAL contract slice, and the
+`DB Browser` job in `.github/workflows/test.yml` runs it on every PR as a
+hard-failing check — no lane or config treats browser smoke failures as
+acceptable. Remaining for workstream D (gated on DR-5): after one full
+nightly cycle (web + desktop E2E regression) passes green with Turso as the
+only exercised runtime, retire the PGlite opt-ins and remove PGlite
+dependencies, Vite aliases/type shims, WASM packaging, the browser PGlite
+worker entry, PGlite reset/reclaim cleanup, and the numbered+drizzle
+migration chains. Known follow-up owned by that lane: browser Turso does not
+own `mastra_threads` (web local chat is session-only; hosted web memory is
+server-side), so E2E thread introspection against the browser store throws
+`no such table` honestly instead of returning a masked empty list.
+
+The cutover slice also hardened the web mutation seams the flip exposed
+(each proven red-first): the browser Turso DbHandle rides the provider's
+database work scheduler (background-indexing QoS permits), exposes the
+atomic chunk-insert+job-enqueue and managed-cache batch-apply seams over
+the owner client (sync-import and manual-import contracts), background
+repositories/managed-cache/vector-queue-service compose browser-owned
+implementations when the typed report says host 'browser' (real callback
+transactions; `createBrowserTursoVectorQueueService` from TursoJobQueue +
+the Turso backfill/metrics repositories), and the web E2E hooks are
+runtime-aware. See "Browser WASM Indexed-Insert Lockup (2026-07-05)" for the
+vendor blocker those seams surfaced and the fail-closed ship decision.
+
+### Browser WASM Indexed-Insert Lockup (2026-07-05)
+
+Empirical (real Chromium, `@tursodatabase/database-wasm` 0.6.1 AND
+0.7.0-pre.17, WAL single-writer contract): a transaction that inserts
+indexed rows (the chunk row plus the gram sidecars' PK/secondary btrees)
+can hang MID-STATEMENT with no error — the statement's promise never
+settles and the wasm connection stays wedged (the FIFO queue watchdog then
+reports every later operation waiting on the transaction holder).
+
+This is DATA-DEPENDENT, NOT a write-volume threshold. The trigger is a
+page-state/key-set coincidence tied to the specific bytes being indexed:
+`TursoFileChunkRepository.insertMany` with a single chunk whose content is
+2900 / 3000 / 3100 / 3200 bytes hangs deterministically on a fresh store,
+while 2850 / 3400 / 32K / 1MB payloads commit cleanly. It is reproducible
+per input (the same content always hangs / always passes), so it is NOT a
+volume ramp — a larger payload can pass where a smaller one hangs. Bisected
+out: NOT parameter count (750-param multi-row inserts pass alone), NOT
+statement count (10×250-row inserts in one transaction pass), NOT RETURNING
+or FK enforcement, NOT gram batch size (50-row batches still hang), NOT
+multi-row chunk statements (single-row batching still hangs).
+
+Native contrast: the desktop/native Turso engine commits the identical
+statement stream in milliseconds, so this is strictly a wasm-build defect.
+No workaround: `wal_autocheckpoint` is not a valid pragma in the wasm build,
+`wal_checkpoint` is unrelated, and no other pragma changes the behavior.
+Restructuring is unsound — chunked sub-transactions or splitting the
+gram/index writes out of the chunk transaction merely reshuffles which
+inputs land on a landmine (the trigger is per-key-set, not per-transaction)
+while breaking a proven atomicity contract. pre.17 verdict: the 0.7 pre-release
+does NOT fix it (verified), so a version bump is not a near-term escape.
+
+Ship decision (owner-approved): the A7 cutover ships with browser-Turso
+CHUNK PERSISTENCE fail-closed. `BROWSER_TURSO_CHUNK_INDEXING_ENABLED` in
+`packages/db/src/turso/browser-chunk-indexing-gate.ts` is `false`; the
+provider's atomic chunk/job enqueue and the chunk repository's
+insert/insertMany/insertManyWithTx surfaces throw the typed
+`BrowserTursoChunkIndexingBlockedError` BEFORE any statement is issued
+(no hanging write), and the manual-import service + background
+workspace-collection sync refuse loudly with the same diagnostic and surface
+it on the search-indexing status UI. Everything else on browser Turso stays
+enabled: boot/bootstrap, repositories, reset/durability, search over existing
+rows, file records, managed-cache reads, and chunk reads/updates/deletes.
+Desktop/native (unaffected engine) and the web PGlite opt-out
+(`VITE_BRAINSTRIKE_DB_RUNTIME=pglite`, the web-indexing escape hatch) stay
+fully enabled — the PGlite opt-out build passes the full
+`database-import-backfill.test.ts` import/backfill flows, and the Turso
+default now proves the refusal via `database-import-failclosed-turso.test.ts`
+(import refused with the vendor diagnostic, no partial write, app stays
+responsive — no hang).
+
+Vendor watch item / re-enable checklist: when a fixed
+`@tursodatabase/database-wasm` release lands, flip
+`BROWSER_TURSO_CHUNK_INDEXING_ENABLED` to `true`, flip
+`WEB_TURSO_CHUNK_INDEXING_BLOCKED` in `apps/web/e2e/utils/turso-gates.ts`
+(so the full import/backfill web E2E specs run again on the Turso default as
+the real-engine regression proof — the gated success-path unit tests in
+`db-provider-turso-browser.test.tsx` auto-activate too), and update this
+finding with the fixed version.
 
 Merged slices:
 
@@ -549,20 +660,25 @@ Primary docs consulted:
 
 ## Browser Runtime Ownership Decision
 
-Current browser/client DB storage is entering a staged Turso WASM migration.
-The current production browser DB provider remains PGlite-backed by design
-until a proven browser-local Turso WASM runtime intentionally replaces it. This
-is not a Turso parity gap being hidden behind a fallback; it is an explicit
-runtime ownership boundary for the web/browser build while the WASM path is
-proved.
+Browser/client DB storage has completed the staged Turso WASM migration to
+its default flip: as of the A7 cutover (2026-07-05) the web platform default
+is browser Turso WASM (OPFS, WAL single-writer), with
+`VITE_BRAINSTRIKE_DB_RUNTIME=pglite` as the explicit PGlite opt-out (the DR-5
+comparison oracle). PGlite remains supported code — the opt-out oracle and
+the web-indexing escape hatch while browser-Turso chunk persistence is
+fail-closed (see "Browser WASM Indexed-Insert Lockup (2026-07-05)") — not a
+silent fallback. The runtime boundary is now an explicit boot-time selection,
+never inferred from a handle or leftover store.
 
 `@tursodatabase/database-wasm` is the only approved browser-local Turso database package.
 `@tursodatabase/database-wasm/vite` is the Vite/browser import surface for
 Brainstrike's web build; `@tursodatabase/database-wasm/turbopack` remains an
 upstream bundler entrypoint but is not used by this Vite app. The package is
-still beta and requires explicit browser capability proof around OPFS,
-SharedArrayBuffer, COOP/COEP headers, worker lifecycle, and reset ownership
-before it can replace the current PGlite worker.
+still beta; the A7 default flip landed with explicit browser capability proof
+around OPFS, SharedArrayBuffer, COOP/COEP headers, worker lifecycle, and
+reset ownership. Its remaining known gap is the data-dependent indexed-insert
+lockup that keeps chunk persistence fail-closed (see "Browser WASM
+Indexed-Insert Lockup (2026-07-05)").
 
 Forbidden browser-local storage replacements:
 
@@ -585,15 +701,19 @@ browser seam, and do not replace the browser PGlite worker with a remote
 serverless client as a silent compatibility shim. Browser Turso WASM has a
 dedicated bootstrap readiness report and DbProvider integration behind an
 explicit runtime-selection opt-in ({ engine: 'turso', host: 'browser' } from
-the runtime selection seam — never a default); Browser PGlite remains the
-browser default only until the A7 cutover decision flips the default — the
-former gates are now proven: runtime parity by the two-lane parity contract
-suite (see the browser runtime parity lane slice above), reset/clear
-(backup/export) ownership and OPFS offline durability by the browser
-reset-and-durability slice (see the Current Branch State entry and "Browser
-OPFS Durability And Storage Pressure (2026-07-05)").
-Until then, PGlite packages, Vite aliases, the browser worker entry, and browser
-reset cleanup remain supported code rather than removable residue.
+the runtime selection seam; `DbProvider` itself never defaults to Turso —
+apps/web resolves the selection at boot). Turso WASM is the browser default
+runtime as of the A7 cutover decision (2026-07-05), taken with every former
+gate proven: runtime parity by the two-lane parity contract suite (see the
+browser runtime parity lane slice above), reset/clear (backup/export)
+ownership and OPFS offline durability by the browser reset-and-durability
+slice (see the Current Branch State entry and "Browser OPFS Durability And
+Storage Pressure (2026-07-05)"). `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the
+explicit web PGlite opt-out — the DR-5 comparison oracle. Until DR-5 flips
+(the browser cutover has landed AND one full nightly cycle passes green with
+Turso as the only exercised runtime), PGlite packages, Vite aliases, the
+browser worker entry, and browser reset cleanup remain supported code rather
+than removable residue.
 
 Current browser-WASM bootstrap slice: add an explicit web/browser Turso runtime
 branch and a browser-only readiness report, not a hidden replacement behind
@@ -709,11 +829,16 @@ file family at once (a clean fresh-start, never a partial/corrupt store,
 but still silent local data loss). `navigator.storage.persist()` upgrades
 the origin to persistent storage and exempts it from automatic eviction.
 Decision: requesting persistent storage at browser-Turso boot is PRODUCT
-behavior (it can prompt the user in some browsers) and is deliberately NOT
-added in the reset-and-durability slice; it is proposed as an explicit
-follow-up for the A7 cutover decision. Until then, browser Turso data is
-best-effort persisted exactly like the current browser PGlite IndexedDB/OPFS
-stores — the cutover does not regress the existing eviction posture.
+behavior (it can prompt the user in some browsers) and was deliberately NOT
+added in the reset-and-durability slice. RESOLVED by the A7 cutover slice
+(2026-07-05): `requestBrowserTursoPersistentStorage`
+(packages/db/src/bootstrap/browser-storage-persistence.ts) requests
+`navigator.storage.persist()` once when the browser Turso runtime
+initializes and logs the boolean outcome — fire-and-forget and non-gating,
+so a denial (or an unsupported/failing StorageManager) keeps browser Turso
+data best-effort persisted exactly like the pre-cutover browser PGlite
+IndexedDB/OPFS stores. The cutover never regresses the existing eviction
+posture; a grant upgrades it.
 
 ## Browser Journal-Mode Contract Decision (2026-07-04)
 

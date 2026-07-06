@@ -483,6 +483,15 @@ Factory reset follows the same rule: when runtime is unset, reset deletes the
 active profile and must recreate a fresh Turso-default profile directory, not an
 empty `<profile>/pgdata` directory that pins the reset profile back to PGlite.
 Explicit `BRAINSTRIKE_DB_RUNTIME=pglite` still recreates `<profile>/pgdata`.
+Web defaults to Turso browser WASM (OPFS, WAL single-writer) when
+`VITE_BRAINSTRIKE_DB_RUNTIME` is unset (A7 cutover, 2026-07-05): apps/web
+resolves the runtime selection once at boot through
+`resolveBrainstrikeDbRuntimeSelection` (apps/web/src/db-runtime.ts) and passes
+it to `DbProvider`. Explicit `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` is the only
+web PGlite opt-out (build-time env, strict-parsed — a present-but-malformed
+value throws at boot; no silent coercion). Boot-time resolution reads nothing
+persisted, so a web factory reset with runtime unset bootstraps fresh browser
+Turso; leftover PGlite idb stores are never a runtime-selection signal.
 
 Rules:
 - Desktop owns the long-lived Turso owner client through the DB host. Desktop

@@ -95,10 +95,14 @@ function defaultRuntimeEngineForPlatform(
   platform: BrainstrikeDbRuntimePlatform
 ): BrainstrikeDbRuntimeEngine {
   switch (platform) {
+    // A7 browser cutover (2026-07-05): web defaults to the Turso browser WASM
+    // runtime, mirroring the desktop default. Explicit `pglite` remains the
+    // only opt-out on both platforms (DR-5 comparison oracle) until
+    // workstream D retires it.
     case 'desktop':
+    case 'web':
       return 'turso';
     case 'node-test':
-    case 'web':
       return 'pglite';
     default:
       return assertUnreachableRuntimePlatform(platform);

@@ -35,6 +35,7 @@ import type {
   BrainstrikeDbRuntimeEngine,
   BrainstrikeDbRuntimeSelection,
 } from './architecture/db-runtime-selection.js';
+import { requestBrowserTursoPersistentStorage } from './bootstrap/browser-storage-persistence.js';
 import {
   createProfileBootstrapReport,
   failProfileBootstrapReport,
@@ -54,6 +55,7 @@ import {
   getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
 } from './browser-pglite-storage.js';
+import type { InsertChunksAndEnqueueEmbeddingJobsArgs } from './chunk-embedding-job-batch.js';
 import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
@@ -76,6 +78,7 @@ import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
 import type { TursoFileChunkRepository } from './repositories/turso-file-chunk-repository.js';
+import { assertBrowserTursoChunkIndexingEnabled } from './turso/browser-chunk-indexing-gate.js';
 import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
@@ -226,6 +229,127 @@ async function loadTursoTokenCacheStore() {
  * share a storage path.
  */
 export const DEFAULT_BROWSER_TURSO_WASM_DB_PATH = 'brainstrike-web-turso.db';
+
+async function loadInsertTursoChunksAndEnqueueEmbeddingJobs() {
+  const mod = await import('./chunk-embedding-job-batch.js');
+  return mod.insertTursoChunksAndEnqueueEmbeddingJobs;
+}
+
+async function loadApplyTursoManagedCacheBatch() {
+  const mod = await import('./managed-cache/index.js');
+  return mod.applyTursoManagedCacheBatch;
+}
+
+/**
+ * Strict-parse mapping from the renderer DbHandle atomic-enqueue call shape
+ * to the shared Turso batch args (mirrors the desktop IPC payload parse in
+ * apps/desktop/src/db-shared.ts): a missing model or non-positive
+ * targetDimension throws instead of enqueueing an unusable job.
+ */
+function buildBrowserTursoAtomicEnqueueArgs(
+  chunks: readonly FileChunk[],
+  fileRecordId: string,
+  options: DbInsertChunksAndEnqueueEmbeddingJobsOptions
+): InsertChunksAndEnqueueEmbeddingJobsArgs {
+  const model = options.model?.trim();
+  if (!model) {
+    throw new Error('Atomic chunk/job enqueue requires a model.');
+  }
+  const targetDimension = options.targetDimension;
+  if (
+    typeof targetDimension !== 'number' ||
+    !Number.isInteger(targetDimension) ||
+    targetDimension <= 0
+  ) {
+    throw new Error('Atomic chunk/job enqueue requires a positive targetDimension.');
+  }
+  return {
+    chunks: chunks as readonly FileChunkInsert[],
+    dimensionParameter: options.dimensionParameter ?? null,
+    fileRecordId,
+    model,
+    provider: options.provider ?? null,
+    targetDimension,
+    targetEmbeddingSetId: options.targetEmbeddingSetId ?? null,
+  };
+}
+
+/**
+ * The browser Turso provider executor: the WAL single-writer execution client
+ * plus the mutation seams web import paths require on the exposed handle —
+ * atomic chunk-insert + embedding-job-enqueue (background indexing's
+ * sync-import contract) and managed-cache batch apply (db-explorer's manual
+ * import contract). Desktop gets both from the DB-host IPC bridge; the
+ * browser owner IS this client. Defined as own methods on a prototype child
+ * of the execution client so the runtime marker and capability surface are
+ * preserved.
+ */
+function createBrowserTursoProviderExecutor(
+  executionClient: TursoBrowserWasmExecutionClient
+): TursoBrowserWasmExecutionClient & {
+  applyManagedCacheBatch: NonNullable<QueryExecutor['applyManagedCacheBatch']>;
+  insertChunksAndEnqueueEmbeddingJobs: NonNullable<
+    QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
+  >;
+} {
+  const executor = Object.create(executionClient) as TursoBrowserWasmExecutionClient & {
+    applyManagedCacheBatch: NonNullable<QueryExecutor['applyManagedCacheBatch']>;
+    insertChunksAndEnqueueEmbeddingJobs: NonNullable<
+      QueryExecutor['insertChunksAndEnqueueEmbeddingJobs']
+    >;
+  };
+  executor.applyManagedCacheBatch = async (payload: ApplyManagedCacheBatchArgs): Promise<void> => {
+    const applyTursoManagedCacheBatch = await loadApplyTursoManagedCacheBatch();
+    await applyTursoManagedCacheBatch(executionClient, payload);
+  };
+  executor.insertChunksAndEnqueueEmbeddingJobs = async (
+    chunks: readonly FileChunk[],
+    fileRecordId: string,
+    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions
+  ): Promise<void> => {
+    // Fail-closed BEFORE any statement: chunk+gram writes are the surface
+    // that trips the vendor indexed-insert lockup (see
+    // turso/browser-chunk-indexing-gate.ts).
+    assertBrowserTursoChunkIndexingEnabled();
+    const insertTursoChunksAndEnqueueEmbeddingJobs =
+      await loadInsertTursoChunksAndEnqueueEmbeddingJobs();
+    await insertTursoChunksAndEnqueueEmbeddingJobs(
+      executionClient,
+      buildBrowserTursoAtomicEnqueueArgs(chunks, fileRecordId, options)
+    );
+  };
+  return executor;
+}
+
+/**
+ * Gates the provider-constructed browser chunk repository's chunk-INSERT
+ * surfaces behind the vendor indexed-insert lockup (see
+ * turso/browser-chunk-indexing-gate.ts). Inserts are what write the
+ * gram/index sidecars that trip the lockup; reads, coverage, updates
+ * (embedding completion), and deletes stay enabled. Own methods on a
+ * prototype child keep the rest of the repository surface untouched, and
+ * delegation resumes unchanged when the gate flips.
+ */
+function createBrowserTursoGatedChunkRepository(
+  repository: TursoFileChunkRepository
+): TursoFileChunkRepository {
+  const gated = Object.create(repository) as TursoFileChunkRepository;
+  gated.insert = async (...args: Parameters<TursoFileChunkRepository['insert']>) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insert(...args);
+  };
+  gated.insertMany = async (...args: Parameters<TursoFileChunkRepository['insertMany']>) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insertMany(...args);
+  };
+  gated.insertManyWithTx = async (
+    ...args: Parameters<TursoFileChunkRepository['insertManyWithTx']>
+  ) => {
+    assertBrowserTursoChunkIndexingEnabled();
+    return await repository.insertManyWithTx(...args);
+  };
+  return gated;
+}
 
 async function loadTursoBrowserWasmRuntime() {
   const [bootstrapModule, clientModule] = await Promise.all([
@@ -638,12 +762,14 @@ interface DbProviderProps {
   children: React.ReactNode;
   dbPath?: string;
   /**
-   * Explicit runtime opt-in seam (see resolveBrainstrikeDbRuntimeSelection).
+   * Explicit runtime selection seam (see resolveBrainstrikeDbRuntimeSelection).
    * Passing a `{ engine: 'turso', host: 'browser' }` selection routes the
-   * provider through the browser Turso WASM bootstrap + repositories. Without
-   * it the browser default remains PGlite until the cutover decision flips
-   * the default. A PGlite selection is the default behavior and changes
-   * nothing; any other Turso host here fails closed (desktop Turso is
+   * provider through the browser Turso WASM bootstrap + repositories — this is
+   * what apps/web passes by default since the A7 cutover (2026-07-05; the web
+   * PLATFORM default lives in the selection seam, this provider itself never
+   * defaults to Turso). Omitting the prop, or passing a PGlite selection (the
+   * `VITE_BRAINSTRIKE_DB_RUNTIME=pglite` opt-out), keeps the legacy PGlite
+   * behavior; any other Turso host here fails closed (desktop Turso is
    * classified from the Electron bootstrap report, never from this prop).
    */
   runtimeSelection?: BrainstrikeDbRuntimeSelection;
@@ -1697,6 +1823,11 @@ export function DbProvider({
   const initializeBrowserTursoWasm = useCallback(
     async (cancelled: { value: boolean }) => {
       logger.debug('Using browser Turso WASM connection');
+      // A7 cutover follow-up: ask the browser to exempt the origin bucket
+      // (and the OPFS db file family) from LRU eviction. Fire-and-forget by
+      // contract — the helper logs the boolean outcome and never rejects, so
+      // a denial can never gate or fail Turso initialization.
+      void requestBrowserTursoPersistentStorage();
       const {
         applyTursoBrowserWasmForeignKeys,
         createTursoBrowserWasmExecutionClient,
@@ -1771,9 +1902,24 @@ export function DbProvider({
           'view_filter_presets',
         ],
       });
-      setExposedDb(createDbHandle(executionClient as unknown as QueryExecutor));
+      // QoS parity with the direct-PGlite renderer path: the exposed DbHandle
+      // routes through the provider's database work scheduler so web
+      // consumers of scheduler snapshots (background indexing permits and
+      // pressure reads — there is no electronAPI snapshot source on web) work
+      // on the browser Turso runtime. Admission-order QoS only: actual
+      // execution stays serialized by the single-writer FIFO execution
+      // client, and repositories keep using the raw client directly.
+      const scheduledExecutor = createScheduledDbHandle(
+        createBrowserTursoProviderExecutor(executionClient) as unknown as QueryExecutor &
+          ScheduledDbHandle,
+        databaseWorkSchedulerRef.current,
+        getRendererDefaultDatabaseWorkPriority()
+      );
+      setExposedDb(createDbHandle(scheduledExecutor as unknown as QueryExecutor));
       setFileRecordRepository(new TursoFileRecordRepo(executionClient));
-      setChunkRepository(new TursoFileChunkRepo(executionClient));
+      setChunkRepository(
+        createBrowserTursoGatedChunkRepository(new TursoFileChunkRepo(executionClient))
+      );
       setEmbeddingSetsRepository(new TursoEmbeddingSetsRepo(executionClient));
       setViewFilterPresetsRepository(new TursoViewFilterPresetsRepo(executionClient));
       setTokenCacheStore(new TursoTokenCacheStore(executionClient));

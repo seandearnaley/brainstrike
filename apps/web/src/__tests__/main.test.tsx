@@ -13,12 +13,18 @@ vi.mock('react-helmet-async', () => ({
   HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-vi.mock('@brainstrike/db', () => ({
-  DbProvider: dbProviderMock,
-  getDefaultBrowserPGliteDataDir: vi.fn((dbName = 'app') => `idb://${dbName}-pg18`),
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: vi.fn(() => null),
-}));
+// Keep the REAL runtime-selection seam (resolveBrainstrikeDbRuntimeSelection,
+// DEFAULT_BROWSER_TURSO_WASM_DB_PATH, ...) so these tests exercise the actual
+// A7 boot-time resolution logic; only the provider/hooks are stubbed.
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    DbProvider: dbProviderMock,
+    usePGliteDatabase: vi.fn(() => null),
+    useBrainstrikeExecutionDbClient: vi.fn(() => null),
+  };
+});
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -97,9 +103,15 @@ vi.mock('@brainstrike/utils/install-renderer-error-hooks', () => ({
   installRendererErrorHooks: vi.fn(() => () => {}),
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
-  LogLevel: { DEBUG: 'debug', INFO: 'info' },
-}));
+// Partial mock: the real @brainstrike/db barrel (imported via importOriginal
+// above) needs createLogger and friends, so only LogLevel is overridden.
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    LogLevel: { DEBUG: 'debug', INFO: 'info' },
+  };
+});
 
 // Mock queue telemetry
 interface MockQueueTelemetrySink {
@@ -212,7 +224,7 @@ describe('main entry file', () => {
     expect(screen.getByTestId('root-layout')).toBeInTheDocument();
   }, 60_000);
 
-  test('uses the standard web database path outside Playwright automation', async () => {
+  test('defaults the browser runtime to Turso WASM with the default OPFS store (A7 cutover)', async () => {
     const rootElement = document.createElement('div');
     rootElement.id = 'root';
     vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
@@ -230,12 +242,60 @@ describe('main entry file', () => {
     render(element);
 
     expect(dbProviderMock).toHaveBeenCalledWith(
-      expect.objectContaining({ dbPath: 'idb://web-pg18' }),
+      expect.objectContaining({
+        dbPath: 'brainstrike-web-turso.db',
+        runtimeSelection: expect.objectContaining({
+          bootstrapRuntime: { engine: 'turso', host: 'browser', persistence: 'opfs' },
+          engine: 'turso',
+          platform: 'web',
+          source: 'default',
+        }),
+      }),
       undefined
     );
   }, 60_000);
 
-  test('isolates the web database path for Playwright automation', async () => {
+  test('honors the explicit VITE_BRAINSTRIKE_DB_RUNTIME=pglite opt-out', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(false);
+    vi.stubEnv('VITE_BRAINSTRIKE_DB_RUNTIME', 'pglite');
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    await importMain();
+
+    const element = renderMock.mock.calls[0]?.[0] as ReactElement;
+    render(element);
+
+    expect(dbProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dbPath: 'idb://web-pg18',
+        runtimeSelection: expect.objectContaining({
+          engine: 'pglite',
+          platform: 'web',
+          source: 'env',
+        }),
+      }),
+      undefined
+    );
+  }, 60_000);
+
+  test('throws at boot on a malformed VITE_BRAINSTRIKE_DB_RUNTIME instead of silently coercing', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.stubEnv('VITE_BRAINSTRIKE_DB_RUNTIME', 'sqlite');
+
+    await expect(importMain()).rejects.toThrow('Unsupported Brainstrike DB runtime: sqlite');
+  }, 60_000);
+
+  test('isolates the web Turso OPFS store for Playwright automation', async () => {
     const rootElement = document.createElement('div');
     rootElement.id = 'root';
     vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
@@ -250,12 +310,45 @@ describe('main entry file', () => {
 
     await importMain();
 
+    const expectedPath = 'web-e2e-turso-00000000-0000-4000-8000-000000000001.db';
+    const element = renderMock.mock.calls[0]?.[0] as ReactElement;
+    render(element);
+
+    expect(dbProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dbPath: expectedPath,
+        runtimeSelection: expect.objectContaining({ engine: 'turso' }),
+      }),
+      undefined
+    );
+    expect(window.sessionStorage.getItem('brainstrike.e2e.dbPath.v1')).toBe(expectedPath);
+  }, 60_000);
+
+  test('isolates the web PGlite idb path for Playwright automation under the opt-out', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(true);
+    vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
+    vi.stubEnv('VITE_BRAINSTRIKE_DB_RUNTIME', 'pglite');
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    await importMain();
+
     const expectedPath = 'idb://web-e2e-00000000-0000-4000-8000-000000000001';
     const element = renderMock.mock.calls[0]?.[0] as ReactElement;
     render(element);
 
     expect(dbProviderMock).toHaveBeenCalledWith(
-      expect.objectContaining({ dbPath: expectedPath }),
+      expect.objectContaining({
+        dbPath: expectedPath,
+        runtimeSelection: expect.objectContaining({ engine: 'pglite' }),
+      }),
       undefined
     );
     expect(window.sessionStorage.getItem('brainstrike.e2e.dbPath.v1')).toBe(expectedPath);
