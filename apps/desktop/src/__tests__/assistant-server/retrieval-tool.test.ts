@@ -808,6 +808,44 @@ describe('retrieval-tool', () => {
       process.env.NODE_ENV = originalNodeEnv;
     }
   });
+
+  it('redacts the logged error for unexpected top-level retrieval failures', async () => {
+    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/secret-workspace-path'));
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
+
+    expect(loggerError).toHaveBeenCalledWith(
+      'Retrieval tool failed',
+      expect.objectContaining({ error: expect.objectContaining({ redacted: true }) })
+    );
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('/private/secret-workspace-path');
+  });
+
+  it('redacts the logged error when embedding set metadata fails to load', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        throw new Error('connection refused at /private/secret-db-socket-path');
+      }
+      return { rows: [] };
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow('Unable to load embedding set metadata.');
+
+    expect(loggerError).toHaveBeenCalledWith(
+      'Failed to load embedding set metadata',
+      expect.objectContaining({
+        embeddingSetId: 'set-1',
+        error: expect.objectContaining({ redacted: true }),
+      })
+    );
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('/private/secret-db-socket-path');
+  });
 });
 
 describe('retrieval-tool multi-root', () => {
