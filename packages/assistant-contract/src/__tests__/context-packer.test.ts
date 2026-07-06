@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import { describe, expect, it } from 'vitest';
 import { ContextPacker, type ContextPackerChunk } from '../context-packer';
 
@@ -21,14 +21,14 @@ describe('ContextPacker', () => {
     expect(result.skippedForTokenBudget).toBe(1);
   });
 
-  it('falls back to heuristic token estimates when missing', () => {
+  it('falls back to shared estimator token counts when missing', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const content = '12345678';
     const chunks: ContextPackerChunk[] = [{ id: 'a', content }];
 
     const result = packer.pack(chunks);
 
-    expect(result.chunks[0]?.tokenCount).toBe(countTokensHeuristic(content));
+    expect(result.chunks[0]?.tokenCount).toBe(countEstimatedTokens(content));
   });
 
   it('preserves citation metadata and assigns ranks', () => {
@@ -93,16 +93,16 @@ describe('ContextPacker', () => {
     expect(result.skipped).toBe(0);
   });
 
-  it('falls back to heuristic token estimates for invalid token counts', () => {
+  it('falls back to shared estimator token counts for invalid token counts', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'abcd', tokenCount: -3 },
-      { id: 'b', content: 'abcd', tokenCount: null },
-      { id: 'c', content: 'abcd' },
+      { id: 'a', content: 'abcde', tokenCount: -3 },
+      { id: 'b', content: 'abcde', tokenCount: null },
+      { id: 'c', content: 'abcde' },
     ];
 
     const result = packer.pack(chunks);
-    const expected = countTokensHeuristic('abcd');
+    const expected = countEstimatedTokens('abcde');
 
     expect(result.chunks.map((chunk) => chunk.tokenCount)).toEqual([expected, expected, expected]);
   });

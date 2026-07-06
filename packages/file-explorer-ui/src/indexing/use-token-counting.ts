@@ -1,24 +1,14 @@
-import {
-  tokenPreferencesSelectors,
-  useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import { useCallback, useMemo } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export type TokenCountingMode = 'accurate' | 'heuristic';
-export type TokenCountingReason = 'preference-disabled' | 'runtime-unavailable' | null;
+export type TokenCountingReason = null;
 
 export interface TokenCountingState {
   /**
-   * Counts tokens using the currently selected mode.
-   *
-   * When accurate counting is preferred, this rejects if the tiktoken runtime
-   * is unavailable. Callers are expected to guard with `loading` / `reason` or
-   * catch the rejection explicitly rather than silently falling back.
-   *
-   * @throws {Error} When accurate mode is preferred but the tiktoken runtime is
-   * unavailable.
+   * Counts tokens with the shared local estimator. Uses the worker-backed token
+   * cache when available and computes directly otherwise.
    */
   countTokens: (content: string) => Promise<number>;
   loading: boolean;
@@ -27,37 +17,23 @@ export interface TokenCountingState {
 }
 
 export function useTokenCounting(): TokenCountingState {
-  const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const tokenCache = useOptionalTokenCacheContext();
   const tokenCacheIsOperational = tokenCache?.isOperational === true;
-  const tokenCacheCountingMode = tokenCache?.countingMode;
   const countTextTokens = tokenCache?.countTextTokens;
-  const hasAccurateRuntime =
-    accuratePreference && tokenCacheIsOperational && tokenCacheCountingMode === 'accurate';
 
-  const mode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
-  const reason: TokenCountingReason = accuratePreference
-    ? hasAccurateRuntime
-      ? null
-      : 'runtime-unavailable'
-    : 'preference-disabled';
-  const loading = accuratePreference && tokenCache !== null && tokenCacheIsOperational === false;
+  const mode: TokenCountingMode = 'heuristic';
+  const reason: TokenCountingReason = null;
+  const loading = false;
 
   const countTokens = useCallback(
     async (content: string) => {
-      if (!accuratePreference) {
-        return countTokensHeuristic(content);
-      }
-
-      if (tokenCacheIsOperational && tokenCacheCountingMode === 'accurate' && countTextTokens) {
+      if (tokenCacheIsOperational && countTextTokens) {
         return countTextTokens(content);
       }
 
-      throw new Error(
-        'Accurate token counting is unavailable: tiktoken worker is not operational and heuristic mode was not explicitly selected.'
-      );
+      return countEstimatedTokens(content);
     },
-    [accuratePreference, countTextTokens, tokenCacheCountingMode, tokenCacheIsOperational]
+    [countTextTokens, tokenCacheIsOperational]
   );
 
   return useMemo(

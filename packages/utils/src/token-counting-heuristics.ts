@@ -1,3 +1,11 @@
+import { estimateTokenCount } from 'tokenx';
+
+export const TOKEN_ESTIMATOR_ID = 'tokenx@1';
+
+export function countEstimatedTokens(text: string): number {
+  return estimateTokenCount(text);
+}
+
 export function countTokensHeuristic(text: string): number {
   if (!text) {
     return 0;

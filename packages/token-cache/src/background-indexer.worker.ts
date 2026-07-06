@@ -5,7 +5,7 @@
  * 1. Receives FileSystemFileHandle via postMessage
  * 2. Reads file content off the main thread
  * 3. Hashes content with xxHash64
- * 4. Counts tokens (accurate or heuristic mode)
+ * 4. Estimates tokens with the shared local estimator
  * 5. Posts results back to main thread
  *
  * This keeps ALL heavy computation off the main thread, ensuring smooth UI.
@@ -395,8 +395,8 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
   log('debug', 'processBatch start', { total: requests.length });
 
   try {
-    // Pre-initialize hashing once. Accurate tokenizer startup is deferred until
-    // a request explicitly asks for accurate counting.
+    // Pre-initialize hashing once. Token estimation does not need tokenizer
+    // runtime startup.
     const hasher = await initHasher();
 
     const total = requests.length;

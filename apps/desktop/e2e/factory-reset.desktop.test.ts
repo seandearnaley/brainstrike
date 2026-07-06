@@ -154,9 +154,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
 
-    const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
-    await tokenToggle.click();
-    await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+    await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
+      'Using local estimator'
+    );
 
     await openFactoryResetSettings(homePage, settingsPage);
     await expect(window.getByRole('switch', { name: 'Enable inline fixtures' })).toBeVisible();
@@ -171,9 +171,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await waitForAppReady(window);
 
     await openTokenCountingSettings(homePage, settingsPage);
-    await expect(window.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'false'
+    await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
+      'Using local estimator'
     );
   });
 
@@ -206,9 +205,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
 
-    const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
-    await tokenToggle.click();
-    await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+    await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
+      'Using local estimator'
+    );
 
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(window, true);
@@ -238,9 +237,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await waitForAppReady(restartedWindow);
 
     await openTokenCountingSettings(restartedHomePage, restartedSettingsPage);
-    await expect(restartedWindow.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'true'
+    await expect(restartedWindow.getByTestId('token-counting-runtime-status')).toContainText(
+      'Using local estimator'
     );
     await expect
       .poll(() => readBrowserPersistentState(restartedWindow))

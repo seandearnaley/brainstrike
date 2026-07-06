@@ -385,7 +385,7 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
     id: 'token-counting',
     title: 'Token Counting',
     description: 'Control the tokenizer used for previews and chunk generation.',
-    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    keywords: ['token', 'counting', 'estimator', 'preview', 'chunking'],
     icon: Sigma,
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
   };

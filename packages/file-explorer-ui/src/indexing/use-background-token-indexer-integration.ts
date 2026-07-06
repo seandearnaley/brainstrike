@@ -4,7 +4,7 @@
  * Integration hook that connects the file tree and selection to the background token indexer.
  * When files are selected, it extracts FileSystemFileHandles and queues them for background indexing.
  *
- * This enables accurate token counting without blocking the main thread or
+ * This enables estimated token counting without blocking the main thread or
  * requiring file content to be loaded first.
  *
  * Priority contract: foreground token counting (this hook) is never gated on background-sync

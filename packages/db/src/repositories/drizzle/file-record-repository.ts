@@ -7,6 +7,7 @@
 
 import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
+import { countEstimatedTokens as estimateTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type {
@@ -594,8 +595,8 @@ export class DrizzleFileRecordRepository {
         continue;
       }
 
-      // Count tokens
-      const tokenCount = this.countTokensHeuristic(request.content);
+      // Estimate tokens
+      const tokenCount = this.countEstimatedTokens(request.content);
       const id = generateUUID();
 
       const record: typeof fileRecords.$inferInsert = {
@@ -673,19 +674,10 @@ export class DrizzleFileRecordRepository {
   }
 
   /**
-   * Estimates token count using a simple character-to-token ratio.
-   *
-   * This is a rough heuristic assuming ~4 characters per token on average.
-   * This ratio varies by language and content type:
-   * - English prose: ~4-5 chars/token
-   * - Code: ~3-4 chars/token
-   * - Languages with longer words: may differ
-   *
-   * For accurate counts, use a proper tokenizer (e.g., tiktoken).
-   * This heuristic is used as a fast fallback during bulk import.
+   * Local estimated token counting for stored file metadata.
    */
-  private countTokensHeuristic(content: string): number {
-    return Math.ceil(content.length / 4);
+  private countEstimatedTokens(content: string): number {
+    return estimateTokenCount(content);
   }
 
   async clearAll(): Promise<number> {

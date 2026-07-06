@@ -136,6 +136,7 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
 }));
 
 vi.mock('@brainstrike/utils', () => ({
+  countEstimatedTokens: (value: string) => value.length,
   createLogger: () => ({
     warn: loggerWarn,
     error: loggerError,

@@ -10,9 +10,22 @@ import {
   normalizeFilePathForFolder,
   validateRelativeFilePath,
 } from '@brainstrike/utils';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('TokenCache');
+
+function cacheEntryMatchesCountingRuntime(
+  cached: TokenCacheEntry,
+  contentHash: string,
+  countingMode: TokenCountingMode
+): boolean {
+  return (
+    cached.contentHash === contentHash &&
+    cached.countingMode === countingMode &&
+    cached.modelEncoding === TOKEN_ESTIMATOR_ID
+  );
+}
 
 /** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
 const VERSION_DEBOUNCE_MS = 50;
@@ -281,7 +294,7 @@ export function useTokenCache({
           // Validate cache with content hash
           const contentHash = await hasher.hashContent(content);
 
-          if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
+          if (cacheEntryMatchesCountingRuntime(cached, contentHash, countingMode)) {
             // Cache hit - content unchanged
             hotCache.current.set(key, cached.tokenCount);
             fileSizeCache.current.set(key, cached.fileSize);
@@ -309,7 +322,7 @@ export function useTokenCache({
           mtimeMs: mtimeMs ?? null,
           tokenCount: result.tokenCount,
           countingMode,
-          modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
+          modelEncoding: TOKEN_ESTIMATOR_ID,
         };
 
         await store.set(entry);
@@ -466,7 +479,7 @@ export function useTokenCache({
         // Always cache file size (doesn't depend on counting mode)
         fileSizeCache.current.set(key, entry.fileSize);
         // Only use token cache if counting mode matches
-        if (entry.countingMode === countingMode) {
+        if (entry.countingMode === countingMode && entry.modelEncoding === TOKEN_ESTIMATOR_ID) {
           hotCache.current.set(key, entry.tokenCount);
         }
       }

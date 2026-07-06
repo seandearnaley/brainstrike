@@ -5,7 +5,9 @@
  */
 
 /**
- * Supported token counting modes
+ * Supported token counting modes. `accurate` is retained for legacy cache rows;
+ * new local preflight estimates are written as `heuristic` with modelEncoding
+ * set to the estimator id.
  */
 export type TokenCountingMode = 'accurate' | 'heuristic';
 
@@ -15,7 +17,7 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
 export interface TokenCacheEntry {
   /** xxHash64 of file content for change detection */
   contentHash: string;
-  /** Mode used for counting ('accurate' = tiktoken, 'heuristic' = char/4) */
+  /** Mode used for counting. New estimator rows use 'heuristic' for schema compatibility. */
   countingMode: TokenCountingMode;
   /** Timestamp when entry was created */
   createdAt?: string;
@@ -25,7 +27,7 @@ export interface TokenCacheEntry {
   fileSize: number;
   /** Root folder identifier */
   folderId: string;
-  /** Encoding used for accurate mode (e.g., 'o200k_base') */
+  /** Estimator identity for new rows, or legacy encoding/null for old rows */
   modelEncoding: string | null;
   /** File modification time in milliseconds (optional) */
   mtimeMs: number | null;

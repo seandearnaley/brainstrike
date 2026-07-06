@@ -1,4 +1,5 @@
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
+import { countEstimatedTokens as estimateTokenCount } from '@brainstrike/utils/token-counting-heuristics';
 import type {
   FileImportRequest,
   FileImportResult,
@@ -503,7 +504,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       }
 
       // Count tokens
-      const tokenCount = this.countTokensHeuristic(request.content);
+      const tokenCount = this.countEstimatedTokens(request.content);
       const id = generateUUID();
 
       const record: FileRecord = {
@@ -659,10 +660,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   /**
-   * Simple heuristic token counting (4 chars per token)
+   * Local estimated token counting for stored file metadata.
    */
-  private countTokensHeuristic(content: string): number {
-    return Math.ceil(content.length / 4);
+  private countEstimatedTokens(content: string): number {
+    return estimateTokenCount(content);
   }
 
   /**

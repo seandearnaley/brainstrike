@@ -1,3 +1,4 @@
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -129,7 +130,7 @@ describe('useBackgroundTokenIndexer', () => {
       mtimeMs: null,
       tokenCount: 42,
       countingMode: 'heuristic',
-      modelEncoding: null,
+      modelEncoding: TOKEN_ESTIMATOR_ID,
     };
 
     const store = {
@@ -197,6 +198,62 @@ describe('useBackgroundTokenIndexer', () => {
 
     const worker = await waitForWorker();
     expect(String(worker.url)).toBe('http://localhost/custom-background-indexer.worker.js');
+  });
+
+  it('stores legacy accurate worker results with estimator cache identity', async () => {
+    const store = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {}),
+    };
+    const onFileIndexed = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'accurate',
+        onFileIndexed,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|legacy.txt', folderId: 'folder', filePath: 'legacy.txt' },
+      ]);
+    });
+
+    await waitFor(() => expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|legacy.txt',
+          folderId: 'folder',
+          filePath: 'legacy.txt',
+          contentHash: 'hash',
+          fileSize: 128,
+          mode: 'accurate',
+          tokenCount: 99,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(store.set).toHaveBeenCalledWith({
+      folderId: 'folder',
+      filePath: 'legacy.txt',
+      contentHash: 'hash',
+      fileSize: 128,
+      mtimeMs: null,
+      tokenCount: 99,
+      countingMode: 'heuristic',
+      modelEncoding: TOKEN_ESTIMATOR_ID,
+    });
+    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|legacy.txt', 99, 128);
   });
 
   it('does not start the worker for an empty indexing request', async () => {

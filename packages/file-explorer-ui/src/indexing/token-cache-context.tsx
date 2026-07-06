@@ -18,10 +18,6 @@
  * ```
  */
 
-import {
-  tokenPreferencesSelectors,
-  useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
 import type {
   TokenCacheEntry,
   TokenCountingMode,
@@ -457,9 +453,8 @@ export function TokenCacheProvider({
   workerReadyRef.current = workerReady;
   workerInitErrorRef.current = workerInitError;
 
-  // Get counting mode preference
-  const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
-  const countingMode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
+  // Keep persisted rows schema-compatible while identifying the estimator via modelEncoding.
+  const countingMode: TokenCountingMode = 'heuristic';
 
   // Derive store directly from db - avoids setState-in-effect cascade.
   // When db is null (startup/teardown), keep writes in-memory; once db is available, use persistent store.

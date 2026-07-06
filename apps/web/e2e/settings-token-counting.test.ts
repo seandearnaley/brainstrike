@@ -21,70 +21,33 @@ test.describe('Token Counting settings (web)', () => {
     await page.reload();
   });
 
-  test('shows checking state while runtime availability is unresolved', async ({ page }) => {
+  test('shows estimator status while runtime availability is unresolved', async ({ page }) => {
     await installSettingsTestOverrides(page, { accurateRuntimeAvailable: null });
     await openTokenCountingSettings(page);
 
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
-      'Checking runtime…'
+      'Using local estimator'
     );
+    await expect(page.getByTestId('token-counting-accurate-toggle')).toHaveCount(0);
   });
 
-  test('shows accurate runtime status when WASM tokenizer support is available', async ({
-    page,
-  }) => {
+  test('shows estimator status when runtime support is available', async ({ page }) => {
     await installSettingsTestOverrides(page, { accurateRuntimeAvailable: true });
     await openTokenCountingSettings(page);
 
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
-      'Using WASM tokenizer'
+      'Using local estimator'
     );
-    await expect(page.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
+    await expect(page.getByText(/proprietary provider tokenizers/i)).toBeVisible();
   });
 
-  test('shows unavailable copy when accurate counting is required but runtime support is missing', async ({
-    page,
-  }) => {
+  test('shows estimator copy when old runtime support is missing', async ({ page }) => {
     await installSettingsTestOverrides(page, { accurateRuntimeAvailable: false });
     await openTokenCountingSettings(page);
 
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
-      'Accurate tokenizer unavailable'
+      'Using local estimator'
     );
-    await expect(
-      page.getByText(/Requests that need token sizing will fail until the WASM tokenizer loads/i)
-    ).toBeVisible();
-  });
-
-  test('persists explicit heuristic mode across reload', async ({ page }) => {
-    await installSettingsTestOverrides(page, { accurateRuntimeAvailable: true });
-    const home = new HomePage(page);
-    const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
-    await home.navigateToSettings();
-    await settings.openCategory(/Token Counting/i, 'token-counting');
-
-    const toggle = page.getByTestId('token-counting-accurate-toggle');
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await toggle.click();
-
-    await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
-    );
-
-    await page.reload();
-    await home.navigateToSettings();
-    await settings.openCategory(/Token Counting/i, 'token-counting');
-
-    await expect(page.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
-      'aria-checked',
-      'false'
-    );
-    await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
-    );
+    await expect(page.getByText(/Accurate tokenizer unavailable/i)).toHaveCount(0);
   });
 });

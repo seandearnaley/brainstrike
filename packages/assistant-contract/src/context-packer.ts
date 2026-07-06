@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 
 interface OffsetRange {
   end?: number;
@@ -190,7 +190,7 @@ export class ContextPacker {
     }
     this.budgetTokens = Math.max(0, budgetTokens);
     this.maxChunks = options.maxChunks;
-    this.estimateTokens = options.estimateTokens ?? countTokensHeuristic;
+    this.estimateTokens = options.estimateTokens ?? countEstimatedTokens;
   }
 
   pack(chunks: readonly ContextPackerChunk[]): ContextPackerResult {

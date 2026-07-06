@@ -31,7 +31,7 @@ import {
   resolveHostedProviderApiKey,
   VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countEstimatedTokens } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
@@ -691,7 +691,7 @@ async function packRetrievedContext(
 
   const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
-    estimateTokens: countTokensHeuristic,
+    estimateTokens: countEstimatedTokens,
     ...(input.maxChunks === undefined ? {} : { maxChunks: input.maxChunks }),
   };
   const packer = new ContextPacker(packerOptions);

@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from './token-heuristics';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import type { TokenCountingMode } from './types';
 
 export interface AccurateTokenUtils {
@@ -29,14 +29,9 @@ export async function assertAccurateCountingAvailable(
 }
 
 export async function countTokensForMode(
-  mode: TokenCountingMode,
+  _mode: TokenCountingMode,
   text: string,
-  loadAccurateTokenUtils: () => Promise<AccurateTokenUtils>
+  _loadAccurateTokenUtils: () => Promise<AccurateTokenUtils>
 ): Promise<number> {
-  if (mode === 'heuristic') {
-    return countTokensHeuristic(text);
-  }
-
-  const accurateUtils = await assertAccurateCountingAvailable(loadAccurateTokenUtils);
-  return accurateUtils.countTokensAccurate(text);
+  return countEstimatedTokens(text);
 }

@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import type { PGlite } from '@electric-sql/pglite';
 import { migrate } from '../migrations/bootstrap.js';
 import type { FileChunkInsert } from '../models/file-chunk.js';
@@ -134,7 +134,7 @@ async function seedRetrievalDataset(
         chunkIndex: index,
         content: chunk.content,
         contentHash: `hash-${chunk.id}`,
-        tokenCount: countTokensHeuristic(chunk.content),
+        tokenCount: countEstimatedTokens(chunk.content),
         chunkType: 'text',
         chunkSize: chunk.content.length,
         embedding: chunk.embedding,

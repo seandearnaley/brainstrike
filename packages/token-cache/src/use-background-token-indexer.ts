@@ -12,6 +12,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { createWorkerRuntimeClient, type WorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
@@ -246,8 +247,8 @@ async function persistResultToStore(
     fileSize: result.fileSize,
     mtimeMs: null,
     tokenCount: result.tokenCount,
-    countingMode: result.mode,
-    modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
+    countingMode: 'heuristic',
+    modelEncoding: TOKEN_ESTIMATOR_ID,
   };
 
   await store.set(entry);

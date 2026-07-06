@@ -4,7 +4,6 @@
  */
 
 import {
-  countTokensHeuristic,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
@@ -15,6 +14,7 @@ import {
   splitByBlankLines,
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
@@ -156,20 +156,6 @@ const LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ];
 
-type TokenUtilsLiteModule = typeof import('./token-utils-lite');
-
-let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
-
-async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
-  if (!tokenUtilsLiteModulePromise) {
-    tokenUtilsLiteModulePromise = import('./token-utils-lite').catch((error: unknown) => {
-      tokenUtilsLiteModulePromise = null;
-      throw error;
-    });
-  }
-  return tokenUtilsLiteModulePromise;
-}
-
 function detectCodeLanguage(fileName: string): CodeLanguage | null {
   const name = fileName.toLowerCase();
   for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
@@ -195,7 +181,7 @@ function shouldSkipChunking(
   }
 
   // Zero-byte files are valid repository inputs. Skip them explicitly so the
-  // worker never treats an empty accurate token count as a chunking failure.
+  // worker never treats an empty token count as a chunking failure.
   if (content.length === 0) {
     return { skip: true, reason: 'Empty file content' };
   }
@@ -388,7 +374,7 @@ async function generateContentHash(content: string): Promise<string> {
 }
 
 function estimateTokenCount(text: string): number {
-  return countTokensHeuristic(text);
+  return countEstimatedTokens(text);
 }
 
 function buildLineStartOffsets(content: string): number[] {
@@ -759,25 +745,12 @@ function resolveSourceRanges(
   return { ranges, fuzzyMatchedChunks };
 }
 
-async function computeCharsPerToken(
-  content: string,
-  useAccurate: boolean,
-  tokenUtilsModule: TokenUtilsLiteModule | null
-): Promise<number> {
+async function computeCharsPerToken(content: string): Promise<number> {
   const sample = content.slice(0, Math.min(CHARS_PER_TOKEN_SAMPLE_BYTES, content.length));
-  const tokens =
-    useAccurate && tokenUtilsModule
-      ? await tokenUtilsModule.countTokensAccurate(sample)
-      : estimateTokenCount(sample);
+  const tokens = estimateTokenCount(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(CHARS_PER_TOKEN_MAX, measured));
-  }
-  if (useAccurate) {
-    // The worker path is intentionally fail-fast here. Unlike the service path,
-    // this runtime should surface invalid accurate token counts as a hard chunk
-    // failure rather than quietly degrading inside the hidden host/browser worker.
-    throw new Error('Accurate token counting produced an invalid token count');
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
 }
@@ -1087,10 +1060,10 @@ export async function chunkContent(
   // Maximum safe token limit for embedding models
   const maxSafeTokens = Math.min(effectiveMaxTokens * 4, CHUNKING_CONFIG.maxTokensSafetyCap);
 
-  // Compute chars per token
-  const useTokenTrueSizing = options.tokenTrueSizing ?? false;
-  const tokenUtilsModule = useTokenTrueSizing ? await loadTokenUtilsLiteModule() : null;
-  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing, tokenUtilsModule);
+  // Compute chars per token. tokenTrueSizing is a legacy compatibility flag; all
+  // local preflight sizing now uses the shared estimator because provider
+  // tokenizers are not universally available locally.
+  const charsPerToken = await computeCharsPerToken(content);
   const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
   const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
@@ -1238,13 +1211,7 @@ export async function chunkContent(
     separators: ['\n\n', '\n', '. ', ' ', ''],
   });
 
-  // Hoist the tokenizer dispatch out of the per-chunk loop. The previous shape
-  // re-evaluated `useTokenTrueSizing && tokenUtilsModule` per chunk and per
-  // sub-chunk; here we pick once and reuse a stable callback.
-  const accurateModule = useTokenTrueSizing ? tokenUtilsModule : null;
-  const countTokens = accurateModule
-    ? (text: string) => accurateModule.countTokensAccurate(text)
-    : (text: string) => Promise.resolve(estimateTokenCount(text));
+  const countTokens = (text: string) => Promise.resolve(estimateTokenCount(text));
 
   for (const g of groups) {
     for (const txt of g.pieces) {
@@ -1263,10 +1230,6 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          // Reuse the hoisted dispatch so callers who opted into
-          // tokenTrueSizing keep getting accurate counts on sub-pieces too —
-          // downstream budget enforcement depends on those numbers being
-          // tight, not on a faster-but-loose char/4 heuristic.
           pendingChunks.push({
             content: subC,
             tokenCount: await countTokens(subC),

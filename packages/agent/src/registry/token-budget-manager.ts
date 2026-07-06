@@ -12,7 +12,7 @@
  * - Context/Results: 25%
  */
 
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import { compareByLoadPriority, TOOL_CATEGORIES, type ToolCategory } from './tool-categories';
 import type { UnifiedToolMetadata } from './unified-registry';
 
@@ -128,7 +128,7 @@ export class TokenBudgetManager {
   constructor(options: TokenBudgetManagerOptions) {
     this.contextWindowTokens = options.contextWindowTokens;
     this.allocation = { ...DEFAULT_BUDGET_ALLOCATION, ...options.allocation };
-    this.estimateTokens = options.estimateTokens ?? countTokensHeuristic;
+    this.estimateTokens = options.estimateTokens ?? countEstimatedTokens;
 
     for (const [key, value] of Object.entries(this.allocation)) {
       if (!Number.isFinite(value) || value < 0) {

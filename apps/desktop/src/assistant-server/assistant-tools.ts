@@ -47,11 +47,11 @@ import {
   type EmbeddingSpaceListing,
   type EmbeddingSpaceStats,
 } from '@brainstrike/db';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
+import { countEstimatedTokens } from '@brainstrike/utils';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
@@ -454,7 +454,7 @@ async function runReadWorkspaceFile(
     totalLines: ranged.totalLines,
     truncated: truncated.truncated,
     omittedChars: truncated.omittedChars,
-    approxOutputTokens: countTokensHeuristic(truncated.content),
+    approxOutputTokens: countEstimatedTokens(truncated.content),
     content: truncated.content,
   };
 }
@@ -1311,7 +1311,7 @@ function buildRangedContextContent(args: {
     rangeResults.push({
       startLine: range.startLine,
       endLine: range.endLine,
-      approxTokens: countTokensHeuristic(truncatedRange.content),
+      approxTokens: countEstimatedTokens(truncatedRange.content),
       content: truncatedRange.content,
     });
     if (remainingChars <= 0) {
@@ -1337,7 +1337,7 @@ ${escapeSelectionBoundaryTags(range.content)}
     .join('\n');
 
   return {
-    approxTokens: countTokensHeuristic(content),
+    approxTokens: countEstimatedTokens(content),
     content,
     startLine: activeRanges[0]?.startLine ?? 1,
     endLine: activeRanges.at(-1)?.endLine ?? 1,

@@ -1,8 +1,4 @@
 import {
-  tokenPreferencesSelectors,
-  useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
-import {
   type ChunkingPresetSelection,
   type ChunkingStrategy,
   getChunkingPresetDefinitions,
@@ -311,7 +307,6 @@ export function SettingsPanel({
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
     ? String(importSettings.chunkTokenLimit)
     : 'custom';
-  const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const selectedStrategy = STRATEGY_OPTIONS.find(
     (option) => option.value === importSettings.chunkingStrategy
   );
@@ -590,15 +585,12 @@ export function SettingsPanel({
           </div>
         </Disclosure>
 
-        {/* Footer: tokenizer mode + danger zone, on one compact row. */}
+        {/* Footer: token sizing mode + danger zone, on one compact row. */}
         <footer className="flex flex-wrap items-center justify-between gap-2 border-border/60 border-t pt-2">
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span>Token sizing</span>
-            <Badge
-              className="text-[10px] uppercase"
-              variant={accurateCounting ? 'secondary' : 'outline'}
-            >
-              {accurateCounting ? 'WASM tokenizer' : 'Heuristic mode'}
+            <Badge className="text-[10px] uppercase" variant="secondary">
+              Local estimator
             </Badge>
           </div>
           {clearDatabaseProps && (

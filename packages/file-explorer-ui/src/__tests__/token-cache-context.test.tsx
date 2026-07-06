@@ -13,13 +13,14 @@ import {
   useTokenCacheContext,
 } from '../indexing/token-cache-context';
 
-const { tokenCacheStoreInstances } = vi.hoisted(() => ({
+const { tokenCacheStoreInstances, tokenPreferenceState } = vi.hoisted(() => ({
   tokenCacheStoreInstances: [] as { clearAll: ReturnType<typeof vi.fn> }[],
+  tokenPreferenceState: { accurateCounting: false },
 }));
 
 // Mock dependencies
 vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
-  useTokenPreferencesStore: vi.fn(() => false),
+  useTokenPreferencesStore: vi.fn(() => tokenPreferenceState.accurateCounting),
   tokenPreferencesSelectors: { accurateCounting: {} },
 }));
 
@@ -116,6 +117,7 @@ describe('TokenCacheContext', () => {
     __resetTokenCacheRekeyWipeForTests();
     localStorage.removeItem(TOKEN_CACHE_REKEY_V5_MARKER);
     tokenCacheStoreInstances.length = 0;
+    tokenPreferenceState.accurateCounting = false;
   });
 
   it('provides token cache context when within provider', async () => {
@@ -174,6 +176,20 @@ describe('TokenCacheContext', () => {
     await waitFor(() => expect(result.current.isWorkerReady).toBe(true));
     const count = await result.current.countTextTokens('hello world');
     expect(count).toBeGreaterThan(0);
+  });
+
+  it('uses schema-compatible heuristic mode even when the legacy preference is true', async () => {
+    tokenPreferenceState.accurateCounting = true;
+    const { useTokenCache } = await import('@brainstrike/token-cache/cache-runtime');
+
+    const { result } = renderHook(() => useTokenCacheContext(), {
+      wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+    });
+
+    await waitFor(() => expect(result.current.countingMode).toBe('heuristic'));
+    expect(vi.mocked(useTokenCache)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ countingMode: 'heuristic' })
+    );
   });
 
   it('uses fallback store when no db is provided', () => {

@@ -489,7 +489,7 @@ export function after(): void {
 
         expect(result.chunks.length).toBeGreaterThan(1);
         for (const chunk of result.chunks) {
-          expect(chunk.content.length).toBeLessThanOrEqual(2000);
+          expect(chunk.content.length).toBeLessThanOrEqual(CHUNKING_CONFIG.defaultMaxTokens * 8);
         }
       });
     });
@@ -745,6 +745,25 @@ export function feature${index}() {
         expect(result.skipped).toBe(false);
         expect(result.chunks[0]?.chunkSize).toBe(32);
         expect(result.chunks[0]?.content.length).toBeGreaterThan(0);
+      });
+
+      it('accepts legacy tokenTrueSizing without loading accurate token utilities', async () => {
+        vi.doMock('../token-utils-lite', () => {
+          throw new Error('accurate token utility module should not load for local estimation');
+        });
+
+        const result = await chunkContent('abcde '.repeat(160), {
+          strategy: 'token',
+          fileName: 'estimated-sizing.txt',
+          maxTokens: 32,
+          overlap: 8,
+          tokenTrueSizing: true,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('token');
+        expect(result.chunks.length).toBeGreaterThan(0);
+        expect(result.totalTokens).toBeGreaterThan(0);
       });
 
       it('re-splits oversized chunks when true sizing exceeds the safety cap', async () => {

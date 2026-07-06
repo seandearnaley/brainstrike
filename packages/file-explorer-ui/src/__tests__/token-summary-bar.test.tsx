@@ -4,9 +4,9 @@ import { TokenSummaryBar } from '../indexing/token-summary-bar';
 import type { TokenCountingState } from '../indexing/use-token-counting';
 
 const defaultTokenCounting: TokenCountingState = {
-  mode: 'accurate',
+  mode: 'heuristic',
   loading: false,
-  reason: null, // null indicates worker is loaded and ready
+  reason: null,
   countTokens: async () => 0,
 };
 
@@ -22,6 +22,14 @@ describe('TokenSummaryBar', () => {
   };
 
   describe('BST-153: estimating state', () => {
+    it('shows the local estimator token status badge', () => {
+      render(<TokenSummaryBar {...defaultProps} />);
+
+      expect(screen.getByText('Estimator')).toBeInTheDocument();
+      expect(screen.queryByText('WASM')).not.toBeInTheDocument();
+      expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+    });
+
     it('shows "selected" when no files are pending', () => {
       render(<TokenSummaryBar {...defaultProps} selectedTokensPendingCount={0} />);
 

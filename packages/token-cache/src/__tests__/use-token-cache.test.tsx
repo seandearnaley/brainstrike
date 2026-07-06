@@ -1,3 +1,4 @@
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -180,7 +181,7 @@ describe('useTokenCache', () => {
     expect(workerPool.exec).toHaveBeenCalledTimes(1);
   });
 
-  it('uses persistent cache when hash matches and counting mode matches', async () => {
+  it('uses persistent cache when hash, counting mode, and estimator identity match', async () => {
     const cachedEntry: TokenCacheEntry = {
       folderId: 'folder',
       filePath: 'file.txt',
@@ -188,13 +189,13 @@ describe('useTokenCache', () => {
       fileSize: 10,
       mtimeMs: null,
       tokenCount: 99,
-      countingMode: 'accurate',
-      modelEncoding: 'o200k_base',
+      countingMode: 'heuristic',
+      modelEncoding: TOKEN_ESTIMATOR_ID,
     };
 
     store.get.mockResolvedValueOnce(cachedEntry);
 
-    const { result, rerender } = renderCacheHook('accurate');
+    const { result, rerender } = renderCacheHook('heuristic');
 
     let value: number | null = 0;
     await act(async () => {
@@ -215,6 +216,41 @@ describe('useTokenCache', () => {
 
     expect(workerPool.exec).not.toHaveBeenCalled();
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(99);
+  });
+
+  it('ignores stale persistent cache entries whose estimator identity does not match', async () => {
+    const cachedEntry: TokenCacheEntry = {
+      folderId: 'folder',
+      filePath: 'file.txt',
+      contentHash: 'hash:content',
+      fileSize: 10,
+      mtimeMs: null,
+      tokenCount: 99,
+      countingMode: 'heuristic',
+      modelEncoding: 'o200k_base',
+    };
+
+    store.get.mockResolvedValueOnce(cachedEntry);
+
+    const { result, rerender } = renderCacheHook('heuristic');
+
+    await act(async () => {
+      expect(result.current.getTokenCount('folder', 'file.txt', 'content')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+
+    expect(workerPool.exec).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        countingMode: 'heuristic',
+        modelEncoding: TOKEN_ESTIMATOR_ID,
+      })
+    );
   });
 
   it('updates hot cache after counting and calls onTokenResolved', async () => {
@@ -245,6 +281,12 @@ describe('useTokenCache', () => {
     });
 
     expect(store.set).toHaveBeenCalledTimes(1);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        countingMode: 'heuristic',
+        modelEncoding: TOKEN_ESTIMATOR_ID,
+      })
+    );
     expect(onTokenResolved).toHaveBeenCalledWith('folder', 'file.txt', 5);
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(5);
   });
@@ -413,8 +455,8 @@ describe('useTokenCache', () => {
         contentHash: 'hash:a',
         fileSize: 1,
         mtimeMs: null,
-        countingMode: 'accurate',
-        modelEncoding: 'o200k_base',
+        countingMode: 'heuristic',
+        modelEncoding: TOKEN_ESTIMATOR_ID,
       },
       {
         folderId: 'folder',
@@ -429,7 +471,7 @@ describe('useTokenCache', () => {
     ];
     store.getAllForFolder.mockResolvedValueOnce(entries);
 
-    const { result } = renderCacheHook('accurate');
+    const { result } = renderCacheHook('heuristic');
 
     await act(async () => {
       await result.current.preloadFolder('folder');

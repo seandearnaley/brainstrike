@@ -52,7 +52,7 @@ export const CHUNKING_CONFIG = {
   overlapSafetyCap: 1024, // Hard ceiling for overlap to avoid runaway duplication
 
   // Token estimation constants
-  averageCharsPerToken: 4, // Rough approximation of characters per token for English text
+  averageCharsPerToken: 4, // Fallback chars/token ratio if estimator calibration cannot run
 } as const;
 
 export type CodeLanguage = keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;

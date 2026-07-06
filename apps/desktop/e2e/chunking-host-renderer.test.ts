@@ -379,7 +379,7 @@ test.describe('Chunking Host Renderer', () => {
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
 
-  test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
+  test('supports estimated token sizing in the hidden chunking host without crashing the visible window', async ({
     window,
   }) => {
     await waitForAppReadyInTest(window);
@@ -421,7 +421,7 @@ test.describe('Chunking Host Renderer', () => {
           filePath: '/tmp/accurate-token-host.txt',
           content: Array.from(
             { length: 128 },
-            (_, index) => `Deterministic accurate token sizing line ${index + 1}.`
+            (_, index) => `Deterministic estimated token sizing line ${index + 1}.`
           ).join('\n'),
           options: {
             strategy: 'sentence',

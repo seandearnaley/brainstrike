@@ -3,7 +3,7 @@
  *
  * Displays tokens used vs. the effective input budget (≤ contextWindow - output
  * reservation). Sources usage from the zustand store (exact, post-turn) and falls
- * back to a heuristic estimate when no exact value has been recorded yet.
+ * back to a local estimate when no exact value has been recorded yet.
  *
  * Threshold states (fraction of effectiveInputBudget):
  *   ok      < 75%
@@ -13,7 +13,7 @@
 import { useAuiState } from '@assistant-ui/react';
 import {
   type CostEstimate,
-  countTokensHeuristic,
+  countEstimatedTokens,
   formatTokenCount,
   formatUsdCost,
 } from '@brainstrike/utils/token-counting-heuristics';
@@ -341,7 +341,7 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
   omSegment,
   threadKey,
 }) => {
-  // Access all messages to build a heuristic token estimate.
+  // Access all messages to build a local token estimate.
   const messages = useAuiState((s) => s.thread.messages);
   // Exact usage for this thread — when present, skip the message walk entirely
   // (ContextUsageMeter prefers exact usage over the estimate anyway).
@@ -362,7 +362,7 @@ export const ThreadContextMeter: FC<ThreadContextMeterProps> = ({
       for (const part of parts) {
         const p = part as { type?: string; text?: string };
         if (p.type === 'text' && typeof p.text === 'string') {
-          total += countTokensHeuristic(p.text);
+          total += countEstimatedTokens(p.text);
         }
       }
     }

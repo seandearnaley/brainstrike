@@ -63,12 +63,12 @@ describe('useTokenCounting', () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(null);
   });
 
-  it('uses the token cache worker when accurate counting is operational', async () => {
+  it('uses the token cache worker when estimator counting is operational', async () => {
     const countTextTokens = vi.fn(async () => 42);
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
         isOperational: true,
-        countingMode: 'accurate',
+        countingMode: 'heuristic',
         countTextTokens,
       })
     );
@@ -76,19 +76,19 @@ describe('useTokenCounting', () => {
     const { result } = renderHook(() => useTokenCounting());
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.mode).toBe('accurate');
+    expect(result.current.mode).toBe('heuristic');
     expect(result.current.reason).toBeNull();
 
     await expect(result.current.countTokens('hello')).resolves.toBe(42);
     expect(countTextTokens).toHaveBeenCalledWith('hello');
   });
 
-  it('falls back to heuristic mode when preference is disabled', async () => {
+  it('keeps estimator mode when the legacy accurate preference is disabled', async () => {
     const countTextTokens = vi.fn(async () => 123);
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
         isOperational: true,
-        countingMode: 'accurate',
+        countingMode: 'heuristic',
         countTextTokens,
       })
     );
@@ -101,42 +101,38 @@ describe('useTokenCounting', () => {
 
     await waitFor(() => {
       expect(result.current.mode).toBe('heuristic');
-      expect(result.current.reason).toBe('preference-disabled');
+      expect(result.current.reason).toBeNull();
     });
 
-    await expect(result.current.countTokens('abcde')).resolves.toBe(2);
-    expect(countTextTokens).not.toHaveBeenCalled();
+    await expect(result.current.countTokens('abcde')).resolves.toBe(123);
+    expect(countTextTokens).toHaveBeenCalledWith('abcde');
     expect(tokenPreferencesSelectors.accurateCounting(useTokenPreferencesStore.getState())).toBe(
       false
     );
   });
 
-  it('reports runtime unavailability when the token cache worker is unavailable', async () => {
+  it('uses the local estimator when the token cache worker is unavailable', async () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
         isOperational: false,
-        countingMode: 'accurate',
+        countingMode: 'heuristic',
         countTextTokens: vi.fn(async () => 99),
       })
     );
 
     const { result } = renderHook(() => useTokenCounting());
 
-    await waitFor(() => expect(result.current.mode).toBe('accurate'));
-    expect(result.current.reason).toBe('runtime-unavailable');
-    await expect(result.current.countTokens('abcd')).rejects.toThrow(
-      'Accurate token counting is unavailable'
-    );
+    await waitFor(() => expect(result.current.mode).toBe('heuristic'));
+    expect(result.current.reason).toBeNull();
+    await expect(result.current.countTokens('abcde')).resolves.toBe(1);
   });
 
-  it('fails fast when no token cache provider is present and accurate mode is enabled', async () => {
+  it('uses the local estimator when no token cache provider is present', async () => {
     const { result } = renderHook(() => useTokenCounting());
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.mode).toBe('accurate');
-    expect(result.current.reason).toBe('runtime-unavailable');
-    await expect(result.current.countTokens('abcd')).rejects.toThrow(
-      'Accurate token counting is unavailable'
-    );
+    expect(result.current.mode).toBe('heuristic');
+    expect(result.current.reason).toBeNull();
+    await expect(result.current.countTokens('abcde')).resolves.toBe(1);
   });
 });

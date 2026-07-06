@@ -3,7 +3,7 @@
  *
  * Provides token-budget-aware packing of semantic search results.
  * Uses the ContextPacker from @brainstrike/assistant-contract with optional
- * integration to the token cache for accurate token counts.
+ * integration to the token cache for stored token estimates.
  */
 
 import type {
@@ -11,9 +11,9 @@ import type {
   ContextPackerResult,
 } from '@brainstrike/assistant-contract/context-packer';
 import { ContextPacker } from '@brainstrike/assistant-contract/context-packer';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
+import { countEstimatedTokens } from '@brainstrike/utils/token-counting-heuristics';
 import { useCallback, useMemo } from 'react';
 import {
   formatPackedContext,
@@ -36,7 +36,7 @@ export interface UseContextPackerOptions {
    */
   budgetTokens?: number;
   /**
-   * Custom token estimation function (default: countTokensHeuristic)
+   * Custom token estimation function (default: countEstimatedTokens)
    */
   estimateTokens?: (content: string) => number;
   /**
@@ -44,7 +44,7 @@ export interface UseContextPackerOptions {
    */
   maxChunks?: number;
   /**
-   * Optional function to look up accurate token counts.
+   * Optional function to look up stored token estimates.
    * When omitted, packing uses the explicit estimateTokens strategy configured for this hook.
    */
   tokenCountLookup?: TokenCountLookup;
@@ -72,7 +72,7 @@ export function useContextPacker({
   budgetTokens = DEFAULT_TOKEN_BUDGET,
   maxChunks,
   tokenCountLookup,
-  estimateTokens = countTokensHeuristic,
+  estimateTokens = countEstimatedTokens,
 }: UseContextPackerOptions = {}): {
   packResults: ContextPackerFunction;
   budgetTokens: number;
@@ -140,7 +140,7 @@ export function packSearchResults(
     budgetTokens = DEFAULT_TOKEN_BUDGET,
     maxChunks,
     tokenCountLookup,
-    estimateTokens = countTokensHeuristic,
+    estimateTokens = countEstimatedTokens,
   } = options;
 
   const chunks = toContextPackerChunks(results, tokenCountLookup);

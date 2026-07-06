@@ -5,7 +5,7 @@
  * 1. Receives file content and options via postMessage
  * 2. Parses code using @babel/parser (for JS/TS)
  * 3. Splits content using appropriate strategy
- * 4. Counts tokens using tiktoken
+ * 4. Estimates token counts locally
  * 5. Hashes content for deduplication
  * 6. Posts results back to main thread
  *
@@ -25,26 +25,6 @@ import type {
   WorkerLog,
   WorkerRequest,
 } from './shared';
-
-type TokenUtilsLiteModule = typeof import('./token-utils-lite');
-
-let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
-
-async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
-  if (!tokenUtilsLiteModulePromise) {
-    tokenUtilsLiteModulePromise = import('./token-utils-lite');
-  }
-  return tokenUtilsLiteModulePromise;
-}
-
-async function disposeTokenUtilsLiteModule(): Promise<void> {
-  if (!tokenUtilsLiteModulePromise) {
-    return;
-  }
-  const module = await tokenUtilsLiteModulePromise;
-  await module.disposeAccurateTokenCountingRuntime();
-  tokenUtilsLiteModulePromise = null;
-}
 
 // ============================================================================
 // Constants
@@ -383,26 +363,6 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
   }
 
   log('debug', 'processBatch start', { total: requests.length });
-  const requiresAccurateTokenSizing = requests.some(
-    (request) => request.options.tokenTrueSizing === true
-  );
-  if (requiresAccurateTokenSizing) {
-    const tokenUtilsLiteModule = await loadTokenUtilsLiteModule();
-    const accurateSupported = await tokenUtilsLiteModule.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = tokenUtilsLiteModule.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      const firstRequest = requests[0];
-      self.postMessage({
-        type: 'error',
-        id: firstRequest?.id ?? '__init__',
-        fileRecordId: firstRequest?.fileRecordId ?? '__init__',
-        error: `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`,
-      } satisfies ChunkError);
-      return;
-    }
-  }
-
   const total = requests.length;
 
   for (const [i, request] of requests.entries()) {
@@ -496,21 +456,6 @@ async function handleChunkRequestMessage(message: ChunkRequest): Promise<void> {
     return;
   }
 
-  if (message.options.tokenTrueSizing === true) {
-    const tokenUtilsLiteModule = await loadTokenUtilsLiteModule();
-    const accurateSupported = await tokenUtilsLiteModule.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = tokenUtilsLiteModule.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      postChunkError(
-        message.id,
-        message.fileRecordId,
-        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-      );
-      return;
-    }
-  }
-
   const result = await processFileWithTimeout(message);
   self.postMessage(result);
 }
@@ -547,7 +492,6 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
     // Handle cleanup message (defensive cleanup for edge cases)
     if (messageType === 'cleanup') {
-      await disposeTokenUtilsLiteModule();
       cleanupGlobalHandlers();
       self.postMessage({ type: 'cleanup-done' });
       return;

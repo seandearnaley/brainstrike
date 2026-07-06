@@ -273,17 +273,17 @@ describe('PreviewPanel', () => {
     it('should display token counting status badge', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // New UI shows compact "WASM" badge for accurate mode
-      expect(screen.getByText('WASM')).toBeInTheDocument();
+      expect(screen.getByText('Estimator')).toBeInTheDocument();
+      expect(screen.queryByText('WASM')).not.toBeInTheDocument();
     });
 
-    it('should surface explicit heuristic messaging when configured', () => {
+    it('should keep estimator messaging for legacy heuristic mode props', () => {
       mockUsePreviewPanelState.mockReturnValue(mockState);
       const props = {
         ...mockProps,
         tokenCounting: {
           mode: 'heuristic' as const,
-          reason: 'preference-disabled' as const,
+          reason: null,
           loading: false,
           countTokens: vi.fn(async () => 0),
         },
@@ -291,8 +291,8 @@ describe('PreviewPanel', () => {
 
       render(<PreviewPanel {...props} />);
 
-      // New UI shows "Heuristic" badge for heuristic mode
-      expect(screen.getByText('Heuristic')).toBeInTheDocument();
+      expect(screen.getByText('Estimator')).toBeInTheDocument();
+      expect(screen.queryByText('Heuristic')).not.toBeInTheDocument();
     });
 
     it('should handle file click events', () => {

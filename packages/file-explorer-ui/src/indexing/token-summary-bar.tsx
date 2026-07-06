@@ -36,7 +36,6 @@ interface TokenStatusBadgeProps {
 }
 
 const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({ tokenCounting }) {
-  const isAccurate = tokenCounting.mode === 'accurate' && tokenCounting.reason === null;
   const isLoading = tokenCounting.loading;
 
   if (isLoading) {
@@ -46,27 +45,14 @@ const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Badge
-          className="gap-1 px-2 py-0.5 text-[10px]"
-          variant={isAccurate ? 'secondary' : 'outline'}
-        >
-          <CheckCircle2
-            className={`size-3 ${isAccurate ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
-          />
-          {isAccurate
-            ? 'WASM'
-            : tokenCounting.reason === 'preference-disabled'
-              ? 'Heuristic'
-              : 'Unavailable'}
+        <Badge className="gap-1 px-2 py-0.5 text-[10px]" variant="secondary">
+          <CheckCircle2 className="size-3 text-emerald-600 dark:text-emerald-400" />
+          Estimator
         </Badge>
       </TooltipTrigger>
       <TooltipContent side="bottom">
         <div className="text-xs">
-          {isAccurate
-            ? 'Using tiktoken WASM encoder for accurate token counts'
-            : tokenCounting.reason === 'preference-disabled'
-              ? 'Using 4 chars/token heuristic because heuristic mode was explicitly selected'
-              : 'Accurate token counting is required, but the tiktoken WASM runtime is currently unavailable'}
+          Using local estimated token sizing for previews and context preflight
         </div>
       </TooltipContent>
     </Tooltip>
