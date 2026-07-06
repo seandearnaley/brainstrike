@@ -98,3 +98,7 @@
 ## 2026-06-21 - Workspace sync watcher paths avoid split/filter arrays
 **Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
 **Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
+
+## 2026-07-05 - Web streamed file-handle caching scans root segments
+**Learning:** `packages/file-system/src/adapters/web-adapter.ts` resolves the root id for every cached file handle produced by web directory streaming. The old `path.split('/').find(...)` scanned and allocated the full path for each file; a first-segment scan measured 806.51ms -> 198.82ms over 100k representative cached node paths x 80 rounds on Node 24.16.0 with identical checksum.
+**Action:** Keep web file-handle root-id extraction on an early-exit slash scan; do not reintroduce whole-path split/find in streaming cache paths.
