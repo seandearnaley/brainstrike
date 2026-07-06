@@ -78,6 +78,41 @@ function buildResponseHeaders(upstream: Response): Record<string, string> {
   return headers;
 }
 
+function parseOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function requestOrigin(req: http.IncomingMessage): string | null {
+  const host = req.headers.host;
+  if (typeof host !== 'string' || host.trim().length === 0) {
+    return null;
+  }
+  const protoHeader = req.headers['x-forwarded-proto'];
+  const protocol =
+    typeof protoHeader === 'string' ? protoHeader.split(',')[0]?.trim() || 'http' : 'http';
+  return parseOrigin(`${protocol}://${host}`);
+}
+
+function isTrustedSameOriginDevRequest(req: http.IncomingMessage): boolean {
+  const secFetchSite = req.headers['sec-fetch-site'];
+  if (typeof secFetchSite === 'string') {
+    return secFetchSite === 'same-origin';
+  }
+
+  const expectedOrigin = requestOrigin(req);
+  for (const header of [req.headers.origin, req.headers.referer]) {
+    if (typeof header === 'string') {
+      return expectedOrigin !== null && parseOrigin(header) === expectedOrigin;
+    }
+  }
+
+  return false;
+}
+
 interface InactivityAbort {
   dispose: () => void;
   signal: AbortSignal;
@@ -187,6 +222,12 @@ export async function handleHfProxyRequest(
 ): Promise<void> {
   const requestUrl = req.url ?? '';
   const hfPath = requestUrl.replace(/^\/api\/hf/, '');
+
+  if (!isTrustedSameOriginDevRequest(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden Hugging Face proxy request.');
+    return;
+  }
 
   if (!isAllowedHfDevPath(hfPath)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });

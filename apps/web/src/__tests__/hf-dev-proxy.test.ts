@@ -54,13 +54,16 @@ class ResponseSink extends EventEmitter {
 
 function createMockRequest(
   url: string,
-  options?: { method?: string; headers?: Record<string, string> }
+  options?: { method?: string; headers?: Record<string, string>; trustedSignal?: boolean }
 ): http.IncomingMessage {
   const emitter = new EventEmitter();
   return Object.assign(emitter, {
     url,
     method: options?.method ?? 'GET',
-    headers: options?.headers ?? {},
+    headers: {
+      ...(options?.trustedSignal === false ? {} : { 'sec-fetch-site': 'same-origin' }),
+      ...(options?.headers ?? {}),
+    },
   }) as unknown as http.IncomingMessage;
 }
 
@@ -309,6 +312,41 @@ describe('hf dev proxy', () => {
       expect(fetchMock).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(403);
       expect(res.ended).toBe(true);
+    });
+
+    it('rejects cross-site browser requests before proxying to Hugging Face', async () => {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json',
+        {
+          headers: {
+            host: 'localhost:8080',
+            origin: 'https://attacker.example',
+            'sec-fetch-site': 'cross-site',
+          },
+        }
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+      expect(res.body()).toBe('Forbidden Hugging Face proxy request.');
+    });
+
+    it('rejects requests without a trusted browser signal before proxying', async () => {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json',
+        { trustedSignal: false }
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
     });
 
     it('returns 502 when the upstream fetch throws', async () => {
