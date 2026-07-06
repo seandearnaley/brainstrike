@@ -2,15 +2,15 @@
   "name": "@brainstrike/agent",
   "version": "0.1.0",
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.81",
-    "@ai-sdk/google": "^3.0.80",
-    "@ai-sdk/openai": "^3.0.66",
+    "@ai-sdk/anthropic": "^3.0.93",
+    "@ai-sdk/google": "^3.0.88",
+    "@ai-sdk/openai": "^3.0.80",
     "@ai-sdk/provider": "3.0.10",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^4.1.0",
+    "@huggingface/transformers": "^4.2.0",
     "@mastra/core": "^1.37.1",
     "@mastra/mcp": "^1.8.1",
     "@mastra/memory": "1.20.0",
@@ -18,16 +18,16 @@
     "fastest-levenshtein": "^1.0.16",
     "json-schema": "^0.4.0",
     "minimatch": "^10.2.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.1",
     "@electric-sql/pglite-pgvector": "0.0.2",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.4",
     "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=22"

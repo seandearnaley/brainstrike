@@ -12,10 +12,10 @@
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.4",
     "rimraf": "^6.1.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.9"
   },
   "exports": {
     "./file-content-worker": {
