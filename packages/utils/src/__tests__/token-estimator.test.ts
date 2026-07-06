@@ -1,9 +1,18 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   countEstimatedTokens,
   countTokensHeuristic,
   TOKEN_ESTIMATOR_ID,
 } from '../token-counting-heuristics';
+
+const packageJson = JSON.parse(
+  readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf8')
+) as {
+  dependencies?: Record<string, string>;
+};
 
 describe('countEstimatedTokens', () => {
   it('uses the shared tokenx estimator for representative local sizing inputs', () => {
@@ -49,5 +58,9 @@ describe('countEstimatedTokens', () => {
     expect(TOKEN_ESTIMATOR_ID).toBe('tokenx@1');
     expect(countEstimatedTokens('abcde')).toBe(1);
     expect(countTokensHeuristic('abcde')).toBe(2);
+  });
+
+  it('pins tokenx exactly because estimator fixture counts are calibration data', () => {
+    expect(packageJson.dependencies?.['tokenx']).toBe('1.3.0');
   });
 });
