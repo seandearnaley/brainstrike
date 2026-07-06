@@ -6,6 +6,7 @@
  */
 
 import { createLogger, validateRelativeFilePath } from '@brainstrike/utils';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,
@@ -114,6 +115,10 @@ function rowToEntry(row: TokenCacheRow): TokenCacheEntry {
   };
 }
 
+function isCurrentEstimatorEntry(entry: TokenCacheEntry): boolean {
+  return entry.countingMode === 'heuristic' && entry.modelEncoding === TOKEN_ESTIMATOR_ID;
+}
+
 /**
  * TokenCacheStore provides persistent storage for token counts using PGlite.
  *
@@ -208,7 +213,8 @@ export class TokenCacheStore {
       return null;
     }
 
-    return rowToEntry(row);
+    const entry = rowToEntry(row);
+    return isCurrentEstimatorEntry(entry) ? entry : null;
   }
 
   /**
@@ -231,7 +237,10 @@ export class TokenCacheStore {
 
     const map = new Map<string, TokenCacheEntry>();
     for (const row of result.rows) {
-      map.set(row.file_path, rowToEntry(row));
+      const entry = rowToEntry(row);
+      if (isCurrentEstimatorEntry(entry)) {
+        map.set(row.file_path, entry);
+      }
     }
 
     return map;
@@ -246,7 +255,7 @@ export class TokenCacheStore {
       [folderId]
     );
 
-    return result.rows.map(rowToEntry);
+    return result.rows.map(rowToEntry).filter(isCurrentEstimatorEntry);
   }
 
   /**
@@ -367,8 +376,11 @@ export class TokenCacheStore {
     const result = await this.db.query<{ total: string }>(
       `SELECT COALESCE(SUM(token_count), 0) as total
        FROM file_token_cache
-       WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...validatedPaths]
+       WHERE folder_id = $1
+         AND file_path IN (${placeholders})
+         AND counting_mode = $${validatedPaths.length + 2}
+         AND model_encoding = $${validatedPaths.length + 3}`,
+      [folderId, ...validatedPaths, 'heuristic', TOKEN_ESTIMATOR_ID]
     );
 
     return Number(result.rows[0]?.total ?? 0);
@@ -378,8 +390,12 @@ export class TokenCacheStore {
    * Get cache statistics.
    */
   async getStats(folderId?: string): Promise<TokenCacheStats> {
-    const whereClause = folderId ? 'WHERE folder_id = $1' : '';
-    const params = folderId ? [folderId] : [];
+    const whereClause = folderId
+      ? 'WHERE folder_id = $1 AND counting_mode = $2 AND model_encoding = $3'
+      : 'WHERE counting_mode = $1 AND model_encoding = $2';
+    const params = folderId
+      ? [folderId, 'heuristic', TOKEN_ESTIMATOR_ID]
+      : ['heuristic', TOKEN_ESTIMATOR_ID];
 
     const result = await this.db.query<{
       entry_count: string;
@@ -415,14 +431,17 @@ export class TokenCacheStore {
     mode: TokenCountingMode,
     limit = 100
   ): Promise<TokenCacheEntry[]> {
+    if (mode !== 'heuristic') {
+      return [];
+    }
     const result = await this.db.query<TokenCacheRow>(
       `SELECT * FROM file_token_cache
-       WHERE folder_id = $1 AND counting_mode = $2
-       LIMIT $3`,
-      [folderId, mode, limit]
+       WHERE folder_id = $1 AND counting_mode = $2 AND model_encoding = $3
+       LIMIT $4`,
+      [folderId, mode, TOKEN_ESTIMATOR_ID, limit]
     );
 
-    return result.rows.map(rowToEntry);
+    return result.rows.map(rowToEntry).filter(isCurrentEstimatorEntry);
   }
 
   /**

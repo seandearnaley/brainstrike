@@ -16,6 +16,7 @@ const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
+const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
 
 async function openTokenCountingSettings(
   homePage: HomePage,
@@ -90,6 +91,36 @@ async function seedBrowserPersistentState(window: import('@playwright/test').Pag
   );
 }
 
+async function seedTokenCountingPreference(
+  window: import('@playwright/test').Page,
+  accurateCounting: boolean
+): Promise<void> {
+  await window.evaluate(
+    ({ accurateCounting: nextAccurateCounting, storageKey }) => {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ state: { accurateCounting: nextAccurateCounting }, version: 1 })
+      );
+    },
+    { accurateCounting, storageKey: TOKEN_PREFERENCES_STORAGE_KEY }
+  );
+}
+
+async function readTokenCountingPreference(
+  window: import('@playwright/test').Page
+): Promise<boolean | null> {
+  return await window.evaluate((storageKey: string) => {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
+    return typeof parsed.state?.accurateCounting === 'boolean'
+      ? parsed.state.accurateCounting
+      : null;
+  }, TOKEN_PREFERENCES_STORAGE_KEY);
+}
+
 async function readBrowserPersistentState(window: import('@playwright/test').Page): Promise<{
   cacheExists: boolean;
   dbExists: boolean | null;
@@ -154,6 +185,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
 
+    await seedTokenCountingPreference(window, false);
+    await expect.poll(() => readTokenCountingPreference(window)).toBe(false);
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
@@ -171,6 +204,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await waitForAppReady(window);
 
     await openTokenCountingSettings(homePage, settingsPage);
+    await expect.poll(() => readTokenCountingPreference(window)).toBe(false);
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
@@ -205,6 +239,8 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
 
+    await seedTokenCountingPreference(window, false);
+    await expect.poll(() => readTokenCountingPreference(window)).toBe(false);
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
@@ -237,6 +273,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await waitForAppReady(restartedWindow);
 
     await openTokenCountingSettings(restartedHomePage, restartedSettingsPage);
+    await expect.poll(() => readTokenCountingPreference(restartedWindow)).toBeNull();
     await expect(restartedWindow.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );

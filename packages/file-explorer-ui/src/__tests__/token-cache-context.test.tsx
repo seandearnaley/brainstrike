@@ -1,5 +1,6 @@
 import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -102,7 +103,7 @@ function createTokenCacheEntry(
     filePath,
     fileSize: 128,
     folderId,
-    modelEncoding: null,
+    modelEncoding: TOKEN_ESTIMATOR_ID,
     mtimeMs: null,
     tokenCount: 10,
     updatedAt: '2026-06-09T00:00:00.000Z',
@@ -227,48 +228,56 @@ describe('TokenCacheContext', () => {
     const store = asMemoryStore(result.current.store);
     const entries = [
       createTokenCacheEntry({
-        countingMode: 'accurate',
         filePath: 'src/a.ts',
         folderId: 'workspace-1',
         tokenCount: 7,
       }),
       createTokenCacheEntry({
-        countingMode: 'heuristic',
         filePath: 'src/b.ts',
         folderId: 'workspace-1',
         tokenCount: 11,
       }),
       createTokenCacheEntry({
-        countingMode: 'accurate',
         filePath: 'src/c.ts',
         folderId: 'workspace-2',
         tokenCount: 13,
+      }),
+      createTokenCacheEntry({
+        filePath: 'src/stale.ts',
+        folderId: 'workspace-1',
+        modelEncoding: 'o200k_base',
+        tokenCount: 999,
       }),
     ];
 
     await store.setBatch(entries);
 
-    const batch = await store.getBatch('workspace-1', ['src/a.ts', 'missing.ts', 'src/b.ts']);
+    const batch = await store.getBatch('workspace-1', [
+      'src/a.ts',
+      'missing.ts',
+      'src/b.ts',
+      'src/stale.ts',
+    ]);
     expect([...batch.keys()]).toEqual(['src/a.ts', 'src/b.ts']);
     await expect(store.getAllForFolder('workspace-1')).resolves.toEqual([entries[0], entries[1]]);
-    await expect(store.getTotalTokens('workspace-1', ['src/a.ts', 'src/b.ts'])).resolves.toBe(18);
+    await expect(
+      store.getTotalTokens('workspace-1', ['src/a.ts', 'src/b.ts', 'src/stale.ts'])
+    ).resolves.toBe(18);
     await expect(store.getStats()).resolves.toEqual({
-      accurateCount: 2,
+      accurateCount: 0,
       entryCount: 3,
-      heuristicCount: 1,
+      heuristicCount: 3,
       totalTokens: 31,
     });
     await expect(store.getStats('workspace-1')).resolves.toEqual({
-      accurateCount: 1,
+      accurateCount: 0,
       entryCount: 2,
-      heuristicCount: 1,
+      heuristicCount: 2,
       totalTokens: 18,
     });
-    await expect(store.findByCountingMode('workspace-1', 'accurate')).resolves.toEqual([
-      entries[0],
-    ]);
+    await expect(store.findByCountingMode('workspace-1', 'accurate')).resolves.toEqual([]);
     await expect(store.findByCountingMode('workspace-1', 'heuristic', 1)).resolves.toEqual([
-      entries[1],
+      entries[0],
     ]);
   });
 

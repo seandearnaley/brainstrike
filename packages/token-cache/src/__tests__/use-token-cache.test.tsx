@@ -490,12 +490,12 @@ describe('useTokenCache', () => {
         contentHash: 'hash:a',
         fileSize: 1,
         mtimeMs: null,
-        countingMode: 'accurate',
-        modelEncoding: 'o200k_base',
+        countingMode: 'heuristic',
+        modelEncoding: TOKEN_ESTIMATOR_ID,
       },
     ]);
 
-    const { result } = renderCacheHook('accurate');
+    const { result } = renderCacheHook('heuristic');
     expect(result.current.cacheVersion).toBe(0);
 
     await act(async () => {

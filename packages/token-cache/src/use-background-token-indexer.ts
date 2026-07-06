@@ -227,6 +227,18 @@ function getTerminalWorkerErrorDetails(error: unknown): TerminalWorkerErrorDetai
   return (error as ErrorWithTerminalWorkerDetails).terminalWorkerErrorDetails;
 }
 
+function matchesCurrentEstimatorCacheEntry(
+  entry: TokenCacheEntry,
+  mode: TokenCountingMode,
+  contentHash?: string
+): boolean {
+  return (
+    entry.countingMode === mode &&
+    entry.modelEncoding === TOKEN_ESTIMATOR_ID &&
+    (contentHash === undefined || entry.contentHash === contentHash)
+  );
+}
+
 async function persistResultToStore(
   result: IndexerResult,
   store: TokenCacheStoreLike,
@@ -234,7 +246,7 @@ async function persistResultToStore(
 ): Promise<void> {
   if (result.skipped) {
     const cached = await store.get(result.folderId, result.filePath);
-    if (cached) {
+    if (cached && matchesCurrentEstimatorCacheEntry(cached, result.mode, result.contentHash)) {
       onFileIndexed?.(result.compositeKey, cached.tokenCount, cached.fileSize);
     }
     return;
@@ -1049,7 +1061,10 @@ export function useBackgroundTokenIndexer({
           if (currentStore) {
             try {
               const cached = await currentStore.get(file.folderId, file.filePath);
-              cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
+              cachedHash =
+                cached && matchesCurrentEstimatorCacheEntry(cached, currentMode)
+                  ? cached.contentHash
+                  : undefined;
             } catch (error) {
               throw new Error(
                 `Cache lookup failed for ${file.compositeKey}: ${formatErrorMessage(error)}`

@@ -6,12 +6,21 @@
  */
 
 import { validateRelativeFilePath } from '@brainstrike/utils';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { fileTokenCache, textTimestampNow } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
 const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
+const CURRENT_ESTIMATOR_MODE: TokenCountingMode = 'heuristic';
+
+function currentEstimatorPredicate() {
+  return and(
+    eq(fileTokenCache.countingMode, CURRENT_ESTIMATOR_MODE),
+    eq(fileTokenCache.modelEncoding, TOKEN_ESTIMATOR_ID)
+  );
+}
 
 /**
  * Token counting mode
@@ -69,7 +78,11 @@ export class DrizzleTokenCacheStore {
       .select()
       .from(fileTokenCache)
       .where(
-        and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, validatedPath))
+        and(
+          eq(fileTokenCache.folderId, folderId),
+          eq(fileTokenCache.filePath, validatedPath),
+          currentEstimatorPredicate()
+        )
       );
 
     return row ? this.fromRow(row) : null;
@@ -89,7 +102,11 @@ export class DrizzleTokenCacheStore {
       .select()
       .from(fileTokenCache)
       .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
+        and(
+          eq(fileTokenCache.folderId, folderId),
+          inArray(fileTokenCache.filePath, validatedPaths),
+          currentEstimatorPredicate()
+        )
       );
 
     const map = new Map<string, TokenCacheEntry>();
@@ -107,7 +124,7 @@ export class DrizzleTokenCacheStore {
     const rows = await this.db
       .select()
       .from(fileTokenCache)
-      .where(eq(fileTokenCache.folderId, folderId));
+      .where(and(eq(fileTokenCache.folderId, folderId), currentEstimatorPredicate()));
 
     return rows.map((row) => this.fromRow(row));
   }
@@ -239,7 +256,11 @@ export class DrizzleTokenCacheStore {
       .select({ total: sum(fileTokenCache.tokenCount) })
       .from(fileTokenCache)
       .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
+        and(
+          eq(fileTokenCache.folderId, folderId),
+          inArray(fileTokenCache.filePath, validatedPaths),
+          currentEstimatorPredicate()
+        )
       );
 
     return Number(result?.total ?? 0);
@@ -257,10 +278,12 @@ export class DrizzleTokenCacheStore {
         COUNT(*) FILTER (WHERE counting_mode = 'accurate') as accurate_count,
         COUNT(*) FILTER (WHERE counting_mode = 'heuristic') as heuristic_count
       FROM file_token_cache
+      WHERE counting_mode = ${CURRENT_ESTIMATOR_MODE}
+        AND model_encoding = ${TOKEN_ESTIMATOR_ID}
     `;
 
     const result = folderId
-      ? await this.db.execute(sql`${baseQuery} WHERE folder_id = ${folderId}`)
+      ? await this.db.execute(sql`${baseQuery} AND folder_id = ${folderId}`)
       : await this.db.execute(baseQuery);
 
     const row = (result.rows as Record<string, unknown>[])[0];
@@ -281,10 +304,19 @@ export class DrizzleTokenCacheStore {
     mode: TokenCountingMode,
     limit = 100
   ): Promise<TokenCacheEntry[]> {
+    if (mode !== CURRENT_ESTIMATOR_MODE) {
+      return [];
+    }
     const rows = await this.db
       .select()
       .from(fileTokenCache)
-      .where(and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.countingMode, mode)))
+      .where(
+        and(
+          eq(fileTokenCache.folderId, folderId),
+          eq(fileTokenCache.countingMode, mode),
+          eq(fileTokenCache.modelEncoding, TOKEN_ESTIMATOR_ID)
+        )
+      )
       .limit(limit);
 
     return rows.map((row) => this.fromRow(row));

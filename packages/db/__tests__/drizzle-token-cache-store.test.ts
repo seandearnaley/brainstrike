@@ -4,6 +4,7 @@
  * Tests the Drizzle-based TokenCacheStore implementation.
  */
 
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
@@ -31,8 +32,8 @@ describe('DrizzleTokenCacheStore', () => {
       fileSize: 1024,
       mtimeMs: Date.now(),
       tokenCount: 100,
-      countingMode: 'accurate',
-      modelEncoding: 'o200k_base',
+      countingMode: 'heuristic',
+      modelEncoding: TOKEN_ESTIMATOR_ID,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...overrides,
@@ -66,7 +67,7 @@ describe('DrizzleTokenCacheStore', () => {
       expect(found).toBeDefined();
       expect(found?.filePath).toBe('src/file1.ts');
       expect(found?.tokenCount).toBe(100);
-      expect(found?.countingMode).toBe('accurate');
+      expect(found?.countingMode).toBe('heuristic');
     });
 
     it('should return null for non-existent entry', async () => {
@@ -191,6 +192,22 @@ describe('DrizzleTokenCacheStore', () => {
       const result = await store.getBatch(testFolderId, []);
       expect(result.size).toBe(0);
     });
+
+    it('does not return stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'src/fresh.ts', tokenCount: 100 }));
+      await store.set(
+        createEntry({
+          filePath: 'src/stale.ts',
+          tokenCount: 999,
+          modelEncoding: 'o200k_base',
+        })
+      );
+
+      const result = await store.getBatch(testFolderId, ['src/fresh.ts', 'src/stale.ts']);
+
+      expect(result.get('src/fresh.ts')?.tokenCount).toBe(100);
+      expect(result.has('src/stale.ts')).toBe(false);
+    });
   });
 
   describe('getAllForFolder', () => {
@@ -202,6 +219,15 @@ describe('DrizzleTokenCacheStore', () => {
       const entries = await store.getAllForFolder(testFolderId);
 
       expect(entries).toHaveLength(2);
+    });
+
+    it('does not return stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'src/fresh.ts' }));
+      await store.set(createEntry({ filePath: 'src/stale.ts', modelEncoding: null }));
+
+      const entries = await store.getAllForFolder(testFolderId);
+
+      expect(entries.map((entry) => entry.filePath)).toEqual(['src/fresh.ts']);
     });
   });
 
@@ -286,23 +312,46 @@ describe('DrizzleTokenCacheStore', () => {
       const total = await store.getTotalTokens(testFolderId, []);
       expect(total).toBe(0);
     });
+
+    it('does not include stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'src/fresh.ts', tokenCount: 100 }));
+      await store.set(
+        createEntry({
+          filePath: 'src/stale.ts',
+          tokenCount: 999,
+          modelEncoding: 'o200k_base',
+        })
+      );
+
+      const total = await store.getTotalTokens(testFolderId, ['src/fresh.ts', 'src/stale.ts']);
+
+      expect(total).toBe(100);
+    });
   });
 
   describe('getStats', () => {
     it('should return statistics for folder', async () => {
       await store.set(
-        createEntry({ filePath: 'src/file1.ts', tokenCount: 100, countingMode: 'accurate' })
+        createEntry({ filePath: 'src/file1.ts', tokenCount: 100, countingMode: 'heuristic' })
       );
       await store.set(
         createEntry({ filePath: 'src/file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+      );
+      await store.set(
+        createEntry({
+          filePath: 'src/stale.ts',
+          tokenCount: 999,
+          countingMode: 'heuristic',
+          modelEncoding: 'o200k_base',
+        })
       );
 
       const stats = await store.getStats(testFolderId);
 
       expect(stats.entryCount).toBe(2);
       expect(stats.totalTokens).toBe(300);
-      expect(stats.accurateCount).toBe(1);
-      expect(stats.heuristicCount).toBe(1);
+      expect(stats.accurateCount).toBe(0);
+      expect(stats.heuristicCount).toBe(2);
     });
 
     it('should return global statistics when no folder specified', async () => {

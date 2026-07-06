@@ -5,6 +5,33 @@ import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 import { waitForAppLoad } from './utils/layout-helpers';
 
+const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
+
+async function seedTokenCountingPreference(page: Page, accurateCounting: boolean): Promise<void> {
+  await page.evaluate(
+    ({ accurateCounting: nextAccurateCounting, storageKey }) => {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ state: { accurateCounting: nextAccurateCounting }, version: 1 })
+      );
+    },
+    { accurateCounting, storageKey: TOKEN_PREFERENCES_STORAGE_KEY }
+  );
+}
+
+async function readTokenCountingPreference(page: Page): Promise<boolean | null> {
+  return await page.evaluate((storageKey: string) => {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
+    return typeof parsed.state?.accurateCounting === 'boolean'
+      ? parsed.state.accurateCounting
+      : null;
+  }, TOKEN_PREFERENCES_STORAGE_KEY);
+}
+
 async function openTokenCountingSettings(page: Page): Promise<void> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
@@ -40,6 +67,8 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     await home.navigateToSettings();
     await settings.openCategory(/Token Counting/i, 'token-counting');
 
+    await seedTokenCountingPreference(page, false);
+    await expect.poll(() => readTokenCountingPreference(page)).toBe(false);
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
@@ -58,6 +87,7 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     await expect(page.getByTestId('settings-category-factory-reset')).toBeVisible();
     await page.reload();
     await openTokenCountingSettings(page);
+    await expect.poll(() => readTokenCountingPreference(page)).toBe(false);
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
@@ -70,12 +100,34 @@ test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset'
     await home.navigateToSettings();
     await settings.openCategory(/Token Counting/i, 'token-counting');
 
+    await seedTokenCountingPreference(page, false);
+    await expect.poll(() => readTokenCountingPreference(page)).toBe(false);
     await expect(page.getByTestId('token-counting-runtime-status')).toContainText(
       'Using local estimator'
     );
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
+    await page.addInitScript((storageKey: string) => {
+      const browserWindow = window as Window & {
+        __brainstrikeTokenPreferencesAtBoot?: string | null;
+      };
+      browserWindow.__brainstrikeTokenPreferencesAtBoot = window.localStorage.getItem(storageKey);
+    }, TOKEN_PREFERENCES_STORAGE_KEY);
     await confirmFactoryResetAndWaitForReload(page);
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const browserWindow = window as Window & {
+              __brainstrikeTokenPreferencesAtBoot?: string | null;
+            };
+            return browserWindow.__brainstrikeTokenPreferencesAtBoot;
+          }),
+        { message: 'expected factory reset to clear token preferences before reload boot' }
+      )
+      .toBeNull();
+    await expect.poll(() => readTokenCountingPreference(page)).toBeNull();
 
     await openTokenCountingSettings(page);
 

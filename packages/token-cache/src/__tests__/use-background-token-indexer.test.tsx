@@ -187,6 +187,69 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.progress).toBeNull();
   });
 
+  it('does not send cachedHash for cache entries from an old estimator identity', async () => {
+    const cachedEntry: TokenCacheEntry = {
+      folderId: 'folder',
+      filePath: 'file.txt',
+      contentHash: 'stale-hash',
+      fileSize: 128,
+      mtimeMs: null,
+      tokenCount: 42,
+      countingMode: 'heuristic',
+      modelEncoding: 'o200k_base',
+    };
+
+    const store = {
+      get: vi.fn(async () => cachedEntry),
+      set: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'heuristic',
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+      ]);
+    });
+
+    await waitFor(() => {
+      const worker = mockWorkers[0]!;
+      expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    const [message] = mockWorkers[0]!.postMessage.mock.calls[0] ?? [];
+    expect(message).toMatchObject({
+      type: 'index-batch',
+      requests: [expect.not.objectContaining({ cachedHash: 'stale-hash' })],
+    });
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|file.txt',
+          folderId: 'folder',
+          filePath: 'file.txt',
+          contentHash: 'fresh-hash',
+          fileSize: 128,
+          mode: 'heuristic',
+          tokenCount: 21,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+  });
+
   it('uses an explicit workerUrl override when provided', async () => {
     renderHook(() =>
       useBackgroundTokenIndexer({
@@ -1502,6 +1565,63 @@ describe('useBackgroundTokenIndexer', () => {
           compositeKey: 'folder|@|missing.txt',
           folderId: 'folder',
           filePath: 'missing.txt',
+          contentHash: 'hash',
+          fileSize: 128,
+          mode: 'heuristic',
+          tokenCount: 42,
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(onFileIndexed).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('does not notify indexed callback when skipped cache entry has an old estimator identity', async () => {
+    const cachedEntry: TokenCacheEntry = {
+      folderId: 'folder',
+      filePath: 'stale.txt',
+      contentHash: 'hash',
+      fileSize: 128,
+      mtimeMs: null,
+      tokenCount: 42,
+      countingMode: 'heuristic',
+      modelEncoding: 'o200k_base',
+    };
+    const onFileIndexed = vi.fn();
+    const store = {
+      get: vi.fn(async () => cachedEntry),
+      set: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'heuristic',
+        onFileIndexed,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        { compositeKey: 'folder|@|stale.txt', folderId: 'folder', filePath: 'stale.txt' },
+      ]);
+    });
+
+    await waitFor(() => expect(mockWorkers[0]!.postMessage).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      mockWorkers[0]!.emitEvent('message', {
+        data: {
+          type: 'result',
+          skipped: true,
+          compositeKey: 'folder|@|stale.txt',
+          folderId: 'folder',
+          filePath: 'stale.txt',
           contentHash: 'hash',
           fileSize: 128,
           mode: 'heuristic',

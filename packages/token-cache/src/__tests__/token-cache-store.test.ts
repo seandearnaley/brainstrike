@@ -18,6 +18,7 @@ vi.mock('@brainstrike/utils', async () => {
   };
 });
 
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import { TokenCacheStore } from '../token-cache-store';
 import type { TokenCacheEntry } from '../types';
 
@@ -97,14 +98,21 @@ function createMockDb() {
         if (sqlLower.includes('select * from') && sqlLower.includes('counting_mode = $2')) {
           const folderId = params?.[0] as string;
           const mode = params?.[1] as string;
-          const limit = (params?.[2] as number) || 100;
+          const modelEncoding = sqlLower.includes('model_encoding')
+            ? (params?.[2] as string)
+            : null;
+          const limit = (params?.[modelEncoding ? 3 : 2] as number) || 100;
           const rows: T[] = [];
           let count = 0;
           for (const [key, row] of mockRows) {
             if (count >= limit) {
               break;
             }
-            if (key.startsWith(`${folderId}::`) && row.counting_mode === mode) {
+            if (
+              key.startsWith(`${folderId}::`) &&
+              row.counting_mode === mode &&
+              (!modelEncoding || row.model_encoding === modelEncoding)
+            ) {
               rows.push(row as T);
               count++;
             }
@@ -119,10 +127,28 @@ function createMockDb() {
           let accurateCount = 0;
           let heuristicCount = 0;
 
-          const folderId = params?.[0] as string | undefined;
+          const hasEstimatorFilter = sqlLower.includes('model_encoding');
+          const folderId =
+            hasEstimatorFilter && params?.length === 3
+              ? (params?.[0] as string)
+              : hasEstimatorFilter
+                ? undefined
+                : (params?.[0] as string | undefined);
+          const mode = hasEstimatorFilter
+            ? (params?.[folderId ? 1 : 0] as string | undefined)
+            : undefined;
+          const modelEncoding = hasEstimatorFilter
+            ? (params?.[folderId ? 2 : 1] as string | undefined)
+            : undefined;
 
           for (const [key, row] of mockRows) {
             if (folderId && !key.startsWith(`${folderId}::`)) {
+              continue;
+            }
+            if (mode && row.counting_mode !== mode) {
+              continue;
+            }
+            if (modelEncoding && row.model_encoding !== modelEncoding) {
               continue;
             }
             entryCount++;
@@ -149,12 +175,21 @@ function createMockDb() {
         // Handle SUM query (getTotalTokens - has IN clause)
         if (sqlLower.includes('sum(token_count)') && sqlLower.includes(' in (')) {
           const folderId = params?.[0] as string;
-          const filePaths = params?.slice(1) as string[];
+          const hasEstimatorFilter = sqlLower.includes('model_encoding');
+          const filePaths = (
+            hasEstimatorFilter ? params?.slice(1, -2) : params?.slice(1)
+          ) as string[];
+          const mode = hasEstimatorFilter ? (params?.at(-2) as string) : undefined;
+          const modelEncoding = hasEstimatorFilter ? (params?.at(-1) as string) : undefined;
           let total = 0;
           for (const filePath of filePaths) {
             const key = `${folderId}::${filePath}`;
             const row = mockRows.get(key);
-            if (row) {
+            if (
+              row &&
+              (!mode || row.counting_mode === mode) &&
+              (!modelEncoding || row.model_encoding === modelEncoding)
+            ) {
               total += row.token_count as number;
             }
           }
@@ -235,8 +270,8 @@ describe('TokenCacheStore', () => {
     fileSize: 1000,
     mtimeMs: 1_700_000_000_000,
     tokenCount: 250,
-    countingMode: 'accurate',
-    modelEncoding: 'o200k_base',
+    countingMode: 'heuristic',
+    modelEncoding: TOKEN_ESTIMATOR_ID,
     ...overrides,
   });
 
@@ -252,8 +287,8 @@ describe('TokenCacheStore', () => {
         contentHash: 'abc123def456',
         fileSize: 1000,
         tokenCount: 250,
-        countingMode: 'accurate',
-        modelEncoding: 'o200k_base',
+        countingMode: 'heuristic',
+        modelEncoding: TOKEN_ESTIMATOR_ID,
       });
     });
 
@@ -404,6 +439,22 @@ describe('TokenCacheStore', () => {
       expect(result.has('file1.ts')).toBe(true);
       expect(result.has('non-existent.ts')).toBe(false);
     });
+
+    it('does not return stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'fresh.ts', tokenCount: 100 }));
+      await store.set(
+        createEntry({
+          filePath: 'stale.ts',
+          tokenCount: 999,
+          modelEncoding: 'o200k_base',
+        })
+      );
+
+      const result = await store.getBatch('folder-1', ['fresh.ts', 'stale.ts']);
+
+      expect(result.get('fresh.ts')?.tokenCount).toBe(100);
+      expect(result.has('stale.ts')).toBe(false);
+    });
   });
 
   describe('getAllForFolder', () => {
@@ -415,6 +466,15 @@ describe('TokenCacheStore', () => {
       const result = await store.getAllForFolder('folder-1');
       expect(result.length).toBe(2);
       expect(result.map((e) => e.filePath).sort()).toEqual(['file1.ts', 'file2.ts']);
+    });
+
+    it('does not return stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'fresh.ts' }));
+      await store.set(createEntry({ filePath: 'stale.ts', modelEncoding: null }));
+
+      const result = await store.getAllForFolder('folder-1');
+
+      expect(result.map((entry) => entry.filePath)).toEqual(['fresh.ts']);
     });
   });
 
@@ -636,22 +696,45 @@ describe('TokenCacheStore', () => {
       const total = await store.getTotalTokens('folder-1', ['file1.ts', 'non-existent.ts']);
       expect(total).toBe(100);
     });
+
+    it('does not include stale estimator rows', async () => {
+      await store.set(createEntry({ filePath: 'fresh.ts', tokenCount: 100 }));
+      await store.set(
+        createEntry({
+          filePath: 'stale.ts',
+          tokenCount: 999,
+          modelEncoding: 'o200k_base',
+        })
+      );
+
+      const total = await store.getTotalTokens('folder-1', ['fresh.ts', 'stale.ts']);
+
+      expect(total).toBe(100);
+    });
   });
 
   describe('getStats', () => {
     it('returns overall stats', async () => {
       await store.set(
-        createEntry({ filePath: 'file1.ts', tokenCount: 100, countingMode: 'accurate' })
+        createEntry({ filePath: 'file1.ts', tokenCount: 100, countingMode: 'heuristic' })
       );
       await store.set(
         createEntry({ filePath: 'file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+      );
+      await store.set(
+        createEntry({
+          filePath: 'stale.ts',
+          tokenCount: 999,
+          countingMode: 'heuristic',
+          modelEncoding: 'o200k_base',
+        })
       );
 
       const stats = await store.getStats();
       expect(stats.entryCount).toBe(2);
       expect(stats.totalTokens).toBe(300);
-      expect(stats.accurateCount).toBe(1);
-      expect(stats.heuristicCount).toBe(1);
+      expect(stats.accurateCount).toBe(0);
+      expect(stats.heuristicCount).toBe(2);
     });
 
     it('returns folder-specific stats', async () => {

@@ -32,6 +32,7 @@ import {
   useTokenCache,
 } from '@brainstrike/token-cache/cache-runtime';
 import { createLogger } from '@brainstrike/utils/logger';
+import { TOKEN_ESTIMATOR_ID } from '@brainstrike/utils/token-counting-heuristics';
 import {
   createContext,
   type ReactNode,
@@ -205,8 +206,13 @@ class InMemoryTokenCacheStore {
     return `${folderId}::${filePath}`;
   }
 
+  private static isCurrentEstimatorEntry(entry: TokenCacheEntry): boolean {
+    return entry.countingMode === 'heuristic' && entry.modelEncoding === TOKEN_ESTIMATOR_ID;
+  }
+
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
-    return this.entries.get(InMemoryTokenCacheStore.createKey(folderId, filePath)) ?? null;
+    const entry = this.entries.get(InMemoryTokenCacheStore.createKey(folderId, filePath));
+    return entry && InMemoryTokenCacheStore.isCurrentEstimatorEntry(entry) ? entry : null;
   }
 
   async getBatch(folderId: string, filePaths: string[]): Promise<Map<string, TokenCacheEntry>> {
@@ -223,7 +229,7 @@ class InMemoryTokenCacheStore {
   async getAllForFolder(folderId: string): Promise<TokenCacheEntry[]> {
     const entries: TokenCacheEntry[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.folderId === folderId) {
+      if (entry.folderId === folderId && InMemoryTokenCacheStore.isCurrentEstimatorEntry(entry)) {
         entries.push(entry);
       }
     }
@@ -284,7 +290,10 @@ class InMemoryTokenCacheStore {
     let heuristicCount = 0;
 
     for (const entry of this.entries.values()) {
-      if (folderId && entry.folderId !== folderId) {
+      if (
+        (folderId && entry.folderId !== folderId) ||
+        !InMemoryTokenCacheStore.isCurrentEstimatorEntry(entry)
+      ) {
         continue;
       }
       entryCount += 1;
@@ -304,9 +313,16 @@ class InMemoryTokenCacheStore {
     mode: TokenCountingMode,
     limit = 100
   ): Promise<TokenCacheEntry[]> {
+    if (mode !== 'heuristic') {
+      return [];
+    }
     const matches: TokenCacheEntry[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.folderId === folderId && entry.countingMode === mode) {
+      if (
+        entry.folderId === folderId &&
+        entry.countingMode === mode &&
+        InMemoryTokenCacheStore.isCurrentEstimatorEntry(entry)
+      ) {
         matches.push(entry);
         if (matches.length >= limit) {
           break;
