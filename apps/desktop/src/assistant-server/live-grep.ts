@@ -14,6 +14,28 @@ import { isWithinRoot } from './workspace-path';
 const logger = createLogger('AssistantLiveGrep');
 
 /**
+ * `execFile`'s ChildProcessError embeds the full spawned command (including the
+ * grep pattern) in `.message`/`.cmd`, and fs errors embed the real workspace
+ * path in `.message`/`.path` — neither is safe to log verbatim (mirrors
+ * `redactToolErrorForLog` in assistant-tools.ts).
+ */
+function redactErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
+
+/**
  * ripgrep executable name(s) to look for. On Windows the binary is `rg.exe`; on
  * every other platform it is `rg`. We probe BOTH so a misconfigured PATHEXT or a
  * `.exe` on a POSIX-ish shell still resolves.
@@ -581,7 +603,10 @@ async function gatherRootCandidates(args: {
   try {
     canonicalRootPath = await fsPromises.realpath(root.path);
   } catch (error) {
-    logger.warn('live grep: root is not accessible', { rootId: root.rootId, error });
+    logger.warn('live grep: root is not accessible', {
+      rootId: root.rootId,
+      error: redactErrorForLog(error),
+    });
     return;
   }
   state.anyRootAccessible = true;
@@ -611,7 +636,9 @@ async function gatherRootCandidates(args: {
       // every remaining root, and surface the reason (never silent).
       state.degradedToWalk = true;
       state.degradeReason = error instanceof Error ? error.message : String(error);
-      logger.warn('live grep: ripgrep failed; falling back to JS file-walk', { error });
+      logger.warn('live grep: ripgrep failed; falling back to JS file-walk', {
+        error: redactErrorForLog(error),
+      });
     }
   }
 

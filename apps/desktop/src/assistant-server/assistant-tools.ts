@@ -2002,7 +2002,7 @@ export function buildDesktopAssistantTools(
         try {
           return await runWebSearch(resolvedInput, dependencies.webSearch);
         } catch (error) {
-          logger.error('webSearch failed', { error });
+          logToolFailure('webSearch failed', error, resolvedInput);
           throw error;
         }
       },
