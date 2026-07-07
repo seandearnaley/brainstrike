@@ -181,267 +181,276 @@ describe('reportGenerator', () => {
     'package.json': '{ "name": "my-app", "version": "1.0.0" }',
   };
 
-  const createMockDirectoryHandle = (): FileSystemDirectoryHandle => ({
-    kind: 'directory',
-    name: 'root',
-    async *entries() {
-      // Root level files
-      yield [
-        'README.md',
-        {
-          kind: 'file',
-          name: 'README.md',
-          getFile: async () => new File([], 'README.md'),
-          createWritable: async () => {
-            throw new Error('Not implemented');
-          },
-          isSameEntry: async () => true,
-        } as FileSystemFileHandle,
-      ];
+  // Partial mock: only implements the subset of FileSystemDirectoryHandle that
+  // report-generator.ts actually reads (kind/name/entries()). TypeScript 6's DOM
+  // lib always includes the async-iterable members (keys/values/
+  // [Symbol.asyncIterator]) on FileSystemDirectoryHandle, which this test double
+  // intentionally omits, so the shape is asserted through `unknown` at the
+  // boundary rather than matched structurally against the full DOM type.
+  const createMockDirectoryHandle = () =>
+    ({
+      kind: 'directory',
+      name: 'root',
+      async *entries() {
+        // Root level files
+        yield [
+          'README.md',
+          {
+            kind: 'file',
+            name: 'README.md',
+            getFile: async () => new File([], 'README.md'),
+            createWritable: async () => {
+              throw new Error('Not implemented');
+            },
+            isSameEntry: async () => true,
+          } as unknown as FileSystemFileHandle,
+        ];
 
-      yield [
-        'package.json',
-        {
-          kind: 'file',
-          name: 'package.json',
-          getFile: async () => new File([], 'package.json'),
-          createWritable: async () => {
-            throw new Error('Not implemented');
-          },
-          isSameEntry: async () => true,
-        } as FileSystemFileHandle,
-      ];
+        yield [
+          'package.json',
+          {
+            kind: 'file',
+            name: 'package.json',
+            getFile: async () => new File([], 'package.json'),
+            createWritable: async () => {
+              throw new Error('Not implemented');
+            },
+            isSameEntry: async () => true,
+          } as unknown as FileSystemFileHandle,
+        ];
 
-      // src directory
-      yield [
-        'src',
-        {
-          kind: 'directory',
-          name: 'src',
-          async *entries() {
-            // src/lib
-            yield [
-              'lib',
-              {
-                kind: 'directory',
-                name: 'lib',
-                async *entries() {
-                  yield [
-                    'utils.ts',
-                    {
-                      kind: 'file',
-                      name: 'utils.ts',
-                      getFile: async () => new File([], 'utils.ts'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+        // src directory
+        yield [
+          'src',
+          {
+            kind: 'directory',
+            name: 'src',
+            async *entries() {
+              // src/lib
+              yield [
+                'lib',
+                {
+                  kind: 'directory',
+                  name: 'lib',
+                  async *entries() {
+                    yield [
+                      'utils.ts',
+                      {
+                        kind: 'file',
+                        name: 'utils.ts',
+                        getFile: async () => new File([], 'utils.ts'),
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                  isSameEntry: async () => true,
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/components
-            yield [
-              'components',
-              {
-                kind: 'directory',
-                name: 'components',
-                async *entries() {
-                  // src/components/ui
-                  yield [
-                    'ui',
-                    {
-                      kind: 'directory',
-                      name: 'ui',
-                      async *entries() {
-                        yield [
-                          'Button.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Button.tsx',
-                            getFile: async () => new File([], 'Button.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                        yield [
-                          'Input.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Input.tsx',
-                            getFile: async () => new File([], 'Input.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                      },
-                      getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                      getFileHandle: async () => ({}) as FileSystemFileHandle,
-                      removeEntry: async () => {},
-                      resolve: async () => [],
-                      isSameEntry: async () => true,
-                    } as FileSystemDirectoryHandle,
-                  ];
+              // src/components
+              yield [
+                'components',
+                {
+                  kind: 'directory',
+                  name: 'components',
+                  async *entries() {
+                    // src/components/ui
+                    yield [
+                      'ui',
+                      {
+                        kind: 'directory',
+                        name: 'ui',
+                        async *entries() {
+                          yield [
+                            'Button.tsx',
+                            {
+                              kind: 'file',
+                              name: 'Button.tsx',
+                              getFile: async () => new File([], 'Button.tsx'),
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              isSameEntry: async () => true,
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                          yield [
+                            'Input.tsx',
+                            {
+                              kind: 'file',
+                              name: 'Input.tsx',
+                              getFile: async () => new File([], 'Input.tsx'),
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              isSameEntry: async () => true,
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                        },
+                        getDirectoryHandle: async () =>
+                          ({}) as unknown as FileSystemDirectoryHandle,
+                        getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                        removeEntry: async () => {},
+                        resolve: async () => [],
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemDirectoryHandle,
+                    ];
 
-                  // src/components/layout
-                  yield [
-                    'layout',
-                    {
-                      kind: 'directory',
-                      name: 'layout',
-                      async *entries() {
-                        yield [
-                          'Header.tsx',
-                          {
-                            kind: 'file',
-                            name: 'Header.tsx',
-                            getFile: async () => new File([], 'Header.tsx'),
-                            createWritable: async () => {
-                              throw new Error('Not implemented');
-                            },
-                            isSameEntry: async () => true,
-                          } as FileSystemFileHandle,
-                        ];
-                      },
-                      getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                      getFileHandle: async () => ({}) as FileSystemFileHandle,
-                      removeEntry: async () => {},
-                      resolve: async () => [],
-                      isSameEntry: async () => true,
-                    } as FileSystemDirectoryHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+                    // src/components/layout
+                    yield [
+                      'layout',
+                      {
+                        kind: 'directory',
+                        name: 'layout',
+                        async *entries() {
+                          yield [
+                            'Header.tsx',
+                            {
+                              kind: 'file',
+                              name: 'Header.tsx',
+                              getFile: async () => new File([], 'Header.tsx'),
+                              createWritable: async () => {
+                                throw new Error('Not implemented');
+                              },
+                              isSameEntry: async () => true,
+                            } as unknown as FileSystemFileHandle,
+                          ];
+                        },
+                        getDirectoryHandle: async () =>
+                          ({}) as unknown as FileSystemDirectoryHandle,
+                        getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                        removeEntry: async () => {},
+                        resolve: async () => [],
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemDirectoryHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                  isSameEntry: async () => true,
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/pages
-            yield [
-              'pages',
-              {
-                kind: 'directory',
-                name: 'pages',
-                async *entries() {
-                  yield [
-                    'index.tsx',
-                    {
-                      kind: 'file',
-                      name: 'index.tsx',
-                      getFile: async () => new File([], 'index.tsx'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
+              // src/pages
+              yield [
+                'pages',
+                {
+                  kind: 'directory',
+                  name: 'pages',
+                  async *entries() {
+                    yield [
+                      'index.tsx',
+                      {
+                        kind: 'file',
+                        name: 'index.tsx',
+                        getFile: async () => new File([], 'index.tsx'),
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                  isSameEntry: async () => true,
+                } as unknown as FileSystemDirectoryHandle,
+              ];
 
-            // src/styles
-            yield [
-              'styles',
-              {
-                kind: 'directory',
-                name: 'styles',
-                async *entries() {
-                  yield [
-                    'globals.css',
-                    {
-                      kind: 'file',
-                      name: 'globals.css',
-                      getFile: async () => new File([], 'globals.css'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
-          },
-          getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-          getFileHandle: async () => ({}) as FileSystemFileHandle,
-          removeEntry: async () => {},
-          resolve: async () => [],
-          isSameEntry: async () => true,
-        } as FileSystemDirectoryHandle,
-      ];
+              // src/styles
+              yield [
+                'styles',
+                {
+                  kind: 'directory',
+                  name: 'styles',
+                  async *entries() {
+                    yield [
+                      'globals.css',
+                      {
+                        kind: 'file',
+                        name: 'globals.css',
+                        getFile: async () => new File([], 'globals.css'),
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                  isSameEntry: async () => true,
+                } as unknown as FileSystemDirectoryHandle,
+              ];
+            },
+            getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+            getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+            removeEntry: async () => {},
+            resolve: async () => [],
+            isSameEntry: async () => true,
+          } as unknown as FileSystemDirectoryHandle,
+        ];
 
-      // tests directory
-      yield [
-        'tests',
-        {
-          kind: 'directory',
-          name: 'tests',
-          async *entries() {
-            yield [
-              'components',
-              {
-                kind: 'directory',
-                name: 'components',
-                async *entries() {
-                  yield [
-                    'Button.test.tsx',
-                    {
-                      kind: 'file',
-                      name: 'Button.test.tsx',
-                      getFile: async () => new File([], 'Button.test.tsx'),
-                      createWritable: async () => {
-                        throw new Error('Not implemented');
-                      },
-                      isSameEntry: async () => true,
-                    } as FileSystemFileHandle,
-                  ];
-                },
-                getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-                getFileHandle: async () => ({}) as FileSystemFileHandle,
-                removeEntry: async () => {},
-                resolve: async () => [],
-                isSameEntry: async () => true,
-              } as FileSystemDirectoryHandle,
-            ];
-          },
-          getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-          getFileHandle: async () => ({}) as FileSystemFileHandle,
-          removeEntry: async () => {},
-          resolve: async () => [],
-          isSameEntry: async () => true,
-        } as FileSystemDirectoryHandle,
-      ];
-    },
-    getDirectoryHandle: async () => ({}) as FileSystemDirectoryHandle,
-    getFileHandle: async () => ({}) as FileSystemFileHandle,
-    removeEntry: async () => {},
-    resolve: async () => [],
-    isSameEntry: async () => true,
-  });
+        // tests directory
+        yield [
+          'tests',
+          {
+            kind: 'directory',
+            name: 'tests',
+            async *entries() {
+              yield [
+                'components',
+                {
+                  kind: 'directory',
+                  name: 'components',
+                  async *entries() {
+                    yield [
+                      'Button.test.tsx',
+                      {
+                        kind: 'file',
+                        name: 'Button.test.tsx',
+                        getFile: async () => new File([], 'Button.test.tsx'),
+                        createWritable: async () => {
+                          throw new Error('Not implemented');
+                        },
+                        isSameEntry: async () => true,
+                      } as unknown as FileSystemFileHandle,
+                    ];
+                  },
+                  getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+                  getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+                  removeEntry: async () => {},
+                  resolve: async () => [],
+                  isSameEntry: async () => true,
+                } as unknown as FileSystemDirectoryHandle,
+              ];
+            },
+            getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+            getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+            removeEntry: async () => {},
+            resolve: async () => [],
+            isSameEntry: async () => true,
+          } as unknown as FileSystemDirectoryHandle,
+        ];
+      },
+      getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
+      getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+      removeEntry: async () => {},
+      resolve: async () => [],
+      isSameEntry: async () => true,
+    }) as unknown as FileSystemDirectoryHandle;
 
   let mockRootDirectoryHandle: FileSystemDirectoryHandle;
 

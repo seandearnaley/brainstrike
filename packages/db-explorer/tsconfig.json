@@ -9,19 +9,19 @@
     "declarationDir": "dist",
     "paths": {
       "@brainstrike/file-explorer-ui": [
-        "../file-explorer-ui/src"
+        "../file-explorer-ui/dist/index.d.ts"
       ],
       "@brainstrike/file-explorer-ui/*": [
-        "../file-explorer-ui/src/*"
+        "../file-explorer-ui/dist/*.d.ts"
       ],
       "@brainstrike/pipeline": [
-        "../pipeline/src"
+        "../pipeline/dist/index.d.ts"
       ],
       "@brainstrike/utils/*": [
-        "../utils/src/*"
+        "../utils/dist/*.d.ts"
       ],
       "@brainstrike/preferences/*": [
-        "../preferences/src/*"
+        "../preferences/dist/*.d.ts"
       ]
     },
     "types": [

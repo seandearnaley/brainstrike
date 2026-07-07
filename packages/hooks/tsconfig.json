@@ -10,7 +10,7 @@
     "declarationMap": true,
     "paths": {
       "@brainstrike/utils/*": [
-        "../utils/src/*"
+        "../utils/dist/*.d.ts"
       ]
     },
     "types": [

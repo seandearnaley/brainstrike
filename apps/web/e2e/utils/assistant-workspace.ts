@@ -1,5 +1,5 @@
 import type { ModelRegistrySnapshotOverride } from '@brainstrike/preferences/settings-test-runtime-access';
-import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store-version';
 import { expect, type Page } from '@playwright/test';
 import { resetAppState } from './app-state';
 import { waitForAppLoad } from './layout-helpers';

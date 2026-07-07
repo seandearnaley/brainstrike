@@ -34,6 +34,7 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
+import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -107,9 +108,10 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
-export const ASSISTANT_PREFERENCES_STORE_VERSION = 6;
+export { ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
+
 const STORE_NAME = 'assistant-preferences.v1';
-const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
+const STORE_VERSION = LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id

@@ -28,7 +28,7 @@
     "noPropertyAccessFromIndexSignature": true,
     "useUnknownInCatchVariables": true,
     "verbatimModuleSyntax": true,
-    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "sourceMap": true,
     "removeComments": false,
     "allowJs": true,

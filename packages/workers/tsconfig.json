@@ -12,7 +12,7 @@
     ],
     "paths": {
       "@brainstrike/storage": [
-        "../storage/src"
+        "../storage/dist/index.d.ts"
       ]
     },
     "strictNullChecks": true
