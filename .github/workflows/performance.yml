@@ -46,7 +46,7 @@ jobs:
     # same runner hardware and the same Chrome-for-Testing build, so performance
     # measurements are unaffected.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
       # the configuration in Playwright's official GitHub Actions example.
       options: --user 1001

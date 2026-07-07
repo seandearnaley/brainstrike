@@ -313,7 +313,7 @@ jobs:
     # the same pin is hard-coded in .github/workflows/{test.yml,web-e2e.yml,
     # performance.yml} — bump all three together on a Playwright upgrade.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
       # official GitHub Actions container example. The browsers under
       # /ms-playwright are owned by this user; it is the documented, tested path.
