@@ -43,6 +43,6 @@ jobs:
       - uses: millionco/react-doctor@v2
         with:
           # Pinned for reproducible CI (kept in lockstep with the devDependency).
-          version: "0.5.5"
+          version: "0.7.1"
           scope: changed
           blocking: error
