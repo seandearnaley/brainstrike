@@ -1318,13 +1318,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('does not repeatedly trigger recovery syncs when idle coverage remains incomplete for the same roots', async () => {
     let coverageAuditCount = 0;
     dbState.current = {
+      exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('COUNT(*) AS file_count')) {
           coverageAuditCount += 1;
         }
         return { rows: [] };
       }),
-      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
@@ -1340,15 +1340,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
@@ -1356,15 +1356,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
@@ -1383,22 +1383,23 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('triggers another recovery sync when incomplete coverage changes for the same roots', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
+        handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
         name: 'index.ts',
         path: '/workspace/root/src/index.ts',
-        type: 'file',
-        handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
         rootFolderId: '/workspace/root',
+        type: 'file',
       },
       {
+        handle: { path: '/workspace/root/src/other.ts', platform: 'electron' },
         name: 'other.ts',
         path: '/workspace/root/src/other.ts',
-        type: 'file',
-        handle: { platform: 'electron', path: '/workspace/root/src/other.ts' },
         rootFolderId: '/workspace/root',
+        type: 'file',
       },
     ]);
     let indexedFileCount = 0;
     dbState.current = {
+      exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('COUNT(*) AS file_count')) {
           return {
@@ -1407,7 +1408,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }
         return { rows: [] };
       }),
-      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
@@ -1423,15 +1423,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
@@ -1440,15 +1440,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
       indexedFileCount = 1;
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
@@ -1461,6 +1461,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('allows another recovery sync after coverage was verified complete for the same roots', async () => {
     let indexedFileCount = 0;
     dbState.current = {
+      exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('COUNT(*) AS file_count')) {
           return {
@@ -1469,7 +1470,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }
         return { rows: [] };
       }),
-      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
@@ -1485,15 +1485,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
@@ -1502,51 +1502,51 @@ describe('WorkspaceCollectionSyncProvider', () => {
       indexedFileCount = 1;
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
       await waitFor(() => {
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-          state: 'idle',
           lastError: null,
+          state: 'idle',
         });
       });
 
       indexedFileCount = 0;
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'importing',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: '/workspace/root/src/index.ts',
-          queuedFiles: 1,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 0,
+          queuedFiles: 1,
+          state: 'importing',
         });
       });
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: '/workspace/root',
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 1,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
         });
       });
 
