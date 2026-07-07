@@ -683,7 +683,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const handleToggleExpand = useCallback(
       (nodeId: string) => {
         const node = fileNodeByPath.get(nodeId);
-        if (!node || node.type !== 'directory') {
+        if (node?.type !== 'directory') {
           return;
         }
         try {

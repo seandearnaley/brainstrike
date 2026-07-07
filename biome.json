@@ -58,14 +58,17 @@
         "noParameterProperties": "off",
         "noExportedImports": "off",
         "useConsistentMemberAccessibility": "off",
-        "useDefaultSwitchClause": "off"
+        "useDefaultSwitchClause": "off",
+        "noIncrementDecrement": "off"
       },
       "suspicious": {
         "noConsole": "error",
         "noEmptyBlockStatements": "off",
         "useAwait": "off",
         "noBitwiseOperators": "off",
-        "noEvolvingTypes": "off"
+        "noEvolvingTypes": "off",
+        "noLeakedRender": "off",
+        "noShadow": "off"
       },
       "complexity": {
         "useLiteralKeys": "off",
@@ -78,10 +81,7 @@
         "useTopLevelRegex": "off"
       },
       "nursery": {
-        "noFloatingPromises": "error",
-        "noLeakedRender": "off",
-        "noShadow": "off",
-        "noIncrementDecrement": "off"
+        "noFloatingPromises": "error"
       }
     }
   },

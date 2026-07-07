@@ -102,7 +102,7 @@
     "electron-builder-squirrel-windows": "^26.15.3",
     "file-saver": "2.0.5",
     "idb": "^8.0.3",
-    "jsdom": "29.0.2",
+    "jsdom": "29.1.1",
     "jszip": "^3.10.1",
     "minimatch": "^10.2.5",
     "pino": "^10.3.1",

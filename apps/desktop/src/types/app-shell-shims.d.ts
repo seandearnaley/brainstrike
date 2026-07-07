@@ -13,8 +13,9 @@
  * - packages/app-shell/src/navigation.ts (navigationItems)
  * - packages/app-shell/src/root-layout-content.tsx (RootLayoutContent)
  */
-import type React from 'react';
+
 import type { LucideIcon } from 'lucide-react';
+import type React from 'react';
 
 declare module '@brainstrike/app-shell/navigation' {
   export const navigationItems: unknown;
