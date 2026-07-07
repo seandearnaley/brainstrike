@@ -189,10 +189,6 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
         migrate: (persistedState: unknown) =>
           migrateBackgroundIndexingPreferencesState(persistedState),
         name: STORE_NAME,
-        onRehydrateStorage: () => (_state, error) => {
-          if (error) {
-          }
-        },
         partialize: (state: BackgroundIndexingPreferencesStore) => ({
           enabled: state.enabled,
           indexingPolicyPreset: state.indexingPolicyPreset,

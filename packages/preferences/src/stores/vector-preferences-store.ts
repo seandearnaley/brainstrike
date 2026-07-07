@@ -153,10 +153,6 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         return normalizePersistedVectorPreferences(state);
       },
       name: STORE_NAME,
-      onRehydrateStorage: () => (_state, error) => {
-        if (error) {
-        }
-      },
       partialize: (s) => ({
         devicePref: s.devicePref,
         devicePrefConfigured: s.devicePrefConfigured,
