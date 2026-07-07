@@ -330,6 +330,20 @@ function createCoverageAuditKey(args: {
   return `${args.collectionId}:${args.policyPreset}:${rootsKey}`;
 }
 
+function createCoverageRecoveryAttemptKey(args: {
+  auditKey: string;
+  outcome: WorkspaceCoverageIncompleteOutcome;
+}): string {
+  const mismatchKey = args.outcome.missingTargets
+    .map((target) => {
+      const indexedFileCount = args.outcome.indexedCounts.get(target.dbRootId) ?? 0;
+      return `${target.dbRootId}:${target.rootPath}:${indexedFileCount}/${target.expectedFileCount}`;
+    })
+    .sort()
+    .join('|');
+  return `${args.auditKey}:${mismatchKey}`;
+}
+
 function createCoverageStatusPatch(args: {
   activeRootPath: string | null;
   collectionId: string;
@@ -444,7 +458,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
   markAuditVerified: (auditKey: string) => void;
   outcome: WorkspaceCoverageAuditOutcome;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): boolean {
+}): string | null {
   if (args.outcome.kind === 'complete') {
     args.markAuditVerified(args.auditKey);
     args.setStatus(
@@ -455,7 +469,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         state: 'idle',
       })
     );
-    return false;
+    return null;
   }
   if (args.outcome.kind === 'unresolved-root') {
     logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
@@ -467,14 +481,14 @@ function applyWorkspaceCoverageAuditOutcome(args: {
         state: 'waiting',
       })
     );
-    return false;
+    return null;
   }
   applyWorkspaceCoverageIncompleteOutcome({
     collectionId: args.collectionId,
     outcome: args.outcome,
     setStatus: args.setStatus,
   });
-  return true;
+  return createCoverageRecoveryAttemptKey({ auditKey: args.auditKey, outcome: args.outcome });
 }
 
 function applyWorkspaceCoverageIncompleteOutcome(args: {
@@ -514,7 +528,7 @@ function startWorkspaceCoverageAudit(args: {
   resolveDbRootId: (path: string, rootId?: string) => Promise<string | null>;
   rootIdByPath: ReadonlyMap<string, string>;
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
-}): Promise<boolean> {
+}): Promise<string | null> {
   return runWorkspaceCoverageAudit({
     collectionId: args.collectionId,
     db: args.db,
@@ -527,7 +541,7 @@ function startWorkspaceCoverageAudit(args: {
   })
     .then((outcome) => {
       if (!outcome) {
-        return false;
+        return null;
       }
       return applyWorkspaceCoverageAuditOutcome({
         activeRootPath: args.activeRootPath,
@@ -540,7 +554,7 @@ function startWorkspaceCoverageAudit(args: {
     })
     .catch((error: unknown) => {
       if (!args.isCurrent()) {
-        return false;
+        return null;
       }
       const message = `Workspace Index coverage audit failed: ${
         error instanceof Error ? error.message : String(error)
@@ -554,7 +568,7 @@ function startWorkspaceCoverageAudit(args: {
           state: 'error',
         })
       );
-      return false;
+      return null;
     })
     .finally(() => {
       args.clearInFlightAudit(args.auditKey);
@@ -2058,21 +2072,22 @@ export function WorkspaceCollectionSyncProvider({
         markAuditVerified: (verifiedKey) => {
           if (!disposed) {
             verifiedAuditKey = verifiedKey;
-            if (recoveryAttemptedAuditKey === verifiedKey) {
-              recoveryAttemptedAuditKey = null;
-            }
+            recoveryAttemptedAuditKey = null;
           }
         },
         policyPreset: indexingPolicyPreset,
         resolveDbRootId,
         rootIdByPath,
         setStatus: setSyncStatus,
-      }).then((requiresRecoverySync) => {
-        if (!disposed && requiresRecoverySync) {
-          if (recoveryAttemptedAuditKey === auditKey) {
+      }).then((recoveryAttemptKey) => {
+        if (!disposed && recoveryAttemptKey) {
+          if (recoveryAttemptedAuditKey === recoveryAttemptKey) {
             return;
           }
-          recoveryAttemptedAuditKey = auditKey;
+          // One automatic recovery is allowed for each observed incomplete
+          // outcome. If that sync is interrupted, identical mismatches remain
+          // suppressed, but changed indexed/expected counts produce a new key.
+          recoveryAttemptedAuditKey = recoveryAttemptKey;
           triggerSyncFromEvent({ mode: 'full' });
         }
       });

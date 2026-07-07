@@ -1316,6 +1316,17 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('does not repeatedly trigger recovery syncs when idle coverage remains incomplete for the same roots', async () => {
+    let coverageAuditCount = 0;
+    dbState.current = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('COUNT(*) AS file_count')) {
+          coverageAuditCount += 1;
+        }
+        return { rows: [] };
+      }),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
     try {
@@ -1357,15 +1368,91 @@ describe('WorkspaceCollectionSyncProvider', () => {
         });
       });
 
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      });
+      await waitFor(() => expect(coverageAuditCount).toBeGreaterThanOrEqual(2));
 
       expect(syncSpy).toHaveBeenCalledTimes(2);
       expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting');
       expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(
         'Workspace Index coverage is incomplete after the pipeline reported idle'
       );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('triggers another recovery sync when incomplete coverage changes for the same roots', async () => {
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        name: 'index.ts',
+        path: '/workspace/root/src/index.ts',
+        type: 'file',
+        handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
+        rootFolderId: '/workspace/root',
+      },
+      {
+        name: 'other.ts',
+        path: '/workspace/root/src/other.ts',
+        type: 'file',
+        handle: { platform: 'electron', path: '/workspace/root/src/other.ts' },
+        rootFolderId: '/workspace/root',
+      },
+    ]);
+    let indexedFileCount = 0;
+    dbState.current = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('COUNT(*) AS file_count')) {
+          return {
+            rows: [{ file_count: String(indexedFileCount), root_id: 'db-root-id' }],
+          };
+        }
+        return { rows: [] };
+      }),
+      exec: vi.fn(async () => undefined),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          state: 'idle',
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 1,
+          lastError: null,
+          pauseReasons: [],
+        });
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+
+      indexedFileCount = 1;
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          state: 'idle',
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          queuedFiles: 0,
+          processedFiles: 1,
+          lastError: null,
+          pauseReasons: [],
+        });
+      });
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
     } finally {
       syncSpy.mockRestore();
     }
