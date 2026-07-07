@@ -82,8 +82,12 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
       headers.set(headerName, value);
     }
   }
+  if (!upstream.ok && upstream.status !== 304) {
+    headers.set('cache-control', 'no-store');
+    return headers;
+  }
   if (!headers.has('cache-control')) {
-    headers.set('cache-control', upstream.ok ? 'public, max-age=31536000, immutable' : 'no-store');
+    headers.set('cache-control', 'public, max-age=31536000, immutable');
   }
   return headers;
 }

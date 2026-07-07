@@ -11,6 +11,8 @@ import { resolveWorkspaceRoot } from './workspace-roots';
 export const EXECUTE_COMMAND_TOOL_ID = 'brainstrike.executeCommand' as const;
 
 const logger = createLogger('ExecuteCommandTool');
+const REDACTED_COMMAND_LOG_VALUE = { redacted: true } as const;
+const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 
 /** Default per-command timeout when the model does not specify one. */
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -509,15 +511,15 @@ export async function runExecuteCommand(
 
   if (outcome.timedOut) {
     logger.warn('Command timed out and its process tree was killed', {
-      command: input.command,
-      cwd,
+      command: REDACTED_COMMAND_LOG_VALUE,
+      cwd: REDACTED_CWD_LOG_VALUE,
       timeoutMs,
       durationMs,
     });
   } else if (outcome.exitCode !== 0) {
     logger.info('Command exited non-zero', {
-      command: input.command,
-      cwd,
+      command: REDACTED_COMMAND_LOG_VALUE,
+      cwd: REDACTED_CWD_LOG_VALUE,
       exitCode: outcome.exitCode,
       signal: outcome.signal,
     });

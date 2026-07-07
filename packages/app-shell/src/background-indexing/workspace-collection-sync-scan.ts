@@ -131,6 +131,26 @@ function countRelativePathSegments(path: string): number {
   return count;
 }
 
+function* iterRelativePathSegments(path: string): IterableIterator<string> {
+  let start = 0;
+  while (start < path.length) {
+    while (start < path.length && path.charCodeAt(start) === SLASH_CHAR_CODE) {
+      start += 1;
+    }
+    if (start >= path.length) {
+      return;
+    }
+    let end = path.indexOf('/', start);
+    if (end === -1) {
+      end = path.length;
+    }
+    // Directory change resolution may run for many watcher paths; scanning here
+    // avoids split/filter arrays while preserving empty-segment skipping.
+    yield path.slice(start, end);
+    start = end + 1;
+  }
+}
+
 function getParentRelativePath(relativePath: string): string | null {
   const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/u, '');
   const separatorIndex = normalized.lastIndexOf('/');
@@ -258,10 +278,9 @@ async function resolveDirectoryHandleForRelativePath(args: {
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<RootDirectoryHandle | null> {
-  const segments = args.relativePath.split('/').filter(Boolean);
   let currentHandle = args.rootHandle;
   let currentRelativePath = '';
-  for (const segment of segments) {
+  for (const segment of iterRelativePathSegments(args.relativePath)) {
     const children = await readDirectoryWithProgress({
       abortSignal: args.abortSignal,
       deps: args.deps,
@@ -798,4 +817,5 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
 export const __workspaceCollectionSyncScanInternalsForTests = {
   countRelativePathSegments,
   getPathName,
+  iterRelativePathSegments,
 };

@@ -35,6 +35,7 @@ const DEFAULT_CONTENT_MATCHES = 50;
  * counting, not the file scan itself.
  */
 const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
+const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 export interface GrepFileSummary {
   /** Line number of the first match in this file. */
@@ -485,7 +486,7 @@ export async function runGrepSearch(
       ? buildFilesResult(merged, offset)
       : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
   } catch (error) {
-    logger.error('grepSearch failed', { error, pattern: input.pattern.slice(0, 100) });
+    logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
     const message = error instanceof Error ? error.message : String(error);
     // Rethrow only known-safe service validation messages; everything else
     // (raw PGlite/SQL errors) maps to a generic message so internal details

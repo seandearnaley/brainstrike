@@ -17,6 +17,10 @@ import {
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 
+const { loggerWarnMock } = vi.hoisted(() => ({
+  loggerWarnMock: vi.fn(),
+}));
+
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
   return {
@@ -25,7 +29,7 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -62,6 +66,7 @@ const originalPath = process.env['PATH'];
 
 beforeEach(() => {
   resetRipgrepAvailabilityForTests();
+  loggerWarnMock.mockReset();
 });
 
 afterEach(async () => {
@@ -124,6 +129,83 @@ async function withRipgrepHidden<T>(fn: () => Promise<T>): Promise<T> {
     resetRipgrepAvailabilityForTests();
   }
 }
+
+/**
+ * Run `fn` with a fake `rg` on PATH that always exits 2 (rg's "genuine error"
+ * code), forcing `runLiveGrep` down the execFile-rejection branch. Node's
+ * execFile error embeds the full spawned command line (including the pattern)
+ * in `.message`/`.cmd` — this is the exact leak surface the redaction below
+ * regression-tests. Restores PATH afterwards.
+ */
+async function withRipgrepFailing<T>(fn: () => Promise<T>): Promise<T> {
+  const binDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-livegrep-fail-'));
+  createdRoots.push(binDir);
+  const rgPath = path.join(binDir, 'rg');
+  await fsPromises.writeFile(rgPath, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  await fsPromises.chmod(rgPath, 0o755);
+  process.env['PATH'] = binDir;
+  resetRipgrepAvailabilityForTests();
+  try {
+    return await fn();
+  } finally {
+    process.env['PATH'] = originalPath;
+    resetRipgrepAvailabilityForTests();
+  }
+}
+
+describe('runLiveGrep — failure-path log redaction (regression for PR #1337 gap)', () => {
+  it('redacts the workspace root path when a root is not accessible', async () => {
+    const secretPath = path.join(os.tmpdir(), 'brainstrike-secret-workspace-root-does-not-exist');
+
+    await runLiveGrep(
+      {
+        pattern: 'x',
+        isRegex: false,
+        caseSensitive: false,
+        contextLines: 0,
+        roots: [root(secretPath)],
+      },
+      literalMatcher('x')
+    );
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'live grep: root is not accessible',
+      expect.objectContaining({
+        rootId: 'root-1',
+        error: expect.objectContaining({ redacted: true }),
+      })
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(secretPath);
+  });
+
+  it('redacts the grep pattern when ripgrep fails and falls back to the JS walk', async () => {
+    if (process.platform === 'win32') {
+      // The fake `rg` above is a POSIX shell script; skip on Windows.
+      return;
+    }
+    const workspace = await makeWorkspace({ 'a.ts': 'needle here' });
+    const secretPattern = 'OPENAI_API_KEY_sk_sensitive_test_marker';
+
+    await withRipgrepFailing(async () => {
+      await runLiveGrep(
+        {
+          pattern: secretPattern,
+          isRegex: false,
+          caseSensitive: false,
+          contextLines: 0,
+          roots: [root(workspace)],
+        },
+        literalMatcher(secretPattern)
+      );
+    });
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'live grep: ripgrep failed; falling back to JS file-walk',
+      expect.objectContaining({ error: expect.objectContaining({ redacted: true }) })
+    );
+    expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(secretPattern);
+  });
+});
 
 describe('runLiveGrep — basics', () => {
   it('skips (engine: skipped) when no roots are supplied', async () => {
