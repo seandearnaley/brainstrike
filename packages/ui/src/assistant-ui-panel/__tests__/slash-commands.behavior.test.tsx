@@ -124,10 +124,10 @@ describe('composer slash commands', () => {
     const popover = await screen.findByRole('listbox', { name: 'Slash commands' });
     await user.click(within(popover).getByText('New thread'));
 
-    // The verified Unstable_SlashCommandRoot uses the "action" select behavior:
-    // selecting consumes the `/command` trigger text (it is never inserted as a
-    // directive chip in this version) and calls execute. So the composer is left
-    // clean — no stray "/".
+    // The verified Unstable_TriggerPopover.Action behavior (with
+    // removeOnExecute: true, set in toSlashCommandAdapterOptions) consumes the
+    // `/command` trigger text on select (it is never inserted as a directive
+    // chip) and calls execute. So the composer is left clean — no stray "/".
     await waitFor(() => expect(input.value).not.toContain('/'));
   });
 

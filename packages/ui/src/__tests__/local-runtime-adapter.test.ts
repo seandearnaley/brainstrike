@@ -38,7 +38,6 @@ function createRunOptions(): ChatModelRunOptions {
     runConfig: {},
     abortSignal: new AbortController().signal,
     context: {},
-    config: {},
     unstable_getMessage() {
       throw new Error('not needed in local adapter tests');
     },

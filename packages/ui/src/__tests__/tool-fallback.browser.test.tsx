@@ -14,6 +14,7 @@ const baseProps = {
   status: { type: 'complete' as const },
   addResult: () => {},
   resume: () => {},
+  respondToApproval: () => {},
 };
 
 describe('ToolFallback browser behavior', () => {

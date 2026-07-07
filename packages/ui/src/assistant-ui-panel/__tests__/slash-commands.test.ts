@@ -17,7 +17,7 @@ function makeCommand(overrides: Partial<SlashCommand> = {}): SlashCommand {
 }
 
 describe('toSlashCommandAdapterOptions', () => {
-  it('maps the command id to the library item name and preserves the label + execute', () => {
+  it('maps the command id to the library item id and preserves the label + execute', () => {
     const execute = vi.fn();
     const options = toSlashCommandAdapterOptions([
       makeCommand({ id: 'fs.reveal', label: 'Reveal in Finder', execute }),
@@ -25,7 +25,7 @@ describe('toSlashCommandAdapterOptions', () => {
 
     expect(options.commands).toHaveLength(1);
     const [command] = options.commands;
-    expect(command?.name).toBe('fs.reveal');
+    expect(command?.id).toBe('fs.reveal');
     expect(command?.label).toBe('Reveal in Finder');
 
     command?.execute?.();
@@ -34,6 +34,10 @@ describe('toSlashCommandAdapterOptions', () => {
 
   it('produces an empty command list for no commands (web with nothing to show)', () => {
     expect(toSlashCommandAdapterOptions([]).commands).toEqual([]);
+  });
+
+  it('sets removeOnExecute so selecting a command clears the "/command" text (pre-0.12.26 parity)', () => {
+    expect(toSlashCommandAdapterOptions([makeCommand()]).removeOnExecute).toBe(true);
   });
 });
 
