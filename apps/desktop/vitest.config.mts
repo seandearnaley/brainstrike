@@ -9,6 +9,7 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // biome-ignore assist/source/useSortedKeys: Vitest object aliases are order-sensitive; subpath aliases must precede package-root aliases.
     alias: {
       '@': path.resolve(import.meta.dirname, './src/renderer'),
       // The real `electron` entrypoint only exports the binary path and throws
@@ -71,10 +72,6 @@ export default defineConfig({
         '../../packages/queue/src/browser.ts'
       ),
       '@brainstrike/test-utils': path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
-      '@brainstrike/text-splitter': path.resolve(
-        import.meta.dirname,
-        '../../packages/text-splitter/src/index.ts'
-      ),
       '@brainstrike/text-splitter/chunking-core': path.resolve(
         import.meta.dirname,
         '../../packages/text-splitter/src/chunking-core.ts'
@@ -90,6 +87,10 @@ export default defineConfig({
       '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
         import.meta.dirname,
         '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
+      ),
+      '@brainstrike/text-splitter': path.resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/index.ts'
       ),
       '@brainstrike/utils/workspace-indexing-power-snapshot': path.resolve(
         import.meta.dirname,
