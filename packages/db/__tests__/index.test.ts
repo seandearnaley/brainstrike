@@ -1,5 +1,9 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as exports from '../src/index';
+import * as testDataDir from './test-data-dir';
 
 describe('db package exports', () => {
   it('exports all expected functions and classes', () => {
@@ -24,5 +28,32 @@ describe('db package exports', () => {
 
     expect(exports).toHaveProperty('wasmLoader');
     expect(exports.wasmLoader).toBeDefined();
+  });
+});
+
+describe('PGlite test data directory helper', () => {
+  it('tracks created directories for deterministic cleanup', async () => {
+    const dataDir = testDataDir.createPGliteTestDataDir('pglite-test-cleanup-contract');
+    await mkdir(dataDir, { recursive: true });
+
+    expect(existsSync(dataDir)).toBe(true);
+
+    const cleanup = (
+      testDataDir as typeof testDataDir & {
+        cleanupPGliteTestDataDirs?: () => Promise<void>;
+      }
+    ).cleanupPGliteTestDataDirs;
+
+    expect(cleanup).toBeTypeOf('function');
+    await cleanup?.();
+
+    expect(existsSync(dataDir)).toBe(false);
+  });
+
+  it('does not register module-level cleanup for unrelated tests in importing files', () => {
+    const source = readFileSync(join(process.cwd(), '__tests__/test-data-dir.ts'), 'utf8');
+
+    expect(source).toContain('onTestFinished');
+    expect(source).not.toContain('afterEach');
   });
 });

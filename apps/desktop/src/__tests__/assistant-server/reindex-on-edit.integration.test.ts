@@ -22,7 +22,10 @@ import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dbHolder } = vi.hoisted(() => ({ dbHolder: { db: null as unknown } }));
+const { dbHolder, loggerErrorMock } = vi.hoisted(() => ({
+  dbHolder: { db: null as unknown },
+  loggerErrorMock: vi.fn(),
+}));
 
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => dbHolder.db),
@@ -31,6 +34,19 @@ vi.mock('../../db-main', () => ({
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      error: loggerErrorMock,
+      info: vi.fn(),
+      warn: vi.fn(),
+    })),
+  };
+});
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 
@@ -133,6 +149,7 @@ beforeEach(async () => {
      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
     [EMBEDDING_SET_ID, 'local::test-embed', 'test-embed', 768, 'cosine']
   );
+  loggerErrorMock.mockReset();
 });
 
 afterEach(async () => {
@@ -237,6 +254,14 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     // Edit succeeded despite the re-index failure.
     expect(result?.bytesWritten).toBe(Buffer.byteLength(newContent, 'utf8'));
     expect(failing.transaction).toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Failed to re-index edited file; RAG index may be stale until next sync',
+      expect.objectContaining({
+        path: { redacted: true },
+      })
+    );
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(INDEXED_REL_PATH);
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(rootPath);
     const onDisk = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
     expect(onDisk).toBe(newContent);
   });

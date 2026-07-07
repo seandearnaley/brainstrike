@@ -598,6 +598,26 @@ describe('createRetrievalTool', () => {
     );
   });
 
+  it('does not expose raw retrieval errors in development mode', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi
+        .fn()
+        .mockRejectedValue(new Error('Database connection failed for /private/workspace')),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    try {
+      await expect(runTool(tool, { query: 'test' })).rejects.toThrow(
+        RETRIEVAL_ERROR_MESSAGES.retrievalFailed
+      );
+      await expect(runTool(tool, { query: 'test' })).rejects.not.toThrow('/private/workspace');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
   it('passes through safe error messages unchanged', async () => {
     const deps = createMockDependencies({
       resolveEmbeddingSet: vi

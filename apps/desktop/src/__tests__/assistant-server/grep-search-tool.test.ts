@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 
 const queryMock = vi.fn();
+const { loggerErrorMock } = vi.hoisted(() => ({
+  loggerErrorMock: vi.fn(),
+}));
 
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({ query: queryMock })),
@@ -14,11 +17,16 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
-      error: vi.fn(),
+      error: loggerErrorMock,
       info: vi.fn(),
       warn: vi.fn(),
     }),
   };
+});
+
+beforeEach(() => {
+  queryMock.mockReset();
+  loggerErrorMock.mockReset();
 });
 
 describe('grep search tool', () => {
@@ -173,6 +181,21 @@ describe('grep search tool', () => {
     const promise = runGrepSearch({ pattern: 'needle' }, undefined);
     await expect(promise).rejects.toThrow(/Unable to perform grep search/);
     await expect(promise).rejects.not.toThrow(/file_chunks/);
+  });
+
+  it('redacts grep patterns from failure logs', async () => {
+    queryMock.mockRejectedValue(new Error('repository unavailable'));
+    const pattern = 'OPENAI_API_KEY=sk-sensitive';
+
+    await expect(runGrepSearch({ pattern }, undefined)).rejects.toThrow(
+      /Unable to perform grep search/
+    );
+
+    expect(loggerErrorMock).toHaveBeenCalledWith('grepSearch failed', {
+      error: expect.any(Error),
+      pattern: { redacted: true },
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('sk-sensitive');
   });
 });
 

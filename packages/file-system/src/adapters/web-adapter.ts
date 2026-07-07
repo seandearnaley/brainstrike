@@ -5,6 +5,7 @@ import { formatFileSize, getFileSizeConfig } from '../config';
 import { AccessError } from '../errors';
 
 const logger = createLogger('WebFileSystemAdapter');
+const SLASH_CHAR_CODE = 47;
 
 import type {
   DirectoryHandle,
@@ -166,6 +167,26 @@ async function createFileNode(
   }
 }
 
+function getFirstNonEmptyPathSegment(path: string): string | null {
+  let segmentStart = -1;
+
+  // File-handle caching runs for every streamed file node. Scan only until the
+  // root segment is known instead of splitting the whole path and discarding it.
+  for (let index = 0; index <= path.length; index += 1) {
+    if (index === path.length || path.charCodeAt(index) === SLASH_CHAR_CODE) {
+      if (segmentStart !== -1) {
+        return path.slice(segmentStart, index);
+      }
+      continue;
+    }
+    if (segmentStart === -1) {
+      segmentStart = index;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Query the current permission state of a directory handle without prompting.
  * Uses `handle.queryPermission` if available; falls back to 'unknown'.
@@ -245,7 +266,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   private resolveRootFolderId(path: string): string | null {
-    const rootFromPath = path.split('/').find((segment) => segment.length > 0) ?? null;
+    const rootFromPath = getFirstNonEmptyPathSegment(path);
     if (!rootFromPath) {
       return this.lastRootFolderId;
     }

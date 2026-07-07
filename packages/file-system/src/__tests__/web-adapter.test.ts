@@ -931,6 +931,44 @@ describe('WebFileSystemAdapter', () => {
       );
     });
 
+    it('caches streamed file handles without splitting the whole node path', async () => {
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+      const fileHandle = {
+        kind: 'file',
+        name: 'main.ts',
+        getFile: vi.fn().mockResolvedValue(createFile('main.ts', 'source', 10)),
+      } as unknown as FileSystemFileHandle;
+      async function* entries() {
+        yield ['main.ts', fileHandle];
+      }
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const splitSpy = vi.spyOn(String.prototype, 'split');
+
+      await adapter.readDirectoryStreaming(
+        {
+          path: '//root//src',
+          name: 'root',
+          kind: 'directory',
+          platform: 'web',
+          _internal: dirHandle,
+        },
+        vi.fn(),
+        { includeMetadata: true }
+      );
+
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
+        'root',
+        '//root//src/main.ts',
+        fileHandle
+      );
+      expect(splitSpy).not.toHaveBeenCalled();
+    });
+
     it('streams an empty final batch for empty directories and stops when aborted', async () => {
       async function* emptyEntries() {}
       const emptyDirHandle = {
