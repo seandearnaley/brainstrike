@@ -630,9 +630,15 @@ describe('assistant-tools', () => {
       expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
       expect(loggerWarnMock).toHaveBeenCalledWith('Skipped workspace context file read', {
         code: 'EACCES',
-        error: readError,
-        path: '/src/main.ts',
+        error: {
+          code: 'EACCES',
+          name: 'Error',
+          redacted: true,
+        },
+        path: { redacted: true },
       });
+      expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain('/src/main.ts');
+      expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(workspaceRootPath);
     } finally {
       readFileSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
@@ -1306,6 +1312,32 @@ describe('assistant-tools', () => {
     ).rejects.toThrow(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
+  });
+
+  it('redacts native tool input and error values from failure logs', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceFile'];
+
+    await expect(
+      tool.execute({
+        path: '/private/customer-secret.ts',
+      })
+    ).rejects.toThrow();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith('readWorkspaceFile failed', {
+      error: expect.objectContaining({
+        code: 'ENOENT',
+        name: 'Error',
+        redacted: true,
+      }),
+      input: {
+        fields: ['path'],
+        redacted: true,
+      },
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('customer-secret');
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(workspaceRootPath);
   });
 
   it('findWorkspaceSymbol returns a precise enclosing range without whole-file content', async () => {
