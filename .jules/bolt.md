@@ -99,6 +99,9 @@
 **Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
 **Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
 
+## 2026-07-03 - Live grep .git candidate filtering avoids split arrays
+**Learning:** `apps/desktop/src/assistant-server/live-grep.ts` checks every live grep candidate path for an exact `.git` segment before realpath/stat work. The old `relativePath.split('/').some(...)` path allocated a segment array per candidate and measured 627.25ms over 100k representative candidate paths x 60 rounds on Node 24.16.0; a direct segment scanner measured 197.94ms with the same `.git` checksum while preserving `.github` and `.gitignore` as non-matches.
+**Action:** Keep live grep `.git` segment exclusion on direct slash scanning; do not reintroduce split/some in the candidate resolve loop.
 ## 2026-07-05 - Web streamed file-handle caching scans root segments
 **Learning:** `packages/file-system/src/adapters/web-adapter.ts` resolves the root id for every cached file handle produced by web directory streaming. The old `path.split('/').find(...)` scanned and allocated the full path for each file; a first-segment scan measured 806.51ms -> 198.82ms over 100k representative cached node paths x 80 rounds on Node 24.16.0 with identical checksum.
 **Action:** Keep web file-handle root-id extraction on an early-exit slash scan; do not reintroduce whole-path split/find in streaming cache paths.

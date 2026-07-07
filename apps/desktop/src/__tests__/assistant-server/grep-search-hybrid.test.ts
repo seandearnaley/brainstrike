@@ -13,7 +13,10 @@ import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
-import { resetRipgrepAvailabilityForTests } from '../../assistant-server/live-grep';
+import {
+  hasDotGitSegmentForTests,
+  resetRipgrepAvailabilityForTests,
+} from '../../assistant-server/live-grep';
 
 const queryMock = vi.fn();
 
@@ -220,6 +223,24 @@ describe('grepSearch hybrid — path containment (symlink escape)', () => {
     expect(paths).toContain('src/inside.ts');
     expect(paths).not.toContain('src/escape.ts');
     expect(paths.some((p) => p.includes('secret.ts'))).toBe(false);
+  });
+});
+
+describe('grepSearch hybrid — candidate path filtering', () => {
+  it('detects exact .git path segments without splitting candidate paths', () => {
+    const splitSpy = vi.spyOn(String.prototype, 'split');
+
+    try {
+      expect(hasDotGitSegmentForTests('.git/config')).toBe(true);
+      expect(hasDotGitSegmentForTests('src/.git/hooks/pre-commit')).toBe(true);
+      expect(hasDotGitSegmentForTests('src/.github/workflows/ci.yml')).toBe(false);
+      expect(hasDotGitSegmentForTests('src/.gitignore')).toBe(false);
+      expect(hasDotGitSegmentForTests('src/git/config')).toBe(false);
+
+      expect(splitSpy).not.toHaveBeenCalled();
+    } finally {
+      splitSpy.mockRestore();
+    }
   });
 });
 
