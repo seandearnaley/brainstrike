@@ -37,7 +37,7 @@
     "@shikijs/langs": "^4.3.1",
     "@shikijs/themes": "^4.3.1",
     "@tanstack/react-virtual": "^3.14.5",
-    "assistant-stream": "0.3.11",
+    "assistant-stream": "0.3.25",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

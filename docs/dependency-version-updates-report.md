@@ -1,6 +1,6 @@
 # Dependency version update report
 
-**Generated:** 2026-07-06\
+**Generated:** 2026-07-07\
 **Monorepo:** brainstrike (pnpm workspaces + Turborepo)\
 **Tooling:** `pnpm@11.5.1+sha512.93f7b57422ea7068257235b4c16eb60762eb68e1dc23723199cc739043ea9be2c4143274a399d8c6defa2b1176226d9ca1c4b63482d6200c1a8fbaa78c1d1485` (see root `package.json` `packageManager`)\
 **Node engine (declared):** `24.x` (root `package.json` `engines`)
@@ -71,8 +71,8 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 
 | Metric | Count |
 | --- | ---: |
-| Distinct direct dependencies checked (`pnpm outdated -r`) | 39 |
-| Outdated (current ≠ latest) or deprecated | 39 |
+| Distinct direct dependencies checked (`pnpm outdated -r`) | 36 |
+| Outdated (current ≠ latest) or deprecated | 36 |
 | Up to date (current === latest, not deprecated) | 0 |
 
 ## Outdated or deprecated packages
@@ -96,13 +96,10 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | `@commitlint/cli` | 20.5.3 | 20.5.3 | 21.2.0 | major | devDependencies | no | brainstrike |
 | `@commitlint/config-conventional` | 20.5.3 | 20.5.3 | 21.2.0 | major | devDependencies | no | brainstrike |
 | `@commitlint/types` | 20.5.0 | 20.5.0 | 21.2.0 | major | devDependencies | no | brainstrike |
-| `@electric-sql/pglite` | 0.5.1 | 0.5.1 | 0.5.4 | patch | devDependencies | no | @brainstrike/agent, @brainstrike/embeddings, @brainstrike/file-import |
-| `@electric-sql/pglite-pgvector` | 0.0.2 | 0.0.2 | 0.0.5 | patch | devDependencies | no | @brainstrike/agent |
 | `@mastra/core` | 1.37.1 | 1.37.1 | 1.49.0 | minor | dependencies | no | @brainstrike/agent |
 | `@mastra/mcp` | 1.8.1 | 1.8.1 | 1.13.0 | minor | dependencies | no | @brainstrike/agent |
 | `@mastra/memory` | 1.20.0 | 1.20.0 | 1.22.1 | minor | dependencies | no | @brainstrike/agent |
 | `@types/node` | 25.9.4 | 25.9.4 | 26.1.0 | major | devDependencies | no | @brainstrike/agent, @brainstrike/app-shell, @brainstrike/build-utils, @brainstrike/chunking-worker, @brainstrike/commands, @brainstrike/context-actions, @brainstrike/db, @brainstrike/db-explorer, @brainstrike/desktop, @brainstrike/embedding-worker, @brainstrike/embeddings, @brainstrike/file-explorer, @brainstrike/file-explorer-hooks, @brainstrike/file-explorer-ui, @brainstrike/file-import, @brainstrike/file-system, @brainstrike/file-tree-worker, @brainstrike/hooks, @brainstrike/platform-utils, @brainstrike/preferences, @brainstrike/queue, @brainstrike/queue-telemetry-collector, @brainstrike/selection-rules, @brainstrike/server-config, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/text-splitter, @brainstrike/token-cache, @brainstrike/types, @brainstrike/ui, @brainstrike/utils, @brainstrike/vector-management, @brainstrike/web, @brainstrike/worker-runtime, @brainstrike/workers, brainstrike |
-| `assistant-stream` | 0.3.11 | 0.3.11 | 0.3.25 | patch | dependencies | no | @brainstrike/ui |
 | `concurrently` | 9.2.3 | 9.2.3 | 10.0.3 | major | devDependencies | no | @brainstrike/desktop |
 | `electron` | 41.10.0 | 41.10.0 | 43.0.0 | major | devDependencies | no | @brainstrike/desktop, @brainstrike/file-system, @brainstrike/storage |
 | `jsdom` | 29.0.2 | 29.0.2 | 29.1.1 | minor | devDependencies | no | @brainstrike/app-shell, @brainstrike/db, @brainstrike/db-explorer, @brainstrike/desktop, @brainstrike/file-explorer-ui, @brainstrike/file-import, @brainstrike/preferences, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/ui, @brainstrike/vector-management, @brainstrike/web |
