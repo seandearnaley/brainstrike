@@ -177,7 +177,7 @@ export async function resetDesktopApplicationData({
     }
 
     try {
-      await rm(trashPath, { recursive: true, force: true });
+      await rm(trashPath, { force: true, recursive: true });
     } catch (error) {
       pendingDeletionPaths.push(trashPath);
       logger.warn('Desktop application data reset left staged data for later cleanup', {

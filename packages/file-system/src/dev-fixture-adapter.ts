@@ -124,24 +124,24 @@ function buildFixtureState(
   // reducer reconciles them to a SINGLE root (identity is rootId-only — an unstamped
   // handle would be minted twice and render the file tree as two roots).
   const rootHandle: DirectoryHandle = {
-    path: rootPath,
-    name: definition.name,
     kind: 'directory',
+    name: definition.name,
+    path: rootPath,
     platform,
     rootId,
   };
 
   const createDirectoryHandle = (path: string, name: string) => ({
-    path,
-    name,
     kind: 'directory',
+    name,
+    path,
     platform,
   });
 
   const createFileHandle = (path: string, name: string, size: number): FileHandle => ({
-    path,
-    name,
     kind: 'file',
+    name,
+    path,
     platform,
     size,
   });
@@ -156,33 +156,33 @@ function buildFixtureState(
       if (typeof value === 'string' || value === null) {
         const content = typeof value === 'string' ? value : getDefaultFileContent(name);
         const size = content.length;
-        fileContents.set(fullPath, { content, size, lastModified: timestamp });
+        fileContents.set(fullPath, { content, lastModified: timestamp, size });
         entries.push({
+          depth: 0,
+          handle: createFileHandle(fullPath, name, size) as unknown as FileSystemFileHandle,
+          isVisible: true,
+          lastModified: timestamp,
           name,
           path: fullPath,
-          type: 'file',
-          depth: 0,
-          selectionState: 'unchecked',
           rootFolderId,
-          isVisible: true,
+          selectionState: 'unchecked',
           size,
-          lastModified: timestamp,
-          handle: createFileHandle(fullPath, name, size) as unknown as FileSystemFileHandle,
+          type: 'file',
         });
         continue;
       }
 
       const dirHandle = createDirectoryHandle(fullPath, name);
       entries.push({
+        children: [],
+        depth: 0,
+        handle: dirHandle as unknown as FileSystemDirectoryHandle,
+        isVisible: true,
         name,
         path: fullPath,
-        type: 'directory',
-        depth: 0,
-        selectionState: 'unchecked',
-        children: [],
         rootFolderId,
-        isVisible: true,
-        handle: dirHandle as unknown as FileSystemDirectoryHandle,
+        selectionState: 'unchecked',
+        type: 'directory',
       });
 
       walk(value, fullPath, rootFolderId);
@@ -198,7 +198,7 @@ function buildFixtureState(
     directories.set(rootHandle.path, []);
   }
 
-  return { rootHandle, directories, fileContents };
+  return { directories, fileContents, rootHandle };
 }
 
 function resolveFixtureLookupPath(fixtureState: FixtureState, path: string): string {
@@ -272,8 +272,8 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       }
       // Path not found in fixture - this shouldn't happen if fixture is properly built
       logger.warn('Path not found in fixture', {
-        path: handle.path,
         availablePaths: Array.from(fixtureState.directories.keys()),
+        path: handle.path,
       });
       return [];
     }
@@ -331,7 +331,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       if (!record) {
         throw new Error(`File not found in fixture: ${path}`);
       }
-      return { kind: 'content', content: record.content, fileSize: record.size };
+      return { content: record.content, fileSize: record.size, kind: 'content' };
     }
     if (!originalResolveFileForIndexing) {
       throw new Error('resolveFileForIndexing is not supported by this adapter');

@@ -39,7 +39,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
+    useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
   };
 });
 
@@ -128,9 +128,7 @@ const offExit = vi.fn();
 
 function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   const full: TerminalBridge = {
-    create: vi.fn(async () => ok({ terminalId: 'pty-1', cwd: '/abs/repo' })),
-    write: vi.fn(async () => ({ ok: true }) as TerminalResult),
-    resize: vi.fn(async () => ({ ok: true }) as TerminalResult),
+    create: vi.fn(async () => ok({ cwd: '/abs/repo', terminalId: 'pty-1' })),
     destroy: vi.fn(async () => ({ ok: true }) as TerminalResult),
     onData: vi.fn((cb: (event: TerminalDataEvent) => void) => {
       dataCallback = cb;
@@ -140,6 +138,8 @@ function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
       exitCallback = cb;
       return offExit;
     }),
+    resize: vi.fn(async () => ({ ok: true }) as TerminalResult),
+    write: vi.fn(async () => ({ ok: true }) as TerminalResult),
     ...bridge,
   };
   (window as unknown as { terminal?: TerminalBridge }).terminal = full;
@@ -187,7 +187,7 @@ describe('TerminalPanel', () => {
     expect(await screen.findByTestId('terminal-panel')).toBeInTheDocument();
     await waitFor(() =>
       expect(bridge.create).toHaveBeenCalledWith(
-        expect.objectContaining({ rootId: 'root-1', cols: 80, rows: 24 })
+        expect.objectContaining({ cols: 80, rootId: 'root-1', rows: 24 })
       )
     );
     // The captured Terminal was opened on the host element.
@@ -200,7 +200,7 @@ describe('TerminalPanel', () => {
     await screen.findByTestId('terminal-panel');
     await waitFor(() => expect(dataCallback).not.toBeNull());
 
-    dataCallback?.({ terminalId: 'pty-1', data: 'hello\r\n' });
+    dataCallback?.({ data: 'hello\r\n', terminalId: 'pty-1' });
     expect(lastTerminal().write).toHaveBeenCalledWith('hello\r\n');
   });
 
@@ -210,7 +210,7 @@ describe('TerminalPanel', () => {
     await screen.findByTestId('terminal-panel');
     await waitFor(() => expect(dataCallback).not.toBeNull());
 
-    dataCallback?.({ terminalId: 'other-pty', data: 'nope' });
+    dataCallback?.({ data: 'nope', terminalId: 'other-pty' });
     expect(lastTerminal().write).not.toHaveBeenCalledWith('nope');
   });
 
@@ -221,7 +221,7 @@ describe('TerminalPanel', () => {
     await waitFor(() => expect(lastTerminal().focus).toHaveBeenCalled());
 
     lastTerminal().emitInput('ls\r');
-    expect(bridge.write).toHaveBeenCalledWith({ terminalId: 'pty-1', data: 'ls\r' });
+    expect(bridge.write).toHaveBeenCalledWith({ data: 'ls\r', terminalId: 'pty-1' });
   });
 
   it('reassembles a surrogate pair split across two onData chunks (no replacement char)', async () => {
@@ -235,9 +235,9 @@ describe('TerminalPanel', () => {
     const low = String.fromCharCode(emoji.charCodeAt(1));
 
     // First event ends with the lone high surrogate.
-    dataCallback?.({ terminalId: 'pty-1', data: `done ${high}` });
+    dataCallback?.({ data: `done ${high}`, terminalId: 'pty-1' });
     // Second event begins with its low half.
-    dataCallback?.({ terminalId: 'pty-1', data: `${low}!` });
+    dataCallback?.({ data: `${low}!`, terminalId: 'pty-1' });
 
     const writes = lastTerminal().write.mock.calls.map((call) => call[0] as string);
     // No write contains a replacement char, and the joined output is the emoji.
@@ -253,7 +253,7 @@ describe('TerminalPanel', () => {
     await screen.findByTestId('terminal-panel');
     await waitFor(() => expect(exitCallback).not.toBeNull());
 
-    exitCallback?.({ terminalId: 'pty-1', exitCode: 0, signal: null });
+    exitCallback?.({ exitCode: 0, signal: null, terminalId: 'pty-1' });
 
     expect(await screen.findByTestId('terminal-panel-exited')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restart terminal' })).toBeInTheDocument();
@@ -263,8 +263,8 @@ describe('TerminalPanel', () => {
     installBridge({
       create: vi.fn(
         async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> => ({
-          ok: false,
           error: 'spawn failed',
+          ok: false,
         })
       ),
     });
@@ -301,7 +301,7 @@ describe('TerminalPanel', () => {
     await screen.findByTestId('terminal-panel');
     await waitFor(() => expect(exitCallback).not.toBeNull());
 
-    exitCallback?.({ terminalId: 'pty-1', exitCode: 1, signal: null });
+    exitCallback?.({ exitCode: 1, signal: null, terminalId: 'pty-1' });
     await screen.findByTestId('terminal-panel-exited');
 
     const createCallsBefore = (bridge.create as ReturnType<typeof vi.fn>).mock.calls.length;
@@ -331,7 +331,7 @@ describe('TerminalPanel', () => {
           deferred.resolve = resolve;
         });
       }
-      return Promise.resolve(ok({ terminalId: 'pty-1', cwd: '/abs/repo' }));
+      return Promise.resolve(ok({ cwd: '/abs/repo', terminalId: 'pty-1' }));
     });
     installBridge({ create: create as TerminalBridge['create'] });
 
@@ -340,7 +340,7 @@ describe('TerminalPanel', () => {
     await waitFor(() => expect(exitCallback).not.toBeNull());
 
     // root-1's shell exits → its exited overlay paints.
-    exitCallback?.({ terminalId: 'pty-1', exitCode: 0, signal: null });
+    exitCallback?.({ exitCode: 0, signal: null, terminalId: 'pty-1' });
     await screen.findByTestId('terminal-panel-exited');
 
     // Focus a DIFFERENT workspace root. Its create is still pending, so the
@@ -360,7 +360,7 @@ describe('TerminalPanel', () => {
     expect(screen.getByTestId('terminal-host')).toBeInTheDocument();
 
     // Resolving root-2's create surfaces ITS cwd — not the stale one.
-    deferred.resolve(ok({ terminalId: 'pty-2', cwd: '/abs/repo2' }));
+    deferred.resolve(ok({ cwd: '/abs/repo2', terminalId: 'pty-2' }));
     await waitFor(() => expect(screen.getByText('/abs/repo2')).toBeInTheDocument());
   });
 

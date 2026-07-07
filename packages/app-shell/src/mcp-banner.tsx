@@ -16,16 +16,16 @@ type McpAction =
   | { type: 'SUCCESS'; status: McpStatus }
   | { type: 'ERROR'; error: string };
 
-const initialMcpState: McpState = { status: null, error: null };
+const initialMcpState: McpState = { error: null, status: null };
 
 function mcpReducer(state: McpState, action: McpAction): McpState {
   switch (action.type) {
     case 'RESET':
-      return { status: null, error: null };
+      return { error: null, status: null };
     case 'SUCCESS':
-      return { status: action.status, error: null };
+      return { error: null, status: action.status };
     case 'ERROR':
-      return { status: state.status, error: action.error };
+      return { error: action.error, status: state.status };
     default:
       return state;
   }
@@ -49,11 +49,11 @@ export function McpBanner() {
       }
 
       dispatch({
-        type: 'SUCCESS',
         status: {
           exists: Boolean(res.exists),
           servers: (res.servers ?? []) as McpStatus['servers'],
         },
+        type: 'SUCCESS',
       });
     }
 
@@ -64,7 +64,7 @@ export function McpBanner() {
         if (!mounted) {
           return;
         }
-        dispatch({ type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
+        dispatch({ error: e instanceof Error ? e.message : String(e), type: 'ERROR' });
       }
     }
 

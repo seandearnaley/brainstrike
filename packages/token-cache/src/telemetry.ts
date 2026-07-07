@@ -205,21 +205,21 @@ export function createIndexerTelemetryAggregator(windowMs = 60_000, maxEvents = 
     const cacheHitRate = indexedFiles.length > 0 ? cacheHits.length / indexedFiles.length : null;
 
     return {
+      averageLatencyMs: averageLatency,
+      cacheHitRate,
+      errorCount,
       events: windowEvents,
       indexedPerMinute,
-      totalFilesPerMinute,
-      averageLatencyMs: averageLatency,
       latencyP50Ms: latencyP50,
       latencyP95Ms: latencyP95,
+      totalFilesPerMinute,
       totalTokensIndexed,
-      errorCount,
-      cacheHitRate,
     };
   };
 
   return {
-    snapshot,
     dispose: unsubscribe,
+    snapshot,
   };
 }
 
@@ -239,8 +239,8 @@ export function emitIndexedFile(params: {
   skipped: boolean;
 }): void {
   emitIndexerTelemetry({
-    timestamp: Date.now(),
     event: 'indexed_file',
+    timestamp: Date.now(),
     ...params,
   });
 }
@@ -255,8 +255,8 @@ export function emitIndexingError(params: {
   errorMessage: string;
 }): void {
   emitIndexerTelemetry({
-    timestamp: Date.now(),
     event: 'indexing_error',
+    timestamp: Date.now(),
     ...params,
   });
 }
@@ -270,8 +270,8 @@ export function emitIndexingBacklog(params: {
   batchCompleted: number;
 }): void {
   emitIndexerTelemetry({
-    timestamp: Date.now(),
     event: 'indexing_backlog',
+    timestamp: Date.now(),
     ...params,
   });
 }

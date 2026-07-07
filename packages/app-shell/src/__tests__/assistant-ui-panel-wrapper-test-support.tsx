@@ -33,15 +33,15 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
     } as { path: string; name: string } | null,
     setIncludeProjectTree: vi.fn<(value: boolean) => void>(),
     setSelectedFiles: vi.fn<(files: ReadonlySet<string>) => void>(),
+    setTapestryRangesForKey: vi.fn<(key: string, ranges: unknown[]) => void>(),
     setTokenBudget: vi.fn<(budget: number) => void>(),
+    tapestryRangesByKey: {} as Record<string, unknown[]>,
     tokenBudget: 100_000,
     tokenCache: null as null | {
       cacheVersion: number;
       getTokenCount: (folderId: string, path: string) => number | undefined;
     },
     workspaceContextSnapshot: null as null | Record<string, unknown>,
-    setTapestryRangesForKey: vi.fn<(key: string, ranges: unknown[]) => void>(),
-    tapestryRangesByKey: {} as Record<string, unknown[]>,
   },
   // Track enabled models in a mutable Set for testing toggle functionality
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
@@ -61,12 +61,12 @@ vi.mock('@brainstrike/preferences', async () => {
   const { create } = await import('zustand');
 
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
-    openai: testEnabledModels.has('gpt-5.2') ? ['gpt-5.2'] : [],
     anthropic: testEnabledModels.has('claude-sonnet-4-6') ? ['claude-sonnet-4-6'] : [],
     google: [
       testEnabledModels.has('gemini-3.5-flash') ? 'gemini-3.5-flash' : undefined,
       testEnabledModels.has('gemini-3.1-pro-preview') ? 'gemini-3.1-pro-preview' : undefined,
     ].filter((modelId): modelId is string => Boolean(modelId)),
+    openai: testEnabledModels.has('gpt-5.2') ? ['gpt-5.2'] : [],
     openrouter: [
       testEnabledModels.has('openai/gpt-5.2') ? 'openai/gpt-5.2' : undefined,
       testEnabledModels.has('anthropic/claude-sonnet-4.6')
@@ -78,46 +78,46 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const buildRegistryModels = () => [
     {
+      capabilities: { type: 'llm' as const },
       id: 'gpt-5.2',
-      providerId: 'openai',
       isEnabled: testEnabledModels.has('gpt-5.2'),
-      capabilities: { type: 'llm' as const },
+      providerId: 'openai',
     },
     {
+      capabilities: { type: 'llm' as const },
       id: 'claude-sonnet-4-6',
-      providerId: 'anthropic',
       isEnabled: testEnabledModels.has('claude-sonnet-4-6'),
-      capabilities: { type: 'llm' as const },
+      providerId: 'anthropic',
     },
     {
+      capabilities: { type: 'llm' as const },
       id: 'gemini-3.5-flash',
-      providerId: 'google',
       isEnabled: testEnabledModels.has('gemini-3.5-flash'),
-      capabilities: { type: 'llm' as const },
-    },
-    {
-      id: 'gemini-3.1-pro-preview',
       providerId: 'google',
+    },
+    {
+      capabilities: { type: 'llm' as const },
+      id: 'gemini-3.1-pro-preview',
       isEnabled: testEnabledModels.has('gemini-3.1-pro-preview'),
-      capabilities: { type: 'llm' as const },
+      providerId: 'google',
     },
     {
+      capabilities: { type: 'llm' as const },
       id: 'openai/gpt-5.2',
-      providerId: 'openrouter',
       isEnabled: testEnabledModels.has('openai/gpt-5.2'),
-      capabilities: { type: 'llm' as const },
+      providerId: 'openrouter',
     },
     {
+      capabilities: { type: 'llm' as const },
       id: 'anthropic/claude-sonnet-4.6',
-      providerId: 'openrouter',
       isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.6'),
-      capabilities: { type: 'llm' as const },
+      providerId: 'openrouter',
     },
     {
-      id: 'google/gemini-3.5-flash',
-      providerId: 'openrouter',
-      isEnabled: testEnabledModels.has('google/gemini-3.5-flash'),
       capabilities: { type: 'llm' as const },
+      id: 'google/gemini-3.5-flash',
+      isEnabled: testEnabledModels.has('google/gemini-3.5-flash'),
+      providerId: 'openrouter',
     },
   ];
 
@@ -162,75 +162,75 @@ vi.mock('@brainstrike/preferences', async () => {
   }
 
   const useAssistantPreferencesStore = create<AssistantPreferencesState>((set, get) => ({
-    selectedProvider: null,
-    selectedModel: null,
-    modelsByProvider: {},
+    clearModel: () => {
+      set({
+        selectedModel: null,
+        selectedProvider: null,
+      });
+    },
     enabledModelsByProvider: buildEnabledModelsByProvider(),
+    getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
+    getLocalRuntimeModels: async () => ({
+      lmstudio: {
+        availability: {
+          checkedAt: 0,
+          endpoint: 'http://localhost:1234/v1/models',
+          latencyMs: 0,
+          state: 'available',
+        },
+        checkedAt: 0,
+        endpoint: 'http://localhost:1234/v1/models',
+        freshness: 'live',
+        models: [],
+        runtime: 'lmstudio',
+        source: 'openai_v1_models',
+        state: 'loaded_empty',
+      },
+      ollama: {
+        availability: {
+          checkedAt: 0,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 0,
+          state: 'available',
+        },
+        checkedAt: 0,
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        freshness: 'live',
+        models: [],
+        runtime: 'ollama',
+        source: 'openai_v1_models',
+        state: 'loaded_empty',
+      },
+    }),
+    getLocalRuntimeStatuses: async () => ({
+      lmstudio: {
+        checkedAt: 0,
+        message: 'not detected',
+        state: 'unavailable',
+      },
+      ollama: {
+        checkedAt: 0,
+        message: 'not detected',
+        state: 'unavailable',
+      },
+    }),
+    getSelectedModel: () => get().selectedModel,
+    getSelectedProvider: () => get().selectedProvider,
+    modelsByProvider: {},
     providerSettings: {},
+    selectedModel: null,
+    selectedProvider: null,
     setModel: (compositeKey: string) => {
       const [provider, model] = compositeKey.split('::');
       if (!(provider && model)) {
         return;
       }
       set((state) => ({
-        selectedProvider: provider as SupportedProvider,
-        selectedModel: compositeKey,
         modelsByProvider: { ...state.modelsByProvider, [provider]: model },
+        selectedModel: compositeKey,
+        selectedProvider: provider as SupportedProvider,
       }));
     },
-    clearModel: () => {
-      set({
-        selectedProvider: null,
-        selectedModel: null,
-      });
-    },
-    getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
-    getLocalRuntimeStatuses: async () => ({
-      ollama: {
-        state: 'unavailable',
-        checkedAt: 0,
-        message: 'not detected',
-      },
-      lmstudio: {
-        state: 'unavailable',
-        checkedAt: 0,
-        message: 'not detected',
-      },
-    }),
-    getLocalRuntimeModels: async () => ({
-      ollama: {
-        state: 'loaded_empty',
-        runtime: 'ollama',
-        checkedAt: 0,
-        availability: {
-          state: 'available',
-          checkedAt: 0,
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          latencyMs: 0,
-        },
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
-        models: [],
-      },
-      lmstudio: {
-        state: 'loaded_empty',
-        runtime: 'lmstudio',
-        checkedAt: 0,
-        availability: {
-          state: 'available',
-          checkedAt: 0,
-          endpoint: 'http://localhost:1234/v1/models',
-          latencyMs: 0,
-        },
-        endpoint: 'http://localhost:1234/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
-        models: [],
-      },
-    }),
-    getSelectedProvider: () => get().selectedProvider,
-    getSelectedModel: () => get().selectedModel,
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => {
       set((state) => ({
         providerSettings: {
@@ -247,18 +247,18 @@ vi.mock('@brainstrike/preferences', async () => {
   const defaultAssistantMemoryPreferences: AssistantMemoryPreferencesState = {
     observationalMemory: {
       enabled: true,
-      modelTarget: 'openai/gpt-5.4-mini',
-      scope: 'thread',
       messageTokens: 30_000,
+      modelTarget: 'openai/gpt-5.4-mini',
       observationTokens: 40_000,
       retrievalMode: 'off',
+      scope: 'thread',
     },
     semanticRecall: {
-      enabled: false,
       embeddingModelTarget: 'openai/text-embedding-3-small',
+      enabled: false,
+      messageRange: 2,
       scope: 'resource',
       topK: 5,
-      messageRange: 2,
     },
   };
 
@@ -282,7 +282,6 @@ vi.mock('@brainstrike/preferences', async () => {
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
   }>((set) => ({
-    toolStates: {},
     setToolEnabled: (toolId: string, enabled: boolean) => {
       set((state) => {
         const nextToolStates = { ...state.toolStates };
@@ -294,6 +293,7 @@ vi.mock('@brainstrike/preferences', async () => {
         return { toolStates: nextToolStates };
       });
     },
+    toolStates: {},
   }));
 
   const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
@@ -312,9 +312,9 @@ vi.mock('@brainstrike/preferences', async () => {
     }) => T
   ): T =>
     selector({
-      models: buildRegistryModels(),
-      hasLoaded: true,
       error: null,
+      hasLoaded: true,
+      models: buildRegistryModels(),
       toggleModel: (_db: unknown, modelId: string, enabled: boolean) => {
         if (enabled) {
           testEnabledModels.add(modelId);
@@ -329,11 +329,11 @@ vi.mock('@brainstrike/preferences', async () => {
 
   const __resetAssistantPreferencesStoreForTests = () => {
     useAssistantPreferencesStore.setState({
-      selectedProvider: null,
-      selectedModel: null,
-      modelsByProvider: {},
       enabledModelsByProvider: buildEnabledModelsByProvider(),
+      modelsByProvider: {},
       providerSettings: {},
+      selectedModel: null,
+      selectedProvider: null,
     });
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
@@ -439,16 +439,16 @@ const { mockDb } = vi.hoisted(() => ({
 // Mock the DB hook
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  // Quick-open / file-mention shared query constants (useFileMentions).
+  QUICK_OPEN_MAX_LIMIT: 50,
+  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
   usePGliteDatabase: vi.fn(() => mockDb),
   // The OM segment live query (useObservationalMemoryRow) and the "@" file
   // mention query (useFileMentions) — inert in these tests (no rows, not
   // loading) so neither runs a real subscription.
-  usePGliteLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
-  // Quick-open / file-mention shared query constants (useFileMentions).
-  QUICK_OPEN_MAX_LIMIT: 50,
-  QUICK_OPEN_NAME_SEARCH_SQL: 'SELECT ... quick-open',
+  usePGliteLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => {
@@ -460,20 +460,20 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
   const stableActiveRootIds: string[] = [];
   const stableRootDescriptors: Record<string, unknown> = {};
   const getState = () => ({
-    tokenBudget: fileExplorerMocks.tokenBudget,
-    currentFolderId: fileExplorerMocks.currentFolderId,
-    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
-    includeProjectTree: fileExplorerMocks.includeProjectTree,
     // "@" file-mention gating (useFileMentions) reads these; empty in these
     // tests so the mention query yields no candidates.
     activeRootIds: stableActiveRootIds,
+    addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
+    clearSelectionRules: fileExplorerMocks.clearSelectionRules,
+    currentFolderId: fileExplorerMocks.currentFolderId,
+    includeProjectTree: fileExplorerMocks.includeProjectTree,
+    removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
     rootDescriptors: stableRootDescriptors,
-    setTokenBudget: fileExplorerMocks.setTokenBudget,
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
     setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
     setSelectedFiles: fileExplorerMocks.setSelectedFiles,
-    addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
-    removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
-    clearSelectionRules: fileExplorerMocks.clearSelectionRules,
+    setTokenBudget: fileExplorerMocks.setTokenBudget,
+    tokenBudget: fileExplorerMocks.tokenBudget,
   });
 
   const store = (selector?: (state: ReturnType<typeof getState>) => unknown) => {
@@ -482,11 +482,11 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => {
   };
 
   return {
-    useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
-    useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),
+    useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
+    useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
   };
 });
 
@@ -506,8 +506,8 @@ vi.mock('@brainstrike/file-explorer-ui/preview', () => {
 
   return {
     toolLineRangeToTapestryRange: (range: { endLine: number; startLine: number }) => ({
-      startLine: range.startLine - 1,
       endLine: range.endLine,
+      startLine: range.startLine - 1,
     }),
     useWorkspaceContextCurationStore,
   };
@@ -516,61 +516,61 @@ vi.mock('@brainstrike/file-explorer-ui/preview', () => {
 // Mock the assistant local-runtime contract exports used by the wrapper.
 vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   const PROVIDER_DEFINITIONS = {
-    openai: {
-      id: 'openai',
-      displayName: 'OpenAI',
-      runtime: 'hosted',
-      capabilities: { llm: true, embeddings: true, streaming: true },
-      models: [{ id: 'gpt-5.2', type: 'llm', default: true, supportsStreaming: true }],
-    },
     anthropic: {
-      id: 'anthropic',
+      capabilities: { embeddings: false, llm: true, streaming: true },
       displayName: 'Anthropic',
+      id: 'anthropic',
+      models: [{ default: true, id: 'claude-sonnet-4-6', supportsStreaming: true, type: 'llm' }],
       runtime: 'hosted',
-      capabilities: { llm: true, embeddings: false, streaming: true },
-      models: [{ id: 'claude-sonnet-4-6', type: 'llm', default: true, supportsStreaming: true }],
     },
     google: {
-      id: 'google',
+      capabilities: { embeddings: true, llm: true, streaming: true },
       displayName: 'Google AI Studio',
+      id: 'google',
+      models: [
+        { default: true, id: 'gemini-3.5-flash', supportsStreaming: true, type: 'llm' },
+        { id: 'gemini-3.1-pro-preview', supportsStreaming: true, type: 'llm' },
+      ],
       runtime: 'hosted',
-      capabilities: { llm: true, embeddings: true, streaming: true },
-      models: [
-        { id: 'gemini-3.5-flash', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'gemini-3.1-pro-preview', type: 'llm', supportsStreaming: true },
-      ],
-    },
-    openrouter: {
-      id: 'openrouter',
-      displayName: 'OpenRouter',
-      runtime: 'gateway',
-      capabilities: { llm: true, embeddings: false, streaming: true },
-      models: [
-        { id: 'openai/gpt-5.2', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'anthropic/claude-sonnet-4.6', type: 'llm', supportsStreaming: true },
-        { id: 'google/gemini-3.5-flash', type: 'llm', supportsStreaming: true },
-      ],
-    },
-    ollama: {
-      id: 'ollama',
-      displayName: 'Ollama',
-      runtime: 'local',
-      capabilities: { llm: true, embeddings: true, streaming: true },
-      models: [{ id: 'nomic-embed-text', type: 'llm', default: true, supportsStreaming: true }],
     },
     lmstudio: {
-      id: 'lmstudio',
+      capabilities: { embeddings: true, llm: true, streaming: true },
       displayName: 'LM Studio',
-      runtime: 'local',
-      capabilities: { llm: true, embeddings: true, streaming: true },
+      id: 'lmstudio',
       models: [
         {
-          id: 'text-embedding-nomic-embed-text-v1.5',
-          type: 'llm',
           default: true,
+          id: 'text-embedding-nomic-embed-text-v1.5',
           supportsStreaming: true,
+          type: 'llm',
         },
       ],
+      runtime: 'local',
+    },
+    ollama: {
+      capabilities: { embeddings: true, llm: true, streaming: true },
+      displayName: 'Ollama',
+      id: 'ollama',
+      models: [{ default: true, id: 'nomic-embed-text', supportsStreaming: true, type: 'llm' }],
+      runtime: 'local',
+    },
+    openai: {
+      capabilities: { embeddings: true, llm: true, streaming: true },
+      displayName: 'OpenAI',
+      id: 'openai',
+      models: [{ default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' }],
+      runtime: 'hosted',
+    },
+    openrouter: {
+      capabilities: { embeddings: false, llm: true, streaming: true },
+      displayName: 'OpenRouter',
+      id: 'openrouter',
+      models: [
+        { default: true, id: 'openai/gpt-5.2', supportsStreaming: true, type: 'llm' },
+        { id: 'anthropic/claude-sonnet-4.6', supportsStreaming: true, type: 'llm' },
+        { id: 'google/gemini-3.5-flash', supportsStreaming: true, type: 'llm' },
+      ],
+      runtime: 'gateway',
     },
   } as const;
 
@@ -612,16 +612,16 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   return {
     getProviderDefaultModel: (provider: string) =>
       PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
+    getProviderDefinition: (provider: string) =>
+      PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderDisplayName: (provider: string) => {
       const definition = PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS];
       return definition?.displayName ?? provider;
     },
-    getProviderModels: (provider: string) =>
-      PROVIDER_MODELS[provider as keyof typeof PROVIDER_MODELS] ?? [],
-    getProviderDefinition: (provider: string) =>
-      PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderModelDefinitions: (provider: string) =>
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS]?.models ?? [],
+    getProviderModels: (provider: string) =>
+      PROVIDER_MODELS[provider as keyof typeof PROVIDER_MODELS] ?? [],
     isLoadedRuntimeModelCatalogState: (
       state: LocalRuntimeModelCatalogState | null | undefined
     ): state is Extract<
@@ -630,11 +630,11 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
     > => Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached')),
     isSupportedProvider: (provider: string) =>
       SUPPORTED_PROVIDERS.includes(provider as keyof typeof PROVIDER_DEFINITIONS),
-    supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',
     listProviders: () => SUPPORTED_PROVIDERS.map((provider) => PROVIDER_DEFINITIONS[provider]),
     PROVIDER_DEFAULT_ENABLED_MODELS,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
+    supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',
   };
 });
 
@@ -648,9 +648,6 @@ vi.mock('../use-assistant-slash-commands', () => ({
 
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
-  // Defaults to no desktop llm-host bridge, so local chat resolves to the
-  // in-renderer transport; tests flip the mock to cover the data-stream route.
-  hasDesktopLlmHost: hasDesktopLlmHostMock,
   AssistantUiPanel: ({
     providerGroups = [],
     selectedProvider,
@@ -895,6 +892,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       </div>
     );
   },
+  // Defaults to no desktop llm-host bridge, so local chat resolves to the
+  // in-renderer transport; tests flip the mock to cover the data-stream route.
+  hasDesktopLlmHost: hasDesktopLlmHostMock,
   // The wrapper reads the usage store both as a hook (selector at render time)
   // and via getState() inside the usage callback. The mock supports both: the
   // selector receives an empty usage map and getState exposes recordUsage.
@@ -937,8 +937,8 @@ beforeEach(() => {
   fileExplorerMocks.currentFolderId = 'test-folder';
   fileExplorerMocks.includeProjectTree = false;
   fileExplorerMocks.rootDirectoryHandle = {
-    path: '/tmp/test-workspace',
     name: 'test-workspace',
+    path: '/tmp/test-workspace',
   };
   fileExplorerMocks.tokenBudget = 100_000;
   fileExplorerMocks.workspaceContextSnapshot = null;
@@ -958,10 +958,10 @@ beforeEach(() => {
       return {
         rows: [
           {
+            createdAt: new Date('2026-04-22T10:00:00Z'),
             id: 'thread-existing',
             resourceId: '/tmp/test-workspace',
             title: 'Existing thread',
-            createdAt: new Date('2026-04-22T10:00:00Z'),
             updatedAt: new Date('2026-04-22T10:00:00Z'),
           },
         ],
@@ -1057,9 +1057,9 @@ interface McpApi {
 
 export const setMcpApi = (overrides: Partial<McpApi> = {}) => {
   const api: McpApi = {
-    listTools: vi.fn().mockResolvedValue({}),
-    enableTools: vi.fn().mockResolvedValue(undefined),
     disableTools: vi.fn().mockResolvedValue(undefined),
+    enableTools: vi.fn().mockResolvedValue(undefined),
+    listTools: vi.fn().mockResolvedValue({}),
     onToolsUpdated: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };

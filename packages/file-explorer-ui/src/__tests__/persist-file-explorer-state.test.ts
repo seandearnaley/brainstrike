@@ -51,13 +51,13 @@ describe('persistFileExplorerStateImmediately', () => {
       { selectedFilePaths: new Set(['/root/a.ts']), volatile: true },
       {
         name: 'file-explorer',
-        version: 7,
         partialize: (state) => {
           const narrowedState = state as unknown as { selectedFilePaths: Set<string> };
           return createSerializedState({
             selectedFilePaths: [...narrowedState.selectedFilePaths],
           });
         },
+        version: 7,
       }
     );
 

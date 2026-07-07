@@ -34,14 +34,14 @@ describe('createClipboardService', () => {
 
   it('surfaces the bridge error message instead of silently falling back', async () => {
     mutableWindow.clipboard = {
-      writeText: vi.fn().mockResolvedValue({ ok: false, error: 'main process rejected write' }),
+      writeText: vi.fn().mockResolvedValue({ error: 'main process rejected write', ok: false }),
     };
     const navigatorSpy = vi.fn();
     vi.stubGlobal('navigator', { clipboard: { writeText: navigatorSpy } });
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ ok: false, error: 'main process rejected write' });
+    expect(outcome).toEqual({ error: 'main process rejected write', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
@@ -52,7 +52,7 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ ok: false, error: 'Desktop clipboard bridge rejected the write' });
+    expect(outcome).toEqual({ error: 'Desktop clipboard bridge rejected the write', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
@@ -65,7 +65,7 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ ok: false, error: 'Desktop clipboard bridge rejected the write' });
+    expect(outcome).toEqual({ error: 'Desktop clipboard bridge rejected the write', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
@@ -78,7 +78,7 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ ok: false, error: 'bridge exploded' });
+    expect(outcome).toEqual({ error: 'bridge exploded', ok: false });
     expect(navigatorSpy).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe('createClipboardService', () => {
 
     const outcome = await createClipboardService().writeText('hello');
 
-    expect(outcome).toEqual({ ok: false, error: 'denied' });
+    expect(outcome).toEqual({ error: 'denied', ok: false });
   });
 
   it('reports when no clipboard exists at all', async () => {

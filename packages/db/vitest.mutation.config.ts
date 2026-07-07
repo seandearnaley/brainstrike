@@ -2,21 +2,21 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    environment: 'jsdom',
-    globals: true,
-    silent: true,
-    reporters: 'basic',
-    setupFiles: ['./vitest.setup.ts'],
-    include: ['__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
     env: {
       TEST_PGLITE_MOCK: 'true',
     },
-    pool: 'threads',
+    environment: 'jsdom',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    hookTimeout: 30_000,
+    include: ['__tests__/**/*.test.{ts,tsx}'],
+    isolate: true,
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
-    isolate: true,
-    hookTimeout: 30_000,
+    pool: 'threads',
+    reporters: 'basic',
+    setupFiles: ['./vitest.setup.ts'],
+    silent: true,
     testTimeout: 30_000,
   },
 });

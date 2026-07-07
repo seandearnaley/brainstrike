@@ -22,13 +22,13 @@ function textMessage(
   createdAt: string
 ): MastraDBMessage {
   return {
-    id,
-    role: id.endsWith('-assistant') ? 'assistant' : 'user',
-    type: 'text',
-    threadId,
-    resourceId,
-    createdAt: new Date(createdAt),
     content: { content: id },
+    createdAt: new Date(createdAt),
+    id,
+    resourceId,
+    role: id.endsWith('-assistant') ? 'assistant' : 'user',
+    threadId,
+    type: 'text',
   };
 }
 
@@ -89,29 +89,29 @@ describe('PgliteMemoryStore', () => {
   it('persists and lists workspace-scoped threads by updated time', async () => {
     const firstThread = await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-older',
+        metadata: { workspaceRootPath: '/repo/a' },
         resourceId: 'workspace-a',
         title: 'Older thread',
-        metadata: { workspaceRootPath: '/repo/a' },
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     const secondThread = await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T11:00:00Z'),
         id: 'thread-newer',
         resourceId: 'workspace-a',
         title: 'Newer thread',
-        createdAt: new Date('2026-04-22T11:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
     });
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T12:00:00Z'),
         id: 'thread-other-workspace',
         resourceId: 'workspace-b',
         title: 'Other workspace',
-        createdAt: new Date('2026-04-22T12:00:00Z'),
         updatedAt: new Date('2026-04-22T12:00:00Z'),
       },
     });
@@ -120,7 +120,7 @@ describe('PgliteMemoryStore', () => {
 
     const listed = await store.listThreads({
       filter: { resourceId: 'workspace-a' },
-      orderBy: { field: 'updatedAt', direction: 'DESC' },
+      orderBy: { direction: 'DESC', field: 'updatedAt' },
       perPage: false,
     });
     const emptyResourceListed = await store.listThreads({
@@ -138,77 +138,77 @@ describe('PgliteMemoryStore', () => {
   it('honors resourceId when loading a thread by id', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-resource-scoped',
         resourceId: 'workspace-a',
         title: 'Workspace A thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
 
     await expect(
-      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-a' })
+      store.getThreadById({ resourceId: 'workspace-a', threadId: 'thread-resource-scoped' })
     ).resolves.toMatchObject({
       id: 'thread-resource-scoped',
       resourceId: 'workspace-a',
     });
     await expect(
-      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: 'workspace-b' })
+      store.getThreadById({ resourceId: 'workspace-b', threadId: 'thread-resource-scoped' })
     ).resolves.toBeNull();
     await expect(
-      store.getThreadById({ threadId: 'thread-resource-scoped', resourceId: '' })
+      store.getThreadById({ resourceId: '', threadId: 'thread-resource-scoped' })
     ).resolves.toBeNull();
   });
 
   it('persists messages and supports thread/resource recall queries', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
 
     const messages: MastraDBMessage[] = [
       {
-        id: 'message-1',
-        role: 'user',
-        type: 'text',
-        threadId: 'thread-1',
-        resourceId: 'workspace-a',
-        createdAt: new Date('2026-04-22T10:00:01Z'),
         content: { content: 'Remember that the deploy window is Friday.' },
+        createdAt: new Date('2026-04-22T10:00:01Z'),
+        id: 'message-1',
+        resourceId: 'workspace-a',
+        role: 'user',
+        threadId: 'thread-1',
+        type: 'text',
       },
       {
-        id: 'message-2',
-        role: 'assistant',
-        type: 'text',
-        threadId: 'thread-1',
-        resourceId: 'workspace-a',
-        createdAt: new Date('2026-04-22T10:00:02Z'),
         content: { content: 'I will remember that.' },
+        createdAt: new Date('2026-04-22T10:00:02Z'),
+        id: 'message-2',
+        resourceId: 'workspace-a',
+        role: 'assistant',
+        threadId: 'thread-1',
+        type: 'text',
       },
     ];
 
     await store.saveMessages({ messages });
 
     const byThread = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
+      orderBy: { direction: 'ASC', field: 'createdAt' },
       perPage: false,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
     });
     const byResource = await store.listMessagesByResourceId({
-      resourceId: 'workspace-a',
+      orderBy: { direction: 'ASC', field: 'createdAt' },
       perPage: false,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
+      resourceId: 'workspace-a',
     });
     const byEmptyResource = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: '',
       perPage: false,
+      resourceId: '',
+      threadId: 'thread-1',
     });
     const byId = await store.listMessagesById({ messageIds: ['message-2'] });
 
@@ -222,10 +222,10 @@ describe('PgliteMemoryStore', () => {
   it('expands included thread messages with semantic recall context windows', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
@@ -240,11 +240,11 @@ describe('PgliteMemoryStore', () => {
     });
 
     const result = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
+      include: [{ id: 'message-4', withNextMessages: 1, withPreviousMessages: 2 }],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
       perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
-      include: [{ id: 'message-4', withPreviousMessages: 2, withNextMessages: 1 }],
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
     });
 
     expect(result.messages.map((message) => message.id)).toEqual([
@@ -261,19 +261,19 @@ describe('PgliteMemoryStore', () => {
   it('expands resource-level included messages using the include thread id', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'First thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T11:00:00Z'),
         id: 'thread-2',
         resourceId: 'workspace-a',
         title: 'Second thread',
-        createdAt: new Date('2026-04-22T11:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
     });
@@ -288,17 +288,17 @@ describe('PgliteMemoryStore', () => {
     });
 
     const result = await store.listMessagesByResourceId({
-      resourceId: 'workspace-a',
-      perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
       include: [
         {
           id: 'thread-2-message-2',
           threadId: 'thread-2',
-          withPreviousMessages: 1,
           withNextMessages: 1,
+          withPreviousMessages: 1,
         },
       ],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
+      perPage: 1,
+      resourceId: 'workspace-a',
     });
 
     expect(result.messages.map((message) => message.id)).toEqual([
@@ -314,19 +314,19 @@ describe('PgliteMemoryStore', () => {
   it('does not return included messages outside the requested thread or resource scope', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Scoped thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T11:00:00Z'),
         id: 'thread-foreign',
         resourceId: 'workspace-b',
         title: 'Foreign thread',
-        createdAt: new Date('2026-04-22T11:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
     });
@@ -341,17 +341,17 @@ describe('PgliteMemoryStore', () => {
     });
 
     const result = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
-      perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
       include: [
         {
           id: 'foreign-message-2',
-          withPreviousMessages: 1,
           withNextMessages: 1,
+          withPreviousMessages: 1,
         },
       ],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
+      perPage: 1,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
     });
 
     expect(result.messages.map((message) => message.id)).toEqual(['thread-1-message-1']);
@@ -362,10 +362,10 @@ describe('PgliteMemoryStore', () => {
   it('uses bounded adjacent-message queries for include windows', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
@@ -381,11 +381,11 @@ describe('PgliteMemoryStore', () => {
     const querySpy = vi.spyOn(db, 'query');
 
     const result = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
+      include: [{ id: 'message-3', withNextMessages: 1, withPreviousMessages: 1 }],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
       perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
-      include: [{ id: 'message-3', withPreviousMessages: 1, withNextMessages: 1 }],
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
     });
 
     const sqlStatements = querySpy.mock.calls.map(([sql]) => String(sql));
@@ -411,10 +411,10 @@ describe('PgliteMemoryStore', () => {
   it('keeps hasMore tied to the date-filtered base page when include windows cross the date range', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
@@ -429,14 +429,14 @@ describe('PgliteMemoryStore', () => {
     });
 
     const result = await store.listMessages({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
-      perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
       filter: {
         dateRange: { start: new Date('2026-04-22T10:00:04Z') },
       },
-      include: [{ id: 'message-2', withPreviousMessages: 1, withNextMessages: 1 }],
+      include: [{ id: 'message-2', withNextMessages: 1, withPreviousMessages: 1 }],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
+      perPage: 1,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
     });
 
     expect(result.messages.map((message) => message.id)).toEqual([
@@ -452,10 +452,10 @@ describe('PgliteMemoryStore', () => {
   it('does not append adjacent include-window messages outside the requested resource scope', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
@@ -468,10 +468,10 @@ describe('PgliteMemoryStore', () => {
     });
 
     const result = await store.listMessagesByResourceId({
-      resourceId: 'workspace-a',
-      perPage: 1,
-      orderBy: { field: 'createdAt', direction: 'ASC' },
       include: [{ id: 'message-2', withNextMessages: 1 }],
+      orderBy: { direction: 'ASC', field: 'createdAt' },
+      perPage: 1,
+      resourceId: 'workspace-a',
     });
 
     expect(result.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
@@ -491,28 +491,28 @@ describe('PgliteMemoryStore', () => {
     await observedStore.initialize();
     await observedStore.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     await observedStore.saveMessages({
       messages: [
         {
-          id: 'message-1',
-          role: 'user',
-          type: 'text',
-          threadId: 'thread-1',
-          resourceId: 'workspace-a',
-          createdAt: new Date('2026-04-22T10:00:01Z'),
           content: { content: 'Remember the deploy window.' },
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+          id: 'message-1',
+          resourceId: 'workspace-a',
+          role: 'user',
+          threadId: 'thread-1',
+          type: 'text',
         },
       ],
     });
 
-    await observedStore.listMessages({ threadId: 'thread-1', perPage: false });
+    await observedStore.listMessages({ perPage: false, threadId: 'thread-1' });
     await observedStore.updateResource({
       resourceId: 'workspace-a',
       workingMemory: 'Deploy window is Friday.',
@@ -538,16 +538,16 @@ describe('PgliteMemoryStore', () => {
     await observedStore.initialize();
     await observedStore.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
 
     await expect(
-      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+      observedStore.listMessages({ perPage: false, threadId: 'thread-1' })
     ).resolves.toMatchObject({
       messages: [],
     });
@@ -563,16 +563,16 @@ describe('PgliteMemoryStore', () => {
     await observedStore.initialize();
     await observedStore.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
 
     await expect(
-      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+      observedStore.listMessages({ perPage: false, threadId: 'thread-1' })
     ).resolves.toMatchObject({
       messages: [],
     });
@@ -582,38 +582,38 @@ describe('PgliteMemoryStore', () => {
   it('updates messages in one batched read-write cycle', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-1',
         resourceId: 'workspace-a',
         title: 'Memory thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     await store.saveMessages({
       messages: [
         {
-          id: 'message-1',
-          role: 'user',
-          type: 'text',
-          threadId: 'thread-1',
-          resourceId: 'workspace-a',
-          createdAt: new Date('2026-04-22T10:00:01Z'),
           content: {
             content: 'Remember the Friday deploy window.',
             metadata: { provider: 'openai' },
           },
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+          id: 'message-1',
+          resourceId: 'workspace-a',
+          role: 'user',
+          threadId: 'thread-1',
+          type: 'text',
         },
         {
-          id: 'message-2',
-          role: 'assistant',
-          type: 'text',
-          threadId: 'thread-1',
-          resourceId: 'workspace-a',
-          createdAt: new Date('2026-04-22T10:00:02Z'),
           content: {
             content: 'I will remember that.',
             metadata: { model: 'gpt-5.2' },
           },
+          createdAt: new Date('2026-04-22T10:00:02Z'),
+          id: 'message-2',
+          resourceId: 'workspace-a',
+          role: 'assistant',
+          threadId: 'thread-1',
+          type: 'text',
         },
       ],
     });
@@ -623,17 +623,17 @@ describe('PgliteMemoryStore', () => {
     const updated = await store.updateMessages({
       messages: [
         {
-          id: 'message-1',
           content: {
             metadata: { provider: 'anthropic' },
           },
+          id: 'message-1',
         },
         {
-          id: 'message-2',
-          role: 'tool',
           content: {
             content: 'Deploy window stored.',
           },
+          id: 'message-2',
+          role: 'tool',
         },
       ],
     });
@@ -644,12 +644,12 @@ describe('PgliteMemoryStore', () => {
       metadata: { provider: 'anthropic' },
     });
     expect(updated[1]).toMatchObject({
-      id: 'message-2',
-      role: 'tool',
       content: {
         content: 'Deploy window stored.',
         metadata: { model: 'gpt-5.2' },
       },
+      id: 'message-2',
+      role: 'tool',
     });
     expect(querySpy).toHaveBeenCalledTimes(4);
   });
@@ -657,24 +657,24 @@ describe('PgliteMemoryStore', () => {
   it('persists workspace-scoped working memory resources', async () => {
     const saved = await store.saveResource({
       resource: {
-        id: 'workspace-a',
-        workingMemory: 'User prefers concise implementation notes.',
-        metadata: { workspaceRootPath: '/repo/a' },
         createdAt: new Date('2026-04-22T10:00:00Z'),
+        id: 'workspace-a',
+        metadata: { workspaceRootPath: '/repo/a' },
         updatedAt: new Date('2026-04-22T10:00:00Z'),
+        workingMemory: 'User prefers concise implementation notes.',
       },
     });
 
     expect(saved.workingMemory).toBe('User prefers concise implementation notes.');
 
     const updated = await store.updateResource({
+      metadata: { source: 'thread', workspaceRootPath: '/repo/a' },
       resourceId: 'workspace-a',
       workingMemory: 'User prefers concise implementation notes and no fallbacks.',
-      metadata: { workspaceRootPath: '/repo/a', source: 'thread' },
     });
     const loaded = await store.getResourceById({ resourceId: 'workspace-a' });
 
-    expect(updated.metadata).toEqual({ workspaceRootPath: '/repo/a', source: 'thread' });
+    expect(updated.metadata).toEqual({ source: 'thread', workspaceRootPath: '/repo/a' });
     expect(loaded?.workingMemory).toBe(
       'User prefers concise implementation notes and no fallbacks.'
     );
@@ -691,19 +691,19 @@ describe('PgliteMemoryStore', () => {
     });
     await observedStore.initialize();
     const created = await observedStore.initializeObservationalMemory({
-      threadId: 'thread-1',
-      resourceId: 'workspace-a',
-      scope: 'thread',
       config: { observation: { messageTokens: 1000 } },
       observedTimezone: 'America/New_York',
+      resourceId: 'workspace-a',
+      scope: 'thread',
+      threadId: 'thread-1',
     });
 
     await observedStore.updateActiveObservations({
       id: created.id,
-      observations: '- User is wiring Mastra memory into Brainstrike.',
-      tokenCount: 12,
       lastObservedAt: new Date('2026-04-22T10:00:00Z'),
+      observations: '- User is wiring Mastra memory into Brainstrike.',
       observedMessageIds: ['message-1'],
+      tokenCount: 12,
     });
 
     const active = await observedStore.getObservationalMemory('thread-1', 'workspace-a');
@@ -742,17 +742,17 @@ describe('PgliteMemoryStore', () => {
     await observedStore.initialize();
 
     const created = await observedStore.initializeObservationalMemory({
-      threadId: 'thread-detail',
+      config: { observation: { messageTokens: 1000 } },
       resourceId: 'workspace-detail',
       scope: 'thread',
-      config: { observation: { messageTokens: 1000 } },
+      threadId: 'thread-detail',
     });
     await observedStore.updateActiveObservations({
       id: created.id,
-      observations: '- User asked about run-event details.',
-      tokenCount: 7,
       lastObservedAt: new Date('2026-04-22T10:00:00Z'),
+      observations: '- User asked about run-event details.',
       observedMessageIds: ['message-detail-1'],
+      tokenCount: 7,
     });
     await observedStore.getObservationalMemory('thread-detail', 'workspace-detail');
     await observedStore.listMessages({ threadId: 'thread-detail' });
@@ -770,31 +770,31 @@ describe('PgliteMemoryStore', () => {
   it('deletes thread messages and observational memory atomically with the thread', async () => {
     await store.saveThread({
       thread: {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-delete',
         resourceId: 'workspace-a',
         title: 'Delete me',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       },
     });
     await store.saveMessages({
       messages: [
         {
-          id: 'message-delete',
-          threadId: 'thread-delete',
-          resourceId: 'workspace-a',
-          role: 'user',
-          type: 'text',
           content: { content: 'Delete this conversation.' },
           createdAt: new Date('2026-04-22T10:00:01Z'),
+          id: 'message-delete',
+          resourceId: 'workspace-a',
+          role: 'user',
+          threadId: 'thread-delete',
+          type: 'text',
         } as MastraDBMessage,
       ],
     });
     const observation = await store.initializeObservationalMemory({
-      threadId: 'thread-delete',
+      config: {},
       resourceId: 'workspace-a',
       scope: 'thread',
-      config: {},
+      threadId: 'thread-delete',
     });
 
     await store.deleteThread({ threadId: 'thread-delete' });
@@ -813,10 +813,10 @@ describe('PgliteMemoryStore', () => {
 
   it('updates observational memory flags with targeted update statements', async () => {
     const created = await store.initializeObservationalMemory({
-      threadId: 'thread-1',
+      config: {},
       resourceId: 'workspace-a',
       scope: 'thread',
-      config: {},
+      threadId: 'thread-1',
     });
     const querySpy = vi.spyOn(db, 'query');
 
@@ -832,10 +832,10 @@ describe('PgliteMemoryStore', () => {
 
     expect(updated).toMatchObject({
       id: created.id,
-      isReflecting: true,
-      isObserving: false,
       isBufferingObservation: true,
       isBufferingReflection: true,
+      isObserving: false,
+      isReflecting: true,
       lastBufferedAtTokens: 42,
       pendingMessageTokens: 77,
     });
@@ -843,52 +843,52 @@ describe('PgliteMemoryStore', () => {
 
   it('activates buffered observational chunks and creates reflection generations', async () => {
     const created = await store.initializeObservationalMemory({
-      threadId: 'thread-1',
+      config: {},
       resourceId: 'workspace-a',
       scope: 'thread',
-      config: {},
+      threadId: 'thread-1',
     });
 
     await store.updateBufferedObservations({
-      id: created.id,
-      lastBufferedAtTime: new Date('2026-04-22T10:00:04Z'),
       chunk: {
+        currentTask: 'Wire Mastra memory',
         cycleId: 'cycle-1',
-        observations: '- User chose a no-fallback memory architecture.',
-        tokenCount: 10,
+        lastObservedAt: new Date('2026-04-22T10:00:02Z'),
         messageIds: ['message-1', 'message-2'],
         messageTokens: 200,
-        lastObservedAt: new Date('2026-04-22T10:00:02Z'),
+        observations: '- User chose a no-fallback memory architecture.',
         suggestedContinuation: 'Continue with the PGlite adapter.',
-        currentTask: 'Wire Mastra memory',
+        tokenCount: 10,
       },
+      id: created.id,
+      lastBufferedAtTime: new Date('2026-04-22T10:00:04Z'),
     });
 
     const activation = await store.swapBufferedToActive({
-      id: created.id,
       activationRatio: 0.8,
-      messageTokensThreshold: 300,
       currentPendingTokens: 240,
+      id: created.id,
+      messageTokensThreshold: 300,
     });
     const active = await store.getObservationalMemory('thread-1', 'workspace-a');
 
     expect(activation).toMatchObject({
+      activatedMessageIds: ['message-1', 'message-2'],
       chunksActivated: 1,
+      currentTask: 'Wire Mastra memory',
       messageTokensActivated: 200,
       observationTokensActivated: 10,
-      activatedMessageIds: ['message-1', 'message-2'],
       suggestedContinuation: 'Continue with the PGlite adapter.',
-      currentTask: 'Wire Mastra memory',
     });
     expect(active?.bufferedObservationChunks).toBeUndefined();
     expect(active?.activeObservations).toContain('no-fallback');
 
     await store.updateBufferedReflection({
       id: created.id,
-      reflection: '- The durable memory architecture is mandatory.',
-      tokenCount: 8,
       inputTokenCount: 10,
       reflectedObservationLineCount: 1,
+      reflection: '- The durable memory architecture is mandatory.',
+      tokenCount: 8,
     });
 
     const reflection = await store.swapBufferedReflectionToActive({

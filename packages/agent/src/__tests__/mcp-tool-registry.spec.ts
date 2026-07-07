@@ -13,15 +13,15 @@ describe('MCP ToolRegistry', () => {
 
   const createMockTool = (id: string, description: string) =>
     createTool({
-      id,
       description,
-      inputSchema: z.object({ query: z.string() }),
       execute: async () => ({ result: 'test' }),
+      id,
+      inputSchema: z.object({ query: z.string() }),
     });
 
   const mockTools = {
-    'tool.search': createMockTool('tool.search', 'Search for documents'),
     'tool.read': createMockTool('tool.read', 'Read a document'),
+    'tool.search': createMockTool('tool.search', 'Search for documents'),
     'tool.write': createMockTool('tool.write', 'Write a document'),
   } as ToolsInput;
 
@@ -31,9 +31,9 @@ describe('MCP ToolRegistry', () => {
 
       const tools = registry.getToolsForServer('test-server');
       expect(tools).toHaveLength(3);
-      expect(tools[0]?.id).toBe('tool.search');
-      expect(tools[0]?.serverName).toBe('test-server');
-      expect(tools[0]?.enabled).toBe(true);
+      const searchTool = tools.find((tool) => tool.id === 'tool.search');
+      expect(searchTool?.serverName).toBe('test-server');
+      expect(searchTool?.enabled).toBe(true);
     });
 
     it('should preserve enabled state when re-registering', () => {
@@ -86,10 +86,14 @@ describe('MCP ToolRegistry', () => {
 
     it('should enable specific tools', () => {
       registry.disableTools(['tool.search']);
-      expect(registry.getToolsForServer('test-server')[0]?.enabled).toBe(false);
+      expect(
+        registry.getToolsForServer('test-server').find((tool) => tool.id === 'tool.search')?.enabled
+      ).toBe(false);
 
       registry.enableTools(['tool.search']);
-      expect(registry.getToolsForServer('test-server')[0]?.enabled).toBe(true);
+      expect(
+        registry.getToolsForServer('test-server').find((tool) => tool.id === 'tool.search')?.enabled
+      ).toBe(true);
     });
 
     it('should disable specific tools', () => {
@@ -183,10 +187,10 @@ describe('MCP ToolRegistry', () => {
       const stats = registry.getStats();
 
       expect(stats).toEqual({
-        total: 3,
-        enabled: 2,
         disabled: 1,
+        enabled: 2,
         servers: 1,
+        total: 3,
       });
     });
 

@@ -30,19 +30,19 @@ describe('searchSimilar behavior (pgvector path)', () => {
 
     const now = new Date().toISOString();
     await fileRepo.create({
+      createdAt: now,
       id: 'f1',
       name: 'readme.md',
       path: '/readme.md',
       size: 10,
-      createdAt: now,
       updatedAt: now,
     });
     await fileRepo.create({
+      createdAt: now,
       id: 'f2',
       name: 'notes.md',
       path: '/notes.md',
       size: 12,
-      createdAt: now,
       updatedAt: now,
     });
   });
@@ -57,54 +57,54 @@ describe('searchSimilar behavior (pgvector path)', () => {
 
     const chunks: FileChunkInsert[] = [
       {
-        id: 'c1',
-        fileRecordId: 'f1',
         chunkIndex: 0,
+        chunkSize: 11,
+        chunkType: 'text',
         content: 'hello world',
         contentHash: 'h1',
-        tokenCount: 5,
-        chunkType: 'text',
-        chunkSize: 11,
+        createdAt: now,
         embedding: makeVector(768, [[0, 0.3]]),
+        embeddingHash: 'eh1',
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh1',
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c1',
+        tokenCount: 5,
         updatedAt: now,
       },
       {
-        id: 'c2',
-        fileRecordId: 'f1',
         chunkIndex: 1,
+        chunkSize: 12,
+        chunkType: 'text',
         content: 'another line',
         contentHash: 'h2',
-        tokenCount: 2,
-        chunkType: 'text',
-        chunkSize: 12,
+        createdAt: now,
         embedding: makeVector(768, [
           [0, 0.2],
           [1, 0.1],
         ]),
+        embeddingHash: 'eh2',
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh2',
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c2',
+        tokenCount: 2,
         updatedAt: now,
       },
       {
-        id: 'c3',
-        fileRecordId: 'f2',
         chunkIndex: 0,
+        chunkSize: 12,
+        chunkType: 'text',
         content: 'notes content',
         contentHash: 'h3',
-        tokenCount: 4,
-        chunkType: 'text',
-        chunkSize: 12,
+        createdAt: now,
         embedding: makeVector(768, [[1, 0.28]]),
+        embeddingHash: 'eh3',
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh3',
-        createdAt: now,
+        fileRecordId: 'f2',
+        id: 'c3',
+        tokenCount: 4,
         updatedAt: now,
       },
     ];
@@ -113,17 +113,17 @@ describe('searchSimilar behavior (pgvector path)', () => {
     const query = makeVector(768, [[0, 0.25]]);
 
     const scoped = await chunkRepo.searchSimilar(query, {
+      embeddingSetId: set.id,
       limit: 10,
       threshold: 0,
-      embeddingSetId: set.id,
     });
     expect(scoped.map((r) => r.chunk.id)).toEqual(['c1', 'c2', 'c3']);
 
     // Thresholding: pick only the closer one
     const stricter = await chunkRepo.searchSimilar(query, {
+      embeddingSetId: set.id,
       limit: 10,
       threshold: 0.95,
-      embeddingSetId: set.id,
     });
     expect(stricter.map((r) => r.chunk.id)).toEqual(['c1']);
   });
@@ -134,35 +134,35 @@ describe('searchSimilar behavior (pgvector path)', () => {
 
     const chunks: FileChunkInsert[] = [
       {
-        id: 'c1',
-        fileRecordId: 'f1',
         chunkIndex: 0,
+        chunkSize: 11,
+        chunkType: 'text',
         content: 'readme content',
         contentHash: 'h1',
-        tokenCount: 5,
-        chunkType: 'text',
-        chunkSize: 11,
+        createdAt: now,
         embedding: makeVector(768, [[0, 0.3]]),
+        embeddingHash: 'eh1',
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh1',
-        createdAt: now,
+        fileRecordId: 'f1',
+        id: 'c1',
+        tokenCount: 5,
         updatedAt: now,
       },
       {
-        id: 'c2',
-        fileRecordId: 'f2',
         chunkIndex: 0,
+        chunkSize: 10,
+        chunkType: 'text',
         content: 'notes content',
         contentHash: 'h2',
-        tokenCount: 4,
-        chunkType: 'text',
-        chunkSize: 10,
+        createdAt: now,
         embedding: makeVector(768, [[0, 0.25]]),
+        embeddingHash: 'eh2',
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
-        embeddingHash: 'eh2',
-        createdAt: now,
+        fileRecordId: 'f2',
+        id: 'c2',
+        tokenCount: 4,
         updatedAt: now,
       },
     ];
@@ -171,10 +171,10 @@ describe('searchSimilar behavior (pgvector path)', () => {
     const query = makeVector(768, [[0, 0.2]]);
 
     const allowlisted = await chunkRepo.searchSimilar(query, {
-      limit: 10,
-      threshold: 0,
       embeddingSetId: set.id,
       filePaths: ['/readme.md'],
+      limit: 10,
+      threshold: 0,
     });
     expect(allowlisted.map((r) => r.chunk.id)).toEqual(['c1']);
 
@@ -189,10 +189,10 @@ describe('searchSimilar behavior (pgvector path)', () => {
     );
 
     const snapshotScoped = await chunkRepo.searchSimilar(query, {
-      limit: 10,
-      threshold: 0,
       embeddingSetId: set.id,
+      limit: 10,
       selectionSnapshotId: snapshotId,
+      threshold: 0,
     });
     expect(snapshotScoped.map((r) => r.chunk.id)).toEqual(['c2']);
   });
@@ -204,10 +204,10 @@ describe('searchSimilar behavior (pgvector path)', () => {
 
     await expect(
       chunkRepo.searchSimilar(query, {
-        limit: 10,
-        threshold: 0,
         embeddingSetId: set.id,
         filePaths: oversized,
+        limit: 10,
+        threshold: 0,
       })
     ).rejects.toThrow(/filePaths limit exceeded/);
   });

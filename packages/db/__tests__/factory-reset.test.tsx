@@ -44,9 +44,9 @@ function createMockDb(): MockDb {
   });
 
   return {
-    query,
-    exec: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
+    exec: vi.fn(async () => undefined),
+    query,
     transaction,
   };
 }
@@ -173,7 +173,7 @@ describe('DbProvider factoryReset', () => {
         }
         return { rows: [] };
       }),
-      resetLocal: vi.fn(async () => ({ success: false, message: 'disk reset failed' })),
+      resetLocal: vi.fn(async () => ({ message: 'disk reset failed', success: false })),
       test: vi.fn(async () => ({ message: 'ok', success: true })),
     });
 

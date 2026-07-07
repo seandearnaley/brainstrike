@@ -1,11 +1,6 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": [
-    "ultracite/core",
-    "ultracite/react",
-    "ultracite/biome/core",
-    "ultracite/biome/react"
-  ],
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -59,7 +54,11 @@
         "noExportedImports": "off",
         "useConsistentMemberAccessibility": "off",
         "useDefaultSwitchClause": "off",
-        "noIncrementDecrement": "off"
+        "noIncrementDecrement": "off",
+        "useConsistentMethodSignatures": "off",
+        "useDestructuring": "off",
+        "useErrorCause": "off",
+        "useForOf": "off"
       },
       "suspicious": {
         "noConsole": "error",
@@ -68,15 +67,31 @@
         "noBitwiseOperators": "off",
         "noEvolvingTypes": "off",
         "noLeakedRender": "off",
-        "noShadow": "off"
+        "noNestedPromises": "off",
+        "noReturnAssign": "off",
+        "noShadow": "off",
+        "noUnnecessaryConditions": "off",
+        "useArraySortCompare": "off"
       },
       "complexity": {
         "useLiteralKeys": "off",
         "noForEach": "off",
-        "noVoid": "off"
+        "noVoid": "off",
+        "noRedundantDefaultExport": "off",
+        "noStaticOnlyClass": "off",
+        "noUselessReturn": "off",
+        "useArrayFind": "off"
+      },
+      "correctness": {
+        "noUnusedInstantiation": "off"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off"
       },
       "performance": {
+        "noAwaitInLoops": "off",
         "noBarrelFile": "off",
+        "noJsxPropsBind": "off",
         "noNamespaceImport": "off",
         "useTopLevelRegex": "off"
       },

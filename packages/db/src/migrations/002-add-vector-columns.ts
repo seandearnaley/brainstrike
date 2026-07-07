@@ -1,7 +1,20 @@
 import type { Migration } from './migration-runner';
 
 export const migration002AddVectorColumns: Migration = {
-  version: 2,
+  down: `
+		-- Drop indexes
+		-- DROP INDEX IF EXISTS idx_file_records_embedding;
+		DROP INDEX IF EXISTS idx_file_records_processed_at;
+		DROP INDEX IF EXISTS idx_file_records_content_hash;
+
+		-- Remove columns
+		ALTER TABLE file_records
+		DROP COLUMN IF EXISTS processed_at,
+		DROP COLUMN IF EXISTS token_count,
+		DROP COLUMN IF EXISTS content_hash,
+		DROP COLUMN IF EXISTS content,
+		DROP COLUMN IF EXISTS embedding;
+	`,
   name: 'add_vector_columns',
   up: async (db) => {
     try {
@@ -34,18 +47,5 @@ export const migration002AddVectorColumns: Migration = {
 		`);
     // Note: file_records embedding index is intentionally omitted in tests/non-vector env
   },
-  down: `
-		-- Drop indexes
-		-- DROP INDEX IF EXISTS idx_file_records_embedding;
-		DROP INDEX IF EXISTS idx_file_records_processed_at;
-		DROP INDEX IF EXISTS idx_file_records_content_hash;
-		
-		-- Remove columns
-		ALTER TABLE file_records 
-		DROP COLUMN IF EXISTS processed_at,
-		DROP COLUMN IF EXISTS token_count,
-		DROP COLUMN IF EXISTS content_hash,
-		DROP COLUMN IF EXISTS content,
-		DROP COLUMN IF EXISTS embedding;
-	`,
+  version: 2,
 };

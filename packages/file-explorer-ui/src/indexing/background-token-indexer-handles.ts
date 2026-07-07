@@ -184,17 +184,17 @@ export function buildSyntheticElectronHandle(args: {
 function logFirstFileNode(node: IFileNode): void {
   const handle = node.handle as unknown as Record<string, unknown> | undefined;
   logger.debug('buildFileHandleMap first file node', {
+    handleKeys: handle ? Object.keys(handle) : [],
+    handleKind: handle?.['kind'],
+    handlePath: handle?.['path'],
+    handlePlatform: handle?.['platform'],
+    hasGetFile: handle && typeof handle['getFile'] === 'function',
+    hasHandle: !!node.handle,
+    hasRootFolderId: !!node.rootFolderId,
     nodeName: node.name,
     nodePath: node.path,
     nodeType: node.type,
-    hasHandle: !!node.handle,
-    hasRootFolderId: !!node.rootFolderId,
     rootFolderId: node.rootFolderId,
-    handleKeys: handle ? Object.keys(handle) : [],
-    handlePlatform: handle?.['platform'],
-    handleKind: handle?.['kind'],
-    handlePath: handle?.['path'],
-    hasGetFile: handle && typeof handle['getFile'] === 'function',
   });
 }
 
@@ -220,9 +220,9 @@ export function buildFileHandleMap(
 
       if (isWebFileHandle(handle)) {
         map.set(compositeKey, {
-          webHandle: handle,
           fileName: node.name,
           fileSize: node.size,
+          webHandle: handle,
         });
       } else if (isElectronHandle(handle)) {
         map.set(compositeKey, {

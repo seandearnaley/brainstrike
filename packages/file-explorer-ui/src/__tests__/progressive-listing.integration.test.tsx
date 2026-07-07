@@ -21,17 +21,17 @@ describe('Progressive Listing Integration', () => {
     for (let i = 0; i < fileCount; i++) {
       const paddedNum = String(i).padStart(4, '0');
       children[`file-${paddedNum}.ts`] = {
-        name: `file-${paddedNum}.ts`,
-        type: 'file',
         content: `// File ${i}`,
+        name: `file-${paddedNum}.ts`,
         size: 50,
+        type: 'file',
       };
     }
     return {
       src: {
+        children,
         name: 'src',
         type: 'directory',
-        children,
       },
     };
   }
@@ -47,11 +47,11 @@ describe('Progressive Listing Integration', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       const batches: { count: number; done: boolean; total: number }[] = [];
@@ -74,22 +74,22 @@ describe('Progressive Listing Integration', () => {
     it('should handle single batch for small directories', async () => {
       const adapter = new MockFileSystemAdapter({
         docs: {
+          children: {
+            'guide.md': { content: '# Guide', name: 'guide.md', type: 'file' },
+            'readme.md': { content: '# Readme', name: 'readme.md', type: 'file' },
+          },
           name: 'docs',
           type: 'directory',
-          children: {
-            'readme.md': { name: 'readme.md', type: 'file', content: '# Readme' },
-            'guide.md': { name: 'guide.md', type: 'file', content: '# Guide' },
-          },
         },
       });
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/docs',
-        name: 'docs',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'docs',
+        path: 'mock-root/docs',
+        platform: 'web' as const,
       };
 
       const batches: { count: number; done: boolean }[] = [];
@@ -106,19 +106,19 @@ describe('Progressive Listing Integration', () => {
     it('should handle empty directories', async () => {
       const adapter = new MockFileSystemAdapter({
         empty: {
+          children: {},
           name: 'empty',
           type: 'directory',
-          children: {},
         },
       });
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/empty',
-        name: 'empty',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'empty',
+        path: 'mock-root/empty',
+        platform: 'web' as const,
       };
 
       const batches: { count: number; done: boolean; total: number }[] = [];
@@ -139,11 +139,11 @@ describe('Progressive Listing Integration', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       const abortController = new AbortController();
@@ -167,11 +167,11 @@ describe('Progressive Listing Integration', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       const abortController = new AbortController();
@@ -206,11 +206,11 @@ describe('Progressive Listing Integration', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       const startTime = performance.now();
@@ -238,11 +238,11 @@ describe('Progressive Listing Integration', () => {
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/src',
-        name: 'src',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'src',
+        path: 'mock-root/src',
+        platform: 'web' as const,
       };
 
       const startTime = performance.now();
@@ -258,31 +258,31 @@ describe('Progressive Listing Integration', () => {
     it('should create proper IFileNode structure for streamed entries', async () => {
       const adapter = new MockFileSystemAdapter({
         project: {
-          name: 'project',
-          type: 'directory',
           children: {
             'index.ts': {
-              name: 'index.ts',
-              type: 'file',
               content: 'export default {};',
+              name: 'index.ts',
               size: 20,
+              type: 'file',
             },
             lib: {
+              children: {},
               name: 'lib',
               type: 'directory',
-              children: {},
             },
           },
+          name: 'project',
+          type: 'directory',
         },
       });
       await adapter.requestDirectoryAccess();
 
       const handle = {
-        path: 'mock-root/project',
-        name: 'project',
-        kind: 'directory' as const,
-        platform: 'web' as const,
         _internal: { mockDir: true },
+        kind: 'directory' as const,
+        name: 'project',
+        path: 'mock-root/project',
+        platform: 'web' as const,
       };
 
       let receivedNodes: unknown[] = [];

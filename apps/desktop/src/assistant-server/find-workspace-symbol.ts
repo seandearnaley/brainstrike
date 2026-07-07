@@ -80,7 +80,7 @@ function advanceNormal(state: BraceScanState, ch: string, next: string | undefin
  * multi-line string/comment caveat, this only affects the heuristic enclosing
  * range, which always stays bounded and path-safe. */
 function braceDelta(line: string): number {
-  const state: BraceScanState = { depth: 0, inString: null, inBlockComment: false, pos: 0 };
+  const state: BraceScanState = { depth: 0, inBlockComment: false, inString: null, pos: 0 };
   while (state.pos < line.length) {
     const ch = line[state.pos] ?? '';
     const next = line[state.pos + 1];
@@ -231,10 +231,10 @@ export function findSymbolMatches(
     const endIndex = resolveBlockEndIndex(lines, declIndex);
     return {
       declarationLine: declIndex + 1,
-      startLine: declIndex + 1,
       endLine: endIndex + 1,
       name: (lines[declIndex] ?? '').trim(),
       preview: buildPreview(lines, declIndex, options.contextLines),
+      startLine: declIndex + 1,
     };
   });
   return { matches, totalMatches, truncated: totalMatches > matches.length };

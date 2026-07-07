@@ -37,7 +37,7 @@ describe('MetadataCache', () => {
     it('should set and get an entry', () => {
       const cache = new MetadataCache();
 
-      cache.set('/path/to/file.ts', { size: 1024, mtimeMs: 1000, isDirectory: false });
+      cache.set('/path/to/file.ts', { isDirectory: false, mtimeMs: 1000, size: 1024 });
 
       const entry = cache.get('/path/to/file.ts');
       expect(entry).toBeDefined();
@@ -56,8 +56,8 @@ describe('MetadataCache', () => {
     it('should overwrite existing entries', () => {
       const cache = new MetadataCache();
 
-      cache.set('/path/to/file.ts', { size: 1024, mtimeMs: 1000, isDirectory: false });
-      cache.set('/path/to/file.ts', { size: 2048, mtimeMs: 2000, isDirectory: false });
+      cache.set('/path/to/file.ts', { isDirectory: false, mtimeMs: 1000, size: 1024 });
+      cache.set('/path/to/file.ts', { isDirectory: false, mtimeMs: 2000, size: 2048 });
 
       const entry = cache.get('/path/to/file.ts');
       expect(entry?.size).toBe(2048);
@@ -67,7 +67,7 @@ describe('MetadataCache', () => {
     it('should check existence with has()', () => {
       const cache = new MetadataCache();
 
-      cache.set('/path/to/file.ts', { size: 1024, mtimeMs: 1000, isDirectory: false });
+      cache.set('/path/to/file.ts', { isDirectory: false, mtimeMs: 1000, size: 1024 });
 
       expect(cache.has('/path/to/file.ts')).toBe(true);
       expect(cache.has('/nonexistent')).toBe(false);
@@ -77,9 +77,9 @@ describe('MetadataCache', () => {
       const cache = new MetadataCache();
 
       cache.setBatch([
-        { path: '/file1.ts', metadata: { size: 100, mtimeMs: 1000, isDirectory: false } },
-        { path: '/file2.ts', metadata: { size: 200, mtimeMs: 2000, isDirectory: false } },
-        { path: '/dir', metadata: { size: 0, mtimeMs: 3000, isDirectory: true } },
+        { metadata: { isDirectory: false, mtimeMs: 1000, size: 100 }, path: '/file1.ts' },
+        { metadata: { isDirectory: false, mtimeMs: 2000, size: 200 }, path: '/file2.ts' },
+        { metadata: { isDirectory: true, mtimeMs: 3000, size: 0 }, path: '/dir' },
       ]);
 
       expect(cache.get('/file1.ts')?.size).toBe(100);
@@ -94,8 +94,8 @@ describe('MetadataCache', () => {
 
       const cache = new MetadataCache();
 
-      cache.set('/project/a\\b.txt', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/project/a/b.txt', { size: 200, mtimeMs: 2000, isDirectory: false });
+      cache.set('/project/a\\b.txt', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/project/a/b.txt', { isDirectory: false, mtimeMs: 2000, size: 200 });
 
       expect(cache.get('/project/a\\b.txt')?.size).toBe(100);
       expect(cache.get('/project/a/b.txt')?.size).toBe(200);
@@ -104,8 +104,8 @@ describe('MetadataCache', () => {
     it('should clear all entries', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
 
       cache.clear();
 
@@ -119,12 +119,12 @@ describe('MetadataCache', () => {
     it('should evict oldest entries when at capacity', () => {
       const cache = new MetadataCache({ maxEntries: 3 });
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
-      cache.set('/file3.ts', { size: 300, mtimeMs: 3000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set('/file3.ts', { isDirectory: false, mtimeMs: 3000, size: 300 });
 
       // Adding 4th entry should evict the oldest (file1)
-      cache.set('/file4.ts', { size: 400, mtimeMs: 4000, isDirectory: false });
+      cache.set('/file4.ts', { isDirectory: false, mtimeMs: 4000, size: 400 });
 
       expect(cache.get('/file1.ts')).toBeUndefined();
       expect(cache.get('/file2.ts')).toBeDefined();
@@ -135,15 +135,15 @@ describe('MetadataCache', () => {
     it('should update LRU order on get()', () => {
       const cache = new MetadataCache({ maxEntries: 3 });
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
-      cache.set('/file3.ts', { size: 300, mtimeMs: 3000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set('/file3.ts', { isDirectory: false, mtimeMs: 3000, size: 300 });
 
       // Access file1 to move it to the end
       cache.get('/file1.ts');
 
       // Adding 4th entry should now evict file2 (now the oldest)
-      cache.set('/file4.ts', { size: 400, mtimeMs: 4000, isDirectory: false });
+      cache.set('/file4.ts', { isDirectory: false, mtimeMs: 4000, size: 400 });
 
       expect(cache.get('/file1.ts')).toBeDefined();
       expect(cache.get('/file2.ts')).toBeUndefined();
@@ -154,10 +154,10 @@ describe('MetadataCache', () => {
     it('should track eviction count in stats', () => {
       const cache = new MetadataCache({ maxEntries: 2 });
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
-      cache.set('/file3.ts', { size: 300, mtimeMs: 3000, isDirectory: false });
-      cache.set('/file4.ts', { size: 400, mtimeMs: 4000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set('/file3.ts', { isDirectory: false, mtimeMs: 3000, size: 300 });
+      cache.set('/file4.ts', { isDirectory: false, mtimeMs: 4000, size: 400 });
 
       const stats = cache.getStats();
       expect(stats.evictions).toBe(2);
@@ -169,7 +169,7 @@ describe('MetadataCache', () => {
     it('should expire entries after TTL', () => {
       const cache = new MetadataCache({ ttlMs: 1000 });
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       // Entry should be valid initially
       expect(cache.get('/file.ts')).toBeDefined();
@@ -184,7 +184,7 @@ describe('MetadataCache', () => {
     it('should track expiration count in stats', () => {
       const cache = new MetadataCache({ ttlMs: 1000 });
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       vi.advanceTimersByTime(1001);
       cache.get('/file.ts'); // Trigger expiration check
@@ -196,7 +196,7 @@ describe('MetadataCache', () => {
     it('should expire entries on has() check', () => {
       const cache = new MetadataCache({ ttlMs: 1000 });
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       expect(cache.has('/file.ts')).toBe(true);
 
@@ -208,8 +208,8 @@ describe('MetadataCache', () => {
     it('should prune expired entries proactively', () => {
       const cache = new MetadataCache({ ttlMs: 1000 });
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
 
       vi.advanceTimersByTime(1001);
 
@@ -223,8 +223,8 @@ describe('MetadataCache', () => {
     it('should invalidate a specific path', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
 
       const result = cache.invalidatePath('/file1.ts');
 
@@ -243,10 +243,10 @@ describe('MetadataCache', () => {
     it('should invalidate all entries under a directory', () => {
       const cache = new MetadataCache();
 
-      cache.set('/project/src/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/project/src/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
-      cache.set('/project/src/nested/file3.ts', { size: 300, mtimeMs: 3000, isDirectory: false });
-      cache.set('/project/other/file4.ts', { size: 400, mtimeMs: 4000, isDirectory: false });
+      cache.set('/project/src/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/project/src/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set('/project/src/nested/file3.ts', { isDirectory: false, mtimeMs: 3000, size: 300 });
+      cache.set('/project/other/file4.ts', { isDirectory: false, mtimeMs: 4000, size: 400 });
 
       const count = cache.invalidateDirectory('/project/src');
 
@@ -260,8 +260,8 @@ describe('MetadataCache', () => {
     it('should invalidate the directory itself', () => {
       const cache = new MetadataCache();
 
-      cache.set('/project/src', { size: 0, mtimeMs: 1000, isDirectory: true });
-      cache.set('/project/src/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/project/src', { isDirectory: true, mtimeMs: 1000, size: 0 });
+      cache.set('/project/src/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       const count = cache.invalidateDirectory('/project/src');
 
@@ -272,7 +272,7 @@ describe('MetadataCache', () => {
     it('should handle directory paths with trailing slash', () => {
       const cache = new MetadataCache();
 
-      cache.set('/project/src/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/project/src/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       const count = cache.invalidateDirectory('/project/src/');
 
@@ -283,9 +283,9 @@ describe('MetadataCache', () => {
     it('should invalidate entries matching a predicate', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 2000, mtimeMs: 2000, isDirectory: false });
-      cache.set('/file3.ts', { size: 300, mtimeMs: 3000, isDirectory: false });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 2000 });
+      cache.set('/file3.ts', { isDirectory: false, mtimeMs: 3000, size: 300 });
 
       // Invalidate entries larger than 500 bytes
       const count = cache.invalidateWhere((_, entry) => entry.size > 500);
@@ -301,9 +301,9 @@ describe('MetadataCache', () => {
         const cache = new MetadataCache();
 
         cache.set('C:\\project\\src\\file.ts', {
-          size: 100,
-          mtimeMs: 1000,
           isDirectory: false,
+          mtimeMs: 1000,
+          size: 100,
         });
 
         const count = cache.invalidateWhere((path) => path === 'C:\\project\\src\\file.ts');
@@ -318,7 +318,7 @@ describe('MetadataCache', () => {
     it('should track hits and misses', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       cache.get('/file.ts'); // hit
       cache.get('/file.ts'); // hit
@@ -334,7 +334,7 @@ describe('MetadataCache', () => {
     it('should calculate hit rate correctly', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
 
       // 3 hits, 1 miss = 75% hit rate
       cache.get('/file.ts');
@@ -355,7 +355,7 @@ describe('MetadataCache', () => {
     it('should reset statistics', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
       cache.get('/file.ts');
       cache.get('/nonexistent');
 
@@ -373,9 +373,9 @@ describe('MetadataCache', () => {
     it('should return all cached paths', () => {
       const cache = new MetadataCache();
 
-      cache.set('/file1.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
-      cache.set('/file2.ts', { size: 200, mtimeMs: 2000, isDirectory: false });
-      cache.set('/dir', { size: 0, mtimeMs: 3000, isDirectory: true });
+      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set('/dir', { isDirectory: true, mtimeMs: 3000, size: 0 });
 
       const paths = cache.getPaths();
       expect(paths).toHaveLength(3);
@@ -389,9 +389,9 @@ describe('MetadataCache', () => {
         const cache = new MetadataCache();
 
         cache.set('C:\\project\\src\\file.ts', {
-          size: 100,
-          mtimeMs: 1000,
           isDirectory: false,
+          mtimeMs: 1000,
+          size: 100,
         });
 
         expect(cache.getPaths()).toEqual(['C:\\project\\src\\file.ts']);
@@ -403,7 +403,7 @@ describe('MetadataCache', () => {
     it('should create a cache with default config', () => {
       const cache = createMetadataCache();
 
-      cache.set('/file.ts', { size: 100, mtimeMs: 1000, isDirectory: false });
+      cache.set('/file.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
       expect(cache.get('/file.ts')).toBeDefined();
     });
 

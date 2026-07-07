@@ -34,7 +34,7 @@ const createMockStore = () => {
     get,
     set,
   } as unknown as ElectronStore<DesktopSettingsStoreSchema>;
-  return { store, get, set };
+  return { get, set, store };
 };
 
 const createMockWindow = (options: {
@@ -46,17 +46,17 @@ const createMockWindow = (options: {
 }) => {
   const handlers = options.handlers ?? new Map<string, (...args: unknown[]) => void>();
   const bounds: DesktopWindowBounds =
-    options.bounds ?? ({ width: 900, height: 700, x: 10.2, y: 20.8 } satisfies DesktopWindowBounds);
+    options.bounds ?? ({ height: 700, width: 900, x: 10.2, y: 20.8 } satisfies DesktopWindowBounds);
   const normalBounds: DesktopWindowBounds =
     options.normalBounds ??
-    ({ width: 1200, height: 800, x: 15.6, y: 25.4 } satisfies DesktopWindowBounds);
+    ({ height: 800, width: 1200, x: 15.6, y: 25.4 } satisfies DesktopWindowBounds);
 
   const win: MockBrowserWindow = {
+    getBounds: vi.fn(() => bounds),
+    getNormalBounds: vi.fn(() => normalBounds),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => options.fullScreen),
     isMaximized: vi.fn(() => options.maximized),
-    getBounds: vi.fn(() => bounds),
-    getNormalBounds: vi.fn(() => normalBounds),
     on: vi.fn((event, handler) => {
       handlers.set(event, handler);
     }),
@@ -66,9 +66,9 @@ const createMockWindow = (options: {
   };
 
   return {
-    win: win as unknown as BrowserWindow,
     handlers,
     spies: win,
+    win: win as unknown as BrowserWindow,
   };
 };
 
@@ -77,7 +77,7 @@ describe('window state helpers', () => {
     const state = resolveInitialWindowState(null);
 
     expect(state).toEqual({
-      bounds: { width: 1536, height: 800 },
+      bounds: { height: 800, width: 1536 },
       isFullScreen: false,
       isMaximized: true,
     });
@@ -85,7 +85,7 @@ describe('window state helpers', () => {
 
   it('returns stored window state when provided', () => {
     const stored: DesktopWindowState = {
-      bounds: { width: 1024, height: 768 },
+      bounds: { height: 768, width: 1024 },
       isFullScreen: false,
       isMaximized: false,
     };
@@ -97,7 +97,7 @@ describe('window state helpers', () => {
     const { store, get } = createMockStore();
     get.mockReturnValue({
       v1: {
-        bounds: { width: 400.2, height: 500.9, x: 10.2, y: 20.8 },
+        bounds: { height: 500.9, width: 400.2, x: 10.2, y: 20.8 },
         isFullScreen: true,
         isMaximized: true,
       },
@@ -106,7 +106,7 @@ describe('window state helpers', () => {
     const state = readStoredWindowState(store);
 
     expect(state).toEqual({
-      bounds: { width: 800, height: 600, x: 10, y: 21 },
+      bounds: { height: 600, width: 800, x: 10, y: 21 },
       isFullScreen: true,
       isMaximized: false,
     });
@@ -116,7 +116,7 @@ describe('window state helpers', () => {
     const { store, get } = createMockStore();
     get.mockReturnValue({
       v1: {
-        bounds: { width: Number.NaN, height: 'tall', x: 1.4 },
+        bounds: { height: 'tall', width: Number.NaN, x: 1.4 },
         isFullScreen: 'nope',
         isMaximized: 'yep',
       },
@@ -125,7 +125,7 @@ describe('window state helpers', () => {
     const state = readStoredWindowState(store);
 
     expect(state).toEqual({
-      bounds: { width: 1536, height: 800, x: 1 },
+      bounds: { height: 800, width: 1536, x: 1 },
       isFullScreen: false,
       isMaximized: false,
     });
@@ -146,7 +146,7 @@ describe('window state helpers', () => {
     const { win, spies } = createMockWindow({
       fullScreen: true,
       maximized: true,
-      normalBounds: { width: 1001.4, height: 700.6, x: 5.5, y: 6.1 },
+      normalBounds: { height: 700.6, width: 1001.4, x: 5.5, y: 6.1 },
     });
 
     const state = captureWindowState(win);
@@ -154,7 +154,7 @@ describe('window state helpers', () => {
     expect(spies.getNormalBounds).toHaveBeenCalled();
     expect(spies.getBounds).not.toHaveBeenCalled();
     expect(state).toEqual({
-      bounds: { width: 1001, height: 701, x: 6, y: 6 },
+      bounds: { height: 701, width: 1001, x: 6, y: 6 },
       isFullScreen: true,
       isMaximized: false,
     });
@@ -164,7 +164,7 @@ describe('window state helpers', () => {
     const { win, spies } = createMockWindow({
       fullScreen: false,
       maximized: true,
-      normalBounds: { width: 1100, height: 650, x: 12.2, y: 19.7 },
+      normalBounds: { height: 650, width: 1100, x: 12.2, y: 19.7 },
     });
 
     const state = captureWindowState(win);
@@ -172,7 +172,7 @@ describe('window state helpers', () => {
     expect(spies.getNormalBounds).toHaveBeenCalled();
     expect(spies.getBounds).not.toHaveBeenCalled();
     expect(state).toEqual({
-      bounds: { width: 1100, height: 650, x: 12, y: 20 },
+      bounds: { height: 650, width: 1100, x: 12, y: 20 },
       isFullScreen: false,
       isMaximized: true,
     });
@@ -180,9 +180,9 @@ describe('window state helpers', () => {
 
   it('captures normal window state using current bounds', () => {
     const { win, spies } = createMockWindow({
+      bounds: { height: 500, width: 500 },
       fullScreen: false,
       maximized: false,
-      bounds: { width: 500, height: 500 },
     });
 
     const state = captureWindowState(win);
@@ -190,7 +190,7 @@ describe('window state helpers', () => {
     expect(spies.getBounds).toHaveBeenCalled();
     expect(spies.getNormalBounds).not.toHaveBeenCalled();
     expect(state).toEqual({
-      bounds: { width: 800, height: 600 },
+      bounds: { height: 600, width: 800 },
       isFullScreen: false,
       isMaximized: false,
     });
@@ -224,10 +224,10 @@ describe('window state helpers', () => {
       const handlers: WindowHandlers = new Map();
       const { store, set } = createMockStore();
       const { win, spies } = createMockWindow({
+        bounds: { height: 700, width: 900, x: 10, y: 20 },
         fullScreen: false,
-        maximized: false,
-        bounds: { width: 900, height: 700, x: 10, y: 20 },
         handlers,
+        maximized: false,
       });
 
       registerWindowStatePersistence(win, store);
@@ -263,7 +263,7 @@ describe('window state helpers', () => {
       expect(set).toHaveBeenCalledTimes(3);
       expect(set).toHaveBeenCalledWith('windowState', {
         v1: {
-          bounds: { width: 900, height: 700, x: 10, y: 20 },
+          bounds: { height: 700, width: 900, x: 10, y: 20 },
           isFullScreen: false,
           isMaximized: false,
         },

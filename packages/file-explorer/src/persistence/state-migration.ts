@@ -12,7 +12,6 @@ const logger = createLogger('Persistence');
 function createEmptySerializedState(): SerializedState {
   return {
     activeRootIds: [],
-    rootDescriptors: {},
     currentFolderId: null,
     devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
     excludeFilters: [...DEFAULT_STATE.excludeFilters],
@@ -27,12 +26,13 @@ function createEmptySerializedState(): SerializedState {
     lastActiveTab: DEFAULT_STATE.lastActiveTab,
     maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
     quickFilter: DEFAULT_STATE.quickFilter,
+    rootDescriptors: {},
     selectedFilePaths: [],
     selectionModel: {
-      mode: DEFAULT_STATE.selectionModel.mode,
       explicitPaths: [],
       materializedAt: DEFAULT_STATE.selectionModel.materializedAt,
       materializedPaths: null,
+      mode: DEFAULT_STATE.selectionModel.mode,
       queryDescriptor: null,
       ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
     },
@@ -74,12 +74,12 @@ function logPersistedStateCandidate(
   }
 
   logger.debug('Migrate - Received persisted state candidate', {
+    valueType: rawPersistedState === null ? 'null' : typeof rawPersistedState,
     version,
     wrapperStatePresent:
       typeof rawPersistedState === 'object' &&
       rawPersistedState !== null &&
       'state' in (rawPersistedState as Record<string, unknown>),
-    valueType: rawPersistedState === null ? 'null' : typeof rawPersistedState,
   });
 }
 

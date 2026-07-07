@@ -25,24 +25,24 @@ const workerpoolMocks = vi.hoisted(() => {
     ): CancellablePromise => {
       const [payload] = args;
       options?.on?.({
-        type: 'progress',
         id: (payload as { id: string }).id,
         phase: 'embedding',
         progress: 0.5,
+        type: 'progress',
       });
       const result: CancellablePromise = Promise.resolve({
-        type: 'result',
         id: (payload as { id: string }).id,
-        vectors: [Float32Array.of(0.25, 0.5, 0.25)],
         metadata: {
-          model: (payload as { model: string }).model,
-          device: 'webgpu',
-          dtype: 'fp16',
           batchSize: 2,
+          device: 'webgpu',
+          dimensions: 3,
+          dtype: 'fp16',
           elapsedMs: 4,
           fallbackApplied: false,
-          dimensions: 3,
+          model: (payload as { model: string }).model,
         },
+        type: 'result',
+        vectors: [Float32Array.of(0.25, 0.5, 0.25)],
       }) as Promise<unknown> & { cancel: () => void };
       result.cancel = cancel;
       return result;
@@ -62,15 +62,14 @@ const workerpoolMocks = vi.hoisted(() => {
 
   const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
     exec: execSpy,
-    terminate,
     stats: statsImpl,
+    terminate,
   }));
 
   return {
     cancel,
     execSpy,
     poolSpy,
-    terminate,
     reset() {
       cancel.mockReset();
       terminate.mockReset();
@@ -91,6 +90,7 @@ const workerpoolMocks = vi.hoisted(() => {
     setStatsImplementation(fn: undefined | (() => { pendingTasks: number })) {
       statsImpl = fn;
     },
+    terminate,
   };
 });
 
@@ -104,9 +104,9 @@ vi.mock('workerpool', () => ({
 }));
 
 const minimalTask = {
-  kind: 'embed' as const,
   deviceHint: 'webgpu' as const,
   id: 'task-1',
+  kind: 'embed' as const,
   model: 'mock-model',
   texts: ['hello', 'world'],
 };
@@ -160,18 +160,18 @@ describe('createWorkerpoolAdapter', () => {
     const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     await adapter.add({
       ...minimalTask,
+      dimensionParameter: 'dimensions',
       provider: 'openai',
       targetDimension: 768,
-      dimensionParameter: 'dimensions',
     });
     const lastCall = workerpoolMocks.execSpy.mock.calls.at(-1);
     const payload = lastCall?.[1]?.[0] as
       | { provider?: string; targetDimension?: number; dimensionParameter?: string }
       | undefined;
     expect(payload).toMatchObject({
+      dimensionParameter: 'dimensions',
       provider: 'openai',
       targetDimension: 768,
-      dimensionParameter: 'dimensions',
     });
   });
 
@@ -181,10 +181,10 @@ describe('createWorkerpoolAdapter', () => {
     workerpoolMocks.setImplementation((_method, args, options) => {
       const [payload] = args;
       options?.on?.({
-        type: 'progress',
         id: (payload as { id: string }).id,
         phase: 'embedding',
         progress: 0.25,
+        type: 'progress',
       });
       const promise: CancellablePromise = new Promise((resolve) => {
         resolveExec = resolve;
@@ -202,18 +202,18 @@ describe('createWorkerpoolAdapter', () => {
     await Promise.resolve();
     expect(workerpoolMocks.execSpy).toHaveBeenCalledOnce();
     resolveExec?.({
-      type: 'result',
       id: minimalTask.id,
-      vectors: [Float32Array.of(1, 0, 0)],
       metadata: {
-        model: minimalTask.model,
-        device: 'webgpu',
-        dtype: 'fp16',
         batchSize: 1,
+        device: 'webgpu',
+        dimensions: 3,
+        dtype: 'fp16',
         elapsedMs: 1,
         fallbackApplied: false,
-        dimensions: 3,
+        model: minimalTask.model,
       },
+      type: 'result',
+      vectors: [Float32Array.of(1, 0, 0)],
     });
     const result = await pending;
     expect(result.metadata.batchSize).toBe(1);
@@ -233,9 +233,7 @@ describe('createWorkerpoolAdapter', () => {
 
   describe('device-aware default sizing (BST-86)', () => {
     function withNavigatorGpu<T>(hasGpu: boolean, body: () => T): T {
-      const navRef = globalThis.navigator as
-        | (Navigator & { gpu?: unknown })
-        | undefined;
+      const navRef = globalThis.navigator as (Navigator & { gpu?: unknown }) | undefined;
       const hadOwn = navRef ? Object.hasOwn(navRef, 'gpu') : false;
       const previous = navRef ? (navRef as { gpu?: unknown }).gpu : undefined;
       try {
@@ -247,7 +245,7 @@ describe('createWorkerpoolAdapter', () => {
             // non-configurable; in that case the test runs against whatever
             // the platform reports and still exercises the code path.
             try {
-              delete (navRef as { gpu?: unknown }).gpu;
+              (navRef as { gpu?: unknown }).gpu = undefined;
             } catch {
               (navRef as { gpu?: unknown }).gpu = undefined;
             }
@@ -260,7 +258,7 @@ describe('createWorkerpoolAdapter', () => {
             (navRef as { gpu?: unknown }).gpu = previous;
           } else {
             try {
-              delete (navRef as { gpu?: unknown }).gpu;
+              (navRef as { gpu?: unknown }).gpu = undefined;
             } catch {
               (navRef as { gpu?: unknown }).gpu = undefined;
             }
@@ -315,7 +313,7 @@ describe('createWorkerpoolAdapter', () => {
         if (previousHardwareConcurrency) {
           Object.defineProperty(navRef, 'hardwareConcurrency', previousHardwareConcurrency);
         } else {
-          delete navRef.hardwareConcurrency;
+          Reflect.deleteProperty(navRef, 'hardwareConcurrency');
         }
       }
 
@@ -328,7 +326,7 @@ describe('createWorkerpoolAdapter', () => {
     it('respects an explicit maxWorkers override regardless of WebGPU presence', () => {
       setWorkerSupport();
       withNavigatorGpu(true, () => {
-        createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL, maxWorkers: 3 });
+        createWorkerpoolAdapter({ maxWorkers: 3, workerUrl: TEST_WORKER_URL });
       });
 
       expect(workerpoolMocks.poolSpy).toHaveBeenCalledWith(
@@ -391,18 +389,18 @@ describe('createWorkerpoolAdapter', () => {
 
       queueMicrotask(() => {
         resolveExec?.({
-          type: 'result',
           id: (payload as { id: string }).id,
-          vectors: [Float32Array.of(0.5, 0.5, 0.5)],
           metadata: {
-            model: minimalTask.model,
-            device: 'webgpu',
-            dtype: 'fp16',
             batchSize: 1,
+            device: 'webgpu',
+            dimensions: 3,
+            dtype: 'fp16',
             elapsedMs: 1,
             fallbackApplied: false,
-            dimensions: 3,
+            model: minimalTask.model,
           },
+          type: 'result',
+          vectors: [Float32Array.of(0.5, 0.5, 0.5)],
         });
       });
 
@@ -439,18 +437,18 @@ describe('createWorkerpoolAdapter', () => {
       queueMicrotask(() => {
         if (resolveExec !== undefined) {
           resolveExec({
-            type: 'result',
             id: (payload as { id: string }).id,
-            vectors: [Float32Array.of(0.1, 0.1, 0.1)],
             metadata: {
-              model: minimalTask.model,
-              device: 'webgpu',
-              dtype: 'fp16',
               batchSize: 1,
+              device: 'webgpu',
+              dimensions: 3,
+              dtype: 'fp16',
               elapsedMs: 2,
               fallbackApplied: false,
-              dimensions: 3,
+              model: minimalTask.model,
             },
+            type: 'result',
+            vectors: [Float32Array.of(0.1, 0.1, 0.1)],
           });
         }
       });
@@ -464,7 +462,7 @@ describe('createWorkerpoolAdapter', () => {
     expect(adapter.isProcessing).toBe(true);
 
     await expect(adapter.drain()).resolves.toBeUndefined();
-    await expect(taskPromise).resolves.toMatchObject({ type: 'result', id: 'drain-task' });
+    await expect(taskPromise).resolves.toMatchObject({ id: 'drain-task', type: 'result' });
     expect(adapter.isProcessing).toBe(false);
   });
 
@@ -479,18 +477,18 @@ describe('createWorkerpoolAdapter', () => {
             return;
           }
           resolve({
-            type: 'result',
             id: (payload as { id: string }).id,
-            vectors: [Float32Array.of(0.2, 0.2, 0.2)],
             metadata: {
-              model: minimalTask.model,
-              device: 'webgpu',
-              dtype: 'fp16',
               batchSize: 1,
+              device: 'webgpu',
+              dimensions: 3,
+              dtype: 'fp16',
               elapsedMs: 2,
               fallbackApplied: false,
-              dimensions: 3,
+              model: minimalTask.model,
             },
+            type: 'result',
+            vectors: [Float32Array.of(0.2, 0.2, 0.2)],
           });
         });
       }) as CancellablePromise;
@@ -548,8 +546,8 @@ describe('queue telemetry', () => {
 
     expect(events).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ event: 'enqueue', pending: 7, metadata: { pendingTasks: 7 } }),
-        expect.objectContaining({ event: 'complete', pending: 7, metadata: { pendingTasks: 7 } }),
+        expect.objectContaining({ event: 'enqueue', metadata: { pendingTasks: 7 }, pending: 7 }),
+        expect.objectContaining({ event: 'complete', metadata: { pendingTasks: 7 }, pending: 7 }),
       ])
     );
   });
@@ -558,17 +556,17 @@ describe('queue telemetry', () => {
     const aggregator = createQueueTelemetryAggregator(60_000);
     const base = Date.now();
     emitQueueTelemetry({
-      timestamp: base,
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'aggregation-task',
+      timestamp: base,
     });
     emitQueueTelemetry({
-      timestamp: base + 10,
       adapter: 'workerpool',
+      elapsedMs: 10,
       event: 'complete',
       taskId: 'aggregation-task',
-      elapsedMs: 10,
+      timestamp: base + 10,
     });
 
     const snapshot = aggregator.snapshot(base + 20);

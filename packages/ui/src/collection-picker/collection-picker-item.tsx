@@ -158,8 +158,8 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
       onKeyDown={handleKeyDown}
       role="option"
       style={{
-        borderLeftColor: isSelected ? primary : undefined,
         backgroundColor: isSelected ? background : undefined,
+        borderLeftColor: isSelected ? primary : undefined,
       }}
       tabIndex={-1}
     >

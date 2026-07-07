@@ -102,19 +102,19 @@ export function cloneLoggingSettingsPayload(
   payload: LoggingSettingsPayload
 ): LoggingSettingsPayload {
   return {
+    capabilities: { ...payload.capabilities },
     preferences: {
       ...payload.preferences,
-      redactPaths: [...payload.preferences.redactPaths],
       file: { ...payload.preferences.file },
+      redactPaths: [...payload.preferences.redactPaths],
     },
-    capabilities: { ...payload.capabilities },
   };
 }
 
 export function cloneLoggingPreferences(preferences: LoggingPreferences): LoggingPreferences {
   return {
     ...preferences,
-    redactPaths: [...preferences.redactPaths],
     file: { ...preferences.file },
+    redactPaths: [...preferences.redactPaths],
   };
 }

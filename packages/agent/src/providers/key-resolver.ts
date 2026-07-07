@@ -35,6 +35,5 @@ export function resolveProviderApiKey(
       }
     }
   }
-
   return;
 }

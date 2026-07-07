@@ -64,9 +64,9 @@ export async function executeNativeTool(
   const tool = NATIVE_TOOLS[toolId];
   if (!tool) {
     return {
-      success: false,
-      error: `Tool "${toolId}" is not supported for native execution`,
       durationMs: Date.now() - startedAt,
+      error: `Tool "${toolId}" is not supported for native execution`,
+      success: false,
     };
   }
 
@@ -74,31 +74,31 @@ export async function executeNativeTool(
     const parsed = tool.schema.safeParse(input);
     if (!parsed.success) {
       return {
-        success: false,
-        error: `Invalid input: ${parsed.error.message}`,
         durationMs: Date.now() - startedAt,
+        error: `Invalid input: ${parsed.error.message}`,
+        success: false,
       };
     }
 
     const result = await tool.execute(parsed.data);
     const durationMs = Date.now() - startedAt;
-    logger.info('Native tool executed', { toolId, durationMs });
+    logger.info('Native tool executed', { durationMs, toolId });
 
     return {
-      success: true,
-      result,
       durationMs,
+      result,
+      success: true,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error('Native tool execution failed', {
-      toolId,
       error: errorMessage,
+      toolId,
     });
     return {
-      success: false,
-      error: errorMessage,
       durationMs: Date.now() - startedAt,
+      error: errorMessage,
+      success: false,
     };
   }
 }

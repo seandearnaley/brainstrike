@@ -32,12 +32,12 @@ interface MockToastResult {
 }
 
 const mockLogger = vi.hoisted<MockLogger>(() => ({
-  error: vi.fn(),
-  warn: vi.fn(),
-  info: vi.fn(),
   debug: vi.fn(),
-  trace: vi.fn(),
+  error: vi.fn(),
   fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/ui', () => ({
@@ -61,8 +61,8 @@ describe('useToastManager', () => {
     mockToast = vi.fn();
     mockDismiss = vi.fn();
     currentToastResult = {
-      toast: mockToast,
       dismiss: mockDismiss,
+      toast: mockToast,
       toasts: [],
     };
 
@@ -86,8 +86,8 @@ describe('useToastManager', () => {
     it('calls toast with provided parameters', () => {
       const { result } = setup();
       const toastParams = {
-        title: 'Test Toast',
         description: 'This is a test toast',
+        title: 'Test Toast',
         variant: 'default' as const,
       };
 
@@ -99,8 +99,8 @@ describe('useToastManager', () => {
     it('calls toast with destructive variant', () => {
       const { result } = setup();
       const toastParams = {
-        title: 'Error Toast',
         description: 'This is an error toast',
+        title: 'Error Toast',
         variant: 'destructive' as const,
       };
 
@@ -113,9 +113,9 @@ describe('useToastManager', () => {
       const { result } = setup();
       const mockAction = {} as ToastActionElement;
       const toastParams = {
-        title: 'Action Toast',
-        description: 'This is a toast with action',
         action: mockAction,
+        description: 'This is a toast with action',
+        title: 'Action Toast',
       };
 
       result.current.showToast(toastParams);
@@ -135,8 +135,8 @@ describe('useToastManager', () => {
       result.current.handlePartialRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: 'Partial refresh failed',
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -150,8 +150,8 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: error.message,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -163,8 +163,8 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.refreshFailed,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -178,8 +178,8 @@ describe('useToastManager', () => {
       result.current.handleBrowserCompatibilityError(reason);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.browserCompatibility,
         description: reason,
+        title: FileExplorerStrings.error.browserCompatibility,
         variant: 'destructive',
       });
     });
@@ -197,8 +197,8 @@ describe('useToastManager', () => {
         error
       );
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     });
@@ -211,8 +211,8 @@ describe('useToastManager', () => {
       const nextToast = vi.fn();
 
       result.current.showToast({
-        title: 'Initial',
         description: 'Initial render',
+        title: 'Initial',
       });
       expect(initialToast).toHaveBeenCalledTimes(1);
 
@@ -224,8 +224,8 @@ describe('useToastManager', () => {
       rerender();
 
       result.current.showToast({
-        title: 'Updated',
         description: 'After re-render',
+        title: 'Updated',
       });
       result.current.handlePartialRefreshError(new PartialRefreshError('Updated error', 2, 1));
       result.current.handleRefreshError(new Error('Generic'));

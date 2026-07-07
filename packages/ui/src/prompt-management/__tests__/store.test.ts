@@ -4,27 +4,27 @@ import { usePromptStore } from '../store';
 const resetPromptStore = (): void => {
   const initial = usePromptStore.getState();
   usePromptStore.setState({
-    prompts: [],
     categories: [...initial.categories],
-    filter: { search: '', tags: [], favoritesOnly: false },
-    selectedPromptId: null,
+    filter: { favoritesOnly: false, search: '', tags: [] },
     isSidebarOpen: true,
+    prompts: [],
+    selectedPromptId: null,
   });
 };
 
 const createPromptInput = (categoryId = 'general') => ({
-  title: 'Prompt title',
-  content: 'Prompt content',
   categoryId,
-  tags: ['test'],
+  content: 'Prompt content',
+  isFavorite: false,
   modelSettings: {
     model: 'openai:gpt-4o-mini',
     temperature: 0.2,
     topP: 1,
   },
   rating: 3,
-  isFavorite: false,
   site: 'https://example.com',
+  tags: ['test'],
+  title: 'Prompt title',
 });
 
 const PROMPT_ID = '00000000-0000-0000-0000-000000000001';
@@ -79,12 +79,12 @@ describe('prompt-management store', () => {
     store.addPrompt(createPromptInput());
     store.addRevision(PROMPT_ID, {
       content: 'Revised content',
-      note: 'v2',
       modelSettings: {
         model: 'openai:gpt-4o-mini',
         temperature: 0.1,
         topP: 1,
       },
+      note: 'v2',
     });
     store.addRevision('missing', {
       content: 'Should not be added',
@@ -94,8 +94,8 @@ describe('prompt-management store', () => {
     expect(revisions).toHaveLength(1);
     expect(revisions[0]).toEqual(
       expect.objectContaining({
-        id: REVISION_ID,
         content: 'Revised content',
+        id: REVISION_ID,
         note: 'v2',
         timestamp: 3000,
       })
@@ -126,9 +126,9 @@ describe('prompt-management store', () => {
 
     const store = usePromptStore.getState();
     store.addCategory({
-      name: 'Custom',
       color: '#123456',
       icon: 'Tag',
+      name: 'Custom',
     });
     store.updateCategory(CATEGORY_ID, { name: 'Renamed' });
     expect(usePromptStore.getState().categories.find((c) => c.id === CATEGORY_ID)?.name).toBe(
@@ -148,19 +148,19 @@ describe('prompt-management store', () => {
   it('updates filter, selection, and sidebar state', () => {
     const store = usePromptStore.getState();
 
-    store.setFilter({ search: 'hello', tags: ['a'], favoritesOnly: true });
+    store.setFilter({ favoritesOnly: true, search: 'hello', tags: ['a'] });
     expect(usePromptStore.getState().filter).toEqual({
+      favoritesOnly: true,
       search: 'hello',
       tags: ['a'],
-      favoritesOnly: true,
     });
 
     store.setFilter({ categoryId: 'coding' });
     expect(usePromptStore.getState().filter).toEqual({
+      categoryId: 'coding',
+      favoritesOnly: true,
       search: 'hello',
       tags: ['a'],
-      favoritesOnly: true,
-      categoryId: 'coding',
     });
 
     store.setSelectedPromptId('prompt-2');

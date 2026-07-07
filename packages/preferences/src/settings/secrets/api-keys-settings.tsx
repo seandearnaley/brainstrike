@@ -64,7 +64,7 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
     case 'SAVE_SUCCESS':
       return { ...state, apiKey: '', busy: false };
     case 'SAVE_TAVILY_SUCCESS':
-      return { ...state, tavilyKey: '', busy: false };
+      return { ...state, busy: false, tavilyKey: '' };
     default:
       return state;
   }
@@ -90,11 +90,11 @@ export function ApiKeysSettings() {
   );
 
   const [state, dispatch] = useReducer(apiKeysReducer, {
-    rawProvider: providerOptions[0]?.id ?? 'openai',
     apiKey: '',
-    tavilyKey: '',
-    providersWithSecrets: [],
     busy: false,
+    providersWithSecrets: [],
+    rawProvider: providerOptions[0]?.id ?? 'openai',
+    tavilyKey: '',
   });
   const { rawProvider, apiKey, tavilyKey, providersWithSecrets, busy } = state;
   const tavilyKeyConfigured = useMemo(
@@ -126,7 +126,7 @@ export function ApiKeysSettings() {
       try {
         const storedProviders = await listStored();
         if (Array.isArray(storedProviders)) {
-          dispatch({ type: 'SET_PROVIDERS_WITH_SECRETS', providers: storedProviders });
+          dispatch({ providers: storedProviders, type: 'SET_PROVIDERS_WITH_SECRETS' });
           return;
         }
       } catch {
@@ -137,7 +137,7 @@ export function ApiKeysSettings() {
       try {
         const providers = await listFn();
         if (Array.isArray(providers)) {
-          dispatch({ type: 'SET_PROVIDERS_WITH_SECRETS', providers });
+          dispatch({ providers, type: 'SET_PROVIDERS_WITH_SECRETS' });
         }
       } catch {
         // ignored
@@ -155,9 +155,9 @@ export function ApiKeysSettings() {
       return;
     }
     const saveKey = window.secrets?.saveKey;
-    dispatch({ type: 'SET_BUSY', busy: true });
+    dispatch({ busy: true, type: 'SET_BUSY' });
     if (!saveKey) {
-      dispatch({ type: 'SET_BUSY', busy: false });
+      dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
     let saveResult: unknown;
@@ -165,7 +165,7 @@ export function ApiKeysSettings() {
       saveResult = await saveKey(provider, trimmedKey);
     } catch {
       // Errors are handled by the OS keychain, ignore
-      dispatch({ type: 'SET_BUSY', busy: false });
+      dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
     if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
@@ -173,11 +173,11 @@ export function ApiKeysSettings() {
       if (resultObj.ok === false) {
         const code = resultObj.error;
         toast({
-          title: 'Failed to save key',
           description:
             code === 'encryption_unavailable'
               ? 'OS keychain encryption is unavailable on this system.'
               : 'Unknown error occurred while saving the key.',
+          title: 'Failed to save key',
           variant: 'destructive',
         });
       }
@@ -189,7 +189,7 @@ export function ApiKeysSettings() {
 
   const handleDelete = useCallback(async () => {
     const deleteKey = window.secrets?.deleteKey;
-    dispatch({ type: 'SET_BUSY', busy: true });
+    dispatch({ busy: true, type: 'SET_BUSY' });
     if (deleteKey) {
       try {
         await deleteKey(provider);
@@ -199,7 +199,7 @@ export function ApiKeysSettings() {
     }
     await refreshProviders();
     notifySecretsChanged();
-    dispatch({ type: 'SET_BUSY', busy: false });
+    dispatch({ busy: false, type: 'SET_BUSY' });
   }, [provider, refreshProviders, notifySecretsChanged]);
 
   const handleSaveTavily = useCallback(async () => {
@@ -208,27 +208,27 @@ export function ApiKeysSettings() {
       return;
     }
     const saveKey = window.secrets?.saveKey;
-    dispatch({ type: 'SET_BUSY', busy: true });
+    dispatch({ busy: true, type: 'SET_BUSY' });
     if (!saveKey) {
-      dispatch({ type: 'SET_BUSY', busy: false });
+      dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
     let saveResult: unknown;
     try {
       saveResult = await saveKey(TAVILY_SECRET_PROVIDER, trimmedKey);
     } catch {
-      dispatch({ type: 'SET_BUSY', busy: false });
+      dispatch({ busy: false, type: 'SET_BUSY' });
       return;
     }
     if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
       const resultObj = saveResult as { ok?: boolean; error?: string };
       if (resultObj.ok === false) {
         toast({
-          title: 'Failed to save key',
           description:
             resultObj.error === 'encryption_unavailable'
               ? 'OS keychain encryption is unavailable on this system.'
               : 'Unknown error occurred while saving the key.',
+          title: 'Failed to save key',
           variant: 'destructive',
         });
       }
@@ -240,7 +240,7 @@ export function ApiKeysSettings() {
 
   const handleDeleteTavily = useCallback(async () => {
     const deleteKey = window.secrets?.deleteKey;
-    dispatch({ type: 'SET_BUSY', busy: true });
+    dispatch({ busy: true, type: 'SET_BUSY' });
     if (deleteKey) {
       try {
         await deleteKey(TAVILY_SECRET_PROVIDER);
@@ -250,7 +250,7 @@ export function ApiKeysSettings() {
     }
     await refreshProviders();
     notifySecretsChanged();
-    dispatch({ type: 'SET_BUSY', busy: false });
+    dispatch({ busy: false, type: 'SET_BUSY' });
   }, [refreshProviders, notifySecretsChanged]);
 
   const providerId = useId();
@@ -268,7 +268,7 @@ export function ApiKeysSettings() {
             <div className="space-y-1">
               <Label htmlFor={providerId}>Provider</Label>
               <Select
-                onValueChange={(value) => dispatch({ type: 'SET_PROVIDER', provider: value })}
+                onValueChange={(value) => dispatch({ provider: value, type: 'SET_PROVIDER' })}
                 value={provider}
               >
                 <SelectTrigger data-testid="llm-provider" id={providerId}>
@@ -290,7 +290,7 @@ export function ApiKeysSettings() {
                 data-testid="llm-api-key"
                 id={apiKeyId}
                 onChange={(event) =>
-                  dispatch({ type: 'SET_API_KEY', key: event.currentTarget.value })
+                  dispatch({ key: event.currentTarget.value, type: 'SET_API_KEY' })
                 }
                 placeholder={`Enter ${selectedProviderName} API key`}
                 type="password"
@@ -346,7 +346,7 @@ export function ApiKeysSettings() {
               data-testid="tavily-api-key"
               id={tavilyKeyId}
               onChange={(event) =>
-                dispatch({ type: 'SET_TAVILY_KEY', key: event.currentTarget.value })
+                dispatch({ key: event.currentTarget.value, type: 'SET_TAVILY_KEY' })
               }
               placeholder="Enter Tavily API key"
               type="password"

@@ -30,7 +30,7 @@ describe('useAssistantAvailability', () => {
 
     const { result } = renderHook(() => useAssistantAvailability(fetcher));
 
-    await waitFor(() => expect(result.current).toEqual({ state: 'error', message: 'boom' }));
+    await waitFor(() => expect(result.current).toEqual({ message: 'boom', state: 'error' }));
   });
 
   it('reacts when the availability override is installed after mount', async () => {
@@ -109,13 +109,13 @@ describe('fetchAssistantStatusState', () => {
 
   it('returns enabled status when backend is enabled', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      ok: true,
       json: async () => ({ enabled: true }),
+      ok: true,
     } as unknown as Response);
 
     const result = await fetchAssistantStatusState({
-      signal: new AbortController().signal,
       fetchImpl,
+      signal: new AbortController().signal,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith('/api/assistant/status', {
@@ -127,30 +127,30 @@ describe('fetchAssistantStatusState', () => {
 
   it('returns disabled state with reason', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      ok: true,
       json: async () => ({ enabled: false, reason: 'missing_key' }),
+      ok: true,
     } as unknown as Response);
 
     const result = await fetchAssistantStatusState({
-      signal: new AbortController().signal,
       fetchImpl,
+      signal: new AbortController().signal,
     });
 
     expect(result).toEqual<AssistantAvailabilityStatus>({
-      state: 'disabled',
       reason: 'missing_key',
+      state: 'disabled',
     });
   });
 
   it('throws on non-ok responses', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({ enabled: false }),
       ok: false,
       status: 500,
-      json: async () => ({ enabled: false }),
     } as unknown as Response);
 
     await expect(
-      fetchAssistantStatusState({ signal: new AbortController().signal, fetchImpl })
+      fetchAssistantStatusState({ fetchImpl, signal: new AbortController().signal })
     ).rejects.toThrowError('status 500');
   });
 });

@@ -5,15 +5,15 @@ import type { Migration } from './migration-runner';
 // (the column was missing from the original migration 013 SQL)
 
 export const migration017AddAllowDuplicatesColumn: Migration = {
-  version: 17,
+  down: `
+    ALTER TABLE embedding_sets
+      DROP COLUMN IF EXISTS allow_duplicates;
+  `,
   name: 'add_allow_duplicates_column',
   up: `
     -- Add allow_duplicates column if it doesn't exist
     ALTER TABLE embedding_sets
       ADD COLUMN IF NOT EXISTS allow_duplicates BOOLEAN DEFAULT false;
   `,
-  down: `
-    ALTER TABLE embedding_sets
-      DROP COLUMN IF EXISTS allow_duplicates;
-  `,
+  version: 17,
 };

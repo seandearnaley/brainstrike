@@ -40,13 +40,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   const actual = await importActual<typeof import('../providers/provider-factory')>();
   return {
     ...actual,
-    getDefaultModel: () => 'fake-model',
     createProvider: () => {
       if (!modelHolder.current) {
         throw new Error('test fake model was not configured');
       }
       return modelHolder.current;
     },
+    getDefaultModel: () => 'fake-model',
   };
 });
 
@@ -76,10 +76,6 @@ function createScriptedToolCallModel(args: {
     });
 
   return {
-    specificationVersion: 'v2',
-    provider: 'fake',
-    modelId: 'fake-model',
-    supportedUrls: {},
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
       const promptHasToolResult =
@@ -90,10 +86,10 @@ function createScriptedToolCallModel(args: {
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
-            { type: 'text-start', id },
-            { type: 'text-delta', id, delta: args.finalText },
-            { type: 'text-end', id },
-            { type: 'finish', finishReason: 'stop', usage: USAGE },
+            { id, type: 'text-start' },
+            { delta: args.finalText, id, type: 'text-delta' },
+            { id, type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
           ]),
         });
       }
@@ -102,15 +98,19 @@ function createScriptedToolCallModel(args: {
         stream: enqueue([
           { type: 'stream-start', warnings: [] },
           {
-            type: 'tool-call',
+            input: args.input,
             toolCallId: args.toolCallId,
             toolName: args.toolName,
-            input: args.input,
+            type: 'tool-call',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
         ]),
       });
     },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
   };
 }
 
@@ -124,24 +124,24 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
       Promise.resolve({ city: inputData.city, temperatureC: 21 })
     );
     const weatherTool = createTool({
-      id: 'get_weather',
       description: 'Get the current weather for a city.',
+      execute: executeSpy,
+      id: 'get_weather',
       inputSchema: z.object({ city: z.string() }),
       outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
-      execute: executeSpy,
     });
 
     modelHolder.current = createScriptedToolCallModel({
-      toolName: 'get_weather',
-      toolCallId: 'call-1',
-      input: JSON.stringify({ city: 'Paris' }),
       finalText: 'It is 21C in Paris.',
+      input: JSON.stringify({ city: 'Paris' }),
+      toolCallId: 'call-1',
+      toolName: 'get_weather',
     });
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'weather in Paris?' }] }],
+      [{ id: 'u1', parts: [{ text: 'weather in Paris?', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key' },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
         tools: { get_weather: weatherTool },
       }
     );
@@ -175,10 +175,7 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   // package: real loop + real subprocess.
   it('drives a shell-spawning tool through the real loop (echo hello → exitCode 0)', async () => {
     const shellTool = createTool({
-      id: 'run_shell',
       description: 'Run a shell command and return its exit code and stdout.',
-      inputSchema: z.object({ command: z.string() }),
-      outputSchema: z.object({ exitCode: z.number().nullable(), stdout: z.string() }),
       execute: ({ command }: { command: string }) =>
         new Promise<{ exitCode: number | null; stdout: string }>((resolve, reject) => {
           const child = spawn(process.env['SHELL'] || '/bin/sh', ['-c', command], {
@@ -192,19 +189,22 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
           child.on('error', reject);
           child.on('close', (code) => resolve({ exitCode: code, stdout }));
         }),
+      id: 'run_shell',
+      inputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({ exitCode: z.number().nullable(), stdout: z.string() }),
     });
 
     modelHolder.current = createScriptedToolCallModel({
-      toolName: 'run_shell',
-      toolCallId: 'call-shell-1',
-      input: JSON.stringify({ command: 'echo hello-from-real-shell' }),
       finalText: 'The shell printed hello-from-real-shell.',
+      input: JSON.stringify({ command: 'echo hello-from-real-shell' }),
+      toolCallId: 'call-shell-1',
+      toolName: 'run_shell',
     });
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u-shell', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+      [{ id: 'u-shell', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key' },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
         tools: { run_shell: shellTool },
       }
     );
@@ -234,21 +234,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     try {
       const executeSpy = vi.fn(() => new Promise(() => {}));
       const hangingTool = createTool({
-        id: 'hang_forever',
         description: 'Never returns.',
-        inputSchema: z.object({ reason: z.string() }),
         execute: executeSpy,
+        id: 'hang_forever',
+        inputSchema: z.object({ reason: z.string() }),
       });
 
       modelHolder.current = createScriptedToolCallModel({
-        toolName: 'hang_forever',
-        toolCallId: 'call-hang-1',
-        input: JSON.stringify({ reason: 'test' }),
         finalText: 'The tool timed out.',
+        input: JSON.stringify({ reason: 'test' }),
+        toolCallId: 'call-hang-1',
+        toolName: 'hang_forever',
       });
 
       const iterator = await streamMastraAgent(
-        [{ id: 'u-timeout', role: 'user', parts: [{ type: 'text', text: 'hang?' }] }],
+        [{ id: 'u-timeout', parts: [{ text: 'hang?', type: 'text' }], role: 'user' }],
         {
           runtime: {
             apiKey: 'test-key',
@@ -305,22 +305,22 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     try {
       const executeSpy = vi.fn(() => new Promise(() => {}));
       const hangingTool = createTool({
-        id: 'schema_hang_forever',
         description: 'Never returns, but declares the normal success shape.',
+        execute: executeSpy,
+        id: 'schema_hang_forever',
         inputSchema: z.object({ reason: z.string() }),
         outputSchema: z.object({ ok: z.literal(true), value: z.string() }),
-        execute: executeSpy,
       });
 
       modelHolder.current = createScriptedToolCallModel({
-        toolName: 'schema_hang_forever',
-        toolCallId: 'call-schema-hang-1',
-        input: JSON.stringify({ reason: 'schema validation coverage' }),
         finalText: 'The schema-declared tool timed out.',
+        input: JSON.stringify({ reason: 'schema validation coverage' }),
+        toolCallId: 'call-schema-hang-1',
+        toolName: 'schema_hang_forever',
       });
 
       const iterator = await streamMastraAgent(
-        [{ id: 'u-schema-timeout', role: 'user', parts: [{ type: 'text', text: 'hang?' }] }],
+        [{ id: 'u-schema-timeout', parts: [{ text: 'hang?', type: 'text' }], role: 'user' }],
         {
           runtime: {
             apiKey: 'test-key',
@@ -371,38 +371,38 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   it('does not invoke execute when the model never calls the tool', async () => {
     const executeSpy = vi.fn(() => Promise.resolve({ ok: true }));
     const noopTool = createTool({
-      id: 'get_weather',
       description: 'Get the current weather for a city.',
-      inputSchema: z.object({ city: z.string() }),
       execute: executeSpy,
+      id: 'get_weather',
+      inputSchema: z.object({ city: z.string() }),
     });
 
     // A model that answers directly without a tool call.
     modelHolder.current = {
-      specificationVersion: 'v2',
-      provider: 'fake',
-      modelId: 'fake-model',
-      supportedUrls: {},
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
         Promise.resolve({
           stream: new ReadableStream<LanguageModelV2StreamPart>({
             start(controller) {
               controller.enqueue({ type: 'stream-start', warnings: [] });
-              controller.enqueue({ type: 'text-start', id: 't' });
-              controller.enqueue({ type: 'text-delta', id: 't', delta: 'No tools needed.' });
-              controller.enqueue({ type: 'text-end', id: 't' });
-              controller.enqueue({ type: 'finish', finishReason: 'stop', usage: USAGE });
+              controller.enqueue({ id: 't', type: 'text-start' });
+              controller.enqueue({ delta: 'No tools needed.', id: 't', type: 'text-delta' });
+              controller.enqueue({ id: 't', type: 'text-end' });
+              controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
               controller.close();
             },
           }),
         }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
     };
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u2', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      [{ id: 'u2', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key' },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
         tools: { get_weather: noopTool },
       }
     );
@@ -424,10 +424,6 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // visible message, a `run.failed` run-event (clears in-flight spinners), and
     // an error finish, all through the real Mastra agent loop.
     modelHolder.current = {
-      specificationVersion: 'v2',
-      provider: 'fake',
-      modelId: 'fake-model',
-      supportedUrls: {},
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
         Promise.resolve({
@@ -435,13 +431,17 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
             start(controller) {
               controller.enqueue({ type: 'stream-start', warnings: [] });
               controller.enqueue({
-                type: 'error',
                 error: { message: 'Not Found', name: 'AI_APICallError' },
+                type: 'error',
               });
               controller.close();
             },
           }),
         }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
     };
 
     const logRecords: LogRecord[] = [];
@@ -450,8 +450,8 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const chunks: StreamChunk[] = [];
     try {
       const iterator = await streamMastraAgent(
-        [{ id: 'u3', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
-        { runtime: { provider: 'openai', apiKey: 'test-key' } }
+        [{ id: 'u3', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
       for await (const chunk of iterator) {
@@ -502,10 +502,6 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     process.env.BRAINSTRIKE_STREAM_INACTIVITY_MS = '30';
     try {
       modelHolder.current = {
-        specificationVersion: 'v2',
-        provider: 'fake',
-        modelId: 'fake-model',
-        supportedUrls: {},
         doGenerate: () => Promise.reject(new Error('unused')),
         doStream: () =>
           Promise.resolve({
@@ -515,10 +511,14 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
               },
             }),
           }),
+        modelId: 'fake-model',
+        provider: 'fake',
+        specificationVersion: 'v2',
+        supportedUrls: {},
       };
 
       const iterator = await streamMastraAgent(
-        [{ id: 'u-stall', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        [{ id: 'u-stall', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
         {
           runtime: {
             apiKey: 'test-key',
@@ -578,21 +578,21 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
   it('clamps an over-long provider error in the visible message but logs the full detail', async () => {
     const longDetail = `boom ${'x'.repeat(5000)} end`;
     modelHolder.current = {
-      specificationVersion: 'v2',
-      provider: 'fake',
-      modelId: 'fake-model',
-      supportedUrls: {},
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
         Promise.resolve({
           stream: new ReadableStream<LanguageModelV2StreamPart>({
             start(controller) {
               controller.enqueue({ type: 'stream-start', warnings: [] });
-              controller.enqueue({ type: 'error', error: { message: longDetail } });
+              controller.enqueue({ error: { message: longDetail }, type: 'error' });
               controller.close();
             },
           }),
         }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
     };
 
     const logRecords: LogRecord[] = [];
@@ -600,8 +600,8 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     let visibleText = '';
     try {
       const iterator = await streamMastraAgent(
-        [{ id: 'u4', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
-        { runtime: { provider: 'openai', apiKey: 'test-key' } }
+        [{ id: 'u4', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
       for await (const chunk of iterator) {
         if (chunk.type === 'text-delta') {
@@ -670,10 +670,6 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       });
 
     return {
-      specificationVersion: 'v2',
-      provider: 'fake',
-      modelId: 'fake-model',
-      supportedUrls: {},
       doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
       doStream: () => {
         turn += 1;
@@ -682,12 +678,12 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
             stream: enqueue([
               { type: 'stream-start', warnings: [] },
               {
-                type: 'tool-call',
+                input: args.input,
                 toolCallId: args.toolCallId,
                 toolName: args.toolName,
-                input: args.input,
+                type: 'tool-call',
               },
-              { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+              { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
             ]),
           });
         }
@@ -695,13 +691,17 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
-            { type: 'text-start', id },
-            { type: 'text-delta', id, delta: args.finalText },
-            { type: 'text-end', id },
-            { type: 'finish', finishReason: 'stop', usage: USAGE },
+            { id, type: 'text-start' },
+            { delta: args.finalText, id, type: 'text-delta' },
+            { id, type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
           ]),
         });
       },
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
     };
   }
 
@@ -713,41 +713,41 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       Promise.resolve({ mutated: inputData.value })
     );
     const allowedTool = createTool({
-      id: 'allowed_tool',
       description: 'A read-only tool that is allowed.',
+      execute: allowedExecute,
+      id: 'allowed_tool',
       inputSchema: z.object({ value: z.string() }),
       outputSchema: z.object({ echoed: z.string() }),
-      execute: allowedExecute,
     });
     const deniedTool = createTool({
-      id: 'denied_tool',
       description: 'An edit tool that is denied.',
+      execute: deniedExecute,
+      id: 'denied_tool',
       inputSchema: z.object({ value: z.string() }),
       outputSchema: z.object({ mutated: z.string() }),
-      execute: deniedExecute,
     });
 
     const permissionPolicy = {
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'ask' },
-      yolo: false,
+      policies: { edit: 'deny', execute: 'ask', mcp: 'ask', read: 'allow' },
       riskByTool: { allowed_tool: 'read', denied_tool: 'edit' },
+      yolo: false,
     } as const;
 
     // Run 1: the model tries to call the DENIED tool. It must be omitted from the
     // map, so its execute is never invoked, no tool-event surfaces for it, and
     // the run still completes with the model's final answer.
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'denied_tool',
-      toolCallId: 'call-denied-1',
-      input: JSON.stringify({ value: 'secret' }),
       finalText: 'I could not use that tool.',
+      input: JSON.stringify({ value: 'secret' }),
+      toolCallId: 'call-denied-1',
+      toolName: 'denied_tool',
     });
 
     const denyChunks: StreamChunk[] = [];
     const denyIterator = await streamMastraAgent(
-      [{ id: 'u-deny', role: 'user', parts: [{ type: 'text', text: 'mutate it' }] }],
+      [{ id: 'u-deny', parts: [{ text: 'mutate it', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        runtime: { apiKey: 'test-key', permissionPolicy, provider: 'openai' },
         tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
       }
     );
@@ -786,17 +786,17 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
     // Run 2: with the SAME policy, the model calls the ALLOWED tool — it must
     // remain in the map and actually execute.
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'allowed_tool',
-      toolCallId: 'call-allowed-1',
-      input: JSON.stringify({ value: 'ping' }),
       finalText: 'Echoed ping.',
+      input: JSON.stringify({ value: 'ping' }),
+      toolCallId: 'call-allowed-1',
+      toolName: 'allowed_tool',
     });
 
     const allowChunks: StreamChunk[] = [];
     const allowIterator = await streamMastraAgent(
-      [{ id: 'u-allow', role: 'user', parts: [{ type: 'text', text: 'echo it' }] }],
+      [{ id: 'u-allow', parts: [{ text: 'echo it', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        runtime: { apiKey: 'test-key', permissionPolicy, provider: 'openai' },
         tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
       }
     );
@@ -819,34 +819,34 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       Promise.resolve({ ran: inputData.command })
     );
     const askTool = createTool({
-      id: 'shell_tool',
       description: 'An execute-risk tool gated to ask.',
+      execute: askExecute,
+      id: 'shell_tool',
       inputSchema: z.object({ command: z.string() }),
       outputSchema: z.object({ ran: z.string() }),
-      execute: askExecute,
     });
 
     // execute policy is 'ask', but this run has NO Mastra storage, so the run
     // cannot suspend-then-resume for approval. The safe action is to OMIT the
     // tool (fail-safe) — NEVER silently run an approval-required tool.
     const permissionPolicy = {
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'ask' },
-      yolo: false,
+      policies: { edit: 'deny', execute: 'ask', mcp: 'ask', read: 'allow' },
       riskByTool: { shell_tool: 'execute' },
+      yolo: false,
     } as const;
 
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'shell_tool',
-      toolCallId: 'call-ask-1',
-      input: JSON.stringify({ command: 'rm -rf /' }),
       finalText: 'That tool requires approval.',
+      input: JSON.stringify({ command: 'rm -rf /' }),
+      toolCallId: 'call-ask-1',
+      toolName: 'shell_tool',
     });
 
     const chunks: StreamChunk[] = [];
     const iterator = await streamMastraAgent(
-      [{ id: 'u-ask', role: 'user', parts: [{ type: 'text', text: 'run it' }] }],
+      [{ id: 'u-ask', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key', permissionPolicy },
+        runtime: { apiKey: 'test-key', permissionPolicy, provider: 'openai' },
         tools: { shell_tool: askTool },
       }
     );
@@ -888,33 +888,33 @@ describe('permission tool gating (real @mastra/core/agent)', () => {
       Promise.resolve({ mutated: inputData.value })
     );
     const allowedTool = createTool({
-      id: 'allowed_tool',
       description: 'A tool that would be allowed under policy.',
+      execute: allowedExecute,
+      id: 'allowed_tool',
       inputSchema: z.object({ value: z.string() }),
       outputSchema: z.object({ echoed: z.string() }),
-      execute: allowedExecute,
     });
     const deniedTool = createTool({
-      id: 'denied_tool',
       description: 'A tool that would be denied under policy.',
+      execute: deniedExecute,
+      id: 'denied_tool',
       inputSchema: z.object({ value: z.string() }),
       outputSchema: z.object({ mutated: z.string() }),
-      execute: deniedExecute,
     });
 
     // No permissionPolicy on the runtime → the gate is a no-op, so BOTH tools
     // stay callable exactly as before this feature existed.
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'denied_tool',
-      toolCallId: 'call-default-1',
-      input: JSON.stringify({ value: 'unfiltered' }),
       finalText: 'Ran the tool.',
+      input: JSON.stringify({ value: 'unfiltered' }),
+      toolCallId: 'call-default-1',
+      toolName: 'denied_tool',
     });
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u-default', role: 'user', parts: [{ type: 'text', text: 'run it' }] }],
+      [{ id: 'u-default', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
       {
-        runtime: { provider: 'openai', apiKey: 'test-key' },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
         tools: { allowed_tool: allowedTool, denied_tool: deniedTool },
       }
     );

@@ -16,5 +16,5 @@ export function parseEventId(
   if (!Number.isFinite(sequence) || sequence < -1) {
     return;
   }
-  return { sessionId, sequence };
+  return { sequence, sessionId };
 }

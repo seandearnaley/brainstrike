@@ -121,16 +121,16 @@ function buildForestSelectAllFeedback(
 ): { title: string; description: string } | null {
   if (summary.selected === 0) {
     return {
-      title: 'No selectable files in any folder',
       description: summary.limitReached
         ? `The selection limit (${maxCount}) is already used by existing selections.`
         : 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.',
+      title: 'No selectable files in any folder',
     };
   }
   if (summary.limitReached) {
     return {
-      title: `Selection limit reached (${maxCount})`,
       description: `Selected ${summary.selected} files before hitting the limit. Raise the limit to select more.`,
+      title: `Selection limit reached (${maxCount})`,
     };
   }
   return null;
@@ -155,7 +155,7 @@ async function runForestSelectAllSweep(args: {
   error?: string;
 }> {
   if (!args.forestActions) {
-    return { success: false, filePaths: [], error: 'Forest registry unavailable' };
+    return { error: 'Forest registry unavailable', filePaths: [], success: false };
   }
   const summary = await args.forestActions.runSelectAll();
   const feedback = buildForestSelectAllFeedback(summary, args.maxCount);
@@ -163,10 +163,10 @@ async function runForestSelectAllSweep(args: {
     args.showToast(feedback);
   }
   return {
-    success: true,
     filePaths: [],
-    totalAvailable: summary.selected,
     limitReached: summary.limitReached,
+    success: true,
+    totalAvailable: summary.selected,
   };
 }
 
@@ -435,8 +435,8 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
   // Note: useRuleMaterialization already uses the single-selector pattern
   // (selects entire selectionModel object once), which is safe for React Compiler.
   useRuleMaterialization({
-    fileTree: stableFileTree,
     enabled: !isLoading,
+    fileTree: stableFileTree,
   });
 
   // Get selection model for rules-based mode token counting and display
@@ -452,18 +452,18 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
     window.__brainstrikeFileExplorerTestHooks__ = {
       getSnapshot: () => ({
         currentFolderId,
-        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
-        selectionMode: selectionModel.mode,
-        selectedFilePathCount: selectedFilePaths.size,
-        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
         materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
         materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+        selectedFilePathCount: selectedFilePaths.size,
+        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+        selectionMode: selectionModel.mode,
         treeRootCount: stableFileTree.length,
         treeSamples: stableFileTree.slice(0, 5).map((node) => ({
-          path: node.path,
-          type: node.type,
-          rootFolderId: node.rootFolderId ?? null,
           childCount: node.children?.length ?? 0,
+          path: node.path,
+          rootFolderId: node.rootFolderId ?? null,
+          type: node.type,
         })),
       }),
     };
@@ -511,9 +511,9 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
   // Only pass `webFileHandleResolver` when the active adapter advertises it so we don't
   // trip `exactOptionalPropertyTypes` with an explicit-`undefined` value.
   useBackgroundTokenIndexerIntegration({
+    electronFileReader,
     fileTree: stableFileTree,
     selectedFiles: selectedFilePaths,
-    electronFileReader,
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
@@ -587,20 +587,20 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
     largeSelectionDiagnosticSignatureRef.current = diagnosticSignature;
 
     logger.info('Large file explorer selection rendered', {
-      selectionMode: selectionModel.mode,
       currentFolderId,
+      expandAllInProgress: isExpandingAll,
+      fallbackDisplayedFileCount: useFallbackDisplayedFiles ? displayedFileList.length : null,
+      isLoading,
+      isLoadingForSelectAll,
+      isLoadingForSelection,
+      isQuickFiltering,
+      loadingPathCount: loadingPaths.size,
+      materializedPathCount,
+      quickFilteredTreeRootCount: quickFilteredTree?.length ?? 0,
       selectedCount,
       selectedFilePathsCount: selectedFilePaths.size,
-      materializedPathCount,
+      selectionMode: selectionModel.mode,
       treeRootCount,
-      quickFilteredTreeRootCount: quickFilteredTree?.length ?? 0,
-      fallbackDisplayedFileCount: useFallbackDisplayedFiles ? displayedFileList.length : null,
-      expandAllInProgress: isExpandingAll,
-      loadingPathCount: loadingPaths.size,
-      isLoading,
-      isLoadingForSelection,
-      isLoadingForSelectAll,
-      isQuickFiltering,
     });
   }, [
     currentFolderId,
@@ -630,14 +630,14 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
       await refreshFileExplorer();
       window.dispatchEvent(
         createFileExplorerRefreshEvent({
-          source: 'manual',
-          scope: 'full',
           roots: [],
+          scope: 'full',
+          source: 'manual',
         })
       );
       showToast({
-        title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,
+        title: FileExplorerStrings.success.title,
       });
       setIsRefreshing(false);
     } catch (error) {
@@ -656,8 +656,8 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
       if (typeof adapterAsFixture.loadInlineFixture === 'function') {
         setDevInlineFixtureEnabled(true);
         showToast({
-          title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
           description: FileExplorerStrings.inlineFixture.noAccessFallbackDescription,
+          title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
         });
         return null;
       }
@@ -786,10 +786,10 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
 
   const expandAll = useCallback(() => {
     logger.info('expandAll clicked', {
+      fileTreeLength: fileTree?.length ?? 0,
+      hasFileTree: !!fileTree,
       isExpandingAll,
       isForestMode,
-      hasFileTree: !!fileTree,
-      fileTreeLength: fileTree?.length ?? 0,
     });
 
     // Prevent clicks while expand-all is already running
@@ -834,8 +834,8 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
     const keys = (forestActions?.collectVisibleQuickFilterKeys() ?? []).slice(0, maxSelectionCount);
     if (keys.length === 0) {
       showToast({
-        title: 'No files match the search',
         description: 'No visible files match the quick filter in any folder.',
+        title: 'No files match the search',
       });
       return;
     }
@@ -853,8 +853,8 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
     showToast({
-      title: 'Operation Cancelled',
       description: 'The file loading operation has been cancelled.',
+      title: 'Operation Cancelled',
       variant: 'default',
     });
   }, [cancelOperation, showToast]);
@@ -863,13 +863,13 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
   const scanningStatusProps = useMemo(
     () =>
       computeScanningStatusProps({
-        loadingProgress,
-        isExpandingAll,
-        expandAllProgress,
-        cancellable,
-        isCancelling,
         cancelExpandAll,
+        cancellable,
+        expandAllProgress,
         handleCancelOperation,
+        isCancelling,
+        isExpandingAll,
+        loadingProgress,
       }),
     [
       loadingProgress,
@@ -1109,11 +1109,11 @@ const FileExplorerPanelInner: React.FC = React.memo(() => {
 
               const doRestore = () => {
                 const directoryHandle = {
-                  path: handle.name,
-                  name: handle.name,
-                  kind: 'directory' as const,
-                  platform: 'web' as const,
                   _internal: handle,
+                  kind: 'directory' as const,
+                  name: handle.name,
+                  path: handle.name,
+                  platform: 'web' as const,
                   // Stamp the durable rootId (pendingRestore.folderId IS the rootId,
                   // keyed in the handle cache) so the eager setRootDirectoryHandle and
                   // the registerRestoredHandles burst below reconcile to ONE root by

@@ -16,10 +16,10 @@ function getRequestUrl(input: FetchMockInput): string {
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
-    status,
     headers: {
       'content-type': 'application/json',
     },
+    status,
   });
 }
 
@@ -36,12 +36,12 @@ describe('local-runtime-model-catalog', () => {
         return jsonResponse({
           models: [
             {
-              name: 'nomic-embed-text:latest',
               details: { families: ['nomic-bert'] },
+              name: 'nomic-embed-text:latest',
             },
             {
-              name: 'qwen2.5:latest',
               details: { families: ['qwen2'] },
+              name: 'qwen2.5:latest',
             },
           ],
         });
@@ -58,8 +58,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -101,8 +101,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -124,10 +124,10 @@ describe('local-runtime-model-catalog', () => {
           data: [
             {
               id: 'text-embedding-nomic-embed-text-v1.5',
-              type: 'embeddings',
               state: 'loaded',
+              type: 'embeddings',
             },
-            { id: 'qwen2.5', type: 'llm', state: 'not-loaded' },
+            { id: 'qwen2.5', state: 'not-loaded', type: 'llm' },
           ],
         });
       }
@@ -143,8 +143,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -182,7 +182,7 @@ describe('local-runtime-model-catalog', () => {
       if (url.endsWith('/api/tags')) {
         if (phase === 'ok') {
           return jsonResponse({
-            models: [{ name: 'nomic-embed-text', details: { families: ['nomic-bert'] } }],
+            models: [{ details: { families: ['nomic-bert'] }, name: 'nomic-embed-text' }],
           });
         }
         return new Response('down', { status: 503 });
@@ -205,8 +205,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const first = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(first.state).toBe('loaded_non_empty');
@@ -214,8 +214,8 @@ describe('local-runtime-model-catalog', () => {
     phase = 'fail';
 
     const second = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(second.state).toBe('stale_cached');
@@ -254,10 +254,10 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
-      verifyEmbeddingDimensions: true,
       maxVerificationModels: 1,
+      surface: 'desktop',
+      verifyEmbeddingDimensions: true,
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -284,8 +284,8 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('lmstudio', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('failed');
@@ -407,7 +407,7 @@ describe('local-runtime-model-catalog', () => {
       observedAuth.push(headers.get('authorization'));
       if (url === 'https://gpu.lan:11434/api/tags') {
         return jsonResponse({
-          models: [{ name: 'phi4:latest', details: { families: ['phi4'] } }],
+          models: [{ details: { families: ['phi4'] }, name: 'phi4:latest' }],
         });
       }
       return new Response('missing', { status: 404 });
@@ -419,12 +419,12 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
-      force: true,
       endpoint: {
-        baseUrl: 'https://gpu.lan:11434/v1/',
         apiToken: 'tok_abc',
+        baseUrl: 'https://gpu.lan:11434/v1/',
       },
+      force: true,
+      surface: 'desktop',
     });
 
     expect(result.state).toBe('loaded_non_empty');
@@ -453,7 +453,7 @@ describe('local-runtime-model-catalog', () => {
     });
 
     const result = await service.resolveOllamaCapabilities('bge-m3:latest', {
-      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_xyz' },
+      endpoint: { apiToken: 'tok_xyz', baseUrl: 'https://gpu.lan:11434' },
     });
 
     expect(result.state).toBe('resolved');

@@ -38,8 +38,8 @@ async function runHandler(
     return { ok: true };
   } catch (error) {
     return {
-      ok: false,
       error: error instanceof Error ? error.message : `${label} failed`,
+      ok: false,
     };
   }
 }
@@ -54,36 +54,36 @@ export function createGlobalCommands(handlers: GlobalCommandHandlers): readonly 
 
   return [
     {
-      id: 'thread.new',
-      label: 'New Thread',
-      keywords: ['chat', 'conversation', 'assistant'],
       group: 'thread',
+      id: 'thread.new',
       isAvailable: () => newThread !== undefined,
+      keywords: ['chat', 'conversation', 'assistant'],
+      label: 'New Thread',
       run: () => runHandler('New Thread', newThread ?? noop),
     },
     {
-      id: 'nav.settings',
-      label: 'Open Settings',
-      keywords: ['preferences', 'config', 'options'],
       group: 'navigate',
+      id: 'nav.settings',
       isAvailable: () => openSettings !== undefined,
+      keywords: ['preferences', 'config', 'options'],
+      label: 'Open Settings',
       run: () => runHandler('Open Settings', openSettings ?? noop),
     },
     {
-      id: 'theme.toggle',
-      label: 'Toggle Theme',
-      keywords: ['dark', 'light', 'appearance'],
       group: 'workspace',
+      id: 'theme.toggle',
       isAvailable: () => toggleTheme !== undefined,
+      keywords: ['dark', 'light', 'appearance'],
+      label: 'Toggle Theme',
       run: () => runHandler('Toggle Theme', toggleTheme ?? noop),
     },
     {
-      id: 'palette.quickOpen',
-      label: 'Quick Open…',
-      keywords: ['file', 'goto', 'jump'],
       group: 'navigate',
+      id: 'palette.quickOpen',
       // Hidden until PR-6.3 supplies the handler — not a fake no-op item.
       isAvailable: () => openQuickOpen !== undefined,
+      keywords: ['file', 'goto', 'jump'],
+      label: 'Quick Open…',
       run: () => runHandler('Quick Open', openQuickOpen ?? noop),
     },
   ];

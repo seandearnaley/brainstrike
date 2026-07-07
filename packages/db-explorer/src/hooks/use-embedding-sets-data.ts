@@ -26,12 +26,12 @@ export function useEmbeddingSetsData(rows: EmbeddingSetRow[]): EmbeddingSet[] {
     () =>
       rows.map((row) => {
         const set: EmbeddingSet = {
-          id: row.id,
-          modelKey: row.model_key,
-          modelId: row.model_id,
+          createdAt: row.created_at,
           dimensions: row.dimensions,
           distance: row.distance as 'cosine' | 'l2' | 'ip',
-          createdAt: row.created_at,
+          id: row.id,
+          modelId: row.model_id,
+          modelKey: row.model_key,
         };
         if (row.name) {
           set.name = row.name;

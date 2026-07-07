@@ -18,9 +18,9 @@ export const QUERY_FILE_TREE_TOOL_ID = 'brainstrike.queryFileTree' as const;
  * Safe error messages that can be shown to users.
  */
 export const FILE_TREE_ERROR_MESSAGES = {
-  queryFailed: 'Failed to query file tree. Please try again.',
   pathNotFound: 'The specified path was not found in imported files.',
   patternInvalid: 'The glob pattern is invalid.',
+  queryFailed: 'Failed to query file tree. Please try again.',
   tooManyResults: 'Query returned too many results. Try a more specific path or pattern.',
 } as const;
 
@@ -155,7 +155,7 @@ async function runQueryFileTree(
   const maxDepth = input.maxDepth ?? DEFAULT_MAX_DEPTH;
   const includeHidden = input.includeHidden ?? false;
 
-  deps.logger?.debug('Querying file tree', { path, pattern, maxDepth, includeHidden });
+  deps.logger?.debug('Querying file tree', { includeHidden, maxDepth, path, pattern });
 
   // Build options object with only defined properties (exactOptionalPropertyTypes compliance)
   const options: {
@@ -164,9 +164,9 @@ async function runQueryFileTree(
     includeHidden?: boolean;
     limit?: number;
   } = {
-    maxDepth,
     includeHidden,
     limit: DEFAULT_LIMIT,
+    maxDepth,
   };
   if (pattern !== null) {
     options.pattern = pattern;
@@ -179,13 +179,13 @@ async function runQueryFileTree(
   deps.logger?.debug('File tree query complete', { count: entries.length, truncated });
 
   return {
+    count: entries.length,
+    entries,
+    maxDepth,
     path,
     pattern,
-    maxDepth,
-    entries,
-    count: entries.length,
-    truncated,
     summary,
+    truncated,
   };
 }
 
@@ -211,11 +211,9 @@ interface MastraTool {
  */
 export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraTool {
   return {
-    id: QUERY_FILE_TREE_TOOL_ID,
     description:
       'Query the imported file tree to list directories and search for files. ' +
       'Can filter by path and glob patterns. Shows file metadata and chunking status.',
-    inputSchema: QueryFileTreeInputSchema,
     execute: async (context: ToolContext<QueryFileTreeInput>) => {
       try {
         return await runQueryFileTree(context.context, deps);
@@ -228,6 +226,8 @@ export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraT
         );
       }
     },
+    id: QUERY_FILE_TREE_TOOL_ID,
+    inputSchema: QueryFileTreeInputSchema,
   };
 }
 

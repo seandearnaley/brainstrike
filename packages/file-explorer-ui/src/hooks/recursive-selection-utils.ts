@@ -120,17 +120,17 @@ export function buildQuerySelectionDescriptor(args: {
   useRegex: boolean;
 }): SelectionQueryDescriptor {
   return {
-    kind: args.kind,
-    folderId: args.folderId,
-    rootPath: args.rootPath,
     coveredDirectoryPaths: [...args.coveredDirectoryPaths],
-    includeFilters: [...args.includeFilters],
-    excludeFilters: [...args.excludeFilters],
-    includedPaths: [...args.includedPaths],
     excludedPaths: [...args.excludedPaths],
+    excludeFilters: [...args.excludeFilters],
+    folderId: args.folderId,
+    includedPaths: [...args.includedPaths],
+    includeFilters: [...args.includeFilters],
+    kind: args.kind,
     manifestFingerprint: args.manifestFingerprint,
     manifestSnapshotId: args.manifestSnapshotId,
-    useRegex: args.useRegex,
+    rootPath: args.rootPath,
     totalSelectedCount: args.totalSelectedCount,
+    useRegex: args.useRegex,
   };
 }

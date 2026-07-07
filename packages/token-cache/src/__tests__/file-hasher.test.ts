@@ -97,20 +97,20 @@ describe('FileHasher', () => {
 
   describe('shouldRevalidate', () => {
     it('returns true when size differs', () => {
-      const cached = { size: 100, mtimeMs: 1000 };
-      const current = { size: 200, mtimeMs: 1000 };
+      const cached = { mtimeMs: 1000, size: 100 };
+      const current = { mtimeMs: 1000, size: 200 };
       expect(hasher.shouldRevalidate(cached, current)).toBe(true);
     });
 
     it('returns true when mtime differs', () => {
-      const cached = { size: 100, mtimeMs: 1000 };
-      const current = { size: 100, mtimeMs: 2000 };
+      const cached = { mtimeMs: 1000, size: 100 };
+      const current = { mtimeMs: 2000, size: 100 };
       expect(hasher.shouldRevalidate(cached, current)).toBe(true);
     });
 
     it('returns false when size and mtime match', () => {
-      const cached = { size: 100, mtimeMs: 1000 };
-      const current = { size: 100, mtimeMs: 1000 };
+      const cached = { mtimeMs: 1000, size: 100 };
+      const current = { mtimeMs: 1000, size: 100 };
       expect(hasher.shouldRevalidate(cached, current)).toBe(false);
     });
 
@@ -121,14 +121,14 @@ describe('FileHasher', () => {
     });
 
     it('returns false when size matches and only cached has mtime', () => {
-      const cached = { size: 100, mtimeMs: 1000 };
+      const cached = { mtimeMs: 1000, size: 100 };
       const current = { size: 100 };
       expect(hasher.shouldRevalidate(cached, current)).toBe(false);
     });
 
     it('returns false when size matches and only current has mtime', () => {
       const cached = { size: 100 };
-      const current = { size: 100, mtimeMs: 1000 };
+      const current = { mtimeMs: 1000, size: 100 };
       expect(hasher.shouldRevalidate(cached, current)).toBe(false);
     });
   });
@@ -149,8 +149,8 @@ describe('FileHasher', () => {
     it('parses composite cache key', () => {
       const result = hasher.parseCacheKey('folder-123::src/index.ts');
       expect(result).toEqual({
-        folderId: 'folder-123',
         filePath: 'src/index.ts',
+        folderId: 'folder-123',
       });
     });
 
@@ -162,8 +162,8 @@ describe('FileHasher', () => {
     it('handles multiple :: in path', () => {
       const result = hasher.parseCacheKey('folder::path::with::colons.ts');
       expect(result).toEqual({
-        folderId: 'folder',
         filePath: 'path::with::colons.ts',
+        folderId: 'folder',
       });
     });
   });

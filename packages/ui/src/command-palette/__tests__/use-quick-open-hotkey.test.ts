@@ -58,7 +58,7 @@ describe('useQuickOpenHotkey', () => {
       const onOpen = vi.fn();
       renderHook(() => useQuickOpenHotkey({ onOpen }));
       act(() => {
-        dispatchKey({ key: 'p', ctrlKey: true });
+        dispatchKey({ ctrlKey: true, key: 'p' });
       });
       expect(onOpen).not.toHaveBeenCalled();
     });
@@ -70,7 +70,7 @@ describe('useQuickOpenHotkey', () => {
       const onOpen = vi.fn();
       renderHook(() => useQuickOpenHotkey({ onOpen }));
       act(() => {
-        dispatchKey({ key: 'p', ctrlKey: true });
+        dispatchKey({ ctrlKey: true, key: 'p' });
       });
       expect(onOpen).toHaveBeenCalledTimes(1);
     });
@@ -115,10 +115,10 @@ describe('useQuickOpenHotkey', () => {
     renderHook(() => useQuickOpenHotkey({ onOpen }));
     act(() => {
       const event = new KeyboardEvent('keydown', {
-        key: 'p',
-        metaKey: true,
         bubbles: true,
         cancelable: true,
+        key: 'p',
+        metaKey: true,
       });
       event.preventDefault();
       document.dispatchEvent(event);

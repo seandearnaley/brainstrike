@@ -31,14 +31,14 @@ function createUnavailableMetric(
   osProcessId: number | null
 ): BackgroundRuntimeProcessMetric {
   return {
-    runtimeKind,
-    osProcessId,
-    unavailableReason,
     cpuPercent: null,
     idleWakeupsPerSecond: null,
-    workingSetKb: null,
+    osProcessId,
     privateKb: null,
+    runtimeKind,
     sharedKb: null,
+    unavailableReason,
+    workingSetKb: null,
   };
 }
 
@@ -49,13 +49,13 @@ function createMetricFromProcessMetric(
 ): BackgroundRuntimeProcessMetric {
   const memory = metric.memory as ElectronProcessMemoryInfo;
   return {
-    runtimeKind,
-    osProcessId,
     cpuPercent: formatMetricValue(metric.cpu.percentCPUUsage),
     idleWakeupsPerSecond: formatMetricValue(metric.cpu.idleWakeupsPerSecond),
-    workingSetKb: formatKilobytes(memory.workingSetSize),
+    osProcessId,
     privateKb: formatKilobytes(memory.privateBytes),
+    runtimeKind,
     sharedKb: formatKilobytes(memory.sharedBytes),
+    workingSetKb: formatKilobytes(memory.workingSetSize),
   };
 }
 

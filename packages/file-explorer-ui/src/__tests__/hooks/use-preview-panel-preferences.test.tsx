@@ -5,11 +5,11 @@ import { usePreviewPanelPreferences } from '../../preview/use-preview-panel-pref
 describe('usePreviewPanelPreferences', () => {
   const defaults = {
     activeTab: 'table',
+    footerMode: 'default' as const,
     groupingConfig: 'none',
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
     useTapestryRangesForContextOutput: true,
-    footerMode: 'default' as const,
   };
 
   afterEach(() => {
@@ -23,15 +23,15 @@ describe('usePreviewPanelPreferences', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
-        columnVisibility: { size: false, tokens: 'nope' },
-        sortField: 'invalid-field',
-        sortDirection: 'up',
-        groupingConfig: 'folder',
         activeTab: 'unknown',
         collapsedGroups: ['keep', 12, null],
-        footerMode: 'not-a-mode',
-        footerHeight: 9999,
+        columnVisibility: { size: false, tokens: 'nope' },
         footerCollapsed: true,
+        footerHeight: 9999,
+        footerMode: 'not-a-mode',
+        groupingConfig: 'folder',
+        sortDirection: 'up',
+        sortField: 'invalid-field',
       })
     );
 
@@ -64,8 +64,8 @@ describe('usePreviewPanelPreferences', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
-        footerMode: 'compact',
         footerHeight: 500,
+        footerMode: 'compact',
       })
     );
 

@@ -58,20 +58,20 @@ function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: str
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'directory',
-    depth: 0,
-    selectionState: 'unchecked',
     children: [],
-    rootFolderId: root.path,
-    isVisible: true,
+    depth: 0,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'directory',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemDirectoryHandle,
+    isVisible: true,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    type: 'directory',
   };
 }
 
@@ -80,19 +80,19 @@ function toBasicFileNode(root: DirectoryHandle, entryName: string, fullPath: str
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'file',
     depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: root.path,
-    isVisible: true,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'file',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemFileHandle,
+    isVisible: true,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    type: 'file',
   };
 }
 
@@ -107,21 +107,21 @@ function toFileNodeWithMetadata(
     throw new Error('Root directory handle is missing its canonical path');
   }
   return {
-    name: entryName,
-    path: fullPath,
-    type: 'file',
     depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: root.path,
-    isVisible: true,
-    size,
-    lastModified: mtimeMs,
     handle: {
-      path: fullPath,
-      name: entryName,
       kind: 'file',
+      name: entryName,
+      path: fullPath,
       platform: 'electron',
     } as unknown as FileSystemFileHandle,
+    isVisible: true,
+    lastModified: mtimeMs,
+    name: entryName,
+    path: fullPath,
+    rootFolderId: root.path,
+    selectionState: 'unchecked',
+    size,
+    type: 'file',
   };
 }
 
@@ -266,7 +266,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     if (this.metadataCache) {
       const cached = this.metadataCache.get(fullPath);
       if (cached && !cached.isDirectory) {
-        return { size: cached.size, mtimeMs: cached.mtimeMs };
+        return { mtimeMs: cached.mtimeMs, size: cached.size };
       }
     }
 
@@ -277,13 +277,13 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       // Store in cache
       if (this.metadataCache) {
         this.metadataCache.set(fullPath, {
-          size: stat.size,
-          mtimeMs: stat.mtimeMs,
           isDirectory: stat.isDirectory(),
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
         });
       }
 
-      return { size: stat.size, mtimeMs: stat.mtimeMs };
+      return { mtimeMs: stat.mtimeMs, size: stat.size };
     } catch {
       return null;
     }
@@ -318,11 +318,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
     try {
       const result = await dialog.showOpenDialog({
-        properties: ['openDirectory'],
-        title: 'Select a folder to explore',
         // Add these properties to improve dialog behavior
         buttonLabel: 'Select Folder',
         message: 'Choose a directory to explore with BrainStrike',
+        properties: ['openDirectory'],
+        title: 'Select a folder to explore',
       });
 
       if (result.canceled || result.filePaths.length === 0) {
@@ -340,9 +340,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       await validateDirectoryPath(selectedPath, this.requestDirectoryAccess);
 
       return {
-        path: selectedPath,
-        name: path.basename(selectedPath),
         kind: 'directory',
+        name: path.basename(selectedPath),
+        path: selectedPath,
         platform: 'electron',
       };
     } catch (error) {
@@ -489,11 +489,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     // Validate path against root if provided (security check)
     if (rootPath) {
       const validated = await resolveValidatedPath({
-        rootDir: rootPath,
-        requestedPath: absolutePath,
         allowMissing: false,
-        maxTraversal: 0, // Don't allow any .. segments
         blockSensitiveDirectories: true,
+        maxTraversal: 0, // Don't allow any .. segments
+        requestedPath: absolutePath,
+        rootDir: rootPath,
       });
 
       if (!validated.ok) {

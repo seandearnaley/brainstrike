@@ -25,8 +25,8 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/file-system', () => ({
-  createWebFileSystemAdapter: () => ({}),
   createFixtureCapableAdapter: (adapter: unknown) => adapter,
+  createWebFileSystemAdapter: () => ({}),
 }));
 
 vi.mock('@brainstrike/storage', () => ({
@@ -36,7 +36,7 @@ vi.mock('@brainstrike/storage', () => ({
 // Mock preferences stores
 const mockLoggingStoreState = {
   hasHydrated: true,
-  preferences: { level: 'debug', consoleLevel: 'debug' },
+  preferences: { consoleLevel: 'debug', level: 'debug' },
   updatePreferences: vi.fn(),
 };
 
@@ -59,18 +59,18 @@ vi.mock('@brainstrike/preferences/components/db-schema-verifier', () => ({
 const createMockLoggingPreferences = (
   overrides: Record<string, unknown> = {}
 ): Record<string, unknown> => ({
-  level: 'info',
-  consoleLevel: 'info',
   consoleEnabled: true,
-  includeTimestamp: false,
-  redactPaths: [],
+  consoleLevel: 'info',
   file: {
-    enabled: false,
-    destination: null,
-    level: 'info',
     append: true,
+    destination: null,
+    enabled: false,
+    level: 'info',
     mkdir: true,
   },
+  includeTimestamp: false,
+  level: 'info',
+  redactPaths: [],
   ...overrides,
 });
 
@@ -119,10 +119,10 @@ vi.mock('@brainstrike/queue', () => ({
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
   useChunkingWorkerContext: vi.fn(() => ({
-    port: null,
-    isReady: false,
-    isProcessing: false,
     error: null,
+    isProcessing: false,
+    isReady: false,
+    port: null,
     reinitialize: vi.fn(),
   })),
 }));
@@ -131,25 +131,25 @@ vi.mock('@brainstrike/file-import/browser-queue-port', () => ({
   createBrowserEmbeddingQueuePort: vi.fn(() => ({
     add: vi.fn(),
     addBulk: vi.fn(),
+    drain: vi.fn(),
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
-    drain: vi.fn(),
   })),
 }));
 
 vi.mock('@brainstrike/file-import/enhanced-import', () => ({
   runEnhancedImport: vi.fn(async () => ({
-    totalFiles: 0,
-    importedFiles: 0,
-    skippedFiles: 0,
     chunkedFiles: 0,
     embeddedFiles: 0,
-    totalChunks: 0,
-    totalTokens: 0,
-    errors: [],
     embeddingErrors: [],
+    errors: [],
+    importedFiles: 0,
+    skippedFiles: 0,
     skippedPaths: [],
+    totalChunks: 0,
+    totalFiles: 0,
+    totalTokens: 0,
   })),
 }));
 
@@ -175,7 +175,7 @@ describe('main entry file', () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     mockLoggingStoreState.hasHydrated = true;
-    mockLoggingStoreState.preferences = { level: 'debug', consoleLevel: 'debug' };
+    mockLoggingStoreState.preferences = { consoleLevel: 'debug', level: 'debug' };
     initializeQueueTelemetrySinkMock.mockReturnValue(null);
     Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
     window.sessionStorage.clear();
@@ -299,8 +299,8 @@ describe('main entry file', () => {
     await importMain();
 
     expect(mockLoggingStoreState.updatePreferences).toHaveBeenCalledWith({
-      level: 'info',
       consoleLevel: 'info',
+      level: 'info',
     });
   }, 60_000);
 
@@ -318,8 +318,8 @@ describe('main entry file', () => {
     const flushMock = vi.fn(() => Promise.resolve());
     const disposeMock = vi.fn(() => Promise.resolve());
     initializeQueueTelemetrySinkMock.mockReturnValue({
-      flush: flushMock,
       dispose: disposeMock,
+      flush: flushMock,
     });
 
     const listeners = new Map<string, EventListener>();
@@ -353,14 +353,14 @@ describe('main entry file', () => {
 
     expect(initializeQueueTelemetrySinkMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: 'https://telemetry.example.com/queue',
-        useSendBeacon: false,
         apiKey: 'test-api-key',
-        runtime: 'browser',
+        endpoint: 'https://telemetry.example.com/queue',
         metadata: expect.objectContaining({
           app: 'web',
           version: 'test-version',
         }),
+        runtime: 'browser',
+        useSendBeacon: false,
       })
     );
     const beforeUnloadHandler = listeners.get('beforeunload');

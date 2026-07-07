@@ -11,30 +11,30 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 const mockPresets: ViewFilterPreset[] = [
   {
-    id: 'preset-1',
-    name: 'Source Files',
-    description: 'TypeScript and JavaScript files',
-    icon: 'file-code',
-    includes: ['*.ts', '*.tsx', '*.js', '*.jsx'],
-    excludes: ['node_modules', 'dist'],
-    useRegex: false,
-    isDefault: true,
-    sortOrder: 0,
     createdAt: new Date(),
+    description: 'TypeScript and JavaScript files',
+    excludes: ['node_modules', 'dist'],
+    icon: 'file-code',
+    id: 'preset-1',
+    includes: ['*.ts', '*.tsx', '*.js', '*.jsx'],
+    isDefault: true,
+    name: 'Source Files',
+    sortOrder: 0,
     updatedAt: new Date(),
+    useRegex: false,
   },
   {
-    id: 'preset-2',
-    name: 'Documentation',
-    description: 'Markdown and text files',
-    icon: 'file-text',
-    includes: ['*.md', '*.txt'],
-    excludes: [],
-    useRegex: false,
-    isDefault: false,
-    sortOrder: 1,
     createdAt: new Date(),
+    description: 'Markdown and text files',
+    excludes: [],
+    icon: 'file-text',
+    id: 'preset-2',
+    includes: ['*.md', '*.txt'],
+    isDefault: false,
+    name: 'Documentation',
+    sortOrder: 1,
     updatedAt: new Date(),
+    useRegex: false,
   },
 ];
 
@@ -61,13 +61,13 @@ describe('ViewFilterPresetDropdown', () => {
   const mockOnDelete = vi.fn();
 
   const defaultProps = {
+    loading: false,
+    onCreate: mockOnCreate,
+    onDelete: mockOnDelete,
+    onSelect: mockOnSelect,
+    onUpdate: mockOnUpdate,
     presets: mockPresets,
     selectedPreset: null,
-    onSelect: mockOnSelect,
-    onCreate: mockOnCreate,
-    onUpdate: mockOnUpdate,
-    onDelete: mockOnDelete,
-    loading: false,
   };
 
   beforeEach(() => {
@@ -201,10 +201,10 @@ describe('ViewFilterPresetDropdown', () => {
 
     await waitFor(() => {
       expect(mockOnCreate).toHaveBeenCalledWith({
-        name: 'Test Preset',
+        excludes: [],
         icon: 'file',
         includes: ['*.test.ts'],
-        excludes: [],
+        name: 'Test Preset',
         useRegex: false,
       });
     });
@@ -213,8 +213,8 @@ describe('ViewFilterPresetDropdown', () => {
   it('trims create-form pattern lists and selected icon before saving', async () => {
     const createdPreset: ViewFilterPreset = {
       ...getMockPreset(1),
-      id: 'created-preset',
       icon: 'file-code',
+      id: 'created-preset',
       includes: ['src/**', '*.tsx'],
       name: 'Frontend',
       useRegex: true,
@@ -234,10 +234,10 @@ describe('ViewFilterPresetDropdown', () => {
 
     await waitFor(() => {
       expect(mockOnCreate).toHaveBeenCalledWith({
-        name: 'Frontend',
+        excludes: ['dist', 'build'],
         icon: 'file-code',
         includes: ['src/**', '*.tsx'],
-        excludes: ['dist', 'build'],
+        name: 'Frontend',
         useRegex: true,
       });
     });
@@ -285,10 +285,10 @@ describe('ViewFilterPresetDropdown', () => {
 
     await waitFor(() => {
       expect(mockOnUpdate).toHaveBeenCalledWith('preset-2', {
-        name: 'Docs Edited',
+        excludes: ['archive'],
         icon: 'database',
         includes: ['docs/**'],
-        excludes: ['archive'],
+        name: 'Docs Edited',
         useRegex: true,
       });
     });

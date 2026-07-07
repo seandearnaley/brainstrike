@@ -35,10 +35,10 @@ vi.mock('../openai-api-key', () => ({
 }));
 
 const mockSecretsService = {
-  saveKey: vi.fn(),
-  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   deleteKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
+  saveKey: vi.fn(),
 };
 
 vi.mock('../secrets', () => ({
@@ -52,9 +52,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     assistantDataStreamSessions: {
       create: vi.fn(() => ({
         createResponse: vi.fn(() => ({
-          status: 200,
-          headers: new Headers(),
           body: null,
+          headers: new Headers(),
+          status: 200,
         })),
       })),
     },
@@ -70,6 +70,8 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
       model,
       provider,
     })),
+    isSupportedProvider: (provider: string) =>
+      ['openai', 'anthropic', 'google', 'openrouter', 'local'].includes(provider),
     resolveDataStreamSession: vi.fn(() => {}),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
     streamMastraToolApprovalAction: vi.fn(async () => ({
@@ -79,11 +81,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     })),
     toAiSdkStyleStream: vi.fn(async () => ({
       async *[Symbol.asyncIterator]() {
-        yield { type: 'text', content: 'test' };
+        yield { content: 'test', type: 'text' };
       },
     })),
-    isSupportedProvider: (provider: string) =>
-      ['openai', 'anthropic', 'google', 'openrouter', 'local'].includes(provider),
   };
 });
 
@@ -211,9 +211,9 @@ describe('assistant-server', () => {
     await finished;
 
     return {
-      status: res.statusCode,
       body: Buffer.concat(res.bodyChunks).toString('utf-8'),
       headers: res.headers,
+      status: res.statusCode,
     };
   }
 
@@ -290,9 +290,9 @@ describe('assistant-server', () => {
       mockSecretsService.getKey.mockResolvedValueOnce('test-key');
 
       const response = await runRequest({
+        headers: { origin: desktopRendererOrigin },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(200);
@@ -306,9 +306,9 @@ describe('assistant-server', () => {
 
     it('should handle status route with query parameters', async () => {
       const response = await runRequest({
+        headers: { origin: desktopRendererOrigin },
         method: 'GET',
         url: '/assistant/status?source=healthcheck',
-        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(200);
@@ -317,12 +317,12 @@ describe('assistant-server', () => {
 
     it('should handle CORS preflight for assistant routes', async () => {
       const response = await runRequest({
+        headers: {
+          'access-control-request-method': 'POST',
+          origin: desktopRendererOrigin,
+        },
         method: 'OPTIONS',
         url: '/assistant/status?source=test',
-        headers: {
-          origin: desktopRendererOrigin,
-          'access-control-request-method': 'POST',
-        },
       });
 
       expect(response.status).toBe(204);
@@ -335,12 +335,12 @@ describe('assistant-server', () => {
 
     it('should return 204 for OPTIONS on unknown routes', async () => {
       const response = await runRequest({
+        headers: {
+          'access-control-request-method': 'POST',
+          origin: desktopRendererOrigin,
+        },
         method: 'OPTIONS',
         url: '/unknown?source=test',
-        headers: {
-          origin: desktopRendererOrigin,
-          'access-control-request-method': 'POST',
-        },
       });
 
       expect(response.status).toBe(204);
@@ -349,12 +349,12 @@ describe('assistant-server', () => {
 
     it('should return null CORS origin for preflight requests from disallowed origins', async () => {
       const response = await runRequest({
+        headers: {
+          'access-control-request-method': 'POST',
+          origin: 'https://evil.example',
+        },
         method: 'OPTIONS',
         url: '/assistant/status?source=test',
-        headers: {
-          origin: 'https://evil.example',
-          'access-control-request-method': 'POST',
-        },
       });
 
       expect(response.status).toBe(403);
@@ -366,9 +366,9 @@ describe('assistant-server', () => {
 
     it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
       const response = await runRequest({
+        headers: { origin: desktopRendererOrigin },
         method: 'OPTIONS',
         url: '/assistant/status',
-        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(404);
@@ -377,9 +377,9 @@ describe('assistant-server', () => {
 
     it('should allow null origin for packaged Electron renderer requests', async () => {
       const response = await runRequest({
+        headers: { origin: 'null' },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'null' },
       });
 
       expect(response.status).toBe(200);
@@ -389,16 +389,16 @@ describe('assistant-server', () => {
 
     it('should reject assistant POST requests from disallowed origins', async () => {
       const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://evil.example',
+        },
         method: 'POST',
         url: '/assistant',
-        headers: {
-          origin: 'https://evil.example',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       expect(response.status).toBe(403);
@@ -421,9 +421,9 @@ describe('assistant-server', () => {
 
     it('should reject requests from disallowed origins', async () => {
       const response = await runRequest({
+        headers: { origin: 'https://evil.example' },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'https://evil.example' },
       });
 
       expect(response.status).toBe(403);
@@ -434,9 +434,9 @@ describe('assistant-server', () => {
 
     it('should reject malformed origin headers', async () => {
       const response = await runRequest({
+        headers: { origin: 'not-a-url' },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'not-a-url' },
       });
 
       expect(response.status).toBe(403);
@@ -447,9 +447,9 @@ describe('assistant-server', () => {
 
     it('should reject comma-separated multi-origin header values', async () => {
       const response = await runRequest({
+        headers: { origin: `${desktopRendererOrigin}, https://evil.example` },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: `${desktopRendererOrigin}, https://evil.example` },
       });
 
       expect(response.status).toBe(403);
@@ -460,9 +460,9 @@ describe('assistant-server', () => {
 
     it('should reject localhost origins over https', async () => {
       const response = await runRequest({
+        headers: { origin: `https://localhost:${new URL(DESKTOP_DEV_RENDERER_URL).port}` },
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: `https://localhost:${new URL(DESKTOP_DEV_RENDERER_URL).port}` },
       });
 
       expect(response.status).toBe(403);
@@ -507,13 +507,13 @@ describe('assistant-server', () => {
 
     it('should handle POST to assistant route with empty prompt', async () => {
       const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: '   ', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/assistant',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: '   ' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       expect(response.status).toBe(400);
@@ -523,12 +523,12 @@ describe('assistant-server', () => {
 
     it('should reject assistant route when provider is missing', async () => {
       const response = await runRequest({
+        body: JSON.stringify({
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/assistant',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-        }),
       });
 
       expect(response.status).toBe(400);
@@ -540,13 +540,13 @@ describe('assistant-server', () => {
       mockSecretsService.getKey.mockResolvedValueOnce(null);
 
       const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/assistant',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       expect(response.status).toBe(400);
@@ -557,10 +557,10 @@ describe('assistant-server', () => {
 
     it('should reject assistant route with invalid JSON payload', async () => {
       const response = await runRequest({
+        body: '{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}],',
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/assistant',
-        headers: { 'content-type': 'application/json' },
-        body: '{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}],',
       });
 
       expect(response.status).toBe(400);
@@ -571,10 +571,10 @@ describe('assistant-server', () => {
 
     it('should return JSON 413 when the request body exceeds the default byte limit', async () => {
       const response = await runRequest({
+        body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/assistant',
-        headers: { 'content-type': 'application/json' },
-        body: 'x'.repeat(DEFAULT_ASSISTANT_REQUEST_BODY_LIMIT_BYTES + 1),
       });
 
       expect(response.status).toBe(413);
@@ -595,12 +595,12 @@ describe('assistant-server', () => {
 
       // Make sure convertAssistantUiMessages actually returns messages
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
 
@@ -611,13 +611,13 @@ describe('assistant-server', () => {
       });
 
       const requestPromise = runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       await vi.waitUntil(
@@ -649,22 +649,22 @@ describe('assistant-server', () => {
         config: {
           servers: [
             {
+              args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+              command: 'npx',
               name: 'filesystem',
               transport: 'stdio',
-              command: 'npx',
-              args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
             },
           ],
         },
       } as never);
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
 
@@ -674,13 +674,13 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
@@ -691,10 +691,10 @@ describe('assistant-server', () => {
       expect(runtime.mcpConfig).toEqual({
         servers: [
           {
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            command: 'npx',
             name: 'filesystem',
             transport: 'stdio',
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
           },
         ],
       });
@@ -705,11 +705,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -724,13 +724,13 @@ describe('assistant-server', () => {
 
       const response = await runRequest(
         {
+          body: JSON.stringify({
+            data: { model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' },
+            messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+          }),
+          headers: { 'content-type': 'application/json' },
           method: 'POST',
           url: '/',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-            data: { provider: 'local', model: 'onnx-community/gemma-4-E2B-it-ONNX' },
-          }),
         },
         { llmHostManager }
       );
@@ -756,17 +756,17 @@ describe('assistant-server', () => {
     it('fails provider "local" with a structured error when no llm-host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       const response = await runRequest({
+        body: JSON.stringify({
+          data: { model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'local', model: 'onnx-community/gemma-4-E2B-it-ONNX' },
-        }),
       });
 
       expect(response.status).toBe(502);
@@ -785,14 +785,14 @@ describe('assistant-server', () => {
       mockDesktopDatabase.query.mockImplementation((sql: unknown) =>
         typeof sql === 'string' && sql.includes('FROM roots')
           ? Promise.resolve({ rows: [] })
-          : Promise.resolve({ rows: [{ path: '/src/main.ts', content: 'const hidden = true;' }] })
+          : Promise.resolve({ rows: [{ content: 'const hidden = true;', path: '/src/main.ts' }] })
       );
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -801,21 +801,21 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
+            includeFileReport: true,
             provider: 'openai',
             selectionFilePaths: ['/src/main.ts'],
-            includeFileReport: true,
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       const [messages] = (toAiSdkStyleStream as Mock).mock.calls[0] as [Array<{ role: string }>];
-      expect(messages).toEqual([{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }]);
+      expect(messages).toEqual([{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }]);
       // No selected-file content was fetched: the only DB queries are roots enrichment.
       expect(
         mockDesktopDatabase.query.mock.calls.every(([sql]) => String(sql).includes('FROM roots'))
@@ -829,11 +829,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -844,36 +844,36 @@ describe('assistant-server', () => {
       mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
-              resourceId: 'workspace-a',
               memorySettings: {
                 observationalMemory: {
                   enabled: true,
-                  modelTarget: 'anthropic/claude-haiku-4-5',
-                  scope: 'thread',
                   messageTokens: 20_000,
+                  modelTarget: 'anthropic/claude-haiku-4-5',
                   observationTokens: 40_000,
                   retrievalMode: 'off',
+                  scope: 'thread',
                 },
                 semanticRecall: {
-                  enabled: false,
                   embeddingModelTarget: 'openai/text-embedding-3-small',
+                  enabled: false,
+                  messageRange: 2,
                   scope: 'resource',
                   topK: 5,
-                  messageRange: 2,
                 },
               },
+              resourceId: 'workspace-a',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       const { createProvider } = await import('@brainstrike/agent');
@@ -884,25 +884,25 @@ describe('assistant-server', () => {
         'anthropic',
         'test-api-key',
         'claude-haiku-4-5',
-        expect.objectContaining({ provider: 'openai', apiKey: 'test-api-key' })
+        expect.objectContaining({ apiKey: 'test-api-key', provider: 'openai' })
       );
       expect(createPgliteMastraMemory).toHaveBeenCalledWith({
         database: expect.anything(),
         memorySettings: {
           observationalMemory: {
             enabled: true,
-            modelTarget: 'anthropic/claude-haiku-4-5',
-            scope: 'thread',
             messageTokens: 20_000,
+            modelTarget: 'anthropic/claude-haiku-4-5',
             observationTokens: 40_000,
             retrievalMode: 'off',
+            scope: 'thread',
           },
           semanticRecall: {
-            enabled: false,
             embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: false,
+            messageRange: 2,
             scope: 'resource',
             topK: 5,
-            messageRange: 2,
           },
         },
         observationalMemoryModel: {
@@ -914,7 +914,7 @@ describe('assistant-server', () => {
       expect(toAiSdkStyleStream).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
+          memory: expect.objectContaining({ resourceId: 'workspace-a', threadId: 'thread-1' }),
         }),
         { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
       );
@@ -928,11 +928,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -947,36 +947,36 @@ describe('assistant-server', () => {
 
       const response = await runRequest(
         {
-          method: 'POST',
-          url: '/',
-          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
             data: {
-              provider: 'openai',
               memory: {
-                threadId: 'thread-local-om',
-                resourceId: 'workspace-local-om',
                 memorySettings: {
                   observationalMemory: {
                     enabled: true,
-                    modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
-                    scope: 'thread',
                     messageTokens: 20_000,
+                    modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
                     observationTokens: 40_000,
                     retrievalMode: 'off',
+                    scope: 'thread',
                   },
                   semanticRecall: {
-                    enabled: false,
                     embeddingModelTarget: 'openai/text-embedding-3-small',
+                    enabled: false,
+                    messageRange: 2,
                     scope: 'resource',
                     topK: 5,
-                    messageRange: 2,
                   },
                 },
+                resourceId: 'workspace-local-om',
+                threadId: 'thread-local-om',
               },
+              provider: 'openai',
             },
+            messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
           }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/',
         },
         { llmHostManager }
       );
@@ -998,8 +998,8 @@ describe('assistant-server', () => {
       expect(createPgliteMastraMemory).toHaveBeenCalledWith(
         expect.objectContaining({
           observationalMemoryModel: expect.objectContaining({
-            provider: 'local',
             model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
           }),
         })
       );
@@ -1011,11 +1011,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -1029,36 +1029,36 @@ describe('assistant-server', () => {
 
       const response = await runRequest(
         {
-          method: 'POST',
-          url: '/',
-          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
             data: {
-              provider: 'openai',
               memory: {
-                threadId: 'thread-local-recall',
-                resourceId: 'workspace-local-recall',
                 memorySettings: {
                   observationalMemory: {
                     enabled: false,
-                    modelTarget: 'openai/gpt-5.4-mini',
-                    scope: 'thread',
                     messageTokens: 20_000,
+                    modelTarget: 'openai/gpt-5.4-mini',
                     observationTokens: 40_000,
                     retrievalMode: 'off',
+                    scope: 'thread',
                   },
                   semanticRecall: {
-                    enabled: true,
                     embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                    enabled: true,
+                    messageRange: 2,
                     scope: 'resource',
                     topK: 5,
-                    messageRange: 2,
                   },
                 },
+                resourceId: 'workspace-local-recall',
+                threadId: 'thread-local-recall',
               },
+              provider: 'openai',
             },
+            messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
           }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/',
         },
         { embeddingHostManager }
       );
@@ -1069,8 +1069,8 @@ describe('assistant-server', () => {
       expect(createPgliteMastraMemory).toHaveBeenCalledWith(
         expect.objectContaining({
           embedder: expect.objectContaining({
-            provider: 'local',
             modelId: 'Xenova/all-MiniLM-L6-v2',
+            provider: 'local',
             specificationVersion: 'v2',
           }),
         })
@@ -1083,11 +1083,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -1101,38 +1101,38 @@ describe('assistant-server', () => {
 
       const response = await runRequest(
         {
-          method: 'POST',
-          url: '/',
-          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
             data: {
-              provider: 'openai',
               memory: {
-                threadId: 'thread-om-vector',
-                resourceId: 'workspace-om-vector',
                 memorySettings: {
                   observationalMemory: {
                     enabled: true,
-                    modelTarget: 'openai/gpt-5.4-mini',
-                    scope: 'thread',
                     messageTokens: 20_000,
+                    modelTarget: 'openai/gpt-5.4-mini',
                     observationTokens: 40_000,
                     // Vector observation retrieval needs the recall embedder
                     // even though the semanticRecall toggle below is OFF.
                     retrievalMode: 'vector',
+                    scope: 'thread',
                   },
                   semanticRecall: {
-                    enabled: false,
                     embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                    enabled: false,
+                    messageRange: 2,
                     scope: 'resource',
                     topK: 5,
-                    messageRange: 2,
                   },
                 },
+                resourceId: 'workspace-om-vector',
+                threadId: 'thread-om-vector',
               },
+              provider: 'openai',
             },
+            messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
           }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+          url: '/',
         },
         { embeddingHostManager }
       );
@@ -1141,8 +1141,8 @@ describe('assistant-server', () => {
       expect(createPgliteMastraMemory).toHaveBeenCalledWith(
         expect.objectContaining({
           embedder: expect.objectContaining({
-            provider: 'local',
             modelId: 'Xenova/all-MiniLM-L6-v2',
+            provider: 'local',
           }),
         })
       );
@@ -1151,40 +1151,40 @@ describe('assistant-server', () => {
     it('fails local semantic recall with a structured error when no embedding host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-local-recall-missing',
-              resourceId: 'workspace-local-recall-missing',
               memorySettings: {
                 observationalMemory: {
                   enabled: false,
-                  modelTarget: 'openai/gpt-5.4-mini',
-                  scope: 'thread',
                   messageTokens: 20_000,
+                  modelTarget: 'openai/gpt-5.4-mini',
                   observationTokens: 40_000,
                   retrievalMode: 'off',
+                  scope: 'thread',
                 },
                 semanticRecall: {
-                  enabled: true,
                   embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+                  enabled: true,
+                  messageRange: 2,
                   scope: 'resource',
                   topK: 5,
-                  messageRange: 2,
                 },
               },
+              resourceId: 'workspace-local-recall-missing',
+              threadId: 'thread-local-recall-missing',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(502);
@@ -1195,40 +1195,40 @@ describe('assistant-server', () => {
     it('fails local observational memory with a structured error when no llm-host manager is injected', async () => {
       const { convertAssistantUiMessages } = await import('@brainstrike/agent');
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-local-om-missing',
-              resourceId: 'workspace-local-om-missing',
               memorySettings: {
                 observationalMemory: {
                   enabled: true,
-                  modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
-                  scope: 'thread',
                   messageTokens: 20_000,
+                  modelTarget: 'local/onnx-community/gemma-4-E2B-it-ONNX',
                   observationTokens: 40_000,
                   retrievalMode: 'off',
+                  scope: 'thread',
                 },
                 semanticRecall: {
-                  enabled: false,
                   embeddingModelTarget: 'openai/text-embedding-3-small',
+                  enabled: false,
+                  messageRange: 2,
                   scope: 'resource',
                   topK: 5,
-                  messageRange: 2,
                 },
               },
+              resourceId: 'workspace-local-om-missing',
+              threadId: 'thread-local-om-missing',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(502);
@@ -1254,10 +1254,14 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          data: {
+            memory: {
+              resourceId: 'workspace-a',
+              threadId: 'thread-1',
+            },
+            provider: 'openai',
+          },
           messages: [],
           runConfig: {
             custom: {
@@ -1269,14 +1273,10 @@ describe('assistant-server', () => {
               },
             },
           },
-          data: {
-            provider: 'openai',
-            memory: {
-              threadId: 'thread-1',
-              resourceId: 'workspace-a',
-            },
-          },
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(toAiSdkStyleStream).not.toHaveBeenCalled();
@@ -1291,15 +1291,15 @@ describe('assistant-server', () => {
         expect.objectContaining({
           memory: mockPgliteMastraMemory,
           requireToolApproval: true,
-          storage: mockPgliteMastraStorage,
           runtime: expect.objectContaining({
             apiKey: 'test-api-key',
-            provider: 'openai',
             memory: expect.objectContaining({
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
+              threadId: 'thread-1',
             }),
+            provider: 'openai',
           }),
+          storage: mockPgliteMastraStorage,
         })
       );
     });
@@ -1316,10 +1316,14 @@ describe('assistant-server', () => {
       });
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
+          data: {
+            memory: {
+              resourceId: 'workspace-a',
+              threadId: 'thread-1',
+            },
+            provider: 'openai',
+          },
           messages: [],
           runConfig: {
             custom: {
@@ -1331,14 +1335,10 @@ describe('assistant-server', () => {
               },
             },
           },
-          data: {
-            provider: 'openai',
-            memory: {
-              threadId: 'thread-1',
-              resourceId: 'workspace-a',
-            },
-          },
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(400);
@@ -1354,29 +1354,29 @@ describe('assistant-server', () => {
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
       const { streamResponse } = await import('../assistant-server/http');
       const memoryContext = {
-        threadId: 'thread-retry',
-        resourceId: 'workspace-retry',
         memorySettings: {
           observationalMemory: {
             enabled: false,
-            modelTarget: 'openai/gpt-5.2',
-            scope: 'thread',
             messageTokens: 12_000,
+            modelTarget: 'openai/gpt-5.2',
             observationTokens: 24_000,
             retrievalMode: 'off',
+            scope: 'thread',
           },
           semanticRecall: {
-            enabled: false,
             embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: false,
+            messageRange: 1,
             scope: 'resource',
             topK: 3,
-            messageRange: 1,
           },
         },
+        resourceId: 'workspace-retry',
+        threadId: 'thread-retry',
       };
 
       (convertAssistantUiMessages as Mock).mockReturnValue([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (createPgliteMastraMemory as Mock)
         .mockRejectedValueOnce(new Error('temporary memory init failure'))
@@ -1389,7 +1389,7 @@ describe('assistant-server', () => {
         });
       (toAiSdkStyleStream as Mock).mockResolvedValue({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementation(async (res: unknown) => {
@@ -1398,22 +1398,22 @@ describe('assistant-server', () => {
       });
 
       const failedResponse = await runRequest({
+        body: JSON.stringify({
+          data: { memory: memoryContext, provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai', memory: memoryContext },
-        }),
       });
       const retriedResponse = await runRequest({
+        body: JSON.stringify({
+          data: { memory: memoryContext, provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai', memory: memoryContext },
-        }),
       });
 
       expect(failedResponse.status).toBe(502);
@@ -1426,18 +1426,18 @@ describe('assistant-server', () => {
       const memorySettingsA = {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
           messageTokens: 10_000,
+          modelTarget: 'openai/gpt-5.2',
           observationTokens: 20_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 1,
           scope: 'resource',
           topK: 3,
-          messageRange: 1,
         },
       };
       const memorySettingsB = {
@@ -1466,35 +1466,35 @@ describe('assistant-server', () => {
       const memorySettingsA = {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
           messageTokens: 10_000,
+          modelTarget: 'openai/gpt-5.2',
           observationTokens: 20_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 1,
           scope: 'resource',
           topK: 3,
-          messageRange: 1,
         },
       };
       const memorySettingsB = {
+        observationalMemory: {
+          enabled: true,
+          messageTokens: 10_000,
+          modelTarget: 'openai/gpt-5.2',
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+          scope: 'thread',
+        },
         semanticRecall: {
-          messageRange: 1,
-          topK: 3,
-          scope: 'resource',
           embeddingModelTarget: 'openai/text-embedding-3-small',
           enabled: false,
-        },
-        observationalMemory: {
-          retrievalMode: 'off',
-          observationTokens: 20_000,
-          messageTokens: 10_000,
-          scope: 'thread',
-          modelTarget: 'openai/gpt-5.2',
-          enabled: true,
+          messageRange: 1,
+          scope: 'resource',
+          topK: 3,
         },
       };
 
@@ -1514,18 +1514,18 @@ describe('assistant-server', () => {
         await getDesktopMastraMemoryForTests({
           observationalMemory: {
             enabled: true,
-            modelTarget: 'openai/gpt-5.2',
-            scope: 'thread',
             messageTokens: 10_000 + index,
+            modelTarget: 'openai/gpt-5.2',
             observationTokens: 20_000,
             retrievalMode: 'off',
+            scope: 'thread',
           },
           semanticRecall: {
-            enabled: false,
             embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: false,
+            messageRange: 1,
             scope: 'resource',
             topK: 3,
-            messageRange: 1,
           },
         });
       }
@@ -1533,18 +1533,18 @@ describe('assistant-server', () => {
       await getDesktopMastraMemoryForTests({
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.2',
-          scope: 'thread',
           messageTokens: 10_000,
+          modelTarget: 'openai/gpt-5.2',
           observationTokens: 20_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+          messageRange: 1,
           scope: 'resource',
           topK: 3,
-          messageRange: 1,
         },
       });
 
@@ -1556,11 +1556,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
@@ -1569,20 +1569,20 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-1',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
@@ -1598,23 +1598,22 @@ describe('assistant-server', () => {
       let capturedStream: AsyncIterable<unknown> | null = null;
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
           yield {
-            type: 'run-event',
             event: {
               id: 'event-1',
               kind: 'run.started',
               label: 'Assistant run started',
-              status: 'running',
               sequence: 5,
+              status: 'running',
               timestamp: '2026-04-24T10:00:00.000Z',
             },
+            type: 'run-event',
           };
           yield {
-            type: 'run-event',
             event: {
               id: 'event-2',
               kind: 'run.step.started',
@@ -1622,9 +1621,9 @@ describe('assistant-server', () => {
               status: 'running',
               timestamp: '2026-04-24T10:00:01.000Z',
             },
+            type: 'run-event',
           };
           yield {
-            type: 'run-event',
             event: {
               id: 'event-3',
               kind: 'tool.completed',
@@ -1636,6 +1635,7 @@ describe('assistant-server', () => {
               status: 'completed',
               timestamp: '2026-04-24T10:00:02.000Z',
             },
+            type: 'run-event',
           };
           yield { type: 'text-delta', value: 'Response' };
         },
@@ -1645,9 +1645,9 @@ describe('assistant-server', () => {
           capturedStream = stream;
           return {
             createResponse: vi.fn(() => ({
-              status: 200,
-              headers: new Headers(),
               body: null,
+              headers: new Headers(),
+              status: 200,
             })),
           };
         }
@@ -1664,20 +1664,20 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-1',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
@@ -1718,12 +1718,11 @@ describe('assistant-server', () => {
         return Promise.resolve({ rows: [] });
       });
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
           yield {
-            type: 'run-event',
             event: {
               id: 'event-nonblocking',
               kind: 'run.started',
@@ -1731,6 +1730,7 @@ describe('assistant-server', () => {
               status: 'running',
               timestamp: '2026-04-24T10:00:00.000Z',
             },
+            type: 'run-event',
           };
         },
       });
@@ -1739,9 +1739,9 @@ describe('assistant-server', () => {
           capturedStream = stream;
           return {
             createResponse: vi.fn(() => ({
-              status: 200,
-              headers: new Headers(),
               body: null,
+              headers: new Headers(),
+              status: 200,
             })),
           };
         }
@@ -1766,20 +1766,20 @@ describe('assistant-server', () => {
       });
 
       await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-1',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(eventYieldedBeforeInsertSettled).toBe(true);
@@ -1806,12 +1806,11 @@ describe('assistant-server', () => {
         return Promise.resolve({ rows: [] });
       });
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
           yield {
-            type: 'run-event',
             event: {
               id: 'event-failure-1',
               kind: 'run.started',
@@ -1819,9 +1818,9 @@ describe('assistant-server', () => {
               status: 'running',
               timestamp: '2026-04-24T10:00:00.000Z',
             },
+            type: 'run-event',
           };
           yield {
-            type: 'run-event',
             event: {
               id: 'event-failure-2',
               kind: 'run.step.started',
@@ -1829,6 +1828,7 @@ describe('assistant-server', () => {
               status: 'running',
               timestamp: '2026-04-24T10:00:01.000Z',
             },
+            type: 'run-event',
           };
         },
       });
@@ -1837,9 +1837,9 @@ describe('assistant-server', () => {
           capturedStream = stream;
           return {
             createResponse: vi.fn(() => ({
-              status: 200,
-              headers: new Headers(),
               body: null,
+              headers: new Headers(),
+              status: 200,
             })),
           };
         }
@@ -1854,20 +1854,20 @@ describe('assistant-server', () => {
       });
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-persistence-failed',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(500);
@@ -1900,12 +1900,11 @@ describe('assistant-server', () => {
         return Promise.resolve({ rows: [] });
       });
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
           yield {
-            type: 'run-event',
             event: {
               id: 'event-before-source-error',
               kind: 'run.started',
@@ -1913,6 +1912,7 @@ describe('assistant-server', () => {
               status: 'running',
               timestamp: '2026-04-24T10:00:00.000Z',
             },
+            type: 'run-event',
           };
           throw new Error('agent stream failed');
         },
@@ -1922,9 +1922,9 @@ describe('assistant-server', () => {
           capturedStream = stream;
           return {
             createResponse: vi.fn(() => ({
-              status: 200,
-              headers: new Headers(),
               body: null,
+              headers: new Headers(),
+              status: 200,
             })),
           };
         }
@@ -1939,20 +1939,20 @@ describe('assistant-server', () => {
       });
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-source-error',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(500);
@@ -1974,30 +1974,30 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-failed',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(500);
@@ -2015,11 +2015,11 @@ describe('assistant-server', () => {
       const { streamResponse } = await import('../assistant-server/http');
 
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
         async *[Symbol.asyncIterator]() {
-          yield { type: 'text', content: 'Response' };
+          yield { content: 'Response', type: 'text' };
         },
       });
       (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
@@ -2032,20 +2032,20 @@ describe('assistant-server', () => {
       );
 
       const response = await runRequest({
-        method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
-            provider: 'openai',
             memory: {
-              threadId: 'thread-1',
               resourceId: 'workspace-a',
               runId: 'run-failed-status-write',
+              threadId: 'thread-1',
             },
+            provider: 'openai',
           },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
         }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
       });
 
       expect(response.status).toBe(500);
@@ -2071,19 +2071,19 @@ describe('assistant-server', () => {
 
       // Make sure convertAssistantUiMessages returns messages with non-empty text
       (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+        { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
       ]);
 
       (toAiSdkStyleStream as Mock).mockRejectedValueOnce(new Error('Stream initialization failed'));
 
       const response = await runRequest({
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
         method: 'POST',
         url: '/',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-          data: { provider: 'openai' },
-        }),
       });
 
       expect(response.status).toBe(502);

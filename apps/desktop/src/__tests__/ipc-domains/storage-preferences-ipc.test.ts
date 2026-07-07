@@ -116,7 +116,7 @@ describe('storage preferences IPC domain', () => {
         showRightPanel: true,
         sizes: [Number.POSITIVE_INFINITY],
       })
-    ).resolves.toEqual({ success: false, message: 'Invalid panel layout payload' });
+    ).resolves.toEqual({ message: 'Invalid panel layout payload', success: false });
   });
 
   it('loads persisted panel layout and rejects corrupt stored values', async () => {

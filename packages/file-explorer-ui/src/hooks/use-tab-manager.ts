@@ -26,14 +26,14 @@ export function useTabManager(): UseTabManagerReturn {
   const clearTabs = useTabManagerStore((s) => s.clearTabs);
 
   return {
-    tabs,
     activeTabId,
-    openTab,
-    closeTab,
-    setActiveTab,
-    updateTabContent,
-    setTabLoading,
-    setTabError,
     clearTabs,
+    closeTab,
+    openTab,
+    setActiveTab,
+    setTabError,
+    setTabLoading,
+    tabs,
+    updateTabContent,
   };
 }

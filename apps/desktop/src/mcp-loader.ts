@@ -131,7 +131,7 @@ function stripJsonComments(text: string): string {
   // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
   // If this expands beyond MCP config editing, prefer a dedicated JSONC parser dependency.
   const output: string[] = [];
-  const state: CommentStripState = { mode: 'normal', escaped: false };
+  const state: CommentStripState = { escaped: false, mode: 'normal' };
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -214,8 +214,8 @@ function isTrailingCommaToken(text: string, commaIndex: number): boolean {
 function stripTrailingCommas(text: string): string {
   const output: string[] = [];
   const state: TrailingCommaStripState = {
-    inString: false,
     escaped: false,
+    inString: false,
   };
 
   for (let index = 0; index < text.length; index += 1) {
@@ -260,9 +260,9 @@ function parseStdioServer(s: unknown): McpServer | null {
   }
 
   const result: McpServer = {
-    transport: 'stdio',
-    name: server['name'] as string,
     command: server['command'] as string,
+    name: server['name'] as string,
+    transport: 'stdio',
   };
 
   if (Array.isArray(server['args'])) {
@@ -295,8 +295,8 @@ function parseSseServer(s: unknown): McpServer | null {
   }
 
   const result: McpServer = {
-    transport: 'sse',
     name: server['name'] as string,
+    transport: 'sse',
     url: server['url'] as string,
   };
 
@@ -507,7 +507,7 @@ async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{
         encoding: 'utf-8',
         flag: 'wx',
       });
-      return { path: configPath, exists: true, created: true };
+      return { created: true, exists: true, path: configPath };
     } catch (error) {
       if ((error as { code?: string }).code !== 'EEXIST') {
         throw error;
@@ -517,33 +517,33 @@ async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{
 
   try {
     await fsp.access(configPath);
-    return { path: configPath, exists: true, created: false };
+    return { created: false, exists: true, path: configPath };
   } catch (error) {
     if ((error as { code?: string }).code !== 'ENOENT') {
       throw error;
     }
   }
 
-  return { path: configPath, exists: false, created: false };
+  return { created: false, exists: false, path: configPath };
 }
 
 export async function readMcpConfigText(createIfMissing = false): Promise<McpConfigTextDocument> {
   const ensured = await ensureMcpConfigFile(createIfMissing);
   if (!ensured.exists) {
     return {
-      path: ensured.path,
-      exists: false,
-      created: false,
       content: '',
+      created: false,
+      exists: false,
+      path: ensured.path,
     };
   }
 
   const content = await fsp.readFile(ensured.path, 'utf-8');
   return {
-    path: ensured.path,
-    exists: true,
-    created: ensured.created,
     content,
+    created: ensured.created,
+    exists: true,
+    path: ensured.path,
   };
 }
 
@@ -556,9 +556,9 @@ export async function writeMcpConfigText(
     parseMcpConfig(content);
   } catch (error) {
     return {
+      error: error instanceof Error ? error.message : String(error),
       path: configPath,
       success: false,
-      error: error instanceof Error ? error.message : String(error),
     };
   }
 
@@ -568,9 +568,9 @@ export async function writeMcpConfigText(
     return { path: configPath, success: true };
   } catch (error) {
     return {
+      error: error instanceof Error ? error.message : String(error),
       path: configPath,
       success: false,
-      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -652,15 +652,15 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
     const text = await fsp.readFile(p, 'utf-8');
     const cfg = parseMcpConfig(text);
     const dec = withDecryptedSecrets(cfg);
-    return { path: p, exists: true, config: dec, servers: dec.servers, loadedAt: Date.now() };
+    return { config: dec, exists: true, loadedAt: Date.now(), path: p, servers: dec.servers };
   } catch (error) {
     const code = (error as { code?: unknown }).code;
     const message = error instanceof Error ? error.message : String(error);
     if (code === 'ENOENT' || message.includes('no such file or directory')) {
-      return { path: p, exists: false };
+      return { exists: false, path: p };
     }
-    logger.error('Failed to load MCP config', { path: p, code, error: message });
-    return { path: p, exists: true, error: message };
+    logger.error('Failed to load MCP config', { code, error: message, path: p });
+    return { error: message, exists: true, path: p };
   }
 }
 

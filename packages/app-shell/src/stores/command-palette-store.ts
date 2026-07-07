@@ -16,8 +16,8 @@ export interface CommandPaletteState {
 }
 
 export const useCommandPaletteStore = create<CommandPaletteState>((set) => ({
-  isOpen: false,
-  openTarget: null,
-  open: (target) => set({ isOpen: true, openTarget: target ?? null }),
   close: () => set({ isOpen: false, openTarget: null }),
+  isOpen: false,
+  open: (target) => set({ isOpen: true, openTarget: target ?? null }),
+  openTarget: null,
 }));

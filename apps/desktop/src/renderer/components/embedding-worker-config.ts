@@ -479,9 +479,9 @@ export function createEmbeddingWorkerConfig(
   const telemetry = createEmbeddingPipelineTelemetry();
 
   return {
-    db,
     claimBatchSize,
     concurrency,
+    db,
     interBatchDelayMs,
     leaseMs,
     maxPendingCompletionBatches,

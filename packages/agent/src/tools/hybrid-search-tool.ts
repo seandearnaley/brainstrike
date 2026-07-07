@@ -19,14 +19,14 @@ export const HYBRID_SEARCH_TOOL_ID = 'brainstrike.hybridSearch' as const;
  * Safe error messages that can be shown to users.
  */
 export const HYBRID_SEARCH_ERROR_MESSAGES = {
-  missingEmbeddingSet: 'An embedding set ID is required for hybrid search.',
+  embeddingFailed: 'Failed to generate query embedding.',
   embeddingSetNotFound: 'The specified embedding set was not found.',
+  invalidQuery: 'Search query must be at least 1 character.',
+  missingApiKey: 'No API key configured for the embedding provider.',
+  missingEmbeddingSet: 'An embedding set ID is required for hybrid search.',
+  searchFailed: 'Hybrid search failed. Please try again.',
   unsupportedProvider:
     'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
-  missingApiKey: 'No API key configured for the embedding provider.',
-  embeddingFailed: 'Failed to generate query embedding.',
-  searchFailed: 'Hybrid search failed. Please try again.',
-  invalidQuery: 'Search query must be at least 1 character.',
 } as const;
 
 export const SAFE_HYBRID_SEARCH_ERRORS = new Set<string>(
@@ -194,8 +194,8 @@ async function runHybridSearch(
   }
 
   deps.logger?.debug('Starting hybrid search', {
-    query: query.slice(0, 100),
     embeddingSetId,
+    query: query.slice(0, 100),
   });
 
   // Generate query embedding
@@ -208,9 +208,9 @@ async function runHybridSearch(
 
   const searchOptions: Parameters<HybridSearchToolDependencies['performHybridSearch']>[2] = {
     embeddingSetId,
+    ftsWeight,
     limit,
     vectorWeight,
-    ftsWeight,
   };
 
   if (input.vectorThreshold === undefined) {
@@ -234,10 +234,10 @@ async function runHybridSearch(
   );
 
   deps.logger?.debug('Hybrid search completed', {
-    resultCount: results.length,
-    vectorResultCount: metadata.vectorResultCount,
     ftsResultCount: metadata.ftsResultCount,
+    resultCount: results.length,
     totalMs: metadata.totalMs,
+    vectorResultCount: metadata.vectorResultCount,
   });
 
   // Resolve file records for enrichment
@@ -249,11 +249,11 @@ async function runHybridSearch(
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
 
     const item: HybridSearchResultItem = {
-      id: result.chunk.id,
-      content: result.chunk.content,
       chunkIndex: result.chunk.chunkIndex,
-      rrfScore: result.rrfScore,
+      content: result.chunk.content,
+      id: result.chunk.id,
       position: result.position,
+      rrfScore: result.rrfScore,
       sourceCount: result.sourceCount,
     };
 
@@ -277,13 +277,13 @@ async function runHybridSearch(
   });
 
   return {
-    query,
     embeddingSetId,
-    limit,
-    vectorWeight,
     ftsWeight,
-    results: toolResults,
+    limit,
     metadata,
+    query,
+    results: toolResults,
+    vectorWeight,
   };
 }
 
@@ -311,11 +311,9 @@ interface MastraTool {
  */
 export function createHybridSearchTool(deps: HybridSearchToolDependencies): MastraTool {
   return {
-    id: HYBRID_SEARCH_TOOL_ID,
     description:
       'Search the codebase using hybrid search (vector similarity + keyword). ' +
       'Combines semantic understanding with exact keyword matching for best results.',
-    inputSchema: HybridSearchInputSchema,
     execute: async (context: ToolContext<HybridSearchInput>) => {
       try {
         return await runHybridSearch(context.context, deps);
@@ -328,6 +326,8 @@ export function createHybridSearchTool(deps: HybridSearchToolDependencies): Mast
         );
       }
     },
+    id: HYBRID_SEARCH_TOOL_ID,
+    inputSchema: HybridSearchInputSchema,
   };
 }
 

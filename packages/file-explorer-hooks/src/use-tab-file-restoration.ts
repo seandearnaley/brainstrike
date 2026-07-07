@@ -364,7 +364,7 @@ async function restoreElectronTabs(
     )
   );
 
-  return { restored, notFound };
+  return { notFound, restored };
 }
 
 /** Update tab statuses from Electron restoration result */
@@ -467,8 +467,8 @@ export function useTabFileRestoration(
       setTabStatuses((prev) => updateStatusesFromElectronResult(prev, result));
 
       logger.info('Tab restoration completed (Electron)', {
-        restored: result.restored.length,
         notFound: result.notFound.length,
+        restored: result.restored.length,
       });
     },
     [fileSystemAdapter, onTabNotFound]
@@ -483,7 +483,7 @@ export function useTabFileRestoration(
       }
 
       const result = await restoreAllTabFileHandles(
-        newTabs.map((t) => ({ tabId: t.tabId, compositeKey: t.compositeKey })),
+        newTabs.map((t) => ({ compositeKey: t.compositeKey, tabId: t.tabId })),
         handleCache
       );
 
@@ -529,9 +529,9 @@ export function useTabFileRestoration(
       });
 
       logger.info('Tab restoration completed (Web)', {
-        restored: result.restored.length,
         needsPermission: result.needsPermission.length,
         notFound: result.notFound.length,
+        restored: result.restored.length,
       });
     },
     [handleCache, onTabNotFound]
@@ -626,7 +626,7 @@ export function useTabFileRestoration(
       lastRestoredTabsKeyRef.current = tabsKey;
 
       void restoreTabsRef
-        .current(tabsNeedingRestore.map((t) => ({ tabId: t.id, compositeKey: t.compositeKey })))
+        .current(tabsNeedingRestore.map((t) => ({ compositeKey: t.compositeKey, tabId: t.id })))
         .finally(() => {
           restorationInProgressRef.current = false;
         });
@@ -726,11 +726,11 @@ export function useTabFileRestoration(
   );
 
   return {
+    getStatusMessage,
     isRestoring,
-    tabStatuses,
+    needsUserAction,
     requestTabPermission,
     restoreTabs,
-    needsUserAction,
-    getStatusMessage,
+    tabStatuses,
   };
 }

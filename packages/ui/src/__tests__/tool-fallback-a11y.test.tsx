@@ -16,14 +16,14 @@ beforeAll(() => {
 
 // intentionally minimal mock — see BST-469
 const mockBaseProps = {
-  type: 'tool-call',
-  toolCallId: 'test-call-id',
-  toolName: 'test-tool',
+  addResult: () => {},
   args: { foo: 'bar' },
   argsText: '{"foo": "bar"}',
-  status: { type: 'complete' },
-  addResult: () => {},
   resume: () => {},
+  status: { type: 'complete' },
+  toolCallId: 'test-call-id',
+  toolName: 'test-tool',
+  type: 'tool-call',
 } as unknown as ComponentProps<typeof ToolFallback>;
 
 function wrap(ui: ReactElement) {

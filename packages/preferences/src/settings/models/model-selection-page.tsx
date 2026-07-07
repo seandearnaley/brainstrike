@@ -35,10 +35,10 @@ function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean 
 function buildModelConfig(model: DbModel): ModelConfig {
   const parameters = (model.parameters ?? {}) as Record<string, unknown>;
   return {
-    id: model.id,
-    name: model.name,
     description: model.description ?? '',
     dimensions: model.capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
+    id: model.id,
+    name: model.name,
     tags: Array.isArray(model.bestFor) ? model.bestFor : [],
     // Add other optional fields if available in parameters
     ...parameters,
@@ -65,8 +65,8 @@ function applySelectedCacheDirectory(args: {
 }): void {
   args.setModelCacheDir(args.selectedPath);
   args.toast({
-    title: 'Cache directory updated',
     description: args.selectedPath,
+    title: 'Cache directory updated',
   });
   if (args.db) {
     void args.fetchRegistry(args.db).catch((error: unknown) => {
@@ -89,22 +89,22 @@ function applyCacheDirectorySelectionTestOverride(args: {
   switch (resolution.kind) {
     case 'unavailable':
       args.toast({
-        title: 'Directory selection unavailable',
         description: 'Choose a cache directory from the desktop app.',
+        title: 'Directory selection unavailable',
         variant: 'destructive',
       });
       return true;
     case 'error':
       args.toast({
-        title: 'Directory selection failed',
         description: resolution.message,
+        title: 'Directory selection failed',
         variant: 'destructive',
       });
       return true;
     case 'cancelled':
       args.toast({
-        title: 'No directory selected',
         description: 'Please choose a folder to store local model files.',
+        title: 'No directory selected',
         variant: 'destructive',
       });
       return true;
@@ -136,8 +136,8 @@ async function downloadLlmModel(
 
   try {
     toast({
-      title: 'Download Started',
       description: `Starting download for ${model.name}...`,
+      title: 'Download Started',
     });
 
     const downloadOptions: {
@@ -155,14 +155,14 @@ async function downloadLlmModel(
 
     setDownloadProgress(model.id, 100);
     toast({
-      title: 'Download Complete',
       description: `${model.name} downloaded successfully!`,
+      title: 'Download Complete',
     });
   } catch (err) {
     logger.error('Failed to download LLM model', err);
     toast({
-      title: 'Download Failed',
       description: `Failed to download ${model.name}: ${(err as Error).message}`,
+      title: 'Download Failed',
       variant: 'destructive',
     });
   } finally {
@@ -182,8 +182,8 @@ async function downloadEmbeddingModel(
 
   try {
     toast({
-      title: 'Download Started',
       description: `Starting download for ${model.name}...`,
+      title: 'Download Started',
     });
 
     const options: {
@@ -204,14 +204,14 @@ async function downloadEmbeddingModel(
 
     setDownloadProgress(model.id, 100);
     toast({
-      title: 'Download Complete',
       description: `${model.name} downloaded successfully!`,
+      title: 'Download Complete',
     });
   } catch (err) {
     logger.error('Failed to download embedding model', err);
     toast({
-      title: 'Download Failed',
       description: `Failed to download ${model.name}: ${(err as Error).message}`,
+      title: 'Download Failed',
       variant: 'destructive',
     });
   } finally {
@@ -264,8 +264,8 @@ export function ModelSelectionPage() {
 
     await downloadModel(model, {
       modelCacheDir,
-      setDownloadProgress,
       setDownloading,
+      setDownloadProgress,
       toast,
     });
   };
@@ -292,8 +292,8 @@ export function ModelSelectionPage() {
 
     if (typeof requestDirectoryAccess !== 'function') {
       toast({
-        title: 'Directory selection unavailable',
         description: 'Choose a cache directory from the desktop app.',
+        title: 'Directory selection unavailable',
         variant: 'destructive',
       });
       return;
@@ -310,8 +310,8 @@ export function ModelSelectionPage() {
     } catch (err) {
       logger.error('Failed to select cache directory', err);
       toast({
-        title: 'Directory selection failed',
         description: (err as Error).message,
+        title: 'Directory selection failed',
         variant: 'destructive',
       });
       setIsSelectingCacheDir(false);
@@ -320,8 +320,8 @@ export function ModelSelectionPage() {
 
     if (!selectedPath) {
       toast({
-        title: 'No directory selected',
         description: 'Please choose a folder to store local model files.',
+        title: 'No directory selected',
         variant: 'destructive',
       });
       setIsSelectingCacheDir(false);

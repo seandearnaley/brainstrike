@@ -18,6 +18,7 @@ let virtualizerMode: 'full' | 'empty' | 'stale' = 'full';
 // Mock @tanstack/react-virtual to avoid JSDOM dimension issues
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }) => ({
+    getTotalSize: () => count * 40,
     getVirtualItems: () => {
       if (virtualizerMode === 'empty') {
         return [];
@@ -25,25 +26,24 @@ vi.mock('@tanstack/react-virtual', () => ({
       if (virtualizerMode === 'stale') {
         return [
           {
-            index: count + 5,
-            start: (count + 5) * 40,
             end: (count + 6) * 40,
-            size: 40,
+            index: count + 5,
             key: 'stale-item',
+            size: 40,
+            start: (count + 5) * 40,
           },
         ];
       }
       return Array.from({ length: count }, (_, i) => ({
-        index: i,
-        start: i * 40,
         end: (i + 1) * 40,
-        size: 40,
+        index: i,
         key: `item-${i}`,
+        size: 40,
+        start: i * 40,
       }));
     },
-    getTotalSize: () => count * 40,
-    scrollToIndex: vi.fn(),
     measureElement: virtualizerMocks.measureElement,
+    scrollToIndex: vi.fn(),
   })),
 }));
 
@@ -62,21 +62,21 @@ function createTestNode(
   depth = 0
 ): TreeNode<TestData> {
   return {
-    id,
-    type: 'file',
-    depth,
     data: { name },
-    parentId,
+    depth,
     hasChildren,
+    id,
+    parentId,
+    type: 'file',
   };
 }
 
 // Standard test columns
 const testColumns: TreeTableColumn<TestData>[] = [
   {
-    id: 'name',
-    header: 'Name',
     cell: ({ node }) => <span>{node.data.name}</span>,
+    header: 'Name',
+    id: 'name',
   },
 ];
 
@@ -136,14 +136,14 @@ describe('TreeTable', () => {
     it('renders column headers', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'File Name',
           cell: ({ node }) => node.data.name,
+          header: 'File Name',
+          id: 'name',
         },
         {
-          id: 'size',
-          header: 'Size',
           cell: ({ node }) => node.data.size ?? 'N/A',
+          header: 'Size',
+          id: 'size',
         },
       ];
 
@@ -163,15 +163,15 @@ describe('TreeTable', () => {
     it('supports data-driven cell colSpan and skips covered columns', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'Name',
           cell: ({ node }) => <span>{node.data.name}</span>,
           colSpan: ({ node }) => (node.id === '1' ? 2 : 1),
+          header: 'Name',
+          id: 'name',
         },
         {
-          id: 'size',
-          header: 'Size',
           cell: () => <span>Size cell</span>,
+          header: 'Size',
+          id: 'size',
         },
       ];
 
@@ -242,12 +242,12 @@ describe('TreeTable', () => {
     it('uses a column id as the resize label when the header is custom content', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'custom-name',
-          header: <span>Custom Header</span>,
           cell: ({ node }) => node.data.name,
           defaultWidth: 180,
-          minWidth: 120,
+          header: <span>Custom Header</span>,
+          id: 'custom-name',
           maxWidth: 260,
+          minWidth: 120,
         },
       ];
 
@@ -295,7 +295,7 @@ describe('TreeTable', () => {
           expandedIds={new Set()}
           nodes={nodes}
           onToggleExpand={() => {}}
-          pagination={{ pageSize: 2, onPageChange: handlePageChange }}
+          pagination={{ onPageChange: handlePageChange, pageSize: 2 }}
           windowingStrategy="paged"
         />
       );
@@ -1225,10 +1225,10 @@ describe('TreeTable', () => {
     it('shows sort indicator for sorted column', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'Name',
-          sortable: true,
           cell: ({ node }) => node.data.name,
+          header: 'Name',
+          id: 'name',
+          sortable: true,
         },
       ];
 
@@ -1249,10 +1249,10 @@ describe('TreeTable', () => {
     it('renders descending and unsorted aria states for active sortable headers', () => {
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'Name',
-          sortable: true,
           cell: ({ node }) => node.data.name,
+          header: 'Name',
+          id: 'name',
+          sortable: true,
         },
       ];
 
@@ -1295,10 +1295,10 @@ describe('TreeTable', () => {
       const handleSort = vi.fn();
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'Name',
-          sortable: true,
           cell: ({ node }) => node.data.name,
+          header: 'Name',
+          id: 'name',
+          sortable: true,
         },
       ];
 
@@ -1322,10 +1322,10 @@ describe('TreeTable', () => {
       const handleSort = vi.fn();
       const columns: TreeTableColumn<TestData>[] = [
         {
-          id: 'name',
-          header: 'Name',
-          sortable: true,
           cell: ({ node }) => node.data.name,
+          header: 'Name',
+          id: 'name',
+          sortable: true,
         },
       ];
 

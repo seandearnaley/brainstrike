@@ -5,26 +5,26 @@ import { NodeIcon } from '../node-icon';
 
 describe('NodeIcon', () => {
   const fileNode = {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
     name: 'test.txt',
     path: '/test.txt',
-    type: 'file' as const,
-    isVisible: true,
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'root',
+    selectionState: 'unchecked' as const,
+    type: 'file' as const,
   } as IFileNode;
 
   const directoryNode = {
+    children: [],
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    isVisible: true,
     name: 'src',
     path: '/src',
-    type: 'directory' as const,
-    isVisible: true,
-    children: [],
-    handle: {} as FileSystemDirectoryHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'root',
+    selectionState: 'unchecked' as const,
+    type: 'directory' as const,
   } as IFileNode;
 
   it('renders loading spinner when isLoading is true', () => {

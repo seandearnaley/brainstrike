@@ -38,18 +38,18 @@ type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
 type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
 
 const DISABLED_QUEUE_RESULT = {
-  type: 'result',
   id: 'queue-disabled',
-  vectors: [],
   metadata: {
-    model: 'disabled',
-    device: 'wasm',
-    dtype: 'fp16',
     batchSize: 0,
+    device: 'wasm',
+    dimensions: 0,
+    dtype: 'fp16',
     elapsedMs: 0,
     fallbackApplied: false,
-    dimensions: 0,
+    model: 'disabled',
   },
+  type: 'result',
+  vectors: [],
 } as QueueAddReturn;
 
 function createDisabledQueueAdapter(): QueueAdapter {
@@ -60,15 +60,15 @@ function createDisabledQueueAdapter(): QueueAdapter {
     async addBulk(tasks): Promise<QueueAddBulkReturn> {
       return tasks.map(() => DISABLED_QUEUE_RESULT) as QueueAddBulkReturn;
     },
+    async cancel() {},
+    async drain() {},
+    isPaused: false,
+    isProcessing: false,
     onProgress() {
       return () => {};
     },
     pause() {},
     resume() {},
-    async cancel() {},
-    async drain() {},
-    isPaused: false,
-    isProcessing: false,
   };
 }
 
@@ -343,9 +343,9 @@ function BackfillButton(props: BackfillButtonProps) {
 
   const { disabled: isDisabled, title } = getBackfillDisabledState({
     activeId,
-    hasDb,
     backfilling,
     coverage,
+    hasDb,
     queueCounts,
   });
   // Also disable while worker is starting to prevent double-clicks
@@ -570,8 +570,8 @@ export function formatRelativeTimeFromNow(input: string | null): string {
 
   try {
     return new Date(parsed).toLocaleDateString(undefined, {
-      month: 'short',
       day: 'numeric',
+      month: 'short',
     });
   } catch {
     return new Date(parsed).toISOString().split('T')[0] ?? 'unknown';
@@ -648,8 +648,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
       toast({
-        title: 'API Key Required',
         description: validation.message ?? 'Please configure your API key before embedding.',
+        title: 'API Key Required',
         variant: 'destructive',
       });
       return;
@@ -658,19 +658,19 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [toast]);
 
   const workerControls = useEmbeddingWorkerControls({
-    controller: runtimeController,
     activeEmbeddingSetId: activeId,
+    controller: runtimeController,
     onBackfill: invokeBackfill,
     toast,
   });
 
   const queueState = useVectorQueueState({
-    controller: runtimeController,
-    service,
     activeEmbeddingSetId: activeId,
-    shouldAutoBackfill: workerControls.workerLocalRunning,
-    isImporting,
+    controller: runtimeController,
     isEmbeddingActive,
+    isImporting,
+    service,
+    shouldAutoBackfill: workerControls.workerLocalRunning,
   });
 
   useEffect(() => {
@@ -691,9 +691,9 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         hasDb: Boolean(db),
       });
       toast({
-        title: 'Database Not Ready',
         description:
           'The vector queue service is not available. Try switching tabs or restarting the app.',
+        title: 'Database Not Ready',
         variant: 'destructive',
       });
       return;
@@ -702,8 +702,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     if (!activeId) {
       logger.warn('invokeBackfillWithWorkerStart: no active collection selected');
       toast({
-        title: 'No Collection Selected',
         description: 'Please select an embedding collection before backfilling.',
+        title: 'No Collection Selected',
         variant: 'destructive',
       });
       return;
@@ -713,8 +713,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
       toast({
-        title: 'API Key Required',
         description: validation.message ?? 'Please configure your API key before embedding.',
+        title: 'API Key Required',
         variant: 'destructive',
       });
       return;

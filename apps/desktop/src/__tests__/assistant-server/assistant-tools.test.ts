@@ -19,8 +19,8 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 });
 
 const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
-  getDatabaseMock: vi.fn(),
   getAllWindowsMock: vi.fn(),
+  getDatabaseMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
@@ -111,10 +111,10 @@ describe('assistant-tools', () => {
 
     const result = await tool.execute({
       context: {
-        path: '/src/main.ts',
-        startLine: 2,
         endLine: 4,
         maxChars: 12,
+        path: '/src/main.ts',
+        startLine: 2,
       },
     });
 
@@ -125,7 +125,7 @@ describe('assistant-tools', () => {
     expect(result.content).toBe('line 2\nline ');
     expect(result.truncated).toBe(true);
     expect(result.omittedChars).toBeGreaterThan(0);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('reads a workspace file when execute receives direct args', async () => {
@@ -135,16 +135,16 @@ describe('assistant-tools', () => {
     const tool = tools['brainstrike.readWorkspaceFile'];
 
     const result = await tool.execute({
-      path: '/src/main.ts',
-      startLine: 1,
       endLine: 2,
       maxChars: 50,
+      path: '/src/main.ts',
+      startLine: 1,
     });
 
     expect(result.path).toBe('/src/main.ts');
     expect(result.content).toContain('line 1');
     expect(result.truncated).toBe(false);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('rejects symlink escapes outside the workspace root', async () => {
@@ -176,8 +176,8 @@ describe('assistant-tools', () => {
         })
       ).rejects.toThrow('is outside the selected workspace root');
     } finally {
-      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-      await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      await fsPromises.rm(outsideRoot, { force: true, recursive: true });
     }
   });
 
@@ -189,11 +189,11 @@ describe('assistant-tools', () => {
 
     const result = await tool.execute({
       context: {
-        path: '/src',
         depth: 2,
-        maxEntries: 10,
-        includeFiles: true,
         includeDirectories: true,
+        includeFiles: true,
+        maxEntries: 10,
+        path: '/src',
       },
     });
 
@@ -202,7 +202,7 @@ describe('assistant-tools', () => {
     expect(result.entries.some((entry) => entry.path === '/src/components')).toBe(true);
     expect(result.entries.some((entry) => entry.path === '/src/main.ts')).toBe(true);
     expect(result.truncated).toBe(false);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('lists the workspace root for path "." (regression: "." was treated as a hidden segment)', async () => {
@@ -213,11 +213,11 @@ describe('assistant-tools', () => {
 
     const result = await tool.execute({
       context: {
-        path: '.',
         depth: 5,
-        maxEntries: 150,
-        includeFiles: true,
         includeDirectories: true,
+        includeFiles: true,
+        maxEntries: 150,
+        path: '.',
       },
     });
 
@@ -229,7 +229,7 @@ describe('assistant-tools', () => {
     expect(result.entries.some((entry) => entry.path === '/README.md')).toBe(true);
     expect(result.entries.some((entry) => entry.path === '/src')).toBe(true);
     expect(result.entries.some((entry) => entry.path === '/src/main.ts')).toBe(true);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('reads a workspace directory when execute receives direct args', async () => {
@@ -239,17 +239,17 @@ describe('assistant-tools', () => {
     const tool = tools['brainstrike.readWorkspaceDirectory'];
 
     const result = await tool.execute({
-      path: '/src',
       depth: 2,
-      maxEntries: 10,
-      includeFiles: true,
       includeDirectories: true,
+      includeFiles: true,
       includeHidden: false,
+      maxEntries: 10,
+      path: '/src',
     });
 
     expect(result.path).toBe('/src');
     expect(result.entries.some((entry) => entry.path === '/src/main.ts')).toBe(true);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('returns concise entries by default and metadata only with detail: true', async () => {
@@ -263,12 +263,12 @@ describe('assistant-tools', () => {
     expect(conciseFile).not.toHaveProperty('size');
     expect(conciseFile).not.toHaveProperty('depth');
 
-    const detailed = await tool.execute({ path: '/src', detail: true });
+    const detailed = await tool.execute({ detail: true, path: '/src' });
     const detailedFile = detailed.entries.find((entry) => entry.type === 'file');
     expect(detailedFile).toHaveProperty('size');
     expect(detailedFile).toHaveProperty('depth');
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('pages directory entries with offset and emits a continuation hint when truncated', async () => {
@@ -276,18 +276,18 @@ describe('assistant-tools', () => {
     const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
     const tool = tools['brainstrike.readWorkspaceDirectory'];
 
-    const firstPage = await tool.execute({ path: '/src', maxEntries: 2 });
+    const firstPage = await tool.execute({ maxEntries: 2, path: '/src' });
     expect(firstPage.entries.length).toBe(2);
     expect(firstPage.truncated).toBe(true);
     expect(firstPage.offset).toBe(0);
     expect(firstPage.hint).toContain('offset: 2');
 
-    const secondPage = await tool.execute({ path: '/src', maxEntries: 2, offset: 2 });
+    const secondPage = await tool.execute({ maxEntries: 2, offset: 2, path: '/src' });
     expect(secondPage.offset).toBe(2);
     expect(secondPage.entries.length).toBeGreaterThan(0);
     expect(secondPage.entries[0]?.path).not.toBe(firstPage.entries[0]?.path);
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('exposes tool-only context tools and omits legacy context mutation tools from chat runtime', () => {
@@ -307,7 +307,7 @@ describe('assistant-tools', () => {
 
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
     });
     getDatabaseMock.mockResolvedValue({ query: queryMock });
 
@@ -316,16 +316,16 @@ describe('assistant-tools', () => {
     } as RuntimeData);
 
     const result = await tools['brainstrike.grepSearch'].execute({
-      context: { pattern: 'needle', outputMode: 'content' },
+      context: { outputMode: 'content', pattern: 'needle' },
     });
 
     expect(result.matches).toEqual([
       {
-        path: 'src/x.ts',
+        after: ['omega'],
+        before: ['alpha'],
         line: 11,
         lineText: 'needle line',
-        before: ['alpha'],
-        after: ['omega'],
+        path: 'src/x.ts',
         // The root '/tmp/workspace' is not on disk, so the live pass is skipped
         // and the hybrid result is index-only.
         source: 'index',
@@ -335,7 +335,7 @@ describe('assistant-tools', () => {
 
   it('executes the grepSearch tool in default files mode with context-wrapped input', async () => {
     const queryMock = vi.fn().mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
     });
     getDatabaseMock.mockResolvedValue({ query: queryMock });
 
@@ -349,7 +349,7 @@ describe('assistant-tools', () => {
 
     expect(result.outputMode).toBe('files');
     expect(result.files).toEqual([
-      { path: 'src/x.ts', matchCount: 1, firstLine: 11, source: 'index' },
+      { firstLine: 11, matchCount: 1, path: 'src/x.ts', source: 'index' },
     ]);
   });
 
@@ -370,8 +370,8 @@ describe('assistant-tools', () => {
 
   it('filters native tools to the enabled runtime tool ids when provided', () => {
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath: '/tmp/workspace',
       enabledNativeToolIds: ['brainstrike.listWorkspaceContext'],
+      workspaceRootPath: '/tmp/workspace',
     } as RuntimeData);
 
     expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
@@ -382,13 +382,13 @@ describe('assistant-tools', () => {
   it('lists selected workspace context without returning file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
-      selectionFolderId: 'root-1',
       selectionFilePaths: ['/src/main.ts', '/README.md'],
+      selectionFolderId: 'root-1',
       workspaceIndexEmbeddingSetId: 'set-1',
       workspaceIndexingEnabled: true,
       workspaceIndexingMode: 'root-folder-cache',
       workspaceIndexingPaused: false,
+      workspaceRootPath,
     } as RuntimeData);
     const tool = tools['brainstrike.listWorkspaceContext'];
 
@@ -408,89 +408,89 @@ describe('assistant-tools', () => {
     expect(JSON.stringify(result)).not.toContain('# Test Workspace');
     // Single-root: no other-roots count key at all.
     expect(result).not.toHaveProperty('selectedFilesOutsideWorkspace');
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
-      selectionFolderId: 'root-1',
       selectionFilePaths: ['/src/main.ts'],
       // Multi-root: 4 selected files belong to roots the single-root toolset
       // cannot address — the count must be SURFACED, never silently dropped.
       selectionFilePathsFromOtherRoots: 4,
+      selectionFolderId: 'root-1',
       workspaceIndexingEnabled: false,
       workspaceIndexingMode: 'root-folder-cache',
       workspaceIndexingPaused: false,
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.listWorkspaceContext'].execute({ context: {} });
 
     expect(result.selectedFileCount).toBe(1);
     expect(result.selectedFilesOutsideWorkspace).toBe(4);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('lists every open workspace root so the model can qualify the other tools', async () => {
     const tools = buildDesktopAssistantTools({
-      workspaceRoots: [
-        { rootId: 'id-a', displayName: 'ProjectA', path: '/work/ProjectA' },
-        { rootId: 'id-b', displayName: 'ProjectB', path: '/work/ProjectB' },
-      ],
       selectionFilePaths: [],
       workspaceIndexingEnabled: false,
       workspaceIndexingMode: 'root-folder-cache',
       workspaceIndexingPaused: false,
+      workspaceRoots: [
+        { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'id-a' },
+        { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'id-b' },
+      ],
     } as unknown as RuntimeData);
 
     const result = await tools['brainstrike.listWorkspaceContext'].execute({ context: {} });
 
     expect(result.workspaceRoots).toEqual([
-      { rootId: 'id-a', displayName: 'ProjectA', path: '/work/ProjectA' },
-      { rootId: 'id-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+      { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'id-a' },
+      { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'id-b' },
     ]);
   });
 
   it('synthesizes a single-root list from the legacy workspaceRootPath', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const result = await buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: [],
       workspaceIndexingEnabled: false,
       workspaceIndexingMode: 'root-folder-cache',
       workspaceIndexingPaused: false,
+      workspaceRootPath,
     } as RuntimeData)['brainstrike.listWorkspaceContext'].execute({ context: {} });
 
     expect(result.workspaceRoots).toHaveLength(1);
     expect(result.workspaceRoots[0]?.path).toBe(workspaceRootPath);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('lists token-aware curated workspace context metadata without file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
-      selectionFolderId: 'root-1',
       selectionFilePaths: ['/src/main.ts', '/README.md'],
+      selectionFolderId: 'root-1',
       workspaceContext: {
-        tokenBudget: 8192,
-        selectedSourceApproxTokens: 240,
-        selectedOutputApproxTokens: 140,
-        useTapestryRanges: true,
+        files: [
+          {
+            approxTokens: 200,
+            outputApproxTokens: 100,
+            path: '/src/main.ts',
+            ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
+          },
+          { approxTokens: 40, outputApproxTokens: 40, path: '/README.md', ranges: [] },
+        ],
         includeProjectTree: false,
         projectTreeApproxTokens: 1800,
         projectTreeTokenCountLoading: false,
-        files: [
-          {
-            path: '/src/main.ts',
-            approxTokens: 200,
-            outputApproxTokens: 100,
-            ranges: [{ startLine: 2, endLine: 3, approxTokens: 20, isActive: true }],
-          },
-          { path: '/README.md', approxTokens: 40, outputApproxTokens: 40, ranges: [] },
-        ],
+        selectedOutputApproxTokens: 140,
+        selectedSourceApproxTokens: 240,
+        tokenBudget: 8192,
+        useTapestryRanges: true,
       },
+      workspaceRootPath,
     } as RuntimeData);
 
     const conciseResult = await tools['brainstrike.listWorkspaceContext'].execute({
@@ -501,44 +501,44 @@ describe('assistant-tools', () => {
     expect(conciseResult.curatedContext).toBeUndefined();
     expect(conciseResult.curatedContextSummary).toEqual({
       fileCount: 2,
-      rangeCount: 1,
-      tokenBudget: 8192,
-      useTapestryRanges: true,
       includeProjectTree: false,
       projectTreeApproxTokens: 1800,
-      selectedSourceApproxTokens: 240,
+      rangeCount: 1,
       selectedOutputApproxTokens: 140,
+      selectedSourceApproxTokens: 240,
+      tokenBudget: 8192,
+      useTapestryRanges: true,
     });
     expect(conciseResult.truncated).toBe(false);
 
     const result = await tools['brainstrike.listWorkspaceContext'].execute({
-      context: { includeTokenEstimates: true, detail: true },
+      context: { detail: true, includeTokenEstimates: true },
     });
 
     expect(result.curatedContext).toEqual({
-      tokenBudget: 8192,
-      selectedSourceApproxTokens: 240,
-      selectedOutputApproxTokens: 140,
-      useTapestryRanges: true,
+      files: [
+        {
+          approxTokens: 200,
+          outputApproxTokens: 100,
+          path: '/src/main.ts',
+          ranges: [{ approxTokens: 20, endLine: 3, isActive: true, startLine: 2 }],
+        },
+        { approxTokens: 40, outputApproxTokens: 40, path: '/README.md', ranges: [] },
+      ],
       includeProjectTree: false,
       projectTreeApproxTokens: 1800,
       projectTreeTokenCountLoading: false,
-      files: [
-        {
-          path: '/src/main.ts',
-          approxTokens: 200,
-          outputApproxTokens: 100,
-          ranges: [{ startLine: 2, endLine: 3, approxTokens: 20, isActive: true }],
-        },
-        { path: '/README.md', approxTokens: 40, outputApproxTokens: 40, ranges: [] },
-      ],
+      selectedOutputApproxTokens: 140,
+      selectedSourceApproxTokens: 240,
+      tokenBudget: 8192,
+      useTapestryRanges: true,
     });
     expect(result.tokenEstimates).toEqual([
-      { path: '/src/main.ts', approxTokens: 200 },
-      { path: '/README.md', approxTokens: 40 },
+      { approxTokens: 200, path: '/src/main.ts' },
+      { approxTokens: 40, path: '/README.md' },
     ]);
     expect(JSON.stringify(result)).not.toContain('line 1');
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('bounds huge selected-file listings with offset paging and a hint', async () => {
@@ -548,8 +548,8 @@ describe('assistant-tools', () => {
       (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
     );
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths,
+      workspaceRootPath,
     } as RuntimeData);
     const tool = tools['brainstrike.listWorkspaceContext'];
 
@@ -566,14 +566,14 @@ describe('assistant-tools', () => {
     expect(secondPage.offset).toBe(firstPage.selectedFiles.length);
     expect(secondPage.selectedFiles[0]).not.toBe(firstPage.selectedFiles[0]);
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('reads selected workspace context under file and token limits with explicit skips', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/src/main.ts', '/README.md'],
+      workspaceRootPath,
     } as RuntimeData);
     const tool = tools['brainstrike.readWorkspaceContext'];
 
@@ -594,21 +594,21 @@ describe('assistant-tools', () => {
       path: '/README.md',
       reason: 'maxFiles',
     });
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('does not expose raw filesystem errors for skipped workspace context files', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/missing.ts'],
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.readWorkspaceContext'].execute({ context: {} });
 
     expect(result.skippedFiles).toEqual([{ path: '/missing.ts', reason: 'missing' }]);
     expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('logs generic workspace context read errors without exposing them in skipped files', async () => {
@@ -619,8 +619,8 @@ describe('assistant-tools', () => {
     );
     const readFileSpy = vi.spyOn(fsPromises, 'readFile').mockRejectedValueOnce(readError);
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/src/main.ts'],
+      workspaceRootPath,
     } as RuntimeData);
 
     try {
@@ -641,24 +641,24 @@ describe('assistant-tools', () => {
       expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(workspaceRootPath);
     } finally {
       readFileSpy.mockRestore();
-      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
 
   it('reads selected workspace context through curated tapestry line ranges', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
-        useTapestryRanges: true,
         files: [
           {
             path: '/src/main.ts',
-            ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
           },
         ],
+        useTapestryRanges: true,
       },
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.readWorkspaceContext'].execute({
@@ -671,35 +671,35 @@ describe('assistant-tools', () => {
 
     expect(result.includedCount).toBe(1);
     expect(result.files[0]).toMatchObject({
+      endLine: 3,
       path: '/src/main.ts',
       startLine: 2,
-      endLine: 3,
       tapestryRangeCount: 1,
     });
     expect(result.files[0]?.content).toContain('line 2');
     expect(result.files[0]?.content).toContain('line 3');
     expect(result.files[0]?.content).not.toContain('line 1');
     expect(result.files[0]?.content).not.toContain('line 4');
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('stops tapestry range output when range budget is exhausted', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
-        useTapestryRanges: true,
         files: [
           {
             path: '/src/main.ts',
             ranges: [
-              { startLine: 2, endLine: 2, isActive: true },
-              { startLine: 3, endLine: 3, isActive: true },
+              { endLine: 2, isActive: true, startLine: 2 },
+              { endLine: 3, isActive: true, startLine: 3 },
             ],
           },
         ],
+        useTapestryRanges: true,
       },
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.readWorkspaceContext'].execute({
@@ -714,7 +714,7 @@ describe('assistant-tools', () => {
     expect(result.files[0]?.content).not.toContain('<selection index="2"');
     expect(result.files[0]?.truncated).toBe(true);
     expect(result.files[0]?.omittedChars).toBeGreaterThan(0);
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('escapes selection boundary tags inside tapestry range content', async () => {
@@ -725,17 +725,17 @@ describe('assistant-tools', () => {
       'utf8'
     );
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
-        useTapestryRanges: true,
         files: [
           {
             path: '/src/main.ts',
-            ranges: [{ startLine: 2, endLine: 2, isActive: true }],
+            ranges: [{ endLine: 2, isActive: true, startLine: 2 }],
           },
         ],
+        useTapestryRanges: true,
       },
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.readWorkspaceContext'].execute({
@@ -753,7 +753,7 @@ describe('assistant-tools', () => {
     expect(result.files[0]?.content).not.toContain('literal <selection index="1">');
     expect(result.files[0]?.content).not.toContain('literal <selection/>');
     expect(result.files[0]?.content).not.toContain('literal </selection> tag');
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   describe('readWorkspaceContext multi-root', () => {
@@ -767,20 +767,20 @@ describe('assistant-tools', () => {
       await fsPromises.writeFile(path.join(rootA, 'notes.md'), 'notes from alpha root', 'utf8');
       await fsPromises.writeFile(path.join(rootB, 'notes.md'), 'notes from beta root', 'utf8');
       return {
+        cleanup: async () => {
+          await fsPromises.rm(rootA, { force: true, recursive: true });
+          await fsPromises.rm(rootB, { force: true, recursive: true });
+        },
         rootA,
         rootB,
-        cleanup: async () => {
-          await fsPromises.rm(rootA, { recursive: true, force: true });
-          await fsPromises.rm(rootB, { recursive: true, force: true });
-        },
       };
     }
 
     function twoRootRuntime(rootA: string, rootB: string): RuntimeData {
       return {
         workspaceRoots: [
-          { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
-          { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+          { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
+          { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
         ],
       } as unknown as RuntimeData;
     }
@@ -790,7 +790,7 @@ describe('assistant-tools', () => {
       try {
         const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
         const result = await tools['brainstrike.readWorkspaceContext'].execute({
-          context: { root: 'ProjectB', filePaths: ['/notes.md'] },
+          context: { filePaths: ['/notes.md'], root: 'ProjectB' },
         });
         expect(result.rootName).toBe('ProjectB');
         expect(result.rootId).toBe('id-b');
@@ -805,7 +805,7 @@ describe('assistant-tools', () => {
       try {
         const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
           'brainstrike.readWorkspaceContext'
-        ].execute({ context: { root: 'id-a', filePaths: ['/notes.md'] } });
+        ].execute({ context: { filePaths: ['/notes.md'], root: 'id-a' } });
         expect(result.rootName).toBe('ProjectA');
         expect(result.files[0]?.content).toContain('alpha root');
       } finally {
@@ -832,7 +832,7 @@ describe('assistant-tools', () => {
         await expect(
           buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
             'brainstrike.readWorkspaceContext'
-          ].execute({ context: { root: 'Nope', filePaths: ['/notes.md'] } })
+          ].execute({ context: { filePaths: ['/notes.md'], root: 'Nope' } })
         ).rejects.toThrow(/no folder "Nope".*ProjectA.*ProjectB/is);
       } finally {
         await cleanup();
@@ -856,15 +856,15 @@ describe('assistant-tools', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const result = await buildDesktopAssistantTools({
-          workspaceRootPath,
           selectionFilePaths: ['/src/main.ts'],
+          workspaceRootPath,
         } as RuntimeData)['brainstrike.readWorkspaceContext'].execute({ context: {} });
         expect(result.includedCount).toBe(1);
         expect(result.files[0]?.path).toBe('/src/main.ts');
         expect(typeof result.rootName).toBe('string');
         expect(result.workspaceRootPath).toBe(workspaceRootPath);
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
   });
@@ -879,8 +879,8 @@ describe('assistant-tools', () => {
       createMockWindow({ destroyed: true, id: 1003, role: 'visible-ui', send: vi.fn() }),
     ]);
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFolderId: 'root-1',
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.updateWorkspaceContextSelection'].execute({
@@ -891,34 +891,34 @@ describe('assistant-tools', () => {
     });
 
     expect(result).toMatchObject({
+      appliedCount: 1,
       folderId: 'root-1',
       mode: 'replace',
-      requestedCount: 2,
-      appliedCount: 1,
-      skippedCount: 1,
-      selectedFiles: ['/src/main.ts'],
-      skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
       notifiedWindowCount: 1,
+      requestedCount: 2,
+      selectedFiles: ['/src/main.ts'],
+      skippedCount: 1,
+      skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
     });
     expect(result.skippedFiles[0]).not.toHaveProperty('message');
     expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
     expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
-      folderId: 'root-1',
       filePaths: ['/src/main.ts'],
+      folderId: 'root-1',
       mode: 'replace',
     });
     expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   describe('selection write-back multi-root routing', () => {
     function routingRuntime(rootA: string, rootB: string): RuntimeData {
       return {
-        workspaceRootPath: rootA,
         selectionFolderId: 'client-a',
+        workspaceRootPath: rootA,
         workspaceRoots: [
-          { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
-          { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+          { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
+          { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
         ],
       } as unknown as RuntimeData;
     }
@@ -938,11 +938,11 @@ describe('assistant-tools', () => {
         expect(result.appliedCount).toBe(1);
         expect(send).toHaveBeenCalledWith(
           'assistant:workspace-context-selection-update',
-          expect.objectContaining({ rootPath: rootB, rootId: 'id-b', mode: 'replace' })
+          expect.objectContaining({ mode: 'replace', rootId: 'id-b', rootPath: rootB })
         );
       } finally {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
-        await fsPromises.rm(rootB, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { force: true, recursive: true });
+        await fsPromises.rm(rootB, { force: true, recursive: true });
       }
     });
 
@@ -952,8 +952,8 @@ describe('assistant-tools', () => {
       getAllWindowsMock.mockReturnValue([createMockWindow({ id: 2002, role: 'visible-ui', send })]);
       try {
         await buildDesktopAssistantTools({
-          workspaceRootPath: rootA,
           selectionFolderId: 'client-a',
+          workspaceRootPath: rootA,
         } as RuntimeData)['brainstrike.updateWorkspaceContextSelection'].execute({
           context: { filePaths: ['/src/main.ts'], mode: 'replace' },
         });
@@ -961,7 +961,7 @@ describe('assistant-tools', () => {
         expect(payload).toMatchObject({ folderId: 'client-a' });
         expect(payload).not.toHaveProperty('rootPath');
       } finally {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { force: true, recursive: true });
       }
     });
 
@@ -978,8 +978,8 @@ describe('assistant-tools', () => {
         ).rejects.toThrow(/no folder "Nope"/i);
         expect(send).not.toHaveBeenCalled();
       } finally {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
-        await fsPromises.rm(rootB, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { force: true, recursive: true });
+        await fsPromises.rm(rootB, { force: true, recursive: true });
       }
     });
 
@@ -994,16 +994,16 @@ describe('assistant-tools', () => {
         ].execute({
           context: {
             root: 'ProjectB',
-            updates: [{ path: '/src/main.ts', ranges: [{ startLine: 1, endLine: 2 }] }],
+            updates: [{ path: '/src/main.ts', ranges: [{ endLine: 2, startLine: 1 }] }],
           },
         });
         expect(send).toHaveBeenCalledWith(
           expect.anything(),
-          expect.objectContaining({ rootPath: rootB, rootId: 'id-b' })
+          expect.objectContaining({ rootId: 'id-b', rootPath: rootB })
         );
       } finally {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
-        await fsPromises.rm(rootB, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { force: true, recursive: true });
+        await fsPromises.rm(rootB, { force: true, recursive: true });
       }
     });
   });
@@ -1017,8 +1017,8 @@ describe('assistant-tools', () => {
       createMockWindow({ id: 1102, role: 'llm-host', send: hiddenSend }),
     ]);
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFolderId: 'root-1',
+      workspaceRootPath,
     } as RuntimeData);
 
     const result = await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
@@ -1028,23 +1028,23 @@ describe('assistant-tools', () => {
         updates: [
           {
             path: '/src/main.ts',
-            ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+            ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
           },
         ],
       },
     });
 
     expect(result).toMatchObject({
+      appliedFileCount: 1,
       folderId: 'root-1',
       mode: 'replace',
-      requestedFileCount: 1,
-      appliedFileCount: 1,
-      skippedFileCount: 0,
       notifiedWindowCount: 1,
+      requestedFileCount: 1,
+      skippedFileCount: 0,
     });
     expect(send).toHaveBeenNthCalledWith(1, 'assistant:workspace-context-selection-update', {
-      folderId: 'root-1',
       filePaths: ['/src/main.ts'],
+      folderId: 'root-1',
       mode: 'add',
     });
     expect(send).toHaveBeenNthCalledWith(2, 'assistant:workspace-context-tapestry-update', {
@@ -1053,12 +1053,12 @@ describe('assistant-tools', () => {
       updates: [
         {
           path: '/src/main.ts',
-          ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+          ranges: [{ endLine: 3, isActive: true, startLine: 2 }],
         },
       ],
     });
     expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('lists embedding spaces with optional coverage stats', async () => {
@@ -1068,20 +1068,20 @@ describe('assistant-tools', () => {
           return {
             rows: [
               {
-                id: 'set-1',
-                name: 'Main',
+                averageTokensPerChunk: '10',
+                createdAt: '2026-01-01T00:00:00.000Z',
                 description: null,
-                modelKey: 'openai:text-embedding-3-small',
-                modelId: 'text-embedding-3-small',
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2026-01-01T00:00:00.000Z',
                 embeddedChunks: '3',
                 fileCount: '2',
+                id: 'set-1',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Main',
                 tokenizedChunkCount: '4',
                 totalChunks: '5',
                 totalTokens: '40',
-                averageTokensPerChunk: '10',
               },
             ],
           };
@@ -1107,23 +1107,23 @@ describe('assistant-tools', () => {
       paused: false,
     });
     expect(result.spaces[0]).toMatchObject({
-      id: 'set-1',
-      name: 'Main',
-      modelKey: 'openai:text-embedding-3-small',
-      modelId: 'text-embedding-3-small',
-      dimensions: 1536,
-      distance: 'cosine',
-      isWorkspaceIndex: true,
-      recommendedForWorkspaceSearch: true,
       coverage: {
+        averageTokensPerChunk: 10,
+        coveragePercent: 60,
         embeddedChunks: 3,
         fileCount: 2,
         tokenizedChunkCount: 4,
         totalChunks: 5,
         totalTokens: 40,
-        averageTokensPerChunk: 10,
-        coveragePercent: 60,
       },
+      dimensions: 1536,
+      distance: 'cosine',
+      id: 'set-1',
+      isWorkspaceIndex: true,
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai:text-embedding-3-small',
+      name: 'Main',
+      recommendedForWorkspaceSearch: true,
     });
   });
 
@@ -1134,14 +1134,14 @@ describe('assistant-tools', () => {
           return {
             rows: [
               {
-                id: 'set-1',
-                name: null,
+                createdAt: '2026-01-01T00:00:00.000Z',
                 description: null,
-                modelKey: 'local:Xenova/all-MiniLM-L6-v2',
-                modelId: 'Xenova/all-MiniLM-L6-v2',
                 dimensions: 384,
                 distance: 'cosine',
-                createdAt: '2026-01-01T00:00:00.000Z',
+                id: 'set-1',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+                name: null,
               },
             ],
           };
@@ -1156,9 +1156,9 @@ describe('assistant-tools', () => {
 
     expect(result.spaces).toEqual([
       expect.objectContaining({
+        createdAt: '2026-01-01T00:00:00.000Z',
         id: 'set-1',
         name: null,
-        createdAt: '2026-01-01T00:00:00.000Z',
       }),
     ]);
   });
@@ -1170,24 +1170,24 @@ describe('assistant-tools', () => {
           return {
             rows: [
               {
-                id: 'set-1',
-                name: 'Workspace Index',
+                createdAt: '2026-01-02T00:00:00.000Z',
                 description: null,
-                modelKey: 'openai:text-embedding-3-small',
-                modelId: 'text-embedding-3-small',
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2026-01-02T00:00:00.000Z',
+                id: 'set-1',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Workspace Index',
               },
               {
-                id: 'set-2',
-                name: 'Scratch',
+                createdAt: '2026-01-01T00:00:00.000Z',
                 description: null,
-                modelKey: 'openai:text-embedding-3-small',
-                modelId: 'text-embedding-3-small',
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2026-01-01T00:00:00.000Z',
+                id: 'set-2',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai:text-embedding-3-small',
+                name: 'Scratch',
               },
             ],
           };
@@ -1230,11 +1230,10 @@ describe('assistant-tools', () => {
 
   it('allows semantic context queries without explicit id when the workspace index is blocked', async () => {
     const tools = buildDesktopAssistantTools({
+      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexingPaused: false,
-      workspaceIndexStatusState: 'blocked',
-      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
       workspaceIndexQueueProgress: {
         failed: 0,
@@ -1242,6 +1241,7 @@ describe('assistant-tools', () => {
         processed: 0,
         totalQueued: 0,
       },
+      workspaceIndexStatusState: 'blocked',
     } as RuntimeData);
     const tool = tools['brainstrike.queryEmbeddingSpace'];
 
@@ -1252,11 +1252,11 @@ describe('assistant-tools', () => {
     });
 
     expect(result).toMatchObject({
-      status: 'unavailable',
       reason: 'workspace-index-blocked',
+      status: 'unavailable',
       workspaceIndex: {
-        embeddingSetId: 'workspace-index-set',
         blockedReason: 'missing-provider-key',
+        embeddingSetId: 'workspace-index-set',
       },
     });
     expect(getDatabaseMock).not.toHaveBeenCalled();
@@ -1281,7 +1281,7 @@ describe('assistant-tools', () => {
       } as unknown as { path: string })
     ).rejects.toThrow();
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('rejects binary files for text reads', async () => {
@@ -1298,7 +1298,7 @@ describe('assistant-tools', () => {
       })
     ).rejects.toThrow('is a binary file and cannot be read as text');
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('fails explicitly when workspace root is missing for directory reads', async () => {
@@ -1358,7 +1358,7 @@ describe('assistant-tools', () => {
     const tool = tools['brainstrike.findWorkspaceSymbol'];
 
     const result = await tool.execute({ context: { path: '/src/lib/math.ts', query: 'add' } });
-    expect(result.matches[0]).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 3 });
+    expect(result.matches[0]).toMatchObject({ declarationLine: 1, endLine: 3, startLine: 1 });
     expect(result.path).toBe('/src/lib/math.ts');
     expect(result).not.toHaveProperty('content');
 
@@ -1369,7 +1369,7 @@ describe('assistant-tools', () => {
       tool.execute({ context: { path: '../outside.ts', query: 'x' } })
     ).rejects.toThrow();
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   describe('writeWorkspaceFile', () => {
@@ -1380,7 +1380,7 @@ describe('assistant-tools', () => {
         const tool = tools['brainstrike.writeWorkspaceFile'];
 
         const result = await tool.execute({
-          context: { path: '/src/new-file.ts', content: 'export const created = true;\n' },
+          context: { content: 'export const created = true;\n', path: '/src/new-file.ts' },
         });
 
         expect(result.path).toBe('/src/new-file.ts');
@@ -1392,7 +1392,7 @@ describe('assistant-tools', () => {
         );
         expect(onDisk).toBe('export const created = true;\n');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1404,7 +1404,7 @@ describe('assistant-tools', () => {
         ];
 
         const result = await tool.execute({
-          context: { path: '/deeply/nested/dir/file.txt', content: 'hello' },
+          context: { content: 'hello', path: '/deeply/nested/dir/file.txt' },
         });
 
         expect(result.created).toBe(true);
@@ -1414,7 +1414,7 @@ describe('assistant-tools', () => {
         );
         expect(onDisk).toBe('hello');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1426,14 +1426,14 @@ describe('assistant-tools', () => {
         ];
 
         const result = await tool.execute({
-          context: { path: '/README.md', content: '# Overwritten\n' },
+          context: { content: '# Overwritten\n', path: '/README.md' },
         });
 
         expect(result.created).toBe(false);
         const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
         expect(onDisk).toBe('# Overwritten\n');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1447,7 +1447,7 @@ describe('assistant-tools', () => {
 
         // "../" is clamped at the root by normalizeWorkspacePath, so this normalizes
         // to "/escaped.txt" INSIDE the root — it must NOT land in the sibling dir.
-        await tool.execute({ context: { path: '../escaped.txt', content: 'nope' } });
+        await tool.execute({ context: { content: 'nope', path: '../escaped.txt' } });
 
         await expect(
           fsPromises.access(path.join(path.dirname(workspaceRootPath), 'escaped.txt'))
@@ -1460,8 +1460,8 @@ describe('assistant-tools', () => {
         );
         expect(onDisk).toBe('nope');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
@@ -1485,13 +1485,13 @@ describe('assistant-tools', () => {
         ];
 
         await expect(
-          tool.execute({ context: { path: '/src/linked/pwned.txt', content: 'escape' } })
+          tool.execute({ context: { content: 'escape', path: '/src/linked/pwned.txt' } })
         ).rejects.toThrow('is outside the selected workspace root');
         // Nothing was written through the symlink into the outside dir.
         await expect(fsPromises.access(path.join(outsideRoot, 'pwned.txt'))).rejects.toThrow();
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
@@ -1519,13 +1519,13 @@ describe('assistant-tools', () => {
         ];
 
         await expect(
-          tool.execute({ context: { path: '/src/evil.txt', content: 'PWNED' } })
+          tool.execute({ context: { content: 'PWNED', path: '/src/evil.txt' } })
         ).rejects.toThrow('is outside the selected workspace root');
         // The bytes never escaped through the dangling symlink.
         await expect(fsPromises.access(outsideTarget)).rejects.toThrow();
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
@@ -1553,13 +1553,13 @@ describe('assistant-tools', () => {
         ];
 
         await expect(
-          tool.execute({ context: { path: '/src/evil.txt', content: 'PWNED' } })
+          tool.execute({ context: { content: 'PWNED', path: '/src/evil.txt' } })
         ).rejects.toThrow('is outside the selected workspace root');
         // The outside file was NOT overwritten through the symlink.
         expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
@@ -1586,13 +1586,13 @@ describe('assistant-tools', () => {
         ];
 
         await expect(
-          tool.execute({ context: { path: '/src/linkdir/pwned.txt', content: 'PWNED' } })
+          tool.execute({ context: { content: 'PWNED', path: '/src/linkdir/pwned.txt' } })
         ).rejects.toThrow('outside the selected workspace root');
         // Nothing was created under the dangling intermediate symlink.
         await expect(fsPromises.access(path.join(outsideDir, 'pwned.txt'))).rejects.toThrow();
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
@@ -1605,12 +1605,12 @@ describe('assistant-tools', () => {
         // 2 MB + 1 byte exceeds MAX_WRITE_WORKSPACE_FILE_BYTES.
         const oversized = 'a'.repeat(2_000_001);
         await expect(
-          tool.execute({ context: { path: '/big.txt', content: oversized } })
+          tool.execute({ context: { content: oversized, path: '/big.txt' } })
         ).rejects.toThrow(/exceeding the .* byte write limit/i);
         // No partial/empty file was created.
         await expect(fsPromises.access(path.join(workspaceRootPath, 'big.txt'))).rejects.toThrow();
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1620,11 +1620,11 @@ describe('assistant-tools', () => {
         const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
           'brainstrike.writeWorkspaceFile'
         ];
-        await expect(tool.execute({ context: { path: '/', content: 'x' } })).rejects.toThrow(
+        await expect(tool.execute({ context: { content: 'x', path: '/' } })).rejects.toThrow(
           /workspace root/i
         );
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1634,11 +1634,11 @@ describe('assistant-tools', () => {
         const tool = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData)[
           'brainstrike.writeWorkspaceFile'
         ];
-        await expect(tool.execute({ context: { path: '/src', content: 'x' } })).rejects.toThrow(
+        await expect(tool.execute({ context: { content: 'x', path: '/src' } })).rejects.toThrow(
           /is a directory/i
         );
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1648,27 +1648,27 @@ describe('assistant-tools', () => {
       try {
         const tool = buildDesktopAssistantTools({
           workspaceRoots: [
-            { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
-            { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+            { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
+            { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
           ],
         } as unknown as RuntimeData)['brainstrike.writeWorkspaceFile'];
 
         const result = await tool.execute({
-          context: { path: '/note.txt', content: 'into B', root: 'ProjectB' },
+          context: { content: 'into B', path: '/note.txt', root: 'ProjectB' },
         });
 
         expect(result.rootName).toBe('ProjectB');
         expect(await fsPromises.readFile(path.join(rootB, 'note.txt'), 'utf8')).toBe('into B');
         await expect(fsPromises.access(path.join(rootA, 'note.txt'))).rejects.toThrow();
       } finally {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
-        await fsPromises.rm(rootB, { recursive: true, force: true });
+        await fsPromises.rm(rootA, { force: true, recursive: true });
+        await fsPromises.rm(rootB, { force: true, recursive: true });
       }
     });
 
     it('fails explicitly when no workspace folder is open', async () => {
       const tool = buildDesktopAssistantTools(undefined)['brainstrike.writeWorkspaceFile'];
-      await expect(tool.execute({ context: { path: '/x.txt', content: 'x' } })).rejects.toThrow(
+      await expect(tool.execute({ context: { content: 'x', path: '/x.txt' } })).rejects.toThrow(
         /No folder is open/i
       );
     });
@@ -1684,9 +1684,9 @@ describe('assistant-tools', () => {
 
         const result = await tool.execute({
           context: {
-            path: '/src/lib/math.ts',
-            oldStr: 'export const add = () => 1;',
             newStr: 'export const add = () => 2;',
+            oldStr: 'export const add = () => 1;',
+            path: '/src/lib/math.ts',
           },
         });
 
@@ -1699,7 +1699,7 @@ describe('assistant-tools', () => {
         );
         expect(onDisk).toBe('export const add = () => 2;\n');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1715,9 +1715,9 @@ describe('assistant-tools', () => {
 
         const result = await tool.execute({
           context: {
-            path: '/src/ws.ts',
-            oldStr: 'return 1 ;',
             newStr: '  return 2;',
+            oldStr: 'return 1 ;',
+            path: '/src/ws.ts',
           },
         });
 
@@ -1727,7 +1727,7 @@ describe('assistant-tools', () => {
         expect(onDisk).not.toContain('return   1');
         expect(onDisk.startsWith('function f() {')).toBe(true);
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1746,9 +1746,9 @@ describe('assistant-tools', () => {
 
         await tool.execute({
           context: {
-            path: '/src/cfg.ts',
-            oldStr: 'const config = {\n  enabled: true,\n  retries: 3,\n};',
             newStr: 'const config = {\n  enabled: false,\n  retries: 5,\n};',
+            oldStr: 'const config = {\n  enabled: true,\n  retries: 3,\n};',
+            path: '/src/cfg.ts',
           },
         });
 
@@ -1757,7 +1757,7 @@ describe('assistant-tools', () => {
         expect(onDisk).toContain('retries: 5');
         expect(onDisk).not.toContain('retries: 3');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1773,13 +1773,13 @@ describe('assistant-tools', () => {
 
         await expect(
           tool.execute({
-            context: { path: '/src/dup.ts', oldStr: 'count++;', newStr: 'count--;' },
+            context: { newStr: 'count--;', oldStr: 'count++;', path: '/src/dup.ts' },
           })
         ).rejects.toThrow(/locations|matches|surrounding/i);
         // The file is untouched — no partial / wrong-location edit.
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1799,13 +1799,13 @@ describe('assistant-tools', () => {
 
         await expect(
           tool.execute({
-            context: { path: '/src/dupblock.ts', oldStr: block, newStr: 'disable();' },
+            context: { newStr: 'disable();', oldStr: block, path: '/src/dupblock.ts' },
           })
         ).rejects.toThrow(/2 locations|surrounding/i);
         // BOTH blocks intact — nothing was replace-all'd.
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1821,15 +1821,15 @@ describe('assistant-tools', () => {
         await expect(
           tool.execute({
             context: {
-              path: '/src/lib/math.ts',
-              oldStr: 'this string is absolutely nowhere in the file content',
               newStr: 'x',
+              oldStr: 'this string is absolutely nowhere in the file content',
+              path: '/src/lib/math.ts',
             },
           })
         ).rejects.toThrow(/no sufficiently close match|not\s|Re-read/i);
         expect(await fsPromises.readFile(filePath, 'utf8')).toBe(original);
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1847,10 +1847,10 @@ describe('assistant-tools', () => {
         // read-modify-write cycles so neither clobbers the other's edit.
         const [r1, r2] = await Promise.all([
           tool.execute({
-            context: { path: '/src/lib/math.ts', oldStr: 'const a = 1;', newStr: 'const a = 10;' },
+            context: { newStr: 'const a = 10;', oldStr: 'const a = 1;', path: '/src/lib/math.ts' },
           }),
           tool.execute({
-            context: { path: '/src/lib/math.ts', oldStr: 'const b = 2;', newStr: 'const b = 20;' },
+            context: { newStr: 'const b = 20;', oldStr: 'const b = 2;', path: '/src/lib/math.ts' },
           }),
         ]);
 
@@ -1860,7 +1860,7 @@ describe('assistant-tools', () => {
         const onDisk = await fsPromises.readFile(filePath, 'utf8');
         expect(onDisk).toBe('const a = 10;\nconst b = 20;\n');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
 
@@ -1894,21 +1894,21 @@ describe('assistant-tools', () => {
         // escape through the link.
         await expect(
           tool.execute({
-            context: { path: '/src/evil.ts', oldStr: 'original', newStr: 'PWNED' },
+            context: { newStr: 'PWNED', oldStr: 'original', path: '/src/evil.ts' },
           })
         ).rejects.toThrow(/outside the selected workspace root/i);
         // The outside file was NOT modified through the symlink.
         expect(await fsPromises.readFile(outsideTarget, 'utf8')).toBe('original\n');
       } finally {
-        await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
-        await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await fsPromises.rm(outsideRoot, { force: true, recursive: true });
       }
     });
 
     it('fails explicitly when no workspace folder is open', async () => {
       const tool = buildDesktopAssistantTools(undefined)['brainstrike.stringReplaceWorkspaceFile'];
       await expect(
-        tool.execute({ context: { path: '/x.ts', oldStr: 'a', newStr: 'b' } })
+        tool.execute({ context: { newStr: 'b', oldStr: 'a', path: '/x.ts' } })
       ).rejects.toThrow(/No folder is open/i);
     });
   });
@@ -1958,7 +1958,7 @@ describe('assistant-tools', () => {
       /is not a file/i
     );
 
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
   it('forwards tapestry range color to the broadcast payload', async () => {
@@ -1970,8 +1970,8 @@ describe('assistant-tools', () => {
       createMockWindow({ id: 1202, role: 'llm-host', send: hiddenSend }),
     ]);
     const tools = buildDesktopAssistantTools({
-      workspaceRootPath,
       selectionFolderId: 'root-1',
+      workspaceRootPath,
     } as RuntimeData);
 
     await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
@@ -1980,7 +1980,7 @@ describe('assistant-tools', () => {
         updates: [
           {
             path: '/src/main.ts',
-            ranges: [{ startLine: 1, endLine: 2, color: 'blue' }],
+            ranges: [{ color: 'blue', endLine: 2, startLine: 1 }],
           },
         ],
       },
@@ -1994,12 +1994,12 @@ describe('assistant-tools', () => {
       updates: { ranges: { startLine: number; endLine: number; color?: string }[] }[];
     };
     expect(capturedTapestryPayload.updates[0].ranges[0]).toMatchObject({
-      startLine: 1,
-      endLine: 2,
       color: 'blue',
+      endLine: 2,
+      startLine: 1,
     });
     expect(hiddenSend).not.toHaveBeenCalled();
-    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 });
 
@@ -2023,20 +2023,20 @@ describe('assistant-tools multi-root read tools', () => {
       'utf8'
     );
     return {
+      cleanup: async () => {
+        await fsPromises.rm(rootA, { force: true, recursive: true });
+        await fsPromises.rm(rootB, { force: true, recursive: true });
+      },
       rootA,
       rootB,
-      cleanup: async () => {
-        await fsPromises.rm(rootA, { recursive: true, force: true });
-        await fsPromises.rm(rootB, { recursive: true, force: true });
-      },
     };
   }
 
   function twoRootRuntime(rootA: string, rootB: string): RuntimeData {
     return {
       workspaceRoots: [
-        { rootId: 'id-a', displayName: 'ProjectA', path: rootA },
-        { rootId: 'id-b', displayName: 'ProjectB', path: rootB },
+        { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
+        { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
       ],
     } as RuntimeData;
   }

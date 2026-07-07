@@ -60,8 +60,8 @@ describe('Token Utilities mocked runtime coverage', () => {
   it('uses the mocked browser encoder when the runtime is browser-like', async () => {
     const fetchSpy = vi.fn(
       async (): Promise<MockFetchResponse> => ({
-        ok: true,
         arrayBuffer: async () => new ArrayBuffer(8),
+        ok: true,
       })
     );
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -86,8 +86,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
       default: {
         bpe_ranks: 'mock-ranks',
-        special_tokens: {},
         pat_str: 'mock-pattern',
+        special_tokens: {},
       },
     }));
 
@@ -126,8 +126,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     };
     globalThis.fetch = vi.fn(
       async (): Promise<MockFetchResponse> => ({
-        ok: true,
         arrayBuffer: async () => new ArrayBuffer(8),
+        ok: true,
       })
     ) as unknown as typeof fetch;
 
@@ -140,8 +140,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
       default: {
         bpe_ranks: 'mock-ranks',
-        special_tokens: {},
         pat_str: 'mock-pattern',
+        special_tokens: {},
       },
     }));
 
@@ -161,8 +161,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     };
     globalThis.fetch = vi.fn(
       async (): Promise<MockFetchResponse> => ({
-        ok: true,
         arrayBuffer: async () => new ArrayBuffer(8),
+        ok: true,
       })
     ) as unknown as typeof fetch;
 
@@ -180,8 +180,8 @@ describe('Token Utilities mocked runtime coverage', () => {
     vi.doMock('tiktoken/encoders/o200k_base.json', () => ({
       default: {
         bpe_ranks: 'mock-ranks',
-        special_tokens: {},
         pat_str: 'mock-pattern',
+        special_tokens: {},
       },
     }));
 

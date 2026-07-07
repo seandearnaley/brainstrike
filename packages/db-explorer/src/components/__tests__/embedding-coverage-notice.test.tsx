@@ -4,11 +4,11 @@ import type { CollectionEmbeddingCoverageSnapshot } from '../../hooks/use-collec
 import { EmbeddingCoverageNotice, isCollectionIndexingActive } from '../embedding-coverage-notice';
 
 const baseCoverage: CollectionEmbeddingCoverageSnapshot = {
-  pendingReindexFileCount: 0,
   chunksMissingSourceRange: 0,
-  totalFiles: 0,
-  totalChunks: 0,
+  pendingReindexFileCount: 0,
   status: 'idle',
+  totalChunks: 0,
+  totalFiles: 0,
 };
 
 describe('EmbeddingCoverageNotice', () => {
@@ -25,8 +25,8 @@ describe('EmbeddingCoverageNotice', () => {
         collectionName="Code"
         coverage={{
           ...baseCoverage,
-          status: 'needs_reindex',
           pendingReindexFileCount: 2,
+          status: 'needs_reindex',
           totalFiles: 2,
         }}
       />
@@ -46,8 +46,8 @@ describe('EmbeddingCoverageNotice', () => {
         collectionName="Code"
         coverage={{
           ...baseCoverage,
-          status: 'needs_reindex',
           pendingReindexFileCount: 2,
+          status: 'needs_reindex',
           totalFiles: 2,
         }}
       />
@@ -65,8 +65,8 @@ describe('EmbeddingCoverageNotice', () => {
         collectionName="Code"
         coverage={{
           ...baseCoverage,
-          status: 'needs_reindex',
           pendingReindexFileCount: 2,
+          status: 'needs_reindex',
           totalFiles: 2,
         }}
       />
@@ -85,10 +85,10 @@ describe('EmbeddingCoverageNotice', () => {
       <EmbeddingCoverageNotice
         coverage={{
           ...baseCoverage,
-          status: 'partial_source_ranges',
           chunksMissingSourceRange: 5,
-          totalFiles: 3,
+          status: 'partial_source_ranges',
           totalChunks: 10,
+          totalFiles: 3,
         }}
       />
     );
@@ -101,7 +101,7 @@ describe('EmbeddingCoverageNotice', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Stable"
-        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalChunks: 40, totalFiles: 4 }}
       />
     );
     expect(screen.getByText(/fully indexed/i).className).toMatch(/text-muted-foreground/);
@@ -112,10 +112,10 @@ describe('EmbeddingCoverageNotice', () => {
       <EmbeddingCoverageNotice
         coverage={{
           ...baseCoverage,
-          status: 'partial_source_ranges',
           chunksMissingSourceRange: 5,
-          totalFiles: 3,
+          status: 'partial_source_ranges',
           totalChunks: 10,
+          totalFiles: 3,
         }}
       />
     );
@@ -130,8 +130,8 @@ describe('EmbeddingCoverageNotice', () => {
         coverage={{
           ...baseCoverage,
           status: 'fully_indexed',
-          totalFiles: 4,
           totalChunks: 40,
+          totalFiles: 4,
         }}
       />
     );
@@ -147,7 +147,7 @@ describe('EmbeddingCoverageNotice', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Solo"
-        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 1, totalChunks: 1 }}
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalChunks: 1, totalFiles: 1 }}
       />
     );
 
@@ -161,7 +161,7 @@ describe('EmbeddingCoverageNotice', () => {
     render(
       <EmbeddingCoverageNotice
         collectionName="Stable"
-        coverage={{ ...baseCoverage, status: 'fully_indexed', totalFiles: 4, totalChunks: 40 }}
+        coverage={{ ...baseCoverage, status: 'fully_indexed', totalChunks: 40, totalFiles: 4 }}
       />
     );
 
@@ -182,8 +182,8 @@ describe('EmbeddingCoverageNotice', () => {
         collectionName="Docs"
         coverage={{
           ...baseCoverage,
-          status: 'needs_reindex',
           pendingReindexFileCount: 17,
+          status: 'needs_reindex',
           totalFiles: 17,
         }}
         indexingActive
@@ -256,7 +256,7 @@ describe('isCollectionIndexingActive', () => {
 
   it('is false when there is no displayed collection', () => {
     expect(
-      isCollectionIndexingActive({ ...base, syncState: 'importing', collectionId: null })
+      isCollectionIndexingActive({ ...base, collectionId: null, syncState: 'importing' })
     ).toBe(false);
   });
 });

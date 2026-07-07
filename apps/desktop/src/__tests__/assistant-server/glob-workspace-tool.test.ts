@@ -51,7 +51,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
-      await fsPromises.rm(root, { recursive: true, force: true });
+      await fsPromises.rm(root, { force: true, recursive: true });
     }
   }
 });
@@ -150,7 +150,7 @@ describe('runGlobWorkspace — ignore handling', () => {
       'dist/bundle.ts',
     ]);
     const result = await runGlobWorkspace(
-      { pattern: '**/*.ts', includeIgnored: true },
+      { includeIgnored: true, pattern: '**/*.ts' },
       singleRoot(root)
     );
     expect(paths(result)).toEqual([
@@ -163,7 +163,7 @@ describe('runGlobWorkspace — ignore handling', () => {
   it('never descends into .git even with includeIgnored', async () => {
     const root = await makeWorkspace(['src/main.ts', '.git/config.ts']);
     const result = await runGlobWorkspace(
-      { pattern: '**/*.ts', includeIgnored: true },
+      { includeIgnored: true, pattern: '**/*.ts' },
       singleRoot(root)
     );
     expect(paths(result)).toEqual(['/src/main.ts']);
@@ -181,8 +181,8 @@ describe('runGlobWorkspace — multi-root scoping', () => {
     const result = await runGlobWorkspace(
       { pattern: '**/*.ts' },
       multiRoot([
-        { rootId: 'id-a', displayName: 'alpha', path: rootA },
-        { rootId: 'id-b', displayName: 'beta', path: rootB },
+        { displayName: 'alpha', path: rootA, rootId: 'id-a' },
+        { displayName: 'beta', path: rootB, rootId: 'id-b' },
       ])
     );
     expect(result.matches).toEqual([
@@ -197,8 +197,8 @@ describe('runGlobWorkspace — multi-root scoping', () => {
     const result = await runGlobWorkspace(
       { pattern: '**/*.ts', root: 'beta' },
       multiRoot([
-        { rootId: 'id-a', displayName: 'alpha', path: rootA },
-        { rootId: 'id-b', displayName: 'beta', path: rootB },
+        { displayName: 'alpha', path: rootA, rootId: 'id-a' },
+        { displayName: 'beta', path: rootB, rootId: 'id-b' },
       ])
     );
     expect(result.matches).toEqual([{ path: '/b.ts', rootId: 'id-b', rootName: 'beta' }]);
@@ -209,7 +209,7 @@ describe('runGlobWorkspace — multi-root scoping', () => {
     await expect(
       runGlobWorkspace(
         { pattern: '**/*.ts', root: 'nope' },
-        multiRoot([{ rootId: 'id-a', displayName: 'alpha', path: rootA }])
+        multiRoot([{ displayName: 'alpha', path: rootA, rootId: 'id-a' }])
       )
     ).rejects.toThrow(/No folder "nope"/);
   });
@@ -274,7 +274,7 @@ describe('runGlobWorkspace — token budget + paging', () => {
     // ONLY truncation is the user-facing limit. The hint must still say "of 10".
     const files = Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`);
     const root = await makeWorkspace(files);
-    const result = await runGlobWorkspace({ pattern: '**/*.ts', limit: 4 }, singleRoot(root));
+    const result = await runGlobWorkspace({ limit: 4, pattern: '**/*.ts' }, singleRoot(root));
     expect(result.matches.length).toBe(4);
     expect(result.totalMatches).toBe(10);
     expect(result.truncated).toBe(true);
@@ -288,14 +288,14 @@ describe('runGlobWorkspace — token budget + paging', () => {
     const files = Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`);
     const root = await makeWorkspace(files);
 
-    const firstPage = await runGlobWorkspace({ pattern: '**/*.ts', limit: 4 }, singleRoot(root));
+    const firstPage = await runGlobWorkspace({ limit: 4, pattern: '**/*.ts' }, singleRoot(root));
     expect(firstPage.matches.length).toBe(4);
     expect(firstPage.totalMatches).toBe(10);
     expect(firstPage.truncated).toBe(true);
     expect(firstPage.offset).toBe(0);
 
     const secondPage = await runGlobWorkspace(
-      { pattern: '**/*.ts', limit: 4, offset: 4 },
+      { limit: 4, offset: 4, pattern: '**/*.ts' },
       singleRoot(root)
     );
     expect(secondPage.matches.length).toBe(4);

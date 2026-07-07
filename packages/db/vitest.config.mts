@@ -13,18 +13,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 const sharedAliases: Record<string, string> = {
   '@': path.resolve(__dirname, 'src'),
-  src: path.resolve(__dirname, 'src'),
-  '@brainstrike/types': path.resolve(__dirname, '../types/src'),
-  '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
-  '@brainstrike/indexing-contract': path.resolve(__dirname, '../indexing-contract/src/index.ts'),
   '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
-  '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
-  '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
   '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
-  '@brainstrike/file-explorer-ui': path.resolve(__dirname, '../file-explorer-ui/src'),
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
+  '@brainstrike/file-explorer-ui': path.resolve(__dirname, '../file-explorer-ui/src'),
+  '@brainstrike/indexing-contract': path.resolve(__dirname, '../indexing-contract/src/index.ts'),
+  '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
+  '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
   '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
+  '@brainstrike/types': path.resolve(__dirname, '../types/src'),
   '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
+  '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
+  src: path.resolve(__dirname, 'src'),
 };
 
 /**
@@ -63,32 +63,30 @@ export default defineConfig({
           alias: unitAliases,
         },
         test: {
-          name: 'unit',
-          environment: 'jsdom',
-          globals: true,
-          setupFiles: ['./vitest.setup.ts'],
-          include: ['__tests__/**/*.test.{ts,tsx}'],
-          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
           env: {
             TEST_PGLITE_MOCK: 'true',
           },
+          environment: 'jsdom',
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          globals: true,
+          hookTimeout: 10_000,
+          include: ['__tests__/**/*.test.{ts,tsx}'],
+          maxWorkers: 1,
+          name: 'unit',
           // PGlite coverage runs can leave the thread pool alive after all
           // assertions pass. Forks isolate those native resources and exit
           // cleanly under the full repository gate.
           pool: 'forks',
-          maxWorkers: 1,
-          hookTimeout: 10_000,
+          setupFiles: ['./vitest.setup.ts'],
           testTimeout: 10_000,
         },
       },
       {
         test: {
-          name: 'browser',
-          include: ['__tests__/**/*.browser.test.{ts,tsx}'],
-          // Output directory for traces and screenshots
-          outputDir: 'test-results',
           browser: {
             enabled: true,
+            headless: true,
+            instances: [{ browser: 'chromium' }],
             provider: playwright({
               launchOptions: {
                 args: process.env['CI']
@@ -101,15 +99,17 @@ export default defineConfig({
                   : [],
               },
             }),
-            instances: [{ browser: 'chromium' }],
-            headless: true,
-            // Playwright trace: capture only for failing tests in CI
-            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
+            // Playwright trace: capture only for failing tests in CI
+            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
           },
-          testTimeout: 30_000,
           hookTimeout: 30_000,
+          include: ['__tests__/**/*.browser.test.{ts,tsx}'],
+          name: 'browser',
+          // Output directory for traces and screenshots
+          outputDir: 'test-results',
+          testTimeout: 30_000,
         },
       },
     ],

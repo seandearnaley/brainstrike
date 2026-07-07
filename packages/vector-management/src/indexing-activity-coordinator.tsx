@@ -53,27 +53,27 @@ function toNonNegativeInteger(value: number | string | null, fieldName: string):
 
 function toQueueSnapshot(row: QueueAggregateRow): IndexingQueueSnapshot {
   return {
+    failed: toNonNegativeInteger(row.failed, 'failed'),
+    nextRunnableAt: row.nextRunnableAt ?? null,
     queued: toNonNegativeInteger(row.queued, 'queued'),
     running: toNonNegativeInteger(row.running, 'running'),
-    failed: toNonNegativeInteger(row.failed, 'failed'),
     succeeded: toNonNegativeInteger(row.succeeded, 'succeeded'),
-    nextRunnableAt: row.nextRunnableAt ?? null,
   };
 }
 
 function toWorkerSnapshot(status: EmbeddingRuntimeStatus): IndexingWorkerSnapshot {
   return {
-    state: status.state,
     lastError: status.lastError,
+    state: status.state,
   };
 }
 
 function toBackfillSnapshot(backfill: EmbeddingRuntimeBackfillInfo): IndexingBackfillSnapshot {
   return {
+    current: backfill.progress?.current ?? null,
     embeddingSetId: backfill.embeddingSetId,
     requestId: backfill.requestId,
     source: backfill.source,
-    current: backfill.progress?.current ?? null,
     total: backfill.progress?.total ?? null,
   };
 }
@@ -82,10 +82,10 @@ function toProgressBackfillSnapshot(
   progress: EmbeddingRuntimeBackfillProgress
 ): IndexingBackfillSnapshot {
   return {
+    current: progress.current,
     embeddingSetId: progress.embeddingSetId,
     requestId: progress.requestId,
     source: progress.source,
-    current: progress.current,
     total: progress.total,
   };
 }
@@ -142,11 +142,11 @@ export function IndexingActivityCoordinator(): null {
     (state) => state.managedCollectionId
   );
   const backgroundStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
-    state: state.state,
+    lastError: state.lastError,
     managedCollectionId: state.managedCollectionId,
     managedCollectionName: state.managedCollectionName,
-    lastError: state.lastError,
     pauseReasons: state.pauseReasons,
+    state: state.state,
   }));
 
   useEffect(() => {
@@ -262,7 +262,7 @@ export function IndexingActivityCoordinator(): null {
         if (disposed) {
           return;
         }
-        setWorkerSnapshot({ state: 'error', lastError: normalizeError(error) });
+        setWorkerSnapshot({ lastError: normalizeError(error), state: 'error' });
       });
 
     const unsubscribe = controller.onStatus((status) => {
@@ -320,11 +320,11 @@ export function IndexingActivityCoordinator(): null {
     () => ({
       enabled: backgroundEnabled,
       lastError: backgroundStatus.lastError,
-      paused: backgroundPaused || backgroundStatus.state === 'paused',
       managedCollectionId,
       managedCollectionName: backgroundStatus.managedCollectionName,
-      state: backgroundStatus.state,
+      paused: backgroundPaused || backgroundStatus.state === 'paused',
       pauseReasons: backgroundStatus.pauseReasons,
+      state: backgroundStatus.state,
     }),
     [
       backgroundEnabled,

@@ -18,11 +18,11 @@ import type { Command, CommandGroup } from './types';
  * unmapped group is a build break, not a silent coercion.
  */
 const ACTION_GROUP_TO_COMMAND_GROUP: Record<ActionGroup, CommandGroup> = {
-  tree: 'file',
   copy: 'file',
-  navigate: 'navigate',
-  inspect: 'workspace',
   danger: 'danger',
+  inspect: 'workspace',
+  navigate: 'navigate',
+  tree: 'file',
 };
 
 /**
@@ -68,9 +68,9 @@ export function bridgeActionToCommand(
   const label = typeof action.label === 'function' ? action.label(target) : action.label;
 
   const command: Command = {
+    group: ACTION_GROUP_TO_COMMAND_GROUP[action.group],
     id: action.id,
     label,
-    group: ACTION_GROUP_TO_COMMAND_GROUP[action.group],
     ...(action.icon ? { icon: action.icon } : {}),
     ...(action.requiredCapabilities
       ? { requiredCapabilities: [...action.requiredCapabilities] }

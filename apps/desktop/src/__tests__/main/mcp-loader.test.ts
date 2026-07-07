@@ -25,7 +25,7 @@ describe('mcp-loader', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { force: true, recursive: true });
     vi.resetModules();
   });
 
@@ -37,8 +37,8 @@ describe('mcp-loader', () => {
     const config = parseMcpConfig(
       JSON.stringify({
         servers: [
-          { transport: 'stdio', name: 'fs', command: 'node', args: ['server.js'] },
-          { transport: 'sse', name: 'remote', url: 'https://example.com/sse' },
+          { args: ['server.js'], command: 'node', name: 'fs', transport: 'stdio' },
+          { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
         ],
       })
     );
@@ -59,16 +59,16 @@ describe('mcp-loader', () => {
     const config = {
       servers: [
         {
-          transport: 'sse',
-          name: 'remote',
-          url: 'https://example.com/sse',
           headers: { AuthorizationEncrypted: encoded },
+          name: 'remote',
+          transport: 'sse',
+          url: 'https://example.com/sse',
         },
         {
-          transport: 'stdio',
-          name: 'local',
           command: 'node',
           env: { API_KEYEncrypted: encoded },
+          name: 'local',
+          transport: 'stdio',
         },
       ],
     } as const;
@@ -153,7 +153,7 @@ describe('mcp-loader', () => {
     fs.writeFileSync(
       configPath,
       JSON.stringify({
-        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+        servers: [{ command: 'node', name: 'fs', transport: 'stdio' }],
       }),
       'utf-8'
     );
@@ -183,7 +183,7 @@ describe('mcp-loader', () => {
     const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
     const existingPath = path.join(tempDir, 'mcp', 'existing.json');
     const existingContent = JSON.stringify({
-      servers: [{ transport: 'stdio', name: 'existing', command: 'node' }],
+      servers: [{ command: 'node', name: 'existing', transport: 'stdio' }],
     });
 
     fs.mkdirSync(path.dirname(existingPath), { recursive: true });
@@ -203,10 +203,10 @@ describe('mcp-loader', () => {
 
     const doc = await readMcpConfigText(false);
     expect(doc).toEqual({
-      path: missingPath,
-      exists: false,
-      created: false,
       content: '',
+      created: false,
+      exists: false,
+      path: missingPath,
     });
   });
 
@@ -220,7 +220,7 @@ describe('mcp-loader', () => {
 
     const valid = await writeMcpConfigText(
       JSON.stringify({
-        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+        servers: [{ command: 'node', name: 'fs', transport: 'stdio' }],
       })
     );
     expect(valid.success).toBe(true);
@@ -236,7 +236,7 @@ describe('mcp-loader', () => {
 
     const result = await writeMcpConfigText(
       JSON.stringify({
-        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+        servers: [{ command: 'node', name: 'fs', transport: 'stdio' }],
       })
     );
 
@@ -297,7 +297,7 @@ describe('mcp-loader', () => {
 
   it('leaves unknown transport entries unchanged in withDecryptedSecrets fallback', async () => {
     const { withDecryptedSecrets } = await import('../../mcp-loader');
-    const unknownServer = { transport: 'custom', name: 'unknown-server' } as unknown as {
+    const unknownServer = { name: 'unknown-server', transport: 'custom' } as unknown as {
       transport: 'sse' | 'stdio';
       name: string;
     };

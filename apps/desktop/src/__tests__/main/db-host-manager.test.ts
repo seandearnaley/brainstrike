@@ -36,10 +36,10 @@ class FakeUtilityProcess extends EventEmitter {
 
   reject(message: PostedMessage, error: string): void {
     this.emit('message', {
+      error: { message: error },
       id: message.id,
       kind: 'response',
       ok: false,
-      error: { message: error },
     });
   }
 }
@@ -138,8 +138,8 @@ describe('DbHostManager', () => {
       kind: 'request',
       request: {
         kind: 'query',
-        sql: 'SELECT $1::text AS value',
         params: ['ok'],
+        sql: 'SELECT $1::text AS value',
       },
     });
     latestProcess().reply(queryMessage as PostedMessage, { rows: [{ value: 'ok' }] });
@@ -245,14 +245,14 @@ describe('DbHostManager', () => {
 
     void manager.getDiagnostics();
     latestProcess().emit('message', {
-      kind: 'log',
-      level: 'info',
-      message: 'DB host init completed',
       context: {
         logSource: 'db-host',
         pid: 123,
         runtime: 'db-host',
       },
+      kind: 'log',
+      level: 'info',
+      message: 'DB host init completed',
     });
 
     expect(loggerInfoMock).toHaveBeenCalledWith(
@@ -273,13 +273,13 @@ describe('DbHostManager', () => {
     const diagnosticsMessage = latestProcess().messages.at(-1);
     expect(diagnosticsMessage?.request.kind).toBe('diagnostics');
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
-      hasDatabaseHandle: true,
       dataDir: '/mock/pgdata',
+      hasDatabaseHandle: true,
     });
 
     await expect(diagnosticsPromise).resolves.toMatchObject({
-      hasDatabaseHandle: true,
       dataDir: '/mock/pgdata',
+      hasDatabaseHandle: true,
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
@@ -372,8 +372,8 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     const livePromise = database.live.query({
-      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
       params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
     });
     const liveMessage = latestProcess().messages.at(-1);
 
@@ -381,14 +381,14 @@ describe('DbHostManager', () => {
       request: {
         kind: 'live:start',
         payload: {
-          query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
           params: ['needle'],
+          query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
         },
       },
     });
     latestProcess().reply(liveMessage as PostedMessage, {
-      liveId: 'live-1',
       initialResults: { rows: [] },
+      liveId: 'live-1',
     });
 
     await expect(livePromise).resolves.toMatchObject({
@@ -404,8 +404,8 @@ describe('DbHostManager', () => {
     const database = await databasePromise;
 
     const livePromise = database.live.query({
-      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
       params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
     });
     const liveMessage = latestProcess().messages.at(-1);
     latestProcess().reject(liveMessage as PostedMessage, 'too few arguments for format()');
@@ -433,8 +433,8 @@ describe('DbHostManager', () => {
     const livePromise = database.live.query({ query: 'SELECT 1' });
     const liveMessage = latestProcess().messages.at(-1);
     latestProcess().reply(liveMessage as PostedMessage, {
-      liveId: 'live-1',
       initialResults: { rows: [] },
+      liveId: 'live-1',
     });
     const liveQuery = await livePromise;
 
@@ -666,7 +666,7 @@ describe('DbHostManager', () => {
       const queryPromise = tx.query('SELECT 1');
       const queryMessage = latestProcess().messages.at(-1);
       expect(queryMessage).toMatchObject({
-        request: { kind: 'transaction:query', transactionId, sql: 'SELECT 1' },
+        request: { kind: 'transaction:query', sql: 'SELECT 1', transactionId },
       });
       latestProcess().reply(queryMessage as PostedMessage, { rows: [{ value: 1 }] });
       return (await queryPromise).rows[0];

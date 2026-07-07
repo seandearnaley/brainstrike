@@ -198,9 +198,9 @@ describe('Adapter Integration', () => {
 
       if (srcDir) {
         const srcHandle = {
-          path: srcDir.path,
-          name: srcDir.name,
           kind: 'directory' as const,
+          name: srcDir.name,
+          path: srcDir.path,
           platform: 'web' as const,
         };
 
@@ -215,21 +215,21 @@ describe('Adapter Integration', () => {
 
     it('should support custom file system structures', async () => {
       const customFS = {
-        'custom-file.txt': {
-          name: 'custom-file.txt',
-          type: 'file' as const,
-          content: 'custom content',
-        },
         'custom-dir': {
-          name: 'custom-dir',
-          type: 'directory' as const,
           children: {
             'nested-file.txt': {
+              content: 'nested content',
               name: 'nested-file.txt',
               type: 'file' as const,
-              content: 'nested content',
             },
           },
+          name: 'custom-dir',
+          type: 'directory' as const,
+        },
+        'custom-file.txt': {
+          content: 'custom content',
+          name: 'custom-file.txt',
+          type: 'file' as const,
         },
       };
 
@@ -286,16 +286,16 @@ describe('Adapter Integration', () => {
       // Create two different file system adapters with unique structures
       const fs1 = new MockFileSystemAdapter({
         'unique1.txt': {
+          content: 'content 1',
           name: 'unique1.txt',
           type: 'file',
-          content: 'content 1',
         },
       });
       const fs2 = new MockFileSystemAdapter({
         'unique2.txt': {
+          content: 'content 2',
           name: 'unique2.txt',
           type: 'file',
-          content: 'content 2',
         },
       });
 

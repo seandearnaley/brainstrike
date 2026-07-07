@@ -30,8 +30,8 @@ const {
   >(),
   setExpandedPathsMock: vi.fn(),
   storeMock: vi.fn(),
-  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useExpandedPathRestorationMock: vi.fn(),
+  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useFileTreeMock: vi.fn(),
 }));
 
@@ -64,24 +64,24 @@ const ROOT_C = 'cccccccc-0000-4000-8000-00000000000c';
 
 function makeHandle(path: string) {
   return {
+    _internal: undefined,
     kind: 'directory',
     name: path.slice(1),
     path,
     platform: 'electron',
-    _internal: undefined,
   } as const;
 }
 
 function makeFileNode(rootFolderId: string, path: string): IFileNode {
   return {
+    depth: 0,
+    handle: undefined,
+    isVisible: true,
     name: path.split('/').pop() ?? path,
     path,
-    type: 'file',
     rootFolderId,
-    depth: 0,
     selectionState: 'unchecked',
-    isVisible: true,
-    handle: undefined,
+    type: 'file',
   } as unknown as IFileNode;
 }
 
@@ -101,10 +101,10 @@ function baseTreeState() {
   return {
     cancelChildLoading: vi.fn(),
     cancelExpandAll: vi.fn(),
+    cancellable: false,
     cancelOperation: vi.fn(),
     cancelRecursiveSelect: vi.fn(),
     cancelSelectAll: vi.fn(),
-    cancellable: false,
     error: null,
     expandAllProgress: null,
     expandAllProgressively: vi.fn(),
@@ -113,10 +113,10 @@ function baseTreeState() {
     isExpandingAll: false,
     isLoading: false,
     loadChildren: vi.fn(),
-    loadSpecificPaths: vi.fn(),
     loadingFiles: new Set<string>(),
     loadingPaths: new Set<string>(),
     loadingProgress: null,
+    loadSpecificPaths: vi.fn(),
     refreshDirectory: vi.fn(),
     selectAllRecursively: vi.fn(),
     selectFolderRecursively: vi.fn(),
@@ -128,8 +128,8 @@ describe('forest FileTreeIndex sharing (Phase 6)', () => {
     vi.clearAllMocks();
     capturedOptionsByPath.clear();
     useExpandedPathRestorationMock.mockReturnValue({
-      isRestoringExpandedPaths: false,
       isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
       restorationProgress: null,
     });
     useFileTreeMock.mockImplementation(

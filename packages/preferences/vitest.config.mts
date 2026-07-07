@@ -101,17 +101,8 @@ export default defineConfig({
     ],
   },
   test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: [],
-    testTimeout: 15_000, // UI component tests with async operations
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
     coverage: {
       enabled: coverageEnabled,
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/**',
         'dist/**',
@@ -124,12 +115,21 @@ export default defineConfig({
         'src/settings/models/model-selection-page.tsx',
         'src/settings/secrets/llm-keys-settings.tsx',
       ],
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
       thresholds: {
-        lines: 70,
-        functions: 60,
         branches: 60,
+        functions: 60,
+        lines: 70,
         statements: 70,
       },
     },
+    environment: 'jsdom',
+    globals: true,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    pool: 'threads',
+    setupFiles: [],
+    testTimeout: 15_000, // UI component tests with async operations
   },
 });

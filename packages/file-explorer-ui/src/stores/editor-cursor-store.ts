@@ -29,9 +29,6 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 export const useEditorCursorStore = create<EditorCursorStore>()(
   persist(
     (set, get) => ({
-      selections: {},
-      setSelection: (key, sel) => set((s) => ({ selections: { ...s.selections, [key]: sel } })),
-      getSelection: (key) => get().selections[key],
       clear: (key) => {
         if (!key) {
           set({ selections: {} });
@@ -41,12 +38,15 @@ export const useEditorCursorStore = create<EditorCursorStore>()(
         const { [key]: _drop, ...rest } = selections;
         set({ selections: rest });
       },
+      getSelection: (key) => get().selections[key],
+      selections: {},
+      setSelection: (key, sel) => set((s) => ({ selections: { ...s.selections, [key]: sel } })),
     }),
     {
       name: STORE_NAME,
-      version: 1,
-      storage,
       partialize: (s) => ({ selections: s.selections }),
+      storage,
+      version: 1,
     }
   )
 );

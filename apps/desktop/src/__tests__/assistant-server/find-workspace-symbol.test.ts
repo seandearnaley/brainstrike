@@ -17,37 +17,37 @@ export const gamma = 1;
 
 describe('findSymbolMatches', () => {
   it('returns the enclosing brace block for a function (1-based inclusive)', () => {
-    const { matches } = findSymbolMatches(TS, 'alpha', { maxMatches: 5, contextLines: 1 });
+    const { matches } = findSymbolMatches(TS, 'alpha', { contextLines: 1, maxMatches: 5 });
     expect(matches).toHaveLength(1);
-    expect(matches[0]).toMatchObject({ declarationLine: 3, startLine: 3, endLine: 8 });
+    expect(matches[0]).toMatchObject({ declarationLine: 3, endLine: 8, startLine: 3 });
   });
 
   it('treats a single-line const as a one-line range', () => {
-    const { matches } = findSymbolMatches(TS, 'gamma', { maxMatches: 5, contextLines: 0 });
-    expect(matches[0]).toMatchObject({ declarationLine: 12, startLine: 12, endLine: 12 });
+    const { matches } = findSymbolMatches(TS, 'gamma', { contextLines: 0, maxMatches: 5 });
+    expect(matches[0]).toMatchObject({ declarationLine: 12, endLine: 12, startLine: 12 });
   });
 
   it('ignores braces inside string/comment-only lines for block detection', () => {
-    const { matches } = findSymbolMatches(TS, 'beta', { maxMatches: 5, contextLines: 0 });
-    expect(matches[0]).toMatchObject({ declarationLine: 10, startLine: 10, endLine: 10 });
+    const { matches } = findSymbolMatches(TS, 'beta', { contextLines: 0, maxMatches: 5 });
+    expect(matches[0]).toMatchObject({ declarationLine: 10, endLine: 10, startLine: 10 });
   });
 
   it('handles indent-based blocks (no braces)', () => {
     const py = ['def foo():', '    a = 1', '    return a', '', 'bar = 2'].join('\n');
-    const { matches } = findSymbolMatches(py, 'foo', { maxMatches: 5, contextLines: 0 });
-    expect(matches[0]).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 3 });
+    const { matches } = findSymbolMatches(py, 'foo', { contextLines: 0, maxMatches: 5 });
+    expect(matches[0]).toMatchObject({ declarationLine: 1, endLine: 3, startLine: 1 });
   });
 
   it('respects maxMatches and reports truncated', () => {
     const many = ['a x', 'b x', 'c x', 'd x'].join('\n');
-    const result = findSymbolMatches(many, 'x', { maxMatches: 2, contextLines: 0 });
+    const result = findSymbolMatches(many, 'x', { contextLines: 0, maxMatches: 2 });
     expect(result.matches).toHaveLength(2);
     expect(result.totalMatches).toBe(4);
     expect(result.truncated).toBe(true);
   });
 
   it('returns empty for no match', () => {
-    const result = findSymbolMatches(TS, 'doesNotExist', { maxMatches: 5, contextLines: 0 });
+    const result = findSymbolMatches(TS, 'doesNotExist', { contextLines: 0, maxMatches: 5 });
     expect(result).toMatchObject({ matches: [], totalMatches: 0, truncated: false });
   });
 
@@ -64,11 +64,11 @@ describe('findSymbolMatches', () => {
     ].join('\n');
 
     const [match] = findSymbolMatches(content, 'myRegex', {
-      maxMatches: 1,
       contextLines: 0,
+      maxMatches: 1,
     }).matches;
 
-    expect(match).toMatchObject({ declarationLine: 1, startLine: 1, endLine: 2 });
+    expect(match).toMatchObject({ declarationLine: 1, endLine: 2, startLine: 1 });
   });
 
   describe('declaration ranking', () => {
@@ -84,7 +84,7 @@ describe('findSymbolMatches', () => {
         '}',
       ].join('\n');
 
-      const result = findSymbolMatches(content, 'add', { maxMatches: 2, contextLines: 0 });
+      const result = findSymbolMatches(content, 'add', { contextLines: 0, maxMatches: 2 });
 
       // The actual declaration (line 6) must be surfaced even though it is the
       // 6th substring match and the cap is 2 — declaration-looking lines rank
@@ -104,7 +104,7 @@ describe('findSymbolMatches', () => {
         'export const handler = () => {};', // 3: declaration
       ].join('\n');
 
-      const result = findSymbolMatches(content, 'handler', { maxMatches: 1, contextLines: 0 });
+      const result = findSymbolMatches(content, 'handler', { contextLines: 0, maxMatches: 1 });
 
       expect(result.matches).toHaveLength(1);
       expect(result.matches[0]?.declarationLine).toBe(3);
@@ -123,8 +123,8 @@ describe('findSymbolMatches', () => {
       ].join('\n');
 
       const [match] = findSymbolMatches(content, 'doThing', {
-        maxMatches: 1,
         contextLines: 0,
+        maxMatches: 1,
       }).matches;
 
       expect(match?.declarationLine).toBe(3);
@@ -139,7 +139,7 @@ describe('findSymbolMatches', () => {
         'add(1, 2);', // 3: word-boundary use of `add`
       ].join('\n');
 
-      const result = findSymbolMatches(content, 'add', { maxMatches: 1, contextLines: 0 });
+      const result = findSymbolMatches(content, 'add', { contextLines: 0, maxMatches: 1 });
 
       expect(result.totalMatches).toBe(3);
       expect(result.matches[0]?.declarationLine).toBe(3);

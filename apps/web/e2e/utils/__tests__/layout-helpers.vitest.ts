@@ -40,10 +40,10 @@ describe('layout-helpers (unit)', () => {
   it('getPanelElements returns expected locators', () => {
     const locator = vi.fn((sel: string) => ({ sel }));
     const page = {
-      locator,
-      getByRole: vi.fn((role: string, opts?: Record<string, unknown>) => ({ role, opts })),
-      getByText: vi.fn((txt: string) => ({ txt })),
       getByPlaceholder: vi.fn((txt: string) => ({ txt })),
+      getByRole: vi.fn((role: string, opts?: Record<string, unknown>) => ({ opts, role })),
+      getByText: vi.fn((txt: string) => ({ txt })),
+      locator,
     } as unknown as Page;
     const els = getPanelElements(page);
     expect(els.leftPanel).toBeDefined();
@@ -57,14 +57,14 @@ describe('layout-helpers (unit)', () => {
     const waited: string[] = [];
     const loadStates: string[] = [];
     const page = {
-      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
-      waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
       waitForFunction: vi.fn(async () => ({
         dispose: vi.fn(async () => undefined),
         jsonValue: vi.fn(async () => 'connected'),
       })),
-      // CI debug listeners (no-op in unit tests)
-      on: vi.fn(),
+      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
+      waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
     } as unknown as Page;
     await waitForAppLoad(page, { timeoutMs: 10_000 });
     // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
@@ -92,13 +92,13 @@ describe('layout-helpers (unit)', () => {
   it('waitForAppLoad can wait for shell readiness without blocking on database startup', async () => {
     const loadStates: string[] = [];
     const page = {
-      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
-      waitForSelector: vi.fn(async () => undefined),
+      on: vi.fn(),
       waitForFunction: vi.fn(async () => ({
         dispose: vi.fn(async () => undefined),
         jsonValue: vi.fn(async () => 'connected'),
       })),
-      on: vi.fn(),
+      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
+      waitForSelector: vi.fn(async () => undefined),
     } as unknown as Page;
 
     await waitForAppLoad(page, { waitForDatabase: false });
@@ -111,13 +111,13 @@ describe('layout-helpers (unit)', () => {
 
   it('waitForAppLoad accepts timeout inside the options object', async () => {
     const page = {
-      waitForLoadState: vi.fn(async () => undefined),
-      waitForSelector: vi.fn(async () => undefined),
+      on: vi.fn(),
       waitForFunction: vi.fn(async () => ({
         dispose: vi.fn(async () => undefined),
         jsonValue: vi.fn(async () => 'connected'),
       })),
-      on: vi.fn(),
+      waitForLoadState: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
     } as unknown as Page;
 
     await withCiEnv(false, () =>
@@ -149,6 +149,12 @@ describe('layout-helpers (unit)', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     let waitForSelectorCallCount = 0;
     const page = {
+      evaluate: vi.fn(async () => 'mock'),
+      on: vi.fn(),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
       waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async (selector: string) => {
         waitForSelectorCallCount += 1;
@@ -156,12 +162,6 @@ describe('layout-helpers (unit)', () => {
           throw new Error('selector missing');
         }
       }),
-      waitForFunction: vi.fn(async () => ({
-        dispose: vi.fn(async () => undefined),
-        jsonValue: vi.fn(async () => 'connected'),
-      })),
-      evaluate: vi.fn(async () => 'mock'),
-      on: vi.fn(),
     } as unknown as Page;
 
     try {
@@ -178,15 +178,15 @@ describe('layout-helpers (unit)', () => {
     const evalCalls: string[] = [];
     const page = {
       evaluate: vi.fn(async (fn: () => unknown) => evalCalls.push(fn.toString())),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
       reload: vi.fn(async () => {}),
-      waitForLoadState: vi.fn(async () => {}),
-      waitForSelector: vi.fn(async () => {}),
       waitForFunction: vi.fn(async () => ({
         dispose: vi.fn(async () => undefined),
         jsonValue: vi.fn(async () => 'connected'),
       })),
-      // CI debug listeners (no-op in unit tests)
-      on: vi.fn(),
+      waitForLoadState: vi.fn(async () => {}),
+      waitForSelector: vi.fn(async () => {}),
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
@@ -271,15 +271,15 @@ describe('layout-helpers (unit)', () => {
 
   it('waitForDatabaseReady fails loudly when the database remains disconnected until timeout', async () => {
     const page = {
-      waitForFunction: vi.fn(async () => {
-        throw new Error('timed out');
-      }),
       evaluate: vi.fn(async () => ({
         dbPath: null,
         hasE2ETestHooks: false,
         state: 'disconnected',
         statusText: 'Storage: PGlite',
       })),
+      waitForFunction: vi.fn(async () => {
+        throw new Error('timed out');
+      }),
     } as unknown as Page;
 
     await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(
@@ -289,15 +289,15 @@ describe('layout-helpers (unit)', () => {
 
   it('waitForDatabaseReady reports loading status when the app never becomes ready', async () => {
     const page = {
-      waitForFunction: vi.fn(async () => {
-        throw new Error('timed out');
-      }),
       evaluate: vi.fn(async () => ({
         dbPath: null,
         hasE2ETestHooks: false,
         state: 'loading',
         statusText: 'Storage: Connecting...',
       })),
+      waitForFunction: vi.fn(async () => {
+        throw new Error('timed out');
+      }),
     } as unknown as Page;
 
     await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(

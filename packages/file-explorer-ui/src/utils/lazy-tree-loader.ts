@@ -67,11 +67,11 @@ function detectPlatform(handle: unknown): 'web' | 'electron' {
  */
 function buildDirectoryHandle(node: IFileNode): DirectoryHandle {
   return {
-    path: node.path,
-    name: node.name,
-    kind: 'directory',
-    platform: detectPlatform(node.handle),
     _internal: node.handle,
+    kind: 'directory',
+    name: node.name,
+    path: node.path,
+    platform: detectPlatform(node.handle),
   };
 }
 
@@ -132,8 +132,8 @@ export async function loadRootDirectory(
         return {
           ...rest,
           depth: 0,
-          rootFolderId: resolvedRootFolderId,
           loadState: 'unloaded' as const,
+          rootFolderId: resolvedRootFolderId,
         };
       }
       // Files: just add depth and rootFolderId
@@ -201,8 +201,8 @@ export async function loadDirectoryChildren(
         return {
           ...rest,
           depth: parentNode.depth + 1,
-          rootFolderId: parentNode.rootFolderId,
           loadState: 'unloaded' as const,
+          rootFolderId: parentNode.rootFolderId,
         };
       }
       // Files: just add depth and rootFolderId
@@ -289,8 +289,8 @@ function transformNodesForLazyLoading(
         return {
           ...rest,
           depth,
-          rootFolderId,
           loadState: 'unloaded' as const,
+          rootFolderId,
         };
       }
       return {
@@ -370,8 +370,8 @@ export async function loadDirectoryChildrenStreaming(
         }
       },
       {
-        includeMetadata,
         batchSize,
+        includeMetadata,
         ...(abortSignal && { signal: abortSignal }),
       }
     );
@@ -446,8 +446,8 @@ export async function loadRootDirectoryStreaming(
         }
       },
       {
-        includeMetadata,
         batchSize,
+        includeMetadata,
         ...(abortSignal && { signal: abortSignal }),
       }
     );

@@ -85,15 +85,6 @@ const {
   registerRootMock,
   resolveDbRootIdMock,
 } = vi.hoisted(() => ({
-  registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
-  // Non-null by default: managed-cache identity is root_id (source_root_path
-  // retired); a null dbRootId now skips the import, which would stall these
-  // integration tests that assert the full sync runs.
-  resolveDbRootIdMock: vi.fn(async (_rootPath: string): Promise<string | null> => 'db-root-id'),
-  runEnhancedImportMock: vi.fn(),
-  readFullTreeWithOptionsMock: vi.fn(),
-  processFilesMock: vi.fn(),
-  listManagedCacheEntryMetadataMock: vi.fn(),
   applyManagedCacheBatchLocalMock: vi.fn(
     async (db: {
       transaction?: (
@@ -103,15 +94,8 @@ const {
       await db.transaction?.(async () => undefined);
     }
   ),
-  invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
-    canceledEmbeddingJobCount: 0,
-    deletedChunkIds: [],
-    deletedFileRecordIds: [],
-  })),
-  updateMock: vi.fn(),
-  deleteByFileRecordIdMock: vi.fn(),
-  getByIdMock: vi.fn(),
-  getOrCreateWorkspaceIndexSetMock: vi.fn(),
+  cancelBackfillMock: vi.fn(async () => {}),
+  completeEmbeddingChunkBatchMock: vi.fn(),
   createPriorityDbHandleMock: vi.fn(
     (
       db: {
@@ -154,17 +138,10 @@ const {
       }),
     })
   ),
-  validateApiKeyForSetMock: vi.fn(),
-  ensureChunkingWorkerMock: vi.fn(),
-  ensureEmbeddingRuntimeStartedMock: vi.fn(),
-  completeEmbeddingChunkBatchMock: vi.fn(),
-  enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
-  cancelBackfillMock: vi.fn(async () => {}),
-  resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
   dbState: {
     current: {
-      query: vi.fn(async () => ({ rows: [] })),
       exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => ({ rows: [] })),
       transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
         fn({ query: vi.fn(async () => ({ rows: [] })) })
       ),
@@ -174,13 +151,10 @@ const {
       transaction: ReturnType<typeof vi.fn>;
     } | null,
   },
-  vectorQueueServiceState: {
-    current: {
-      validateApiKeyForSet: vi.fn(),
-    } as {
-      validateApiKeyForSet: ReturnType<typeof vi.fn>;
-    } | null,
-  },
+  deleteByFileRecordIdMock: vi.fn(),
+  enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+  ensureChunkingWorkerMock: vi.fn(),
+  ensureEmbeddingRuntimeStartedMock: vi.fn(),
   fileSystemState: {
     isAccessLoading: false,
     rootDirectoryHandle: {
@@ -224,6 +198,8 @@ const {
       restorationProgress: null;
     } | null,
   },
+  getByIdMock: vi.fn(),
+  getOrCreateWorkspaceIndexSetMock: vi.fn(),
   idleSchedulerSnapshot: {
     backgroundWaiting: false,
     backgroundWaitingSince: null,
@@ -236,6 +212,20 @@ const {
     lastNormalAt: null,
     lastStartedAt: null,
     priorityStats: {
+      background: {
+        completed: 0,
+        lastCompletedLabel: null,
+        lastStartedLabel: null,
+        longestWaitMs: 0,
+        queued: 0,
+        serviceP50Ms: 0,
+        serviceP95Ms: 0,
+        started: 0,
+        totalServiceMs: 0,
+        totalWaitMs: 0,
+        waitP50Ms: 0,
+        waitP95Ms: 0,
+      },
       foreground: {
         completed: 0,
         lastCompletedLabel: null,
@@ -264,29 +254,39 @@ const {
         waitP50Ms: 0,
         waitP95Ms: 0,
       },
-      background: {
-        completed: 0,
-        lastCompletedLabel: null,
-        lastStartedLabel: null,
-        longestWaitMs: 0,
-        queued: 0,
-        serviceP50Ms: 0,
-        serviceP95Ms: 0,
-        started: 0,
-        totalServiceMs: 0,
-        totalWaitMs: 0,
-        waitP50Ms: 0,
-        waitP95Ms: 0,
-      },
     },
     queued: {
+      background: 0,
       foreground: 0,
       normal: 0,
-      background: 0,
     },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 1000,
+  },
+  invalidateManagedCacheEntriesByIdentityLocalMock: vi.fn(async () => ({
+    canceledEmbeddingJobCount: 0,
+    deletedChunkIds: [],
+    deletedFileRecordIds: [],
+  })),
+  listManagedCacheEntryMetadataMock: vi.fn(),
+  processFilesMock: vi.fn(),
+  readFullTreeWithOptionsMock: vi.fn(),
+  registerRootMock: vi.fn(async (_descriptor: unknown) => undefined),
+  // Non-null by default: managed-cache identity is root_id (source_root_path
+  // retired); a null dbRootId now skips the import, which would stall these
+  // integration tests that assert the full sync runs.
+  resolveDbRootIdMock: vi.fn(async (_rootPath: string): Promise<string | null> => 'db-root-id'),
+  resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
+  runEnhancedImportMock: vi.fn(),
+  updateMock: vi.fn(),
+  validateApiKeyForSetMock: vi.fn(),
+  vectorQueueServiceState: {
+    current: {
+      validateApiKeyForSet: vi.fn(),
+    } as {
+      validateApiKeyForSet: ReturnType<typeof vi.fn>;
+    } | null,
   },
 }));
 
@@ -303,33 +303,11 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
 });
 
 vi.mock('@brainstrike/db', () => ({
-  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
-    dimensions: 384,
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-  },
-  WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
-  JobQueue: vi.fn(function MockJobQueue() {
-    return {
-      enqueueBatch: vi.fn(),
-      clear: vi.fn(),
-      completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
-      getQueueStats: vi.fn(async () => []),
-      requeueFailed: vi.fn(),
-    };
-  }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
-  invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
   createDatabasePressureController: vi.fn(() => ({
     waitForBackgroundPermit: vi.fn(async () => undefined),
   })),
   createPriorityDbHandle: createPriorityDbHandleMock,
-  getDatabasePressureWaitingReason: vi.fn(() => null),
-  getDatabaseWorkScheduler: vi.fn(() => ({
-    getSnapshot: vi.fn(() => idleSchedulerSnapshot),
-    run: vi.fn(),
-    subscribe: vi.fn(() => () => {}),
-  })),
   ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
     return {
       getById: getByIdMock,
@@ -352,50 +330,72 @@ vi.mock('@brainstrike/db', () => ({
       update: updateMock,
     };
   }),
+  getDatabasePressureWaitingReason: vi.fn(() => null),
+  getDatabaseWorkScheduler: vi.fn(() => ({
+    getSnapshot: vi.fn(() => idleSchedulerSnapshot),
+    run: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  })),
+  invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityLocalMock,
+  JobQueue: vi.fn(function MockJobQueue() {
+    return {
+      clear: vi.fn(),
+      completeEmbeddingChunkBatch: completeEmbeddingChunkBatchMock,
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => []),
+      requeueFailed: vi.fn(),
+    };
+  }),
   usePGliteDatabase: () => dbState.current,
+  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS: {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  },
+  WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({
-    fileSystemAdapter: { readDirectory: vi.fn(), readFile: vi.fn() },
-  }),
   createFileContentProcessor: () => ({
     processFiles: processFilesMock,
+  }),
+  useAdapters: () => ({
+    fileSystemAdapter: { readDirectory: vi.fn(), readFile: vi.fn() },
   }),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  createFileExplorerRefreshEvent: (detail: unknown) =>
+    new CustomEvent('brainstrike:file-explorer-refreshed', { detail }),
+  FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
   useFileSystem: () => ({
     isAccessLoading: fileSystemState.isAccessLoading,
     rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
     rootDirectoryHandles: fileSystemState.rootDirectoryHandles,
     rootIdByPath: fileSystemState.rootIdByPath,
   }),
-  FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
-  createFileExplorerRefreshEvent: (detail: unknown) =>
-    new CustomEvent('brainstrike:file-explorer-refreshed', { detail }),
 }));
 
 vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => ({
+    dbRootIdByAdapterRootId: new Map<string, string>(),
     registerRoot: registerRootMock,
     resolveDbRootId: resolveDbRootIdMock,
-    dbRootIdByAdapterRootId: new Map<string, string>(),
   }),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
-  useOptionalFileTreeContext: () => fileTreeContextState.current,
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
+  useOptionalFileTreeContext: () => fileTreeContextState.current,
 }));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   useChunkingWorkerContext: () => ({
+    ensureStarted: ensureChunkingWorkerMock,
     port: {
       isReady: () => true,
       transportKind: 'local',
     },
-    ensureStarted: ensureChunkingWorkerMock,
   }),
 }));
 
@@ -413,34 +413,34 @@ vi.mock('@brainstrike/vector-management', () => ({
       ensureStarted: ensureEmbeddingRuntimeStartedMock,
       getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => ({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-host:test',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       })),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),
       reset: vi.fn(async () => ({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-host:test',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       })),
       start: vi.fn(async () => ({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-host:test',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       })),
       stop: vi.fn(async () => ({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:test',
-        state: 'stopped',
         active: false,
         lastError: null,
+        runtimeId: 'embedding-host:test',
+        runtimeKind: 'embedding-host',
+        state: 'stopped',
       })),
     },
     service: vectorQueueServiceState.current ?? null,
@@ -477,8 +477,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     __resetBackgroundWorkArbiterForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     dbState.current = {
-      query: vi.fn(async () => ({ rows: [] })),
       exec: vi.fn(async () => undefined),
+      query: vi.fn(async () => ({ rows: [] })),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     vectorQueueServiceState.current = {
@@ -487,20 +487,20 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: '00000000-0000-0000-0000-000000000101',
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
 
     const collection: EmbeddingSet = {
-      id: '00000000-0000-0000-0000-000000000101',
-      name: 'Managed Cache',
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
       dimensions: 1536,
       distance: 'cosine',
-      createdAt: new Date().toISOString(),
+      id: '00000000-0000-0000-0000-000000000101',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      name: 'Managed Cache',
       systemRole: 'workspace-index',
     };
 
@@ -511,26 +511,26 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
     ensureChunkingWorkerMock.mockResolvedValue({
-      isReady: () => true,
-      transportKind: 'host-proxy',
       chunkBatch: vi.fn(),
       chunkFile: vi.fn(),
+      isReady: () => true,
       terminate: vi.fn(),
+      transportKind: 'host-proxy',
     });
     ensureEmbeddingRuntimeStartedMock.mockResolvedValue({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:test',
-      state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:test',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
+        handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
         name: 'index.ts',
         path: '/workspace/root/src/index.ts',
-        type: 'file',
-        handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
         rootFolderId: '/workspace/root',
+        type: 'file',
       },
     ]);
     processFilesMock.mockResolvedValue({
@@ -539,10 +539,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
       await params.baseImportRunner({
-        selectedFilePaths: params.request.selectedFilePaths,
-        fileTree: params.request.fileTree,
         fileContents: params.request.fileContents,
+        fileTree: params.request.fileTree,
         onProgress: () => {},
+        selectedFilePaths: params.request.selectedFilePaths,
       });
       return [];
     });
@@ -581,10 +581,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     const importStarted = new Promise<void>((resolve) => {
       runEnhancedImportMock.mockImplementationOnce(async (params) => {
         await params.baseImportRunner({
-          selectedFilePaths: params.request.selectedFilePaths,
-          fileTree: params.request.fileTree,
           fileContents: params.request.fileContents,
+          fileTree: params.request.fileTree,
           onProgress: () => {},
+          selectedFilePaths: params.request.selectedFilePaths,
         });
         resolve();
         await new Promise<void>((finish) => {
@@ -812,21 +812,21 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('creates and syncs the default workspace index when fresh preferences have no managed collection', async () => {
     const workspaceIndex: EmbeddingSet = {
-      id: '00000000-0000-0000-0000-000000000202',
-      name: 'Workspace Index',
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
       dimensions: 1536,
       distance: 'cosine',
-      createdAt: new Date().toISOString(),
+      id: '00000000-0000-0000-0000-000000000202',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      name: 'Workspace Index',
       systemRole: 'workspace-index',
     };
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: false,
     });
     getOrCreateWorkspaceIndexSetMock.mockResolvedValueOnce(workspaceIndex);
@@ -865,21 +865,21 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('bootstraps when persist hydration completed but the store marker is stale', async () => {
     const workspaceIndex: EmbeddingSet = {
-      id: '00000000-0000-0000-0000-000000000252',
-      name: 'Workspace Index',
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
       dimensions: 1536,
       distance: 'cosine',
-      createdAt: new Date().toISOString(),
+      id: '00000000-0000-0000-0000-000000000252',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      name: 'Workspace Index',
       systemRole: 'workspace-index',
     };
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: false,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: false,
       paused: false,
     });
     const persistApi = (
@@ -912,21 +912,21 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('rehydrates its own background preferences before bootstrapping', async () => {
     const workspaceIndex: EmbeddingSet = {
-      id: '00000000-0000-0000-0000-000000000253',
-      name: 'Workspace Index',
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
       dimensions: 1536,
       distance: 'cosine',
-      createdAt: new Date().toISOString(),
+      id: '00000000-0000-0000-0000-000000000253',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      name: 'Workspace Index',
       systemRole: 'workspace-index',
     };
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: false,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: false,
       paused: false,
     });
     const persistApi = (
@@ -970,13 +970,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('dedupes workspace index bootstrap while collection creation is in flight', async () => {
     const workspaceIndex: EmbeddingSet = {
-      id: '00000000-0000-0000-0000-000000000202',
-      name: 'Workspace Index',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      createdAt: new Date().toISOString(),
       dimensions: 384,
       distance: 'cosine',
-      createdAt: new Date().toISOString(),
+      id: '00000000-0000-0000-0000-000000000202',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      name: 'Workspace Index',
       systemRole: 'workspace-index',
     };
     let resolveBootstrap: (collection: EmbeddingSet) => void;
@@ -985,10 +985,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     });
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: false,
     });
     getOrCreateWorkspaceIndexSetMock.mockReturnValue(bootstrapPromise);
@@ -1030,10 +1030,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('preserves manual pause while bootstrapping fresh workspace index preferences', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: true,
     });
 
@@ -1051,9 +1051,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'paused',
           managedCollectionId: '00000000-0000-0000-0000-000000000101',
           pauseReasons: ['Paused manually'],
+          state: 'paused',
         })
       )
     );
@@ -1170,15 +1170,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:file-explorer-refreshed', {
             detail: {
-              source: 'watcher',
-              scope: 'incremental',
               roots: [
                 {
+                  changes: [change],
                   rootId: 'root-b-id',
                   rootPath: '/workspace/root-b',
-                  changes: [change],
                 },
               ],
+              scope: 'incremental',
+              source: 'watcher',
             },
           })
         );
@@ -1193,8 +1193,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
             rootId: 'root-b-id',
           }),
           scope: {
-            mode: 'paths',
             changes: [change],
+            mode: 'paths',
           },
         })
       );
@@ -1250,7 +1250,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       act(() => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:file-explorer-refreshed', {
-            detail: { source: 'watcher', scope: 'incremental', roots: 'invalid' },
+            detail: { roots: 'invalid', scope: 'incremental', source: 'watcher' },
           })
         );
       });
@@ -1362,17 +1362,17 @@ describe('WorkspaceCollectionSyncProvider', () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:file-explorer-refreshed', {
             detail: {
-              source: 'watcher',
-              scope: 'incremental',
               roots: [
                 {
-                  rootId: 'removed-root-id',
-                  rootPath: '/workspace/removed',
                   changes: [
                     { kind: 'file', path: '/workspace/removed/src/index.ts', type: 'modified' },
                   ],
+                  rootId: 'removed-root-id',
+                  rootPath: '/workspace/removed',
                 },
               ],
+              scope: 'incremental',
+              source: 'watcher',
             },
           })
         );
@@ -1408,8 +1408,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'error',
             lastError: 'Synthetic sync failure',
+            state: 'error',
           })
         )
       );
@@ -1435,9 +1435,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'error',
             activeRootPath: null,
             lastError: 'Synthetic string sync failure',
+            state: 'error',
           })
         )
       );
@@ -1449,10 +1449,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('surfaces sync failures on the disabled-path sync branch as well', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: false,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
 
     const syncSpy = vi
@@ -1469,8 +1469,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'error',
             lastError: 'Synthetic disabled sync failure',
+            state: 'error',
           })
         )
       );
@@ -1482,10 +1482,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('stops and resets status when background indexing is disabled', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: false,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
 
     render(
@@ -1623,10 +1623,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('pauses background indexing when the shared background-work arbiter is paused', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: '00000000-0000-0000-0000-000000000101',
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: true,
     });
 
@@ -1639,8 +1639,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'paused',
           pauseReasons: ['Paused manually'],
+          state: 'paused',
         })
       )
     );
@@ -1659,8 +1659,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'paused',
             pauseReasons: ['Paused for local assistant'],
+            state: 'paused',
           })
         )
       );
@@ -1674,10 +1674,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     const release = await acquireBackgroundWorkPauseReason('local-llm');
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: '00000000-0000-0000-0000-000000000101',
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: true,
     });
 
@@ -1691,8 +1691,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'paused',
             pauseReasons: ['Paused manually', 'Paused for local assistant'],
+            state: 'paused',
           })
         )
       );
@@ -1704,10 +1704,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('clears the manual arbiter pause when the provider unmounts', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: '00000000-0000-0000-0000-000000000101',
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: true,
     });
 
@@ -1852,11 +1852,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
     resolveTreeRead([
       {
+        handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
         name: 'index.ts',
         path: '/workspace/root/src/index.ts',
-        type: 'file',
-        handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
         rootFolderId: '/workspace/root',
+        type: 'file',
       },
     ]);
 
@@ -1880,8 +1880,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'waiting',
           lastError: null,
+          state: 'waiting',
         })
       )
     );
@@ -1891,10 +1891,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     dbState.current = null;
     useBackgroundIndexingPreferencesStore.setState({
       enabled: false,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
     });
 
     render(
@@ -1906,8 +1906,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'disabled',
           lastError: null,
+          state: 'disabled',
         })
       )
     );
@@ -1973,8 +1973,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() =>
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
           expect.objectContaining({
-            state: 'error',
             lastError: 'Synthetic cancel failure',
+            state: 'error',
           })
         )
       );
@@ -1995,8 +1995,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
           lastError: 'Vector queue service is unavailable.',
+          state: 'error',
         })
       )
     );
@@ -2006,9 +2006,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
     const missingKeyMessage =
       'OpenAI API key not configured. Please add your API key (OPENAI_API_KEY) in Settings → Secrets or set the environment variable.';
     validateApiKeyForSetMock.mockResolvedValueOnce({
-      valid: false,
-      reason: 'missing-provider-key',
       message: missingKeyMessage,
+      reason: 'missing-provider-key',
+      valid: false,
     });
 
     render(
@@ -2020,9 +2020,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'blocked',
           blockedReason: 'missing-provider-key',
           lastError: missingKeyMessage,
+          state: 'blocked',
         })
       )
     );
@@ -2035,36 +2035,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
     const missingKeyMessage = 'OpenAI API key not configured.';
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      hasHydrated: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
-      hasHydrated: true,
       paused: false,
     });
     getOrCreateWorkspaceIndexSetMock.mockRejectedValueOnce(
       new WorkspaceIndexBlockedError('missing-provider-key', missingKeyMessage)
     );
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'importing',
-      managedCollectionId: '00000000-0000-0000-0000-000000000101',
-      managedCollectionName: 'Managed Cache',
       activeRootPath: '/workspace/root',
       backfillRequestId: 'background-indexing-backfill:stale',
-      currentFilePath: 'src/stale.ts',
-      queuedFiles: 12,
-      processedFiles: 4,
-      scanSummary: {
-        changedFiles: 8,
-        discoveredFiles: 20,
-        excludedEntries: 2,
-        unchangedFiles: 10,
-      },
-      importProgress: {
-        completed: 4,
-        current: 'src/stale.ts',
-        errorCount: 0,
-        total: 8,
-      },
       chunkingProgress: {
         chunksCreated: 14,
         currentFile: 'src/stale.ts',
@@ -2072,12 +2054,24 @@ describe('WorkspaceCollectionSyncProvider', () => {
         strategyUsed: 'markdown',
         totalFiles: 8,
       },
+      currentFilePath: 'src/stale.ts',
       embeddingProgress: {
         chunksProcessed: 2,
         currentChunk: 'stale chunk',
         modelName: 'text-embedding-3-small',
         totalChunks: 14,
       },
+      importProgress: {
+        completed: 4,
+        current: 'src/stale.ts',
+        errorCount: 0,
+        total: 8,
+      },
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      managedCollectionName: 'Managed Cache',
+      pauseReasons: ['Paused manually'],
+      processedFiles: 4,
+      queuedFiles: 12,
       queueProgress: {
         failed: 0,
         lastError: null,
@@ -2086,7 +2080,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
         processed: 2,
         totalQueued: 14,
       },
-      pauseReasons: ['Paused manually'],
+      scanSummary: {
+        changedFiles: 8,
+        discoveredFiles: 20,
+        excludedEntries: 2,
+        unchangedFiles: 10,
+      },
+      state: 'importing',
     });
 
     render(
@@ -2098,19 +2098,19 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'blocked',
-          blockedReason: 'missing-provider-key',
-          lastError: missingKeyMessage,
           backfillRequestId: null,
-          currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
-          scanSummary: null,
-          importProgress: null,
+          blockedReason: 'missing-provider-key',
           chunkingProgress: null,
+          currentFilePath: null,
           embeddingProgress: null,
-          queueProgress: null,
+          importProgress: null,
+          lastError: missingKeyMessage,
           pauseReasons: [],
+          processedFiles: 0,
+          queuedFiles: 0,
+          queueProgress: null,
+          scanSummary: null,
+          state: 'blocked',
         })
       )
     );
@@ -2118,9 +2118,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('uses the typed missing-provider-key reason instead of parsing validation prose', async () => {
     validateApiKeyForSetMock.mockResolvedValueOnce({
-      valid: false,
-      reason: 'missing-provider-key',
       message: 'Provider credentials unavailable.',
+      reason: 'missing-provider-key',
+      valid: false,
     });
 
     render(
@@ -2132,9 +2132,9 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'blocked',
           blockedReason: 'missing-provider-key',
           lastError: 'Provider credentials unavailable.',
+          state: 'blocked',
         })
       )
     );
@@ -2145,11 +2145,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('fails visibly when the shared embedding runtime cannot start', async () => {
     ensureEmbeddingRuntimeStartedMock.mockResolvedValueOnce({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:test',
-      state: 'error',
       active: false,
       lastError: 'Embedding runtime boot failed.',
+      runtimeId: 'embedding-host:test',
+      runtimeKind: 'embedding-host',
+      state: 'error',
     });
 
     render(
@@ -2161,8 +2161,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
           lastError: 'Embedding runtime boot failed.',
+          state: 'error',
         })
       )
     );
@@ -2170,11 +2170,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('falls back to the default runtime error message when startup fails without details', async () => {
     ensureEmbeddingRuntimeStartedMock.mockResolvedValueOnce({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:test',
-      state: 'error',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:test',
+      runtimeKind: 'embedding-host',
+      state: 'error',
     });
 
     render(
@@ -2186,8 +2186,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
         expect.objectContaining({
-          state: 'error',
           lastError: 'Embedding runtime is unavailable.',
+          state: 'error',
         })
       )
     );
@@ -2227,7 +2227,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
           await firstSyncDone;
         }
         callOrder.push(`end:${path}`);
-        return;
       });
 
     try {
@@ -2402,8 +2401,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
           firstSyncStarted();
           await neverResolvePromise;
         }
-        // All subsequent calls resolve immediately.
-        return;
       });
 
     try {
@@ -2652,8 +2649,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
 
       expect(syncSpy.mock.calls[0]?.[0]).toMatchObject({
-        rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
         managedCollectionId: '00000000-0000-0000-0000-000000000101',
+        rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
       });
     } finally {
       syncSpy.mockRestore();
@@ -2766,6 +2763,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   function mockIndexedCoverage(countsByDbRootId: Record<string, number>): void {
     dbState.current = {
+      exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
         if (typeof sql === 'string' && sql.includes('FROM file_records')) {
           return {
@@ -2777,7 +2775,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }
         return { rows: [] };
       }),
-      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
   }
@@ -2969,15 +2966,16 @@ describe('WorkspaceCollectionSyncProvider', () => {
       const rootPath = (handle as { path: string }).path;
       return [
         {
+          handle: { path: `${rootPath}/index.ts`, platform: 'electron' },
           name: 'index.ts',
           path: `${rootPath}/index.ts`,
-          type: 'file',
-          handle: { platform: 'electron', path: `${rootPath}/index.ts` },
           rootFolderId: rootPath,
+          type: 'file',
         },
       ];
     });
     dbState.current = {
+      exec: vi.fn(async () => undefined),
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM file_records')) {
           return {
@@ -2986,7 +2984,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         }
         return { rows: [] };
       }),
-      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi
@@ -3005,21 +3002,21 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       act(() => {
         useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-          state: 'idle',
-          managedCollectionId: '00000000-0000-0000-0000-000000000101',
-          managedCollectionName: 'Managed Cache',
           activeRootPath: rootB.path,
           currentFilePath: null,
           lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
           processedFiles: 2,
           queuedFiles: 0,
+          state: 'idle',
         });
       });
 
       await waitFor(() => {
         expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-          state: 'waiting',
           activeRootPath: rootB.path,
+          state: 'waiting',
         });
       });
       expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(rootB.path);
@@ -3058,11 +3055,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
       return [
         {
+          handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
           name: 'index.ts',
           path: '/workspace/root/src/index.ts',
-          type: 'file',
-          handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
           rootFolderId: '/workspace/root',
+          type: 'file',
         },
       ];
     });

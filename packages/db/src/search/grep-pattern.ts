@@ -189,7 +189,7 @@ export function extractTrigramLiteral(source: string): string | null {
     return null;
   }
 
-  const state: ScanState = { runs: [], current: '' };
+  const state: ScanState = { current: '', runs: [] };
   let i = 0;
   while (i < source.length) {
     i = processToken(source, i, state);

@@ -108,9 +108,9 @@ interface MetricSamples {
 
 function createEmptyQueues(): Record<DatabaseWorkPriority, QueuedTask[]> {
   return {
+    background: [],
     foreground: [],
     normal: [],
-    background: [],
   };
 }
 
@@ -118,9 +118,9 @@ function createQueuedCounts(
   queues: Record<DatabaseWorkPriority, readonly QueuedTask[]>
 ): Record<DatabaseWorkPriority, number> {
   return {
+    background: queues.background.length,
     foreground: queues.foreground.length,
     normal: queues.normal.length,
-    background: queues.background.length,
   };
 }
 
@@ -128,9 +128,9 @@ function createQueuedLabels(
   queues: Record<DatabaseWorkPriority, readonly QueuedTask[]>
 ): Record<DatabaseWorkPriority, readonly (string | null)[]> {
   return {
+    background: queues.background.map((task) => task.label),
     foreground: queues.foreground.map((task) => task.label),
     normal: queues.normal.map((task) => task.label),
-    background: queues.background.map((task) => task.label),
   };
 }
 
@@ -150,9 +150,9 @@ function createEmptyPriorityStats(): Record<DatabaseWorkPriority, DatabaseWorkPr
     waitP95Ms: 0,
   });
   return {
+    background: emptyStats(),
     foreground: emptyStats(),
     normal: emptyStats(),
-    background: emptyStats(),
   };
 }
 
@@ -160,9 +160,9 @@ function clonePriorityStats(
   stats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>
 ): Record<DatabaseWorkPriority, DatabaseWorkPriorityStats> {
   return {
+    background: { ...stats.background },
     foreground: { ...stats.foreground },
     normal: { ...stats.normal },
-    background: { ...stats.background },
   };
 }
 
@@ -176,9 +176,9 @@ function createEmptyMetricWindow(): MetricSamples {
 
 function createEmptyMetricSamples(): Record<DatabaseWorkPriority, MetricSamples> {
   return {
+    background: createEmptyMetricWindow(),
     foreground: createEmptyMetricWindow(),
     normal: createEmptyMetricWindow(),
-    background: createEmptyMetricWindow(),
   };
 }
 
@@ -695,7 +695,7 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         return async (...args: unknown[]) =>
           await scheduler.run(
             async () => await Reflect.apply(refresh as CallableUnknown, target, args),
-            { priority: refreshPriority, label: 'live query refresh' }
+            { label: 'live query refresh', priority: refreshPriority }
           );
       }
       return Reflect.get(target, property, receiver);
@@ -729,7 +729,7 @@ function createScheduledLiveNamespace<TLive extends object>(
                 ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
                 : handle;
             },
-            { priority: liveQueryPriority, label }
+            { label, priority: liveQueryPriority }
           );
       }
       return Reflect.get(target, property, receiver);
@@ -862,7 +862,7 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
           async () => {
             await Reflect.apply(baseSyncToFs as CallableUnknown, db, []);
           },
-          { priority: defaultPriority, label: 'syncToFs' }
+          { label: 'syncToFs', priority: defaultPriority }
         );
       }
     : undefined;
@@ -875,7 +875,7 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
             await Reflect.apply(baseTransaction as CallableUnknown, db, [
               async (tx: ScheduledDbHandle) => await fn(tx),
             ]),
-          { priority: defaultPriority, label: 'transaction' }
+          { label: 'transaction', priority: defaultPriority }
         )) as T
     : undefined;
 

@@ -466,7 +466,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   }
 
   override async deleteVector({ indexName, id }: DeleteVectorParams): Promise<void> {
-    await this.deleteVectors({ indexName, ids: [id] });
+    await this.deleteVectors({ ids: [id], indexName });
   }
 
   override async deleteVectors({

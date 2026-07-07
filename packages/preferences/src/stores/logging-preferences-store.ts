@@ -29,9 +29,9 @@ interface LoggingPreferencesState {
 const STORE_NAME = 'logging-preferences.v1' as const;
 
 const DEFAULT_PREFERENCES = createDefaultLoggingPreferences({
-  level: LogLevel.INFO,
   consoleLevel: LogLevel.INFO,
   includeTimestamp: false,
+  level: LogLevel.INFO,
 });
 
 function mergeLoggingPreferences(
@@ -59,11 +59,19 @@ const storage = createJSONStorage(() => createBrowserJsonStorage());
 export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
   persist(
     (set, get) => ({
-      preferences: DEFAULT_PREFERENCES,
       hasHydrated: false,
 
+      markHydrated: () => {
+        set({ hasHydrated: true });
+      },
+      preferences: DEFAULT_PREFERENCES,
+
+      resetPreferences: () => {
+        set({ hasHydrated: true, preferences: DEFAULT_PREFERENCES });
+      },
+
       setPreferences: (preferences) => {
-        set({ preferences, hasHydrated: true });
+        set({ hasHydrated: true, preferences });
       },
 
       updatePreferences: (updates) => {
@@ -71,27 +79,19 @@ export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
         const merged = mergeLoggingPreferences(current, updates);
         set({ preferences: merged });
       },
-
-      resetPreferences: () => {
-        set({ preferences: DEFAULT_PREFERENCES, hasHydrated: true });
-      },
-
-      markHydrated: () => {
-        set({ hasHydrated: true });
-      },
     }),
     {
       name: STORE_NAME,
-      version: 1,
-      storage,
-      partialize: (state) => ({
-        preferences: state.preferences,
-      }),
       onRehydrateStorage: () => (_state, error) => {
         if (!error) {
           useLoggingPreferencesStore.setState({ hasHydrated: true });
         }
       },
+      partialize: (state) => ({
+        preferences: state.preferences,
+      }),
+      storage,
+      version: 1,
     }
   )
 );
@@ -99,8 +99,8 @@ export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
 export function __resetLoggingPreferencesStoreForTests() {
   try {
     useLoggingPreferencesStore.setState({
-      preferences: DEFAULT_PREFERENCES,
       hasHydrated: false,
+      preferences: DEFAULT_PREFERENCES,
     });
     const persistApi = (
       useLoggingPreferencesStore as unknown as {

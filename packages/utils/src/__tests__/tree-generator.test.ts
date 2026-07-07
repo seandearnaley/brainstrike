@@ -5,47 +5,47 @@ import { calculatePathDepth } from '../path-utils';
 import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
-  kind: 'file',
-  name: '',
-  getFile: async () => new File([], ''),
-  isSameEntry: async () => true,
   createWritable: async () => {
     throw new Error('Not implemented in tests');
   },
+  getFile: async () => new File([], ''),
+  isSameEntry: async () => true,
+  kind: 'file',
+  name: '',
 });
 
 const createMockDirectoryHandle = (name: string): FileSystemDirectoryHandle =>
   ({
-    kind: 'directory' as const,
-    name,
+    async *entries() {},
     getDirectoryHandle: async () => ({}) as unknown as FileSystemDirectoryHandle,
     getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
+    isSameEntry: async () => true,
+    kind: 'directory' as const,
+    name,
     removeEntry: async () => {},
     resolve: async () => [],
-    async *entries() {},
-    isSameEntry: async () => true,
   }) as unknown as FileSystemDirectoryHandle;
 
 const createMockFile = (path: string, name: string): IFileNode => ({
-  path,
-  name,
-  type: 'file',
-  handle: createMockFileHandle(),
-  depth: calculatePathDepth(path),
-  selectionState: 'unchecked',
   children: [],
+  depth: calculatePathDepth(path),
+  handle: createMockFileHandle(),
+  name,
+  path,
   rootFolderId: 'test-folder',
+  selectionState: 'unchecked',
+  type: 'file',
 });
 
 const createMockDir = (path: string, name: string): IFileNode => ({
-  path,
-  name,
-  type: 'directory',
-  handle: createMockDirectoryHandle(name),
-  depth: calculatePathDepth(path),
-  selectionState: 'unchecked',
   children: [],
+  depth: calculatePathDepth(path),
+  handle: createMockDirectoryHandle(name),
+  name,
+  path,
   rootFolderId: 'test-folder',
+  selectionState: 'unchecked',
+  type: 'directory',
 });
 
 describe('generateProjectTreeText', () => {

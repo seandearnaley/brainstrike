@@ -514,20 +514,20 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
 
   // Actions
   const actions: KeyboardNavigationActions = {
-    moveUp,
-    moveDown,
-    expandOrMoveRight,
     collapseOrMoveLeft,
-    selectFocused,
-    toggleFocused,
-    setFocus,
+    expandOrMoveRight,
+    moveDown,
+    moveUp,
     reset,
+    selectFocused,
+    setFocus,
+    toggleFocused,
   };
 
   return {
-    state,
     actions,
     onKeyDown,
+    state,
   };
 }
 

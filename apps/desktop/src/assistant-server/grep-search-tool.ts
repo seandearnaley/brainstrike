@@ -187,14 +187,14 @@ function mergeGrepMatches(
   const totalMatches = indexResult.totalMatches + liveOnlyAdded;
 
   return {
+    candidatesTruncated: indexResult.candidatesTruncated,
+    liveEngine: liveResult.engine,
     matches,
+    scanLimited: indexResult.scanLimited,
+    skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
     totalMatches,
     // Truncated when EITHER pass was truncated (the index cap, or the live caps).
     truncated: indexResult.truncated || liveResult.truncated,
-    candidatesTruncated: indexResult.candidatesTruncated,
-    scanLimited: indexResult.scanLimited,
-    skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
-    liveEngine: liveResult.engine,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
 }
@@ -217,9 +217,9 @@ function aggregateFileSummaries(matches: readonly LabeledGrepMatch[]): GrepFileS
       existing.source = mergeSource(existing.source, match.source);
     } else {
       byKey.set(key, {
-        path: match.path,
-        matchCount: 1,
         firstLine: match.line,
+        matchCount: 1,
+        path: match.path,
         source: match.source,
         ...(match.rootId === undefined ? {} : { rootId: match.rootId }),
         ...(match.rootName === undefined ? {} : { rootName: match.rootName }),
@@ -255,15 +255,15 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
           'filePaths set to the most relevant paths to see the matching lines.'
         : undefined;
     return {
-      outputMode: 'files',
+      candidatesTruncated: mergedResult.candidatesTruncated,
       files,
+      liveEngine: mergedResult.liveEngine,
+      offset,
+      outputMode: 'files',
+      scanLimited: mergedResult.scanLimited,
       totalFiles: allFiles.length,
       totalMatches: mergedResult.totalMatches,
-      offset,
       truncated,
-      candidatesTruncated: mergedResult.candidatesTruncated,
-      scanLimited: mergedResult.scanLimited,
-      liveEngine: mergedResult.liveEngine,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -325,15 +325,15 @@ function buildContentResult(
       serviceCap
     );
     return {
-      outputMode: 'content',
-      matches,
-      totalMatches: mergedResult.totalMatches,
-      offset,
-      truncated,
       candidatesTruncated: mergedResult.candidatesTruncated,
+      liveEngine: mergedResult.liveEngine,
+      matches,
+      offset,
+      outputMode: 'content',
       scanLimited: mergedResult.scanLimited,
       skippedMissingLineMetadata: mergedResult.skippedMissingLineMetadata,
-      liveEngine: mergedResult.liveEngine,
+      totalMatches: mergedResult.totalMatches,
+      truncated,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -359,10 +359,10 @@ async function runLiveGrepSafely(args: {
   try {
     return await runLiveGrep(
       {
-        pattern: args.pattern,
-        isRegex: args.isRegex,
         caseSensitive: args.caseSensitive,
         contextLines: args.contextLines,
+        isRegex: args.isRegex,
+        pattern: args.pattern,
         roots: args.roots,
         ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
       },
@@ -371,10 +371,10 @@ async function runLiveGrepSafely(args: {
   } catch (error) {
     logger.error('live grep pass threw unexpectedly; returning index-only results', { error });
     return {
-      matches: [],
       engine: 'skipped',
-      truncated: false,
+      matches: [],
       note: 'The live (on-disk) pass could not run this call, so results reflect the index only (which may be stale after recent edits).',
+      truncated: false,
     };
   }
 }
@@ -462,19 +462,19 @@ export async function runGrepSearch(
 
   try {
     const serviceResult = await runIndexSearch({
-      service,
-      input,
       contextLines,
-      serviceMaxResults,
       embeddingSetId,
+      input,
       rootId,
+      service,
+      serviceMaxResults,
     });
 
     const liveResult = await runLiveGrepSafely({
-      pattern: input.pattern,
-      isRegex,
       caseSensitive,
       contextLines,
+      isRegex,
+      pattern: input.pattern,
       roots: liveRoots,
       ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
       matcher: liveMatcher,

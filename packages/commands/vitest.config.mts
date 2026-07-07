@@ -3,12 +3,6 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'happy-dom',
-    include: ['src/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-  },
   resolve: {
     // Resolve the workspace dep to its source so tests don't require a built
     // dist (mirrors the alias pattern used across the monorepo's vitest setups).
@@ -18,5 +12,11 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
     ],
+  },
+  test: {
+    environment: 'happy-dom',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    include: ['src/__tests__/**/*.test.{ts,tsx}'],
   },
 });

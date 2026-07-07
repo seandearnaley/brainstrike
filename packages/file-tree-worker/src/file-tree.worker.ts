@@ -26,9 +26,9 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 // Log level priority (higher = more severe)
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
+  error: 3,
   info: 1,
   warn: 2,
-  error: 3,
 };
 
 // Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
@@ -44,8 +44,8 @@ function postLog(level: LogLevel, message: string, data?: Record<string, unknown
   }
   try {
     const payload: WorkerToMainMessage = data
-      ? { type: 'log', level, message, data }
-      : { type: 'log', level, message };
+      ? { data, level, message, type: 'log' }
+      : { level, message, type: 'log' };
     self.postMessage(payload);
   } catch {
     // Ignore structured-clone errors
@@ -65,15 +65,15 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 
 function handleGlobalError(event: ErrorEvent): void {
   log('error', 'global error event', {
-    type: event.type,
-    message: event.message,
+    colno: event.colno,
     filename: event.filename,
     lineno: event.lineno,
-    colno: event.colno,
+    message: event.message,
+    type: event.type,
   });
   self.postMessage({
-    type: 'error',
     payload: { message: `global error: ${event.message ?? 'unknown'}` },
+    type: 'error',
   } satisfies WorkerToMainMessage);
 }
 
@@ -81,8 +81,8 @@ function handleUnhandledRejection(event: PromiseRejectionEvent): void {
   const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
   log('error', 'unhandledrejection', { reason: message });
   self.postMessage({
-    type: 'error',
     payload: { message: `unhandledrejection: ${message}` },
+    type: 'error',
   } satisfies WorkerToMainMessage);
 }
 
@@ -113,15 +113,15 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
       case 'init': {
         const { rootNodes, folderId } = message.payload;
         engine.setTree(rootNodes, folderId);
-        log('info', 'tree initialized', { nodeCount: rootNodes.length, folderId });
+        log('info', 'tree initialized', { folderId, nodeCount: rootNodes.length });
 
         // Send initial snapshot
         self.postMessage({
-          type: 'treeSnapshot',
           payload: {
-            tree: engine.getTree(),
             expandedPaths: collectExpandedPaths(engine.getTree()),
+            tree: engine.getTree(),
           },
+          type: 'treeSnapshot',
         } satisfies WorkerToMainMessage);
         break;
       }
@@ -136,7 +136,7 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
       case 'loadError': {
         const { path, error, requestId } = message.payload;
         engine.handleLoadError(path, error, requestId);
-        log('warn', 'load error processed', { path, error });
+        log('warn', 'load error processed', { error, path });
         break;
       }
 
@@ -194,17 +194,17 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
       default: {
         log('warn', 'unknown message type', { type: messageType });
         self.postMessage({
-          type: 'error',
           payload: { message: `Unknown message type: ${String(messageType)}` },
+          type: 'error',
         } satisfies WorkerToMainMessage);
       }
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log('error', 'onmessage handler failed', { type: messageType, error: errorMessage });
+    log('error', 'onmessage handler failed', { error: errorMessage, type: messageType });
     self.postMessage({
-      type: 'error',
       payload: { message: errorMessage },
+      type: 'error',
     } satisfies WorkerToMainMessage);
   }
 };

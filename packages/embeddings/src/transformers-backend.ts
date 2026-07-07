@@ -268,17 +268,17 @@ export class TransformersBackend {
     }
 
     onProgress?.({
-      stage: 'processing',
-      progress: 10,
       message: 'Preparing embedding runtime...',
+      progress: 10,
+      stage: 'processing',
     });
     this._queue = await getBrowserQueue();
     this._useWorkerQueue = true;
     this._isInitialized = true;
     onProgress?.({
-      stage: 'ready',
-      progress: 100,
       message: 'Model ready!',
+      progress: 100,
+      stage: 'ready',
     });
   }
 
@@ -324,15 +324,15 @@ export class TransformersBackend {
             const results = event.vectors.map((vector) => {
               const embedding = Array.from(vector) as number[];
               return {
-                embedding,
                 dimensions: embedding.length,
+                embedding,
                 model: modelId,
               };
             });
             await onBatch({
-              startIndex: event.startIndex,
               endIndex: event.endIndex,
               results,
+              startIndex: event.startIndex,
             });
           },
         }
@@ -346,9 +346,9 @@ export class TransformersBackend {
       };
     } catch (error) {
       logger.debug('Embedding worker streaming failed', {
-        modelId,
-        error,
         batchSize: texts.length,
+        error,
+        modelId,
       });
       throw error;
     }
@@ -387,8 +387,8 @@ export class TransformersBackend {
       return response.vectors.map((vector) => {
         const embedding = Array.from(vector) as number[];
         return {
-          embedding,
           dimensions: response.metadata.dimensions ?? embedding.length,
+          embedding,
           model: modelId,
           runtime: {
             device: response.metadata.device,
@@ -399,9 +399,9 @@ export class TransformersBackend {
       });
     } catch (error) {
       logger.error('Embedding worker queue failed', {
-        modelId,
-        error,
         batchSize: texts.length,
+        error,
+        modelId,
       });
       throw error;
     }
@@ -438,16 +438,16 @@ export class TransformersBackend {
   private createWorkerRequest(texts: string[], modelId: string, streamBatchSize?: number) {
     const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
     return {
-      kind: 'embed' as const,
-      type: 'embed' as const,
       id: this.createTaskId(),
+      kind: 'embed' as const,
       model: modelId,
       texts,
+      type: 'embed' as const,
       ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
-      targetDimension,
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
       maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length, streamBatchSize),
+      targetDimension,
     };
   }
 

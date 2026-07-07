@@ -9,42 +9,42 @@ import type { FileTapestry, TapestryRange } from '../types';
 const buildFile = (index: number): FileTapestry => {
   const totalLines = 100;
   const range: TapestryRange = {
-    id: `range-${index}-0`,
-    startLine: 10,
-    endLine: 20,
-    isActive: true,
     color: '#ff0000',
+    endLine: 20,
+    id: `range-${index}-0`,
+    isActive: true,
+    startLine: 10,
   };
 
   return {
-    id: `file-${index}`,
     compositeKey: `file-${index}`,
-    rootFolderId: 'root',
-    path: `/src/file-${index}.ts`,
-    name: `file-${index}.ts`,
-    language: 'ts',
-    type: 'TS',
-    size: 5120,
-    tokens: 1500,
-    totalLines,
-    structure: Array.from({ length: totalLines }).map((_, j) => ({
-      indent: 0,
-      width: 50,
-      isEmpty: j === 50,
-    })),
     content: Array.from({ length: totalLines }).map((_, j) => `line ${j}`),
     contentStatus: 'ready',
+    id: `file-${index}`,
+    language: 'ts',
+    name: `file-${index}.ts`,
+    path: `/src/file-${index}.ts`,
+    rootFolderId: 'root',
     selections: [range],
+    size: 5120,
+    structure: Array.from({ length: totalLines }).map((_, j) => ({
+      indent: 0,
+      isEmpty: j === 50,
+      width: 50,
+    })),
+    tokens: 1500,
+    totalLines,
+    type: 'TS',
   };
 };
 
 const buildTableRows = (files: FileTapestry[]): TableRowData[] =>
   files.map((file) => {
     const row: TableRowData = {
-      id: file.id,
       compositeKey: file.compositeKey,
-      rootFolderId: file.rootFolderId,
+      id: file.id,
       path: file.path,
+      rootFolderId: file.rootFolderId,
       type: file.type,
     };
     if (file.tokens !== undefined) {
@@ -77,11 +77,11 @@ function renderTapestryView(overrides: Partial<ComponentProps<typeof TapestryVie
     onToggleSelection: vi.fn(),
     pagination: {
       currentPage: 0,
-      totalPages: 1,
-      totalItems: files.length,
       onPageChange: vi.fn(),
       pageInfo: '1-2 of 2',
       pageSize: 25,
+      totalItems: files.length,
+      totalPages: 1,
     },
     previewSelections: new Set<string>(),
     showSelectionControls: true,
@@ -124,18 +124,18 @@ const TapestryHarness = memo(
           const baseRange =
             file.selections[0] ??
             ({
-              id: `range-${file.id}-reset`,
-              startLine: 0,
-              endLine: file.totalLines,
-              isActive: true,
               color: '#ff0000',
+              endLine: file.totalLines,
+              id: `range-${file.id}-reset`,
+              isActive: true,
+              startLine: 0,
             } satisfies TapestryRange);
           const resetRange: TapestryRange = {
-            id: baseRange.id,
-            startLine: 0,
-            endLine: file.totalLines,
-            isActive: baseRange.isActive,
             color: baseRange.color,
+            endLine: file.totalLines,
+            id: baseRange.id,
+            isActive: baseRange.isActive,
+            startLine: 0,
           };
           return { ...file, selections: [resetRange] };
         })
@@ -158,9 +158,9 @@ const TapestryHarness = memo(
     const pagination = useMemo(
       () => ({
         currentPage: 0,
-        totalPages: 1,
-        totalItems: files.length,
         onPageChange: vi.fn(),
+        totalItems: files.length,
+        totalPages: 1,
       }),
       [files.length]
     );
@@ -302,7 +302,7 @@ describe('TapestryView', () => {
     }
 
     await act(async () => {
-      fireEvent.pointerDown(range, { clientY: 100, button: 0, pointerId: 1 });
+      fireEvent.pointerDown(range, { button: 0, clientY: 100, pointerId: 1 });
     });
 
     await act(async () => {
@@ -371,15 +371,15 @@ describe('TapestryView', () => {
     await act(async () => {
       const container = minimapBg.parentElement as HTMLElement;
       vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
-        top: 0,
-        left: 0,
         bottom: 400,
-        right: 200,
-        width: 200,
         height: 400,
+        left: 0,
+        right: 200,
+        toJSON: () => {},
+        top: 0,
+        width: 200,
         x: 0,
         y: 0,
-        toJSON: () => {},
       } as DOMRect);
 
       fireEvent.pointerDown(minimapBg, { clientY: 200, pointerId: 1 });
@@ -415,15 +415,15 @@ describe('TapestryView', () => {
     await act(async () => {
       const container = minimapBg.parentElement as HTMLElement;
       vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
-        top: 0,
-        left: 0,
         bottom: 400,
-        right: 200,
-        width: 200,
         height: 400,
+        left: 0,
+        right: 200,
+        toJSON: () => {},
+        top: 0,
+        width: 200,
         x: 0,
         y: 0,
-        toJSON: () => {},
       } as DOMRect);
 
       fireEvent.pointerDown(minimapBg, { clientY: 60, pointerId: 1 });
@@ -514,9 +514,9 @@ describe('TapestryView', () => {
         onToggleSelection={vi.fn()}
         pagination={{
           currentPage: 0,
-          totalPages: 1,
-          totalItems: files.length,
           onPageChange: vi.fn(),
+          totalItems: files.length,
+          totalPages: 1,
         }}
         previewSelections={new Set(tableRows.map((row) => row.compositeKey))}
         showSelectionControls={true}

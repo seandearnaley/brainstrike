@@ -25,7 +25,7 @@ interface DurableEmbeddingJobEnqueueParams {
 }
 
 export interface DurableEmbeddingJobQueue {
-  enqueueBatch(params: DurableEmbeddingJobEnqueueParams[]): Promise<unknown>;
+  enqueueBatch: (params: DurableEmbeddingJobEnqueueParams[]) => Promise<unknown>;
 }
 
 export interface EmbeddingJobQueuePortConfig<TTransaction = unknown> {
@@ -108,18 +108,18 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
         const embeddingSetId = resolveEmbeddingSetId(chunk, options);
 
         enqueueParams.push({
-          queue: 'embeddings',
+          dedupeKey: buildPersistedChunkDedupeKey(chunkId, embeddingSetId, contentHash),
           jobType: 'embed_chunk',
           payload: {
             chunkId,
-            fileRecordId,
+            dimensionParameter,
             embeddingSetId,
             expectedDimension,
+            fileRecordId,
             modelKey,
             provider,
-            dimensionParameter,
           },
-          dedupeKey: buildPersistedChunkDedupeKey(chunkId, embeddingSetId, contentHash),
+          queue: 'embeddings',
         });
       }
 

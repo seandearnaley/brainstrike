@@ -23,7 +23,7 @@ describe('merge-coverage script', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { force: true, recursive: true });
   });
 
   it('merges coverage files when quiet', () => {

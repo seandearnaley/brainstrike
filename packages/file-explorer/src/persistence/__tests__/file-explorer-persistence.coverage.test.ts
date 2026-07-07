@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockLogger = vi.hoisted(() => ({
   debug: vi.fn(),
-  warn: vi.fn(),
   error: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -50,23 +50,23 @@ describe('file-explorer-persistence coverage', () => {
   it('migrates the legacy localStorage key and logs in dev browser mode', async () => {
     const values = new Map<string, string>([['fileExplorerSettings', '{"legacy":true}']]);
     (globalThis as Record<string, unknown>).localStorage = {
-      getItem: vi.fn((key: string) => values.get(key) ?? null),
-      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
-      removeItem: vi.fn((key: string) => values.delete(key)),
       clear: vi.fn(),
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
       key: vi.fn(),
       length: 0,
+      removeItem: vi.fn((key: string) => values.delete(key)),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
     };
     vi.stubEnv('NODE_ENV', 'development');
 
     await withClearedTestMarkers(async () => {
       const mod = await import('../file-explorer-persistence');
       mod.createPersistOptions({
-        getItem: async () => null,
-        setItem: async () => {},
-        removeItem: async () => {},
         clear: async () => {},
         getAllKeys: async () => [],
+        getItem: async () => null,
+        removeItem: async () => {},
+        setItem: async () => {},
       });
     });
 
@@ -79,25 +79,25 @@ describe('file-explorer-persistence coverage', () => {
 
   it('logs a warning when legacy key migration hits a localStorage error', async () => {
     (globalThis as Record<string, unknown>).localStorage = {
+      clear: vi.fn(),
       getItem: vi.fn(() => {
         throw new Error('localStorage blocked');
       }),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-      clear: vi.fn(),
       key: vi.fn(),
       length: 0,
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     };
     vi.stubEnv('NODE_ENV', 'development');
 
     await withClearedTestMarkers(async () => {
       const mod = await import('../file-explorer-persistence');
       mod.createPersistOptions({
-        getItem: async () => null,
-        setItem: async () => {},
-        removeItem: async () => {},
         clear: async () => {},
         getAllKeys: async () => [],
+        getItem: async () => null,
+        removeItem: async () => {},
+        setItem: async () => {},
       });
     });
 
@@ -110,19 +110,19 @@ describe('file-explorer-persistence coverage', () => {
   it('logs rehydrate success and failure in dev browser mode', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     const hydratedState = {
-      folderStates: { a: {}, b: {} },
-      folderAccessOrder: [],
       currentFolderId: 'folder-1',
+      folderAccessOrder: [],
+      folderStates: { a: {}, b: {} },
     } as unknown as FileExplorerState;
 
     await withClearedTestMarkers(async () => {
       const mod = await import('../file-explorer-persistence');
       const persistOptions = mod.createPersistOptions({
-        getItem: async () => null,
-        setItem: async () => {},
-        removeItem: async () => {},
         clear: async () => {},
         getAllKeys: async () => [],
+        getItem: async () => null,
+        removeItem: async () => {},
+        setItem: async () => {},
       });
       const callback = persistOptions.onRehydrateStorage?.();
       callback?.(hydratedState, undefined);
@@ -147,11 +147,11 @@ describe('file-explorer-persistence coverage', () => {
     await withClearedTestMarkers(async () => {
       const mod = await import('../file-explorer-persistence');
       const persistOptions = mod.createPersistOptions({
-        getItem: async () => null,
-        setItem: async () => {},
-        removeItem: async () => {},
         clear: async () => {},
         getAllKeys: async () => [],
+        getItem: async () => null,
+        removeItem: async () => {},
+        setItem: async () => {},
       });
       const callback = persistOptions.onRehydrateStorage?.();
       callback?.(
@@ -171,18 +171,18 @@ describe('file-explorer-persistence coverage', () => {
     await withClearedTestMarkers(async () => {
       const mod = await import('../file-explorer-persistence');
       const persistOptions = mod.createPersistOptions({
-        getItem: async () => null,
-        setItem: async () => {},
-        removeItem: async () => {},
         clear: async () => {},
         getAllKeys: async () => [],
+        getItem: async () => null,
+        removeItem: async () => {},
+        setItem: async () => {},
       });
       const callback = persistOptions.onRehydrateStorage?.();
       callback?.(
         {
-          folderStates: {},
-          folderAccessOrder: [],
           currentFolderId: null,
+          folderAccessOrder: [],
+          folderStates: {},
         } as unknown as FileExplorerState,
         undefined
       );

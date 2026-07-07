@@ -28,7 +28,6 @@ export type {
  */
 export function l2Normalize(vector: Float32Array, destination?: Float32Array): Float32Array {
   let sum = 0;
-  // biome-ignore lint/style/useForOf: Index-based loop needed for Float32Array performance
   for (let index = 0; index < vector.length; index += 1) {
     const value = vector[index] ?? 0;
     sum += value * value;

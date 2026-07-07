@@ -107,9 +107,9 @@ describe('assistant-stream-helpers', () => {
 
   it('sends assistant status payload', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: false,
       apiKey: '',
       disabledReason: 'missing_api_key',
+      enabled: false,
     });
 
     const res = new ResponseSink();
@@ -122,9 +122,9 @@ describe('assistant-stream-helpers', () => {
 
   it('handles chat endpoint when provider disabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: false,
       apiKey: '',
       disabledReason: 'missing_api_key',
+      enabled: false,
     });
 
     const res = new ResponseSink();
@@ -136,7 +136,7 @@ describe('assistant-stream-helpers', () => {
 
   it('streams assistant response using existing session', async () => {
     const response = new Response('resume');
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     vi.mocked(resolveDataStreamSession).mockReturnValue({
       createResponse: () => response,
     } as unknown as AssistantDataStreamSession);
@@ -152,7 +152,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('returns 502 when streaming initialization fails', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     vi.mocked(buildWebAssistantStream).mockRejectedValue(new Error('boom'));
 
     const req = new EventEmitter() as http.IncomingMessage;
@@ -169,7 +169,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('creates a new assistant session for streaming', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -196,7 +196,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('resumes a tool approval action through workflow storage (no longer 501)', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
         yield { type: 'text-delta', value: 'resumed' } as StreamChunk;
@@ -221,7 +221,7 @@ describe('assistant-stream-helpers', () => {
 
     const res = new ResponseSink();
     await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', role: 'user', parts: [] }],
+      messages: [{ id: '1', parts: [], role: 'user' }],
       runConfig: { custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction } },
     });
 
@@ -233,14 +233,14 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('rejects malformed tool approval actions on the web assistant helper route', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const req = new EventEmitter() as http.IncomingMessage;
     req.headers = {} as http.IncomingHttpHeaders;
 
     const res = new ResponseSink();
     await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
-      messages: [{ id: '1', role: 'user', parts: [] }],
+      messages: [{ id: '1', parts: [], role: 'user' }],
       runConfig: {
         custom: {
           [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
@@ -259,7 +259,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('streams chat response as JSON lines when provider is enabled', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'hello' } as StreamChunk,
@@ -291,7 +291,7 @@ describe('assistant-stream-helpers', () => {
 
   it('resolves last-event-id from array header using the last element', async () => {
     const response = new Response('resumed-from-array');
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     vi.mocked(resolveDataStreamSession).mockImplementation((id: string | null | undefined) =>
       id === 'evt-2'
         ? ({
@@ -312,7 +312,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('creates a new session when no last-event-id header is present', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     const stream: AsyncIterable<StreamChunk> = {
       async *[Symbol.asyncIterator]() {
@@ -340,7 +340,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('calls res.end() when response body is null', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
     vi.mocked(resolveDataStreamSession).mockReturnValue({
       createResponse: () => new Response(null, { status: 200 }),
     } as unknown as AssistantDataStreamSession);
@@ -358,7 +358,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('waits for drain event when write returns false (backpressure)', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     // Create a response that has a body with content
     const encoder = new TextEncoder();
@@ -397,7 +397,7 @@ describe('assistant-stream-helpers', () => {
   });
 
   it('completes streaming after req emits close (abort cleanup)', async () => {
-    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ apiKey: 'key', enabled: true });
 
     let resolveChunk: (() => void) | undefined;
     const chunkReady = new Promise<void>((r) => {
@@ -443,8 +443,8 @@ describe('assistant-stream-helpers', () => {
 
   it('sends enabled: true status when provider is enabled', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'key',
+      enabled: true,
     });
 
     const res = new ResponseSink();

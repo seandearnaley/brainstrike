@@ -23,8 +23,8 @@ describe('UnifiedToolRegistry', () => {
   describe('registerNativeTool', () => {
     it('registers a native tool with default values', () => {
       registry.registerNativeTool({
-        id: 'test.tool',
         description: 'A test tool',
+        id: 'test.tool',
       });
 
       const tool = registry.getTool('test.tool');
@@ -37,8 +37,8 @@ describe('UnifiedToolRegistry', () => {
 
     it('applies known native tool defaults', () => {
       registry.registerNativeTool({
-        id: 'brainstrike.readWorkspaceFile',
         description: 'Read workspace file tool',
+        id: 'brainstrike.readWorkspaceFile',
       });
 
       const tool = registry.getTool('brainstrike.readWorkspaceFile');
@@ -49,12 +49,12 @@ describe('UnifiedToolRegistry', () => {
 
     it('requires approval for native workspace context mutation tools', () => {
       registry.registerNativeTool({
-        id: 'brainstrike.updateWorkspaceContextSelection',
         description: 'Update workspace context selection',
+        id: 'brainstrike.updateWorkspaceContextSelection',
       });
       registry.registerNativeTool({
-        id: 'brainstrike.updateWorkspaceTapestrySelections',
         description: 'Update workspace Tapestry selections',
+        id: 'brainstrike.updateWorkspaceTapestrySelections',
       });
 
       expect(
@@ -67,9 +67,9 @@ describe('UnifiedToolRegistry', () => {
 
     it('allows overriding category and tier', () => {
       registry.registerNativeTool({
-        id: 'custom.tool',
-        description: 'Custom tool',
         category: 'validation',
+        description: 'Custom tool',
+        id: 'custom.tool',
         loadingTier: 'deferred',
       });
 
@@ -80,8 +80,8 @@ describe('UnifiedToolRegistry', () => {
 
     it('preserves enabled state on re-registration', () => {
       registry.registerNativeTool({
-        id: 'test.tool',
         description: 'Test tool',
+        id: 'test.tool',
       });
 
       registry.disableTools(['test.tool']);
@@ -89,8 +89,8 @@ describe('UnifiedToolRegistry', () => {
 
       // Re-register
       registry.registerNativeTool({
-        id: 'test.tool',
         description: 'Updated test tool',
+        id: 'test.tool',
       });
 
       expect(registry.getTool('test.tool')?.enabled).toBe(false);
@@ -101,9 +101,9 @@ describe('UnifiedToolRegistry', () => {
   describe('registerNativeTools', () => {
     it('registers multiple tools at once', () => {
       const tools: NativeToolRegistrationOptions[] = [
-        { id: 'tool.one', description: 'Tool one' },
-        { id: 'tool.two', description: 'Tool two' },
-        { id: 'tool.three', description: 'Tool three' },
+        { description: 'Tool one', id: 'tool.one' },
+        { description: 'Tool two', id: 'tool.two' },
+        { description: 'Tool three', id: 'tool.three' },
       ];
 
       registry.registerNativeTools(tools);
@@ -139,8 +139,8 @@ describe('UnifiedToolRegistry', () => {
       registry.registerMcpTools({
         serverName: 'shrink-server',
         tools: {
-          'mcp.keep': mockMcpTool('Keep tool'),
           'mcp.drop': mockMcpTool('Drop tool'),
+          'mcp.keep': mockMcpTool('Keep tool'),
         },
       });
 
@@ -158,13 +158,13 @@ describe('UnifiedToolRegistry', () => {
 
     it('applies category override to all server tools', () => {
       registry.registerMcpTools({
+        categoryOverride: 'retrieval',
         serverName: 'retrieval-server',
+        tierOverride: 'critical',
         tools: {
           'search.one': mockMcpTool('Search 1'),
           'search.two': mockMcpTool('Search 2'),
         },
-        categoryOverride: 'retrieval',
-        tierOverride: 'critical',
       });
 
       const tools = registry.getToolsForServer('retrieval-server');
@@ -179,9 +179,9 @@ describe('UnifiedToolRegistry', () => {
   describe('enable/disable tools', () => {
     beforeEach(() => {
       registry.registerNativeTools([
-        { id: 'tool.a', description: 'Tool A' },
-        { id: 'tool.b', description: 'Tool B' },
-        { id: 'tool.c', description: 'Tool C' },
+        { description: 'Tool A', id: 'tool.a' },
+        { description: 'Tool B', id: 'tool.b' },
+        { description: 'Tool C', id: 'tool.c' },
       ]);
     });
 
@@ -223,28 +223,28 @@ describe('UnifiedToolRegistry', () => {
     beforeEach(() => {
       registry.registerNativeTools([
         {
-          id: 'retrieval.search',
-          description: 'Search',
           category: 'retrieval',
+          description: 'Search',
+          id: 'retrieval.search',
           loadingTier: 'critical',
         },
         {
-          id: 'retrieval.query',
-          description: 'Query',
           category: 'retrieval',
+          description: 'Query',
+          id: 'retrieval.query',
           loadingTier: 'conditional',
         },
         {
-          id: 'action.create',
-          description: 'Create',
           category: 'action',
+          description: 'Create',
+          id: 'action.create',
           loadingTier: 'conditional',
           requiresApproval: true,
         },
         {
-          id: 'action.delete',
-          description: 'Delete',
           category: 'action',
+          description: 'Delete',
+          id: 'action.delete',
           loadingTier: 'deferred',
           requiresApproval: true,
         },
@@ -292,8 +292,8 @@ describe('UnifiedToolRegistry', () => {
 
     it('treats regex metacharacters as literals in patterns', () => {
       registry.registerNativeTool({
-        id: 'tool[abc]',
         description: 'Pattern-safe tool',
+        id: 'tool[abc]',
       });
 
       const tools = registry.getFilteredTools({ patterns: ['tool[abc]'] });
@@ -326,9 +326,9 @@ describe('UnifiedToolRegistry', () => {
   describe('getToolsByCategory', () => {
     it('groups tools by category', () => {
       registry.registerNativeTools([
-        { id: 'r1', description: 'R1', category: 'retrieval' },
-        { id: 'r2', description: 'R2', category: 'retrieval' },
-        { id: 'a1', description: 'A1', category: 'action' },
+        { category: 'retrieval', description: 'R1', id: 'r1' },
+        { category: 'retrieval', description: 'R2', id: 'r2' },
+        { category: 'action', description: 'A1', id: 'a1' },
       ]);
 
       const byCategory = registry.getToolsByCategory();
@@ -339,7 +339,7 @@ describe('UnifiedToolRegistry', () => {
 
   describe('getToolsBySource', () => {
     it('separates native and MCP tools', () => {
-      registry.registerNativeTool({ id: 'native.tool', description: 'Native' });
+      registry.registerNativeTool({ description: 'Native', id: 'native.tool' });
       registry.registerMcpTools({
         serverName: 'server1',
         tools: { 'mcp.tool1': mockMcpTool('MCP 1') },
@@ -359,10 +359,10 @@ describe('UnifiedToolRegistry', () => {
   describe('getToolsByTier', () => {
     beforeEach(() => {
       registry.registerNativeTools([
-        { id: 'critical.1', description: 'C1', loadingTier: 'critical' },
-        { id: 'critical.2', description: 'C2', loadingTier: 'critical' },
-        { id: 'conditional.1', description: 'Co1', loadingTier: 'conditional' },
-        { id: 'deferred.1', description: 'D1', loadingTier: 'deferred' },
+        { description: 'C1', id: 'critical.1', loadingTier: 'critical' },
+        { description: 'C2', id: 'critical.2', loadingTier: 'critical' },
+        { description: 'Co1', id: 'conditional.1', loadingTier: 'conditional' },
+        { description: 'D1', id: 'deferred.1', loadingTier: 'deferred' },
       ]);
     });
 
@@ -391,8 +391,8 @@ describe('UnifiedToolRegistry', () => {
   describe('getStats', () => {
     it('returns correct statistics', () => {
       registry.registerNativeTools([
-        { id: 'n1', description: 'N1', category: 'retrieval', loadingTier: 'critical' },
-        { id: 'n2', description: 'N2', category: 'action', loadingTier: 'conditional' },
+        { category: 'retrieval', description: 'N1', id: 'n1', loadingTier: 'critical' },
+        { category: 'action', description: 'N2', id: 'n2', loadingTier: 'conditional' },
       ]);
       registry.registerMcpTools({
         serverName: 'server1',
@@ -413,9 +413,9 @@ describe('UnifiedToolRegistry', () => {
   describe('getTotalEstimatedTokens', () => {
     it('calculates total tokens for enabled tools', () => {
       registry.registerNativeTools([
-        { id: 't1', description: 'T1', estimatedTokens: 100 },
-        { id: 't2', description: 'T2', estimatedTokens: 150 },
-        { id: 't3', description: 'T3', estimatedTokens: 200 },
+        { description: 'T1', estimatedTokens: 100, id: 't1' },
+        { description: 'T2', estimatedTokens: 150, id: 't2' },
+        { description: 'T3', estimatedTokens: 200, id: 't3' },
       ]);
       registry.disableTools(['t3']);
 
@@ -429,7 +429,7 @@ describe('UnifiedToolRegistry', () => {
       const listener = vi.fn();
       registry.subscribe(listener);
 
-      registry.registerNativeTool({ id: 'test', description: 'Test' });
+      registry.registerNativeTool({ description: 'Test', id: 'test' });
       expect(listener).toHaveBeenCalledTimes(1);
 
       registry.disableTools(['test']);
@@ -440,12 +440,12 @@ describe('UnifiedToolRegistry', () => {
       const listener = vi.fn();
       const unsubscribe = registry.subscribe(listener);
 
-      registry.registerNativeTool({ id: 'test', description: 'Test' });
+      registry.registerNativeTool({ description: 'Test', id: 'test' });
       expect(listener).toHaveBeenCalledTimes(1);
 
       unsubscribe();
 
-      registry.registerNativeTool({ id: 'test2', description: 'Test 2' });
+      registry.registerNativeTool({ description: 'Test 2', id: 'test2' });
       expect(listener).toHaveBeenCalledTimes(1); // No new calls
     });
 
@@ -458,10 +458,10 @@ describe('UnifiedToolRegistry', () => {
       registry.subscribe(failingListener);
       registry.subscribe(healthyListener);
 
-      registry.registerNativeTool({ id: 't1', description: 'T1' });
-      registry.registerNativeTool({ id: 't2', description: 'T2' });
-      registry.registerNativeTool({ id: 't3', description: 'T3' });
-      registry.registerNativeTool({ id: 't4', description: 'T4' });
+      registry.registerNativeTool({ description: 'T1', id: 't1' });
+      registry.registerNativeTool({ description: 'T2', id: 't2' });
+      registry.registerNativeTool({ description: 'T3', id: 't3' });
+      registry.registerNativeTool({ description: 'T4', id: 't4' });
 
       expect(failingListener).toHaveBeenCalledTimes(3);
       expect(healthyListener).toHaveBeenCalledTimes(4);
@@ -471,9 +471,9 @@ describe('UnifiedToolRegistry', () => {
   describe('exportState / importState', () => {
     it('exports and imports enabled/disabled state', () => {
       registry.registerNativeTools([
-        { id: 't1', description: 'T1' },
-        { id: 't2', description: 'T2' },
-        { id: 't3', description: 'T3' },
+        { description: 'T1', id: 't1' },
+        { description: 'T2', id: 't2' },
+        { description: 'T3', id: 't3' },
       ]);
       registry.disableTools(['t2']);
 
@@ -487,9 +487,9 @@ describe('UnifiedToolRegistry', () => {
       // Create new registry and import state
       const newRegistry = createUnifiedToolRegistry();
       newRegistry.registerNativeTools([
-        { id: 't1', description: 'T1' },
-        { id: 't2', description: 'T2' },
-        { id: 't3', description: 'T3' },
+        { description: 'T1', id: 't1' },
+        { description: 'T2', id: 't2' },
+        { description: 'T3', id: 't3' },
       ]);
       newRegistry.importState(state);
 
@@ -502,8 +502,8 @@ describe('UnifiedToolRegistry', () => {
   describe('clear', () => {
     it('removes all tools', () => {
       registry.registerNativeTools([
-        { id: 't1', description: 'T1' },
-        { id: 't2', description: 'T2' },
+        { description: 'T1', id: 't1' },
+        { description: 'T2', id: 't2' },
       ]);
       registry.registerMcpTools({
         serverName: 'server',
@@ -520,7 +520,7 @@ describe('UnifiedToolRegistry', () => {
 
   describe('clearServer', () => {
     it('removes only tools from specific server', () => {
-      registry.registerNativeTool({ id: 'native', description: 'Native' });
+      registry.registerNativeTool({ description: 'Native', id: 'native' });
       registry.registerMcpTools({
         serverName: 'server1',
         tools: { 'mcp.s1': mockMcpTool('S1') },
@@ -543,9 +543,9 @@ describe('UnifiedToolRegistry', () => {
   describe('filterEnabledTools', () => {
     it('filters ToolsInput to only enabled tools', () => {
       registry.registerNativeTools([
-        { id: 't1', description: 'T1' },
-        { id: 't2', description: 'T2' },
-        { id: 't3', description: 'T3' },
+        { description: 'T1', id: 't1' },
+        { description: 'T2', id: 't2' },
+        { description: 'T3', id: 't3' },
       ]);
       registry.disableTools(['t2']);
 

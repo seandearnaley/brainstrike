@@ -68,7 +68,7 @@ export interface UseVectorQueueStateResult {
 }
 
 const DEFAULT_COVERAGE: { total: number; withSet: number } = { total: 0, withSet: 0 };
-const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+const DEFAULT_QUEUE_COUNTS: QueueCounts = { failed: 0, queued: 0, running: 0, succeeded: 0 };
 const EMBEDDINGS_QUEUE_PARAMS: readonly [string] = [EMBEDDINGS_QUEUE];
 
 const QUEUE_COUNTS_QUERY = `
@@ -172,9 +172,9 @@ interface CoverageRow {
 
 // Default metrics when EmbeddingQueueProvider is not available
 const DEFAULT_METRICS = {
-  windowErrorCount: 0,
-  throughputPerMinute: 0,
   latencyP95Ms: 0,
+  throughputPerMinute: 0,
+  windowErrorCount: 0,
 } as const;
 
 function isBackfillCancellationError(error: unknown): boolean {
@@ -212,8 +212,8 @@ function subscribeBackfillProgress(
     }
     setActiveBackfill({
       embeddingSetId: progress.embeddingSetId,
-      requestId: progress.requestId,
       progress: { done: progress.current, total: progress.total },
+      requestId: progress.requestId,
     });
   });
 }
@@ -242,8 +242,8 @@ function shouldSkipRecoveredBackfillRestore(
 function createRecoveredBackfillState(activeEmbeddingSetId: string): ActiveBackfillState {
   return {
     embeddingSetId: activeEmbeddingSetId,
-    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
     progress: null,
+    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
   };
 }
 
@@ -412,8 +412,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       try {
         await reconcileBackfillStateAfterReload({
           activeEmbeddingSetId,
-          clearTransientBackfillState,
           cleanupRecoveryRef,
+          clearTransientBackfillState,
           controller,
           isCancelled: () => cancelled,
           markCancelled: () => {
@@ -444,26 +444,26 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
-    query: QUEUE_COUNTS_QUERY,
-    params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    query: QUEUE_COUNTS_QUERY,
   });
 
   const queueCounts = useMemo<QueueCounts>(() => {
     const row = queueCountsResult.rows[0];
     if (row) {
       return {
+        failed: Number(row.failed ?? 0),
         queued: Number(row.queued ?? 0),
         running: Number(row.running ?? 0),
-        failed: Number(row.failed ?? 0),
         succeeded: Number(row.succeeded ?? 0),
       };
     }
     if (durableQueueStats) {
       return {
+        failed: durableQueueStats.failed,
         queued: durableQueueStats.queued,
         running: durableQueueStats.running,
-        failed: durableQueueStats.failed,
         succeeded: durableQueueStats.succeeded,
       };
     }
@@ -488,18 +488,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       return DEFAULT_QUEUE_COUNTS;
     }
     return {
+      failed: Number(row.failed ?? 0),
       queued: Number(row.queued ?? 0),
       running: Number(row.running ?? 0),
-      failed: Number(row.failed ?? 0),
       succeeded: Number(row.succeeded ?? 0),
     };
   }, [activeSetQueueCountsResult.rows]);
 
   const throughputResult = usePGliteLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
-    query: THROUGHPUT_QUERY,
-    params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    query: THROUGHPUT_QUERY,
   });
 
   const throughput = useMemo(() => {
@@ -512,20 +512,20 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const lastErrorResult = usePGliteLiveQuery<LastErrorRow>({
     cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
-    query: LAST_ERROR_QUERY,
-    params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    query: LAST_ERROR_QUERY,
   });
 
   const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
 
   const latencyRowsResult = usePGliteLiveQuery<LatencyRow>({
     cacheKey: makeLiveQueryKey('latency', EMBEDDINGS_QUEUE),
-    query: LATENCY_ROWS_QUERY,
-    params: EMBEDDINGS_QUEUE_PARAMS,
-    mode: 'incremental',
-    key: 'id',
     enabled: liveQueryEnabled,
+    key: 'id',
+    mode: 'incremental',
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    query: LATENCY_ROWS_QUERY,
   });
 
   const latencyStatsFromQuery = useMemo(() => {
@@ -667,10 +667,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   useEffect(() => {
     setTelemetryTrend((prev) => {
       const nextPoint: TelemetryTrendPoint = {
-        timestamp: Date.now(),
-        throughput: Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0,
-        latencyP95: metrics.latencyP95Ms ?? 0,
         errorCount: metrics.windowErrorCount,
+        latencyP95: metrics.latencyP95Ms ?? 0,
+        throughput: Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0,
+        timestamp: Date.now(),
       };
       const lastPoint = prev.at(-1);
       if (
@@ -702,8 +702,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     backfillRequestIdRef.current = pendingRequestId;
     setActiveBackfill({
       embeddingSetId: activeEmbeddingSetId,
-      requestId: pendingRequestId,
       progress: null,
+      requestId: pendingRequestId,
     });
     const unsubscribeProgress = subscribeBackfillProgress(
       controller,
@@ -831,22 +831,22 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   return useMemo(
     () => ({
-      coverage,
       activeSetBackfilling: isActiveSetBackfill,
       activeSetBackfillProgress,
       activeSetQueueCounts,
-      queueCounts,
-      throughput,
-      latencyStats,
-      lastError,
-      recentErrorCount,
+      backfillActiveSet,
       backfilling: isBackfillActive,
       backfillProgress,
-      telemetryTrend,
-      validateApiKey,
-      backfillActiveSet,
-      retryFailed,
       clearQueue,
+      coverage,
+      lastError,
+      latencyStats,
+      queueCounts,
+      recentErrorCount,
+      retryFailed,
+      telemetryTrend,
+      throughput,
+      validateApiKey,
       wipeQueue,
     }),
     [

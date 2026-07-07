@@ -61,7 +61,7 @@ describe('useCommandPaletteHotkey', () => {
       const onOpen = vi.fn();
       renderHook(() => useCommandPaletteHotkey({ onOpen }));
       act(() => {
-        dispatchKey({ key: 'k', ctrlKey: true });
+        dispatchKey({ ctrlKey: true, key: 'k' });
       });
       expect(onOpen).not.toHaveBeenCalled();
     });
@@ -73,7 +73,7 @@ describe('useCommandPaletteHotkey', () => {
       const onOpen = vi.fn();
       renderHook(() => useCommandPaletteHotkey({ onOpen }));
       act(() => {
-        dispatchKey({ key: 'k', ctrlKey: true });
+        dispatchKey({ ctrlKey: true, key: 'k' });
       });
       expect(onOpen).toHaveBeenCalledTimes(1);
     });
@@ -86,7 +86,7 @@ describe('useCommandPaletteHotkey', () => {
       input.focus();
       renderHook(() => useCommandPaletteHotkey({ onOpen }));
       act(() => {
-        dispatchKey({ key: 'k', ctrlKey: true, target: input });
+        dispatchKey({ ctrlKey: true, key: 'k', target: input });
       });
       expect(onOpen).toHaveBeenCalledTimes(1);
     });
@@ -129,10 +129,10 @@ describe('useCommandPaletteHotkey', () => {
     renderHook(() => useCommandPaletteHotkey({ onOpen }));
     act(() => {
       const event = new KeyboardEvent('keydown', {
-        key: 'k',
-        metaKey: true,
         bubbles: true,
         cancelable: true,
+        key: 'k',
+        metaKey: true,
       });
       event.preventDefault();
       document.dispatchEvent(event);

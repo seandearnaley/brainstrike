@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const usePGliteLiveQueryMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
   makeLiveQueryKey: (...parts: unknown[]) => parts.map((p) => String(p)).join(':'),
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
 import {
@@ -28,25 +28,25 @@ function captureLastOptions(): CapturedOptions {
 describe('buildObservationalMemoryLookupKey', () => {
   it('thread scope → thread:<threadId> (mirrors observationalMemoryKey / getStorageIds)', () => {
     expect(
-      buildObservationalMemoryLookupKey({ scope: 'thread', threadId: 't1', resourceId: 'r1' })
+      buildObservationalMemoryLookupKey({ resourceId: 'r1', scope: 'thread', threadId: 't1' })
     ).toBe('thread:t1');
   });
 
   it('resource (Workspace) scope → resource:<resourceId>, NOT thread:<threadId>', () => {
     expect(
-      buildObservationalMemoryLookupKey({ scope: 'resource', threadId: 't1', resourceId: 'r1' })
+      buildObservationalMemoryLookupKey({ resourceId: 'r1', scope: 'resource', threadId: 't1' })
     ).toBe('resource:r1');
   });
 
   it('returns null when the scope-required id is absent (no query issued)', () => {
     expect(
-      buildObservationalMemoryLookupKey({ scope: 'thread', threadId: undefined, resourceId: 'r1' })
+      buildObservationalMemoryLookupKey({ resourceId: 'r1', scope: 'thread', threadId: undefined })
     ).toBeNull();
     expect(
       buildObservationalMemoryLookupKey({
+        resourceId: undefined,
         scope: 'resource',
         threadId: 't1',
-        resourceId: undefined,
       })
     ).toBeNull();
   });
@@ -59,16 +59,16 @@ describe('useObservationalMemoryRow', () => {
 
   it('enables + keys by thread:<id> for thread scope, with clearOnDisable', () => {
     usePGliteLiveQueryMock.mockReturnValue({
-      rows: [{ observationTokenCount: 1 }],
-      loading: false,
       error: null,
+      loading: false,
+      rows: [{ observationTokenCount: 1 }],
     });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     const options = captureLastOptions();
@@ -81,13 +81,13 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('FIX 3: Workspace (resource) scope queries resource:<resourceId>, not the thread key', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+    usePGliteLiveQueryMock.mockReturnValue({ error: null, loading: false, rows: [] });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'resource',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     const options = captureLastOptions();
@@ -96,26 +96,26 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('DISABLES the query on web (no durable capability) — never queries PGlite', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+    usePGliteLiveQueryMock.mockReturnValue({ error: null, loading: false, rows: [] });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: false,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     expect(captureLastOptions().enabled).toBe(false);
   });
 
   it('DISABLES the query when the scope-required id is absent', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error: null });
+    usePGliteLiveQueryMock.mockReturnValue({ error: null, loading: false, rows: [] });
     renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: undefined,
-        resourceId: 'res-1',
       })
     );
     expect(captureLastOptions().enabled).toBe(false);
@@ -123,16 +123,16 @@ describe('useObservationalMemoryRow', () => {
 
   it('returns the first (latest-generation) row, or null when none', () => {
     usePGliteLiveQueryMock.mockReturnValue({
-      rows: [{ observationTokenCount: 42 }],
-      loading: false,
       error: null,
+      loading: false,
+      rows: [{ observationTokenCount: 42 }],
     });
     const { result } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     expect(result.current.row).toEqual({ observationTokenCount: 42 });
@@ -142,16 +142,16 @@ describe('useObservationalMemoryRow', () => {
     // Simulate usePGliteLiveQuery keeping the prior thread's rows when disabled
     // (clearOnDisable is async); the hook must still return null when disabled.
     usePGliteLiveQueryMock.mockReturnValue({
-      rows: [{ observationTokenCount: 7777 }],
-      loading: false,
       error: null,
+      loading: false,
+      rows: [{ observationTokenCount: 7777 }],
     });
     const { result } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: undefined, // no active thread → disabled
-        resourceId: 'res-1',
       })
     );
     expect(result.current.row).toBeNull();
@@ -159,13 +159,13 @@ describe('useObservationalMemoryRow', () => {
   });
 
   it('only reports loading while the query is enabled', () => {
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: true, error: null });
+    usePGliteLiveQueryMock.mockReturnValue({ error: null, loading: true, rows: [] });
     const { result: disabled } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: false,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     // Disabled → loading must be false (no real fetch in flight).
@@ -174,9 +174,9 @@ describe('useObservationalMemoryRow', () => {
     const { result: enabled } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     expect(enabled.current.loading).toBe(true);
@@ -184,13 +184,13 @@ describe('useObservationalMemoryRow', () => {
 
   it('surfaces the live-query error (never swallowed)', () => {
     const error = new Error('live query failed');
-    usePGliteLiveQueryMock.mockReturnValue({ rows: [], loading: false, error });
+    usePGliteLiveQueryMock.mockReturnValue({ error, loading: false, rows: [] });
     const { result } = renderHook(() =>
       useObservationalMemoryRow({
         hasDurableCapability: true,
+        resourceId: 'res-1',
         scope: 'thread',
         threadId: 'thread-abc',
-        resourceId: 'res-1',
       })
     );
     expect(result.current.error).toBe(error);

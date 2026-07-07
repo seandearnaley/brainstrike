@@ -9,23 +9,23 @@ import {
 
 const makeDoc = (overrides: Partial<WebDocEntry>): WebDocEntry => ({
   id: 'doc',
-  title: 'Doc',
-  summary: 'Summary.',
-  url: '/docs/doc',
-  tags: [],
   sections: [],
+  summary: 'Summary.',
+  tags: [],
+  title: 'Doc',
+  url: '/docs/doc',
   ...overrides,
 });
 
 describe('docs-search schemas', () => {
   it('trims queries, applies default limits, and rejects invalid queries', () => {
     expect(searchDocsInputSchema.parse({ query: '  ipc tools  ' })).toEqual({
-      query: 'ipc tools',
       limit: 5,
+      query: 'ipc tools',
     });
     expect(searchDocsInputSchema.safeParse({ query: '  a  ' }).success).toBe(false);
     expect(searchDocsInputSchema.safeParse({ query: 'valid\0query' }).success).toBe(false);
-    expect(searchDocsInputSchema.safeParse({ query: 'valid', limit: 11 }).success).toBe(false);
+    expect(searchDocsInputSchema.safeParse({ limit: 11, query: 'valid' }).success).toBe(false);
   });
 
   it('validates summary doc ids', () => {
@@ -38,7 +38,7 @@ describe('docs-search schemas', () => {
 
 describe('searchDocsExecute', () => {
   it('searches the default index and returns highlights with bounded results', async () => {
-    const response = await searchDocsExecute({ query: 'ipc tools', limit: 3 });
+    const response = await searchDocsExecute({ limit: 3, query: 'ipc tools' });
 
     expect(response.query).toBe('ipc tools');
     expect(response.limit).toBe(3);
@@ -46,8 +46,8 @@ describe('searchDocsExecute', () => {
     expect(response.totalResults).toBeGreaterThan(0);
     expect(response.results[0]).toMatchObject({
       id: 'web-tool-dispatcher',
-      title: expect.stringContaining('Tool Execution IPC Bridge Plan'),
       score: expect.any(Number),
+      title: expect.stringContaining('Tool Execution IPC Bridge Plan'),
     });
     expect(response.results[0]?.highlight.toLowerCase()).toContain('ipc');
   });
@@ -56,25 +56,25 @@ describe('searchDocsExecute', () => {
     const customIndex: WebDocEntry[] = [
       makeDoc({
         id: 'z-body-only',
-        title: 'Zebra',
         summary: 'Shared runtime note.',
+        title: 'Zebra',
         url: '/z',
       }),
       makeDoc({
         id: 'b-title',
-        title: 'Beta Shared',
         summary: 'Runtime note.',
+        title: 'Beta Shared',
         url: '/b',
       }),
       makeDoc({
         id: 'a-title',
-        title: 'Alpha Shared',
         summary: 'Runtime note.',
+        title: 'Alpha Shared',
         url: '/a',
       }),
     ];
 
-    const response = await searchDocsExecute({ query: 'shared', limit: 10 }, customIndex);
+    const response = await searchDocsExecute({ limit: 10, query: 'shared' }, customIndex);
 
     expect(response.results.map((result) => result.id)).toEqual([
       'a-title',
@@ -88,26 +88,26 @@ describe('searchDocsExecute', () => {
     const customIndex = [
       makeDoc({
         id: 'ninth-token-only',
-        title: 'Ninth',
         summary: 'Only ninth appears here.',
+        title: 'Ninth',
       }),
       makeDoc({
         id: 'eighth-token',
-        title: 'Eight',
         summary: 'Only eight appears here.',
+        title: 'Eight',
       }),
     ];
 
-    await expect(searchDocsExecute({ query: '   ', limit: 5 }, customIndex)).resolves.toMatchObject(
+    await expect(searchDocsExecute({ limit: 5, query: '   ' }, customIndex)).resolves.toMatchObject(
       {
         query: '',
-        totalResults: 0,
         results: [],
+        totalResults: 0,
       }
     );
 
     const response = await searchDocsExecute(
-      { query: 'one two three four five six seven eight ninth', limit: 5 },
+      { limit: 5, query: 'one two three four five six seven eight ninth' },
       customIndex
     );
 
@@ -120,11 +120,11 @@ describe('docSummaryExecute', () => {
     const customIndex = [
       makeDoc({
         id: 'versioned',
-        title: 'Versioned Doc',
-        summary: 'Versioned summary.',
-        url: '/versioned',
-        tags: ['versioned'],
         sections: ['First section.', 'Second section.'],
+        summary: 'Versioned summary.',
+        tags: ['versioned'],
+        title: 'Versioned Doc',
+        url: '/versioned',
         versionIntroduced: '2026.06',
       }),
     ];
@@ -133,15 +133,15 @@ describe('docSummaryExecute', () => {
 
     expect(response.doc).toEqual({
       id: 'versioned',
-      title: 'Versioned Doc',
-      summary: 'Versioned summary.',
-      url: '/versioned',
-      tags: ['versioned'],
-      versionIntroduced: '2026.06',
       sections: [
         { id: 'versioned-section-1', text: 'First section.' },
         { id: 'versioned-section-2', text: 'Second section.' },
       ],
+      summary: 'Versioned summary.',
+      tags: ['versioned'],
+      title: 'Versioned Doc',
+      url: '/versioned',
+      versionIntroduced: '2026.06',
     });
   });
 
@@ -149,10 +149,10 @@ describe('docSummaryExecute', () => {
     const customIndex = [
       makeDoc({
         id: 'plain',
-        title: 'Plain Doc',
-        summary: 'Plain summary.',
-        url: '/plain',
         sections: ['Only section.'],
+        summary: 'Plain summary.',
+        title: 'Plain Doc',
+        url: '/plain',
       }),
     ];
 

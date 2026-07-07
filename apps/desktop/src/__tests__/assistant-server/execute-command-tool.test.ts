@@ -85,7 +85,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
-      await fsPromises.rm(root, { recursive: true, force: true });
+      await fsPromises.rm(root, { force: true, recursive: true });
     }
   }
 });

@@ -8,36 +8,6 @@ import { fileFilter } from './path-filter';
  */
 export const fileExplorer = {
   /**
-   * Gets all file paths in a directory recursively
-   */
-  getAllFilePathsInDirectory(node: IFileNode): string[] {
-    if (node.type === 'file') {
-      return [node.path];
-    }
-    if (!node.children) {
-      return [];
-    }
-
-    const allPaths: string[] = [];
-    const stack = [...node.children];
-
-    while (stack.length > 0) {
-      const currentNode = stack.pop();
-      if (!currentNode) {
-        continue;
-      }
-
-      if (currentNode.type === 'file') {
-        allPaths.push(currentNode.path);
-      } else if (currentNode.type === 'directory' && currentNode.children) {
-        stack.push(...currentNode.children);
-      }
-    }
-
-    return allPaths;
-  },
-
-  /**
    * Finds a node in the file tree by its path and optionally root folder ID.
    * Uses DFS with stack (pop is O(1)) instead of BFS with queue (shift is O(n)).
    */
@@ -71,36 +41,6 @@ export const fileExplorer = {
   },
 
   /**
-   * Gets the extension of a file
-   */
-  getFileExtension(filePath: string): string {
-    return getNormalizedFileExtension(filePath);
-  },
-
-  /**
-   * Counts files in a directory node
-   */
-  getFolderFileCount(node: IFileNode): { count: number; isComplete: boolean } {
-    if (node.type === 'file') {
-      return { count: 1, isComplete: true };
-    }
-    if (!node.children) {
-      return { count: 0, isComplete: true };
-    }
-
-    let totalCount = 0;
-    let isComplete = true;
-
-    for (const child of node.children) {
-      const result = this.getFolderFileCount(child);
-      totalCount += result.count;
-      isComplete = isComplete && result.isComplete;
-    }
-
-    return { count: totalCount, isComplete };
-  },
-
-  /**
    * Generates a text representation of the folder tree
    */
   generateFullFolderTreeText(
@@ -111,8 +51,8 @@ export const fileExplorer = {
   ): string {
     const lines: string[] = [];
     const filterOptions = {
-      includeFilters,
       excludeFilters,
+      includeFilters,
       useRegex,
     };
 
@@ -151,6 +91,65 @@ export const fileExplorer = {
     }
 
     return lines.join('\n');
+  },
+  /**
+   * Gets all file paths in a directory recursively
+   */
+  getAllFilePathsInDirectory(node: IFileNode): string[] {
+    if (node.type === 'file') {
+      return [node.path];
+    }
+    if (!node.children) {
+      return [];
+    }
+
+    const allPaths: string[] = [];
+    const stack = [...node.children];
+
+    while (stack.length > 0) {
+      const currentNode = stack.pop();
+      if (!currentNode) {
+        continue;
+      }
+
+      if (currentNode.type === 'file') {
+        allPaths.push(currentNode.path);
+      } else if (currentNode.type === 'directory' && currentNode.children) {
+        stack.push(...currentNode.children);
+      }
+    }
+
+    return allPaths;
+  },
+
+  /**
+   * Gets the extension of a file
+   */
+  getFileExtension(filePath: string): string {
+    return getNormalizedFileExtension(filePath);
+  },
+
+  /**
+   * Counts files in a directory node
+   */
+  getFolderFileCount(node: IFileNode): { count: number; isComplete: boolean } {
+    if (node.type === 'file') {
+      return { count: 1, isComplete: true };
+    }
+    if (!node.children) {
+      return { count: 0, isComplete: true };
+    }
+
+    let totalCount = 0;
+    let isComplete = true;
+
+    for (const child of node.children) {
+      const result = this.getFolderFileCount(child);
+      totalCount += result.count;
+      isComplete = isComplete && result.isComplete;
+    }
+
+    return { count: totalCount, isComplete };
   },
 };
 

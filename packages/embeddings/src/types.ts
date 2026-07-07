@@ -144,44 +144,44 @@ export interface EmbeddingProgress {
  */
 export interface EmbeddingService {
   /** Calculate similarity between two embeddings */
-  calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult;
+  calculateSimilarity: (embedding1: number[], embedding2: number[]) => SimilarityResult;
 
   /** Dispose of resources */
-  dispose(): Promise<void>;
+  dispose: () => Promise<void>;
 
   /** Generate an embedding optimized for documents/passages (indexing) */
-  generateDocEmbedding(text: string): Promise<EmbeddingResult>;
+  generateDocEmbedding: (text: string) => Promise<EmbeddingResult>;
 
   /** Generate embedding for a single text */
-  generateEmbedding(text: string): Promise<EmbeddingResult>;
+  generateEmbedding: (text: string) => Promise<EmbeddingResult>;
 
   /** Generate embeddings for multiple texts */
-  generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]>;
+  generateEmbeddings: (texts: string[]) => Promise<EmbeddingResult[]>;
 
   /**
    * Stream embeddings for multiple texts in request order.
    * Local background embedding workers rely on this path so batches can be
    * persisted incrementally without retaining the full result set in memory.
    */
-  generateEmbeddingsStream?(
+  generateEmbeddingsStream?: (
     texts: string[],
     onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void,
     options?: EmbeddingStreamOptions
-  ): Promise<unknown>;
+  ) => Promise<unknown>;
 
   /** Generate an embedding optimized for search queries */
-  generateQueryEmbedding(text: string): Promise<EmbeddingResult>;
+  generateQueryEmbedding: (text: string) => Promise<EmbeddingResult>;
 
   /** Get current configuration */
-  getConfig(): EmbeddingConfig;
+  getConfig: () => EmbeddingConfig;
 
   /** Get current status */
-  getStatus(): EmbeddingStatus;
+  getStatus: () => EmbeddingStatus;
   /** Initialize the service with given configuration */
-  initialize(
+  initialize: (
     config?: Partial<EmbeddingConfig>,
     onProgress?: (progress: EmbeddingProgress) => void
-  ): Promise<void>;
+  ) => Promise<void>;
 }
 
 /**
@@ -202,16 +202,16 @@ export class EmbeddingError extends Error {
  * BGE-M3 specific configuration and constants
  */
 export const BGE_M3_CONFIG = {
-  /** Default model ID */
-  modelId: 'Xenova/bge-m3',
   /** Embedding dimensions */
   dimensions: 1024,
   /** Maximum input length */
   maxLength: 8192,
-  /** Supported languages (partial list) */
-  supportedLanguages: ['en', 'zh', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko'],
+  /** Default model ID */
+  modelId: 'Xenova/bge-m3',
   /** Retrieval modes supported by BGE-M3 */
   retrievalModes: ['dense', 'sparse', 'colbert'] as const,
+  /** Supported languages (partial list) */
+  supportedLanguages: ['en', 'zh', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko'],
 } as const;
 
 /**
@@ -219,14 +219,14 @@ export const BGE_M3_CONFIG = {
  * Conforms to ModelConfig for use with initializeWithModel().
  */
 export const FALLBACK_MODEL_CONFIG: ModelConfig = {
+  description: 'Small, fast general-purpose embedding model',
+  dimensions: 384,
   id: 'Xenova/all-MiniLM-L6-v2',
   name: 'all-MiniLM-L6-v2',
-  dimensions: 384,
-  quantized: false,
-  description: 'Small, fast general-purpose embedding model',
-  tags: ['english', 'small', 'fast'],
   origin: 'HuggingFace',
+  quantized: false,
   size: '~80MB',
+  tags: ['english', 'small', 'fast'],
 };
 
 export type RetrievalMode = (typeof BGE_M3_CONFIG.retrievalModes)[number];

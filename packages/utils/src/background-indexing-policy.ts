@@ -37,18 +37,18 @@ export const DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE = 750 * 1024;
 
 export const BACKGROUND_INDEXING_POLICY_OPTIONS: readonly BackgroundIndexingPolicyOption[] = [
   {
-    value: 'balanced',
-    label: 'Balanced',
     description:
       'Indexes source, docs, and useful text files while skipping common generated, cache, lock, and minified artifacts.',
+    label: 'Balanced',
     recommended: true,
+    value: 'balanced',
   },
   {
-    value: 'full-root',
-    label: 'Full root',
     description:
       'Indexes every non-binary text file under the selected root except hard safety limits like oversized files.',
+    label: 'Full root',
     recommended: false,
+    value: 'full-root',
   },
 ] as const;
 
@@ -265,18 +265,18 @@ export function createBackgroundIndexingEntryPolicy(
 
   if (config.preset === 'full-root') {
     return {
-      preset: option.value,
-      label: option.label,
       description: option.description,
+      label: option.label,
+      preset: option.value,
       shouldIncludeFile: shouldIncludeFullRootFile,
       shouldTraverseDirectory: ({ relativePath }) => !shouldSkipFullRootDirectory(relativePath),
     };
   }
 
   return {
-    preset: option.value,
-    label: option.label,
     description: option.description,
+    label: option.label,
+    preset: option.value,
     shouldIncludeFile: shouldIncludeBalancedFile,
     shouldTraverseDirectory: ({ relativePath }) => !shouldSkipBalancedDirectory(relativePath),
   };

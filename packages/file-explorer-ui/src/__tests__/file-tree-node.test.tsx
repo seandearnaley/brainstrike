@@ -22,21 +22,21 @@ beforeEach(() => {
 
 // Default props for convenience
 const defaultFileProps = {
-  node: createFileNode({ name: 'test.tsx', path: 'src/test.tsx' }),
+  folderId: 'test-folder',
   isExpanded: false,
+  isLoading: false,
+  node: createFileNode({ name: 'test.tsx', path: 'src/test.tsx' }),
   onToggleDirectoryExpansion: vi.fn(),
   onToggleFileSelection: vi.fn(),
-  isLoading: false,
-  folderId: 'test-folder',
 };
 
 const defaultDirProps = {
-  node: createDirectoryNode({ name: 'components', path: 'src/components' }),
+  folderId: 'test-folder',
   isExpanded: false,
+  isLoading: false,
+  node: createDirectoryNode({ name: 'components', path: 'src/components' }),
   onToggleDirectoryExpansion: vi.fn(),
   onToggleFileSelection: vi.fn(),
-  isLoading: false,
-  folderId: 'test-folder',
 };
 
 describe('FileTreeNode', () => {
@@ -86,20 +86,20 @@ describe('FileTreeNode', () => {
   it('shows children when directory is expanded', () => {
     // Explicitly define the node with children for this test
     const nodeWithChildren = createDirectoryNode({
-      name: 'components',
-      path: 'src/components',
       children: [
         createFileNode({
           name: 'Child.tsx',
           path: 'src/components/Child.tsx',
         }),
       ],
+      name: 'components',
+      path: 'src/components',
     });
 
     const props = {
       ...defaultDirProps, // Spread defaults first
-      node: nodeWithChildren, // Override with the node containing children
       isExpanded: true, // Ensure expanded is set
+      node: nodeWithChildren, // Override with the node containing children
     };
 
     renderWithProviders(<FileTreeNode {...props} />);
@@ -109,8 +109,6 @@ describe('FileTreeNode', () => {
 
   it('filters out invisible children', () => {
     const dirWithInvisibleChild = createDirectoryNode({
-      name: 'components',
-      path: 'src/components',
       children: [
         {
           ...createFileNode({
@@ -127,13 +125,15 @@ describe('FileTreeNode', () => {
           isVisible: true,
         },
       ],
+      name: 'components',
+      path: 'src/components',
     });
 
     const props = {
       ...defaultDirProps,
+      folderId: 'test-folder',
       isExpanded: true,
       node: dirWithInvisibleChild,
-      folderId: 'test-folder',
     };
 
     renderWithProviders(<FileTreeNode {...props} />);
@@ -163,21 +163,21 @@ describe('FileTreeNode', () => {
 
     // Create a directory node with child files
     const nodeWithChildren = createDirectoryNode({
-      name: 'components',
-      path: 'src/components',
       children: [
         createFileNode({
           name: 'child-file-1.txt',
           path: 'src/components/child-file-1.txt',
         }),
       ],
+      name: 'components',
+      path: 'src/components',
     });
 
     const props = {
       ...defaultDirProps,
-      node: nodeWithChildren,
-      isExpanded: true,
       folderId: 'test-folder',
+      isExpanded: true,
+      node: nodeWithChildren,
     };
 
     renderWithProviders(<FileTreeNode {...props} />);

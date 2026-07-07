@@ -183,7 +183,7 @@ describe('llm-host-shared', () => {
       assertLlmHostRequest({ ...runtimeRequest, channel: 'other', payload: { kind: 'cancel' } })
     ).toThrow('Llm host request must have channel="llm".');
     expect(() =>
-      assertLlmHostRequest({ ...runtimeRequest, type: 'progress', payload: { kind: 'cancel' } })
+      assertLlmHostRequest({ ...runtimeRequest, payload: { kind: 'cancel' }, type: 'progress' })
     ).toThrow('Llm host request must have type="request".');
     expect(() => assertLlmHostRequest({ ...runtimeRequest, payload: { kind: 'other' } })).toThrow(
       'Llm host request payload.kind must be "warmup", "generate", or "cancel".'

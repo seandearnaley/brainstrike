@@ -71,8 +71,8 @@ describe('composer slash commands', () => {
 
   it('opens the slash popover listing the passed commands when "/" is typed', async () => {
     const slashCommands: SlashCommand[] = [
-      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
-      { id: 'nav.settings', label: 'Settings', icon: SettingsIcon, execute: vi.fn() },
+      { execute: vi.fn(), id: 'thread.new', label: 'New thread' },
+      { execute: vi.fn(), icon: SettingsIcon, id: 'nav.settings', label: 'Settings' },
     ];
 
     renderPanel(slashCommands);
@@ -88,8 +88,8 @@ describe('composer slash commands', () => {
     const newThread = vi.fn();
     const settings = vi.fn();
     const slashCommands: SlashCommand[] = [
-      { id: 'thread.new', label: 'New thread', execute: newThread },
-      { id: 'nav.settings', label: 'Settings', execute: settings },
+      { execute: newThread, id: 'thread.new', label: 'New thread' },
+      { execute: settings, id: 'nav.settings', label: 'Settings' },
     ];
 
     renderPanel(slashCommands);
@@ -110,7 +110,7 @@ describe('composer slash commands', () => {
 
   it('removes the "/" trigger text from the composer after a command is selected', async () => {
     const slashCommands: SlashCommand[] = [
-      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
+      { execute: vi.fn(), id: 'thread.new', label: 'New thread' },
     ];
 
     renderPanel(slashCommands);
@@ -138,7 +138,7 @@ describe('composer slash commands', () => {
     // and the popover therefore never renders it. Here we model that by passing
     // the web-filtered list (no reveal) and asserting its absence.
     const webSlashCommands: SlashCommand[] = [
-      { id: 'thread.new', label: 'New thread', execute: vi.fn() },
+      { execute: vi.fn(), id: 'thread.new', label: 'New thread' },
     ];
 
     renderPanel(webSlashCommands);

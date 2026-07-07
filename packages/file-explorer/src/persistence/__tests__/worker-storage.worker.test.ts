@@ -14,8 +14,8 @@ async function loadWorkerHarness() {
   });
 
   vi.stubGlobal('self', {
-    postMessage,
     addEventListener,
+    postMessage,
   } as unknown as typeof self);
 
   await import('../worker-storage.worker');
@@ -24,7 +24,7 @@ async function loadWorkerHarness() {
     throw new Error('Worker message handler was not registered');
   }
 
-  return { postMessage, messageHandler };
+  return { messageHandler, postMessage };
 }
 
 describe('worker-storage.worker', () => {
@@ -37,21 +37,21 @@ describe('worker-storage.worker', () => {
     const { postMessage, messageHandler } = await loadWorkerHarness();
 
     await messageHandler({
-      data: { id: 'save-1', type: 'save', key: 'settings', value: { a: 1 } },
+      data: { id: 'save-1', key: 'settings', type: 'save', value: { a: 1 } },
     });
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'save-1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'settings',
-        value: JSON.stringify({ a: 1 }),
+        operation: 'setItem',
         opId: 123_456,
+        type: 'storage_request',
+        value: JSON.stringify({ a: 1 }),
       })
     );
 
     await messageHandler({
-      data: { id: 'save-2', type: 'save', key: 'settings', value: 'already-serialized' },
+      data: { id: 'save-2', key: 'settings', type: 'save', value: 'already-serialized' },
     });
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -61,23 +61,23 @@ describe('worker-storage.worker', () => {
       })
     );
 
-    await messageHandler({ data: { id: 'load-1', type: 'load', key: 'settings' } });
+    await messageHandler({ data: { id: 'load-1', key: 'settings', type: 'load' } });
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'load-1',
-        type: 'storage_request',
-        operation: 'getItem',
         key: 'settings',
+        operation: 'getItem',
+        type: 'storage_request',
       })
     );
 
-    await messageHandler({ data: { id: 'remove-1', type: 'remove', key: 'settings' } });
+    await messageHandler({ data: { id: 'remove-1', key: 'settings', type: 'remove' } });
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'remove-1',
-        type: 'storage_request',
-        operation: 'removeItem',
         key: 'settings',
+        operation: 'removeItem',
+        type: 'storage_request',
       })
     );
 
@@ -90,74 +90,74 @@ describe('worker-storage.worker', () => {
     await messageHandler({
       data: {
         id: 'resp-1',
-        type: 'storage_response',
         operation: 'getItem',
         rawValue: JSON.stringify({ nested: true }),
+        type: 'storage_response',
       },
     });
     expect(postMessage).toHaveBeenLastCalledWith({
       id: 'resp-1',
-      type: 'success',
       result: { nested: true },
+      type: 'success',
     });
 
     await messageHandler({
       data: {
         id: 'resp-2',
-        type: 'storage_response',
         operation: 'getItem',
         rawValue: 'not-json',
+        type: 'storage_response',
       },
     });
     expect(postMessage).toHaveBeenLastCalledWith({
       id: 'resp-2',
-      type: 'success',
       result: null,
+      type: 'success',
     });
 
     await messageHandler({
       data: {
         id: 'resp-3',
-        type: 'storage_response',
         operation: 'setItem',
+        type: 'storage_response',
       },
     });
     expect(postMessage).toHaveBeenLastCalledWith({
       id: 'resp-3',
-      type: 'success',
       result: true,
+      type: 'success',
     });
   });
 
   it('returns error responses for invalid payloads and unknown operations', async () => {
     const { postMessage, messageHandler } = await loadWorkerHarness();
 
-    await messageHandler({ data: { id: 'err-save', type: 'save', key: 'missing-value' } });
+    await messageHandler({ data: { id: 'err-save', key: 'missing-value', type: 'save' } });
     expect(postMessage).toHaveBeenLastCalledWith({
+      error: 'Save operation requires key and value',
       id: 'err-save',
       type: 'error',
-      error: 'Save operation requires key and value',
     });
 
     await messageHandler({ data: { id: 'err-load', type: 'load' } });
     expect(postMessage).toHaveBeenLastCalledWith({
+      error: 'Load operation requires key',
       id: 'err-load',
       type: 'error',
-      error: 'Load operation requires key',
     });
 
     await messageHandler({ data: { id: 'err-remove', type: 'remove' } });
     expect(postMessage).toHaveBeenLastCalledWith({
+      error: 'Remove operation requires key',
       id: 'err-remove',
       type: 'error',
-      error: 'Remove operation requires key',
     });
 
     await messageHandler({ data: { id: 'err-unknown', type: 'unsupported' } });
     expect(postMessage).toHaveBeenLastCalledWith({
+      error: 'Unknown operation type: unsupported',
       id: 'err-unknown',
       type: 'error',
-      error: 'Unknown operation type: unsupported',
     });
   });
 });

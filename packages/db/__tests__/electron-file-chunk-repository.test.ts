@@ -6,32 +6,32 @@ import type { ElectronDbAPI } from '../src/repositories/electron-file-record-rep
 type QueryMock = ReturnType<typeof vi.fn<ElectronDbAPI['query']>>;
 
 const createRowFromChunk = (chunk: FileChunk): Record<string, unknown> => ({
-  id: chunk.id,
-  file_record_id: chunk.fileRecordId,
   chunk_index: chunk.chunkIndex,
+  chunk_size: chunk.chunkSize,
+  chunk_type: chunk.chunkType,
   content: chunk.content,
   content_hash: chunk.contentHash,
-  token_count: chunk.tokenCount,
-  chunk_type: chunk.chunkType,
-  chunk_size: chunk.chunkSize,
+  created_at: chunk.createdAt,
   embedding: chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+  embedding_hash: chunk.embeddingHash ?? null,
   embedding_set_id: chunk.embeddingSetId ?? null,
   embedding_updated_at: chunk.embeddingUpdatedAt ?? null,
-  embedding_hash: chunk.embeddingHash ?? null,
-  created_at: chunk.createdAt,
+  file_record_id: chunk.fileRecordId,
+  id: chunk.id,
+  token_count: chunk.tokenCount,
   updated_at: chunk.updatedAt,
 });
 
 const baseChunk: FileChunk = {
-  id: 'chunk-1',
-  fileRecordId: 'file-1',
   chunkIndex: 0,
+  chunkSize: 128,
+  chunkType: 'text',
   content: 'Hello world',
   contentHash: 'hash-123',
-  tokenCount: 12,
-  chunkType: 'text',
-  chunkSize: 128,
   createdAt: '2025-01-01T00:00:00.000Z',
+  fileRecordId: 'file-1',
+  id: 'chunk-1',
+  tokenCount: 12,
   updatedAt: '2025-01-01T00:00:00.000Z',
 };
 
@@ -39,11 +39,11 @@ const createRepo = () => {
   const query = vi.fn<ElectronDbAPI['query']>();
   const exec = vi.fn<ElectronDbAPI['exec']>();
   const db: ElectronDbAPI = {
-    query,
     exec,
+    query,
   };
   const repo = new ElectronFileChunkRepository(db);
-  return { repo, query, exec };
+  return { exec, query, repo };
 };
 
 // Repo whose IPC db ALSO exposes the atomic `transaction(statements, resultIndex)`
@@ -52,9 +52,9 @@ const createRepoWithTransaction = () => {
   const query = vi.fn<ElectronDbAPI['query']>();
   const exec = vi.fn<ElectronDbAPI['exec']>();
   const transaction = vi.fn<NonNullable<ElectronDbAPI['transaction']>>();
-  const db: ElectronDbAPI = { query, exec, transaction };
+  const db: ElectronDbAPI = { exec, query, transaction };
   const repo = new ElectronFileChunkRepository(db);
-  return { repo, query, exec, transaction };
+  return { exec, query, repo, transaction };
 };
 
 describe('ElectronFileChunkRepository smoke coverage', () => {
@@ -73,9 +73,9 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       ...createRowFromChunk({
         ...baseChunk,
         embedding: [0.1, 0.2],
+        embeddingHash: 'embed-hash',
         embeddingSetId: 'set-1',
         embeddingUpdatedAt: '2025-01-02T00:00:00.000Z',
-        embeddingHash: 'embed-hash',
       }),
     };
     query.mockResolvedValueOnce({ rows: [row] });
@@ -87,9 +87,9 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       embedding: [0.1, 0.2],
       // Mapped chunks now also carry the embedding's dimension count.
       embeddingDimensions: 2,
+      embeddingHash: 'embed-hash',
       embeddingSetId: 'set-1',
       embeddingUpdatedAt: '2025-01-02T00:00:00.000Z',
-      embeddingHash: 'embed-hash',
     });
     expect(query).toHaveBeenCalledWith(expect.stringContaining('WHERE id = $1'), ['chunk-1']);
   });
@@ -116,7 +116,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     } as FileChunk);
 
     // validateEmbeddingDimensions issues: SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)
-    query.mockResolvedValueOnce({ rows: [{ id: 'set-2', dimensions: 2 }] });
+    query.mockResolvedValueOnce({ rows: [{ dimensions: 2, id: 'set-2' }] });
     query.mockResolvedValueOnce({ rows: [expectedRow] });
 
     const inserted = await repo.insert(chunk);
@@ -131,8 +131,8 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     await expect(
       repo.insert({
         ...baseChunk,
-        id: 'chunk-null-insert',
         content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        id: 'chunk-null-insert',
       })
     ).rejects.toThrow('File chunk content cannot contain null bytes.');
     expect(query).not.toHaveBeenCalled();
@@ -142,16 +142,16 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     const chunks: FileChunkInsert[] = [
       {
         ...baseChunk,
-        id: 'chunk-1',
         chunkIndex: 0,
         embedding: [0.1],
+        id: 'chunk-1',
       },
       {
         ...baseChunk,
-        id: 'chunk-2',
         chunkIndex: 1,
         content: 'Another',
         embedding: [0.2],
+        id: 'chunk-2',
       },
     ];
 
@@ -187,11 +187,11 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   it('rejects null bytes in chunk content before insertMany IPC transaction starts', async () => {
     await expect(
       repo.insertMany([
-        { ...baseChunk, id: 'chunk-clean', content: 'clean chunk' },
+        { ...baseChunk, content: 'clean chunk', id: 'chunk-clean' },
         {
           ...baseChunk,
-          id: 'chunk-null-batch',
           content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+          id: 'chunk-null-batch',
         },
       ])
     ).rejects.toThrow('File chunk content cannot contain null bytes.');
@@ -201,8 +201,8 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   it('rejects null bytes in chunk content before update IPC query', async () => {
     await expect(
       repo.update({
-        id: 'chunk-null-update',
         content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+        id: 'chunk-null-update',
         updatedAt: '2025-01-01T00:00:00.000Z',
       })
     ).rejects.toThrow('File chunk content cannot contain null bytes.');
@@ -213,17 +213,17 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     query.mockResolvedValueOnce({
       rows: [
         {
-          total_chunks: '2',
-          chunks_with_embeddings: '1',
           average_token_count: '5',
           chunk_type: 'text',
+          chunks_with_embeddings: '1',
+          total_chunks: '2',
           type_count: '2',
         },
         {
-          total_chunks: '2',
-          chunks_with_embeddings: '2',
           average_token_count: '8',
           chunk_type: 'code',
+          chunks_with_embeddings: '2',
+          total_chunks: '2',
           type_count: '2',
         },
       ],
@@ -233,7 +233,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
 
     expect(stats.totalChunks).toBe(4);
     expect(stats.chunksWithEmbeddings).toBe(3);
-    expect(stats.chunkTypeDistribution).toEqual({ text: 2, code: 2 });
+    expect(stats.chunkTypeDistribution).toEqual({ code: 2, text: 2 });
     expect(stats.averageTokenCount).toBeCloseTo((5 * 2 + 8 * 2) / 4);
   });
 
@@ -269,7 +269,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM embedding_sets')) {
-        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+        return { rows: [{ dimensions: dimension, distance: 'cosine' }] };
       }
       // BEGIN / COMMIT / SET LOCAL tuning / the SELECT all return no rows here.
       return { rows: [] };
@@ -300,7 +300,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     const dimension = 4;
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM embedding_sets')) {
-        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+        return { rows: [{ dimensions: dimension, distance: 'cosine' }] };
       }
       throw new Error(`Unexpected non-transaction query: ${sql}`);
     });
@@ -309,9 +309,9 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     await repo.searchSimilar(
       Array.from({ length: dimension }, () => 0.1),
       {
+        efSearch: 120,
         embeddingSetId: 'set-1',
         limit: 5,
-        efSearch: 120,
       }
     );
 
@@ -342,7 +342,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     const dimension = 4;
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM embedding_sets')) {
-        return { rows: [{ distance: 'cosine', dimensions: dimension }] };
+        return { rows: [{ dimensions: dimension, distance: 'cosine' }] };
       }
       return { rows: [] };
     });

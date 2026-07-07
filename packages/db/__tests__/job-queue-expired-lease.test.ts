@@ -15,8 +15,8 @@ describe('JobQueue expired lease claiming', () => {
 
   it('claims expired running jobs and bumps attempts on claim', async () => {
     const jq = new JobQueue(db as IDatabase);
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
-    const c1 = await jq.claim({ queue: 'embeddings', leaseMs: 50 });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
+    const c1 = await jq.claim({ leaseMs: 50, queue: 'embeddings' });
     expect(c1).not.toBeNull();
     const id = c1?.id as string;
     const token = c1?.lease_token as string;
@@ -27,7 +27,7 @@ describe('JobQueue expired lease claiming', () => {
       id,
     ]);
 
-    const c2 = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const c2 = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(c2).not.toBeNull();
     expect(c2?.id).toBe(id);
     // attempts should have incremented on both claims

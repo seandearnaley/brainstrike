@@ -11,21 +11,21 @@ import { createEmptyRuleSet } from '../schema';
 describe('engine', () => {
   // Sample tree structure for testing
   const sampleNodes: FileNode[] = [
-    { path: 'src', isDirectory: true },
-    { path: 'src/index.ts', isDirectory: false },
-    { path: 'src/utils.ts', isDirectory: false },
-    { path: 'src/components', isDirectory: true },
-    { path: 'src/components/Button.tsx', isDirectory: false },
-    { path: 'src/components/Input.tsx', isDirectory: false },
-    { path: 'src/components/__tests__', isDirectory: true },
-    { path: 'src/components/__tests__/Button.test.tsx', isDirectory: false },
-    { path: 'lib', isDirectory: true },
-    { path: 'lib/helpers.ts', isDirectory: false },
-    { path: 'lib/constants.ts', isDirectory: false },
-    { path: 'node_modules', isDirectory: true },
-    { path: 'node_modules/lodash/index.js', isDirectory: false },
-    { path: 'package.json', isDirectory: false },
-    { path: 'tsconfig.json', isDirectory: false },
+    { isDirectory: true, path: 'src' },
+    { isDirectory: false, path: 'src/index.ts' },
+    { isDirectory: false, path: 'src/utils.ts' },
+    { isDirectory: true, path: 'src/components' },
+    { isDirectory: false, path: 'src/components/Button.tsx' },
+    { isDirectory: false, path: 'src/components/Input.tsx' },
+    { isDirectory: true, path: 'src/components/__tests__' },
+    { isDirectory: false, path: 'src/components/__tests__/Button.test.tsx' },
+    { isDirectory: true, path: 'lib' },
+    { isDirectory: false, path: 'lib/helpers.ts' },
+    { isDirectory: false, path: 'lib/constants.ts' },
+    { isDirectory: true, path: 'node_modules' },
+    { isDirectory: false, path: 'node_modules/lodash/index.js' },
+    { isDirectory: false, path: 'package.json' },
+    { isDirectory: false, path: 'tsconfig.json' },
   ];
 
   const sampleTree = new InMemoryTreeAdapter(sampleNodes);
@@ -66,8 +66,8 @@ describe('engine', () => {
 
     it('synthesizes missing parent directories even when a nested directory is explicit', () => {
       const tree = new InMemoryTreeAdapter([
-        { path: 'src/components', isDirectory: true },
-        { path: 'src/components/Button.tsx', isDirectory: false },
+        { isDirectory: true, path: 'src/components' },
+        { isDirectory: false, path: 'src/components/Button.tsx' },
       ]);
 
       expect(tree.pathExists('src')).toBe(true);
@@ -76,10 +76,10 @@ describe('engine', () => {
 
     it('does not treat shared path prefixes as descendants of a root', () => {
       const tree = new InMemoryTreeAdapter([
-        { path: 'src/index.ts', isDirectory: false },
-        { path: 'src-generated/index.ts', isDirectory: false },
-        { path: 'src/components/Button.tsx', isDirectory: false },
-        { path: 'src/components-extra/Button.tsx', isDirectory: false },
+        { isDirectory: false, path: 'src/index.ts' },
+        { isDirectory: false, path: 'src-generated/index.ts' },
+        { isDirectory: false, path: 'src/components/Button.tsx' },
+        { isDirectory: false, path: 'src/components-extra/Button.tsx' },
       ]);
 
       expect(Array.from(tree.getFilesUnderRoot('src'))).toEqual([
@@ -94,11 +94,11 @@ describe('engine', () => {
 
     it('respects maxDepth without treating shared prefixes as descendants', () => {
       const tree = new InMemoryTreeAdapter([
-        { path: 'src/index.ts', isDirectory: false },
-        { path: 'src/components/Button.tsx', isDirectory: false },
-        { path: 'src/components/forms/Input.tsx', isDirectory: false },
-        { path: 'src-generated/index.ts', isDirectory: false },
-        { path: 'src-generated/components/Button.tsx', isDirectory: false },
+        { isDirectory: false, path: 'src/index.ts' },
+        { isDirectory: false, path: 'src/components/Button.tsx' },
+        { isDirectory: false, path: 'src/components/forms/Input.tsx' },
+        { isDirectory: false, path: 'src-generated/index.ts' },
+        { isDirectory: false, path: 'src-generated/components/Button.tsx' },
       ]);
 
       expect(Array.from(tree.getFilesUnderRoot('src', 0))).toEqual(['src/index.ts']);
@@ -125,10 +125,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'root-include',
-              roots: ['src'],
               createdAt: now,
+              id: 'r1',
+              roots: ['src'],
+              type: 'root-include',
             },
           ],
         };
@@ -147,10 +147,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'root-include',
-              roots: ['nonexistent'],
               createdAt: now,
+              id: 'r1',
+              roots: ['nonexistent'],
+              type: 'root-include',
             },
           ],
         };
@@ -167,11 +167,11 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'root-include',
-              roots: ['src'],
-              maxDepth: 0,
               createdAt: now,
+              id: 'r1',
+              maxDepth: 0,
+              roots: ['src'],
+              type: 'root-include',
             },
           ],
         };
@@ -191,10 +191,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*.tsx'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*.tsx'],
+              type: 'glob-include',
             },
           ],
         };
@@ -212,11 +212,11 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['*.ts'],
               basePath: 'lib',
               createdAt: now,
+              id: 'r1',
+              patterns: ['*.ts'],
+              type: 'glob-include',
             },
           ],
         };
@@ -234,10 +234,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*.py'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*.py'],
+              type: 'glob-include',
             },
           ],
         };
@@ -255,16 +255,16 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'root-exclude',
-              roots: ['node_modules'],
               createdAt: now,
+              id: 'r2',
+              roots: ['node_modules'],
+              type: 'root-exclude',
             },
           ],
         };
@@ -278,23 +278,23 @@ describe('engine', () => {
 
       it('does not exclude files that only share a string prefix with the root', () => {
         const tree = new InMemoryTreeAdapter([
-          { path: 'src/index.ts', isDirectory: false },
-          { path: 'src-generated/index.ts', isDirectory: false },
+          { isDirectory: false, path: 'src/index.ts' },
+          { isDirectory: false, path: 'src-generated/index.ts' },
         ]);
         const ruleSet: SelectionRuleSet = {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'root-exclude',
-              roots: ['src'],
               createdAt: now,
+              id: 'r2',
+              roots: ['src'],
+              type: 'root-exclude',
             },
           ],
         };
@@ -313,16 +313,16 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*.tsx'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*.tsx'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'glob-exclude',
-              patterns: ['**/*.test.tsx'],
               createdAt: now,
+              id: 'r2',
+              patterns: ['**/*.test.tsx'],
+              type: 'glob-exclude',
             },
           ],
         };
@@ -341,16 +341,16 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'include-all',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'include-all',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
             {
-              id: 'exclude-multi',
-              type: 'glob-exclude',
-              patterns: ['**/*.test.tsx', '**/*.json'],
               createdAt: now,
+              id: 'exclude-multi',
+              patterns: ['**/*.test.tsx', '**/*.json'],
+              type: 'glob-exclude',
             },
           ],
         };
@@ -374,16 +374,16 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'include-ts',
-              type: 'glob-include',
-              patterns: ['**/*.ts', '**/*.tsx'],
               createdAt: now,
+              id: 'include-ts',
+              patterns: ['**/*.ts', '**/*.tsx'],
+              type: 'glob-include',
             },
             {
-              id: 'exclude-multi',
-              type: 'glob-exclude',
-              patterns: ['**/utils.ts', '**/helpers.ts', '**/Button.tsx'],
               createdAt: now,
+              id: 'exclude-multi',
+              patterns: ['**/utils.ts', '**/helpers.ts', '**/Button.tsx'],
+              type: 'glob-exclude',
             },
           ],
         };
@@ -409,11 +409,11 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'explicit',
-              paths: ['package.json', 'tsconfig.json'],
-              mode: 'include',
               createdAt: now,
+              id: 'r1',
+              mode: 'include',
+              paths: ['package.json', 'tsconfig.json'],
+              type: 'explicit',
             },
           ],
         };
@@ -431,17 +431,17 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['*.json'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['*.json'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'explicit',
-              paths: ['tsconfig.json'],
-              mode: 'exclude',
               createdAt: now,
+              id: 'r2',
+              mode: 'exclude',
+              paths: ['tsconfig.json'],
+              type: 'explicit',
             },
           ],
         };
@@ -458,10 +458,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'explicit',
-              paths: ['nonexistent.ts'],
               createdAt: now,
+              id: 'r1',
+              paths: ['nonexistent.ts'],
+              type: 'explicit',
             },
           ],
         };
@@ -479,17 +479,17 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
             {
+              createdAt: now,
               id: 'r2',
-              type: 'cap',
               maxCount: 3,
               strategy: 'first',
-              createdAt: now,
+              type: 'cap',
             },
           ],
         };
@@ -508,17 +508,17 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'explicit',
-              paths: ['package.json'],
               createdAt: now,
+              id: 'r1',
+              paths: ['package.json'],
+              type: 'explicit',
             },
             {
+              createdAt: now,
               id: 'r2',
-              type: 'cap',
               maxCount: 10,
               strategy: 'first',
-              createdAt: now,
+              type: 'cap',
             },
           ],
         };
@@ -535,18 +535,18 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'cap',
-              maxCount: 3,
-              strategy: 'random',
-              seed: 42,
               createdAt: now,
+              id: 'r2',
+              maxCount: 3,
+              seed: 42,
+              strategy: 'random',
+              type: 'cap',
             },
           ],
         };
@@ -564,17 +564,17 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'explicit',
-              paths: ['package.json', 'tsconfig.json', 'src/index.ts'],
               createdAt: now,
+              id: 'r1',
+              paths: ['package.json', 'tsconfig.json', 'src/index.ts'],
+              type: 'explicit',
             },
             {
+              createdAt: now,
               id: 'r2',
-              type: 'cap',
               maxCount: 2,
               strategy: 'priority',
-              createdAt: now,
+              type: 'cap',
             },
           ],
         };
@@ -592,17 +592,17 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*.ts'],
-              enabled: false,
               createdAt: now,
+              enabled: false,
+              id: 'r1',
+              patterns: ['**/*.ts'],
+              type: 'glob-include',
             },
             {
-              id: 'r2',
-              type: 'explicit',
-              paths: ['package.json'],
               createdAt: now,
+              id: 'r2',
+              paths: ['package.json'],
+              type: 'explicit',
             },
           ],
         };
@@ -623,22 +623,22 @@ describe('engine', () => {
           rules: [
             // Add these in wrong order - engine should sort correctly
             {
+              createdAt: now,
               id: 'explicit',
-              type: 'explicit',
               paths: ['package.json'],
-              createdAt: now,
+              type: 'explicit',
             },
             {
+              createdAt: now,
               id: 'root-include',
-              type: 'root-include',
               roots: ['src'],
-              createdAt: now,
+              type: 'root-include',
             },
             {
-              id: 'glob-exclude',
-              type: 'glob-exclude',
-              patterns: ['**/*.test.tsx'],
               createdAt: now,
+              id: 'glob-exclude',
+              patterns: ['**/*.test.tsx'],
+              type: 'glob-exclude',
             },
           ],
         };
@@ -659,10 +659,10 @@ describe('engine', () => {
           ...createEmptyRuleSet('folder'),
           rules: [
             {
-              id: 'r1',
-              type: 'glob-include',
-              patterns: ['**/*'],
               createdAt: now,
+              id: 'r1',
+              patterns: ['**/*'],
+              type: 'glob-include',
             },
           ],
         };
@@ -679,20 +679,20 @@ describe('engine', () => {
   describe('SelectionRuleEngine.computeDiff', () => {
     it('should compute added paths', () => {
       const old = {
-        paths: new Set(['a.ts', 'b.ts']),
         appliedRules: [],
         capped: false,
-        originalCount: 2,
-        warnings: [],
         materializedAt: now,
+        originalCount: 2,
+        paths: new Set(['a.ts', 'b.ts']),
+        warnings: [],
       };
       const newer = {
-        paths: new Set(['a.ts', 'b.ts', 'c.ts']),
         appliedRules: [],
         capped: false,
-        originalCount: 3,
-        warnings: [],
         materializedAt: now,
+        originalCount: 3,
+        paths: new Set(['a.ts', 'b.ts', 'c.ts']),
+        warnings: [],
       };
 
       const diff = SelectionRuleEngine.computeDiff(old, newer);
@@ -705,20 +705,20 @@ describe('engine', () => {
 
     it('should compute removed paths', () => {
       const old = {
-        paths: new Set(['a.ts', 'b.ts', 'c.ts']),
         appliedRules: [],
         capped: false,
-        originalCount: 3,
-        warnings: [],
         materializedAt: now,
+        originalCount: 3,
+        paths: new Set(['a.ts', 'b.ts', 'c.ts']),
+        warnings: [],
       };
       const newer = {
-        paths: new Set(['a.ts']),
         appliedRules: [],
         capped: false,
-        originalCount: 1,
-        warnings: [],
         materializedAt: now,
+        originalCount: 1,
+        paths: new Set(['a.ts']),
+        warnings: [],
       };
 
       const diff = SelectionRuleEngine.computeDiff(old, newer);
@@ -731,12 +731,12 @@ describe('engine', () => {
 
     it('should detect unchanged selections', () => {
       const selection = {
-        paths: new Set(['a.ts', 'b.ts']),
         appliedRules: [],
         capped: false,
-        originalCount: 2,
-        warnings: [],
         materializedAt: now,
+        originalCount: 2,
+        paths: new Set(['a.ts', 'b.ts']),
+        warnings: [],
       };
 
       const diff = SelectionRuleEngine.computeDiff(selection, selection);
@@ -751,10 +751,10 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'r1',
-            type: 'root-include',
-            roots: ['src'],
             createdAt: now,
+            id: 'r1',
+            roots: ['src'],
+            type: 'root-include',
           },
         ],
       };
@@ -772,17 +772,17 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'explicit-small',
-            type: 'explicit',
-            paths: ['package.json'],
             createdAt: now,
+            id: 'explicit-small',
+            paths: ['package.json'],
+            type: 'explicit',
           },
           {
+            createdAt: now,
             id: 'cap-large',
-            type: 'cap',
             maxCount: 100, // Much larger than selection
             strategy: 'first',
-            createdAt: now,
+            type: 'cap',
           },
         ],
       };
@@ -800,16 +800,16 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-json',
-            type: 'explicit',
-            paths: ['package.json'],
             createdAt: now,
+            id: 'include-json',
+            paths: ['package.json'],
+            type: 'explicit',
           },
           {
-            id: 'exclude-py',
-            type: 'glob-exclude',
-            patterns: ['**/*.py'], // No .py files in selection
             createdAt: now,
+            id: 'exclude-py',
+            patterns: ['**/*.py'], // No .py files in selection
+            type: 'glob-exclude',
           },
         ],
       };
@@ -827,16 +827,16 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-lib',
-            type: 'root-include',
-            roots: ['lib'],
             createdAt: now,
+            id: 'include-lib',
+            roots: ['lib'],
+            type: 'root-include',
           },
           {
-            id: 'exclude-nonexistent',
-            type: 'root-exclude',
-            roots: ['nonexistent-folder'],
             createdAt: now,
+            id: 'exclude-nonexistent',
+            roots: ['nonexistent-folder'],
+            type: 'root-exclude',
           },
         ],
       };
@@ -854,17 +854,17 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-all-json',
-            type: 'glob-include',
-            patterns: ['**/*.json'],
             createdAt: now,
+            id: 'include-all-json',
+            patterns: ['**/*.json'],
+            type: 'glob-include',
           },
           {
-            id: 'explicit-already-included',
-            type: 'explicit',
-            paths: ['package.json'], // Already included by glob
-            mode: 'include',
             createdAt: now,
+            id: 'explicit-already-included',
+            mode: 'include',
+            paths: ['package.json'], // Already included by glob
+            type: 'explicit',
           },
         ],
       };
@@ -883,16 +883,16 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-empty-pattern',
-            type: 'glob-include',
-            patterns: ['**/*.nonexistent'], // Matches nothing
             createdAt: now,
+            id: 'include-empty-pattern',
+            patterns: ['**/*.nonexistent'], // Matches nothing
+            type: 'glob-include',
           },
           {
-            id: 'include-ts',
-            type: 'glob-include',
-            patterns: ['**/*.ts'],
             createdAt: now,
+            id: 'include-ts',
+            patterns: ['**/*.ts'],
+            type: 'glob-include',
           },
         ],
       };
@@ -912,10 +912,10 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-all',
-            type: 'glob-include',
-            patterns: ['**/*'],
             createdAt: now,
+            id: 'include-all',
+            patterns: ['**/*'],
+            type: 'glob-include',
           },
         ],
       };
@@ -932,10 +932,10 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'explicit-one',
-            type: 'explicit',
-            paths: ['package.json'],
             createdAt: now,
+            id: 'explicit-one',
+            paths: ['package.json'],
+            type: 'explicit',
           },
         ],
       };
@@ -952,17 +952,17 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'include-all',
-            type: 'glob-include',
-            patterns: ['**/*'],
             createdAt: now,
+            id: 'include-all',
+            patterns: ['**/*'],
+            type: 'glob-include',
           },
           {
+            createdAt: now,
             id: 'cap-to-5',
-            type: 'cap',
             maxCount: 5,
             strategy: 'first',
-            createdAt: now,
+            type: 'cap',
           },
         ],
       };
@@ -981,10 +981,10 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'explicit-two',
-            type: 'explicit',
-            paths: ['package.json', 'tsconfig.json'],
             createdAt: now,
+            id: 'explicit-two',
+            paths: ['package.json', 'tsconfig.json'],
+            type: 'explicit',
           },
         ],
       };
@@ -1011,7 +1011,7 @@ describe('engine', () => {
         }
         const ext = ['.ts', '.tsx', '.js', '.json'][Math.floor(Math.random() * 4)];
         pathParts.push(`file${i}${ext}`);
-        nodes.push({ path: pathParts.join('/'), isDirectory: false });
+        nodes.push({ isDirectory: false, path: pathParts.join('/') });
       }
 
       return new InMemoryTreeAdapter(nodes);
@@ -1023,23 +1023,23 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
+            createdAt: now,
             id: 'r1',
-            type: 'glob-include',
             patterns: ['**/*.ts', '**/*.tsx'],
-            createdAt: now,
+            type: 'glob-include',
           },
           {
+            createdAt: now,
             id: 'r2',
-            type: 'glob-exclude',
             patterns: ['**/dir0/**'],
-            createdAt: now,
+            type: 'glob-exclude',
           },
           {
+            createdAt: now,
             id: 'r3',
-            type: 'cap',
             maxCount: 100,
             strategy: 'first',
-            createdAt: now,
+            type: 'cap',
           },
         ],
       };
@@ -1060,17 +1060,17 @@ describe('engine', () => {
         ...createEmptyRuleSet('folder'),
         rules: [
           {
-            id: 'r1',
-            type: 'glob-include',
-            patterns: ['**/*.ts'],
             createdAt: now,
+            id: 'r1',
+            patterns: ['**/*.ts'],
+            type: 'glob-include',
           },
           {
+            createdAt: now,
             id: 'r2',
-            type: 'cap',
             maxCount: 50,
             strategy: 'first',
-            createdAt: now,
+            type: 'cap',
           },
         ],
       };

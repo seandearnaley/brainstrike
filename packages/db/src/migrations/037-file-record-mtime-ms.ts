@@ -15,14 +15,14 @@ import type { Migration } from './migration-runner';
  * mirrors the existing `file_token_cache.mtime_ms` column.
  */
 export const migration037FileRecordMtimeMs: Migration = {
-  version: 37,
+  down: `
+    ALTER TABLE IF EXISTS file_records
+      DROP COLUMN IF EXISTS mtime_ms;
+  `,
   name: 'file_record_mtime_ms',
   up: `
     ALTER TABLE IF EXISTS file_records
       ADD COLUMN IF NOT EXISTS mtime_ms BIGINT;
   `,
-  down: `
-    ALTER TABLE IF EXISTS file_records
-      DROP COLUMN IF EXISTS mtime_ms;
-  `,
+  version: 37,
 };

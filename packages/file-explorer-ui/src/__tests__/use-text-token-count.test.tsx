@@ -31,8 +31,8 @@ describe('useTextTokenCount', () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockImplementation(
       () =>
         ({
-          countTextTokens,
           countingMode: 'accurate',
+          countTextTokens,
           isWorkerReady: workerReady,
         }) as unknown as TokenCacheContextValue
     );
@@ -40,7 +40,7 @@ describe('useTextTokenCount', () => {
     const text = 'x'.repeat(40);
     const { result, rerender } = renderHook(
       (props: { text: string; enabled: boolean }) => useTextTokenCount(props),
-      { initialProps: { text, enabled: true } }
+      { initialProps: { enabled: true, text } }
     );
 
     await waitFor(() => expect(result.current.tokenCount).toBe(0));
@@ -48,7 +48,7 @@ describe('useTextTokenCount', () => {
     expect(countTextTokens).toHaveBeenCalledTimes(0);
 
     workerReady = true;
-    rerender({ text, enabled: true });
+    rerender({ enabled: true, text });
 
     await waitFor(() => expect(result.current.tokenCount).toBe(40));
     expect(countTextTokens).toHaveBeenCalledTimes(1);
@@ -60,19 +60,19 @@ describe('useTextTokenCount', () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockImplementation(
       () =>
         ({
-          countTextTokens,
           countingMode: 'accurate',
+          countTextTokens,
           isWorkerReady: true,
         }) as unknown as TokenCacheContextValue
     );
 
     const { result, rerender } = renderHook(
       (props: { text: string; enabled: boolean }) => useTextTokenCount(props),
-      { initialProps: { text: 'hello', enabled: true } }
+      { initialProps: { enabled: true, text: 'hello' } }
     );
 
     await waitFor(() => expect(result.current.tokenCount).toBe(123));
-    rerender({ text: 'hello', enabled: false });
+    rerender({ enabled: false, text: 'hello' });
 
     await waitFor(() => expect(result.current.tokenCount).toBe(0));
     expect(result.current.loading).toBe(false);

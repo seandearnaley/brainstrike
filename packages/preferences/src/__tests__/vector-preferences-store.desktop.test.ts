@@ -18,8 +18,8 @@ describe('vector-preferences-store desktop storage bridge', () => {
       value: {
         storage: {
           getItem: getItemMock,
-          setItem: setItemMock,
           removeItem: removeItemMock,
+          setItem: setItemMock,
         },
       },
     });

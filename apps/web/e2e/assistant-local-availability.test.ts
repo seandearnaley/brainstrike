@@ -15,10 +15,10 @@ test.describe('Assistant local availability (web) @stateful @web-assistant-state
             async requestAdapter() {
               return {
                 info: {
-                  vendor: 'playwright',
                   architecture: 'test',
-                  device: 'mock-webgpu',
                   description: 'Mock WebGPU adapter for assistant availability tests',
+                  device: 'mock-webgpu',
+                  vendor: 'playwright',
                 },
                 limits: {
                   maxBufferSize: 1_073_741_824,
@@ -33,9 +33,9 @@ test.describe('Assistant local availability (web) @stateful @web-assistant-state
 
     await page.route('**/api/assistant/status', async (route) => {
       await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
         body: JSON.stringify({ enabled: false, reason: 'missing_api_key' }),
+        contentType: 'application/json',
+        status: 200,
       });
     });
 

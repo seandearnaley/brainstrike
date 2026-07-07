@@ -16,15 +16,15 @@ function createMockTool(
   options: Partial<UnifiedToolMetadata> = {}
 ): UnifiedToolMetadata {
   return {
-    id,
-    source: 'native',
     category: 'retrieval',
-    loadingTier: 'conditional',
     description: `Mock tool ${id}`,
-    enabled: true,
     discoveredAt: Date.now(),
+    enabled: true,
     estimatedTokens: 100,
+    id,
+    loadingTier: 'conditional',
     requiresApproval: false,
+    source: 'native',
     ...options,
   };
 }
@@ -45,28 +45,28 @@ describe('TokenBudgetManager', () => {
     it('throws if budget allocation does not sum to 1.0', () => {
       expect(() => {
         new TokenBudgetManager({
-          contextWindowTokens: 16_000,
           allocation: {
-            systemPrompt: 0.5,
-            responseBuffer: 0.5,
-            criticalTools: 0.5,
             conditionalTools: 0.5,
             contextResults: 0.5, // Sum = 2.5
+            criticalTools: 0.5,
+            responseBuffer: 0.5,
+            systemPrompt: 0.5,
           },
+          contextWindowTokens: 16_000,
         });
       }).toThrow('Budget allocation must sum to 1.0');
     });
 
     it('accepts custom allocation that sums to 1.0', () => {
       const customManager = new TokenBudgetManager({
-        contextWindowTokens: 16_000,
         allocation: {
-          systemPrompt: 0.2,
-          responseBuffer: 0.15,
-          criticalTools: 0.1,
           conditionalTools: 0.3,
           contextResults: 0.25,
+          criticalTools: 0.1,
+          responseBuffer: 0.15,
+          systemPrompt: 0.2,
         },
+        contextWindowTokens: 16_000,
       });
       expect(customManager).toBeInstanceOf(TokenBudgetManager);
     });
@@ -107,9 +107,9 @@ describe('TokenBudgetManager', () => {
 
     it('skips disabled tools', () => {
       const tools = [
-        createMockTool('tool1', { estimatedTokens: 100, enabled: true }),
-        createMockTool('tool2', { estimatedTokens: 100, enabled: false }),
-        createMockTool('tool3', { estimatedTokens: 100, enabled: true }),
+        createMockTool('tool1', { enabled: true, estimatedTokens: 100 }),
+        createMockTool('tool2', { enabled: false, estimatedTokens: 100 }),
+        createMockTool('tool3', { enabled: true, estimatedTokens: 100 }),
       ];
 
       const result = manager.selectToolsWithinBudget(tools, 500);
@@ -170,9 +170,9 @@ describe('TokenBudgetManager', () => {
   describe('selectCriticalTools', () => {
     it('selects only critical tier tools', () => {
       const tools = [
-        createMockTool('critical1', { loadingTier: 'critical', estimatedTokens: 100 }),
-        createMockTool('conditional1', { loadingTier: 'conditional', estimatedTokens: 100 }),
-        createMockTool('critical2', { loadingTier: 'critical', estimatedTokens: 100 }),
+        createMockTool('critical1', { estimatedTokens: 100, loadingTier: 'critical' }),
+        createMockTool('conditional1', { estimatedTokens: 100, loadingTier: 'conditional' }),
+        createMockTool('critical2', { estimatedTokens: 100, loadingTier: 'critical' }),
       ];
 
       const result = manager.selectCriticalTools(tools);
@@ -185,8 +185,8 @@ describe('TokenBudgetManager', () => {
   describe('selectConditionalTools', () => {
     it('reduces budget when critical tools overflow', () => {
       const tools = [
-        createMockTool('cond1', { loadingTier: 'conditional', estimatedTokens: 100 }),
-        createMockTool('cond2', { loadingTier: 'conditional', estimatedTokens: 100 }),
+        createMockTool('cond1', { estimatedTokens: 100, loadingTier: 'conditional' }),
+        createMockTool('cond2', { estimatedTokens: 100, loadingTier: 'conditional' }),
       ];
 
       const criticalBudget = manager.getCriticalToolsBudget();
@@ -204,11 +204,11 @@ describe('TokenBudgetManager', () => {
   describe('selectAllTools', () => {
     it('performs full three-tier selection', () => {
       const tools = [
-        createMockTool('c1', { loadingTier: 'critical', estimatedTokens: 100 }),
-        createMockTool('c2', { loadingTier: 'critical', estimatedTokens: 100 }),
-        createMockTool('co1', { loadingTier: 'conditional', estimatedTokens: 100 }),
-        createMockTool('co2', { loadingTier: 'conditional', estimatedTokens: 100 }),
-        createMockTool('d1', { loadingTier: 'deferred', estimatedTokens: 100 }),
+        createMockTool('c1', { estimatedTokens: 100, loadingTier: 'critical' }),
+        createMockTool('c2', { estimatedTokens: 100, loadingTier: 'critical' }),
+        createMockTool('co1', { estimatedTokens: 100, loadingTier: 'conditional' }),
+        createMockTool('co2', { estimatedTokens: 100, loadingTier: 'conditional' }),
+        createMockTool('d1', { estimatedTokens: 100, loadingTier: 'deferred' }),
       ];
 
       const result = manager.selectAllTools(tools);
@@ -250,7 +250,7 @@ describe('TokenBudgetManager', () => {
     it('estimates tokens from description and schema', () => {
       const tool = {
         description: 'A test tool for searching',
-        inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+        inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
       };
 
       const estimate = manager.estimateToolTokens(tool);

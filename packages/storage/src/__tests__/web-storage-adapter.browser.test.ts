@@ -65,7 +65,7 @@ describe('WebStorageAdapter (Browser Mode)', () => {
 
     it('should set and get JSON values', async () => {
       const key = `${TEST_PREFIX}object-test`;
-      const value = { name: 'test', count: 42, nested: { a: 1 } };
+      const value = { count: 42, name: 'test', nested: { a: 1 } };
 
       await adapter.setItem(key, JSON.stringify(value));
       const result = await adapter.getItem(key);
@@ -180,7 +180,7 @@ describe('WebStorageAdapter (Browser Mode)', () => {
       for (let i = 0; i < count; i++) {
         const key = `${TEST_PREFIX}perf-${i}`;
         keys.push(key);
-        await adapter.setItem(key, JSON.stringify({ index: i, data: `value-${i}` }));
+        await adapter.setItem(key, JSON.stringify({ data: `value-${i}`, index: i }));
       }
       const writeTime = performance.now() - startWrite;
 

@@ -67,12 +67,12 @@ const flushMicrotasks = async (): Promise<void> => {
 };
 
 const createDirectoryNode = (path: string): WorkerFileNode => ({
+  depth: 1,
+  loadState: 'unloaded',
   name: path.split('/').at(-1) ?? 'node',
   path,
-  type: 'directory',
-  depth: 1,
   rootFolderId: 'root',
-  loadState: 'unloaded',
+  type: 'directory',
 });
 
 describe('createFileTreeWorkerPort', () => {
@@ -91,25 +91,25 @@ describe('createFileTreeWorkerPort', () => {
     port.flattenTree(['/root']);
 
     expect(worker.postedMessages).toContainEqual({
+      payload: { folderId: 'folder-1', rootNodes: children },
       type: 'init',
-      payload: { rootNodes: children, folderId: 'folder-1' },
     });
     expect(worker.postedMessages).toContainEqual({ type: 'collapseAll' });
     expect(worker.postedMessages).toContainEqual({
+      payload: { children, loadState: 'loaded', path: '/root' },
       type: 'updateTree',
-      payload: { path: '/root', children, loadState: 'loaded' },
     });
     expect(worker.postedMessages).toContainEqual({
+      payload: { children, path: '/root' },
       type: 'loadResult',
-      payload: { path: '/root', children },
     });
     expect(worker.postedMessages).toContainEqual({
+      payload: { error: 'failed', path: '/root' },
       type: 'loadError',
-      payload: { path: '/root', error: 'failed' },
     });
     expect(worker.postedMessages).toContainEqual({
-      type: 'flattenTree',
       payload: { expandedPaths: ['/root'] },
+      type: 'flattenTree',
     });
 
     worker.emit({ type: 'ready' });
@@ -128,8 +128,8 @@ describe('createFileTreeWorkerPort', () => {
     const onLog = vi.fn();
     const onFlattenedRows = vi.fn();
     const flattenedNode: FlattenedNode = {
-      node: createDirectoryNode('/root/a'),
       depth: 1,
+      node: createDirectoryNode('/root/a'),
     };
 
     const offProgress = port.onProgress(onProgress);
@@ -142,43 +142,43 @@ describe('createFileTreeWorkerPort', () => {
     const offFlattened = port.onFlattenedRows(onFlattenedRows);
 
     worker.emit({
-      type: 'progress',
       operationId: 1,
-      payload: { loaded: 1, total: 3, currentPath: '/root/a' },
+      payload: { currentPath: '/root/a', loaded: 1, total: 3 },
+      type: 'progress',
     });
     worker.emit({
+      payload: { expandedPaths: ['/root/a'], tree: [createDirectoryNode('/root/a')] },
       type: 'treeSnapshot',
-      payload: { tree: [createDirectoryNode('/root/a')], expandedPaths: ['/root/a'] },
     });
     worker.emit({
-      type: 'childrenLoaded',
       payload: {
-        path: '/root/a',
         children: [createDirectoryNode('/root/a/child')],
         loadState: 'loaded',
+        path: '/root/a',
       },
+      type: 'childrenLoaded',
     });
     worker.emit({
+      payload: { loadState: 'loading', path: '/root/a' },
       type: 'nodeLoadStateChanged',
-      payload: { path: '/root/a', loadState: 'loading' },
     });
     worker.emit({
-      type: 'expandedPathsDelta',
       payload: { added: ['/root/a'], removed: [] },
+      type: 'expandedPathsDelta',
     });
     worker.emit({
-      type: 'error',
       payload: { message: 'path failed', path: '/root/a' },
+      type: 'error',
     });
     worker.emit({
-      type: 'log',
+      data: { count: 1 },
       level: 'debug',
       message: 'worker log',
-      data: { count: 1 },
+      type: 'log',
     });
     worker.emit({
+      payload: { count: 1, durationMs: 8, nodes: [flattenedNode] },
       type: 'flattenedRows',
-      payload: { nodes: [flattenedNode], count: 1, durationMs: 8 },
     });
 
     expect(onProgress).toHaveBeenCalledWith(1, 3, '/root/a');
@@ -202,39 +202,39 @@ describe('createFileTreeWorkerPort', () => {
     offFlattened();
 
     worker.emit({
-      type: 'progress',
       operationId: 1,
-      payload: { loaded: 2, total: 3, currentPath: '/root/b' },
+      payload: { currentPath: '/root/b', loaded: 2, total: 3 },
+      type: 'progress',
     });
     worker.emit({
+      payload: { expandedPaths: ['/root/b'], tree: [createDirectoryNode('/root/b')] },
       type: 'treeSnapshot',
-      payload: { tree: [createDirectoryNode('/root/b')], expandedPaths: ['/root/b'] },
     });
     worker.emit({
+      payload: { children: [], loadState: 'loaded', path: '/root/b' },
       type: 'childrenLoaded',
-      payload: { path: '/root/b', children: [], loadState: 'loaded' },
     });
     worker.emit({
+      payload: { loadState: 'loaded', path: '/root/b' },
       type: 'nodeLoadStateChanged',
-      payload: { path: '/root/b', loadState: 'loaded' },
     });
     worker.emit({
-      type: 'expandedPathsDelta',
       payload: { added: [], removed: ['/root/a'] },
+      type: 'expandedPathsDelta',
     });
     worker.emit({
-      type: 'error',
       payload: { message: 'ignored', path: '/root/b' },
+      type: 'error',
     });
     worker.emit({
-      type: 'log',
+      data: { count: 2 },
       level: 'info',
       message: 'ignored',
-      data: { count: 2 },
+      type: 'log',
     });
     worker.emit({
+      payload: { count: 0, durationMs: 1, nodes: [] },
       type: 'flattenedRows',
-      payload: { nodes: [], count: 0, durationMs: 1 },
     });
 
     expect(onProgress).toHaveBeenCalledTimes(1);
@@ -256,34 +256,34 @@ describe('createFileTreeWorkerPort', () => {
       expect(requestId).toBe('req-1');
       expect(paths).toEqual(['/root/a', '/root/b']);
       return [
-        { path: '/root/a', children: [child] },
-        { path: '/root/b', error: 'permission denied' },
+        { children: [child], path: '/root/a' },
+        { error: 'permission denied', path: '/root/b' },
       ];
     });
 
     worker.emit({
-      type: 'requestLoad',
       operationId: 1,
-      payload: { requestId: 'req-1', paths: ['/root/a', '/root/b'] },
+      payload: { paths: ['/root/a', '/root/b'], requestId: 'req-1' },
+      type: 'requestLoad',
     });
     await flushMicrotasks();
 
     expect(worker.postedMessages).toContainEqual({
+      payload: { children: [child], path: '/root/a', requestId: 'req-1' },
       type: 'loadResult',
-      payload: { requestId: 'req-1', path: '/root/a', children: [child] },
     });
     expect(worker.postedMessages).toContainEqual({
+      payload: { error: 'permission denied', path: '/root/b', requestId: 'req-1' },
       type: 'loadError',
-      payload: { requestId: 'req-1', path: '/root/b', error: 'permission denied' },
     });
 
     offRequestLoad();
     worker.postedMessages = [];
 
     worker.emit({
-      type: 'requestLoad',
       operationId: 1,
-      payload: { requestId: 'req-2', paths: ['/root/c'] },
+      payload: { paths: ['/root/c'], requestId: 'req-2' },
+      type: 'requestLoad',
     });
     await flushMicrotasks();
     expect(worker.postedMessages).toEqual([]);
@@ -292,19 +292,19 @@ describe('createFileTreeWorkerPort', () => {
       throw new Error('handler crashed');
     });
     worker.emit({
-      type: 'requestLoad',
       operationId: 1,
-      payload: { requestId: 'req-3', paths: ['/root/d', '/root/e'] },
+      payload: { paths: ['/root/d', '/root/e'], requestId: 'req-3' },
+      type: 'requestLoad',
     });
     await flushMicrotasks();
 
     expect(worker.postedMessages).toContainEqual({
+      payload: { error: 'handler crashed', path: '/root/d', requestId: 'req-3' },
       type: 'loadError',
-      payload: { requestId: 'req-3', path: '/root/d', error: 'handler crashed' },
     });
     expect(worker.postedMessages).toContainEqual({
+      payload: { error: 'handler crashed', path: '/root/e', requestId: 'req-3' },
       type: 'loadError',
-      payload: { requestId: 'req-3', path: '/root/e', error: 'handler crashed' },
     });
   });
 
@@ -314,46 +314,46 @@ describe('createFileTreeWorkerPort', () => {
 
     const expandAllPromise = port.expandAll('folder-1');
     expect(worker.postedMessages.at(-1)).toEqual({
-      type: 'expandAll',
       operationId: 1,
       payload: { folderId: 'folder-1' },
+      type: 'expandAll',
     });
 
     worker.emit({
       operationId: 1,
-      type: 'complete',
       payload: { expandedPaths: ['/root/a'], loadedCount: 1 },
+      type: 'complete',
     });
     await expect(expandAllPromise).resolves.toEqual({
-      patches: [],
       expandedPaths: ['/root/a'],
       loadedCount: 1,
+      patches: [],
     });
 
     const loadPathsPromise = port.loadPaths(['/root/a']);
     const loadSubtreePromise = port.loadSubtree('/root/b');
     await expect(loadPathsPromise).rejects.toThrow('Operation aborted by new request');
     expect(worker.postedMessages).toContainEqual({
-      type: 'loadPaths',
       operationId: 2,
       payload: { paths: ['/root/a'] },
+      type: 'loadPaths',
     });
     expect(worker.postedMessages).toContainEqual({ type: 'abort' });
     expect(worker.postedMessages).toContainEqual({
-      type: 'loadSubtree',
       operationId: 3,
       payload: { startPath: '/root/b' },
+      type: 'loadSubtree',
     });
 
     worker.emit({
       operationId: 3,
-      type: 'complete',
       payload: { expandedPaths: ['/root/b'], loadedCount: 2 },
+      type: 'complete',
     });
     await expect(loadSubtreePromise).resolves.toEqual({
-      patches: [],
       expandedPaths: ['/root/b'],
       loadedCount: 2,
+      patches: [],
     });
 
     const abortPromise = port.expandAll('folder-2');
@@ -375,35 +375,35 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       operationId: 1,
+      payload: { children: [staleChild], loadState: 'loaded', path: '/root/stale' },
       type: 'childrenLoaded',
-      payload: { path: '/root/stale', children: [staleChild], loadState: 'loaded' },
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 2,
+      payload: { children: [activeChild], loadState: 'loaded', path: '/root/active' },
       type: 'childrenLoaded',
-      payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 2,
-      type: 'expandedPathsDelta',
       payload: { added: ['/root/active'], removed: [] },
+      type: 'expandedPathsDelta',
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 2,
-      type: 'complete',
       payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
+      type: 'complete',
     } as WorkerToMainMessage);
 
     await expect(activePromise).resolves.toEqual({
+      expandedPaths: ['/root/active'],
+      loadedCount: 1,
       patches: [
         {
           operationId: 2,
+          payload: { children: [activeChild], loadState: 'loaded', path: '/root/active' },
           type: 'childrenLoaded',
-          payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
         },
       ],
-      expandedPaths: ['/root/active'],
-      loadedCount: 1,
     });
   });
 
@@ -420,36 +420,36 @@ describe('createFileTreeWorkerPort', () => {
     const activePromise = port.loadPaths(['/root/active']);
 
     worker.emit({
+      payload: { children: [standaloneChild], loadState: 'loaded', path: '/root/standalone' },
       type: 'childrenLoaded',
-      payload: { path: '/root/standalone', children: [standaloneChild], loadState: 'loaded' },
     } as WorkerToMainMessage);
     worker.emit({
-      type: 'expandedPathsDelta',
       payload: { added: ['/root/standalone'], removed: [] },
+      type: 'expandedPathsDelta',
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 1,
+      payload: { children: [activeChild], loadState: 'loaded', path: '/root/active' },
       type: 'childrenLoaded',
-      payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 1,
-      type: 'complete',
       payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
+      type: 'complete',
     } as WorkerToMainMessage);
 
     expect(onChildrenLoaded).toHaveBeenCalledWith('/root/standalone', [standaloneChild]);
     expect(onExpandedPathsDelta).toHaveBeenCalledWith(['/root/standalone'], []);
     await expect(activePromise).resolves.toEqual({
+      expandedPaths: ['/root/active'],
+      loadedCount: 1,
       patches: [
         {
           operationId: 1,
+          payload: { children: [activeChild], loadState: 'loaded', path: '/root/active' },
           type: 'childrenLoaded',
-          payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
         },
       ],
-      expandedPaths: ['/root/active'],
-      loadedCount: 1,
     });
   });
 
@@ -462,16 +462,16 @@ describe('createFileTreeWorkerPort', () => {
     const pending = port.expandAll('folder-1');
     worker.emit({
       operationId: 1,
-      type: 'error',
       payload: { message: 'load failed', path: '/root/a' },
+      type: 'error',
     });
 
     await expect(pending).rejects.toThrow('load failed');
     expect(onError).toHaveBeenCalledWith('load failed', '/root/a');
 
     worker.emit({
-      type: 'error',
       payload: { message: 'standalone error', path: '/root/b' },
+      type: 'error',
     });
     expect(onError).toHaveBeenCalledWith('standalone error', '/root/b');
   });
@@ -482,8 +482,8 @@ describe('createFileTreeWorkerPort', () => {
 
     const pending = port.expandAll('folder-1');
     worker.emit({
-      type: 'error',
       payload: { message: 'global worker failure' },
+      type: 'error',
     });
 
     await expect(pending).rejects.toThrow('global worker failure');
@@ -499,9 +499,9 @@ describe('createFileTreeWorkerPort', () => {
     expect(worker.terminated).toBe(true);
 
     worker.emit({
-      type: 'progress',
       operationId: 1,
-      payload: { loaded: 1, total: 1, currentPath: '/root/a' },
+      payload: { currentPath: '/root/a', loaded: 1, total: 1 },
+      type: 'progress',
     });
     expect(onProgress).not.toHaveBeenCalled();
   });

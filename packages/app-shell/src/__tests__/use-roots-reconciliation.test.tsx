@@ -149,7 +149,7 @@ describe('useRootsReconciliation', () => {
         grantedRootWithPath('adapter-root-1', 'docs', rootPath),
       ]
     );
-    const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+    const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
     const { db } = makeDbWithRootRow(rootPath, dbId);
 
     const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
@@ -170,7 +170,7 @@ describe('useRootsReconciliation', () => {
         grantedRoot('adapter-root-b', 'project'),
       ]
     );
-    const adapter = makeAdapter({ restoreRoots, platform: 'web' as const });
+    const adapter = makeAdapter({ platform: 'web' as const, restoreRoots });
     const { db } = makeDb();
 
     const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
@@ -203,7 +203,7 @@ describe('useRootsReconciliation', () => {
           grantedRootWithPath('adapter-root-1', 'docs', '/workspace/docs'),
         ]
       );
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db } = makeDbWithRootRow('/workspace/docs', 'db-root-id');
 
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
@@ -253,7 +253,7 @@ describe('useRootsReconciliation', () => {
         grantedRootWithPath('adapter-root-1', 'docs', rootPath),
       ]
     );
-    const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+    const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
     const { db } = makeDbWithRootRow(rootPath, dbId);
 
     const { rerender, result } = renderHook(
@@ -289,7 +289,7 @@ describe('useRootsReconciliation', () => {
       ]
     );
     const incapableAdapter = makeAdapter();
-    const capableAdapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+    const capableAdapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
     const { db } = makeDbWithRootRow(rootPath, dbId);
 
     const { rerender, result } = renderHook(
@@ -322,7 +322,7 @@ describe('useRootsReconciliation', () => {
     // (a) registerRoot adds a mapping visible via resolveDbRootId
     it('adds a mapping immediately visible through resolveDbRootId', async () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
@@ -334,7 +334,7 @@ describe('useRootsReconciliation', () => {
     // (b) exactly one INSERT for a new path — including a repeated call
     it('issues exactly one INSERT for a new path, even when called twice', async () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db, query } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
       const descriptor = grantedRootWithPath('root-new', 'docs', '/workspace/new');
@@ -349,7 +349,7 @@ describe('useRootsReconciliation', () => {
     // (c) skips unregistrable descriptors — same filter as reconcileRoots
     it('skips session-only and dead descriptors without writing to the DB', async () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db, query } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
@@ -380,7 +380,7 @@ describe('useRootsReconciliation', () => {
           grantedRootWithPath('adapter-root-1', 'docs', rootPath),
         ]
       );
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db, query } = makeDbWithRootRow(rootPath, dbId);
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
@@ -395,7 +395,7 @@ describe('useRootsReconciliation', () => {
     // registerRoot must still observe the new mapping (no NULL root_id race).
     it('resolveDbRootId issued right after an unawaited registerRoot sees the new mapping', async () => {
       const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
-      const adapter = makeAdapter({ restoreRoots, platform: 'electron' as const });
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
       const { db } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 

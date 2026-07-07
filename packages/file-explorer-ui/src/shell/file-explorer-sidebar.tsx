@@ -250,9 +250,9 @@ function useSectionRecursiveSelect(folderId: string): {
   );
 
   return {
-    onSelectFolderRecursively,
     isLoadingForSelection: treeContext.isLoadingForSelection,
     loadingPathForSelection: treeContext.loadingPathForSelection,
+    onSelectFolderRecursively,
   };
 }
 
@@ -450,14 +450,7 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
       return;
     }
     return forestActions.register(folderId, {
-      getVisibleQuickFilterKeys: () => {
-        // Composite keys of the files currently DISPLAYED in this section
-        // (view filters + quick filter applied) — quick-filter Select All
-        // selects exactly what the user sees, no scanning beyond it.
-        const visible = new Set<string>();
-        collectVisibleFiles(displayedTreeRef.current, visible);
-        return Array.from(visible, (path) => `${folderId}|@|${path}`);
-      },
+      cancelExpandAll: sectionCancelExpandAll,
       expandAll: async () => {
         const setExpandedPathsUpdater = (updater: (prev: Set<string>) => Set<string>) => {
           const currentPaths = store.getState().expandedDirectoryPaths;
@@ -471,7 +464,14 @@ const PerRootTreePane: React.FC<PerRootTreePaneProps> = ({
           store.getState().expandedDirectoryPaths
         );
       },
-      cancelExpandAll: sectionCancelExpandAll,
+      getVisibleQuickFilterKeys: () => {
+        // Composite keys of the files currently DISPLAYED in this section
+        // (view filters + quick filter applied) — quick-filter Select All
+        // selects exactly what the user sees, no scanning beyond it.
+        const visible = new Set<string>();
+        collectVisibleFiles(displayedTreeRef.current, visible);
+        return Array.from(visible, (path) => `${folderId}|@|${path}`);
+      },
       selectAll: async () => {
         // Quiet pass: the forest sweep owns aggregate feedback (per-root
         // zero-match/limit toasts would fire once per section).
@@ -674,8 +674,8 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
         cancelChildLoading,
         currentFolderId,
         isLoading,
-        isLoadingForSelection,
         isLoadingForSelectAll,
+        isLoadingForSelection,
         loadingFiles,
         loadingPathForSelection,
         loadingPaths,

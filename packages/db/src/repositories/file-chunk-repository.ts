@@ -436,8 +436,8 @@ export class FileChunkRepository {
       const sim = Number.parseFloat(searchRow.similarity);
       return {
         chunk: this.mapRowToChunk(searchRow),
-        similarity: sim,
         rank: Number.parseInt(searchRow.rank, 10),
+        similarity: sim,
       } as ChunkSearchResult;
     });
 
@@ -594,8 +594,8 @@ export class FileChunkRepository {
 
       const ftsResult: FTSSearchResult = {
         chunk: this.mapRowToChunk(ftsRow),
-        rank,
         position: Number.parseInt(ftsRow.position, 10),
+        rank,
       };
       if (ftsRow.headline) {
         ftsResult.headline = ftsRow.headline;
@@ -721,10 +721,10 @@ export class FileChunkRepository {
     `);
 
     const stats = {
-      totalChunks: 0,
-      chunksWithEmbeddings: 0,
       averageTokenCount: 0,
+      chunksWithEmbeddings: 0,
       chunkTypeDistribution: {} as Record<string, number>,
+      totalChunks: 0,
     };
 
     for (const row of result.rows) {
@@ -781,8 +781,8 @@ export class FileChunkRepository {
     );
     const row = result.rows[0];
     return {
-      totalChunks: Number(row?.totalChunks ?? 0),
       chunksWithEmbeddingsForSet: Number(row?.chunksWithEmbeddingsForSet ?? 0),
+      totalChunks: Number(row?.totalChunks ?? 0),
     };
   }
 
@@ -997,19 +997,19 @@ export class FileChunkRepository {
 
     if (distance === 'l2') {
       return {
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
         orderExpr: `${embeddingCast} <-> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
         orderExpr: `${embeddingCast} <#> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
       };
     }
     return {
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
       orderExpr: `${embeddingCast} <=> ${paramCast}`,
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
     };
   }
 
@@ -1068,14 +1068,14 @@ export class FileChunkRepository {
     const embedding = row.embedding ? parseEmbeddingLoose(row.embedding) : undefined;
     const embeddingDimensions = resolveEmbeddingDimensions(embedding, row.embedding_dims);
     return {
-      id: row.id,
-      fileRecordId: row.file_record_id,
       chunkIndex: row.chunk_index,
+      chunkSize: row.chunk_size,
+      chunkType: row.chunk_type,
       content: row.content,
       contentHash: row.content_hash,
+      fileRecordId: row.file_record_id,
+      id: row.id,
       tokenCount: row.token_count,
-      chunkType: row.chunk_type,
-      chunkSize: row.chunk_size,
       ...(row.start_line !== null && row.start_line !== undefined && { startLine: row.start_line }),
       ...(row.end_line !== null && row.end_line !== undefined && { endLine: row.end_line }),
       ...(row.start_offset !== null &&

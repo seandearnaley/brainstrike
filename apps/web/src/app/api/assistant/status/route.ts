@@ -12,8 +12,8 @@ export async function GET(): Promise<Response> {
 
   return new Response(JSON.stringify(payload), {
     headers: {
-      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
     },
     status: 200,
   });

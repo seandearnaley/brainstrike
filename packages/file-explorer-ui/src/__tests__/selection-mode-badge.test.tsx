@@ -6,12 +6,12 @@ import { FileExplorerTestWrapper } from './test-helpers';
 
 // Mock the store context with proper typing
 const mockSelectionModel: SelectionModel = {
-  mode: 'explicit',
   explicitPaths: new Set<string>(),
-  ruleSetJson: null,
-  materializedPaths: null,
   materializedAt: null,
+  materializedPaths: null,
+  mode: 'explicit',
   queryDescriptor: null,
+  ruleSetJson: null,
 };
 
 const mockSetSelectionMode = vi.fn();
@@ -22,9 +22,9 @@ vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
   const useFileExplorerStoreContext = vi.fn(() => {
     const mockStore = vi.fn((selector: (state: unknown) => unknown) =>
       selector({
+        clearSelectionRules: mockClearSelectionRules,
         selectionModel: mockSelectionModel,
         setSelectionMode: mockSetSelectionMode,
-        clearSelectionRules: mockClearSelectionRules,
       })
     );
     return mockStore;

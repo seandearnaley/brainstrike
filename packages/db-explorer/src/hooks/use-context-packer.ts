@@ -90,10 +90,10 @@ export function useContextPacker({
   const packResults = useCallback<ContextPackerFunction>(
     (results: readonly SemanticSearchResult[]): PackedSearchResult => {
       logger.debug('Packing search results', {
-        inputCount: results.length,
         budgetTokens,
-        maxChunks,
         hasTokenLookup: !!tokenCountLookup,
+        inputCount: results.length,
+        maxChunks,
       });
 
       // Convert search results to context packer format
@@ -109,9 +109,9 @@ export function useContextPacker({
       logger.debug('Packing complete', {
         inputCount: results.length,
         outputCount: packed.chunks.length,
-        totalTokens: packed.totalTokens,
-        skipped: packed.skipped,
         remainingTokens: packed.remainingTokens,
+        skipped: packed.skipped,
+        totalTokens: packed.totalTokens,
       });
 
       return {
@@ -123,8 +123,8 @@ export function useContextPacker({
   );
 
   return {
-    packResults,
     budgetTokens,
+    packResults,
   };
 }
 

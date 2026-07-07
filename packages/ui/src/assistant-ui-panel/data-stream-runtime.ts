@@ -113,9 +113,9 @@ function toUserFilePart(part: GenericTextPart): {
 } {
   const record = toPartRecord(part);
   return {
-    type: 'file',
     data: String(record['data'] ?? ''),
     mediaType: optionalStringField(part, 'mediaType'),
+    type: 'file',
   };
 }
 
@@ -255,47 +255,47 @@ function toLanguageModelMessages(messages: readonly ThreadMessage[]): unknown[] 
     switch (item.role) {
       case 'system':
         return {
-          role: 'system',
           content: content.map((part) => (part.type === 'text' ? toHostedTextPart(part) : part)),
+          role: 'system',
         };
       case 'user':
         return {
-          role: 'user',
           content: content.map((part) =>
             part.type === 'text' ? toHostedTextPart(part) : toUserFilePart(part)
           ),
+          role: 'user',
         };
       case 'assistant':
         return {
-          role: 'assistant',
           content: content.map((part) =>
             part.type === 'text'
               ? toHostedTextPart(part)
               : {
-                  type: 'tool-call',
+                  input: toPartRecord(part)['args'],
                   toolCallId: requireStringField(part, 'toolCallId', 'assistant tool-call part'),
                   toolName: requireStringField(part, 'toolName', 'assistant tool-call part'),
-                  input: toPartRecord(part)['args'],
+                  type: 'tool-call',
                 }
           ),
+          role: 'assistant',
         };
       case 'tool':
         return {
-          role: 'tool',
           content: content.map((part) => {
             const record = toPartRecord(part);
             return {
-              type: 'tool-result',
-              toolCallId: requireStringField(part, 'toolCallId', 'tool result part'),
-              toolName: optionalStringField(part, 'toolName'),
               output: record['isError']
                 ? { type: 'error-json', value: record['result'] }
                 : { type: 'json', value: record['result'] },
+              toolCallId: requireStringField(part, 'toolCallId', 'tool result part'),
+              toolName: optionalStringField(part, 'toolName'),
+              type: 'tool-result',
             };
           }),
+          role: 'tool',
         };
       default:
-        return { role: item.role, content };
+        return { content, role: item.role };
     }
   });
 }
@@ -445,10 +445,10 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       };
 
       const response = await fetch(this.options.api, {
-        method: 'POST',
-        headers,
-        credentials: this.options.credentials ?? 'same-origin',
         body: JSON.stringify(requestBody),
+        credentials: this.options.credentials ?? 'same-origin',
+        headers,
+        method: 'POST',
         signal: abortSignal,
       });
 

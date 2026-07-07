@@ -19,18 +19,18 @@ const mockWalkDirectoryParallel = vi.mocked(walkDirectoryParallel);
 
 describe('readFullTree', () => {
   const mockFileSystemAdapter: FileSystemAdapter = {
+    exists: vi.fn(),
     readDirectory: vi.fn(),
     readFile: vi.fn(),
-    exists: vi.fn(),
     requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 
   const mockDirectoryHandle: DirectoryHandle = {
-    path: '/test',
-    name: 'test',
-    kind: 'directory',
-    platform: 'electron',
     _internal: undefined,
+    kind: 'directory',
+    name: 'test',
+    path: '/test',
+    platform: 'electron',
   };
 
   beforeEach(() => {
@@ -40,13 +40,13 @@ describe('readFullTree', () => {
   it('should call walkDirectoryParallel with default options', async () => {
     const mockResult: IFileNode[] = [
       {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'test.txt',
         path: '/test/test.txt',
-        type: 'file',
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: '',
-        handle: {} as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        type: 'file',
       } as IFileNode,
     ];
     mockWalkDirectoryParallel.mockResolvedValue(mockResult);
@@ -61,8 +61,8 @@ describe('readFullTree', () => {
       mockFileSystemAdapter,
       mockDirectoryHandle,
       expect.objectContaining({
-        concurrency: 10,
         abortSignal: undefined,
+        concurrency: 10,
         onProgress: undefined,
       })
     );
@@ -138,18 +138,18 @@ describe('readFullTree', () => {
 
 describe('readFullTreeWithOptions', () => {
   const mockFileSystemAdapter: FileSystemAdapter = {
+    exists: vi.fn(),
     readDirectory: vi.fn(),
     readFile: vi.fn(),
-    exists: vi.fn(),
     requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 
   const mockDirectoryHandle: DirectoryHandle = {
-    path: '/test',
-    name: 'test',
-    kind: 'directory',
-    platform: 'electron',
     _internal: undefined,
+    kind: 'directory',
+    name: 'test',
+    path: '/test',
+    platform: 'electron',
   };
 
   beforeEach(() => {
@@ -168,28 +168,28 @@ describe('readFullTreeWithOptions', () => {
     const onEntrySkipped = vi.fn();
 
     await readFullTreeWithOptions(mockFileSystemAdapter, mockDirectoryHandle, {
-      concurrency: 5,
       abortSignal: abortController.signal,
-      updateProgress,
-      sortFileNodes,
-      onTreeSnapshot,
+      concurrency: 5,
       entryPolicy,
       onEntrySkipped,
+      onTreeSnapshot,
       snapshotIntervalMs: 200,
+      sortFileNodes,
+      updateProgress,
     });
 
     expect(mockWalkDirectoryParallel).toHaveBeenCalledWith(
       mockFileSystemAdapter,
       mockDirectoryHandle,
       {
-        concurrency: 5,
         abortSignal: abortController.signal,
-        onProgress: updateProgress,
-        sortFileNodes,
-        onTreeSnapshot,
+        concurrency: 5,
         entryPolicy,
         onEntrySkipped,
+        onProgress: updateProgress,
+        onTreeSnapshot,
         snapshotIntervalMs: 200,
+        sortFileNodes,
       }
     );
   });
@@ -201,14 +201,14 @@ describe('readFullTreeWithOptions', () => {
       mockFileSystemAdapter,
       mockDirectoryHandle,
       {
-        concurrency: undefined,
         abortSignal: undefined,
-        onProgress: undefined,
-        sortFileNodes: undefined,
-        onTreeSnapshot: undefined,
+        concurrency: undefined,
         entryPolicy: undefined,
         onEntrySkipped: undefined,
+        onProgress: undefined,
+        onTreeSnapshot: undefined,
         snapshotIntervalMs: undefined,
+        sortFileNodes: undefined,
       }
     );
   });

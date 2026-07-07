@@ -130,13 +130,13 @@ describe('scheduled database maintenance', () => {
     await createJobWithState(db, queue, 'succeeded', OLD_ISO);
     await createJobWithState(db, queue, 'failed', RECENT_ISO);
     const failingVacuumDb = {
-      query: db.query.bind(db),
       exec: vi.fn(async (sql: string) => {
         if (sql.startsWith('VACUUM')) {
           throw new Error('vacuum exploded after prune');
         }
         return await db.exec(sql);
       }),
+      query: db.query.bind(db),
     };
 
     await expect(

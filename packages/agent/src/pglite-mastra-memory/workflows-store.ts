@@ -88,8 +88,8 @@ function safeWorkflowRunFromRow(row: WorkflowSnapshotRow): WorkflowRun | undefin
       runId: row.runId,
       workflowName: row.workflowName,
     });
-    return;
   }
+  return;
 }
 
 function mergeStepResult(existingResult: unknown, result: WorkflowStepResult): WorkflowStepResult {

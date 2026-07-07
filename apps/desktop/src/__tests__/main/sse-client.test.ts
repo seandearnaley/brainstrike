@@ -8,7 +8,7 @@ function createControlledStream() {
       controller = ctrl;
     },
   });
-  return { stream, controller: () => controller };
+  return { controller: () => controller, stream };
 }
 
 describe('sse-client', () => {
@@ -25,7 +25,7 @@ describe('sse-client', () => {
     let requestId = '';
 
     fetchMock
-      .mockResolvedValueOnce({ ok: true, body: stream }) // events stream
+      .mockResolvedValueOnce({ body: stream, ok: true }) // events stream
       .mockImplementationOnce(async (_url: string, options: RequestInit) => {
         const body = JSON.parse(String(options.body));
         requestId = body.id as string;
@@ -35,10 +35,10 @@ describe('sse-client', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const client = createSseClient({
+      headers: { Authorization: 'Bearer token' },
       name: 'remote',
       transport: 'sse',
       url: 'https://example.com/sse',
-      headers: { Authorization: 'Bearer token' },
     });
 
     const promise = client.callTool('remote.search', { query: 'hello' });
@@ -67,8 +67,8 @@ describe('sse-client', () => {
       .mockResolvedValueOnce({ ok: false }) // events stream fails (ignored)
       .mockResolvedValueOnce({ ok: false, status: 500 }) // request path fails
       .mockResolvedValueOnce({
-        ok: true,
         json: async () => ({ ok: true, via: 'fallback' }),
+        ok: true,
       });
 
     globalThis.fetch = fetchMock as unknown as typeof fetch;

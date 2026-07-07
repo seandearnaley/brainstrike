@@ -579,14 +579,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       (node: IFileNode): DirectoryToggleState => {
         const isChildrenLoadingFromStore = loadingPaths?.has(node.path) ?? false;
         return {
-          // Read expansion state at invocation time to avoid stale closure snapshots
-          // across rapid async expand/collapse interactions.
-          isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
           isChildrenLoading:
             isChildrenLoadingFromStore ||
             node.loadState === 'loading' ||
             pendingChildLoadPathsRef.current.has(node.path),
           isChildrenLoadingFromStore,
+          // Read expansion state at invocation time to avoid stale closure snapshots
+          // across rapid async expand/collapse interactions.
+          isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
         };
       },
       [loadingPaths, store]
@@ -668,12 +668,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const reportToggleExpandError = useCallback(
       (node: IFileNode, error: unknown) => {
         logger.error('Failed to toggle directory expansion', {
-          path: node.path,
           error,
+          path: node.path,
         });
         showToast({
-          title: 'Failed to load folder',
           description: `Could not expand "${node.name}". Please try again.`,
+          title: 'Failed to load folder',
           variant: 'destructive',
         });
       },
@@ -776,8 +776,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         const selectionState = getNodeSelectionState(rowData);
         if (selectionState.wouldExceedLimit) {
           logger.warn('selection click ignored: would exceed selection limit', {
-            path: node.path,
             maxSelectionCount,
+            path: node.path,
             selectedCount,
           });
           return;
@@ -834,11 +834,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         const selectionMutation = resolveDirectorySelectionMutation({
           allFilePaths,
           currentSelectionSize: selectedCount,
-          folderId,
-          selectedFilePaths,
-          selectedCount: directorySelectedCount,
           directoryTotalFiles,
+          folderId,
           maxSelectionCount,
+          selectedCount: directorySelectedCount,
+          selectedFilePaths,
         });
 
         applyDirectorySelectionMutation({
@@ -886,8 +886,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       fileTreeTelemetry.columnsRebuildCount++;
       return [
         {
-          id: 'name',
-          className: '!p-0',
           cell: ({ node, isExpanded }) => (
             <FileTreeCellContent
               isExpanded={isExpanded}
@@ -895,6 +893,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               rowData={node.data}
             />
           ),
+          className: '!p-0',
+          id: 'name',
         },
       ];
     }, [handleNodeSelectionEvent]);
@@ -913,10 +913,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
         openFileInTab,
+        querySelectionManifest,
         selectedCount,
         selectedDirectoryCounts,
         selectedFilePaths,
-        querySelectionManifest,
         selectionModel,
       }),
       [

@@ -62,25 +62,25 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
     const pathParts = args.relativePath.split('/');
     await applyManagedCacheBatch(db, {
-      embeddingSetId: args.embeddingSetId ?? 'set-1',
-      rootId: args.rootId ?? 'root-fixture',
       changes: [
         {
           mode: 'import',
           record: {
+            content: `export const file = ${JSON.stringify(args.fileRecordId)};`,
+            contentHash: `${args.fileRecordId}-hash`,
+            createdAt: now,
             id: args.fileRecordId,
             name: pathParts.pop() ?? args.fileRecordId,
             path: args.relativePath,
-            size: 12,
-            createdAt: now,
-            updatedAt: now,
             processedAt: now,
-            content: `export const file = ${JSON.stringify(args.fileRecordId)};`,
-            contentHash: `${args.fileRecordId}-hash`,
+            size: 12,
             tokenCount: 5,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: args.embeddingSetId ?? 'set-1',
+      rootId: args.rootId ?? 'root-fixture',
     });
   }
 
@@ -92,16 +92,16 @@ describe('applyManagedCacheBatch', () => {
   }): Promise<void> {
     const now = new Date().toISOString();
     await fileChunkRepository.insert({
-      id: args.chunkId,
-      fileRecordId: args.fileRecordId,
       chunkIndex: args.chunkIndex ?? 0,
+      chunkSize: 16,
+      chunkType: 'sentence',
       content: `${args.chunkId} content`,
       contentHash: `${args.chunkId}-hash`,
-      tokenCount: 4,
-      chunkType: 'sentence',
-      chunkSize: 16,
-      embeddingSetId: args.embeddingSetId ?? 'set-1',
       createdAt: now,
+      embeddingSetId: args.embeddingSetId ?? 'set-1',
+      fileRecordId: args.fileRecordId,
+      id: args.chunkId,
+      tokenCount: 4,
       updatedAt: now,
     });
   }
@@ -173,219 +173,219 @@ describe('applyManagedCacheBatch', () => {
   it('parses and validates managed-cache batch payloads from a single source of truth', () => {
     expect(
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const value = 1;',
+              contentHash: 'hash-1',
+              createdAt: '2026-04-16T00:00:00.000Z',
               id: 'file-1',
               name: 'index.ts',
               path: 'src/index.ts',
-              size: 12,
-              createdAt: '2026-04-16T00:00:00.000Z',
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 1;',
-              contentHash: 'hash-1',
+              size: 12,
               tokenCount: 5,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toEqual({
-      embeddingSetId: 'set-1',
       changes: [
         {
           mode: 'import',
           record: {
+            content: 'export const value = 1;',
+            contentHash: 'hash-1',
+            createdAt: '2026-04-16T00:00:00.000Z',
             id: 'file-1',
             mtimeMs: null,
             name: 'index.ts',
             path: 'src/index.ts',
-            size: 12,
-            createdAt: '2026-04-16T00:00:00.000Z',
-            updatedAt: '2026-04-16T00:00:00.000Z',
             processedAt: '2026-04-16T00:00:00.000Z',
-            content: 'export const value = 1;',
-            contentHash: 'hash-1',
+            size: 12,
             tokenCount: 5,
+            updatedAt: '2026-04-16T00:00:00.000Z',
           },
         },
       ],
+      embeddingSetId: 'set-1',
     });
 
     expect(
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: 'export const value = 3;',
+              contentHash: 'hash-3',
+              createdAt: '2026-04-15T00:00:00.000Z',
               id: 'file-2',
               name: 'replace.ts',
               path: 'src/replace.ts',
-              size: 16,
-              createdAt: '2026-04-15T00:00:00.000Z',
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 3;',
-              contentHash: 'hash-3',
+              size: 16,
               tokenCount: 6,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toEqual({
-      embeddingSetId: 'set-1',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const value = 3;',
+            contentHash: 'hash-3',
             id: 'file-2',
             mtimeMs: null,
             name: 'replace.ts',
             path: 'src/replace.ts',
-            size: 16,
-            updatedAt: '2026-04-16T00:00:00.000Z',
             processedAt: '2026-04-16T00:00:00.000Z',
-            content: 'export const value = 3;',
-            contentHash: 'hash-3',
+            size: 16,
             tokenCount: 6,
+            updatedAt: '2026-04-16T00:00:00.000Z',
           },
         },
       ],
+      embeddingSetId: 'set-1',
     });
 
     expect(
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [],
+        embeddingSetId: 'set-1',
       })
     ).toEqual({
-      embeddingSetId: 'set-1',
       changes: [],
+      embeddingSetId: 'set-1',
     });
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: 'export const value = 2;',
+              contentHash: 'hash-2',
               id: 'file-1',
               name: 'index.ts',
               path: 'src/index.ts',
-              size: -1,
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 2;',
-              contentHash: 'hash-2',
+              size: -1,
               tokenCount: 5,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: 'export const value = 4;',
+              contentHash: 'hash-4',
               id: 'file-3',
               name: 'bad-size.ts',
               path: 'src/bad-size.ts',
-              size: 1.5,
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 4;',
-              contentHash: 'hash-4',
+              size: 1.5,
               tokenCount: 4,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: '',
+              contentHash: '',
               id: 'file-4',
               name: 'empty-hash.ts',
               path: 'src/empty-hash.ts',
-              size: 1,
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: '',
-              contentHash: '',
+              size: 1,
               tokenCount: 0,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const value = 5;',
+              contentHash: 'hash-5',
+              createdAt: 'not-a-date',
               id: 'file-5',
               name: 'bad-date.ts',
               path: 'src/bad-date.ts',
-              size: 1,
-              createdAt: 'not-a-date',
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 5;',
-              contentHash: 'hash-5',
+              size: 1,
               tokenCount: 1,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: null,
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: 'export const value = 6;',
+              contentHash: 'hash-6',
               id: 'file-6',
               name: 'bad-updated-at.ts',
               path: 'src/bad-updated-at.ts',
-              size: 1,
-              updatedAt: '',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = 6;',
-              contentHash: 'hash-6',
+              size: 1,
               tokenCount: 1,
+              updatedAt: '',
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
   });
@@ -398,9 +398,9 @@ describe('applyManagedCacheBatch', () => {
     };
 
     await applyManagedCacheBatch(transactionalDb as unknown as PGlite, {
+      changes: [],
       embeddingSetId: 'set-1',
       rootId: 'root-fixture',
-      changes: [],
     });
 
     expect(transactionMock).not.toHaveBeenCalled();
@@ -414,25 +414,25 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(nonTransactionalDb as unknown as PGlite, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const value = true;',
+              contentHash: 'hash-transactionless',
+              createdAt: '2026-04-16T00:00:00.000Z',
               id: 'file-transactionless',
               name: 'file.ts',
               path: 'src/file.ts',
-              size: 1,
-              createdAt: '2026-04-16T00:00:00.000Z',
-              updatedAt: '2026-04-16T00:00:00.000Z',
               processedAt: '2026-04-16T00:00:00.000Z',
-              content: 'export const value = true;',
-              contentHash: 'hash-transactionless',
+              size: 1,
               tokenCount: 1,
+              updatedAt: '2026-04-16T00:00:00.000Z',
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).rejects.toThrow('Managed cache batch mutation requires transactional database support.');
   });
@@ -443,25 +443,25 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(db, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
             record: {
+              content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+              contentHash: 'hash-null-byte',
+              createdAt: now,
               id: 'file-null-byte',
               name: 'late-null.txt',
               path: 'src/late-null.txt',
-              size: 620,
-              createdAt: now,
-              updatedAt: now,
               processedAt: now,
-              content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
-              contentHash: 'hash-null-byte',
+              size: 620,
               tokenCount: 155,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).rejects.toThrow('Managed cache content cannot contain null bytes.');
 
@@ -485,8 +485,8 @@ describe('applyManagedCacheBatch', () => {
       embeddingSetId: 'set-1',
       targets: [
         {
-          rootId: 'root-fixture',
           relativePath: 'src/shared.ts',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -508,17 +508,17 @@ describe('applyManagedCacheBatch', () => {
   it('does not invalidate root_id null legacy rows that share the target path', async () => {
     const now = new Date().toISOString();
     await fileRecordRepository.createWithContent({
+      content: 'export const legacy = true;',
+      contentHash: 'legacy-null-root-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'legacy-null-root-file',
       name: 'legacy.ts',
       path: 'src/legacy.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const legacy = true;',
-      contentHash: 'legacy-null-root-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
     await importManagedCacheFile({
       fileRecordId: 'root-bound-legacy-path-file',
@@ -530,8 +530,8 @@ describe('applyManagedCacheBatch', () => {
       embeddingSetId: 'set-1',
       targets: [
         {
-          rootId: 'root-fixture',
           relativePath: 'src/legacy.ts',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -574,8 +574,8 @@ describe('applyManagedCacheBatch', () => {
       targets: [
         {
           mode: 'prefix',
-          rootId: 'root-fixture',
           relativePathPrefix: 'src',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -624,8 +624,8 @@ describe('applyManagedCacheBatch', () => {
       targets: [
         {
           mode: 'prefix',
-          rootId: 'root-fixture',
           relativePathPrefix: 'src/a_b',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -641,8 +641,8 @@ describe('applyManagedCacheBatch', () => {
       targets: [
         {
           mode: 'prefix',
-          rootId: 'root-fixture',
           relativePathPrefix: 'src/a%b',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -666,8 +666,8 @@ describe('applyManagedCacheBatch', () => {
       targets: [
         {
           mode: 'prefix',
-          rootId: 'root-fixture',
           relativePathPrefix: 'src/',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -683,8 +683,8 @@ describe('applyManagedCacheBatch', () => {
         await callback({ query: queryMock }),
     };
     const targets = Array.from({ length: 20_000 }, (_, index) => ({
-      rootId: 'root-fixture',
       relativePath: `src/${index}.ts`,
+      rootId: 'root-fixture',
     }));
 
     await expect(
@@ -744,8 +744,8 @@ describe('applyManagedCacheBatch', () => {
       targets: [
         {
           expectedFileRecordId: 'stats-delete-file',
-          rootId: 'root-fixture',
           relativePath: 'src/delete.ts',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -804,8 +804,8 @@ describe('applyManagedCacheBatch', () => {
     await insertEmbeddingJob({
       chunkId: 'job-delete-running-chunk',
       id: 'job-delete-running',
-      leaseToken: 'lease-delete-running',
       leasedUntil: '2999-01-01T00:00:00.000Z',
+      leaseToken: 'lease-delete-running',
       state: 'running',
       workerId: 'worker-delete-running',
     });
@@ -824,8 +824,8 @@ describe('applyManagedCacheBatch', () => {
       embeddingSetId: 'set-1',
       targets: [
         {
-          rootId: 'root-fixture',
           relativePath: 'src/job-delete.ts',
+          rootId: 'root-fixture',
         },
       ],
     });
@@ -875,20 +875,20 @@ describe('applyManagedCacheBatch', () => {
   it('replacement cancels queued and running embed jobs for old chunks before deleting chunks', async () => {
     const now = new Date().toISOString();
     await fileRecordRepository.createWithContent({
+      chunkingStrategy: 'sentence',
+      chunksCount: 2,
+      chunksProcessedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-job-old-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-job-file',
       name: 'replace-job.ts',
       path: 'src/replace-job.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'replace-job-old-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
-      chunksCount: 2,
-      chunksProcessedAt: now,
-      chunkingStrategy: 'sentence',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
     await insertChunk({
       chunkId: 'replace-job-old-queued-chunk',
@@ -907,8 +907,8 @@ describe('applyManagedCacheBatch', () => {
     await insertEmbeddingJob({
       chunkId: 'replace-job-old-running-chunk',
       id: 'replace-job-old-running',
-      leaseToken: 'replace-job-running-lease',
       leasedUntil: '2999-01-01T00:00:00.000Z',
+      leaseToken: 'replace-job-running-lease',
       state: 'running',
       workerId: 'replace-job-worker',
     });
@@ -919,24 +919,24 @@ describe('applyManagedCacheBatch', () => {
     });
 
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const version = 2;',
+            contentHash: 'replace-job-new-hash',
             id: 'replace-job-file',
             name: 'replace-job.ts',
             path: 'src/replace-job.ts',
-            size: 11,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const version = 2;',
-            contentHash: 'replace-job-new-hash',
+            size: 11,
             tokenCount: 6,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     await expect(fileChunkRepository.findByFileRecordId('replace-job-file')).resolves.toEqual([]);
@@ -996,20 +996,20 @@ describe('applyManagedCacheBatch', () => {
     };
 
     await fileRecordRepository.createWithContent({
+      chunkingStrategy: 'sentence',
+      chunksCount: 1,
+      chunksProcessedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-indexed-job-old-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-indexed-job-file',
       name: 'replace-indexed-job.ts',
       path: 'src/replace-indexed-job.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'replace-indexed-job-old-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
-      chunksCount: 1,
-      chunksProcessedAt: now,
-      chunkingStrategy: 'sentence',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
     await insertChunk({
       chunkId: 'replace-indexed-job-old-chunk',
@@ -1022,24 +1022,24 @@ describe('applyManagedCacheBatch', () => {
     });
 
     await applyManagedCacheBatch(recordingDb as unknown as PGlite, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const version = 2;',
+            contentHash: 'replace-indexed-job-new-hash',
             id: 'replace-indexed-job-file',
             name: 'replace-indexed-job.ts',
             path: 'src/replace-indexed-job.ts',
-            size: 11,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const version = 2;',
-            contentHash: 'replace-indexed-job-new-hash',
+            size: 11,
             tokenCount: 6,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     const cancellationSql = executedSql.find(
@@ -1054,91 +1054,91 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
 
     await fileRecordRepository.createWithContent({
+      chunkingStrategy: 'sentence',
+      chunksCount: 1,
+      chunksProcessedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'old-content-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-file',
       name: 'replace.ts',
       path: 'src/replace.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'old-content-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
-      chunksCount: 1,
-      chunksProcessedAt: now,
-      chunkingStrategy: 'sentence',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
 
     await fileChunkRepository.insert({
-      id: 'chunk-old',
-      fileRecordId: 'replace-file',
       chunkIndex: 0,
+      chunkSize: 16,
+      chunkType: 'sentence',
       content: 'old chunk',
       contentHash: 'chunk-old-hash',
-      tokenCount: 4,
-      chunkType: 'sentence',
-      chunkSize: 16,
-      embeddingSetId: 'set-1',
       createdAt: now,
+      embeddingSetId: 'set-1',
+      fileRecordId: 'replace-file',
+      id: 'chunk-old',
+      tokenCount: 4,
       updatedAt: now,
     });
 
     await fileRecordRepository.createWithContent({
+      content: 'export const existing = true;',
+      contentHash: 'existing-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'duplicate-import',
       name: 'existing.ts',
       path: 'src/existing.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const existing = true;',
-      contentHash: 'existing-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
 
     await fileRecordRepository.update('replace-file', {
+      chunkingStrategy: 'sentence',
       chunksCount: 1,
       chunksProcessedAt: now,
-      chunkingStrategy: 'sentence',
     });
 
     await expect(
       applyManagedCacheBatch(db, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'replace',
             record: {
+              content: 'export const version = 2;',
+              contentHash: 'new-content-hash',
               id: 'replace-file',
               name: 'replace.ts',
               path: 'src/replace.ts',
-              size: 11,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const version = 2;',
-              contentHash: 'new-content-hash',
+              size: 11,
               tokenCount: 6,
+              updatedAt: now,
             },
           },
           {
             mode: 'import',
             record: {
+              content: 'export const shouldFail = true;',
+              contentHash: 'duplicate-hash',
+              createdAt: now,
               id: 'duplicate-import',
               name: 'new.ts',
               path: 'src/new.ts',
-              size: 12,
-              createdAt: now,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const shouldFail = true;',
-              contentHash: 'duplicate-hash',
+              size: 12,
               tokenCount: 7,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).rejects.toThrow();
 
@@ -1147,18 +1147,18 @@ describe('applyManagedCacheBatch', () => {
 
     expect(restoredRecord).toEqual(
       expect.objectContaining({
-        id: 'replace-file',
+        chunkingStrategy: 'sentence',
+        chunksCount: 1,
         content: 'export const version = 1;',
         contentHash: 'old-content-hash',
-        chunksCount: 1,
-        chunkingStrategy: 'sentence',
+        id: 'replace-file',
       })
     );
     expect(restoredChunks).toHaveLength(1);
     expect(restoredChunks[0]).toEqual(
       expect.objectContaining({
-        id: 'chunk-old',
         content: 'old chunk',
+        id: 'chunk-old',
       })
     );
   });
@@ -1197,25 +1197,25 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(failingStatsDb as unknown as PGlite, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const shouldRollback = true;',
+              contentHash: 'stats-failure-hash',
+              createdAt: now,
               id: 'stats-failure-import',
               name: 'stats-failure.ts',
               path: 'src/stats-failure.ts',
-              size: 12,
-              createdAt: now,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const shouldRollback = true;',
-              contentHash: 'stats-failure-hash',
+              size: 12,
               tokenCount: 4,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).rejects.toThrow('simulated stats refresh failure');
 
@@ -1228,47 +1228,47 @@ describe('applyManagedCacheBatch', () => {
     const oversizedImports = Array.from({ length: 5462 }, (_, index) => ({
       mode: 'import' as const,
       record: {
+        content: 'export const value = 1;',
+        contentHash: `hash-${index}`,
+        createdAt: now,
         id: `import-${index}`,
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
-        size: 10,
-        createdAt: now,
-        updatedAt: now,
         processedAt: now,
-        content: 'export const value = 1;',
-        contentHash: `hash-${index}`,
+        size: 10,
         tokenCount: 5,
+        updatedAt: now,
       },
     }));
 
     await expect(
       applyManagedCacheBatch(db, {
+        changes: oversizedImports,
         embeddingSetId: 'set-1',
         rootId: 'root-fixture',
-        changes: oversizedImports,
       })
     ).rejects.toThrow('Managed cache batch import exceeds the PostgreSQL parameter limit.');
 
     const oversizedReplacements = Array.from({ length: 6554 }, (_, index) => ({
       mode: 'replace' as const,
       record: {
+        content: 'export const value = 2;',
+        contentHash: `replace-hash-${index}`,
         id: `replace-${index}`,
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
-        size: 10,
-        updatedAt: now,
         processedAt: now,
-        content: 'export const value = 2;',
-        contentHash: `replace-hash-${index}`,
+        size: 10,
         tokenCount: 5,
+        updatedAt: now,
       },
     }));
 
     await expect(
       applyManagedCacheBatch(db, {
+        changes: oversizedReplacements,
         embeddingSetId: 'set-1',
         rootId: 'root-fixture',
-        changes: oversizedReplacements,
       })
     ).rejects.toThrow('Managed cache batch replace exceeds the PostgreSQL parameter limit.');
   });
@@ -1278,22 +1278,22 @@ describe('applyManagedCacheBatch', () => {
     const oversizedCombinedBatch = Array.from({ length: 12_015 }, (_, index) => ({
       mode: 'replace' as const,
       record: {
+        content: 'export const value = 2;',
+        contentHash: `replace-total-hash-${index}`,
         id: `replace-total-${index}`,
         name: `file-${index}.ts`,
         path: `src/file-${index}.ts`,
-        size: 10,
-        updatedAt: now,
         processedAt: now,
-        content: 'export const value = 2;',
-        contentHash: `replace-total-hash-${index}`,
+        size: 10,
         tokenCount: 5,
+        updatedAt: now,
       },
     }));
 
     expect(() =>
       parseManagedCacheBatchArgs({
-        embeddingSetId: 'set-1',
         changes: oversizedCombinedBatch,
+        embeddingSetId: 'set-1',
       })
     ).toThrow('Managed cache batch exceeds the maximum supported total size.');
   });
@@ -1303,39 +1303,39 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(db, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const first = true;',
+              contentHash: 'hash-first',
+              createdAt: now,
               id: 'duplicate-id',
               name: 'first.ts',
               path: 'src/first.ts',
-              size: 10,
-              createdAt: now,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const first = true;',
-              contentHash: 'hash-first',
+              size: 10,
               tokenCount: 5,
+              updatedAt: now,
             },
           },
           {
             mode: 'replace',
             record: {
+              content: 'export const second = true;',
+              contentHash: 'hash-second',
               id: 'duplicate-id',
               name: 'second.ts',
               path: 'src/second.ts',
-              size: 10,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const second = true;',
-              contentHash: 'hash-second',
+              size: 10,
               tokenCount: 5,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).rejects.toThrow('Managed cache batch contains duplicate file record id duplicate-id.');
   });
@@ -1344,55 +1344,55 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
 
     await fileRecordRepository.createWithContent({
+      chunkingStrategy: 'sentence',
+      chunksCount: 1,
+      chunksProcessedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-only-old-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-only-file',
       name: 'replace-only.ts',
       path: 'src/replace-only.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'replace-only-old-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
-      chunksCount: 1,
-      chunksProcessedAt: now,
-      chunkingStrategy: 'sentence',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
 
     await fileChunkRepository.insert({
-      id: 'replace-only-chunk',
-      fileRecordId: 'replace-only-file',
       chunkIndex: 0,
+      chunkSize: 16,
+      chunkType: 'sentence',
       content: 'old chunk',
       contentHash: 'replace-only-chunk-hash',
-      tokenCount: 4,
-      chunkType: 'sentence',
-      chunkSize: 16,
-      embeddingSetId: 'set-1',
       createdAt: now,
+      embeddingSetId: 'set-1',
+      fileRecordId: 'replace-only-file',
+      id: 'replace-only-chunk',
+      tokenCount: 4,
       updatedAt: now,
     });
 
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const version = 2;',
+            contentHash: 'replace-only-new-hash',
             id: 'replace-only-file',
             name: 'replace-only.ts',
             path: 'src/replace-only.ts',
-            size: 11,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const version = 2;',
-            contentHash: 'replace-only-new-hash',
+            size: 11,
             tokenCount: 6,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     const replacedRecord = await fileRecordRepository.findById('replace-only-file');
@@ -1408,10 +1408,10 @@ describe('applyManagedCacheBatch', () => {
 
     expect(replacedRecord).toEqual(
       expect.objectContaining({
-        id: 'replace-only-file',
-        size: 11,
         content: 'export const version = 2;',
         contentHash: 'replace-only-new-hash',
+        id: 'replace-only-file',
+        size: 11,
         tokenCount: 6,
       })
     );
@@ -1427,33 +1427,33 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
 
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'import',
           record: {
+            content: 'export const imported = true;',
+            contentHash: 'import-only-hash',
+            createdAt: now,
             id: 'import-only-file',
             name: 'import-only.ts',
             path: 'src/import-only.ts',
-            size: 12,
-            createdAt: now,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const imported = true;',
-            contentHash: 'import-only-hash',
+            size: 12,
             tokenCount: 4,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     const insertedRecord = await fileRecordRepository.findById('import-only-file');
     expect(insertedRecord).toEqual(
       expect.objectContaining({
-        id: 'import-only-file',
-        embeddingSetId: 'set-1',
         contentHash: 'import-only-hash',
+        embeddingSetId: 'set-1',
+        id: 'import-only-file',
       })
     );
   });
@@ -1463,35 +1463,35 @@ describe('applyManagedCacheBatch', () => {
     const mtimeMs = 1_700_000_000_000;
 
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'import',
           record: {
-            id: 'stat-cache-file',
-            name: 'stat.ts',
-            path: 'src/stat.ts',
-            size: 128,
-            mtimeMs,
-            createdAt: now,
-            updatedAt: now,
-            processedAt: now,
             content: 'export const value = 1;',
             contentHash: 'stat-hash',
+            createdAt: now,
+            id: 'stat-cache-file',
+            mtimeMs,
+            name: 'stat.ts',
+            path: 'src/stat.ts',
+            processedAt: now,
+            size: 128,
             tokenCount: 5,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     const entries = await fileRecordRepository.listManagedCacheEntryMetadata('set-1');
     expect(entries).toEqual([
       expect.objectContaining({
         fileRecordId: 'stat-cache-file',
+        mtimeMs,
         relativePath: 'src/stat.ts',
         size: 128,
-        mtimeMs,
       }),
     ]);
   });
@@ -1505,26 +1505,26 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(db, {
-        embeddingSetId: 'set-1',
-        rootId: 'root-fixture',
         changes: [
           {
             mode: 'import',
             record: {
-              id: 'fractional-mtime-file',
-              name: 'frac.ts',
-              path: 'src/frac.ts',
-              size: 64,
-              mtimeMs: fractionalMtimeMs,
-              createdAt: now,
-              updatedAt: now,
-              processedAt: now,
               content: 'export const value = 1;',
               contentHash: 'frac-hash',
+              createdAt: now,
+              id: 'fractional-mtime-file',
+              mtimeMs: fractionalMtimeMs,
+              name: 'frac.ts',
+              path: 'src/frac.ts',
+              processedAt: now,
+              size: 64,
               tokenCount: 5,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
+        rootId: 'root-fixture',
       })
     ).resolves.toBeUndefined();
 
@@ -1532,8 +1532,8 @@ describe('applyManagedCacheBatch', () => {
     expect(entries).toEqual([
       expect.objectContaining({
         fileRecordId: 'fractional-mtime-file',
-        relativePath: 'src/frac.ts',
         mtimeMs: Math.floor(fractionalMtimeMs),
+        relativePath: 'src/frac.ts',
       }),
     ]);
   });
@@ -1542,17 +1542,17 @@ describe('applyManagedCacheBatch', () => {
     const now = new Date().toISOString();
 
     await fileRecordRepository.createWithContent({
+      content: 'export const version = 1;',
+      contentHash: 'old-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-stat-file',
       name: 'stat.ts',
       path: 'src/stat.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'old-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
     // Stamp the managed-cache identity (root_id) — createWithContent does not
     // set it, and listManagedCacheEntryMetadata only returns root_id-bearing rows.
@@ -1562,34 +1562,34 @@ describe('applyManagedCacheBatch', () => {
 
     const newMtimeMs = 1_800_000_000_000;
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-fixture',
       changes: [
         {
           mode: 'replace',
           record: {
-            id: 'replace-stat-file',
-            name: 'stat.ts',
-            path: 'src/stat.ts',
-            size: 20,
-            mtimeMs: newMtimeMs,
-            updatedAt: now,
-            processedAt: now,
             content: 'export const version = 2;',
             contentHash: 'new-hash',
+            id: 'replace-stat-file',
+            mtimeMs: newMtimeMs,
+            name: 'stat.ts',
+            path: 'src/stat.ts',
+            processedAt: now,
+            size: 20,
             tokenCount: 6,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-fixture',
     });
 
     const entries = await fileRecordRepository.listManagedCacheEntryMetadata('set-1');
     expect(entries).toEqual([
       expect.objectContaining({
         fileRecordId: 'replace-stat-file',
+        mtimeMs: newMtimeMs,
         relativePath: 'src/stat.ts',
         size: 20,
-        mtimeMs: newMtimeMs,
       }),
     ]);
   });
@@ -1603,25 +1603,25 @@ describe('applyManagedCacheBatch', () => {
     );
 
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-db-1',
       changes: [
         {
           mode: 'import',
           record: {
+            content: 'export const rootId = true;',
+            contentHash: 'root-id-import-hash',
+            createdAt: now,
             id: 'root-id-import-file',
             name: 'root-id-import.ts',
             path: 'src/root-id-import.ts',
-            size: 10,
-            createdAt: now,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const rootId = true;',
-            contentHash: 'root-id-import-hash',
+            size: 10,
             tokenCount: 5,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-db-1',
     });
 
     const result = await db.query<{ root_id: string | null }>(
@@ -1639,24 +1639,24 @@ describe('applyManagedCacheBatch', () => {
 
     await expect(
       applyManagedCacheBatch(db, {
-        embeddingSetId: 'set-1',
         changes: [
           {
             mode: 'import',
             record: {
+              content: 'export const noRootId = true;',
+              contentHash: 'no-root-id-hash',
+              createdAt: now,
               id: 'no-root-id-import-file',
               name: 'no-root-id.ts',
               path: 'src/no-root-id.ts',
-              size: 10,
-              createdAt: now,
-              updatedAt: now,
               processedAt: now,
-              content: 'export const noRootId = true;',
-              contentHash: 'no-root-id-hash',
+              size: 10,
               tokenCount: 5,
+              updatedAt: now,
             },
           },
         ],
+        embeddingSetId: 'set-1',
       })
     ).rejects.toThrow(/requires a non-null rootId/);
 
@@ -1675,17 +1675,17 @@ describe('applyManagedCacheBatch', () => {
       `INSERT INTO roots (id, kind, display_name) VALUES ('root-db-replace', 'path', 'fixture-replace')`
     );
     await fileRecordRepository.createWithContent({
+      content: 'export const version = 1;',
+      contentHash: 'replace-with-root-old-hash',
+      createdAt: now,
+      embeddingSetId: 'set-1',
       id: 'replace-with-root-file',
       name: 'replace-with-root.ts',
       path: 'src/replace-with-root.ts',
-      size: 10,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const version = 1;',
-      contentHash: 'replace-with-root-old-hash',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: 'set-1',
+      size: 10,
+      tokenCount: 5,
+      updatedAt: now,
     });
     await db.query(
       `UPDATE file_records SET root_id = 'root-db-replace' WHERE id = 'replace-with-root-file'`
@@ -1693,24 +1693,24 @@ describe('applyManagedCacheBatch', () => {
 
     // Apply a replace batch — root_id must NOT be cleared or changed.
     await applyManagedCacheBatch(db, {
-      embeddingSetId: 'set-1',
-      rootId: 'root-db-replace',
       changes: [
         {
           mode: 'replace',
           record: {
+            content: 'export const version = 2;',
+            contentHash: 'replace-with-root-new-hash',
             id: 'replace-with-root-file',
             name: 'replace-with-root.ts',
             path: 'src/replace-with-root.ts',
-            size: 20,
-            updatedAt: now,
             processedAt: now,
-            content: 'export const version = 2;',
-            contentHash: 'replace-with-root-new-hash',
+            size: 20,
             tokenCount: 6,
+            updatedAt: now,
           },
         },
       ],
+      embeddingSetId: 'set-1',
+      rootId: 'root-db-replace',
     });
 
     const result = await db.query<{ root_id: string | null }>(
@@ -1722,26 +1722,26 @@ describe('applyManagedCacheBatch', () => {
 
   it('parseManagedCacheBatchArgs accepts rootId as a non-empty string', () => {
     const parsed = parseManagedCacheBatchArgs({
+      changes: [],
       embeddingSetId: 'set-1',
       rootId: 'root-db-1',
-      changes: [],
     });
     expect(parsed.rootId).toBe('root-db-1');
   });
 
   it('parseManagedCacheBatchArgs accepts absent rootId (back-compat)', () => {
     const parsed = parseManagedCacheBatchArgs({
-      embeddingSetId: 'set-1',
       changes: [],
+      embeddingSetId: 'set-1',
     });
     expect(parsed.rootId).toBeUndefined();
   });
 
   it('parseManagedCacheBatchArgs accepts null rootId', () => {
     const parsed = parseManagedCacheBatchArgs({
+      changes: [],
       embeddingSetId: 'set-1',
       rootId: null,
-      changes: [],
     });
     expect(parsed.rootId).toBeNull();
   });
@@ -1749,34 +1749,34 @@ describe('applyManagedCacheBatch', () => {
   it('parseManagedCacheBatchArgs rejects a non-string non-null rootId with a thrown error', () => {
     expect(() =>
       parseManagedCacheBatchArgs({
+        changes: [],
         embeddingSetId: 'set-1',
         rootId: 42,
-        changes: [],
       })
     ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
+        changes: [],
         embeddingSetId: 'set-1',
         rootId: true,
-        changes: [],
       })
     ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
 
     expect(() =>
       parseManagedCacheBatchArgs({
+        changes: [],
         embeddingSetId: 'set-1',
         rootId: [],
-        changes: [],
       })
     ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
 
     // '' would pass a bare typeof check and reach the DB as a doomed FK lookup.
     expect(() =>
       parseManagedCacheBatchArgs({
+        changes: [],
         embeddingSetId: 'set-1',
         rootId: '',
-        changes: [],
       })
     ).toThrow('Managed cache batch payload rootId must be a non-empty string or null.');
   });

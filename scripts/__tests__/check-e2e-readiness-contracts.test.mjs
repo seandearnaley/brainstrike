@@ -86,7 +86,8 @@ test('flags DB-backed model registry row assertions outside isolated test ranges
     {
       file: 'apps/web/e2e/settings.test.ts',
       line: 5,
-      reason: 'Model registry row assertions require DB-backed registry readiness in an isolated path',
+      reason:
+        'Model registry row assertions require DB-backed registry readiness in an isolated path',
     },
   ]);
 });

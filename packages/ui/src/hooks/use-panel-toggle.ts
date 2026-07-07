@@ -54,5 +54,5 @@ export function usePanelToggle(toggleFn: () => void, options: UsePanelToggleOpti
     toggleFn();
   }, [toggleFn, options.liftInitGate, options.onBeforeHide]);
 
-  return { show, hide };
+  return { hide, show };
 }

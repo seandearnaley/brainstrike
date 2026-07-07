@@ -77,7 +77,7 @@ function loadStoredPreferences(): StoredPreferences | null {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? sanitizeStoredPreferences(JSON.parse(stored) as StoredPreferences) : null;
   } catch (error) {
-    logger.warn('Failed to parse stored preferences', { storageKey: STORAGE_KEY, error });
+    logger.warn('Failed to parse stored preferences', { error, storageKey: STORAGE_KEY });
     return null;
   }
 }
@@ -317,15 +317,15 @@ export function usePreviewPanelPreferences(
     const timeoutId = setTimeout(() => {
       try {
         const settings = {
-          columnVisibility,
-          sortField,
-          sortDirection,
-          groupingConfig,
           activeTab,
           collapsedGroups: Array.from(collapsedGroups),
-          pageSize,
-          useTapestryRangesForContextOutput,
+          columnVisibility,
           footerMode,
+          groupingConfig,
+          pageSize,
+          sortDirection,
+          sortField,
+          useTapestryRangesForContextOutput,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -336,8 +336,8 @@ export function usePreviewPanelPreferences(
           return;
         }
         logger.warn('Failed to save preferences to localStorage', {
-          storageKey: STORAGE_KEY,
           error,
+          storageKey: STORAGE_KEY,
         });
       }
     }, SAVE_DEBOUNCE_MS);
@@ -359,20 +359,20 @@ export function usePreviewPanelPreferences(
     activeTab,
     collapsedGroups,
     columnVisibility,
+    footerMode,
     groupingConfig,
     pageSize,
-    useTapestryRangesForContextOutput,
-    footerMode,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
+    setFooterMode,
     setGroupingConfig,
     setPageSize,
-    setUseTapestryRangesForContextOutput,
-    setFooterMode,
     setSortDirection,
     setSortField,
+    setUseTapestryRangesForContextOutput,
     sortDirection,
     sortField,
+    useTapestryRangesForContextOutput,
   };
 }

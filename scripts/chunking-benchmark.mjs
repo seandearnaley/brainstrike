@@ -22,11 +22,11 @@ async function main() {
   const service = new ChunkingService();
 
   const options = {
-    strategy: 'sentence',
     fileName: 'big.txt',
     filePath: '/big.txt',
     maxTokens: CHUNKING_CONFIG.defaultMaxTokens,
     overlap: CHUNKING_CONFIG.defaultOverlap,
+    strategy: 'sentence',
   };
 
   const _base = process.memoryUsage().rss;
@@ -58,14 +58,14 @@ async function main() {
   console.log(
     JSON.stringify(
       {
-        platform: os.platform(),
-        sizeMB,
         chunksAggregate: agg.length,
         chunksStream,
         memoryDeltaMB: {
           aggregate: Number(deltaAgg.toFixed(2)),
           streaming: Number(deltaStr.toFixed(2)),
         },
+        platform: os.platform(),
+        sizeMB,
       },
       null,
       2

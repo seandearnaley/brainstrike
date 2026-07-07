@@ -10,7 +10,23 @@ import type { Migration } from './migration-runner';
  * function calling, not general chat.
  */
 export const migration021RenameTransformersToLocal: Migration = {
-  version: 21,
+  down: `
+    -- Step 1: Insert 'transformers' provider back
+    INSERT INTO providers (id, name, created_at, updated_at)
+    SELECT 'transformers', 'Local Models', created_at, NOW()
+    FROM providers WHERE id = 'local'
+    ON CONFLICT (id) DO NOTHING;
+
+    -- Step 2: Update models back to 'transformers' provider_id
+    UPDATE models SET provider_id = 'transformers' WHERE provider_id = 'local';
+
+    -- Step 3: Delete the 'local' provider
+    DELETE FROM providers WHERE id = 'local';
+
+    -- Step 4: Revert default model
+    UPDATE models SET is_enabled = true WHERE id = 'onnx-community/functiongemma-270m-it-ONNX';
+    UPDATE models SET is_enabled = false WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
+  `,
   name: 'rename_transformers_to_local',
   up: `
     -- Step 1: Insert new 'local' provider (copy from 'transformers' if it exists)
@@ -31,21 +47,5 @@ export const migration021RenameTransformersToLocal: Migration = {
     UPDATE models SET is_enabled = false WHERE id = 'onnx-community/functiongemma-270m-it-ONNX';
     UPDATE models SET is_enabled = true WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
   `,
-  down: `
-    -- Step 1: Insert 'transformers' provider back
-    INSERT INTO providers (id, name, created_at, updated_at)
-    SELECT 'transformers', 'Local Models', created_at, NOW()
-    FROM providers WHERE id = 'local'
-    ON CONFLICT (id) DO NOTHING;
-
-    -- Step 2: Update models back to 'transformers' provider_id
-    UPDATE models SET provider_id = 'transformers' WHERE provider_id = 'local';
-
-    -- Step 3: Delete the 'local' provider
-    DELETE FROM providers WHERE id = 'local';
-
-    -- Step 4: Revert default model
-    UPDATE models SET is_enabled = true WHERE id = 'onnx-community/functiongemma-270m-it-ONNX';
-    UPDATE models SET is_enabled = false WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
-  `,
+  version: 21,
 };

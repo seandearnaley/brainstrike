@@ -25,9 +25,9 @@ describe('built logger modules', () => {
 
     try {
       loggingInitializerModule.initializeLogging({
-        runtime: 'browser',
-        level: loggerModule.LogLevel.DEBUG,
         consoleLevel: loggerModule.LogLevel.DEBUG,
+        level: loggerModule.LogLevel.DEBUG,
+        runtime: 'browser',
       });
 
       rootUtils.debug('dist initializer marker');
@@ -58,8 +58,8 @@ describe('built logger modules', () => {
     try {
       loggingPreferencesModule.applyLoggingPreferences(
         loggingPreferencesModule.createDefaultLoggingPreferences({
-          level: loggerModule.LogLevel.DEBUG,
           consoleLevel: loggerModule.LogLevel.DEBUG,
+          level: loggerModule.LogLevel.DEBUG,
         }),
         'browser'
       );

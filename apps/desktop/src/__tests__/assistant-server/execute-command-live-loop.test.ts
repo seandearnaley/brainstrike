@@ -35,7 +35,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 
 /**
  * Scripted host client: the first generation requests the shell tool; once the
@@ -44,7 +44,6 @@ const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const
  */
 function createScriptedHostClient(command: string): LocalLlmHostClient {
   return {
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
@@ -56,27 +55,28 @@ function createScriptedHostClient(command: string): LocalLlmHostClient {
         options.onProgress?.({ kind: 'text', text: 'Ran ' });
         options.onProgress?.({ kind: 'text', text: 'Ran the command.' });
         return Promise.resolve({
-          text: 'Ran the command.',
           finishReason: 'stop',
+          text: 'Ran the command.',
           usage: USAGE,
         });
       }
       return Promise.resolve({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: {
+              arguments: JSON.stringify({ command }),
+              name: 'brainstrike_executeCommand',
+            },
             id: 'call-exec-1',
             type: 'function',
-            function: {
-              name: 'brainstrike_executeCommand',
-              arguments: JSON.stringify({ command }),
-            },
           },
         ],
         usage: USAGE,
       });
     },
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -94,7 +94,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
-      await fsPromises.rm(root, { recursive: true, force: true });
+      await fsPromises.rm(root, { force: true, recursive: true });
     }
   }
 });
@@ -126,15 +126,15 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
       [
         {
           id: 'u-exec',
+          parts: [{ text: 'run echo', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: 'run echo' }],
         },
       ],
       {
         runtime: {
-          provider: 'local',
-          model: 'onnx-community/gemma-4-E2B-it-ONNX',
           localLlmHostClient: hostClient,
+          model: 'onnx-community/gemma-4-E2B-it-ONNX',
+          provider: 'local',
           providerOptions: { local: { thinking: { enabled: false } } },
         } as RuntimeData,
         tools: { 'brainstrike.executeCommand': executeTool },

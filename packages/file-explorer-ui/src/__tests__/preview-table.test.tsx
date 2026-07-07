@@ -8,40 +8,40 @@ import type { GroupedData, TableRowData } from '../utils/grouping-configs';
 
 const DEFAULT_COLUMN_VISIBILITY: ColumnVisibility = {
   checkbox: true,
-  rootFolderId: true,
   path: true,
-  type: true,
-  tokens: true,
+  rootFolderId: true,
   size: true,
+  tokens: true,
+  type: true,
 };
 
 const FILE_ONE: TableRowData = {
-  id: '1',
-  rootFolderId: 'workspace',
-  path: 'src/file-one.ts',
-  type: 'ts',
-  tokens: 125,
-  size: 1024,
   compositeKey: 'workspace:src/file-one.ts',
+  id: '1',
+  path: 'src/file-one.ts',
+  rootFolderId: 'workspace',
+  size: 1024,
+  tokens: 125,
+  type: 'ts',
 };
 
 const FILE_TWO: TableRowData = {
-  id: '2',
-  rootFolderId: 'workspace',
-  path: 'src/file-two.tsx',
-  type: 'tsx',
-  tokens: 250,
-  size: 2048,
   compositeKey: 'workspace:src/file-two.tsx',
+  id: '2',
+  path: 'src/file-two.tsx',
+  rootFolderId: 'workspace',
+  size: 2048,
+  tokens: 250,
+  type: 'tsx',
 };
 
 const DEFAULT_GROUP: GroupedData<TableRowData> = {
+  count: 2,
   groupKey: 'src',
   groupLabel: 'src',
   items: [FILE_ONE, FILE_TWO],
-  count: 2,
-  totalTokens: 375,
   totalSize: 3072,
+  totalTokens: 375,
 };
 
 interface PreviewTableTestOverrides {
@@ -62,27 +62,27 @@ interface PreviewTableTestOverrides {
 
 function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
   const props = {
-    columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
-    sortField: 'path' as const,
-    sortDirection: 'asc' as const,
-    groupingConfig: overrides.groupingConfig ?? 'directory',
-    groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
-    currentPageData: overrides.currentPageData ?? [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
-    previewSelections: overrides.previewSelections ?? new Set<string>(),
-    visibleFilesOnPage: overrides.visibleFilesOnPage ?? [FILE_ONE, FILE_TWO],
-    onSort: vi.fn(),
-    onToggleSelection: vi.fn(),
-    onSelectAllOnPage: vi.fn(),
-    onDeselectAll: vi.fn(),
+    columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
+    currentPageData: overrides.currentPageData ?? [],
+    groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
+    groupingConfig: overrides.groupingConfig ?? 'directory',
+    handleGroupDeselectAll: overrides.handleGroupDeselectAll ?? vi.fn(),
+    handleGroupSelectAll: overrides.handleGroupSelectAll ?? vi.fn(),
     isAllSelected: vi.fn(() => false),
-    onFileClick: vi.fn(),
-    toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
     isGroupFullySelected: overrides.isGroupFullySelected ?? (() => false),
     isGroupPartiallySelected: overrides.isGroupPartiallySelected ?? (() => false),
-    handleGroupSelectAll: overrides.handleGroupSelectAll ?? vi.fn(),
-    handleGroupDeselectAll: overrides.handleGroupDeselectAll ?? vi.fn(),
-    pagination: overrides.pagination ?? { startIndex: 0, endIndex: 20 },
+    onDeselectAll: vi.fn(),
+    onFileClick: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onSort: vi.fn(),
+    onToggleSelection: vi.fn(),
+    pagination: overrides.pagination ?? { endIndex: 20, startIndex: 0 },
+    previewSelections: overrides.previewSelections ?? new Set<string>(),
+    sortDirection: 'asc' as const,
+    sortField: 'path' as const,
+    toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
+    visibleFilesOnPage: overrides.visibleFilesOnPage ?? [FILE_ONE, FILE_TWO],
   };
 
   render(<PreviewTable {...props} />);
@@ -90,49 +90,49 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
 }
 
 const DESKTOP_ROOT_FILE: TableRowData = {
-  id: 'desktop-root',
-  rootFolderId: '/Users/me/BrainStrike',
-  path: '/Users/me/BrainStrike/README.md',
-  type: 'md',
-  tokens: 10,
-  size: 256,
   compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/README.md',
+  id: 'desktop-root',
+  path: '/Users/me/BrainStrike/README.md',
+  rootFolderId: '/Users/me/BrainStrike',
+  size: 256,
+  tokens: 10,
+  type: 'md',
 };
 
 const DESKTOP_NESTED_FILE: TableRowData = {
-  id: 'desktop-nested',
-  rootFolderId: '/Users/me/BrainStrike',
-  path: '/Users/me/BrainStrike/source/index.ts',
-  type: 'ts',
-  tokens: 20,
-  size: 512,
   compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/source/index.ts',
+  id: 'desktop-nested',
+  path: '/Users/me/BrainStrike/source/index.ts',
+  rootFolderId: '/Users/me/BrainStrike',
+  size: 512,
+  tokens: 20,
+  type: 'ts',
 };
 
 function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverrides> = {}) {
   const currentPageData = overrides.currentPageData ?? [FILE_ONE, FILE_TWO];
   const props = {
-    columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
-    sortField: 'path' as const,
-    sortDirection: 'asc' as const,
-    groupingConfig: 'none',
-    groupedData: overrides.groupedData ?? [],
-    currentPageData,
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
-    previewSelections: overrides.previewSelections ?? new Set<string>(),
-    visibleFilesOnPage: currentPageData,
-    onSort: vi.fn(),
-    onToggleSelection: vi.fn(),
-    onSelectAllOnPage: vi.fn(),
-    onDeselectAll: vi.fn(),
+    columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
+    currentPageData,
+    groupedData: overrides.groupedData ?? [],
+    groupingConfig: 'none',
+    handleGroupDeselectAll: overrides.handleGroupDeselectAll ?? vi.fn(),
+    handleGroupSelectAll: overrides.handleGroupSelectAll ?? vi.fn(),
     isAllSelected: vi.fn(() => false),
-    onFileClick: vi.fn(),
-    toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
     isGroupFullySelected: overrides.isGroupFullySelected ?? (() => false),
     isGroupPartiallySelected: overrides.isGroupPartiallySelected ?? (() => false),
-    handleGroupSelectAll: overrides.handleGroupSelectAll ?? vi.fn(),
-    handleGroupDeselectAll: overrides.handleGroupDeselectAll ?? vi.fn(),
-    pagination: overrides.pagination ?? { startIndex: 0, endIndex: 20 },
+    onDeselectAll: vi.fn(),
+    onFileClick: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onSort: vi.fn(),
+    onToggleSelection: vi.fn(),
+    pagination: overrides.pagination ?? { endIndex: 20, startIndex: 0 },
+    previewSelections: overrides.previewSelections ?? new Set<string>(),
+    sortDirection: 'asc' as const,
+    sortField: 'path' as const,
+    toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
+    visibleFilesOnPage: currentPageData,
   };
 
   render(<PreviewTable {...props} />);
@@ -214,8 +214,8 @@ describe('PreviewTable grouped mode', () => {
     const handleGroupDeselectAll = vi.fn();
 
     renderGroupedPreviewTable({
-      handleGroupSelectAll,
       handleGroupDeselectAll,
+      handleGroupSelectAll,
       isGroupFullySelected: () => false,
       isGroupPartiallySelected: () => false,
     });
@@ -233,8 +233,8 @@ describe('PreviewTable grouped mode', () => {
     const handleGroupDeselectAll = vi.fn();
 
     renderGroupedPreviewTable({
-      handleGroupSelectAll,
       handleGroupDeselectAll,
+      handleGroupSelectAll,
       isGroupFullySelected: () => true,
       isGroupPartiallySelected: () => false,
     });
@@ -249,7 +249,7 @@ describe('PreviewTable grouped mode', () => {
 
   it('preserves grouped page slicing semantics when page starts inside group items', () => {
     renderGroupedPreviewTable({
-      pagination: { startIndex: 1, endIndex: 2 },
+      pagination: { endIndex: 2, startIndex: 1 },
     });
 
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
@@ -259,9 +259,9 @@ describe('PreviewTable grouped mode', () => {
   it('selects the full grouped dataset from the header checkbox, not only the visible page slice', () => {
     const thirdFile: TableRowData = {
       ...FILE_TWO,
+      compositeKey: 'workspace:src/file-three.ts',
       id: '3',
       path: 'src/file-three.ts',
-      compositeKey: 'workspace:src/file-three.ts',
     };
     const handleSelectAll = vi.fn();
 
@@ -273,8 +273,8 @@ describe('PreviewTable grouped mode', () => {
         groupedData={[
           {
             ...DEFAULT_GROUP,
-            items: [FILE_ONE, FILE_TWO, thirdFile],
             count: 3,
+            items: [FILE_ONE, FILE_TWO, thirdFile],
           },
         ]}
         groupingConfig="directory"
@@ -288,7 +288,7 @@ describe('PreviewTable grouped mode', () => {
         onSelectAllOnPage={handleSelectAll}
         onSort={vi.fn()}
         onToggleSelection={vi.fn()}
-        pagination={{ startIndex: 0, endIndex: 2 }}
+        pagination={{ endIndex: 2, startIndex: 0 }}
         previewSelections={new Set<string>()}
         sortDirection="asc"
         sortField="path"
@@ -313,11 +313,11 @@ describe('PreviewTable grouped mode', () => {
     renderGroupedPreviewTable({
       columnVisibility: {
         checkbox: true,
-        rootFolderId: false,
         path: true,
-        type: true,
-        tokens: true,
+        rootFolderId: false,
         size: true,
+        tokens: true,
+        type: true,
       },
     });
 
@@ -345,26 +345,26 @@ describe('PreviewTable grouped mode', () => {
     const onSortInitial = vi.fn();
     const onSortUpdated = vi.fn();
     const sharedProps = {
-      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
-      sortField: 'path' as const,
-      sortDirection: 'asc' as const,
-      groupingConfig: 'directory',
-      groupedData: [DEFAULT_GROUP],
-      currentPageData: [] as TableRowData[],
       collapsedGroups: new Set<string>(),
-      previewSelections: new Set<string>(),
-      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
-      onToggleSelection: vi.fn(),
-      onSelectAllOnPage: vi.fn(),
-      onDeselectAll: vi.fn(),
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      currentPageData: [] as TableRowData[],
+      groupedData: [DEFAULT_GROUP],
+      groupingConfig: 'directory',
+      handleGroupDeselectAll: vi.fn(),
+      handleGroupSelectAll: vi.fn(),
       isAllSelected: vi.fn(() => false),
-      onFileClick: vi.fn(),
-      toggleGroupCollapse: vi.fn(),
       isGroupFullySelected: () => false,
       isGroupPartiallySelected: () => false,
-      handleGroupSelectAll: vi.fn(),
-      handleGroupDeselectAll: vi.fn(),
-      pagination: { startIndex: 0, endIndex: 20 },
+      onDeselectAll: vi.fn(),
+      onFileClick: vi.fn(),
+      onSelectAllOnPage: vi.fn(),
+      onToggleSelection: vi.fn(),
+      pagination: { endIndex: 20, startIndex: 0 },
+      previewSelections: new Set<string>(),
+      sortDirection: 'asc' as const,
+      sortField: 'path' as const,
+      toggleGroupCollapse: vi.fn(),
+      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
     };
     const { rerender } = render(<PreviewTable {...sharedProps} onSort={onSortInitial} />);
 
@@ -377,26 +377,26 @@ describe('PreviewTable grouped mode', () => {
 
   it('reflects latest preview selections after rerender', () => {
     const sharedProps = {
-      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
-      sortField: 'path' as const,
-      sortDirection: 'asc' as const,
-      groupingConfig: 'directory',
-      groupedData: [DEFAULT_GROUP],
-      currentPageData: [] as TableRowData[],
       collapsedGroups: new Set<string>(),
-      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
-      onSort: vi.fn(),
-      onToggleSelection: vi.fn(),
-      onSelectAllOnPage: vi.fn(),
-      onDeselectAll: vi.fn(),
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      currentPageData: [] as TableRowData[],
+      groupedData: [DEFAULT_GROUP],
+      groupingConfig: 'directory',
+      handleGroupDeselectAll: vi.fn(),
+      handleGroupSelectAll: vi.fn(),
       isAllSelected: vi.fn(() => false),
-      onFileClick: vi.fn(),
-      toggleGroupCollapse: vi.fn(),
       isGroupFullySelected: () => false,
       isGroupPartiallySelected: () => false,
-      handleGroupSelectAll: vi.fn(),
-      handleGroupDeselectAll: vi.fn(),
-      pagination: { startIndex: 0, endIndex: 20 },
+      onDeselectAll: vi.fn(),
+      onFileClick: vi.fn(),
+      onSelectAllOnPage: vi.fn(),
+      onSort: vi.fn(),
+      onToggleSelection: vi.fn(),
+      pagination: { endIndex: 20, startIndex: 0 },
+      sortDirection: 'asc' as const,
+      sortField: 'path' as const,
+      toggleGroupCollapse: vi.fn(),
+      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
     };
 
     const { rerender } = render(
@@ -415,15 +415,15 @@ describe('PreviewTable grouped mode', () => {
   it('renders zero-token grouped items as indexed empty files, not pending counts', () => {
     const emptyFileItem: TableRowData = {
       ...FILE_ONE,
+      compositeKey: 'workspace:src/empty.ts',
       id: 'empty',
       path: 'src/empty.ts',
       tokens: 0,
-      compositeKey: 'workspace:src/empty.ts',
     };
     const zeroTokenGroup: GroupedData<TableRowData> = {
       ...DEFAULT_GROUP,
-      items: [emptyFileItem],
       count: 1,
+      items: [emptyFileItem],
       totalTokens: 0,
     };
 
@@ -471,7 +471,7 @@ describe('PreviewTable grouped mode', () => {
               return next;
             });
           }}
-          pagination={{ startIndex: 0, endIndex: 20 }}
+          pagination={{ endIndex: 20, startIndex: 0 }}
           previewSelections={previewSelections}
           sortDirection="asc"
           sortField="path"
@@ -545,7 +545,7 @@ describe('PreviewTable grouped mode', () => {
           onSelectAllOnPage={vi.fn()}
           onSort={vi.fn()}
           onToggleSelection={handleSelectionChange}
-          pagination={{ startIndex: 0, endIndex: 20 }}
+          pagination={{ endIndex: 20, startIndex: 0 }}
           previewSelections={previewSelections}
           sortDirection="asc"
           sortField="path"
@@ -625,21 +625,21 @@ describe('PreviewTable grouped mode', () => {
     it('renders non-folder grouping labels in the folder column when that column is visible', () => {
       const sizeGroup: GroupedData<TableRowData> = {
         ...DEFAULT_GROUP,
+        count: 1,
         groupKey: 'Small (< 100)',
         groupLabel: 'Small (< 100)',
         items: [
           {
             ...FILE_ONE,
-            tokens: 54,
-            size: 200,
-            path: 'mcp.config.json',
             compositeKey: 'workspace:mcp.config.json',
+            path: 'mcp.config.json',
+            size: 200,
+            tokens: 54,
             type: 'json',
           },
         ],
-        count: 1,
-        totalTokens: 54,
         totalSize: 200,
+        totalTokens: 54,
       };
 
       renderGroupedPreviewTable({
@@ -662,11 +662,11 @@ describe('PreviewTable grouped mode', () => {
       renderGroupedPreviewTable({
         columnVisibility: {
           checkbox: false,
-          rootFolderId: false,
           path: false,
-          type: false,
-          tokens: true,
+          rootFolderId: false,
           size: false,
+          tokens: true,
+          type: false,
         },
       });
 
@@ -681,11 +681,11 @@ describe('PreviewTable grouped mode', () => {
       renderGroupedPreviewTable({
         columnVisibility: {
           checkbox: false,
-          rootFolderId: false,
           path: false,
-          type: false,
-          tokens: true,
+          rootFolderId: false,
           size: true,
+          tokens: true,
+          type: false,
         },
       });
 
@@ -700,36 +700,36 @@ describe('PreviewTable grouped mode', () => {
   it('preserves pagination semantics when skipping large groups before the page window', () => {
     const largeGroupItems = Array.from({ length: 100 }, (_, index) => ({
       ...FILE_ONE,
+      compositeKey: `workspace:src/large-file-${index}.ts`,
       id: `large-${index}`,
       path: `src/large-file-${index}.ts`,
-      compositeKey: `workspace:src/large-file-${index}.ts`,
     }));
     const largeGroup: GroupedData<TableRowData> = {
+      count: largeGroupItems.length,
       groupKey: 'large',
       groupLabel: 'large',
       items: largeGroupItems,
-      count: largeGroupItems.length,
-      totalTokens: largeGroupItems.reduce((sum, item) => sum + (item.tokens ?? 0), 0),
       totalSize: largeGroupItems.reduce((sum, item) => sum + (item.size ?? 0), 0),
+      totalTokens: largeGroupItems.reduce((sum, item) => sum + (item.tokens ?? 0), 0),
     };
     const trailingFile: TableRowData = {
       ...FILE_TWO,
+      compositeKey: 'workspace:tail/trailing-file.tsx',
       id: 'trailing-file',
       path: 'tail/trailing-file.tsx',
-      compositeKey: 'workspace:tail/trailing-file.tsx',
     };
     const trailingGroup: GroupedData<TableRowData> = {
+      count: 1,
       groupKey: 'tail',
       groupLabel: 'tail',
       items: [trailingFile],
-      count: 1,
-      totalTokens: trailingFile.tokens ?? 0,
       totalSize: trailingFile.size ?? 0,
+      totalTokens: trailingFile.tokens ?? 0,
     };
 
     renderGroupedPreviewTable({
       groupedData: [largeGroup, trailingGroup],
-      pagination: { startIndex: 101, endIndex: 103 },
+      pagination: { endIndex: 103, startIndex: 101 },
     });
 
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
@@ -783,7 +783,7 @@ describe('PreviewTable grouped columns memo stability', () => {
     onToggleSelection: vi.fn(),
     toggleGroupCollapse: vi.fn(),
   };
-  const stablePagination = { startIndex: 0, endIndex: 20 };
+  const stablePagination = { endIndex: 20, startIndex: 0 };
 
   function makeProps(previewSelections: Set<string>) {
     return {
@@ -889,7 +889,7 @@ describe('PreviewTable grouped nodes rebuild on selection', () => {
     onToggleSelection: vi.fn(),
     toggleGroupCollapse: vi.fn(),
   };
-  const stablePagination = { startIndex: 0, endIndex: 20 };
+  const stablePagination = { endIndex: 20, startIndex: 0 };
 
   function makeProps(previewSelections: Set<string>) {
     return {
@@ -951,7 +951,7 @@ describe('PreviewTable file path display', () => {
         onSelectAllOnPage={vi.fn()}
         onSort={vi.fn()}
         onToggleSelection={vi.fn()}
-        pagination={{ startIndex: 0, endIndex: 20 }}
+        pagination={{ endIndex: 20, startIndex: 0 }}
         previewSelections={new Set<string>()}
         sortDirection="asc"
         sortField="path"
@@ -983,7 +983,7 @@ describe('PreviewTable file path display', () => {
         onSelectAllOnPage={vi.fn()}
         onSort={vi.fn()}
         onToggleSelection={vi.fn()}
-        pagination={{ startIndex: 0, endIndex: 20 }}
+        pagination={{ endIndex: 20, startIndex: 0 }}
         previewSelections={new Set<string>()}
         sortDirection="asc"
         sortField="path"
@@ -1025,10 +1025,10 @@ describe('PreviewTable ungrouped mode', () => {
   it('renders zero-token ungrouped items as indexed empty files, not pending counts', () => {
     const emptyFileItem: TableRowData = {
       ...FILE_ONE,
+      compositeKey: 'workspace:src/empty.ts',
       id: 'empty',
       path: 'src/empty.ts',
       tokens: 0,
-      compositeKey: 'workspace:src/empty.ts',
     };
 
     renderUngroupedPreviewTable({
@@ -1055,12 +1055,12 @@ describe('PreviewTable ungrouped mode', () => {
 
 describe('PreviewTable readiness signal', () => {
   const FILE_WITHOUT_SIZE: TableRowData = {
-    id: '3',
-    rootFolderId: 'workspace',
-    path: 'src/loading.ts',
-    type: 'ts',
-    tokens: 100,
     compositeKey: 'workspace:src/loading.ts',
+    id: '3',
+    path: 'src/loading.ts',
+    rootFolderId: 'workspace',
+    tokens: 100,
+    type: 'ts',
   };
 
   function renderUngroupedWithCurrentPageData(currentPageData: TableRowData[]) {
@@ -1081,7 +1081,7 @@ describe('PreviewTable readiness signal', () => {
         onSelectAllOnPage={vi.fn()}
         onSort={vi.fn()}
         onToggleSelection={vi.fn()}
-        pagination={{ startIndex: 0, endIndex: 20 }}
+        pagination={{ endIndex: 20, startIndex: 0 }}
         previewSelections={new Set<string>()}
         sortDirection="asc"
         sortField="path"

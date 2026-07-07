@@ -26,10 +26,12 @@ const {
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
   },
+  createEmbeddingCacheRepositoryMock: vi.fn(),
   currentDbRef: {
     current: null as null | { query: ReturnType<typeof vi.fn> },
   },
   dbHandle: { query: vi.fn() },
+  detectDeviceCapabilitiesMock: vi.fn(),
   embeddingCacheRepository: {
     get: vi.fn(),
     getBatch: vi.fn(),
@@ -37,9 +39,6 @@ const {
     setBatch: vi.fn(),
   },
   embeddingQueueBootstrapMock: vi.fn(),
-  getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
-  createEmbeddingCacheRepositoryMock: vi.fn(),
-  detectDeviceCapabilitiesMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   generateQueryEmbeddingMock: vi.fn(async () => ({
     embedding: [0.1, 0.2],
@@ -49,6 +48,7 @@ const {
       fallbackApplied: false,
     },
   })),
+  getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   initializeWithModelMock: vi.fn(async () => {}),
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
@@ -59,9 +59,9 @@ const {
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
   storeState: {
-    hasHydrated: false,
     devicePref: 'webgpu' as 'wasm' | 'webgpu',
     devicePrefConfigured: true,
+    hasHydrated: false,
     reinitEveryN: 200,
     setDetectedDevicePref: vi.fn((devicePref: 'wasm' | 'webgpu') => {
       storeState.devicePref = devicePref;
@@ -90,16 +90,16 @@ vi.mock('@brainstrike/embeddings', () => ({
 }));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
-  POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
-  startEmbeddingWorker: startEmbeddingWorkerMock,
   createForegroundEmbeddingGate: () => ({
     begin: () => {},
     end: () => {},
     isActive: () => false,
     waitUntilInactive: async () => {},
   }),
+  POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
   runCoordinatedQueryEmbedding: async (options: { generate: () => Promise<unknown> }) =>
     options.generate(),
+  startEmbeddingWorker: startEmbeddingWorkerMock,
 }));
 
 vi.mock('@brainstrike/embeddings/service', () => ({
@@ -135,15 +135,15 @@ describe('EmbeddingHostRuntime', () => {
     storeState.reinitEveryN = 200;
     setDetectedDevicePrefMock.mockClear();
     detectDeviceCapabilitiesMock.mockResolvedValue({
-      recommendedDevice: 'webgpu',
+      detectedAt: 1,
       recommendationReason: 'test default',
+      recommendedDevice: 'webgpu',
       wasmAvailable: true,
       webgpuAdapterAvailable: true,
       webgpuAdapterInfo: null,
       webgpuApiPresent: true,
       webgpuUnavailableReason: null,
       webWorkersAvailable: true,
-      detectedAt: 1,
     });
     ensureVectorPreferencesHydratedMock.mockImplementation(async () => {
       if (!storeState.hasHydrated) {
@@ -223,15 +223,15 @@ describe('EmbeddingHostRuntime', () => {
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = false;
     detectDeviceCapabilitiesMock.mockResolvedValueOnce({
-      recommendedDevice: 'wasm',
+      detectedAt: 1,
       recommendationReason: 'WASM fallback (WebGPU not available)',
+      recommendedDevice: 'wasm',
       wasmAvailable: true,
       webgpuAdapterAvailable: false,
       webgpuAdapterInfo: null,
       webgpuApiPresent: false,
       webgpuUnavailableReason: 'WebGPU API not available in this browser',
       webWorkersAvailable: true,
-      detectedAt: 1,
     });
 
     render(<EmbeddingHostRuntime />);
@@ -448,26 +448,26 @@ describe('EmbeddingHostRuntime', () => {
     }
 
     queryEmbeddingListener({
-      type: 'request',
       channel: 'query-embedding',
-      requestId: 'embedding-query:test',
-      runtimeId: 'test-runtime',
       payload: {
         dimensions: 2,
         modelId: 'Xenova/all-MiniLM-L6-v2',
         query: 'database config',
       },
+      requestId: 'embedding-query:test',
+      runtimeId: 'test-runtime',
+      type: 'request',
     });
 
     expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
         channel: 'query-embedding-error',
-        requestId: 'embedding-query:test',
-        runtimeId: 'test-runtime',
         payload: expect.objectContaining({
           message: 'Embedding host query embedding payload.modelKey must be a non-empty string.',
         }),
+        requestId: 'embedding-query:test',
+        runtimeId: 'test-runtime',
+        type: 'error',
       })
     );
   });
@@ -575,12 +575,12 @@ describe('EmbeddingHostRuntime', () => {
     dbHandle.query.mockResolvedValue({
       rows: [
         {
-          id: 'Xenova/all-MiniLM-L6-v2',
-          providerId: 'local',
-          name: 'MiniLM',
-          description: '',
           capabilities: { defaultDimension: 2 },
+          description: '',
+          id: 'Xenova/all-MiniLM-L6-v2',
+          name: 'MiniLM',
           parameters: {},
+          providerId: 'local',
         },
       ],
     });
@@ -595,16 +595,16 @@ describe('EmbeddingHostRuntime', () => {
     }
 
     queryEmbeddingListener({
-      type: 'request',
       channel: 'query-embedding',
-      requestId: 'embedding-query:valid',
-      runtimeId: 'test-runtime',
       payload: {
         dimensions: 2,
         modelId: 'Xenova/all-MiniLM-L6-v2',
         modelKey: 'local:Xenova/all-MiniLM-L6-v2',
         query: 'database config',
       },
+      requestId: 'embedding-query:valid',
+      runtimeId: 'test-runtime',
+      type: 'request',
     });
 
     await waitFor(() => {

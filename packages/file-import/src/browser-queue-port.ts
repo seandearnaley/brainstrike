@@ -66,39 +66,39 @@ interface QueueProgressArgs {
 
 function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   const state: ProgressTrackerState = {
-    totalQueued: 0,
-    processed: 0,
     failed: 0,
     lastError: null,
+    processed: 0,
+    totalQueued: 0,
   };
 
   const emit = (status: QueueProgressEventDetail['status'], args: QueueProgressArgs) => {
     const detail: QueueProgressEventDetail = {
-      queue: 'embeddings',
       chunkId: args.chunkId,
-      status,
-      model: args.model,
       embeddingSetId: args.embeddingSetId,
+      failed: state.failed,
+      lastError: state.lastError,
+      model: args.model,
       pending: Math.max(0, args.pending),
       processed: state.processed,
-      failed: state.failed,
+      queue: 'embeddings',
+      status,
       totalQueued: state.totalQueued,
-      lastError: state.lastError,
       ...(typeof args.elapsedMs === 'number' ? { elapsedMs: Math.max(0, args.elapsedMs) } : {}),
       ...(args.errorMessage ? { errorMessage: args.errorMessage } : {}),
     };
     if (status === 'error') {
       logger.error('Embedding job failed', {
         chunkId: detail.chunkId,
-        model: detail.model,
         embeddingSetId: detail.embeddingSetId,
         errorMessage: detail.errorMessage ?? null,
+        model: detail.model,
       });
     } else if (status === 'completed') {
       logger.debug('Embedding job completed', {
         chunkId: detail.chunkId,
-        model: detail.model,
         embeddingSetId: detail.embeddingSetId,
+        model: detail.model,
         pending: detail.pending,
       });
     }
@@ -106,16 +106,6 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   };
 
   return {
-    reset() {
-      state.totalQueued = 0;
-      state.processed = 0;
-      state.failed = 0;
-      state.lastError = null;
-    },
-    queued(args: QueueProgressArgs) {
-      state.totalQueued += 1;
-      emit('queued', args);
-    },
     completed(args: QueueProgressArgs) {
       state.processed += 1;
       emit('completed', args);
@@ -124,6 +114,16 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
       state.failed += 1;
       state.lastError = args.errorMessage ?? state.lastError;
       emit('error', args);
+    },
+    queued(args: QueueProgressArgs) {
+      state.totalQueued += 1;
+      emit('queued', args);
+    },
+    reset() {
+      state.totalQueued = 0;
+      state.processed = 0;
+      state.failed = 0;
+      state.lastError = null;
     },
   };
 }
@@ -154,24 +154,15 @@ export function createBrowserEmbeddingQueuePort({
   const progressTracker = createQueueProgressTracker(dispatchProgressEvent);
 
   const scheduleChunk = createChunkScheduler({
-    queue,
     chunkRepository,
     deviceHint,
-    pendingChunks,
     dispatchDrainEvent,
+    pendingChunks,
     progressTracker,
+    queue,
   });
 
   return {
-    resetProgress() {
-      if (pendingChunks.size > 0) {
-        logger.warn('Skipping queue progress reset while jobs are still pending', {
-          pending: pendingChunks.size,
-        });
-        return;
-      }
-      progressTracker.reset();
-    },
     async enqueueBatch(chunks, _fileRecordId, options) {
       if (options?.signal?.aborted) {
         throw createAbortError();
@@ -200,20 +191,29 @@ export function createBrowserEmbeddingQueuePort({
       logger.info('Scheduling embedding batch', {
         chunkCount: chunks.length,
         model,
-        targetEmbeddingSetId,
         provider,
         targetDimension,
+        targetEmbeddingSetId,
       });
 
       scheduleChunksBatch(scheduleChunk, chunks, {
-        model,
-        repository,
-        targetEmbeddingSetId,
-        targetDimension,
         dimensionParameter,
+        model,
         provider,
+        repository,
         signal: options?.signal ?? null,
+        targetDimension,
+        targetEmbeddingSetId,
       });
+    },
+    resetProgress() {
+      if (pendingChunks.size > 0) {
+        logger.warn('Skipping queue progress reset while jobs are still pending', {
+          pending: pendingChunks.size,
+        });
+        return;
+      }
+      progressTracker.reset();
     },
   };
 }
@@ -264,25 +264,25 @@ function createChunkScheduler({
       return;
     }
     const taskContext: ChunkTaskContext = {
-      queue,
       chunk,
+      deviceHint,
+      dimensionParameter: dimensionParameter ?? null,
+      emitDrain: maybeDispatchDrain,
       model,
-      targetEmbeddingSetId,
+      pendingChunks,
+      progressTracker,
+      provider: provider ?? null,
+      queue,
       repository,
       targetDimension: targetDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-      dimensionParameter: dimensionParameter ?? null,
-      provider: provider ?? null,
-      deviceHint,
-      progressTracker,
-      pendingChunks,
-      emitDrain: maybeDispatchDrain,
+      targetEmbeddingSetId,
     };
 
     logger.debug('Queueing chunk for embedding', {
       chunkId: chunk.id,
       model,
-      targetEmbeddingSetId,
       provider,
+      targetEmbeddingSetId,
     });
     await runChunkTask(taskContext);
   };
@@ -322,15 +322,15 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
   pendingChunks.add(chunk.id);
   progressTracker.queued({
     chunkId: chunk.id,
-    model,
     embeddingSetId: targetEmbeddingSetId,
+    model,
     pending: pendingChunks.size,
   });
 
   const startedAt = timestamp();
   const queueOptions = {
-    targetDimension,
     deviceHint,
+    targetDimension,
     ...(dimensionParameter ? { dimensionParameter } : {}),
     ...(provider ? { provider } : {}),
   } as const;
@@ -338,10 +338,10 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
   try {
     const embedding = await produceEmbedding(queue, chunk, model, queueOptions);
     await persistEmbedding({
-      repository,
       chunk,
-      model,
       embedding,
+      model,
+      repository,
       targetEmbeddingSetId,
     });
     const elapsed = elapsedSince(startedAt);
@@ -349,22 +349,22 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
     pendingChunks.delete(chunk.id);
     progressTracker.completed({
       chunkId: chunk.id,
-      model,
-      embeddingSetId: targetEmbeddingSetId,
-      pending: pendingChunks.size,
       elapsedMs: elapsed,
+      embeddingSetId: targetEmbeddingSetId,
+      model,
+      pending: pendingChunks.size,
     });
   } catch (error) {
-    logFailure({ chunk, model, error });
+    logFailure({ chunk, error, model });
     pendingChunks.delete(chunk.id);
     const message =
       error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
     progressTracker.failed({
       chunkId: chunk.id,
-      model,
       embeddingSetId: targetEmbeddingSetId,
-      pending: pendingChunks.size,
       errorMessage: message,
+      model,
+      pending: pendingChunks.size,
     });
   } finally {
     emitDrain(targetEmbeddingSetId);
@@ -394,9 +394,9 @@ function scheduleChunksBatch(
     const args: ScheduleChunkArgs = {
       chunk: sourceChunk,
       model: context.model,
-      targetEmbeddingSetId: context.targetEmbeddingSetId,
       repository: context.repository,
       targetDimension: context.targetDimension,
+      targetEmbeddingSetId: context.targetEmbeddingSetId,
       ...(context.dimensionParameter ? { dimensionParameter: context.dimensionParameter } : {}),
       ...(context.provider ? { provider: context.provider } : {}),
     };
@@ -449,11 +449,11 @@ async function produceEmbedding(
 ) {
   const resolvedTargetDimension = options.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   const request = {
-    kind: 'embed',
+    deviceHint: options.deviceHint,
     id: chunk.id,
+    kind: 'embed',
     model,
     texts: [chunk.content],
-    deviceHint: options.deviceHint,
     ...(options.provider ? { provider: options.provider } : {}),
     ...(options.dimensionParameter ? { dimensionParameter: options.dimensionParameter } : {}),
     targetDimension: resolvedTargetDimension,
@@ -494,8 +494,8 @@ async function persistEmbedding({
   const nextEmbeddingSetId = targetEmbeddingSetId ?? chunk.embeddingSetId ?? undefined;
 
   await repository.update({
-    id: chunk.id,
     embedding,
+    id: chunk.id,
     ...(nextEmbeddingSetId === undefined ? {} : { embeddingSetId: nextEmbeddingSetId }),
     embeddingUpdatedAt: now,
     ...(embeddingHash === null ? {} : { embeddingHash }),
@@ -520,17 +520,17 @@ function logSuccess({ chunk, model, startedAt }: LogSuccessArgs) {
     typeof performance === 'undefined' ? 0 : Math.round(performance.now() - startedAt);
   logger.info('Updated chunk embedding from browser queue', {
     chunkId: chunk.id,
-    model,
-    embeddingLength: chunk.embedding?.length,
     elapsedMs: elapsed,
+    embeddingLength: chunk.embedding?.length,
+    model,
   });
 }
 
 function logFailure({ chunk, model, error }: LogFailureArgs) {
   logger.error('Browser queue embedding failed', {
     chunkId: chunk.id,
-    model,
     error: error instanceof Error ? error.message : String(error),
+    model,
     stack: error instanceof Error ? error.stack : undefined,
   });
 }
@@ -595,7 +595,7 @@ function defaultDispatchDrainEvent(embeddingSetId: string | null) {
   try {
     window.dispatchEvent(
       new CustomEvent('brainstrike:queue-drained', {
-        detail: { queue: 'embeddings', embeddingSetId },
+        detail: { embeddingSetId, queue: 'embeddings' },
       })
     );
   } catch (error) {

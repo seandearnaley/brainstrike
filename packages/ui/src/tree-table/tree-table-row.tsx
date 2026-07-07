@@ -240,12 +240,12 @@ function TreeTableRowInner<T>({
             }
 
             const cellProps = {
-              node,
               depth: node.depth,
               isExpanded,
-              isSelected,
               isHighlighted,
               isInContext,
+              isSelected,
+              node,
               rowIndex: index,
             };
             const requestedColSpan = column.colSpan?.(cellProps) ?? 1;
@@ -345,12 +345,12 @@ function TreeTableCellComponent<T>({
 
   // Render cell content using the column's cell renderer
   const cellContent = column.cell({
-    node,
     depth: node.depth,
     isExpanded,
-    isSelected,
     isHighlighted,
     isInContext,
+    isSelected,
+    node,
     rowIndex: index,
   });
 
@@ -441,12 +441,12 @@ export function isTreeTableRowProps<T>(value: unknown): value is TreeTableRowPro
  * Can be customized via the rowHeight prop on TreeTable.
  */
 export const DEFAULT_ROW_HEIGHTS: Record<string, number> = {
-  collection: 48,
-  file: 44,
   chunk: 60,
-  vector: 80,
-  group: 40,
+  collection: 48,
   default: 40,
+  file: 44,
+  group: 40,
+  vector: 80,
 };
 
 /**

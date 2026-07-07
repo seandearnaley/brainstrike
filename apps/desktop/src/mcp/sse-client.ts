@@ -154,18 +154,18 @@ async function handleSseRequest(
     // Start the SSE reader without blocking the request lifecycle
     void startReader();
     const res = await fetch(base + callPath, {
-      method: 'POST',
+      body: JSON.stringify({ id: requestId, params: params ?? {}, tool }),
       headers,
-      body: JSON.stringify({ id: requestId, tool, params: params ?? {} }),
+      method: 'POST',
       signal: ctrl.signal,
     });
     if (!res.ok) {
       const fallbackPath = (process.env['MCP_SSE_CALL_PATH'] as string | undefined) ?? '';
       if (fallbackPath) {
         const fallback = await fetch(base + fallbackPath, {
-          method: 'POST',
+          body: JSON.stringify({ params: params ?? {}, tool }),
           headers: { 'Content-Type': 'application/json', ...Object.fromEntries(headers.entries()) },
-          body: JSON.stringify({ tool, params: params ?? {} }),
+          method: 'POST',
           signal: ctrl.signal,
         });
         clearTimeout(timer);
@@ -228,7 +228,7 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
     }
     readerActive = true;
     try {
-      const res = await fetch(base + eventsPath, { method: 'GET', headers, signal: ctrl.signal });
+      const res = await fetch(base + eventsPath, { headers, method: 'GET', signal: ctrl.signal });
       if (!(res.ok && res.body)) {
         return;
       }
@@ -245,24 +245,6 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
   void startReader();
 
   return {
-    name: server.name,
-    transport: 'sse',
-    supportsTool(toolId: string): boolean {
-      return toolId.startsWith(`${server.name}.`);
-    },
-    async listTools(): Promise<Record<string, never>> {
-      throw new Error(`MCP SSE tool discovery is not implemented for server '${server.name}'.`);
-    },
-    dispose: async () => {
-      try {
-        ctrl.abort();
-      } catch {}
-      for (const [key, p] of pending.entries()) {
-        clearTimeout(p.timer);
-        p.reject(new Error('disposed'));
-        pending.delete(key);
-      }
-    },
     async callTool(
       tool: string,
       params?: Record<string, unknown>,
@@ -274,7 +256,7 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
           pending.delete(requestId);
           resolve({ error: 'timeout' });
         }, timeoutMs);
-        const entry: PendingEntry = { resolve, reject, timer };
+        const entry: PendingEntry = { reject, resolve, timer };
         if (opts && typeof opts.onProgress === 'function') {
           entry.onProgress = opts.onProgress;
         }
@@ -294,5 +276,23 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
         );
       });
     },
+    dispose: async () => {
+      try {
+        ctrl.abort();
+      } catch {}
+      for (const [key, p] of pending.entries()) {
+        clearTimeout(p.timer);
+        p.reject(new Error('disposed'));
+        pending.delete(key);
+      }
+    },
+    async listTools(): Promise<Record<string, never>> {
+      throw new Error(`MCP SSE tool discovery is not implemented for server '${server.name}'.`);
+    },
+    name: server.name,
+    supportsTool(toolId: string): boolean {
+      return toolId.startsWith(`${server.name}.`);
+    },
+    transport: 'sse',
   } satisfies McpClient;
 }

@@ -25,15 +25,15 @@ export class HomePage {
   }
 
   get settingsHeading(): Locator {
-    return this.page.getByRole('heading', { name: 'Settings', exact: true });
+    return this.page.getByRole('heading', { exact: true, name: 'Settings' });
   }
 
   get contextExplorerNavButton(): Locator {
-    return this.page.getByRole('button', { name: 'Context Explorer', exact: true });
+    return this.page.getByRole('button', { exact: true, name: 'Context Explorer' });
   }
 
   get settingsNavButton(): Locator {
-    return this.page.getByRole('button', { name: 'Settings', exact: true });
+    return this.page.getByRole('button', { exact: true, name: 'Settings' });
   }
 
   async expectLoaded(): Promise<void> {

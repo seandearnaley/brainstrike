@@ -8,27 +8,24 @@ import {
 } from '../browser-queue-port';
 
 const resultTemplate: QueueResult = {
-  type: 'result',
   id: 'chunk-1',
-  vectors: [new Float32Array([0.1, 0.2])],
   metadata: {
-    model: 'test-model',
-    device: 'wasm',
-    dtype: 'fp16',
     batchSize: 1,
+    device: 'wasm',
+    dimensions: 2,
+    dtype: 'fp16',
     elapsedMs: 12,
     fallbackApplied: false,
-    dimensions: 2,
+    model: 'test-model',
   },
+  type: 'result',
+  vectors: [new Float32Array([0.1, 0.2])],
 };
 
 function createAdapter(overrides: Partial<QueueAdapter> = {}): QueueAdapter {
   return {
     add: vi.fn(async () => resultTemplate),
     addBulk: vi.fn(async (tasks) => tasks.map(() => resultTemplate)),
-    onProgress: vi.fn(() => vi.fn()),
-    pause: vi.fn(),
-    resume: vi.fn(),
     cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
     get isPaused() {
@@ -37,15 +34,18 @@ function createAdapter(overrides: Partial<QueueAdapter> = {}): QueueAdapter {
     get isProcessing() {
       return false;
     },
+    onProgress: vi.fn(() => vi.fn()),
+    pause: vi.fn(),
+    resume: vi.fn(),
     ...overrides,
   };
 }
 
 const chunk = {
-  id: 'chunk-1',
   content: 'Hello world',
-  fileRecordId: 'file-1',
   contentHash: 'hash',
+  fileRecordId: 'file-1',
+  id: 'chunk-1',
 };
 
 describe('createBrowserEmbeddingQueuePort', () => {
@@ -61,11 +61,11 @@ describe('createBrowserEmbeddingQueuePort', () => {
     };
 
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
-      dispatchProgressEvent: progressDispatch,
       dispatchDrainEvent: drainListener,
+      dispatchProgressEvent: progressDispatch,
+      queue,
     });
 
     await port.enqueueBatch([chunk as never], 'file-1', {
@@ -101,9 +101,9 @@ describe('createBrowserEmbeddingQueuePort', () => {
 
     expect(completion).toMatchObject({
       chunkId: 'chunk-1',
-      processed: 1,
       failed: 0,
       pending: 0,
+      processed: 1,
       totalQueued: 1,
     });
     expect(drainListener).toHaveBeenCalledWith('set-1');
@@ -121,10 +121,10 @@ describe('createBrowserEmbeddingQueuePort', () => {
     };
 
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
+      queue,
     });
 
     await port.enqueueBatch([chunk as never], 'file-1', {
@@ -139,10 +139,10 @@ describe('createBrowserEmbeddingQueuePort', () => {
       (call) => (call[0] as QueueProgressEventDetail).status === 'error'
     )?.[0] as QueueProgressEventDetail | undefined;
     expect(errorEvent).toMatchObject({
-      status: 'error',
       chunkId: 'chunk-1',
-      failed: 1,
       errorMessage: 'worker crashed',
+      failed: 1,
+      status: 'error',
     });
     expect(chunkRepository.update).not.toHaveBeenCalled();
   });
@@ -155,16 +155,16 @@ describe('createBrowserEmbeddingQueuePort', () => {
     };
 
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
+      queue,
     });
 
     const secondChunk = {
       ...chunk,
-      id: 'chunk-2',
       contentHash: 'hash-2',
+      id: 'chunk-2',
     };
 
     await port.enqueueBatch([chunk as never], 'file-1', {
@@ -213,9 +213,9 @@ describe('createBrowserEmbeddingQueuePort', () => {
     )?.[0] as QueueProgressEventDetail | undefined;
 
     expect(secondCompletion).toMatchObject({
+      failed: 0,
       processed: 1,
       totalQueued: 1,
-      failed: 0,
     });
   });
 
@@ -228,16 +228,16 @@ describe('createBrowserEmbeddingQueuePort', () => {
     controller.abort();
 
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
+      queue,
     });
 
     await expect(
       port.enqueueBatch([chunk as never], 'file-1', {
         model: 'test-model',
-        targetEmbeddingSetId: 'set-1',
         signal: controller.signal,
+        targetEmbeddingSetId: 'set-1',
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(queue.add).not.toHaveBeenCalled();
@@ -249,14 +249,14 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const portWithoutModel = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
+      queue,
     });
     const portWithoutRepository = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository: null,
       deviceHint: 'wasm',
+      queue,
     });
 
     await portWithoutModel.enqueueBatch([chunk as never], 'file-1', {
@@ -277,9 +277,9 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
+      queue,
     });
 
     await expect(
@@ -298,10 +298,10 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
+      queue,
     });
 
     await port.enqueueBatch([{ ...chunk, content: '' } as never], 'file-1', {
@@ -329,16 +329,16 @@ describe('createBrowserEmbeddingQueuePort', () => {
       },
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
+      queue,
     });
 
     await expect(
       port.enqueueBatch([firstChunk as never, { ...chunk, id: 'chunk-2' } as never], 'file-1', {
         model: 'test-model',
-        targetEmbeddingSetId: 'set-1',
         signal: controller.signal,
+        targetEmbeddingSetId: 'set-1',
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
@@ -358,10 +358,10 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
+      queue,
     });
 
     await port.enqueueBatch([chunk as never], 'file-1', {
@@ -401,10 +401,10 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
+      queue,
     });
 
     await port.enqueueBatch([chunk as never], 'file-1', {
@@ -437,9 +437,9 @@ describe('createBrowserEmbeddingQueuePort', () => {
       update: vi.fn().mockResolvedValue(null),
     };
     const port = createBrowserEmbeddingQueuePort({
-      queue,
       chunkRepository,
       deviceHint: 'wasm',
+      queue,
     });
 
     try {

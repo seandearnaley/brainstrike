@@ -22,8 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock logger
 // ---------------------------------------------------------------------------
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
   error: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -58,8 +58,8 @@ class MockWorker {
   emitError(error: Error | string) {
     const message = error instanceof Error ? error.message : String(error);
     const errorEvent = new ErrorEvent('error', {
-      message,
       error: error instanceof Error ? error : new Error(message),
+      message,
     });
     if (this.onerror) {
       this.onerror(errorEvent);
@@ -71,19 +71,19 @@ class MockWorker {
 // Mock localStorage / StorageAdapter
 // ---------------------------------------------------------------------------
 const mockLocalStorage = {
-  data: new Map<string, string>(),
-  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) ?? null),
-  setItem: vi.fn((key: string, value: string) => {
-    mockLocalStorage.data.set(key, value);
-  }),
-  removeItem: vi.fn((key: string) => {
-    mockLocalStorage.data.delete(key);
-  }),
   clear: vi.fn(() => {
     mockLocalStorage.data.clear();
   }),
-  length: 0,
+  data: new Map<string, string>(),
+  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) ?? null),
   key: vi.fn(() => null),
+  length: 0,
+  removeItem: vi.fn((key: string) => {
+    mockLocalStorage.data.delete(key);
+  }),
+  setItem: vi.fn((key: string, value: string) => {
+    mockLocalStorage.data.set(key, value);
+  }),
 };
 const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
@@ -150,9 +150,9 @@ describe('WorkerStorage – coverage boost', () => {
     vi.clearAllMocks();
     mockLocalStorage.data.clear();
     Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
       value: mockLocalStorage,
       writable: true,
-      configurable: true,
     });
     (globalThis as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
@@ -165,7 +165,7 @@ describe('WorkerStorage – coverage boost', () => {
         MockWorkerConstructorSpy(url, ...args);
         if (url.toString().startsWith('data:')) {
           // biome-ignore lint/correctness/noConstructorReturn: testing mock
-          return { terminate: vi.fn(), addEventListener: vi.fn() } as unknown as Worker;
+          return { addEventListener: vi.fn(), terminate: vi.fn() } as unknown as Worker;
         }
         // biome-ignore lint/correctness/noConstructorReturn: testing mock
         return mockWorker;
@@ -252,7 +252,7 @@ describe('WorkerStorage – coverage boost', () => {
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to flush pending worker storage write:',
-        expect.objectContaining({ key: 'circular-key', error: expect.any(Error) })
+        expect.objectContaining({ error: expect.any(Error), key: 'circular-key' })
       );
     });
   });
@@ -266,20 +266,20 @@ describe('WorkerStorage – coverage boost', () => {
 
       mockWorker.emitMessage({
         id: 'undef-1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'some-key',
+        operation: 'setItem',
         // value intentionally omitted (undefined)
         opId: 1,
+        type: 'storage_request',
       });
 
       await vi.waitFor(() => {
         expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          error: 'Cannot store undefined value',
           id: 'undef-1',
-          type: 'storage_response',
           operation: 'setItem',
           success: false,
-          error: 'Cannot store undefined value',
+          type: 'storage_response',
         });
       });
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
@@ -301,8 +301,8 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -331,9 +331,9 @@ describe('WorkerStorage – coverage boost', () => {
       // Worker responds with error
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'Worker save failed',
           id: message.id,
           type: 'error',
-          error: 'Worker save failed',
         });
       });
 
@@ -366,8 +366,8 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -479,9 +479,9 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
+            error: 'worker down',
             id: message.id,
             type: 'error',
-            error: 'worker down',
           });
         });
       });
@@ -500,9 +500,9 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
+            error: 'worker down',
             id: message.id,
             type: 'error',
-            error: 'worker down',
           });
         });
       });
@@ -526,8 +526,8 @@ describe('WorkerStorage – coverage boost', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: 'loaded',
+            type: 'success',
           });
         });
       });
@@ -548,8 +548,8 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -577,9 +577,9 @@ describe('WorkerStorage – coverage boost', () => {
 
       mockWorker.emitMessage({
         id: 'no-opid',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'k',
+        operation: 'setItem',
+        type: 'storage_request',
         value: 'v',
         // opId intentionally omitted
       });
@@ -588,9 +588,9 @@ describe('WorkerStorage – coverage boost', () => {
         expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'v');
         expect(mockWorker.postMessage).toHaveBeenCalledWith({
           id: 'no-opid',
-          type: 'storage_response',
           operation: 'setItem',
           success: true,
+          type: 'storage_response',
         });
       });
     });
@@ -601,11 +601,11 @@ describe('WorkerStorage – coverage boost', () => {
       // First request sets the opId baseline
       mockWorker.emitMessage({
         id: 'first',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'k',
-        value: 'first-val',
+        operation: 'setItem',
         opId: 5,
+        type: 'storage_request',
+        value: 'first-val',
       });
 
       await vi.waitFor(() => {
@@ -615,11 +615,11 @@ describe('WorkerStorage – coverage boost', () => {
       // Second request with equal opId should still process
       mockWorker.emitMessage({
         id: 'second',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'k',
-        value: 'second-val',
+        operation: 'setItem',
         opId: 5,
+        type: 'storage_request',
+        value: 'second-val',
       });
 
       await vi.waitFor(() => {
@@ -633,11 +633,11 @@ describe('WorkerStorage – coverage boost', () => {
       // Establish high opId
       mockWorker.emitMessage({
         id: 'high',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'ordered-key',
-        value: 'new',
+        operation: 'setItem',
         opId: 100,
+        type: 'storage_request',
+        value: 'new',
       });
 
       await vi.waitFor(() => {
@@ -649,20 +649,20 @@ describe('WorkerStorage – coverage boost', () => {
       // Stale opId arrives late
       mockWorker.emitMessage({
         id: 'stale',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'ordered-key',
-        value: 'old',
+        operation: 'setItem',
         opId: 50,
+        type: 'storage_request',
+        value: 'old',
       });
 
       await vi.waitFor(() => {
         expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
         expect(mockWorker.postMessage).toHaveBeenCalledWith({
           id: 'stale',
-          type: 'storage_response',
           operation: 'setItem',
           success: true,
+          type: 'storage_response',
         });
       });
     });
@@ -683,8 +683,8 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -708,8 +708,8 @@ describe('WorkerStorage – coverage boost', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: 'fast-result',
+            type: 'success',
           });
         });
       });
@@ -733,9 +733,9 @@ describe('WorkerStorage – coverage boost', () => {
 
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'fail',
           id: message.id,
           type: 'error',
-          error: 'fail',
         });
       });
 
@@ -755,9 +755,9 @@ describe('WorkerStorage – coverage boost', () => {
 
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'fail',
           id: message.id,
           type: 'error',
-          error: 'fail',
         });
       });
 
@@ -796,9 +796,9 @@ describe('WorkerStorage – coverage boost', () => {
 
       mockWorker.emitMessage({
         id: 'route-test',
-        type: 'storage_request',
-        operation: 'getItem',
         key: 'routing-key',
+        operation: 'getItem',
+        type: 'storage_request',
       });
 
       await vi.waitFor(() => {
@@ -813,8 +813,8 @@ describe('WorkerStorage – coverage boost', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: 'routed-data',
+            type: 'success',
           });
         });
       });

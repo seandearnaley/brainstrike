@@ -9,10 +9,10 @@ import { TokenBudgetSummary } from '../token-budget-summary';
 
 describe('TokenBudgetSummary', () => {
   const defaultProps = {
-    criticalTokens: 1000,
     conditionalTokens: 2000,
-    totalBudget: 10_000,
     contextWindowSize: 128_000,
+    criticalTokens: 1000,
+    totalBudget: 10_000,
   };
 
   describe('rendering', () => {

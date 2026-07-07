@@ -5,19 +5,19 @@ import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
 // Minimal ChatModelRunOptions shape needed to reach the fetch call.
 function makeRunOptions(): ChatModelRunOptions {
   return {
-    messages: [],
-    runConfig: {},
     abortSignal: new AbortController().signal,
     context: {
       callSettings: {},
       config: {},
-      tools: {},
       system: undefined,
+      tools: {},
     },
+    messages: [],
+    runConfig: {},
     unstable_assistantMessageId: undefined,
-    unstable_threadId: undefined,
-    unstable_parentId: undefined,
     unstable_getMessage: () => ({ metadata: {} }),
+    unstable_parentId: undefined,
+    unstable_threadId: undefined,
   } as unknown as ChatModelRunOptions;
 }
 
@@ -26,10 +26,10 @@ describe('BrainstrikeDataStreamRuntimeAdapter — transport error path', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
+        body: null,
         ok: false,
         status: 500,
         text: async () => 'internal server error',
-        body: null,
       })
     );
   });

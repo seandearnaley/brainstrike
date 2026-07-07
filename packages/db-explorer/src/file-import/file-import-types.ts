@@ -11,11 +11,11 @@ export interface FileImportRepositoryPort {
 }
 
 export interface FileSystemPort {
-  readFile(node: IFileNode): Promise<string>;
-  readFileBySelection?(
+  readFile: (node: IFileNode) => Promise<string>;
+  readFileBySelection?: (
     folderId: string,
     path: string
-  ): Promise<{
+  ) => Promise<{
     content: string;
     name: string;
     path: string;

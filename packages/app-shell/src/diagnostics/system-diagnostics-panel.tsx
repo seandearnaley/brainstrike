@@ -153,10 +153,10 @@ interface StatusBadgeProps {
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
-    success: 'default',
-    warning: 'secondary',
     error: 'destructive',
     loading: 'secondary',
+    success: 'default',
+    warning: 'secondary',
   };
 
   return (
@@ -215,12 +215,12 @@ function DatabaseStatusSection(): ReactElement {
 
   const getStatus = (): { variant: StatusVariant; label: string } => {
     if (loading) {
-      return { variant: 'loading', label: 'Connecting...' };
+      return { label: 'Connecting...', variant: 'loading' };
     }
     if (connected) {
-      return { variant: 'success', label: 'Connected' };
+      return { label: 'Connected', variant: 'success' };
     }
-    return { variant: 'error', label: 'Disconnected' };
+    return { label: 'Disconnected', variant: 'error' };
   };
 
   const { variant, label } = getStatus();
@@ -277,20 +277,20 @@ function WorkerStatusSection({
 }: WorkerStatusSectionProps): ReactElement {
   const getStatus = (): { variant: StatusVariant; label: string } => {
     if (!tokenCacheOperational) {
-      return { variant: 'error', label: 'Not Ready' };
+      return { label: 'Not Ready', variant: 'error' };
     }
     if (tokenCachePersisted) {
-      return { variant: 'success', label: 'Fully Operational' };
+      return { label: 'Fully Operational', variant: 'success' };
     }
-    return { variant: 'warning', label: 'Memory Only' };
+    return { label: 'Memory Only', variant: 'warning' };
   };
 
   const { variant, label } = getStatus();
 
   const modeDescriptions: Record<'persistent' | 'memory' | 'disabled', string> = {
-    persistent: 'Token counts are saved to database',
-    memory: 'Token counts are in-memory only (no persistence)',
     disabled: 'Token counting worker is not running',
+    memory: 'Token counts are in-memory only (no persistence)',
+    persistent: 'Token counts are saved to database',
   };
 
   return (
@@ -648,11 +648,11 @@ function ConnectedSystemDiagnosticsPanel(): ReactElement {
  */
 export function createSystemDiagnosticsSettingsCategory(): DiagnosticsSettingsCategory {
   return {
-    id: 'system-diagnostics',
-    title: 'System Diagnostics',
-    description: 'Monitor database, queue, and worker health in real-time.',
-    keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
-    icon: Activity,
     content: <ConnectedSystemDiagnosticsPanel />,
+    description: 'Monitor database, queue, and worker health in real-time.',
+    icon: Activity,
+    id: 'system-diagnostics',
+    keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
+    title: 'System Diagnostics',
   };
 }

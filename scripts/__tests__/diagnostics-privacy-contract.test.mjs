@@ -62,27 +62,33 @@ testWithContract('diagnostics privacy contract documents default allowed telemet
   }
 });
 
-testWithContract('diagnostics privacy contract documents data that background telemetry must not collect', () => {
-  const prohibitedByDefault = contractSection('Prohibited By Default');
-  for (const term of [
-    'raw file paths',
-    'filenames',
-    'prompts',
-    'file content',
-    'embeddings',
-    'provider keys',
-    'raw local database rows',
-  ]) {
-    assertSectionIncludes(prohibitedByDefault, term);
+testWithContract(
+  'diagnostics privacy contract documents data that background telemetry must not collect',
+  () => {
+    const prohibitedByDefault = contractSection('Prohibited By Default');
+    for (const term of [
+      'raw file paths',
+      'filenames',
+      'prompts',
+      'file content',
+      'embeddings',
+      'provider keys',
+      'raw local database rows',
+    ]) {
+      assertSectionIncludes(prohibitedByDefault, term);
+    }
   }
-});
+);
 
-testWithContract('diagnostics privacy contract distinguishes background telemetry from user exports', () => {
-  assertContractIncludes('background telemetry');
-  assertContractIncludes('user-initiated diagnostic export');
-  assertContractIncludes('explicit consent');
-  assertContractIncludes('leaving the device');
-});
+testWithContract(
+  'diagnostics privacy contract distinguishes background telemetry from user exports',
+  () => {
+    assertContractIncludes('background telemetry');
+    assertContractIncludes('user-initiated diagnostic export');
+    assertContractIncludes('explicit consent');
+    assertContractIncludes('leaving the device');
+  }
+);
 
 testWithContract('diagnostics privacy contract links related performance telemetry tickets', () => {
   for (const issueId of ['BST-376', 'BST-400', 'BST-401', 'BST-402', 'BST-403']) {

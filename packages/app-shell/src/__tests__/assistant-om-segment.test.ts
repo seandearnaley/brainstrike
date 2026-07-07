@@ -55,8 +55,8 @@ describe('resolveOmMeterState', () => {
   ): Parameters<typeof resolveOmMeterState>[0] {
     return {
       hasDurableCapability: true,
-      omEnabled: true,
       loading: false,
+      omEnabled: true,
       row: rawRow(),
       ...overrides,
     };
@@ -88,7 +88,7 @@ describe('resolveOmMeterState', () => {
 
   it('live-query error → error state (honest unavailable, never 0)', () => {
     const state = resolveOmMeterState(
-      input({ row: null, queryError: new Error('subscription failed') })
+      input({ queryError: new Error('subscription failed'), row: null })
     );
     expect(state.kind).toBe('error');
     if (state.kind === 'error') {
@@ -106,10 +106,10 @@ describe('resolveOmMeterState', () => {
       input({ row: rawRow({ observationTokenCount: 5000, totalTokensObserved: 12_000 }) })
     );
     expect(state).toEqual<OmMeterState>({
-      kind: 'stats',
-      observationTokens: 5000,
       // 12000 - 5000
       compactionSavedTokens: 7000,
+      kind: 'stats',
+      observationTokens: 5000,
     });
   });
 
@@ -133,9 +133,9 @@ describe('resolveOmMeterState', () => {
       input({ row: rawRow({ observationTokenCount: 999_999, totalTokensObserved: 999_999 }) })
     );
     expect(state).toEqual<OmMeterState>({
+      compactionSavedTokens: 0,
       kind: 'stats',
       observationTokens: 999_999,
-      compactionSavedTokens: 0,
     });
   });
 

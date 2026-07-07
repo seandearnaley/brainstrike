@@ -166,9 +166,9 @@ function trimCollectionToBudget(
   const buildCandidate = (kept: number): Record<string, unknown> => ({
     ...record,
     [key]: items.slice(0, kept),
-    truncated: true,
-    omittedItems: items.length - kept,
     hint: buildTruncationHint(toolName, key, kept, items.length),
+    omittedItems: items.length - kept,
+    truncated: true,
   });
 
   let low = 1;
@@ -218,14 +218,14 @@ export function boundToolOutputForModel(toolName: string, output: unknown): Boun
   return {
     errorText,
     output: {
+      approxTokens: approxTokensFromChars(serialized.length),
       code: TOOL_RESULT_TOO_LARGE_CODE,
       error: errorText,
       // Char-denominated fields keep the shape of previously persisted bounded
       // results (the idempotency check above matches on them).
       maxLength: MAX_TOOL_RESULT_SERIALIZED_CHARS,
-      originalLength: serialized.length,
-      approxTokens: approxTokensFromChars(serialized.length),
       maxTokens: MAX_TOOL_RESULT_TOKENS,
+      originalLength: serialized.length,
       preview,
       truncated: true,
     },

@@ -33,9 +33,9 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     return { rows: [] };
   });
   return {
-    query: baseQuery,
-    exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    exec: vi.fn(async () => {}),
+    query: baseQuery,
     ...overrides,
   };
 }

@@ -9,8 +9,14 @@ interface PGliteTestDataDirOptions {
   autoCleanup?: boolean;
 }
 
-export function createPGliteTestDataDir(prefix: string, options: PGliteTestDataDirOptions = {}): string {
-  const dataDir = path.join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+export function createPGliteTestDataDir(
+  prefix: string,
+  options: PGliteTestDataDirOptions = {}
+): string {
+  const dataDir = path.join(
+    tmpdir(),
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  );
   trackedPGliteTestDataDirs.add(dataDir);
 
   if (options.autoCleanup !== false) {

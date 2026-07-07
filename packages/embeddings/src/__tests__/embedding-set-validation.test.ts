@@ -14,36 +14,36 @@ import type { ProviderMetadata } from '../provider-types';
 
 describe('embedding-set-validation', () => {
   const openAIMetadata: ProviderMetadata = {
-    providerId: 'openai',
-    modelKey: 'text-embedding-3-small',
     dimensions: 1536,
-    distance: 'cosine',
     displayName: 'OpenAI text-embedding-3-small',
+    distance: 'cosine',
+    modelKey: 'text-embedding-3-small',
+    providerId: 'openai',
   };
 
   const voyageMetadata: ProviderMetadata = {
-    providerId: 'voyage',
-    modelKey: 'voyage-3',
     dimensions: 1024,
-    distance: 'cosine',
     displayName: 'Voyage 3',
+    distance: 'cosine',
+    modelKey: 'voyage-3',
+    providerId: 'voyage',
   };
 
   const localMetadata: ProviderMetadata = {
-    providerId: 'local',
-    modelKey: 'jinaai/jina-embeddings-v2-base-code',
     dimensions: 768,
-    distance: 'cosine',
     displayName: 'Jina Code v2',
+    distance: 'cosine',
+    modelKey: 'jinaai/jina-embeddings-v2-base-code',
+    providerId: 'local',
   };
 
   describe('validateEmbeddingSetParams', () => {
     it('validates matching dimensions and distance', () => {
       const params: EmbeddingSetCreateParams = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
         distance: 'cosine',
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai',
       };
 
       const result = validateEmbeddingSetParams(params, openAIMetadata);
@@ -52,10 +52,10 @@ describe('embedding-set-validation', () => {
 
     it('rejects dimension mismatch', () => {
       const params: EmbeddingSetCreateParams = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: 512, // Wrong dimensions
         distance: 'cosine',
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai',
       };
 
       const result = validateEmbeddingSetParams(params, openAIMetadata);
@@ -72,10 +72,10 @@ describe('embedding-set-validation', () => {
 
     it('rejects distance metric mismatch', () => {
       const params: EmbeddingSetCreateParams = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
         distance: 'l2', // Wrong distance
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai',
       };
 
       const result = validateEmbeddingSetParams(params, openAIMetadata);
@@ -91,10 +91,10 @@ describe('embedding-set-validation', () => {
 
     it('validates Voyage provider parameters', () => {
       const params: EmbeddingSetCreateParams = {
-        modelKey: 'voyage',
-        modelId: 'voyage-3',
         dimensions: 1024,
         distance: 'cosine',
+        modelId: 'voyage-3',
+        modelKey: 'voyage',
       };
 
       const result = validateEmbeddingSetParams(params, voyageMetadata);
@@ -103,10 +103,10 @@ describe('embedding-set-validation', () => {
 
     it('validates local Transformers provider parameters', () => {
       const params: EmbeddingSetCreateParams = {
-        modelKey: 'local',
-        modelId: 'jinaai/jina-embeddings-v2-base-code',
         dimensions: 768,
         distance: 'cosine',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        modelKey: 'local',
       };
 
       const result = validateEmbeddingSetParams(params, localMetadata);
@@ -147,10 +147,10 @@ describe('embedding-set-validation', () => {
 
     it('applies user-provided metadata', () => {
       const params = createEmbeddingSetParamsFromMetadata(openAIMetadata, {
-        name: 'Code Embeddings',
-        description: 'For code search',
-        tags: 'code,search',
         category: 'development',
+        description: 'For code search',
+        name: 'Code Embeddings',
+        tags: 'code,search',
       });
 
       expect(params.metadata?.name).toBe('Code Embeddings');
@@ -222,10 +222,10 @@ describe('embedding-set-validation', () => {
   describe('isProviderCompatibleWithSet', () => {
     it('validates compatible provider and set', () => {
       const setConfig = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
         distance: 'cosine' as const,
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai',
       };
 
       const result = isProviderCompatibleWithSet(setConfig, openAIMetadata);
@@ -234,10 +234,10 @@ describe('embedding-set-validation', () => {
 
     it('rejects incompatible provider', () => {
       const setConfig = {
-        modelKey: 'voyage', // Different provider
-        modelId: 'voyage-3',
         dimensions: 1024,
         distance: 'cosine' as const,
+        modelId: 'voyage-3',
+        modelKey: 'voyage', // Different provider
       };
 
       const result = isProviderCompatibleWithSet(setConfig, openAIMetadata);
@@ -256,10 +256,10 @@ describe('embedding-set-validation', () => {
 
     it('rejects incompatible dimensions with same provider', () => {
       const setConfig = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-large',
         dimensions: 3072, // Different dimensions
         distance: 'cosine' as const,
+        modelId: 'text-embedding-3-large',
+        modelKey: 'openai',
       };
 
       const result = isProviderCompatibleWithSet(setConfig, openAIMetadata);
@@ -272,10 +272,10 @@ describe('embedding-set-validation', () => {
 
     it('rejects incompatible distance metric', () => {
       const setConfig = {
-        modelKey: 'openai',
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
         distance: 'l2' as const, // Different distance
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai',
       };
 
       const result = isProviderCompatibleWithSet(setConfig, openAIMetadata);
@@ -288,10 +288,10 @@ describe('embedding-set-validation', () => {
 
     it('validates local provider compatibility', () => {
       const setConfig = {
-        modelKey: 'local',
-        modelId: 'jinaai/jina-embeddings-v2-base-code',
         dimensions: 768,
         distance: 'cosine' as const,
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        modelKey: 'local',
       };
 
       const result = isProviderCompatibleWithSet(setConfig, localMetadata);

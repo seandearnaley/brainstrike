@@ -286,8 +286,8 @@ describe('TablePagination', () => {
 
     Object.defineProperty(window, 'ResizeObserver', {
       configurable: true,
-      writable: true,
       value: TestResizeObserver,
+      writable: true,
     });
 
     try {
@@ -374,8 +374,8 @@ describe('TablePagination', () => {
     } finally {
       Object.defineProperty(window, 'ResizeObserver', {
         configurable: true,
-        writable: true,
         value: originalResizeObserver,
+        writable: true,
       });
       requestAnimationFrameSpy.mockRestore();
     }

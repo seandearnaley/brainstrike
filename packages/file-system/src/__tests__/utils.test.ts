@@ -26,11 +26,11 @@ describe('utils', () => {
   describe('extractNativeDirectoryHandle', () => {
     it('returns internal handle for web platform', () => {
       const handle: DirectoryHandle = {
-        path: '/',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: nativeHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/',
+        platform: 'web',
       };
 
       const result = extractNativeDirectoryHandle(handle);
@@ -39,11 +39,11 @@ describe('utils', () => {
 
     it('returns internal handle and warns when platform is undefined', () => {
       const handle = {
-        path: '/',
-        name: 'root',
-        kind: 'directory' as const,
-        platform: undefined,
         _internal: nativeHandle,
+        kind: 'directory' as const,
+        name: 'root',
+        path: '/',
+        platform: undefined,
       } as unknown as DirectoryHandle;
 
       const result = extractNativeDirectoryHandle(handle);
@@ -52,11 +52,11 @@ describe('utils', () => {
 
     it('returns null and warns for electron platform', () => {
       const handle: DirectoryHandle = {
-        path: '/',
-        name: 'root',
-        kind: 'directory',
-        platform: 'electron',
         _internal: nativeHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/',
+        platform: 'electron',
       };
 
       const result = extractNativeDirectoryHandle(handle);
@@ -72,11 +72,11 @@ describe('utils', () => {
   describe('extractNativeDirectoryHandleAsUndefined', () => {
     it('returns undefined for electron platform', () => {
       const handle: DirectoryHandle = {
-        path: '/',
-        name: 'root',
-        kind: 'directory',
-        platform: 'electron',
         _internal: nativeHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/',
+        platform: 'electron',
       };
 
       const result = extractNativeDirectoryHandleAsUndefined(handle);
@@ -87,11 +87,11 @@ describe('utils', () => {
   describe('extractNativeDirectoryHandleAsNull', () => {
     it('returns null for electron platform', () => {
       const handle: DirectoryHandle = {
-        path: '/',
-        name: 'root',
-        kind: 'directory',
-        platform: 'electron',
         _internal: nativeHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/',
+        platform: 'electron',
       };
 
       const result = extractNativeDirectoryHandleAsNull(handle);
@@ -102,16 +102,16 @@ describe('utils', () => {
   describe('isValidDirectoryHandle', () => {
     it('checks handle validity', () => {
       const dirHandle: DirectoryHandle = {
-        path: '/',
-        name: 'root',
         kind: 'directory',
+        name: 'root',
+        path: '/',
         platform: 'web',
       };
 
       const fileHandle = {
-        path: '/file',
-        name: 'file',
         kind: 'file' as const,
+        name: 'file',
+        path: '/file',
         platform: 'web' as const,
       } as unknown as DirectoryHandle;
 
@@ -125,9 +125,9 @@ describe('utils', () => {
   describe('isFileSystemDirectoryHandle', () => {
     it('returns true for objects with directory shape', () => {
       const handle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'root',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
 
       expect(isFileSystemDirectoryHandle(handle)).toBe(true);
@@ -136,13 +136,13 @@ describe('utils', () => {
     it('returns false when required properties are missing or invalid', () => {
       const noEntries = { kind: 'directory', name: 'root' } as unknown as FileSystemDirectoryHandle;
       const wrongKind = {
+        entries: vi.fn(),
         kind: 'file',
         name: 'root',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       const missingName = {
-        kind: 'directory',
         entries: vi.fn(),
+        kind: 'directory',
       } as unknown as FileSystemDirectoryHandle;
 
       expect(isFileSystemDirectoryHandle(null)).toBe(false);
@@ -157,9 +157,9 @@ describe('utils', () => {
   describe('isFileSystemFileHandle', () => {
     it('returns true for objects with file handle shape', () => {
       const handle = {
+        getFile: vi.fn(),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn(),
       } as unknown as FileSystemFileHandle;
 
       expect(isFileSystemFileHandle(handle)).toBe(true);
@@ -167,11 +167,11 @@ describe('utils', () => {
 
     it('returns false when shape checks fail', () => {
       const wrongKind = {
+        getFile: vi.fn(),
         kind: 'directory',
         name: 'file.txt',
-        getFile: vi.fn(),
       } as unknown as FileSystemFileHandle;
-      const missingName = { kind: 'file', getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const missingName = { getFile: vi.fn(), kind: 'file' } as unknown as FileSystemFileHandle;
       const missingGetFile = { kind: 'file', name: 'file.txt' } as unknown as FileSystemFileHandle;
 
       expect(isFileSystemFileHandle(null)).toBe(false);
@@ -191,7 +191,7 @@ describe('utils', () => {
     });
 
     it('floors finite concurrency and bypasses limiter for non-positive values', async () => {
-      const result = normalizeDirectoryReadOptions({ includeMetadata: false, concurrency: 2.8 });
+      const result = normalizeDirectoryReadOptions({ concurrency: 2.8, includeMetadata: false });
       expect(result.includeMetadata).toBe(false);
       expect(result.concurrency).toBe(2);
 
@@ -236,7 +236,7 @@ describe('utils', () => {
     });
 
     afterEach(async () => {
-      await fsPromises.rm(tempDir, { recursive: true, force: true });
+      await fsPromises.rm(tempDir, { force: true, recursive: true });
     });
 
     it('resolves for a valid directory', async () => {

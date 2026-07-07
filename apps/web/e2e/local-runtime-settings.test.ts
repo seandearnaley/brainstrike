@@ -29,10 +29,10 @@ async function stubLocalRuntimeProbes(
 
   const fulfillAvailable = (route: Route) =>
     route.fulfill({
-      status: 200,
-      contentType: 'application/json',
       body: JSON.stringify({ data: [{ id: 'stub-model' }] }),
+      contentType: 'application/json',
       headers: { 'Access-Control-Allow-Origin': '*' },
+      status: 200,
     });
   const fulfillUnreachable = (route: Route) => route.abort('connectionrefused');
 
@@ -60,7 +60,7 @@ test.describe('Local Runtimes settings (web)', () => {
   });
 
   test('shows the Local Runtimes category with Ollama and LM Studio cards', async ({ page }) => {
-    await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
+    await stubLocalRuntimeProbes(page, { lmstudio: 'unreachable', ollama: 'available' });
 
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -71,12 +71,12 @@ test.describe('Local Runtimes settings (web)', () => {
       timeout: 15_000,
     });
 
-    await expect(page.getByRole('heading', { name: 'Ollama', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'LM Studio', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { exact: true, name: 'Ollama' })).toBeVisible();
+    await expect(page.getByRole('heading', { exact: true, name: 'LM Studio' })).toBeVisible();
   });
 
   test('surfaces Available badge when the probe returns a valid models list', async ({ page }) => {
-    await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
+    await stubLocalRuntimeProbes(page, { lmstudio: 'unreachable', ollama: 'available' });
 
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -88,7 +88,7 @@ test.describe('Local Runtimes settings (web)', () => {
     // "Blocked by browser" as acceptable web outcomes. The spec's real claim is
     // that the probe was actually attempted against the stubbed endpoint.
     const ollamaSection = page
-      .getByRole('heading', { name: 'Ollama', exact: true })
+      .getByRole('heading', { exact: true, name: 'Ollama' })
       .locator('..')
       .locator('..');
     await expect(ollamaSection).toContainText(/Available|Blocked by browser|Unavailable/, {
@@ -97,7 +97,7 @@ test.describe('Local Runtimes settings (web)', () => {
   });
 
   test('hides the provider from probes when activation is set to Off', async ({ page }) => {
-    await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'available' });
+    await stubLocalRuntimeProbes(page, { lmstudio: 'available', ollama: 'available' });
 
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -108,14 +108,14 @@ test.describe('Local Runtimes settings (web)', () => {
     await ollamaActivation.getByRole('radio', { name: /^Off/ }).check();
 
     const ollamaCard = page
-      .getByRole('heading', { name: 'Ollama', exact: true })
+      .getByRole('heading', { exact: true, name: 'Ollama' })
       .locator('..')
       .locator('..');
     await expect(ollamaCard).toContainText('Disabled', { timeout: 10_000 });
   });
 
   test('persists a user-configured baseUrl across a page reload', async ({ page }) => {
-    await stubLocalRuntimeProbes(page, { ollama: 'unreachable', lmstudio: 'unreachable' });
+    await stubLocalRuntimeProbes(page, { lmstudio: 'unreachable', ollama: 'unreachable' });
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
@@ -147,9 +147,9 @@ test.describe('Local Runtimes settings (web)', () => {
       localRuntime: {
         statuses: {
           ollama: {
-            state: 'blocked_web',
             checkedAt: 123,
             message: 'Mixed content blocked the probe',
+            state: 'blocked_web',
           },
         },
       },
@@ -176,9 +176,9 @@ test.describe('Local Runtimes settings (web)', () => {
       localRuntime: {
         statuses: {
           ollama: {
-            state: 'unavailable',
             checkedAt: 456,
             message: 'Connection refused',
+            state: 'unavailable',
           },
         },
       },
@@ -201,9 +201,9 @@ test.describe('Local Runtimes settings (web)', () => {
       localRuntime: {
         statuses: {
           ollama: {
-            state: 'unavailable',
             checkedAt: 789,
             message: 'down for maintenance',
+            state: 'unavailable',
           },
         },
       },
@@ -231,20 +231,20 @@ test.describe('Local Runtimes settings (web)', () => {
   test('probe now only re-probes the clicked runtime', async ({ page }) => {
     await installSettingsTestOverrides(page, {
       localRuntime: {
-        trackProbeCounts: true,
         statuses: {
+          lmstudio: {
+            checkedAt: 101,
+            message: 'not running',
+            state: 'unavailable',
+          },
           ollama: {
-            state: 'available',
             checkedAt: 100,
             endpoint: 'http://127.0.0.1:11434/v1/models',
             latencyMs: 10,
-          },
-          lmstudio: {
-            state: 'unavailable',
-            checkedAt: 101,
-            message: 'not running',
+            state: 'available',
           },
         },
+        trackProbeCounts: true,
       },
     });
 

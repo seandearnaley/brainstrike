@@ -47,14 +47,14 @@ function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
   return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
-    id,
-    source: 'native' as const,
     category: metadata.category,
-    loadingTier: metadata.loadingTier,
     description: getToolDescription(id),
     enabled: isToolEnabled(id),
     estimatedTokens: metadata.estimatedTokens,
+    id,
+    loadingTier: metadata.loadingTier,
     requiresApproval: metadata.requiresApproval,
+    source: 'native' as const,
   }));
 }
 
@@ -92,40 +92,38 @@ export default function SettingsPageContent() {
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
     () => ({
-      getTools: async (): Promise<ToolDisplayMetadata[]> => {
-        // Start with native tools
-        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
-        const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
+      disableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
 
-        // Add MCP tools if available
-        const mcpToolsData = await window.mcp?.listTools?.();
-        const mcpTools: ToolDisplayMetadata[] = [];
-
-        if (mcpToolsData) {
-          for (const [serverName, serverTools] of Object.entries(mcpToolsData)) {
-            for (const tool of serverTools as Array<{
-              id: string;
-              description?: string;
-              enabled: boolean;
-              inputSchema?: unknown;
-            }>) {
-              mcpTools.push({
-                id: tool.id,
-                source: 'mcp',
-                category: 'action',
-                loadingTier: 'conditional',
-                description: tool.description ?? '',
-                enabled: tool.enabled,
-                serverName,
-                estimatedTokens: 100,
-                requiresApproval: false,
-                inputSchema: tool.inputSchema,
-              });
-            }
-          }
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
         }
+        if (mcpToolIds.length > 0) {
+          await window.mcp?.disableTools?.(mcpToolIds);
+        }
+      },
+      enableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
 
-        return [...nativeTools, ...mcpTools];
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
+        }
+        if (mcpToolIds.length > 0) {
+          await window.mcp?.enableTools?.(mcpToolIds);
+        }
+      },
+      getMcpServerStatus: async () => {
+        const tools = await window.mcp?.listTools?.();
+        if (!tools) {
+          return [];
+        }
+        return Object.entries(tools).map(([name, serverTools]) => ({
+          name,
+          status: 'connected' as const,
+          toolCount: (serverTools as unknown[]).length,
+        }));
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
@@ -150,54 +148,48 @@ export default function SettingsPageContent() {
         ) as Record<'retrieval' | 'action' | 'analysis' | 'configuration' | 'validation', number>;
 
         return {
-          total: nativeCount + mcpCount,
-          enabled: totalEnabled,
-          disabled: nativeCount + mcpCount - totalEnabled,
-          bySource: { native: nativeCount, mcp: mcpCount },
           byCategory,
+          bySource: { mcp: mcpCount, native: nativeCount },
+          disabled: nativeCount + mcpCount - totalEnabled,
+          enabled: totalEnabled,
           mcpServers: mcpStats?.servers ?? 0,
+          total: nativeCount + mcpCount,
         };
       },
-      enableTools: async (ids: string[]) => {
-        const nativeToolIds = ids.filter((id) => isNativeTool(id));
-        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
+      getTools: async (): Promise<ToolDisplayMetadata[]> => {
+        // Start with native tools
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
 
-        if (nativeToolIds.length > 0) {
-          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
-        }
-        if (mcpToolIds.length > 0) {
-          await window.mcp?.enableTools?.(mcpToolIds);
-        }
-      },
-      disableTools: async (ids: string[]) => {
-        const nativeToolIds = ids.filter((id) => isNativeTool(id));
-        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
+        // Add MCP tools if available
+        const mcpToolsData = await window.mcp?.listTools?.();
+        const mcpTools: ToolDisplayMetadata[] = [];
 
-        if (nativeToolIds.length > 0) {
-          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
+        if (mcpToolsData) {
+          for (const [serverName, serverTools] of Object.entries(mcpToolsData)) {
+            for (const tool of serverTools as Array<{
+              id: string;
+              description?: string;
+              enabled: boolean;
+              inputSchema?: unknown;
+            }>) {
+              mcpTools.push({
+                category: 'action',
+                description: tool.description ?? '',
+                enabled: tool.enabled,
+                estimatedTokens: 100,
+                id: tool.id,
+                inputSchema: tool.inputSchema,
+                loadingTier: 'conditional',
+                requiresApproval: false,
+                serverName,
+                source: 'mcp',
+              });
+            }
+          }
         }
-        if (mcpToolIds.length > 0) {
-          await window.mcp?.disableTools?.(mcpToolIds);
-        }
-      },
-      resetTools: async () => {
-        useNativeToolPreferencesStore.getState().resetTools();
-        await window.mcp?.resetTools?.();
-      },
-      getMcpServerStatus: async () => {
-        const tools = await window.mcp?.listTools?.();
-        if (!tools) {
-          return [];
-        }
-        return Object.entries(tools).map(([name, serverTools]) => ({
-          name,
-          status: 'connected' as const,
-          toolCount: (serverTools as unknown[]).length,
-        }));
-      },
-      refreshMcpServers: async () => {
-        // Reload tools list to refresh server status
-        await window.mcp?.listTools?.();
+
+        return [...nativeTools, ...mcpTools];
       },
       openMcpConfig: async () => {
         // Open file picker to select a new MCP config file
@@ -208,11 +200,19 @@ export default function SettingsPageContent() {
           await window.mcp?.listTools?.();
         }
       },
+      refreshMcpServers: async () => {
+        // Reload tools list to refresh server status
+        await window.mcp?.listTools?.();
+      },
       resetMcpConfig: async () => {
         // Reset to default config path
         await window.mcp?.setPath?.(null);
         // Refresh tools list to pick up changes
         await window.mcp?.listTools?.();
+      },
+      resetTools: async () => {
+        useNativeToolPreferencesStore.getState().resetTools();
+        await window.mcp?.resetTools?.();
       },
       ...(window.mcp?.getPath && {
         getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
@@ -239,31 +239,19 @@ export default function SettingsPageContent() {
           const result = await window.mcp?.writeConfigText?.(content);
           if (!result) {
             return {
-              success: false as const,
-              path: '',
               error: 'Failed to write MCP config text',
+              path: '',
+              success: false as const,
             };
           }
           return result;
         },
       }),
-      getMcpConfigInfo: async () => {
-        // Get current MCP config info
-        const config = await window.mcp?.getConfig?.();
-        if (!config) {
-          return null;
-        }
-        return {
-          path: config.path,
-          exists: config.exists,
-          ...(config.error ? { error: config.error } : {}),
-        };
-      },
       createSampleConfig: async () => {
         // Create a sample MCP config file at the default location
         const result = await window.mcp?.createSampleConfig?.();
         if (!result) {
-          return { success: false, path: '', error: 'MCP API not available' };
+          return { error: 'MCP API not available', path: '', success: false };
         }
         return result;
       },
@@ -273,22 +261,34 @@ export default function SettingsPageContent() {
           const result = await window.tools.execute(toolId, input);
           if (result.success) {
             return {
-              success: true as const,
-              result: result.result,
               durationMs: result.durationMs,
+              result: result.result,
+              success: true as const,
             };
           }
           return {
-            success: false as const,
-            error: result.error ?? 'Tool execution failed',
             durationMs: result.durationMs,
+            error: result.error ?? 'Tool execution failed',
+            success: false as const,
           };
         }
         // Fallback if tools API not available
         return {
-          success: false as const,
-          error: 'Tool execution API not available',
           durationMs: 0,
+          error: 'Tool execution API not available',
+          success: false as const,
+        };
+      },
+      getMcpConfigInfo: async () => {
+        // Get current MCP config info
+        const config = await window.mcp?.getConfig?.();
+        if (!config) {
+          return null;
+        }
+        return {
+          exists: config.exists,
+          path: config.path,
+          ...(config.error ? { error: config.error } : {}),
         };
       },
     }),
@@ -306,35 +306,35 @@ export default function SettingsPageContent() {
       createLocalRuntimeSettingsCategory(),
       createApiKeysSettingsCategory(),
       {
-        id: 'embedding-models',
-        title: 'Models & Providers',
-        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
-        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
-        icon: Layers,
         content: <EmbeddingModelsCategory />,
+        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+        icon: Layers,
+        id: 'embedding-models',
+        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
+        title: 'Models & Providers',
       },
       {
-        id: 'logging',
-        title: 'Logging & Diagnostics',
-        description: 'Control renderer log verbosity and manage file logging for debugging.',
-        keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
-        icon: FileCog,
         content: <DesktopLoggingSettings />,
+        description: 'Control renderer log verbosity and manage file logging for debugging.',
+        icon: FileCog,
+        id: 'logging',
+        keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
+        title: 'Logging & Diagnostics',
       },
       createToolsSettingsCategory({
-        operations: toolOperations,
         mcpAvailable: true,
+        operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
-        isWebPlatform: false,
         inlineFixtureSetting: {
           available: true,
-          loading: false,
           checked: devInlineFixtureEnabled,
+          loading: false,
           onChange: setDevInlineFixtureEnabled,
         },
+        isWebPlatform: false,
       }),
     ];
   }, [

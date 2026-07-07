@@ -25,7 +25,7 @@ describe('useExportHandlers', () => {
   let originalCreateElement: typeof document.createElement;
 
   const createLoadExportData = (records: FileRecord[], chunks: FileChunk[]) =>
-    vi.fn().mockResolvedValue({ records, chunks });
+    vi.fn().mockResolvedValue({ chunks, records });
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -69,22 +69,22 @@ describe('useExportHandlers', () => {
     it('exports files successfully', async () => {
       const records: FileRecord[] = [
         {
+          content: 'content1',
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test1.txt',
           path: '/test1.txt',
           size: 8,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
-          content: 'content1',
         },
         {
+          content: 'content2',
+          createdAt: '2025-01-01T00:00:00Z',
           id: '2',
           name: 'test2.txt',
           path: '/test2.txt',
           size: 8,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
-          content: 'content2',
         },
       ];
       const chunks: FileChunk[] = [];
@@ -100,8 +100,8 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('files');
       expect(mockLink.click).toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Successful',
         description: 'Exported 2 files to files-export.csv',
+        title: 'Export Successful',
       });
     });
 
@@ -116,8 +116,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'No Data to Export',
         description: 'Import some files first before exporting.',
+        title: 'No Data to Export',
         variant: 'destructive',
       });
       expect(csvExportUtils.generateFilesWithChunksCSV).not.toHaveBeenCalled();
@@ -126,11 +126,11 @@ describe('useExportHandlers', () => {
     it('handles export errors', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -147,8 +147,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Export generation failed',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -159,27 +159,27 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk1',
           contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 10,
           updatedAt: '2025-01-01T00:00:00Z',
         },
         {
-          id: '2',
-          fileRecordId: '1',
           chunkIndex: 1,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk2',
           contentHash: 'hash2',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '2',
+          tokenCount: 10,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -195,8 +195,8 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('chunks');
       expect(mockLink.click).toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Successful',
         description: 'Exported 2 chunks to chunks-export.csv',
+        title: 'Export Successful',
       });
     });
 
@@ -211,8 +211,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'No Chunks to Export',
         description: 'Process some files with chunking enabled first.',
+        title: 'No Chunks to Export',
         variant: 'destructive',
       });
       expect(csvExportUtils.generateChunksCSV).not.toHaveBeenCalled();
@@ -222,15 +222,15 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 0,
+          chunkType: 'text',
           content: '',
           contentHash: 'hash1',
-          tokenCount: 0,
-          chunkType: 'text',
-          chunkSize: 0,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 0,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -246,8 +246,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Chunk export failed',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -258,30 +258,30 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk1',
           contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
           embedding: [0.1, 0.2, 0.3],
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 10,
+          updatedAt: '2025-01-01T00:00:00Z',
         },
         {
-          id: '2',
-          fileRecordId: '1',
           chunkIndex: 1,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk2',
           contentHash: 'hash2',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
           embedding: [0.4, 0.5, 0.6],
+          fileRecordId: '1',
+          id: '2',
+          tokenCount: 10,
+          updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
 
@@ -296,8 +296,8 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('embeddings');
       expect(mockLink.click).toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Successful',
         description: 'Exported 2 embeddings to embeddings-export.csv',
+        title: 'Export Successful',
       });
     });
 
@@ -305,15 +305,15 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk1',
           contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 10,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -325,8 +325,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportEmbeddings();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'No Embeddings to Export',
         description: 'Generate embeddings for chunks first.',
+        title: 'No Embeddings to Export',
         variant: 'destructive',
       });
       expect(csvExportUtils.generateEmbeddingsCSV).not.toHaveBeenCalled();
@@ -336,17 +336,17 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk1',
           contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
           embedding: [0.1, 0.2],
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 10,
+          updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
 
@@ -361,8 +361,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportEmbeddings();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Embedding export failed',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -371,29 +371,29 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk1',
           contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 10,
           updatedAt: '2025-01-01T00:00:00Z',
         },
         {
-          id: '2',
-          fileRecordId: '1',
           chunkIndex: 1,
+          chunkSize: 10,
+          chunkType: 'text',
           content: 'chunk2',
           contentHash: 'hash2',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
           embedding: [0.1, 0.2],
+          fileRecordId: '1',
+          id: '2',
+          tokenCount: 10,
+          updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
 
@@ -406,8 +406,8 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateEmbeddingsCSV).toHaveBeenCalledWith([chunks[1]]);
       // Should export only the chunk with embedding
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Successful',
         description: 'Exported 1 embeddings to embeddings-export.csv',
+        title: 'Export Successful',
       });
     });
   });
@@ -416,25 +416,25 @@ describe('useExportHandlers', () => {
     it('exports all data as zip successfully', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 0,
+          chunkType: 'text',
           content: '',
           contentHash: 'hash1',
-          tokenCount: 0,
-          chunkType: 'text',
-          chunkSize: 0,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 0,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -449,8 +449,8 @@ describe('useExportHandlers', () => {
 
       expect(csvExportUtils.exportAllDataAsZip).toHaveBeenCalledWith(records, chunks);
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Successful',
         description: 'All data exported as ZIP archive',
+        title: 'Export Successful',
       });
     });
 
@@ -465,8 +465,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportAll();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'No Data to Export',
         description: 'Import some files first before exporting.',
+        title: 'No Data to Export',
         variant: 'destructive',
       });
       expect(csvExportUtils.exportAllDataAsZip).not.toHaveBeenCalled();
@@ -475,11 +475,11 @@ describe('useExportHandlers', () => {
     it('handles export errors', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -496,8 +496,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportAll();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'ZIP export failed',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -505,11 +505,11 @@ describe('useExportHandlers', () => {
     it('uses generic message when a non-Error is thrown', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -524,8 +524,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportAll();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Failed to export all data',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -535,11 +535,11 @@ describe('useExportHandlers', () => {
     it('handleExportFiles falls back to generic message on non-Error throw', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -556,8 +556,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Failed to export files',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -565,15 +565,15 @@ describe('useExportHandlers', () => {
     it('handleExportChunks falls back to generic message on non-Error throw', async () => {
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 1,
+          chunkType: 'text',
           content: 'x',
           contentHash: 'h',
-          tokenCount: 1,
-          chunkType: 'text',
-          chunkSize: 1,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 1,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -590,8 +590,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Failed to export chunks',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -599,17 +599,17 @@ describe('useExportHandlers', () => {
     it('handleExportEmbeddings falls back to generic message on non-Error throw', async () => {
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 1,
+          chunkType: 'text',
           content: 'x',
           contentHash: 'h',
-          tokenCount: 1,
-          chunkType: 'text',
-          chunkSize: 1,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
           embedding: [0.1],
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 1,
+          updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
 
@@ -625,8 +625,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportEmbeddings();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Failed to export embeddings',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -636,11 +636,11 @@ describe('useExportHandlers', () => {
     it('revokes the object URL after a successful file export', async () => {
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -657,15 +657,15 @@ describe('useExportHandlers', () => {
     it('revokes the object URL after a successful chunk export', async () => {
       const chunks: FileChunk[] = [
         {
-          id: '1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 1,
+          chunkType: 'text',
           content: 'x',
           contentHash: 'h',
-          tokenCount: 1,
-          chunkType: 'text',
-          chunkSize: 1,
           createdAt: '2025-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: '1',
+          tokenCount: 1,
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -685,11 +685,11 @@ describe('useExportHandlers', () => {
 
       const records: FileRecord[] = [
         {
+          createdAt: '2025-01-01T00:00:00Z',
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
           size: 0,
-          createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
@@ -714,8 +714,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'DB unavailable',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });
@@ -728,8 +728,8 @@ describe('useExportHandlers', () => {
       await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Export Failed',
         description: 'Failed to export chunks',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     });

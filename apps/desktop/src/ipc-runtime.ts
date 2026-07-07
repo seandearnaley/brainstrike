@@ -44,20 +44,20 @@ function getBridge(): LocalRuntimeIpcBridge {
   // supported Node versions, so there's no fallback needed. The services
   // are lazy-built on first probe to keep app-ready startup snappy.
   const discoveryService = new LocalRuntimeDiscoveryService({
-    fetchImpl: globalThis.fetch,
     defaultSurface: 'desktop',
+    fetchImpl: globalThis.fetch,
     logger,
   });
   const modelCatalogService = new LocalRuntimeModelCatalogService({
+    defaultSurface: 'desktop',
     discoveryService,
     fetchImpl: globalThis.fetch,
-    defaultSurface: 'desktop',
     logger,
   });
 
   cachedBridge = {
-    probe: discoveryService.probeRuntime.bind(discoveryService),
     listModels: modelCatalogService.listRuntimeModels.bind(modelCatalogService),
+    probe: discoveryService.probeRuntime.bind(discoveryService),
     resolveOllamaCapabilities:
       modelCatalogService.resolveOllamaCapabilities.bind(modelCatalogService),
     verifyEmbeddingDimensions:

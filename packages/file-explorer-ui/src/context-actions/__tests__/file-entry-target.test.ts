@@ -18,11 +18,11 @@ describe('fileNodeToTarget', () => {
       type: 'file',
     });
     expect(target).toEqual({
+      absolutePath: '/Users/dev/project/docs/notes.md',
+      entryType: 'file',
       kind: 'file-entry',
       name: 'notes.md',
       relativePath: 'docs/notes.md',
-      absolutePath: '/Users/dev/project/docs/notes.md',
-      entryType: 'file',
       rootFolderId: '/Users/dev/project',
     });
   });
@@ -35,11 +35,11 @@ describe('fileNodeToTarget', () => {
       type: 'file',
     });
     expect(target).toEqual({
+      absolutePath: null,
+      entryType: 'file',
       kind: 'file-entry',
       name: 'notes.md',
       relativePath: 'docs/notes.md',
-      absolutePath: null,
-      entryType: 'file',
       rootFolderId: 'root-uuid',
     });
   });

@@ -130,25 +130,25 @@ function parseChunkInsert(value: unknown): ElectronChunkInsert {
   }
   const candidate = value as Record<string, unknown>;
   const chunk: ElectronChunkInsert = {
-    id: requireNonEmptyString(candidate['id'], 'Chunk insert requires a non-empty id.'),
-    fileRecordId: requireNonEmptyString(
-      candidate['fileRecordId'],
-      'Chunk insert requires a non-empty fileRecordId.'
-    ),
     chunkIndex: requireInteger(candidate['chunkIndex'], 'Chunk insert requires chunkIndex.'),
-    content: requireString(candidate['content'], 'Chunk insert requires string content.'),
-    contentHash: requireNonEmptyString(
-      candidate['contentHash'],
-      'Chunk insert requires a non-empty contentHash.'
-    ),
-    tokenCount: requireInteger(candidate['tokenCount'], 'Chunk insert requires tokenCount.'),
+    chunkSize: requirePositiveInteger(candidate['chunkSize'], 'Chunk insert requires chunkSize.'),
     chunkType: requireNonEmptyString(candidate['chunkType'], 'Chunk insert requires chunkType.') as
       | 'text'
       | 'code'
       | 'sentence'
       | 'recursive',
-    chunkSize: requirePositiveInteger(candidate['chunkSize'], 'Chunk insert requires chunkSize.'),
+    content: requireString(candidate['content'], 'Chunk insert requires string content.'),
+    contentHash: requireNonEmptyString(
+      candidate['contentHash'],
+      'Chunk insert requires a non-empty contentHash.'
+    ),
     createdAt: requireNonEmptyString(candidate['createdAt'], 'Chunk insert requires createdAt.'),
+    fileRecordId: requireNonEmptyString(
+      candidate['fileRecordId'],
+      'Chunk insert requires a non-empty fileRecordId.'
+    ),
+    id: requireNonEmptyString(candidate['id'], 'Chunk insert requires a non-empty id.'),
+    tokenCount: requireInteger(candidate['tokenCount'], 'Chunk insert requires tokenCount.'),
     updatedAt: requireNonEmptyString(candidate['updatedAt'], 'Chunk insert requires updatedAt.'),
   };
   if (!['text', 'code', 'sentence', 'recursive'].includes(chunk.chunkType)) {
@@ -216,6 +216,7 @@ export function parseInsertChunksAndEnqueueEmbeddingJobsArgs(
   const options = parseAtomicChunkJobOptionsSource(candidate);
   return {
     chunks: candidate['chunks'].map(parseChunkInsert),
+    dimensionParameter: parseDimensionParameter(options['dimensionParameter']),
     fileRecordId: requireNonEmptyString(
       candidate['fileRecordId'],
       'Atomic chunk/job enqueue payload requires a non-empty fileRecordId.'
@@ -233,7 +234,6 @@ export function parseInsertChunksAndEnqueueEmbeddingJobsArgs(
             options['targetEmbeddingSetId'],
             'Atomic chunk/job enqueue targetEmbeddingSetId invalid.'
           ),
-    dimensionParameter: parseDimensionParameter(options['dimensionParameter']),
   };
 }
 
@@ -253,8 +253,8 @@ function parseManagedCacheInvalidationTarget(payload: unknown): ManagedCacheInva
     }
     return {
       mode: 'prefix',
-      rootId: candidate['rootId'],
       relativePathPrefix: candidate['relativePathPrefix'],
+      rootId: candidate['rootId'],
     };
   }
   if (candidate['mode'] !== undefined && candidate['mode'] !== 'exact') {
@@ -273,8 +273,8 @@ function parseManagedCacheInvalidationTarget(payload: unknown): ManagedCacheInva
   }
   return {
     mode: 'exact',
-    rootId: candidate['rootId'],
     relativePath: candidate['relativePath'],
+    rootId: candidate['rootId'],
     ...(candidate['expectedFileRecordId'] === undefined
       ? {}
       : { expectedFileRecordId: candidate['expectedFileRecordId'] }),

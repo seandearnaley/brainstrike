@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const safeStorageMock = vi.hoisted(() => ({
-  isEncryptionAvailable: vi.fn(),
-  getSelectedStorageBackend: vi.fn(),
-  encryptString: vi.fn(),
   decryptString: vi.fn(),
+  encryptString: vi.fn(),
+  getSelectedStorageBackend: vi.fn(),
+  isEncryptionAvailable: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -18,11 +18,11 @@ type StoreRecord = Record<string, unknown>;
 const createStore = () => {
   const data: StoreRecord = {};
   return {
+    data,
     get: (key: string) => data[key],
     set: (key: string, value: unknown) => {
       data[key] = value;
     },
-    data,
   };
 };
 

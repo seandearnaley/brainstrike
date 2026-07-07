@@ -56,11 +56,11 @@ describe('DatabaseTab', () => {
           addBulk: vi.fn(),
           cancel: vi.fn(),
           drain: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
           onProgress: vi.fn(() => () => {}),
           pause: vi.fn(),
           resume: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
         }) satisfies QueueAdapter
     );
 

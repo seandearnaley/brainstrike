@@ -16,52 +16,52 @@ const makeNode = <TData extends BrowserNodeData>(
   type: string,
   data: TData
 ): TreeNode<BrowserNodeData> => ({
-  id,
-  type,
   data,
   depth: 0,
-  parentId: null,
   hasChildren: false,
+  id,
+  parentId: null,
+  type,
 });
 
 const makeCellProps = (node: TreeNode<BrowserNodeData>): TreeTableCellProps<BrowserNodeData> => ({
-  node,
   depth: node.depth,
   isExpanded: false,
   isHighlighted: false,
   isInContext: false,
   isSelected: false,
+  node,
   rowIndex: 0,
 });
 
 const collectionNode = makeNode<CollectionData>('collection-main', 'collection', {
-  name: 'Main Collection',
-  fileCount: 2,
   chunkCount: 3,
-  embeddingCount: 4,
-  modelId: 'text-embedding-3-small',
   dimensions: 1536,
+  embeddingCount: 4,
+  fileCount: 2,
+  modelId: 'text-embedding-3-small',
+  name: 'Main Collection',
 });
 
 const fileNode = makeNode<FileData>('file-app', 'file', {
+  chunkCount: 2,
+  embeddingProgress: 50,
+  embeddingStatus: 'processing',
   name: 'app.tsx',
   path: '/repo/app.tsx',
   size: 1536,
-  chunkCount: 2,
-  embeddingStatus: 'processing',
-  embeddingProgress: 50,
 });
 
 const chunkNode = makeNode<ChunkData>('chunk-app-0', 'chunk', {
   content: 'chunk text',
+  embeddingStatus: 'complete',
   index: 0,
   tokenCount: 123,
-  embeddingStatus: 'complete',
 });
 
 const embeddingNode = makeNode<EmbeddingData>('embedding-app-0', 'embedding', {
-  vectorId: 'vector-1',
   dimensions: 1536,
+  vectorId: 'vector-1',
 });
 
 const groupNode = makeNode<GroupHeaderData>('group-status-complete', 'group', {
@@ -75,9 +75,9 @@ describe('useCollectionBrowserColumns', () => {
   it('returns base columns and maps accessors for every supported node type', () => {
     const { result } = renderHook(() =>
       useCollectionBrowserColumns({
+        semanticMatchIds: new Set(),
         showScoreColumn: false,
         similarityScores: new Map(),
-        semanticMatchIds: new Set(),
       })
     );
 
@@ -101,9 +101,9 @@ describe('useCollectionBrowserColumns', () => {
   it('inserts the score column after name when semantic scores are visible', () => {
     const { result } = renderHook(() =>
       useCollectionBrowserColumns({
+        semanticMatchIds: new Set(['chunk-app-0']),
         showScoreColumn: true,
         similarityScores: new Map([['chunk-app-0', 0.876]]),
-        semanticMatchIds: new Set(['chunk-app-0']),
       })
     );
 
@@ -131,9 +131,9 @@ describe('useCollectionBrowserColumns', () => {
   it('renders status, size, and metadata cells for contextual rows', () => {
     const { result } = renderHook(() =>
       useCollectionBrowserColumns({
+        semanticMatchIds: new Set(),
         showScoreColumn: false,
         similarityScores: new Map(),
-        semanticMatchIds: new Set(),
       })
     );
 
@@ -172,9 +172,9 @@ describe('useCollectionBrowserColumns', () => {
   it('renders the name cell for every node kind and a muted score placeholder', () => {
     const { result } = renderHook(() =>
       useCollectionBrowserColumns({
+        semanticMatchIds: new Set(),
         showScoreColumn: true,
         similarityScores: new Map(),
-        semanticMatchIds: new Set(),
       })
     );
 

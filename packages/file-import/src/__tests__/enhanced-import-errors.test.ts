@@ -4,13 +4,13 @@ import { runEnhancedImport } from '../enhanced-import';
 
 describe('runEnhancedImport error handling', () => {
   const mockChunking = {
+    deps: { chunkRepository: null, repository: null },
     enabled: false,
-    deps: { repository: null, chunkRepository: null },
   };
 
   const mockProgressHandlers = {
-    update: vi.fn(),
     emit: vi.fn(),
+    update: vi.fn(),
   };
 
   it('handles catastrophic failure in baseImportRunner', async () => {
@@ -19,14 +19,14 @@ describe('runEnhancedImport error handling', () => {
 
     await expect(
       runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(),
-          fileTree: [],
-          fileContents: {},
-        },
         baseImportRunner,
         chunking: mockChunking,
         progressHandlers: mockProgressHandlers,
+        request: {
+          fileContents: {},
+          fileTree: [],
+          selectedFilePaths: new Set(),
+        },
       })
     ).rejects.toThrow('Catastrophic failure');
   });
@@ -34,18 +34,18 @@ describe('runEnhancedImport error handling', () => {
   it('handles default progress creation when no progress reported', async () => {
     const baseImportRunner = vi
       .fn()
-      .mockResolvedValue([{ id: 'file-1', imported: true, existed: false } as FileImportResult]);
+      .mockResolvedValue([{ existed: false, id: 'file-1', imported: true } as FileImportResult]);
 
     // chunking disabled to trigger createCompleteProgress with null source
     await runEnhancedImport({
-      request: {
-        selectedFilePaths: new Set(),
-        fileTree: [],
-        fileContents: {},
-      },
       baseImportRunner,
       chunking: { ...mockChunking, enabled: false }, // Ensure disabled to hit that block
       progressHandlers: mockProgressHandlers,
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(),
+      },
     });
 
     // Verify the update call with the default complete progress

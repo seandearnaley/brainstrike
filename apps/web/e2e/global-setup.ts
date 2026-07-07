@@ -2,7 +2,7 @@ import { getBaseUrl, getPortsToCheck } from '@brainstrike/server-config';
 
 declare const process: {
   env: Record<string, string | undefined>;
-  cwd(): string;
+  cwd: () => string;
 };
 
 // Environment variable names

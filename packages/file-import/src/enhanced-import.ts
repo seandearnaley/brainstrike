@@ -164,8 +164,8 @@ export interface SqlExecutorPort {
     fileRecordId: string,
     options: AtomicChunkJobEnqueueOptions
   ) => Promise<void>;
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-  runInTransaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
 }
 
 export interface BaseImportRunnerRequest<TFileNode = unknown> {
@@ -252,11 +252,11 @@ function throwIfAborted(abortSignal?: AbortSignal): void {
 
 function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgress {
   return {
-    phase: 'importing',
-    total: progress.total,
     completed: progress.completed,
     current: progress.current ?? '',
     errors: progress.errors,
+    phase: 'importing',
+    total: progress.total,
   };
 }
 
@@ -291,8 +291,8 @@ async function resolveModelKeyFromTargetSet(
     return canonical.composite;
   } catch (error) {
     logger.warn('Failed to resolve embedding set model key', {
-      targetSetId,
       error: error instanceof Error ? error.message : String(error),
+      targetSetId,
     });
     throw error instanceof Error ? error : new Error(String(error));
   }
@@ -347,10 +347,10 @@ async function ensureEmbeddingSet(
   }
 
   return insertEmbeddingSet(sql, {
-    modelKey: canonicalKey,
-    modelId: canonicalModelId,
     dimensions,
     distance,
+    modelId: canonicalModelId,
+    modelKey: canonicalKey,
   });
 }
 
@@ -406,22 +406,21 @@ async function resolvePreferredSet(
     }
 
     logger.warn('Embedding set preference mismatch; creating new set for model', {
-      preferredId,
-      modelKey,
-      rowDimensions,
       expectedDimensions: dimensions,
-      rowDistance,
       expectedDistance: distance,
+      modelKey,
+      preferredId,
+      rowDimensions,
+      rowDistance,
       rowModelKey,
     });
   } catch (error) {
     logger.warn('Failed to look up preferred embedding set; creating new set', {
-      preferredId,
-      modelKey,
       error: error instanceof Error ? error.message : String(error),
+      modelKey,
+      preferredId,
     });
   }
-
   return;
 }
 
@@ -465,11 +464,11 @@ async function findMatchingSet(
     return String(row.id);
   } catch (error) {
     logger.warn('Failed to query embedding_sets for existing entry', {
-      modelKey,
       dimensions,
       distance,
-      provider,
       error: error instanceof Error ? error.message : String(error),
+      modelKey,
+      provider,
     });
     throw error instanceof Error ? error : new Error(String(error));
   }
@@ -571,10 +570,10 @@ async function attachLocalModelMetadata(
   resolved.targetDimension = resolveConfiguredTargetDimension(config) ?? modelEntry.dimensions;
 
   await ensureAndEmitEmbeddingSet({
-    sql: ports?.sql,
-    resolved,
-    modelConfig: undefined,
     config,
+    modelConfig: undefined,
+    resolved,
+    sql: ports?.sql,
   });
 }
 
@@ -607,10 +606,10 @@ async function attachHostedModelMetadata(
 
   await ensureHostedApiKey(supported);
   await ensureAndEmitEmbeddingSet({
-    sql: ports?.sql,
-    resolved,
-    modelConfig: undefined,
     config,
+    modelConfig: undefined,
+    resolved,
+    sql: ports?.sql,
   });
 }
 
@@ -696,10 +695,10 @@ async function ensureAndEmitEmbeddingSet(params: {
   }
 
   const ensuredSetId = await ensureEmbeddingSet(sql, {
-    modelKey: resolved.modelKey,
-    modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
     dimensions: resolved.targetDimension,
     distance: 'cosine',
+    modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
+    modelKey: resolved.modelKey,
     preferredId: resolved.targetSetId ?? undefined,
     provider: resolved.provider ?? 'local',
   });
@@ -815,11 +814,11 @@ function buildChunkingOptions(
     processEmbeddingsImpl,
   } = config;
   const options: Parameters<typeof processChunking>[2] = {
-    updateProgress: update,
     embedQueueEnabled: false,
+    streamBatchSize: chunking.streamBatchSize ?? 250,
+    updateProgress: update,
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
-    streamBatchSize: chunking.streamBatchSize ?? 250,
     ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
   };
 
@@ -835,11 +834,11 @@ function buildChunkingOptions(
 
   applyChunkingConfiguration(options, chunking);
   const queueParams: QueueOptionParams = {
+    embedding,
+    insertChunksAndEnqueueEmbeddingJobs,
     queueActive,
     queuePort,
     runInTransaction,
-    insertChunksAndEnqueueEmbeddingJobs,
-    embedding,
     targetSetId,
     ...(embeddingModelId ? { embeddingModelId } : {}),
     ...(embeddingModelKey ? { embeddingModelKey } : {}),
@@ -912,37 +911,37 @@ function attachQueueOptions(
   if (insertChunksAndEnqueueEmbeddingJobs) {
     options.insertChunksAndEnqueueEmbeddingJobs = (chunks, fileRecordId) =>
       insertChunksAndEnqueueEmbeddingJobs(chunks, fileRecordId, {
-        signal: options.abortSignal ?? null,
-        model: embeddingModelKey ?? null,
-        targetEmbeddingSetId: targetSetId ?? null,
-        provider: provider ?? null,
-        targetDimension: targetDimension ?? null,
         dimensionParameter: dimensionParameter ?? null,
+        model: embeddingModelKey ?? null,
+        provider: provider ?? null,
+        signal: options.abortSignal ?? null,
+        targetDimension: targetDimension ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
       });
     return;
   }
 
   options.enqueueJobsForChunks = (chunks, fileRecordId) =>
     queuePort.enqueueBatch(chunks, fileRecordId, {
-      signal: options.abortSignal ?? null,
-      model: embeddingModelKey ?? null,
-      targetEmbeddingSetId: targetSetId ?? null,
-      provider: provider ?? null,
-      targetDimension: targetDimension ?? null,
       dimensionParameter: dimensionParameter ?? null,
+      model: embeddingModelKey ?? null,
+      provider: provider ?? null,
+      signal: options.abortSignal ?? null,
+      targetDimension: targetDimension ?? null,
+      targetEmbeddingSetId: targetSetId ?? null,
     });
 
   if (runInTransaction) {
     options.runInTransaction = runInTransaction;
     options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
       queuePort.enqueueBatch(chunks, fileRecordId, {
-        transaction: tx,
-        signal: options.abortSignal ?? null,
-        model: embeddingModelKey ?? null,
-        targetEmbeddingSetId: targetSetId ?? null,
-        provider: provider ?? null,
-        targetDimension: targetDimension ?? null,
         dimensionParameter: dimensionParameter ?? null,
+        model: embeddingModelKey ?? null,
+        provider: provider ?? null,
+        signal: options.abortSignal ?? null,
+        targetDimension: targetDimension ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+        transaction: tx,
       });
   }
 }
@@ -982,10 +981,10 @@ function createCompleteProgress(
 ): EnhancedImportProgress {
   if (source) {
     const completed: EnhancedImportProgress = {
-      total: source.total,
       completed: source.completed,
       errors: source.errors,
       phase: 'complete',
+      total: source.total,
     };
     if (source.current !== undefined) {
       completed.current = source.current;
@@ -1003,11 +1002,11 @@ function createCompleteProgress(
   }
 
   return {
-    phase: 'complete',
-    total,
     completed: total,
     current: '',
     errors: [],
+    phase: 'complete',
+    total,
   };
 }
 
@@ -1028,18 +1027,17 @@ export async function runEnhancedImport<TFileNode = unknown>({
   let latestProgress: EnhancedImportProgress | null = null;
 
   logger.info('Starting enhanced file import', {
-    filesCount: selectedFilePaths.size,
     chunkingEnabled: chunking.enabled,
     embeddingEnabled: embedding?.enabled ?? false,
     embeddingModel: embedding?.model,
+    filesCount: selectedFilePaths.size,
   });
 
   try {
     throwIfAborted(abortSignal);
     const baseResults = await baseImportRunner({
-      selectedFilePaths,
-      fileTree,
       fileContents,
+      fileTree,
       onProgress(progress) {
         const enhanced = toEnhancedImportProgress(progress);
         update((prev) => {
@@ -1052,13 +1050,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
         });
         emit?.(enhanced);
       },
+      selectedFilePaths,
     });
     throwIfAborted(abortSignal);
 
     logger.info('Base import complete', {
-      totalFiles: baseResults.length,
-      successfulImports: baseResults.filter((r) => r.imported || r.existed).length,
       errors: baseResults.filter((r) => r.error).length,
+      successfulImports: baseResults.filter((r) => r.imported || r.existed).length,
+      totalFiles: baseResults.length,
     });
 
     if (!chunking.enabled) {
@@ -1082,8 +1081,8 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     logger.info('Starting chunking phase', {
       chunkingStrategy: chunking.strategy,
-      chunkSize: chunking.chunkSize,
       chunkOverlap: chunking.chunkOverlap,
+      chunkSize: chunking.chunkSize,
     });
 
     const { modelId, modelKey, targetSetId, provider, targetDimension, dimensionParameter } =
@@ -1092,9 +1091,9 @@ export async function runEnhancedImport<TFileNode = unknown>({
     logger.debug('Resolved embedding model for enhanced import', {
       modelId,
       modelKey,
-      targetSetId,
       provider,
       targetDimension,
+      targetSetId,
     });
 
     const queuePort = ports?.embeddingQueue ?? null;
@@ -1103,13 +1102,13 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     const chunkingConfig: ChunkingOptionsConfig = {
       chunking,
-      queuePort,
-      insertChunksAndEnqueueEmbeddingJobs,
-      runInTransaction,
       embedding,
+      insertChunksAndEnqueueEmbeddingJobs,
+      processEmbeddingsImpl,
+      queuePort,
+      runInTransaction,
       targetSetId: targetSetId ?? undefined,
       update,
-      processEmbeddingsImpl,
       ...(modelId ? { embeddingModelId: modelId } : {}),
       ...(modelKey ? { embeddingModelKey: modelKey } : {}),
       ...(provider ? { provider } : {}),
@@ -1145,17 +1144,17 @@ export async function runEnhancedImport<TFileNode = unknown>({
     }
 
     logger.info('Enhanced import complete', {
-      totalFiles: enhancedResults.length,
-      totalChunks: enhancedResults.reduce((sum, r) => sum + (r.chunksCreated || 0), 0),
       filesWithErrors: enhancedResults.filter((r) => r.error).length,
+      totalChunks: enhancedResults.reduce((sum, r) => sum + (r.chunksCreated || 0), 0),
+      totalFiles: enhancedResults.length,
     });
 
     return enhancedResults;
   } catch (error) {
     logger.error('Enhanced import failed catastrophically:', {
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
       filesCount: selectedFilePaths.size,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
   }

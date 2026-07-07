@@ -83,9 +83,9 @@ describe('Progress Calculation Utilities', () => {
 
     it('should never exceed 100% when total is properly adjusted', () => {
       const testCases = [
-        { loaded: 150, initialTotal: 100, expectedPercentage: 23 }, // 150/650 = 23%
-        { loaded: 3168, initialTotal: 100, expectedPercentage: 80 }, // 3168/3960 = 80%
-        { loaded: 500, initialTotal: 200, expectedPercentage: 50 }, // 500/1000 = 50%
+        { expectedPercentage: 23, initialTotal: 100, loaded: 150 }, // 150/650 = 23%
+        { expectedPercentage: 80, initialTotal: 100, loaded: 3168 }, // 3168/3960 = 80%
+        { expectedPercentage: 50, initialTotal: 200, loaded: 500 }, // 500/1000 = 50%
       ];
 
       for (const { loaded, initialTotal, expectedPercentage } of testCases) {

@@ -9,35 +9,35 @@ describe('local runtime tool definitions', () => {
   it('builds tool definitions only from enabled runnable tools with object schemas', () => {
     const tools: LocalRuntimeToolConfig[] = [
       {
-        id: 'brainstrike.search_notes',
         description: 'Search notes',
+        id: 'brainstrike.search_notes',
         inputSchema: {
-          type: 'object',
           properties: {
-            query: {
-              type: 'string',
-              description: 'Search query',
-              enum: ['coverage', 'vitest'],
-            },
-            tags: {
-              type: 'array',
-              description: 'Filter tags',
-              items: {
-                type: 'string',
-                description: 'Tag value',
-              },
-            },
             ignoredWithoutType: {
               description: 'Not a valid JSON schema property',
             },
+            query: {
+              description: 'Search query',
+              enum: ['coverage', 'vitest'],
+              type: 'string',
+            },
+            tags: {
+              description: 'Filter tags',
+              items: {
+                description: 'Tag value',
+                type: 'string',
+              },
+              type: 'array',
+            },
           },
           required: ['query', 'tags'],
+          type: 'object',
         },
         isLocalRuntimeRunnable: true,
       },
       {
-        id: 'brainstrike.disabled',
         enabled: false,
+        id: 'brainstrike.disabled',
         inputSchema: {
           type: 'object',
         },
@@ -61,30 +61,30 @@ describe('local runtime tool definitions', () => {
 
     expect(buildLocalToolDefinitions(tools, true)).toEqual([
       {
-        type: 'function',
         function: {
-          name: 'brainstrike.search_notes',
           description: 'Search notes',
+          name: 'brainstrike.search_notes',
           parameters: {
-            type: 'object',
             properties: {
               query: {
-                type: 'string',
                 description: 'Search query',
                 enum: ['coverage', 'vitest'],
+                type: 'string',
               },
               tags: {
-                type: 'array',
                 description: 'Filter tags',
                 items: {
-                  type: 'string',
                   description: 'Tag value',
+                  type: 'string',
                 },
+                type: 'array',
               },
             },
             required: ['query', 'tags'],
+            type: 'object',
           },
         },
+        type: 'function',
       },
     ]);
     expect(buildLocalToolDefinitions(tools, false)).toBeUndefined();
@@ -92,39 +92,40 @@ describe('local runtime tool definitions', () => {
 
   it.each([
     {
+      canExecuteTools: false,
       expectedReason: 'window.tools.execute is not available in the renderer preload bridge',
       name: 'missing executor',
       tools: undefined,
-      canExecuteTools: false,
     },
     {
+      canExecuteTools: true,
       expectedReason: 'no tool menu was provided to the local runtime adapter',
       name: 'missing tool menu',
       tools: undefined,
-      canExecuteTools: true,
     },
     {
+      canExecuteTools: true,
       expectedReason: 'the tool menu is empty',
       name: 'empty tool menu',
       tools: [],
-      canExecuteTools: true,
     },
     {
+      canExecuteTools: true,
       expectedReason: 'all 1 configured tools are disabled',
       name: 'disabled tools',
       tools: [
         {
-          id: 'brainstrike.disabled',
           enabled: false,
+          id: 'brainstrike.disabled',
           inputSchema: {
             type: 'object',
           },
           isLocalRuntimeRunnable: true,
         },
       ],
-      canExecuteTools: true,
     },
     {
+      canExecuteTools: true,
       expectedReason:
         '1 enabled tools are present, but none are marked runnable by the local runtime',
       name: 'non-runnable tools',
@@ -137,9 +138,9 @@ describe('local runtime tool definitions', () => {
           isLocalRuntimeRunnable: false,
         },
       ],
-      canExecuteTools: true,
     },
     {
+      canExecuteTools: true,
       expectedReason: '1 runnable tools are present, but none have an object JSON schema',
       name: 'non-object schemas',
       tools: [
@@ -151,7 +152,6 @@ describe('local runtime tool definitions', () => {
           isLocalRuntimeRunnable: true,
         },
       ],
-      canExecuteTools: true,
     },
   ] satisfies Array<{
     readonly canExecuteTools: boolean;

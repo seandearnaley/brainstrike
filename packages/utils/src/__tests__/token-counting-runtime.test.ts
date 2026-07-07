@@ -7,8 +7,8 @@ const calculateGroupTokensMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../token-utils', () => ({
   calculateGroupTokens: calculateGroupTokensMock,
-  supportsAccurateTokenCounting: supportsAccurateTokenCountingMock,
   countTokensAccurate: countTokensAccurateMock,
+  supportsAccurateTokenCounting: supportsAccurateTokenCountingMock,
 }));
 
 describe('token-counting-runtime', () => {

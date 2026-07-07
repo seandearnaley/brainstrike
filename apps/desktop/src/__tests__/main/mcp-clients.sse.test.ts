@@ -10,10 +10,10 @@ describe('mcp-clients (sse)', () => {
     initClients({
       servers: [
         {
-          transport: 'sse',
-          name: 'web',
-          url: 'http://127.0.0.1:7801/sse', // likely not running; client must ignore failures
           headers: { Authorization: 'Bearer test' },
+          name: 'web',
+          transport: 'sse',
+          url: 'http://127.0.0.1:7801/sse', // likely not running; client must ignore failures
         },
       ],
     });

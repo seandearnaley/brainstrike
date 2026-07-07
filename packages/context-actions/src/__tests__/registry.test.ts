@@ -3,11 +3,11 @@ import { createActionRegistry } from '../registry';
 import { type ActionOutcome, type ContextTarget, defineContextAction } from '../types';
 
 const fileTarget: ContextTarget = {
+  absolutePath: '/Users/dev/project/docs/notes.md',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'notes.md',
   relativePath: 'docs/notes.md',
-  absolutePath: '/Users/dev/project/docs/notes.md',
-  entryType: 'file',
   rootFolderId: '/Users/dev/project',
 };
 
@@ -17,44 +17,44 @@ const webFileTarget: ContextTarget = {
   rootFolderId: 'root-uuid',
 };
 
-const chunkTarget: ContextTarget = { kind: 'chunk', id: 'c1', content: 'hello' };
+const chunkTarget: ContextTarget = { content: 'hello', id: 'c1', kind: 'chunk' };
 
 const ok: ActionOutcome = { ok: true };
 
 function makeActions() {
   return {
-    copyName: defineContextAction({
-      id: 'file.copy-name',
-      label: 'Copy Name',
+    copyContent: defineContextAction({
+      appliesTo: ['chunk'] as const,
       group: 'copy',
-      appliesTo: ['file-entry'] as const,
+      id: 'collection.copy-content',
+      label: 'Copy Content',
       requiredCapabilities: ['clipboard'] as const,
       run: async () => ok,
     }),
     copyFullPath: defineContextAction({
-      id: 'file.copy-full-path',
-      label: 'Copy Full Path',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      group: 'copy',
+      id: 'file.copy-full-path',
       isVisible: (target) => target.absolutePath !== null,
+      label: 'Copy Full Path',
+      requiredCapabilities: ['clipboard'] as const,
+      run: async () => ok,
+    }),
+    copyName: defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.copy-name',
+      label: 'Copy Name',
+      requiredCapabilities: ['clipboard'] as const,
       run: async () => ok,
     }),
     reveal: defineContextAction({
-      id: 'file.reveal',
-      label: 'Reveal in Finder',
-      group: 'navigate',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['fs.reveal'] as const,
+      group: 'navigate',
+      id: 'file.reveal',
       isVisible: (target) => target.absolutePath !== null,
-      run: async () => ok,
-    }),
-    copyContent: defineContextAction({
-      id: 'collection.copy-content',
-      label: 'Copy Content',
-      group: 'copy',
-      appliesTo: ['chunk'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      label: 'Reveal in Finder',
+      requiredCapabilities: ['fs.reveal'] as const,
       run: async () => ok,
     }),
   };
@@ -113,11 +113,11 @@ describe('createActionRegistry', () => {
 
   it('does not filter on isEnabled — disabled actions remain listed', () => {
     const disabled = defineContextAction({
-      id: 'file.disabled',
-      label: 'Disabled Action',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
+      group: 'copy',
+      id: 'file.disabled',
       isEnabled: () => false,
+      label: 'Disabled Action',
       run: async () => ok,
     });
     const registry = createActionRegistry({
@@ -139,10 +139,10 @@ describe('createActionRegistry', () => {
       services: {},
     });
     const local = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'tree',
       id: 'local.expand',
       label: 'Expand',
-      group: 'tree',
-      appliesTo: ['file-entry'] as const,
       run: async () => ok,
     });
     const groups = registry.actionsFor(fileTarget, [local]);

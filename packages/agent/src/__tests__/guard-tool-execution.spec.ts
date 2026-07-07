@@ -7,7 +7,7 @@ import {
 } from '../tools/guard-tool-execution';
 
 function makeTool(execute: (...args: unknown[]) => unknown) {
-  return { id: 'demo', description: 'd', execute };
+  return { description: 'd', execute, id: 'demo' };
 }
 
 describe('guardToolExecution', () => {
@@ -15,8 +15,8 @@ describe('guardToolExecution', () => {
     const tool = guardToolExecution(
       makeTool(async () => ({ value: 42 })),
       {
-        toolName: 'demo',
         timeoutMs: 1000,
+        toolName: 'demo',
       }
     );
     await expect(tool.execute({ context: {} })).resolves.toEqual({ value: 42 });
@@ -26,7 +26,7 @@ describe('guardToolExecution', () => {
     vi.useFakeTimers();
     const tool = guardToolExecution(
       makeTool(() => new Promise(() => {})),
-      { toolName: 'demo', timeoutMs: 50 }
+      { timeoutMs: 50, toolName: 'demo' }
     );
     const promise = tool.execute({ context: {} });
     await vi.advanceTimersByTimeAsync(60);
@@ -43,7 +43,7 @@ describe('guardToolExecution', () => {
       makeTool(() => {
         throw new Error('SECRET internal path /Users/x/.ssh');
       }),
-      { toolName: 'demo', timeoutMs: 1000, logger }
+      { logger, timeoutMs: 1000, toolName: 'demo' }
     );
     const result = (await tool.execute({ context: {} })) as GuardedToolError;
     expect(result.error.code).toBe('tool_failed');
@@ -52,8 +52,8 @@ describe('guardToolExecution', () => {
   });
 
   it('leaves a tool without an execute function untouched', () => {
-    const noExec = { id: 'x', description: 'd' } as { id: string; description: string };
-    expect(guardToolExecution(noExec, { toolName: 'x', timeoutMs: 1000 })).toBe(noExec);
+    const noExec = { description: 'd', id: 'x' } as { id: string; description: string };
+    expect(guardToolExecution(noExec, { timeoutMs: 1000, toolName: 'x' })).toBe(noExec);
   });
 
   it('logs a late rejection after a timeout instead of dropping it', async () => {
@@ -67,7 +67,7 @@ describe('guardToolExecution', () => {
             rejectRun = reject;
           })
       ),
-      { toolName: 'demo', timeoutMs: 50, logger }
+      { logger, timeoutMs: 50, toolName: 'demo' }
     );
     const promise = tool.execute({ context: {} });
     await vi.advanceTimersByTimeAsync(60);
@@ -84,8 +84,8 @@ describe('applyToolGuards', () => {
   it('guards every executable tool in the map', async () => {
     vi.useFakeTimers();
     const tools = {
-      a: { id: 'a', description: 'd', execute: () => new Promise(() => {}) },
-      b: { id: 'b', description: 'd', execute: async () => ({ ok: true }) },
+      a: { description: 'd', execute: () => new Promise(() => {}), id: 'a' },
+      b: { description: 'd', execute: async () => ({ ok: true }), id: 'b' },
     };
     const guarded = applyToolGuards(tools, { timeoutMs: 20 });
     const aPromise = guarded.a.execute({ context: {} });

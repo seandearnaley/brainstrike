@@ -32,13 +32,13 @@ export interface AssistantForegroundActivityOptions {
 
 export interface AssistantForegroundActivityLease {
   /** Release the lease (idempotent). */
-  release(): void;
+  release: () => void;
   /**
    * Reset THIS lease's idle fuse. Renewal is strictly per-lease: a streaming
    * run must not refresh a leaked sibling lease, or the leak survives as long
    * as the assistant is in use at all.
    */
-  renew(): void;
+  renew: () => void;
 }
 
 interface ActiveLease {

@@ -111,8 +111,8 @@ export const generateStructure = (lines: number): LineData[] => {
 
     structure.push({
       indent: isEmpty ? 0 : indent,
-      width: isEmpty ? 0 : width,
       isEmpty,
+      width: isEmpty ? 0 : width,
     });
   }
   return structure;
@@ -148,7 +148,7 @@ export const buildStructureFromContent = (lines: string[]): LineData[] => {
   return lines.map((line) => {
     const trimmed = line.trimEnd();
     if (trimmed.length === 0) {
-      return { indent: 0, width: 0, isEmpty: true };
+      return { indent: 0, isEmpty: true, width: 0 };
     }
 
     const leadingWhitespace = line.match(/^\s*/u)?.[0] ?? '';
@@ -161,8 +161,8 @@ export const buildStructureFromContent = (lines: string[]): LineData[] => {
 
     return {
       indent,
-      width,
       isEmpty: false,
+      width,
     };
   });
 };
@@ -178,7 +178,7 @@ export const getTapestryRenderMetrics = (
   const lineScale = totalHeight / safeLines;
   const lineThickness = Math.max(1, lineScale * 0.6);
 
-  return { totalHeight, lineScale, lineThickness };
+  return { lineScale, lineThickness, totalHeight };
 };
 
 export const generateMockFiles = (count: number): FileTapestry[] => {
@@ -189,28 +189,28 @@ export const generateMockFiles = (count: number): FileTapestry[] => {
     const totalLines = Math.floor(Math.random() * 200) + 50; // 50 to 250 lines
 
     const initialSelection: TapestryRange = {
-      id: crypto.randomUUID(),
-      startLine: 0,
-      endLine: totalLines,
-      isActive: true,
       color: generateColor(i),
+      endLine: totalLines,
+      id: crypto.randomUUID(),
+      isActive: true,
+      startLine: 0,
     };
 
     const structure = generateStructure(totalLines);
 
     return {
-      id: crypto.randomUUID(),
       compositeKey: `mock::${name}-${i}`,
-      rootFolderId: 'mock',
-      path: name,
-      name,
-      language: ext,
-      type: ext.toUpperCase(),
-      totalLines,
-      structure,
       content: generateContent(totalLines, structure),
       contentStatus: 'ready',
+      id: crypto.randomUUID(),
+      language: ext,
+      name,
+      path: name,
+      rootFolderId: 'mock',
       selections: [initialSelection],
+      structure,
+      totalLines,
+      type: ext.toUpperCase(),
     };
   });
 };

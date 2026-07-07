@@ -42,37 +42,37 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   it('keeps directory selection counts stable across StrictMode rerenders', async () => {
     const loadedTree: IFileNode[] = [
       {
-        name: 'src',
-        path: '/src',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: 'root',
-        loadState: 'loaded',
         children: [
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
+            isVisible: true,
             name: 'file1.txt',
             path: '/src/file1.txt',
-            type: 'file',
-            isVisible: true,
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
           {
+            depth: 1,
+            handle: {} as FileSystemFileHandle,
+            isVisible: true,
             name: 'file2.txt',
             path: '/src/file2.txt',
-            type: 'file',
-            isVisible: true,
-            handle: {} as FileSystemFileHandle,
-            depth: 1,
-            selectionState: 'unchecked',
             rootFolderId: 'root',
+            selectionState: 'unchecked',
+            type: 'file',
           },
         ],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
+        name: 'src',
+        path: '/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
     let fileExplorerStore: FileExplorerStore | undefined;
@@ -215,16 +215,16 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   it('does not change selection when toggling an empty directory', async () => {
     const treeWithEmptyDirectory: IFileNode[] = [
       {
+        children: [],
+        depth: 0,
+        handle: {} as FileSystemDirectoryHandle,
+        isVisible: true,
+        loadState: 'loaded',
         name: 'empty',
         path: '/empty',
-        type: 'directory',
-        isVisible: true,
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 0,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        loadState: 'loaded',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ];
     let fileExplorerStore: FileExplorerStore | undefined;
@@ -261,7 +261,7 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
   });
 
   it('uses recursive directory selection callback for unloaded folders', async () => {
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     await act(async () => {
       render(
@@ -288,7 +288,7 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
 
   it('removes already-selected query descendants instead of re-running recursive selection for an unloaded folder', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     render(
       <FileExplorerTestWrapper>
@@ -318,27 +318,27 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
     await act(async () => {
       readyStore.getState().setQuerySelection(
         {
-          kind: 'recursive-select-all',
-          folderId: 'root',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: [],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'root',
+          includedPaths: [],
+          includeFilters: [],
+          kind: 'recursive-select-all',
           manifestFingerprint: 'fp-src-query',
           manifestSnapshotId: 'snapshot-src-query',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
         {
-          filePaths: ['/src/file1.txt', '/src/file2.txt'],
-          pathSet: new Set(['/src/file1.txt', '/src/file2.txt']),
           directoryCounts: new Map([['/src', 2]]),
+          errorMessage: null,
+          filePaths: ['/src/file1.txt', '/src/file2.txt'],
           fingerprint: 'fp-src-query',
+          pathSet: new Set(['/src/file1.txt', '/src/file2.txt']),
           snapshotId: 'snapshot-src-query',
           status: 'ready',
-          errorMessage: null,
         },
         new Set(['/src/file1.txt', '/src/file2.txt'])
       );
@@ -363,7 +363,7 @@ describe('OptimizedFileTree selection mutations and telemetry', () => {
 
   it('clears selected descendants for a partially restored explicit directory instead of continuing recursive selection', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
-    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+    const onSelectFolderRecursively = vi.fn(async () => ({ filePaths: [], success: true }));
 
     render(
       <FileExplorerTestWrapper>

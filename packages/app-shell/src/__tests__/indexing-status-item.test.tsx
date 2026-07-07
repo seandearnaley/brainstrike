@@ -48,12 +48,12 @@ function createDatabaseWorkSnapshot(
     lastNormalAt: null,
     lastStartedAt: null,
     priorityStats: {
+      background: createPriorityStats(),
       foreground: createPriorityStats(),
       normal: createPriorityStats(),
-      background: createPriorityStats(),
     },
-    queued: { foreground: 0, normal: 0, background: 0 },
-    queuedLabels: { foreground: [], normal: [], background: [] },
+    queued: { background: 0, foreground: 0, normal: 0 },
+    queuedLabels: { background: [], foreground: [], normal: [] },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 0,
@@ -75,29 +75,29 @@ describe('IndexingStatusItem', () => {
 
   it('combines queue, background indexing, and active backfill state in one popover', async () => {
     useIndexingActivityStore.getState().setQueueSnapshot({
+      failed: 0,
+      nextRunnableAt: null,
       queued: 8,
       running: 1,
-      failed: 0,
       succeeded: 12,
-      nextRunnableAt: null,
     });
     useIndexingActivityStore.getState().setBackfills([
       {
+        current: 4,
         embeddingSetId: 'collection-b',
         requestId: 'embedding-backfill:collection-b',
         source: 'manual',
-        current: 4,
         total: 10,
       },
     ]);
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: null,
-      paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
-      state: 'embedding',
+      paused: false,
       pauseReasons: [],
+      state: 'embedding',
     });
 
     render(<IndexingStatusItem />);
@@ -119,11 +119,11 @@ describe('IndexingStatusItem', () => {
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: null,
-      paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
-      state: 'idle',
+      paused: false,
       pauseReasons: [],
+      state: 'idle',
     });
 
     render(<IndexingStatusItem />);
@@ -140,11 +140,11 @@ describe('IndexingStatusItem', () => {
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: 'No root folder selected.',
-      paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
-      state: 'error',
+      paused: false,
       pauseReasons: [],
+      state: 'error',
     });
 
     render(<IndexingStatusItem />);
@@ -156,11 +156,11 @@ describe('IndexingStatusItem', () => {
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
       lastError: 'OpenAI API key not configured.',
-      paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace Index',
-      state: 'blocked',
+      paused: false,
       pauseReasons: [],
+      state: 'blocked',
     });
 
     render(<IndexingStatusItem />);
@@ -178,6 +178,17 @@ describe('IndexingStatusItem', () => {
         lastBackgroundYieldAt: 1000,
         lastForegroundAt: 950,
         priorityStats: {
+          background: createPriorityStats({
+            completed: 9,
+            lastCompletedLabel: 'embedding completion',
+            lastStartedLabel: 'embedding claim',
+            queued: 14,
+            serviceP95Ms: 40,
+            started: 9,
+            totalServiceMs: 260,
+            totalWaitMs: 225,
+            waitP95Ms: 75,
+          }),
           foreground: createPriorityStats({
             completed: 14,
             lastCompletedLabel: 'hybrid search',
@@ -190,19 +201,8 @@ describe('IndexingStatusItem', () => {
             waitP95Ms: 8,
           }),
           normal: createPriorityStats(),
-          background: createPriorityStats({
-            completed: 9,
-            lastCompletedLabel: 'embedding completion',
-            lastStartedLabel: 'embedding claim',
-            queued: 14,
-            serviceP95Ms: 40,
-            started: 9,
-            totalServiceMs: 260,
-            totalWaitMs: 225,
-            waitP95Ms: 75,
-          }),
         },
-        queued: { foreground: 2, normal: 0, background: 5 },
+        queued: { background: 5, foreground: 2, normal: 0 },
       })
     );
 

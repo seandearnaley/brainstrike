@@ -6,7 +6,13 @@ import type { Migration } from './migration-runner';
  * it from JSON payloads for every queue poll/reconciliation pass.
  */
 export const migration043JobQueueEmbeddingSetId: Migration = {
-  version: 43,
+  down: `
+    DROP INDEX IF EXISTS idx_job_queue_embed_set_state;
+    --> statement-breakpoint
+
+    ALTER TABLE job_queue
+      DROP COLUMN IF EXISTS embedding_set_id;
+  `,
   name: 'job_queue_embedding_set_id',
   up: `
     ALTER TABLE job_queue
@@ -25,11 +31,5 @@ export const migration043JobQueueEmbeddingSetId: Migration = {
       WHERE job_type = 'embed_chunk'
         AND embedding_set_id IS NOT NULL;
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_job_queue_embed_set_state;
-    --> statement-breakpoint
-
-    ALTER TABLE job_queue
-      DROP COLUMN IF EXISTS embedding_set_id;
-  `,
+  version: 43,
 };

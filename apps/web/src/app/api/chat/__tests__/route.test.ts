@@ -83,9 +83,9 @@ afterEach(() => {
 describe('chat route schema', () => {
   it('rejects invalid bodies with 400', async () => {
     const req = new Request('http://localhost/api/chat', {
-      method: 'POST',
+      body: JSON.stringify({ messages: [{ id: '', parts: [], role: 'user' }] }),
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ id: '', role: 'user', parts: [] }] }),
+      method: 'POST',
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -96,8 +96,8 @@ describe('chat route schema', () => {
 
   it('accepts valid bodies and streams', async () => {
     const body = {
-      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
       data: { projectId: 'p1' },
+      messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
     // ensure parser passes
@@ -109,9 +109,9 @@ describe('chat route schema', () => {
     );
 
     const req = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
@@ -129,13 +129,13 @@ describe('chat route schema', () => {
     process.env['BS_OPENAI_API_KEY'] = '';
 
     const body = {
-      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
     const req = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
 
     const res = await POST(req);
@@ -149,8 +149,8 @@ describe('chat route schema', () => {
       messages: [
         {
           id: 'm1',
+          parts: [{ text: 'Search docs for telemetry checklist', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: 'Search docs for telemetry checklist' }],
         },
       ],
     } as const;
@@ -158,33 +158,33 @@ describe('chat route schema', () => {
     streamMock.mockResolvedValue(
       createStream(
         {
-          type: 'tool-event',
           name: 'brainstrike.readWorkspaceDirectory',
+          payload: { callId: 'abc', input: { depth: 1, path: '/src' } },
           status: 'start',
-          payload: { callId: 'abc', input: { path: '/src', depth: 1 } },
+          type: 'tool-event',
         },
         {
-          type: 'tool-event',
           name: 'brainstrike.readWorkspaceDirectory',
-          status: 'success',
           payload: {
             callId: 'abc',
             results: [
               {
                 id: 'guardrails-and-telemetry',
-                title: 'Guardrails & Telemetry Checklist',
                 summary: 'Checklist for validating tool input/output schemas.',
+                title: 'Guardrails & Telemetry Checklist',
               },
             ],
           },
+          status: 'success',
+          type: 'tool-event',
         }
       )
     );
 
     const req = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
@@ -223,14 +223,14 @@ describe('chat route schema', () => {
     } as const;
 
     const body = {
-      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
     for (let i = 0; i < 10; i += 1) {
       const req = new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers,
         body: JSON.stringify(body),
+        headers,
+        method: 'POST',
       });
       const res = await POST(req);
       expect(res.status).toBe(200);
@@ -238,9 +238,9 @@ describe('chat route schema', () => {
     }
 
     const limitedReq = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers,
       body: JSON.stringify(body),
+      headers,
+      method: 'POST',
     });
     const limitedRes = await POST(limitedReq);
     expect(limitedRes.status).toBe(429);
@@ -253,12 +253,12 @@ describe('chat route schema', () => {
   it('keeps chat available to new clients when rate limiter state is full', async () => {
     for (let i = 0; i < 1024; i += 1) {
       const req = new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'brainstrike-client-id': `client-${i}`,
-        },
         body: '{}',
+        headers: {
+          'brainstrike-client-id': `client-${i}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       });
       const res = await POST(req);
       expect(res.status).toBe(400);
@@ -269,14 +269,14 @@ describe('chat route schema', () => {
     );
 
     const limitedReq = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'brainstrike-client-id': 'client-over-limit',
-      },
       body: JSON.stringify({
-        messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+        messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
       }),
+      headers: {
+        'brainstrike-client-id': 'client-over-limit',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
     });
     const limitedRes = await POST(limitedReq);
 
@@ -298,14 +298,14 @@ describe('chat route schema', () => {
 
     const res = await POST(
       new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'brainstrike-client-id': 'client-after-expiry',
-        },
         body: JSON.stringify({
-          messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+          messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
+        headers: {
+          'brainstrike-client-id': 'client-after-expiry',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       })
     );
 
@@ -317,19 +317,19 @@ describe('chat route schema', () => {
       createStream({ type: 'text-delta', value: 'Hello from mock stream' })
     );
     const blockedHeaders = {
-      'Content-Type': 'application/json',
       'brainstrike-client-id': 'blocked-client',
+      'Content-Type': 'application/json',
     };
     const validBody = JSON.stringify({
-      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     });
 
     for (let i = 0; i < 10; i += 1) {
       const res = await POST(
         new Request('http://localhost/api/chat', {
-          method: 'POST',
-          headers: blockedHeaders,
           body: validBody,
+          headers: blockedHeaders,
+          method: 'POST',
         })
       );
       expect(res.status).toBe(200);
@@ -338,9 +338,9 @@ describe('chat route schema', () => {
 
     const blockedRes = await POST(
       new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: blockedHeaders,
         body: validBody,
+        headers: blockedHeaders,
+        method: 'POST',
       })
     );
     expect(blockedRes.status).toBe(429);
@@ -348,21 +348,21 @@ describe('chat route schema', () => {
     for (let i = 0; i < 1024; i += 1) {
       await POST(
         new Request('http://localhost/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'brainstrike-client-id': `churn-client-${i}`,
-          },
           body: '{}',
+          headers: {
+            'brainstrike-client-id': `churn-client-${i}`,
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
         })
       );
     }
 
     const stillBlockedRes = await POST(
       new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: blockedHeaders,
         body: validBody,
+        headers: blockedHeaders,
+        method: 'POST',
       })
     );
 
@@ -381,12 +381,12 @@ describe('chat route schema', () => {
 
     const res = await POST(
       new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'brainstrike-client-id': 'new-client',
-        },
         body: '{}',
+        headers: {
+          'brainstrike-client-id': 'new-client',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       })
     );
 
@@ -401,12 +401,12 @@ describe('chat route schema', () => {
 
     const secondRes = await POST(
       new Request('http://localhost/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'brainstrike-client-id': 'another-new-client',
-        },
         body: '{}',
+        headers: {
+          'brainstrike-client-id': 'another-new-client',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       })
     );
 
@@ -460,13 +460,13 @@ describe('chat route schema', () => {
     );
 
     const body = {
-      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+      messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
     } as const;
 
     const req = new Request('http://localhost/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
     });
     const res = await POST(req);
     expect(res.status).toBe(502);

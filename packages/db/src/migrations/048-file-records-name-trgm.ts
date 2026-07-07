@@ -13,13 +13,13 @@ import type { Migration } from './migration-runner';
  * different paths — both must converge on the same index shape.
  */
 export const migration048FileRecordsNameTrgm: Migration = {
-  version: 48,
+  down: `
+    DROP INDEX IF EXISTS idx_file_records_name_trgm;
+  `,
   name: 'file_records_name_trgm',
   up: `
     CREATE INDEX IF NOT EXISTS idx_file_records_name_trgm
       ON file_records USING gin (name gin_trgm_ops);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_file_records_name_trgm;
-  `,
+  version: 48,
 };

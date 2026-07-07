@@ -124,43 +124,43 @@ vi.mock('../../../select', () => ({
 }));
 
 const categories: Category[] = [
-  { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
-  { id: 'coding', name: 'Coding', color: '#3b82f6', icon: 'Code' },
+  { color: '#64748b', icon: 'Box', id: 'general', name: 'General' },
+  { color: '#3b82f6', icon: 'Code', id: 'coding', name: 'Coding' },
 ];
 
 const existingPrompt: Prompt = {
-  id: 'prompt-1',
-  title: 'Existing title',
-  content: 'Existing content',
   categoryId: 'coding',
-  tags: ['existing-tag', 'legacy'],
+  content: 'Existing content',
+  createdAt: 1,
+  id: 'prompt-1',
+  isFavorite: false,
   modelSettings: {
+    frequencyPenalty: 0.1,
+    maxTokens: 2048,
     model: 'openai:gpt-4o-mini',
+    presencePenalty: 0.2,
     temperature: 0.2,
     topP: 0.8,
-    maxTokens: 2048,
-    frequencyPenalty: 0.1,
-    presencePenalty: 0.2,
   },
+  rating: 4,
   revisions: [
     {
-      id: 'rev-1',
       content: 'old-1',
+      id: 'rev-1',
       modelSettings: {
+        frequencyPenalty: 0.3,
+        maxTokens: 4096,
         model: 'openai:gpt-4.1',
+        presencePenalty: 0.4,
         temperature: 0.1,
         topP: 0.6,
-        maxTokens: 4096,
-        frequencyPenalty: 0.3,
-        presencePenalty: 0.4,
       },
       timestamp: 1_700_000_000_000,
     },
-    { id: 'rev-2', content: 'old-2', timestamp: 1_700_000_100_000 },
+    { content: 'old-2', id: 'rev-2', timestamp: 1_700_000_100_000 },
   ],
-  rating: 4,
-  isFavorite: false,
-  createdAt: 1,
+  tags: ['existing-tag', 'legacy'],
+  title: 'Existing title',
   updatedAt: 2,
 };
 
@@ -200,15 +200,15 @@ describe('PromptEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
 
     expect(onSave).toHaveBeenCalledWith({
-      title: 'New prompt title',
-      content: 'New prompt content',
       categoryId: 'coding',
-      tags: ['automation'],
+      content: 'New prompt content',
       modelSettings: {
         model: 'openai:gpt-4.1-mini',
         temperature: 1.4,
         topP: 1,
       },
+      tags: ['automation'],
+      title: 'New prompt title',
     });
     expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -244,17 +244,17 @@ describe('PromptEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'SaveIcon Save Prompt' }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Existing title',
-        content: 'Existing content',
         categoryId: 'coding',
+        content: 'Existing content',
         modelSettings: {
+          frequencyPenalty: 0.1,
+          maxTokens: 2048,
           model: 'openai:gpt-4o-mini',
+          presencePenalty: 0.2,
           temperature: 0.2,
           topP: 0.8,
-          maxTokens: 2048,
-          frequencyPenalty: 0.1,
-          presencePenalty: 0.2,
         },
+        title: 'Existing title',
       })
     );
 
@@ -318,12 +318,12 @@ describe('PromptEditor', () => {
       expect.objectContaining({
         content: 'old-1',
         modelSettings: {
+          frequencyPenalty: 0.3,
+          maxTokens: 4096,
           model: 'openai:gpt-4.1',
+          presencePenalty: 0.4,
           temperature: 0.1,
           topP: 0.6,
-          maxTokens: 4096,
-          frequencyPenalty: 0.3,
-          presencePenalty: 0.4,
         },
       })
     );

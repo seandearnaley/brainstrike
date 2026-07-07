@@ -156,7 +156,7 @@ function createContributionEntry(
   contribution: number,
   originalScore: number | undefined
 ): RRFContribution {
-  const entry: RRFContribution = { source, rank, contribution };
+  const entry: RRFContribution = { contribution, rank, source };
   if (originalScore !== undefined) {
     entry.originalScore = originalScore;
   }
@@ -178,7 +178,7 @@ function processRankedItem<T>(
 
   let entry = itemScores.get(item.id);
   if (!entry) {
-    entry = { rrfScore: 0, sourceCount: 0, contributions: [] };
+    entry = { contributions: [], rrfScore: 0, sourceCount: 0 };
     itemScores.set(item.id, entry);
   }
 
@@ -200,10 +200,10 @@ function buildFusedResults<T>(
   for (const [id, data] of itemScores) {
     if (data.sourceCount >= minSourceCount) {
       results.push({
+        contributions: data.contributions,
         id,
         rrfScore: data.rrfScore,
         sourceCount: data.sourceCount,
-        contributions: data.contributions,
       });
     }
   }
@@ -261,8 +261,8 @@ export function fuseVectorAndFTS<T = string>(
 
   return fuseRankedLists(
     [
-      { source: 'vector', items: vectorResults, weight: vectorWeight },
-      { source: 'fts', items: ftsResults, weight: ftsWeight },
+      { items: vectorResults, source: 'vector', weight: vectorWeight },
+      { items: ftsResults, source: 'fts', weight: ftsWeight },
     ],
     rrfOptions
   );
@@ -328,8 +328,8 @@ export function createRankedList<T = string>(
 
   // Build result, only including weight if defined (exactOptionalPropertyTypes)
   const result: RankedList<T> = {
-    source,
     items: ranked.map((item) => ({ id: item.id, score: item.score })),
+    source,
   };
   if (weight !== undefined) {
     result.weight = weight;

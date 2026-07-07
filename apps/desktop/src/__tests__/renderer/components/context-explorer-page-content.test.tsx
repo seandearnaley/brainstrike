@@ -5,27 +5,27 @@ import ContextExplorerPageContent from '../../../renderer/components/context-exp
 
 // Mock the file explorer components
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
   useAdapters: () => ({
-    storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-      clear: vi.fn(),
-      getAllKeys: vi.fn(),
-    },
     fileSystemAdapter: {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    },
+    storageAdapter: {
+      clear: vi.fn(),
+      getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     },
   }),
-  AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel">Panel</div>,
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,
 }));
 

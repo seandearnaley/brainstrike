@@ -11,8 +11,8 @@ describe('MetadataCache extra coverage', () => {
       cache.set('/file-2', { isDirectory: false, mtimeMs: 2, size: 2 });
 
       cache.setBatch([
-        { path: '/file-2', metadata: { isDirectory: false, mtimeMs: 20, size: 20 } },
-        { path: '/file-3', metadata: { isDirectory: false, mtimeMs: 3, size: 3 } },
+        { metadata: { isDirectory: false, mtimeMs: 20, size: 20 }, path: '/file-2' },
+        { metadata: { isDirectory: false, mtimeMs: 3, size: 3 }, path: '/file-3' },
       ]);
 
       expect(cache.get('/file-1')).toBeUndefined();

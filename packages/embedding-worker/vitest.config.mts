@@ -16,10 +16,10 @@ const WEBGPU_CI_LAUNCH_ARGS = [
 ] as const;
 
 const browserProject = createBrowserProject({
-  isCI,
   headless: isCI,
-  testPattern: 'test/**/*.browser.test.{ts,tsx}',
+  isCI,
   launchArgs: isCI ? [...WEBGPU_CI_LAUNCH_ARGS] : undefined,
+  testPattern: 'test/**/*.browser.test.{ts,tsx}',
 });
 
 browserProject.test.globals = true;
@@ -32,20 +32,20 @@ export default defineConfig({
     projects: [
       {
         test: {
-          name: 'unit',
-          environment: 'node',
-          globals: true,
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-          include: ['test/**/*.spec.ts'],
-          exclude: ['dist', 'node_modules', '**/*.browser.test.*'],
-          restoreMocks: true,
           clearMocks: true,
           coverage: {
             enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
-            provider: 'v8',
-            include: ['src/**/*.ts'],
             exclude: ['**/*.test.*', '**/__tests__/**', '**/dist/**', '**/node_modules/**'],
+            include: ['src/**/*.ts'],
+            provider: 'v8',
           },
+          environment: 'node',
+          exclude: ['dist', 'node_modules', '**/*.browser.test.*'],
+          globals: true,
+          include: ['test/**/*.spec.ts'],
+          name: 'unit',
+          restoreMocks: true,
+          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
         },
       },
       browserProject,

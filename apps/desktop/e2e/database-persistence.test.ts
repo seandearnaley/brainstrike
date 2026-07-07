@@ -140,8 +140,8 @@ test.describe('Database Persistence', () => {
 
   async function ensureDatabasePanelVisibleQuick(page: Page): Promise<Page | null> {
     const activePage = await showDatabaseDemoPanel(page, {
-      tabTimeoutMs: 5000,
       panelTimeoutMs: 10_000,
+      tabTimeoutMs: 5000,
     });
     if (await isDatabaseError(activePage)) {
       return activePage;
@@ -250,8 +250,8 @@ test.describe('Database Persistence', () => {
 
     await expect
       .poll(async () => activeWindow.evaluate(() => performance.timeOrigin), {
-        timeout: 10_000,
         message: 'Opening the database panel should not reload the visible renderer',
+        timeout: 10_000,
       })
       .toBe(initialTimeOrigin);
 
@@ -451,8 +451,8 @@ test.describe('Database Persistence', () => {
 
   async function createUsingSampleData(page: Page): Promise<boolean> {
     const activePage = await showDatabaseDemoPanel(page, {
-      tabTimeoutMs: 5000,
       panelTimeoutMs: 10_000,
+      tabTimeoutMs: 5000,
     });
     if (await isDatabaseError(activePage)) {
       return false;

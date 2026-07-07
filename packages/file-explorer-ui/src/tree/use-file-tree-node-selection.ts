@@ -153,10 +153,10 @@ export function useFileTreeNodeSelection({
   return {
     checkboxState,
     folderInfo,
-    showSelectionDialog,
-    setShowSelectionDialog,
-    handleNodeSelection,
-    wouldExceedLimit,
     getAllFilePaths,
+    handleNodeSelection,
+    setShowSelectionDialog,
+    showSelectionDialog,
+    wouldExceedLimit,
   };
 }

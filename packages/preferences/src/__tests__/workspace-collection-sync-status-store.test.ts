@@ -13,22 +13,22 @@ describe('workspace-collection-sync-status-store', () => {
     const state = useWorkspaceCollectionSyncStatusStore.getState();
 
     expect(state).toMatchObject({
-      state: 'disabled',
-      managedCollectionId: null,
-      managedCollectionName: null,
+      activeRootPath: null,
       backfillRequestId: null,
       blockedReason: null,
-      currentFilePath: null,
-      scanSummary: null,
-      importProgress: null,
       chunkingProgress: null,
+      currentFilePath: null,
       embeddingProgress: null,
-      queueProgress: null,
-      queuedFiles: 0,
-      processedFiles: 0,
+      importProgress: null,
       lastError: null,
+      managedCollectionId: null,
+      managedCollectionName: null,
       pauseReasons: [],
-      activeRootPath: null,
+      processedFiles: 0,
+      queuedFiles: 0,
+      queueProgress: null,
+      scanSummary: null,
+      state: 'disabled',
     });
   });
 
@@ -36,116 +36,116 @@ describe('workspace-collection-sync-status-store', () => {
     const store = useWorkspaceCollectionSyncStatusStore.getState();
 
     store.setStatus({
-      state: 'scanning',
+      activeRootPath: '/workspace/a',
+      currentFilePath: 'src/index.ts',
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
-      activeRootPath: '/workspace/a',
+      queuedFiles: 12,
       scanSummary: {
-        discoveredFiles: 42,
         changedFiles: 7,
+        discoveredFiles: 42,
         excludedEntries: 5,
         unchangedFiles: 35,
       },
-      queuedFiles: 12,
-      currentFilePath: 'src/index.ts',
+      state: 'scanning',
     });
 
     store.setStatus({
-      state: 'recovering',
       backfillRequestId: 'background-indexing-backfill:test',
-      processedFiles: 4,
-      pauseReasons: [],
       chunkingProgress: {
-        filesProcessed: 7,
-        totalFiles: 7,
-        currentFile: 'src/index.ts',
         chunksCreated: 16,
+        currentFile: 'src/index.ts',
+        filesProcessed: 7,
         strategyUsed: 'sentence',
+        totalFiles: 7,
       },
       embeddingProgress: {
         chunksProcessed: 4,
-        totalChunks: 16,
         currentChunk: 'export const value = 1;...',
         modelName: 'Xenova/all-MiniLM-L6-v2',
+        totalChunks: 16,
       },
+      pauseReasons: [],
+      processedFiles: 4,
+      state: 'recovering',
     });
 
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-      state: 'recovering',
+      activeRootPath: '/workspace/a',
+      backfillRequestId: 'background-indexing-backfill:test',
+      chunkingProgress: {
+        chunksCreated: 16,
+        currentFile: 'src/index.ts',
+        filesProcessed: 7,
+        strategyUsed: 'sentence',
+        totalFiles: 7,
+      },
+      currentFilePath: 'src/index.ts',
+      embeddingProgress: {
+        chunksProcessed: 4,
+        currentChunk: 'export const value = 1;...',
+        modelName: 'Xenova/all-MiniLM-L6-v2',
+        totalChunks: 16,
+      },
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
-      backfillRequestId: 'background-indexing-backfill:test',
-      activeRootPath: '/workspace/a',
+      pauseReasons: [],
+      processedFiles: 4,
+      queuedFiles: 12,
       scanSummary: {
-        discoveredFiles: 42,
         changedFiles: 7,
+        discoveredFiles: 42,
         excludedEntries: 5,
         unchangedFiles: 35,
       },
-      queuedFiles: 12,
-      processedFiles: 4,
-      currentFilePath: 'src/index.ts',
-      pauseReasons: [],
-      chunkingProgress: {
-        filesProcessed: 7,
-        totalFiles: 7,
-        currentFile: 'src/index.ts',
-        chunksCreated: 16,
-        strategyUsed: 'sentence',
-      },
-      embeddingProgress: {
-        chunksProcessed: 4,
-        totalChunks: 16,
-        currentChunk: 'export const value = 1;...',
-        modelName: 'Xenova/all-MiniLM-L6-v2',
-      },
+      state: 'recovering',
     });
   });
 
   it('clears transient progress while preserving disabled baseline on reset', () => {
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'error',
+      activeRootPath: '/workspace/a',
+      currentFilePath: 'src/index.ts',
+      importProgress: {
+        completed: 7,
+        current: null,
+        errorCount: 0,
+        total: 7,
+      },
+      lastError: 'boom',
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
-      currentFilePath: 'src/index.ts',
+      pauseReasons: ['Paused manually'],
+      processedFiles: 2,
+      queuedFiles: 99,
       scanSummary: {
-        discoveredFiles: 42,
         changedFiles: 7,
+        discoveredFiles: 42,
         excludedEntries: 5,
         unchangedFiles: 35,
       },
-      importProgress: {
-        completed: 7,
-        total: 7,
-        current: null,
-        errorCount: 0,
-      },
-      queuedFiles: 99,
-      processedFiles: 2,
-      lastError: 'boom',
-      pauseReasons: ['Paused manually'],
-      activeRootPath: '/workspace/a',
+      state: 'error',
     });
 
     useWorkspaceCollectionSyncStatusStore.getState().reset();
 
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-      state: 'disabled',
-      managedCollectionId: null,
-      managedCollectionName: null,
+      activeRootPath: null,
       backfillRequestId: null,
       blockedReason: null,
-      currentFilePath: null,
-      scanSummary: null,
-      importProgress: null,
       chunkingProgress: null,
+      currentFilePath: null,
       embeddingProgress: null,
-      queueProgress: null,
-      queuedFiles: 0,
-      processedFiles: 0,
+      importProgress: null,
       lastError: null,
+      managedCollectionId: null,
+      managedCollectionName: null,
       pauseReasons: [],
-      activeRootPath: null,
+      processedFiles: 0,
+      queuedFiles: 0,
+      queueProgress: null,
+      scanSummary: null,
+      state: 'disabled',
     });
   });
 });

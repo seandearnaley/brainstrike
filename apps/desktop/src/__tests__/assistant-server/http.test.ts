@@ -119,19 +119,19 @@ describe('assistant-server/http utilities', () => {
 
     beforeEach(() => {
       mockRes = {
-        setHeader: vi.fn(),
-        writeHead: vi.fn(),
-        end: vi.fn(),
-        write: vi.fn(() => true),
         destroyed: false,
+        end: vi.fn(),
+        setHeader: vi.fn(),
+        write: vi.fn(() => true),
+        writeHead: vi.fn(),
       } as unknown as http.ServerResponse;
     });
 
     it('should write headers and status code', async () => {
       const response = {
-        status: 200,
-        headers: new Headers({ 'Content-Type': 'text/plain' }),
         body: null,
+        headers: new Headers({ 'Content-Type': 'text/plain' }),
+        status: 200,
       };
 
       await streamResponse(mockRes, response);
@@ -144,9 +144,9 @@ describe('assistant-server/http utilities', () => {
 
     it('should handle null body', async () => {
       const response = {
-        status: 204,
-        headers: new Headers(),
         body: null,
+        headers: new Headers(),
+        status: 204,
       };
 
       await streamResponse(mockRes, response);
@@ -166,9 +166,9 @@ describe('assistant-server/http utilities', () => {
       });
 
       const response = {
-        status: 200,
-        headers: new Headers(),
         body: stream,
+        headers: new Headers(),
+        status: 200,
       };
 
       await streamResponse(mockRes, response);
@@ -191,9 +191,9 @@ describe('assistant-server/http utilities', () => {
       } as unknown as http.ServerResponse;
 
       const response = {
-        status: 200,
-        headers: new Headers(),
         body: null,
+        headers: new Headers(),
+        status: 200,
       };
 
       await expect(streamResponse(mockResWithError, response)).resolves.not.toThrow();
@@ -206,11 +206,11 @@ describe('assistant-server/http utilities', () => {
 
     beforeEach(() => {
       mockRes = {
-        write: vi.fn(() => true),
-        end: vi.fn(),
-        once: vi.fn(),
         destroyed: false,
+        end: vi.fn(),
         flushHeaders: vi.fn(),
+        once: vi.fn(),
+        write: vi.fn(() => true),
       } as unknown as http.ServerResponse;
     });
 
@@ -261,16 +261,16 @@ describe('assistant-server/http utilities', () => {
     it('should handle backpressure with drain event', async () => {
       let drainCallback: (() => void) | undefined;
       const mockResBackpressure = {
-        write: vi.fn(() => false), // Simulate backpressure
+        destroyed: false,
+        end: vi.fn(),
+        flushHeaders: vi.fn(),
         once: vi.fn((event: string, cb: () => void) => {
           if (event === 'drain') {
             drainCallback = cb;
             setTimeout(() => drainCallback?.(), 10);
           }
         }),
-        end: vi.fn(),
-        destroyed: false,
-        flushHeaders: vi.fn(),
+        write: vi.fn(() => false), // Simulate backpressure
       } as unknown as http.ServerResponse;
 
       const stream = new ReadableStream({
@@ -366,13 +366,13 @@ describe('assistant-server/http utilities', () => {
     it('should stop if response destroyed during pumping', async () => {
       let writeCount = 0;
       const mockResDynamic = {
+        destroyed: false,
+        end: vi.fn(),
+        flushHeaders: vi.fn(),
         write: vi.fn(() => {
           writeCount++;
           return true;
         }),
-        end: vi.fn(),
-        destroyed: false,
-        flushHeaders: vi.fn(),
       } as unknown as http.ServerResponse;
 
       Object.defineProperty(mockResDynamic, 'destroyed', {
@@ -421,12 +421,12 @@ describe('assistant-server/http utilities', () => {
       // Create a proper AbortSignal mock with all required methods
       const mockSignal = {
         aborted: false,
-        reason: undefined,
-        throwIfAborted: vi.fn(),
         addEventListener: addEventListenerSpy,
-        removeEventListener: removeEventListenerSpy,
         dispatchEvent: vi.fn(),
         onabort: null,
+        reason: undefined,
+        removeEventListener: removeEventListenerSpy,
+        throwIfAborted: vi.fn(),
       } as unknown as AbortSignal;
 
       const stream = new ReadableStream({

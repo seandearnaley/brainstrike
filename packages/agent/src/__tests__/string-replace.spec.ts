@@ -17,8 +17,8 @@ describe('applyStringReplace — exact match', () => {
     const fileContent = ['line a', 'export const x = 1;', 'line c'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: 'export const x = 1;',
       newStr: 'export const x = 42;',
+      oldStr: 'export const x = 1;',
     });
     expect(result.matchType).toBe('exact');
     expect(result.newContent).toBe(['line a', 'export const x = 42;', 'line c'].join('\n'));
@@ -28,8 +28,8 @@ describe('applyStringReplace — exact match', () => {
     const fileContent = 'before\nREMOVE ME\nafter';
     const result = applyStringReplace({
       fileContent,
-      oldStr: '\nREMOVE ME',
       newStr: '',
+      oldStr: '\nREMOVE ME',
     });
     expect(result.newContent).toBe('before\nafter');
   });
@@ -41,8 +41,8 @@ describe('applyStringReplace — whitespace-normalized match', () => {
     const fileContent = ['function f() {', '\treturn   1 ;', '}'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: 'return 1 ;',
       newStr: '    return 2;',
+      oldStr: 'return 1 ;',
     });
     expect(result.matchType).toBe('whitespace-normalized');
     expect(result.newContent).toContain('return 2;');
@@ -68,7 +68,7 @@ describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-lo
     const fileContent = ['function f() {', '\treturn x;', '    return x;', '}'].join('\n');
     let thrown: unknown;
     try {
-      applyStringReplace({ fileContent, oldStr: 'return  x;', newStr: 'return y;' });
+      applyStringReplace({ fileContent, newStr: 'return y;', oldStr: 'return  x;' });
     } catch (error) {
       thrown = error;
     }
@@ -87,8 +87,8 @@ describe('applyStringReplace — WHITESPACE-NORMALIZED duplicate guard (wrong-lo
     const fileContent = ['function f() {', '\treturn x;', '    return other;', '}'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: 'return  x;',
       newStr: 'return y;',
+      oldStr: 'return  x;',
     });
     expect(result.matchType).toBe('whitespace-normalized');
     expect(result.newContent).toContain('return y;');
@@ -106,8 +106,8 @@ describe('applyStringReplace — Levenshtein-fuzzy match', () => {
     const fileContent = ['const config = {', '  enabled: true,', '  retries: 3,', '};'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: ['const config = {', '  enabled: true,', '  retries: 3,', '};'].join('\n'),
       newStr: ['const config = {', '  enabled: false,', '  retries: 5,', '};'].join('\n'),
+      oldStr: ['const config = {', '  enabled: true,', '  retries: 3,', '};'].join('\n'),
     });
     expect(result.newContent).toContain('enabled: false');
     expect(result.newContent).toContain('retries: 5');
@@ -120,7 +120,7 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     const fileContent = ['count++;', 'doThing();', 'count++;', 'doOther();', 'count++;'].join('\n');
     let thrown: unknown;
     try {
-      applyStringReplace({ fileContent, oldStr: 'count++;', newStr: 'count--;' });
+      applyStringReplace({ fileContent, newStr: 'count--;', oldStr: 'count++;' });
     } catch (error) {
       thrown = error;
     }
@@ -136,8 +136,8 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     const fileContent = ['count++;', 'doThing();', 'uniqueMarker();'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: 'uniqueMarker();',
       newStr: 'replacedMarker();',
+      oldStr: 'uniqueMarker();',
     });
     expect(result.newContent).toContain('replacedMarker();');
     expect(result.newContent).not.toContain('uniqueMarker();');
@@ -149,8 +149,8 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     try {
       applyStringReplace({
         fileContent,
-        oldStr: 'this text does not appear anywhere in the file at all',
         newStr: 'x',
+        oldStr: 'this text does not appear anywhere in the file at all',
       });
     } catch (error) {
       thrown = error;
@@ -172,13 +172,13 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
     try {
       applyStringReplace({
         fileContent,
+        newStr: 'replacement',
         oldStr: [
           'function compute(input) {',
           '  const COMPLETELY_DIFFERENT_LINE_THAT_WILL_NOT_MATCH_AT_ALL = 999999;',
           '  return total;',
           '}',
         ].join('\n'),
-        newStr: 'replacement',
       });
     } catch (error) {
       thrown = error;
@@ -192,7 +192,7 @@ describe('applyStringReplace — SAFETY refusals (no silent fallbacks)', () => {
   it('THROWS no_op when oldStr equals newStr', () => {
     let thrown: unknown;
     try {
-      applyStringReplace({ fileContent: 'a\nb\nc', oldStr: 'b', newStr: 'b' });
+      applyStringReplace({ fileContent: 'a\nb\nc', newStr: 'b', oldStr: 'b' });
     } catch (error) {
       thrown = error;
     }
@@ -212,7 +212,7 @@ describe('applyStringReplace — MULTI-LINE duplicate block guard (over-broad-ed
     const fileContent = [block, 'middle();', block, 'tail();'].join('\n');
     let thrown: unknown;
     try {
-      applyStringReplace({ fileContent, oldStr: block, newStr: 'disable();' });
+      applyStringReplace({ fileContent, newStr: 'disable();', oldStr: block });
     } catch (error) {
       thrown = error;
     }
@@ -225,7 +225,7 @@ describe('applyStringReplace — MULTI-LINE duplicate block guard (over-broad-ed
 
   it('THROWS ambiguous when a multi-line block appears exactly three times', () => {
     const fileContent = [block, 'a();', block, 'b();', block].join('\n');
-    expect(() => applyStringReplace({ fileContent, oldStr: block, newStr: 'x();' })).toThrow(
+    expect(() => applyStringReplace({ fileContent, newStr: 'x();', oldStr: block })).toThrow(
       /3 locations/
     );
   });
@@ -238,8 +238,8 @@ describe('applyStringReplace — MULTI-LINE duplicate block guard (over-broad-ed
     const fileContent = [neighbor, 'sep();', uniqueBlock, 'sep();'].join('\n');
     const result = applyStringReplace({
       fileContent,
-      oldStr: uniqueBlock,
       newStr: 'if (cfg) {\n  enableReplaced();\n}',
+      oldStr: uniqueBlock,
     });
     expect(result.matchType).toBe('exact');
     expect(result.newContent).toContain('enableReplaced();');
@@ -263,8 +263,8 @@ describe('applyStringReplace — no-op success guard (silent-failure fix)', () =
     try {
       applyStringReplace({
         fileContent,
-        oldStr: 'foo(x)',
         newStr: 'bar(x)',
+        oldStr: 'foo(x)',
       });
     } catch (error) {
       thrown = error;

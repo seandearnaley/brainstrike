@@ -34,8 +34,8 @@ export async function initializeEmbeddingService(
     return true;
   } catch (error) {
     logger.error('Failed to initialize embedding service:', {
-      model,
       error: error instanceof Error ? error.message : String(error),
+      model,
       stack: error instanceof Error ? error.stack : undefined,
     });
     return false;
@@ -50,9 +50,9 @@ export async function processChunkEmbedding(
 ): Promise<boolean> {
   if (!(embeddingService && chunkRepository)) {
     logger.warn('Cannot process chunk embedding: service or repository not available', {
-      hasService: !!embeddingService,
-      hasRepository: !!chunkRepository,
       chunkId: chunk.id,
+      hasRepository: !!chunkRepository,
+      hasService: !!embeddingService,
     });
     return false;
   }
@@ -76,8 +76,8 @@ export async function processChunkEmbedding(
       ? await svcAny.generateDocEmbedding(textToEmbed)
       : await embeddingService.generateEmbedding(textToEmbed);
     await chunkRepository.update({
-      id: chunk.id,
       embedding: embeddingResult.embedding,
+      id: chunk.id,
       updatedAt: new Date().toISOString(),
     });
     logger.debug('Successfully embedded chunk', { chunkId: chunk.id, hasContext: !!context });
@@ -117,8 +117,8 @@ async function processChunkWithSetId(
   if (ok && targetEmbeddingSetId) {
     // Update set id metadata if provided so UI badges and coverage reflect inline embeddings
     await chunkRepository.update({
-      id: chunk.id,
       embeddingSetId: targetEmbeddingSetId,
+      id: chunk.id,
       updatedAt: new Date().toISOString(),
     });
   }
@@ -147,13 +147,13 @@ async function processChunksLoop(
       prev
         ? {
             ...prev,
-            phase: 'embedding',
             embeddingProgress: {
               chunksProcessed: i + 1, // Report 1-indexed count (chunk being processed)
-              totalChunks: chunks.length,
               currentChunk: `${chunk.content.slice(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
               modelName: embeddingModel,
+              totalChunks: chunks.length,
             },
+            phase: 'embedding',
           }
         : null
     );
@@ -191,19 +191,19 @@ export async function processEmbeddings(
 ): Promise<void> {
   if (!(embeddingService && chunkRepository && embeddingModel)) {
     logger.warn('Skipping embeddings: missing required dependencies', {
-      hasService: !!embeddingService,
-      hasRepository: !!chunkRepository,
-      model: embeddingModel,
       chunksCount: chunks.length,
       fileId: result.id,
+      hasRepository: !!chunkRepository,
+      hasService: !!embeddingService,
+      model: embeddingModel,
     });
     return;
   }
 
   logger.info('Starting embedding processing', {
     chunksCount: chunks.length,
-    model: embeddingModel,
     fileId: result.id,
+    model: embeddingModel,
     targetEmbeddingSetId,
   });
 
@@ -211,7 +211,7 @@ export async function processEmbeddings(
     const initialized = await initializeEmbeddingService(embeddingService, embeddingModel);
     if (!initialized) {
       const errorMsg = 'Embedding initialization failed';
-      logger.error(errorMsg, { model: embeddingModel, fileId: result.id });
+      logger.error(errorMsg, { fileId: result.id, model: embeddingModel });
       result.error = errorMsg;
       return;
     }
@@ -227,19 +227,19 @@ export async function processEmbeddings(
 
     result.chunksWithEmbeddings = chunksWithEmbeddings;
     logger.info('Embedding processing complete', {
-      fileId: result.id,
-      totalChunks: chunks.length,
-      successfulEmbeddings: chunksWithEmbeddings,
       failedEmbeddings: chunks.length - chunksWithEmbeddings,
+      fileId: result.id,
+      successfulEmbeddings: chunksWithEmbeddings,
+      totalChunks: chunks.length,
     });
   } catch (error) {
     const errorMsg = `Embedding failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
     logger.error('Embedding processing failed:', {
-      fileId: result.id,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
       chunksCount: chunks.length,
+      error: error instanceof Error ? error.message : String(error),
+      fileId: result.id,
       model: embeddingModel,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     result.error = errorMsg;
   }

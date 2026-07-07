@@ -192,15 +192,15 @@ function createGroupTreeNode(
 ): TreeNode<PreviewTreeNodeData> {
   const groupNodeId = resolveGroupNodeId(groupKey);
   return {
-    id: groupNodeId,
-    type: 'preview-group',
-    depth: 0,
-    parentId: null,
-    hasChildren: group.items.length > 0,
     data: {
-      kind: 'group',
       group,
+      kind: 'group',
     },
+    depth: 0,
+    hasChildren: group.items.length > 0,
+    id: groupNodeId,
+    parentId: null,
+    type: 'preview-group',
   };
 }
 
@@ -210,15 +210,15 @@ function createItemTreeNode(
   depth: number
 ): TreeNode<PreviewTreeNodeData> {
   return {
-    id: resolveItemNodeId(item.compositeKey),
-    type: 'preview-item',
-    depth,
-    parentId,
-    hasChildren: false,
     data: {
-      kind: 'item',
       item,
+      kind: 'item',
     },
+    depth,
+    hasChildren: false,
+    id: resolveItemNodeId(item.compositeKey),
+    parentId,
+    type: 'preview-item',
   };
 }
 
@@ -315,9 +315,9 @@ function buildGroupedTreeNodes({
   }
 
   return {
-    nodes,
     expandedGroupNodeIds,
     groupKeyByNodeId,
+    nodes,
   };
 }
 
@@ -516,25 +516,6 @@ function createGroupedCheckboxColumn({
   | 'previewSelectionsRef'
 >): TreeTableColumn<PreviewTreeNodeData> {
   return {
-    id: 'checkbox',
-    isTreeColumn: false,
-    // Pinned width=min=max so TreeTable treats this as non-resizable and
-    // suppresses the handle. The checkbox is a fixed utility column.
-    width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
-    minWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
-    maxWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
-    resizable: false,
-    header: (
-      <HeaderSelectionCheckbox
-        label={headerSelectionLabel}
-        onDeselectAll={onDeselectAllStable}
-        onSelectAll={() => onSelectAllOnPageStable(headerSelectableFilesRef.current)}
-        store={headerSelectionStore}
-      />
-    ),
-    className: PREVIEW_CHECKBOX_CELL_CLASS,
-    headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
-    headerContentClassName: 'w-full justify-center',
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         const group = node.data.group;
@@ -575,6 +556,25 @@ function createGroupedCheckboxColumn({
         </div>
       );
     },
+    className: PREVIEW_CHECKBOX_CELL_CLASS,
+    header: (
+      <HeaderSelectionCheckbox
+        label={headerSelectionLabel}
+        onDeselectAll={onDeselectAllStable}
+        onSelectAll={() => onSelectAllOnPageStable(headerSelectableFilesRef.current)}
+        store={headerSelectionStore}
+      />
+    ),
+    headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
+    headerContentClassName: 'w-full justify-center',
+    id: 'checkbox',
+    isTreeColumn: false,
+    maxWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    minWidth: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    resizable: false,
+    // Pinned width=min=max so TreeTable treats this as non-resizable and
+    // suppresses the handle. The checkbox is a fixed utility column.
+    width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
   };
 }
 
@@ -598,27 +598,6 @@ function createGroupedRootFolderColumn({
 >): TreeTableColumn<PreviewTreeNodeData> {
   const isTreeColumn = groupedTreeColumnId === 'rootFolderId';
   return {
-    id: 'rootFolderId',
-    indentWidth: 8,
-    isTreeColumn,
-    header: (
-      <SortHeaderButton
-        field="rootFolderId"
-        onSort={onSortStable}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        title="Folder"
-      />
-    ),
-    defaultWidth: 176,
-    minWidth: 100,
-    maxWidth: 360,
-    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
-    colSpan: ({ node }) =>
-      node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
-        ? 2
-        : 1,
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         return renderGroupHeaderIfPrimary(node.data.group, 'rootFolderId');
@@ -640,6 +619,27 @@ function createGroupedRootFolderColumn({
         </div>
       );
     },
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    colSpan: ({ node }) =>
+      node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
+        ? 2
+        : 1,
+    defaultWidth: 176,
+    header: (
+      <SortHeaderButton
+        field="rootFolderId"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Folder"
+      />
+    ),
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
+    id: 'rootFolderId',
+    indentWidth: 8,
+    isTreeColumn,
+    maxWidth: 360,
+    minWidth: 100,
   };
 }
 
@@ -661,23 +661,6 @@ function createGroupedPathColumn({
 >): TreeTableColumn<PreviewTreeNodeData> {
   const isTreeColumn = groupedTreeColumnId === 'path';
   return {
-    id: 'path',
-    indentWidth: 8,
-    isTreeColumn,
-    header: (
-      <SortHeaderButton
-        field="path"
-        onSort={onSortStable}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        title="File Path"
-      />
-    ),
-    defaultWidth: 360,
-    minWidth: 160,
-    maxWidth: 900,
-    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         return renderGroupHeaderIfPrimary(node.data.group, 'path');
@@ -687,9 +670,9 @@ function createGroupedPathColumn({
       const { fileName } = splitFilePath(item.path);
       const displayDirPath = formatFilePathSubtitle({
         filePath: item.path,
+        rootDisplayName: item.rootDisplayName,
         rootFolderId: item.rootFolderId,
         rootPath: item.rootPath,
-        rootDisplayName: item.rootDisplayName,
       });
 
       return (
@@ -714,6 +697,23 @@ function createGroupedPathColumn({
         </button>
       );
     },
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    defaultWidth: 360,
+    header: (
+      <SortHeaderButton
+        field="path"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="File Path"
+      />
+    ),
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
+    id: 'path',
+    indentWidth: 8,
+    isTreeColumn,
+    maxWidth: 900,
+    minWidth: 160,
   };
 }
 
@@ -733,8 +733,15 @@ function createGroupedTypeColumn({
 >): TreeTableColumn<PreviewTreeNodeData> {
   const isTreeColumn = groupedTreeColumnId === 'type';
   return {
-    id: 'type',
-    isTreeColumn,
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        return renderGroupHeaderIfPrimary(node.data.group, 'type');
+      }
+
+      return <ExtensionBadge extension={node.data.item.type} />;
+    },
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    defaultWidth: 96,
     header: (
       <SortHeaderButton
         field="type"
@@ -744,18 +751,11 @@ function createGroupedTypeColumn({
         title="Type"
       />
     ),
-    defaultWidth: 96,
-    minWidth: 72,
-    maxWidth: 180,
-    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
     headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
-    cell: ({ node }) => {
-      if (node.data.kind === 'group') {
-        return renderGroupHeaderIfPrimary(node.data.group, 'type');
-      }
-
-      return <ExtensionBadge extension={node.data.item.type} />;
-    },
+    id: 'type',
+    isTreeColumn,
+    maxWidth: 180,
+    minWidth: 72,
   };
 }
 
@@ -777,24 +777,6 @@ function createGroupedTokensColumn({
 >): TreeTableColumn<PreviewTreeNodeData> {
   const isTreeColumn = groupedTreeColumnId === 'tokens';
   return {
-    id: 'tokens',
-    isTreeColumn,
-    header: (
-      <SortHeaderButton
-        field="tokens"
-        onSort={onSortStable}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        title="Tokens"
-      />
-    ),
-    defaultWidth: 96,
-    minWidth: 72,
-    maxWidth: 180,
-    className: isTreeColumn
-      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
-      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         if (primaryGroupColumn === 'tokens') {
@@ -821,6 +803,24 @@ function createGroupedTokensColumn({
         </span>
       );
     },
+    className: isTreeColumn
+      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    defaultWidth: 96,
+    header: (
+      <SortHeaderButton
+        field="tokens"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Tokens"
+      />
+    ),
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
+    id: 'tokens',
+    isTreeColumn,
+    maxWidth: 180,
+    minWidth: 72,
   };
 }
 
@@ -842,24 +842,6 @@ function createGroupedSizeColumn({
 >): TreeTableColumn<PreviewTreeNodeData> {
   const isTreeColumn = groupedTreeColumnId === 'size';
   return {
-    id: 'size',
-    isTreeColumn,
-    header: (
-      <SortHeaderButton
-        field="size"
-        onSort={onSortStable}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        title="Size"
-      />
-    ),
-    defaultWidth: 96,
-    minWidth: 72,
-    maxWidth: 180,
-    className: isTreeColumn
-      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
-      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
-    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         if (primaryGroupColumn === 'size') {
@@ -885,6 +867,24 @@ function createGroupedSizeColumn({
         </span>
       );
     },
+    className: isTreeColumn
+      ? 'whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    defaultWidth: 96,
+    header: (
+      <SortHeaderButton
+        field="size"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Size"
+      />
+    ),
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
+    id: 'size',
+    isTreeColumn,
+    maxWidth: 180,
+    minWidth: 72,
   };
 }
 
@@ -996,8 +996,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
-        groupedData,
         collapsedGroups,
+        groupedData,
         pagination,
       }),
     // previewSelections is a deliberate re-render trigger, not read here: the
@@ -1097,8 +1097,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         groupedTreeColumnId,
         handleGroupDeselectAllStable,
         handleGroupSelectAllStable,
-        headerSelectionLabel,
         headerSelectableFilesRef,
+        headerSelectionLabel,
         headerSelectionStore,
         isGroupFullySelectedRef,
         isGroupPartiallySelectedRef,

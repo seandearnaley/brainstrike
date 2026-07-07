@@ -76,8 +76,8 @@ const FileTreeIndexContext = createContext<FileTreeIndexContextValue | null>(nul
  */
 interface FileTreeIndexRegistry {
   readonly index: FileTreeIndex;
-  register(folderId: string, ownerId: string): void;
-  unregister(folderId: string, ownerId: string): void;
+  register: (folderId: string, ownerId: string) => void;
+  unregister: (folderId: string, ownerId: string) => void;
 }
 
 function createFileTreeIndexRegistry(): FileTreeIndexRegistry {
@@ -290,8 +290,8 @@ export function FileTreeProvider({
   // Version changes trigger re-renders, but getNode/getHandle identities remain stable
   const indexContextValue = useMemo<FileTreeIndexContextValue>(
     () => ({
-      getNode,
       getHandle,
+      getNode,
       stats: index.stats,
       version: indexVersion,
     }),

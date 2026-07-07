@@ -13,18 +13,18 @@ const {
   const listTools = vi.fn(async () => ({
     tools: [
       {
-        name: 'read_file',
         description: 'Read a file',
         inputSchema: { type: 'object' },
+        name: 'read_file',
       },
       {
-        name: 'list_directory',
         description: 'List a directory',
         inputSchema: { type: 'object' },
+        name: 'list_directory',
       },
     ],
   }));
-  const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] }));
+  const callTool = vi.fn(async () => ({ content: [{ text: 'ok', type: 'text' }] }));
   const closeClient = vi.fn(async () => {});
   const closeTransport = vi.fn(async () => {});
   function MockClient(this: Record<string, unknown>) {
@@ -38,12 +38,12 @@ const {
   }
 
   return {
-    clientConnectMock: connect,
-    clientListToolsMock: listTools,
     clientCallToolMock: callTool,
     clientCloseMock: closeClient,
-    transportCloseMock: closeTransport,
+    clientConnectMock: connect,
     clientCtorMock: vi.fn(MockClient),
+    clientListToolsMock: listTools,
+    transportCloseMock: closeTransport,
     transportCtorMock: vi.fn(MockTransport),
   };
 });
@@ -83,19 +83,19 @@ describe('stdio client', () => {
 
   it('discovers real MCP tools and namespaces them by server', async () => {
     const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
       name: 'filesystem',
       transport: 'stdio',
-      command: 'node',
-      args: ['/root'],
     });
 
     await expect(client.listTools()).resolves.toEqual({
-      'filesystem.read_file': {
-        description: 'Read a file',
-        inputSchema: { type: 'object' },
-      },
       'filesystem.list_directory': {
         description: 'List a directory',
+        inputSchema: { type: 'object' },
+      },
+      'filesystem.read_file': {
+        description: 'Read a file',
         inputSchema: { type: 'object' },
       },
     });
@@ -105,19 +105,19 @@ describe('stdio client', () => {
 
   it('calls tools using the raw MCP tool name discovered from tools/list', async () => {
     const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
       name: 'filesystem',
       transport: 'stdio',
-      command: 'node',
-      args: ['/root'],
     });
 
     await expect(client.callTool('filesystem.list_directory', { path: '/root' })).resolves.toEqual({
-      content: [{ type: 'text', text: 'ok' }],
+      content: [{ text: 'ok', type: 'text' }],
     });
     expect(clientCallToolMock).toHaveBeenCalledWith(
       {
-        name: 'list_directory',
         arguments: { path: '/root' },
+        name: 'list_directory',
       },
       undefined,
       expect.objectContaining({
@@ -128,10 +128,10 @@ describe('stdio client', () => {
 
   it('throws for unsupported tools', async () => {
     const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
       name: 'filesystem',
       transport: 'stdio',
-      command: 'node',
-      args: ['/root'],
     });
 
     await expect(client.callTool('unknown.tool')).rejects.toThrow('Unsupported MCP tool');
@@ -139,10 +139,10 @@ describe('stdio client', () => {
 
   it('disposes the SDK client and transport safely', async () => {
     const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
       name: 'filesystem',
       transport: 'stdio',
-      command: 'node',
-      args: ['/root'],
     });
 
     await client.listTools();
@@ -159,10 +159,10 @@ describe('stdio client', () => {
       .mockResolvedValueOnce(undefined);
 
     const client = createStdioClient({
+      args: ['/root'],
+      command: 'node',
       name: 'filesystem',
       transport: 'stdio',
-      command: 'node',
-      args: ['/root'],
     });
 
     await expect(client.listTools()).rejects.toThrow('connect failed');
@@ -175,12 +175,12 @@ describe('stdio client', () => {
     vi.advanceTimersByTime(1000);
 
     await expect(client.listTools()).resolves.toEqual({
-      'filesystem.read_file': {
-        description: 'Read a file',
-        inputSchema: { type: 'object' },
-      },
       'filesystem.list_directory': {
         description: 'List a directory',
+        inputSchema: { type: 'object' },
+      },
+      'filesystem.read_file': {
+        description: 'Read a file',
         inputSchema: { type: 'object' },
       },
     });

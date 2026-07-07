@@ -53,20 +53,20 @@ const resolveRangeKeyAction = (args: {
 
   switch (key) {
     case 'ArrowUp':
-      return { type: 'move', startLine: Math.max(0, range.startLine - 1) };
+      return { startLine: Math.max(0, range.startLine - 1), type: 'move' };
     case 'ArrowDown':
-      return { type: 'move', startLine: Math.min(totalLines - rangeHeight, range.startLine + 1) };
+      return { startLine: Math.min(totalLines - rangeHeight, range.startLine + 1), type: 'move' };
     case 'PageUp':
-      return { type: 'move', startLine: Math.max(0, range.startLine - 10) };
+      return { startLine: Math.max(0, range.startLine - 10), type: 'move' };
     case 'PageDown':
       return {
-        type: 'move',
         startLine: Math.min(totalLines - rangeHeight, range.startLine + 10),
+        type: 'move',
       };
     case 'Home':
-      return { type: 'move', startLine: 0 };
+      return { startLine: 0, type: 'move' };
     case 'End':
-      return { type: 'move', startLine: Math.max(0, totalLines - rangeHeight) };
+      return { startLine: Math.max(0, totalLines - rangeHeight), type: 'move' };
     case 'Enter':
     case ' ':
       return { type: 'toggle' };
@@ -104,7 +104,7 @@ const clampKeyboardMove = (
     return null;
   }
 
-  return { startLine, endLine };
+  return { endLine, startLine };
 };
 
 const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewState => {
@@ -130,10 +130,10 @@ const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewSta
   const showRemainingLines = hasContent && remainingLines > 0;
 
   return {
-    previewStartLine,
-    previewLines,
-    remainingLines,
     hasPreviewLines,
+    previewLines,
+    previewStartLine,
+    remainingLines,
     showLoadingState,
     showRemainingLines,
   };
@@ -214,7 +214,7 @@ const RangeItem = memo(
           const bounds =
             siblings.length > 0
               ? clampKeyboardMove(action.startLine, rangeHeight, range.startLine, siblings)
-              : { startLine: action.startLine, endLine: action.startLine + rangeHeight };
+              : { endLine: action.startLine + rangeHeight, startLine: action.startLine };
           if (bounds) {
             onMoveRange(file.id, range.id, bounds.startLine, bounds.endLine);
           }
@@ -250,11 +250,11 @@ const RangeItem = memo(
             }}
             role="slider"
             style={{
-              top,
-              height: Math.max(lineScale, height),
               backgroundColor: `${range.color}20`,
               borderLeft: `3px solid ${range.color}`,
               boxShadow: range.isActive ? `inset 0 0 20px -10px ${range.color}` : 'none',
+              height: Math.max(lineScale, height),
+              top,
             }}
             tabIndex={0}
           >
@@ -291,7 +291,7 @@ const RangeItem = memo(
             {range.isActive && (
               <div
                 className="pointer-events-none absolute -top-2 right-4 z-40 select-none rounded border border-border bg-background px-1 font-mono text-[9px] shadow-xs"
-                style={{ color: range.color, borderColor: range.color }}
+                style={{ borderColor: range.color, color: range.color }}
               >
                 #{globalIndex}
               </div>

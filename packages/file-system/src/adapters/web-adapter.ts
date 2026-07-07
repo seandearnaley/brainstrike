@@ -115,15 +115,15 @@ function createDirectoryNode(
   parentHandleName: string
 ): IFileNode {
   return {
+    children: [],
+    depth: 0,
+    handle: entryHandle,
+    isVisible: true,
     name,
     path: `${parentPath}/${name}`,
-    type: 'directory',
-    handle: entryHandle,
-    depth: 0,
-    selectionState: 'unchecked',
-    children: [],
     rootFolderId: parentHandleName,
-    isVisible: true,
+    selectionState: 'unchecked',
+    type: 'directory',
   };
 }
 
@@ -140,14 +140,14 @@ async function createFileNode(
   includeMetadata: boolean
 ): Promise<IFileNode> {
   const baseNode: IFileNode = {
+    depth: 0,
+    handle: fileHandle,
+    isVisible: true,
     name,
     path: `${parentPath}/${name}`,
-    type: 'file',
-    handle: fileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: parentHandleName,
-    isVisible: true,
+    selectionState: 'unchecked',
+    type: 'file',
   };
 
   if (!includeMetadata) {
@@ -158,8 +158,8 @@ async function createFileNode(
     const file = await fileHandle.getFile();
     return {
       ...baseNode,
-      size: file.size,
       lastModified: file.lastModified,
+      size: file.size,
     };
   } catch {
     // Fallback to basic node if getFile fails
@@ -289,8 +289,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
     void this.handleCache.storeFileHandle(folderId, path, fileHandle).catch((err) => {
       logger.debug('cacheFileHandleForPath: best-effort file handle persistence failed', {
-        path,
         error: err instanceof Error ? err.message : String(err),
+        path,
       });
     });
   }
@@ -301,11 +301,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
    */
   private toDirectoryHandle(dirHandle: FileSystemDirectoryHandle): DirectoryHandle {
     return {
-      path: dirHandle.name, // Web API doesn't give full path for security
-      name: dirHandle.name,
-      kind: 'directory',
-      platform: 'web',
       _internal: dirHandle,
+      kind: 'directory',
+      name: dirHandle.name,
+      path: dirHandle.name, // Web API doesn't give full path for security
+      platform: 'web',
     };
   }
 
@@ -343,8 +343,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         }
       } catch (err) {
         logger.debug('findExistingRootId: isSameEntry threw for stored handle, skipping', {
-          folderId: record.folderId,
           error: err instanceof Error ? err.message : String(err),
+          folderId: record.folderId,
         });
       }
     }
@@ -465,15 +465,15 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     for await (const [name, entryHandle] of dirHandle.entries()) {
       if (entryHandle.kind === 'directory') {
         dirNodes.push({
+          children: [], // Lazy loaded
+          depth: 0, // This should be calculated by the caller
+          handle: entryHandle as FileSystemDirectoryHandle,
+          isVisible: true,
           name,
           path: `${handle.path}/${name}`,
-          type: 'directory',
-          handle: entryHandle as FileSystemDirectoryHandle,
-          depth: 0, // This should be calculated by the caller
-          selectionState: 'unchecked',
-          children: [], // Lazy loaded
           rootFolderId: handle.path,
-          isVisible: true,
+          selectionState: 'unchecked',
+          type: 'directory',
         });
       } else {
         const fileHandle = entryHandle as FileSystemFileHandle;
@@ -485,16 +485,16 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
               try {
                 const file = await fileHandle.getFile();
                 return {
+                  depth: 0, // This should be calculated by the caller
+                  handle: fileHandle,
+                  isVisible: true,
+                  lastModified: file.lastModified,
                   name,
                   path: filePath,
-                  type: 'file',
-                  handle: fileHandle,
-                  depth: 0, // This should be calculated by the caller
-                  selectionState: 'unchecked',
                   rootFolderId: handle.path,
-                  isVisible: true,
+                  selectionState: 'unchecked',
                   size: file.size,
-                  lastModified: file.lastModified,
+                  type: 'file',
                 } satisfies IFileNode;
               } catch {
                 return null;
@@ -503,14 +503,14 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
           );
         } else {
           dirNodes.push({
+            depth: 0, // This should be calculated by the caller
+            handle: fileHandle,
+            isVisible: true,
             name,
             path: filePath,
-            type: 'file',
-            handle: fileHandle,
-            depth: 0, // This should be calculated by the caller
-            selectionState: 'unchecked',
             rootFolderId: handle.path,
-            isVisible: true,
+            selectionState: 'unchecked',
+            type: 'file',
           });
         }
       }
@@ -550,8 +550,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       }
     } catch (err) {
       logger.debug('readFile: best-effort file handle persistence failed', {
-        path: handle.path,
         error: err instanceof Error ? err.message : String(err),
+        path: handle.path,
       });
     }
     const file = await fileHandle.getFile();
@@ -623,12 +623,12 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     // previous implementation did via a conditional spread.
     const rootFolderId = this.resolveRootFolderId(path) as string;
     return this.readFile({
-      path,
-      name: fileHandle.name,
+      _internal: fileHandle,
       kind: 'file',
+      name: fileHandle.name,
+      path,
       platform: 'web',
       rootFolderId,
-      _internal: fileHandle,
     });
   }
 
@@ -651,7 +651,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   ): Promise<{ kind: 'handle'; fileHandle: FileSystemFileHandle; fileSize: number }> {
     const fileHandle = await this.resolveFileHandleByPath(path);
     const file = await fileHandle.getFile();
-    return { kind: 'handle', fileHandle, fileSize: file.size };
+    return { fileHandle, fileSize: file.size, kind: 'handle' };
   }
 
   async exists(_path: string): Promise<boolean> {
@@ -710,11 +710,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     this.lastRootFolderId = latest.folderId;
 
     return {
-      path: latest.handle.name,
-      name: latest.handle.name,
-      kind: 'directory',
-      platform: 'web',
       _internal: latest.handle,
+      kind: 'directory',
+      name: latest.handle.name,
+      path: latest.handle.name,
+      platform: 'web',
     };
   }
 
@@ -766,11 +766,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
         switch (r.type) {
           case 'appeared':
-            return [{ type: 'added', path: fullPath, kind }];
+            return [{ kind, path: fullPath, type: 'added' }];
           case 'disappeared':
-            return [{ type: 'removed', path: fullPath, kind }];
+            return [{ kind, path: fullPath, type: 'removed' }];
           case 'modified':
-            return [{ type: 'modified', path: fullPath, kind }];
+            return [{ kind, path: fullPath, type: 'modified' }];
           case 'moved': {
             // A rename is a removed+added pair so consumers re-index both the
             // vacated and the new path. When the observer didn't report the
@@ -780,11 +780,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
             if (movedFrom && movedFrom.length > 0) {
               const oldFullPath = `${handle.path}/${movedFrom.join('/')}`;
               return [
-                { type: 'removed', path: oldFullPath, kind },
-                { type: 'added', path: fullPath, kind },
+                { kind, path: oldFullPath, type: 'removed' },
+                { kind, path: fullPath, type: 'added' },
               ];
             }
-            return [{ type: 'added', path: fullPath, kind }];
+            return [{ kind, path: fullPath, type: 'added' }];
           }
           default:
             // 'errored' and 'unknown' have no FileSystemChange equivalent;
@@ -820,8 +820,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
           logger.warn(
             'watchDirectory: FileSystemObserver.observe() rejected, folder is unwatched',
             {
-              path: handle.path,
               error: err instanceof Error ? err.message : String(err),
+              path: handle.path,
             }
           );
           observer.disconnect();
@@ -831,8 +831,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       // Permission revoked or handle invalid: log a visible warn and return a
       // no-op disposer. This is a capability failure — it must not be silent.
       logger.warn('watchDirectory: FileSystemObserver.observe() threw, folder is unwatched', {
-        path: handle.path,
         error: err instanceof Error ? err.message : String(err),
+        path: handle.path,
       });
       return () => {};
     }

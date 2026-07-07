@@ -130,7 +130,7 @@ describe('MemoryStorageAdapter', () => {
 
   describe('complex scenarios', () => {
     it('should handle JSON data correctly', async () => {
-      const testData = { name: 'test', value: 123, nested: { prop: 'value' } };
+      const testData = { name: 'test', nested: { prop: 'value' }, value: 123 };
       const jsonString = JSON.stringify(testData);
 
       await adapter.setItem('json-data', jsonString);

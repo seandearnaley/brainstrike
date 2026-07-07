@@ -56,25 +56,25 @@ type FormAction =
 function getInitialState(prompt: Prompt | null | undefined): FormState {
   if (prompt) {
     return {
-      title: prompt.title,
-      content: prompt.content,
       categoryId: prompt.categoryId,
-      tags: prompt.tags,
-      tagInput: '',
+      content: prompt.content,
       modelSettings: { ...prompt.modelSettings },
       restorableDraftSource: 'prompt',
       restoredRevisionId: null,
+      tagInput: '',
+      tags: prompt.tags,
+      title: prompt.title,
     };
   }
   return {
-    title: '',
-    content: '',
     categoryId: 'general',
-    tags: [],
-    tagInput: '',
+    content: '',
     modelSettings: { model: 'gpt-5.2', temperature: 0.7, topP: 1 },
     restorableDraftSource: 'prompt',
     restoredRevisionId: null,
+    tagInput: '',
+    tags: [],
+    title: '',
   };
 }
 
@@ -139,16 +139,16 @@ export function PromptEditor({
 
   useEffect(() => {
     // Key initialization to dialog sessions and prompt identity; same-prompt updates while open must not overwrite draft edits.
-    dispatch({ type: 'INIT', prompt });
+    dispatch({ prompt, type: 'INIT' });
   }, [promptId, _isOpen]);
 
   const handleSave = () => {
     const promptData: PromptEditorSaveData = {
-      title,
-      content,
       categoryId,
-      tags,
+      content,
       modelSettings,
+      tags,
+      title,
       // If editing, we might want to create a revision, but that logic can be in the store/parent
     };
 
@@ -162,13 +162,13 @@ export function PromptEditor({
 
   const addTag = () => {
     if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      dispatch({ type: 'SET_TAGS', tags: [...tags, tagInput.trim()] });
-      dispatch({ type: 'SET_FIELD', field: 'tagInput', value: '' });
+      dispatch({ tags: [...tags, tagInput.trim()], type: 'SET_TAGS' });
+      dispatch({ field: 'tagInput', type: 'SET_FIELD', value: '' });
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    dispatch({ type: 'SET_TAGS', tags: tags.filter((tag) => tag !== tagToRemove) });
+    dispatch({ tags: tags.filter((tag) => tag !== tagToRemove), type: 'SET_TAGS' });
   };
 
   const restoreRevision = (revision: PromptRevision) => {
@@ -182,7 +182,7 @@ export function PromptEditor({
       }
     }
 
-    dispatch({ type: 'RESTORE_REVISION', revision });
+    dispatch({ revision, type: 'RESTORE_REVISION' });
   };
 
   return (
@@ -208,7 +208,7 @@ export function PromptEditor({
                 className="font-medium text-lg"
                 id="title"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  dispatch({ type: 'SET_FIELD', field: 'title', value: e.target.value })
+                  dispatch({ field: 'title', type: 'SET_FIELD', value: e.target.value })
                 }
                 placeholder="e.g., Code Refactoring Assistant"
                 value={title}
@@ -222,7 +222,7 @@ export function PromptEditor({
                 id="content"
                 minRows={10}
                 onChange={(e) =>
-                  dispatch({ type: 'SET_FIELD', field: 'content', value: e as unknown as string })
+                  dispatch({ field: 'content', type: 'SET_FIELD', value: e as unknown as string })
                 }
                 placeholder="Enter your system prompt here..."
                 value={content}
@@ -236,7 +236,7 @@ export function PromptEditor({
               <Label>Category</Label>
               <Select
                 onValueChange={(v) =>
-                  dispatch({ type: 'SET_FIELD', field: 'categoryId', value: v })
+                  dispatch({ field: 'categoryId', type: 'SET_FIELD', value: v })
                 }
                 value={categoryId}
               >
@@ -265,7 +265,7 @@ export function PromptEditor({
                 mode="single"
                 models={availableModels}
                 modelType="llm"
-                onChange={(id) => dispatch({ type: 'SET_MODEL', model: id as string })}
+                onChange={(id) => dispatch({ model: id as string, type: 'SET_MODEL' })}
                 placeholder="Select a model..."
                 providers={providers}
                 value={model}
@@ -284,8 +284,8 @@ export function PromptEditor({
                 min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   dispatch({
-                    type: 'SET_TEMPERATURE',
                     temperature: Number.parseFloat(e.target.value),
+                    type: 'SET_TEMPERATURE',
                   })
                 }
                 step="0.1"
@@ -324,7 +324,7 @@ export function PromptEditor({
                   className="h-8 text-sm"
                   id={tagInputId}
                   onChange={(e) =>
-                    dispatch({ type: 'SET_FIELD', field: 'tagInput', value: e.target.value })
+                    dispatch({ field: 'tagInput', type: 'SET_FIELD', value: e.target.value })
                   }
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {

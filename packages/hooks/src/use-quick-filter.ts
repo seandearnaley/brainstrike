@@ -30,9 +30,9 @@ export function useQuickFilter(fileTree: IFileNode[]) {
   }, []);
 
   return {
+    clearFilter,
+    filteredTree,
     quickFilter,
     setQuickFilter,
-    filteredTree,
-    clearFilter,
   };
 }

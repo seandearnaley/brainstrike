@@ -47,9 +47,8 @@ interface WorkspaceContextCurationState {
 // which are mounted in different UI subtrees. Snapshots carry selectionFolderId
 // and range state is pruned on folder changes so stale roots are not reused.
 export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationState>((set) => ({
-  contextSnapshot: null,
-  tapestryRangesByKey: {},
   clearTapestryRanges: () => set({ tapestryRangesByKey: {} }),
+  contextSnapshot: null,
   setContextSnapshot: (snapshot) =>
     set((state) => {
       const previousFolderId = state.contextSnapshot?.selectionFolderId ?? null;
@@ -71,4 +70,5 @@ export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationS
         [compositeKey]: ranges,
       },
     })),
+  tapestryRangesByKey: {},
 }));

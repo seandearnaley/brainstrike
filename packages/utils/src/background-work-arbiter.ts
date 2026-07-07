@@ -108,8 +108,8 @@ class BackgroundWorkArbiter {
       .sort();
     const nextSnapshot: BackgroundWorkArbiterSnapshot = {
       automaticPauseReasons,
-      manualPause: this.manualPause,
       backgroundIndexingPaused: this.manualPause || automaticPauseReasons.length > 0,
+      manualPause: this.manualPause,
     };
     const currentSnapshot = this.snapshot;
     if (

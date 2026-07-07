@@ -7,15 +7,15 @@ import type { SearchModeBarProps } from '../collection-browser/types';
 
 describe('SearchModeBar', () => {
   const createProps = (overrides: Partial<SearchModeBarProps> = {}): SearchModeBarProps => ({
+    hasSearched: false,
+    isSearchExpanded: false,
+    isSearching: false,
     mode: 'semantic',
     onModeChange: vi.fn(),
-    semanticQuery: '',
+    onSearchExpandedChange: vi.fn(),
     onSemanticQueryChange: vi.fn(),
     onSemanticSearch: vi.fn(),
-    isSearching: false,
-    isSearchExpanded: false,
-    onSearchExpandedChange: vi.fn(),
-    hasSearched: false,
+    semanticQuery: '',
     ...overrides,
   });
 
@@ -103,7 +103,7 @@ describe('SearchModeBar', () => {
   it('disables Loader2 spin animation under reduced motion', () => {
     render(
       <SearchModeBar
-        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', isSearching: true })}
+        {...createProps({ isSearchExpanded: true, isSearching: true, semanticQuery: 'test' })}
       />
     );
 
@@ -156,7 +156,7 @@ describe('SearchModeBar', () => {
     const onSemanticQueryChange = vi.fn();
     render(
       <SearchModeBar
-        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticQueryChange })}
+        {...createProps({ isSearchExpanded: true, onSemanticQueryChange, semanticQuery: 'test' })}
       />
     );
 
@@ -221,7 +221,7 @@ describe('SearchModeBar', () => {
   it('disables search button when searching', () => {
     render(
       <SearchModeBar
-        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', isSearching: true })}
+        {...createProps({ isSearchExpanded: true, isSearching: true, semanticQuery: 'test' })}
       />
     );
 
@@ -249,7 +249,7 @@ describe('SearchModeBar', () => {
     const onSemanticSearch = vi.fn();
     render(
       <SearchModeBar
-        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticSearch })}
+        {...createProps({ isSearchExpanded: true, onSemanticSearch, semanticQuery: 'test' })}
       />
     );
 
@@ -262,12 +262,12 @@ describe('SearchModeBar', () => {
     const onSemanticSearch = vi.fn();
     render(
       <SearchModeBar
-        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticSearch })}
+        {...createProps({ isSearchExpanded: true, onSemanticSearch, semanticQuery: 'test' })}
       />
     );
 
     const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER);
-    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(input, { ctrlKey: true, key: 'Enter' });
 
     expect(onSemanticSearch).toHaveBeenCalled();
   });
@@ -309,8 +309,8 @@ describe('SearchModeBar', () => {
       <SearchModeBar
         {...createProps({
           advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
-          isSearchExpanded: true,
           advancedOptionsOpen: false,
+          isSearchExpanded: true,
         })}
       />
     );
@@ -323,8 +323,8 @@ describe('SearchModeBar', () => {
       <SearchModeBar
         {...createProps({
           advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
-          isSearchExpanded: true,
           advancedOptionsOpen: true,
+          isSearchExpanded: true,
         })}
       />
     );
@@ -338,8 +338,8 @@ describe('SearchModeBar', () => {
       <SearchModeBar
         {...createProps({
           advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
-          isSearchExpanded: true,
           advancedOptionsOpen: false,
+          isSearchExpanded: true,
           onAdvancedOptionsOpenChange,
         })}
       />

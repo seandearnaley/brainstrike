@@ -39,14 +39,14 @@ function createFixtureCapableAdapter(
   } = {}
 ): FileSystemAdapter {
   return {
-    requestDirectoryAccess: vi.fn(),
-    readDirectory: vi.fn(),
-    readFile: vi.fn(),
+    clearInlineFixture: overrides.clearInlineFixture ?? vi.fn(async () => undefined),
     exists: vi.fn(),
+    isInlineFixtureActive: overrides.isInlineFixtureActive ?? vi.fn(() => false),
     loadInlineFixture:
       overrides.loadInlineFixture ?? vi.fn(async () => ({}) as FileSystemDirectoryHandle),
-    clearInlineFixture: overrides.clearInlineFixture ?? vi.fn(async () => undefined),
-    isInlineFixtureActive: overrides.isInlineFixtureActive ?? vi.fn(() => false),
+    readDirectory: vi.fn(),
+    readFile: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
     ...overrides,
   } as unknown as FileSystemAdapter;
 }
@@ -54,51 +54,51 @@ function createFixtureCapableAdapter(
 function createFixtureStore(initialEnabled: boolean) {
   return createStore<FileExplorerState>()((set) => ({
     ...(DEFAULT_STATE as FileExplorerState),
-    currentFolderId: null,
-    folderStates: {},
-    folderAccessOrder: [],
-    selectedFilePaths: new Set<string>(),
-    expandedDirectoryPaths: new Set<string>(),
-    selectionModel: createEmptySelectionModel(),
-    devInlineFixtureEnabled: initialEnabled,
-    setDevInlineFixtureEnabled: (value) => set({ devInlineFixtureEnabled: value }),
-    setCurrentFolderId: vi.fn(),
-    hydrateFolderState: vi.fn(),
-    setSelectedFiles: vi.fn(),
-    addSelectedFile: vi.fn(),
-    removeSelectedFile: vi.fn(),
-    toggleSelectedFile: vi.fn(),
-    clearSelectedFiles: vi.fn(),
+    addFilter: vi.fn(),
     addMultipleSelectedFiles: vi.fn(),
-    removeMultipleSelectedFiles: vi.fn(),
     addMultipleSelectedFilesChunked: vi.fn(),
-    setExpandedPaths: vi.fn(),
-    toggleDirectoryExpansion: vi.fn(),
-    setFilters: vi.fn(),
-    setUseRegex: vi.fn(),
-    setIncludeProjectTree: vi.fn(),
-    setFolderSummaryThreshold: vi.fn(),
-    setMaxSelectionCount: vi.fn(),
-    setLastActiveTab: vi.fn(),
-    expandAllDirectories: vi.fn(),
-    collapseAllDirectories: vi.fn(),
-    setFileContent: vi.fn(),
-    clearFileContents: vi.fn(),
+    addSelectedFile: vi.fn(),
     clearAllFileContents: vi.fn(),
-    setQuickFilter: vi.fn(),
+    clearFileContents: vi.fn(),
     clearQuickFilter: vi.fn(),
-    setIsAccessLoading: vi.fn(),
-    setFiltersExpanded: vi.fn(),
-    setSelectionMode: vi.fn(),
-    setSelectionRules: vi.fn(),
-    setMaterializedRuleSelection: vi.fn(),
+    clearSelectedFiles: vi.fn(),
+    collapseAllDirectories: vi.fn(),
     commitRulesToExplicit: vi.fn(),
+    currentFolderId: null,
+    devInlineFixtureEnabled: initialEnabled,
+    expandAllDirectories: vi.fn(),
+    expandedDirectoryPaths: new Set<string>(),
+    folderAccessOrder: [],
+    folderStates: {},
+    hydrateFolderState: vi.fn(),
+    removeFilter: vi.fn(),
+    removeMultipleSelectedFiles: vi.fn(),
+    removeSelectedFile: vi.fn(),
+    selectedFilePaths: new Set<string>(),
+    selectionModel: createEmptySelectionModel(),
+    setCurrentFolderId: vi.fn(),
+    setDevInlineFixtureEnabled: (value) => set({ devInlineFixtureEnabled: value }),
+    setExpandedPaths: vi.fn(),
+    setFileContent: vi.fn(),
+    setFilters: vi.fn(),
+    setFiltersExpanded: vi.fn(),
+    setFolderSummaryThreshold: vi.fn(),
+    setIncludeProjectTree: vi.fn(),
+    setIsAccessLoading: vi.fn(),
+    setLastActiveTab: vi.fn(),
+    setMaterializedRuleSelection: vi.fn(),
+    setMaxSelectionCount: vi.fn(),
     setQuerySelection: vi.fn(),
     setQuerySelectionManifest: vi.fn(),
+    setQuickFilter: vi.fn(),
+    setSelectedFiles: vi.fn(),
+    setSelectionMode: vi.fn(),
+    setSelectionRules: vi.fn(),
+    setUseRegex: vi.fn(),
     setViewFilterPresetId: vi.fn(),
-    addFilter: vi.fn(),
-    removeFilter: vi.fn(),
+    toggleDirectoryExpansion: vi.fn(),
     toggleFilterEnabled: vi.fn(),
+    toggleSelectedFile: vi.fn(),
   }));
 }
 
@@ -137,10 +137,10 @@ describe('setup-inline-fixture-subscription', () => {
 
   it('logs and contains rollback failures instead of leaking an unhandled rejection', async () => {
     const adapter = createFixtureCapableAdapter({
+      isInlineFixtureActive: () => false,
       loadInlineFixture: vi.fn(async () => {
         throw new Error('fixture failed');
       }),
-      isInlineFixtureActive: () => false,
     });
     const store = createFixtureStore(true);
 
@@ -155,14 +155,14 @@ describe('setup-inline-fixture-subscription', () => {
     await Promise.resolve();
 
     expect(loggerMocks.warn).toHaveBeenCalledWith('Failed to toggle inline fixture', {
-      error: expect.any(Error),
       enabled: true,
+      error: expect.any(Error),
     });
     expect(loggerMocks.error).toHaveBeenCalledWith(
       'Inline fixture toggle crashed outside guarded flow',
       {
-        error: expect.any(Error),
         enabled: true,
+        error: expect.any(Error),
       }
     );
 
@@ -172,11 +172,11 @@ describe('setup-inline-fixture-subscription', () => {
   it('suppresses the rollback subscription bounce when fixture activation fails', async () => {
     const clearInlineFixture = vi.fn(async () => undefined);
     const adapter = createFixtureCapableAdapter({
+      clearInlineFixture,
+      isInlineFixtureActive: () => false,
       loadInlineFixture: vi.fn(async () => {
         throw new Error('fixture failed');
       }),
-      clearInlineFixture,
-      isInlineFixtureActive: () => false,
     });
     const store = createFixtureStore(true);
 
@@ -192,10 +192,10 @@ describe('setup-inline-fixture-subscription', () => {
 
   it('skips setup when the adapter is not fixture-capable', () => {
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
     const store = createFixtureStore(false);
 
@@ -213,9 +213,9 @@ describe('setup-inline-fixture-subscription', () => {
     );
     const clearInlineFixture = vi.fn(async () => undefined);
     const adapter = createFixtureCapableAdapter({
-      loadInlineFixture,
       clearInlineFixture,
       isInlineFixtureActive: () => false,
+      loadInlineFixture,
     });
     const store = createFixtureStore(false);
 
@@ -265,36 +265,36 @@ describe('setup-inline-fixture-subscription', () => {
       .mockResolvedValueOnce({
         rows: [
           {
-            id: 'root-1',
-            path: '/workspace/root',
-            display_name: 'root',
-            kind: 'path',
-            status: 'live',
             created_at: '2026-06-16T00:00:00.000Z',
+            display_name: 'root',
+            id: 'root-1',
+            kind: 'path',
             last_verified_at: '2026-06-16T00:00:00.000Z',
+            path: '/workspace/root',
+            status: 'live',
           },
         ],
       })
       .mockResolvedValueOnce({
         rows: [
           {
+            chunk_count: 4,
+            dirty: false,
+            embedded_chunk_count: 1,
             embedding_set_id: 'set-1',
             file_count: 2,
-            chunk_count: 4,
-            embedded_chunk_count: 1,
-            pending_chunk_count: 3,
-            dirty: false,
             last_refreshed_at: '2026-06-16T00:01:00.000Z',
+            pending_chunk_count: 3,
           },
         ],
       })
       .mockResolvedValueOnce({
         rows: [
           {
-            queue: 'embeddings',
-            job_type: 'embed_chunk',
-            state: 'queued',
             count: 3,
+            job_type: 'embed_chunk',
+            queue: 'embeddings',
+            state: 'queued',
           },
         ],
       })
@@ -302,9 +302,9 @@ describe('setup-inline-fixture-subscription', () => {
         rows: [
           {
             embedding_set_id: 'set-1',
-            root_id: 'root-1',
             file_count: 2,
             oldest_updated_at: '2026-06-16T00:02:00.000Z',
+            root_id: 'root-1',
           },
         ],
       });
@@ -314,20 +314,20 @@ describe('setup-inline-fixture-subscription', () => {
     const debugWindow = window as TestWindowWithRuntimeHosts;
     debugWindow.chunkingHost = {
       getStatus: vi.fn(async () => ({
-        runtimeKind: 'chunking-host',
-        runtimeId: 'chunking-host:test',
-        state: 'running',
         active: false,
         lastError: null,
+        runtimeId: 'chunking-host:test',
+        runtimeKind: 'chunking-host',
+        state: 'running',
       })),
     };
     debugWindow.embeddingHost = {
       getStatus: vi.fn(async () => ({
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:test',
-        state: 'running',
         active: true,
         lastError: null,
+        runtimeId: 'embedding-host:test',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       })),
     };
 
@@ -339,66 +339,66 @@ describe('setup-inline-fixture-subscription', () => {
     const snapshot = await window.__BRAINSTRIKE_INDEXING_DEBUG__?.snapshot();
 
     expect(snapshot).toEqual({
-      roots: [
+      chunkingBacklog: [
         {
-          id: 'root-1',
-          path: '/workspace/root',
-          display_name: 'root',
-          kind: 'path',
-          status: 'live',
-          created_at: '2026-06-16T00:00:00.000Z',
-          last_verified_at: '2026-06-16T00:00:00.000Z',
+          embedding_set_id: 'set-1',
+          file_count: 2,
+          oldest_updated_at: '2026-06-16T00:02:00.000Z',
+          root_id: 'root-1',
         },
       ],
       collectionStats: [
         {
-          embedding_set_id: 'set-1',
-          file_count: 2,
           chunk_count: 4,
-          embedded_chunk_count: 1,
-          pending_chunk_count: 3,
           dirty: false,
-          last_refreshed_at: '2026-06-16T00:01:00.000Z',
-        },
-      ],
-      queueCounts: [
-        {
-          queue: 'embeddings',
-          job_type: 'embed_chunk',
-          state: 'queued',
-          count: 3,
-        },
-      ],
-      chunkingBacklog: [
-        {
+          embedded_chunk_count: 1,
           embedding_set_id: 'set-1',
-          root_id: 'root-1',
           file_count: 2,
-          oldest_updated_at: '2026-06-16T00:02:00.000Z',
+          last_refreshed_at: '2026-06-16T00:01:00.000Z',
+          pending_chunk_count: 3,
         },
       ],
       hosts: {
         chunking: {
           available: true,
           status: {
-            runtimeKind: 'chunking-host',
-            runtimeId: 'chunking-host:test',
-            state: 'running',
             active: false,
             lastError: null,
+            runtimeId: 'chunking-host:test',
+            runtimeKind: 'chunking-host',
+            state: 'running',
           },
         },
         embedding: {
           available: true,
           status: {
-            runtimeKind: 'embedding-host',
-            runtimeId: 'embedding-host:test',
-            state: 'running',
             active: true,
             lastError: null,
+            runtimeId: 'embedding-host:test',
+            runtimeKind: 'embedding-host',
+            state: 'running',
           },
         },
       },
+      queueCounts: [
+        {
+          count: 3,
+          job_type: 'embed_chunk',
+          queue: 'embeddings',
+          state: 'queued',
+        },
+      ],
+      roots: [
+        {
+          created_at: '2026-06-16T00:00:00.000Z',
+          display_name: 'root',
+          id: 'root-1',
+          kind: 'path',
+          last_verified_at: '2026-06-16T00:00:00.000Z',
+          path: '/workspace/root',
+          status: 'live',
+        },
+      ],
     });
     expect(query).toHaveBeenNthCalledWith(
       1,
@@ -437,20 +437,20 @@ describe('setup-inline-fixture-subscription', () => {
     const snapshot = await window.__BRAINSTRIKE_INDEXING_DEBUG__?.snapshot();
 
     expect(snapshot).toEqual({
-      roots: [],
-      collectionStats: [],
-      queueCounts: [],
+      accessIssues: [
+        {
+          reason: 'database bridge unavailable',
+          source: 'electronAPI.db.query',
+        },
+      ],
       chunkingBacklog: [],
+      collectionStats: [],
       hosts: {
         chunking: { available: false, reason: 'chunkingHost bridge unavailable' },
         embedding: { available: false, reason: 'embeddingHost bridge unavailable' },
       },
-      accessIssues: [
-        {
-          source: 'electronAPI.db.query',
-          reason: 'database bridge unavailable',
-        },
-      ],
+      queueCounts: [],
+      roots: [],
     });
 
     unsubscribe();
@@ -525,8 +525,8 @@ describe('setup-inline-fixture-subscription', () => {
   it('does not reapply the fixture when persisted state says enabled but the adapter is already active', async () => {
     const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
     const adapter = createFixtureCapableAdapter({
-      loadInlineFixture,
       isInlineFixtureActive: () => true,
+      loadInlineFixture,
     });
     const store = createFixtureStore(true);
 

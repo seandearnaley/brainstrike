@@ -79,7 +79,6 @@ function resolveFileConfig(
   if (runtime !== 'electron-main') {
     return false;
   }
-
   return;
 }
 
@@ -92,9 +91,9 @@ function resolveEnableInProduction(
 
 export function initializeLogging(options: InitializeLoggingOptions): void {
   const loggerConfig: LoggerConfig = {
-    enableInProduction: resolveEnableInProduction(options.runtime, options.enableDebugInProduction),
     baseBindings: resolveBaseBindings(options),
     console: resolveConsoleConfig(options.level, options.consoleLevel),
+    enableInProduction: resolveEnableInProduction(options.runtime, options.enableDebugInProduction),
   };
 
   if (options.level !== undefined) {

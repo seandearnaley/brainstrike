@@ -62,10 +62,10 @@ function expectDeniedWindowOpenHandler(fakeWindow: FakeWindow): void {
 
 function createStatus(status: RendererHostStatusShape): RendererHostStatusShape {
   return {
-    state: status.state,
     active: status.active,
     lastError: status.lastError,
     runtimeId: status.runtimeId,
+    state: status.state,
   };
 }
 
@@ -137,10 +137,10 @@ describe('RendererHostLifecycle', () => {
       createStatus: (status) => createStatus(status),
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -149,7 +149,6 @@ describe('RendererHostLifecycle', () => {
     });
 
     lifecycle.setStatus({
-      state: 'running',
       active: false,
       lastError: null,
       runtimeId: 'embedding-host:runtime',
@@ -157,19 +156,19 @@ describe('RendererHostLifecycle', () => {
         device: 'webgpu',
         fallbackApplied: false,
       },
+      state: 'running',
     });
 
     expect(lifecycle.getStatus()).toMatchObject({
-      state: 'running',
       runtimeId: 'embedding-host:runtime',
       runtimeMetadata: {
         device: 'webgpu',
         fallbackApplied: false,
       },
+      state: 'running',
     });
 
     lifecycle.setStatus({
-      state: 'running',
       active: false,
       lastError: null,
       runtimeId: 'embedding-host:runtime',
@@ -177,6 +176,7 @@ describe('RendererHostLifecycle', () => {
         device: 'wasm',
         fallbackApplied: true,
       },
+      state: 'running',
     });
 
     expect(lifecycle.getStatus()).toMatchObject({
@@ -206,10 +206,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
         }),
       mode: 'chunking-host',
       role: 'chunking-host',
@@ -251,10 +251,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'llm-host:stopped',
+          state: 'stopped',
         }),
       mode: 'llm-host',
       role: 'llm-host',
@@ -268,10 +268,10 @@ describe('RendererHostLifecycle', () => {
       // manager's acceptStatusReport does once it can see this window).
       lifecycle.setStatus(
         createStatus({
-          state: 'running',
           active: false,
           lastError: null,
           runtimeId: lifecycle.getStatus().runtimeId,
+          state: 'running',
         })
       );
       return new Promise<void>((resolve) => {
@@ -306,10 +306,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -345,10 +345,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -382,10 +382,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -429,10 +429,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -470,10 +470,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -509,10 +509,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -548,10 +548,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -581,17 +581,17 @@ describe('RendererHostLifecycle', () => {
     Object.assign(BrowserWindow, {
       getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
     });
-    Object.defineProperty(app, 'isPackaged', { value: false, configurable: true });
+    Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
     assignWindowRole(visibleWindow as never, 'visible-ui');
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -604,19 +604,19 @@ describe('RendererHostLifecycle', () => {
     visibleWindow.webContents.send.mockClear();
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
 
     expect(hostWindow.webContents.send).not.toHaveBeenCalled();
     expect(visibleWindow.webContents.send).toHaveBeenCalledWith('embedding-host:status', {
-      state: 'running',
       active: true,
       lastError: null,
       runtimeId: lifecycle.getStatus().runtimeId,
+      state: 'running',
     });
   });
 
@@ -635,10 +635,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -679,10 +679,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -694,19 +694,19 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
     await initialStart;
     lifecycle.setStatus(
       createStatus({
-        state: 'stopped',
         active: false,
         lastError: null,
         runtimeId: 'embedding-host:old-runtime',
+        state: 'stopped',
       })
     );
 
@@ -746,10 +746,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -761,19 +761,19 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
     await initialStart;
     lifecycle.setStatus(
       createStatus({
-        state: 'stopped',
         active: false,
         lastError: null,
         runtimeId: 'embedding-host:old-runtime',
+        state: 'stopped',
       })
     );
 
@@ -788,10 +788,10 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
 
@@ -822,10 +822,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
         }),
       mode: 'chunking-host',
       role: 'chunking-host',
@@ -844,10 +844,10 @@ describe('RendererHostLifecycle', () => {
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
 
@@ -862,10 +862,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
         }),
       mode: 'chunking-host',
       role: 'chunking-host',
@@ -880,10 +880,10 @@ describe('RendererHostLifecycle', () => {
 
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: 'chunking-host:runtime',
+        state: 'running',
       })
     );
 
@@ -918,10 +918,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
         }),
       mode: 'chunking-host',
       role: 'chunking-host',
@@ -938,8 +938,8 @@ describe('RendererHostLifecycle', () => {
 
     await expect(startupPromise).resolves.toEqual(
       expect.objectContaining({
-        state: 'stopped',
         runtimeId: 'chunking-host:stopped',
+        state: 'stopped',
       })
     );
   });
@@ -964,10 +964,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -980,10 +980,10 @@ describe('RendererHostLifecycle', () => {
     expect(() =>
       lifecycle.setStatus(
         createStatus({
-          state: 'running',
           active: true,
           lastError: null,
           runtimeId: lifecycle.getStatus().runtimeId,
+          state: 'running',
         })
       )
     ).not.toThrow();
@@ -1006,10 +1006,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -1022,18 +1022,18 @@ describe('RendererHostLifecycle', () => {
 
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
     lifecycle.setStatus(
       createStatus({
-        state: 'running',
         active: true,
         lastError: null,
         runtimeId: lifecycle.getStatus().runtimeId,
+        state: 'running',
       })
     );
 
@@ -1056,10 +1056,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -1100,10 +1100,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',
@@ -1148,10 +1148,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'chunking-host:stopped',
+          state: 'stopped',
         }),
       mode: 'chunking-host',
       role: 'chunking-host',
@@ -1195,10 +1195,10 @@ describe('RendererHostLifecycle', () => {
       createStatus,
       createStoppedStatus: () =>
         createStatus({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host:stopped',
+          state: 'stopped',
         }),
       mode: 'embedding-host',
       role: 'embedding-host',

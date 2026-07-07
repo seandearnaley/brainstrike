@@ -6,19 +6,19 @@ const createMockFileNode = (overrides: Partial<IFileNode> = {}): IFileNode =>
   ({
     name: 'file.txt',
     path: 'src/file.txt',
-    type: 'file',
     rootFolderId: 'folder-123',
+    type: 'file',
     ...overrides,
   }) as IFileNode;
 
 const createMockDirectoryNode = (overrides: Partial<IFileNode> = {}): IFileNode =>
   ({
-    name: 'src',
-    path: 'src',
-    type: 'directory',
-    rootFolderId: 'folder-123',
     children: [],
     loadState: 'loaded',
+    name: 'src',
+    path: 'src',
+    rootFolderId: 'folder-123',
+    type: 'directory',
     ...overrides,
   }) as IFileNode;
 
@@ -26,9 +26,9 @@ describe('FileTreeIndex', () => {
   it('should create an empty index', () => {
     const index = new FileTreeIndex();
     expect(index.stats).toEqual({
-      totalNodes: 0,
-      totalFiles: 0,
       totalDirectories: 0,
+      totalFiles: 0,
+      totalNodes: 0,
     });
   });
 
@@ -107,9 +107,9 @@ describe('FileTreeIndex', () => {
     it('should return handle info for file with electron handle', () => {
       const index = new FileTreeIndex();
       const mockElectronHandle = {
-        path: '/absolute/path/file.txt',
-        name: 'file.txt',
         kind: 'file' as const,
+        name: 'file.txt',
+        path: '/absolute/path/file.txt',
         platform: 'electron' as const,
       };
       const fileNode = createMockFileNode({
@@ -177,7 +177,7 @@ describe('FileTreeIndex', () => {
   describe('type change handling', () => {
     it('should adjust stats when file becomes directory', () => {
       const index = new FileTreeIndex();
-      const fileNode = createMockFileNode({ path: 'item', name: 'item' });
+      const fileNode = createMockFileNode({ name: 'item', path: 'item' });
 
       index.addNodes([fileNode], null);
       expect(index.stats.totalFiles).toBe(1);
@@ -185,7 +185,7 @@ describe('FileTreeIndex', () => {
       expect(index.stats.totalNodes).toBe(1);
 
       // Re-add same path as directory
-      const dirNode = createMockDirectoryNode({ path: 'item', name: 'item' });
+      const dirNode = createMockDirectoryNode({ name: 'item', path: 'item' });
       index.addNodes([dirNode], null);
 
       expect(index.stats.totalFiles).toBe(0);
@@ -195,14 +195,14 @@ describe('FileTreeIndex', () => {
 
     it('should adjust stats when directory becomes file', () => {
       const index = new FileTreeIndex();
-      const dirNode = createMockDirectoryNode({ path: 'item', name: 'item' });
+      const dirNode = createMockDirectoryNode({ name: 'item', path: 'item' });
 
       index.addNodes([dirNode], null);
       expect(index.stats.totalFiles).toBe(0);
       expect(index.stats.totalDirectories).toBe(1);
 
       // Re-add same path as file
-      const fileNode = createMockFileNode({ path: 'item', name: 'item' });
+      const fileNode = createMockFileNode({ name: 'item', path: 'item' });
       index.addNodes([fileNode], null);
 
       expect(index.stats.totalFiles).toBe(1);
@@ -215,15 +215,15 @@ describe('FileTreeIndex', () => {
 
       // Start as file
       index.addNodes([createMockFileNode({ path: 'item' })], null);
-      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+      expect(index.stats).toEqual({ totalDirectories: 0, totalFiles: 1, totalNodes: 1 });
 
       // Change to directory
       index.addNodes([createMockDirectoryNode({ path: 'item' })], null);
-      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 0, totalDirectories: 1 });
+      expect(index.stats).toEqual({ totalDirectories: 1, totalFiles: 0, totalNodes: 1 });
 
       // Change back to file
       index.addNodes([createMockFileNode({ path: 'item' })], null);
-      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+      expect(index.stats).toEqual({ totalDirectories: 0, totalFiles: 1, totalNodes: 1 });
     });
 
     it('should not change stats when type is unchanged', () => {
@@ -245,8 +245,8 @@ describe('FileTreeIndex', () => {
       const index = new FileTreeIndex();
       const mockHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
       const fileNode = createMockFileNode({
-        path: 'item',
         handle: mockHandle as unknown as FileSystemFileHandle,
+        path: 'item',
       });
 
       index.addNodes([fileNode], null);
@@ -261,8 +261,8 @@ describe('FileTreeIndex', () => {
       const index = new FileTreeIndex();
       const mockHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
       const fileWithHandle = createMockFileNode({
-        path: 'file.txt',
         handle: mockHandle as unknown as FileSystemFileHandle,
+        path: 'file.txt',
       });
 
       index.addNodes([fileWithHandle], null);
@@ -286,8 +286,8 @@ describe('FileTreeIndex', () => {
       index.addNodes(
         [
           createMockFileNode({
-            path: 'file.txt',
             handle: oldHandle as unknown as FileSystemFileHandle,
+            path: 'file.txt',
           }),
         ],
         null
@@ -296,8 +296,8 @@ describe('FileTreeIndex', () => {
       index.addNodes(
         [
           createMockFileNode({
-            path: 'file.txt',
             handle: newHandle as unknown as FileSystemFileHandle,
+            path: 'file.txt',
           }),
         ],
         null
@@ -314,13 +314,13 @@ describe('FileTreeIndex', () => {
       index.addNodes(
         [
           createMockDirectoryNode({
-            rootFolderId: 'root-a',
-            path: 'src',
             children: [
-              createMockFileNode({ rootFolderId: 'root-a', path: 'src/a.ts', name: 'a.ts' }),
+              createMockFileNode({ name: 'a.ts', path: 'src/a.ts', rootFolderId: 'root-a' }),
             ],
+            path: 'src',
+            rootFolderId: 'root-a',
           }),
-          createMockFileNode({ rootFolderId: 'root-b', path: 'src/b.ts', name: 'b.ts' }),
+          createMockFileNode({ name: 'b.ts', path: 'src/b.ts', rootFolderId: 'root-b' }),
         ],
         null
       );
@@ -332,12 +332,12 @@ describe('FileTreeIndex', () => {
       expect(index.getNode('root-a', 'src/a.ts')).toBeUndefined();
       // The other root's entries survive.
       expect(index.getNode('root-b', 'src/b.ts')).toBeDefined();
-      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+      expect(index.stats).toEqual({ totalDirectories: 0, totalFiles: 1, totalNodes: 1 });
     });
 
     it('is a no-op for a folder with no entries', () => {
       const index = new FileTreeIndex();
-      index.addNodes([createMockFileNode({ rootFolderId: 'root-b', path: 'b.ts' })], null);
+      index.addNodes([createMockFileNode({ path: 'b.ts', rootFolderId: 'root-b' })], null);
 
       index.clearFolder('root-a');
 

@@ -82,46 +82,46 @@ describe('schema', () => {
 
   describe('type guards', () => {
     const explicitRule: ExplicitRule = {
-      id: 'r1',
-      type: 'explicit',
-      paths: ['src/index.ts'],
       createdAt: '2026-01-02T00:00:00Z',
+      id: 'r1',
+      paths: ['src/index.ts'],
+      type: 'explicit',
     };
 
     const globIncludeRule: GlobIncludeRule = {
-      id: 'r2',
-      type: 'glob-include',
-      patterns: ['**/*.ts'],
       createdAt: '2026-01-02T00:00:00Z',
+      id: 'r2',
+      patterns: ['**/*.ts'],
+      type: 'glob-include',
     };
 
     const globExcludeRule: GlobExcludeRule = {
-      id: 'r3',
-      type: 'glob-exclude',
-      patterns: ['**/*.test.ts'],
       createdAt: '2026-01-02T00:00:00Z',
+      id: 'r3',
+      patterns: ['**/*.test.ts'],
+      type: 'glob-exclude',
     };
 
     const rootIncludeRule: RootIncludeRule = {
-      id: 'r4',
-      type: 'root-include',
-      roots: ['src'],
       createdAt: '2026-01-02T00:00:00Z',
+      id: 'r4',
+      roots: ['src'],
+      type: 'root-include',
     };
 
     const rootExcludeRule: RootExcludeRule = {
-      id: 'r5',
-      type: 'root-exclude',
-      roots: ['node_modules'],
       createdAt: '2026-01-02T00:00:00Z',
+      id: 'r5',
+      roots: ['node_modules'],
+      type: 'root-exclude',
     };
 
     const capRule: CapRule = {
+      createdAt: '2026-01-02T00:00:00Z',
       id: 'r6',
-      type: 'cap',
       maxCount: 50,
       strategy: 'first',
-      createdAt: '2026-01-02T00:00:00Z',
+      type: 'cap',
     };
 
     const allRules: SelectionRule[] = [
@@ -209,14 +209,14 @@ describe('schema', () => {
   describe('rule structures', () => {
     it('should allow optional fields on ExplicitRule', () => {
       const rule: ExplicitRule = {
-        id: 'r1',
-        type: 'explicit',
-        paths: ['src/index.ts'],
         createdAt: '2026-01-02T00:00:00Z',
-        label: 'Main entry point',
         enabled: true,
-        priority: 10,
+        id: 'r1',
+        label: 'Main entry point',
         mode: 'include',
+        paths: ['src/index.ts'],
+        priority: 10,
+        type: 'explicit',
       };
 
       expect(rule.label).toBe('Main entry point');
@@ -227,11 +227,11 @@ describe('schema', () => {
 
     it('should allow exclude mode on ExplicitRule', () => {
       const rule: ExplicitRule = {
-        id: 'r1',
-        type: 'explicit',
-        paths: ['secrets.json'],
         createdAt: '2026-01-02T00:00:00Z',
+        id: 'r1',
         mode: 'exclude',
+        paths: ['secrets.json'],
+        type: 'explicit',
       };
 
       expect(rule.mode).toBe('exclude');
@@ -239,11 +239,11 @@ describe('schema', () => {
 
     it('should allow basePath on GlobIncludeRule', () => {
       const rule: GlobIncludeRule = {
-        id: 'r1',
-        type: 'glob-include',
-        patterns: ['*.ts'],
         basePath: 'src/components',
         createdAt: '2026-01-02T00:00:00Z',
+        id: 'r1',
+        patterns: ['*.ts'],
+        type: 'glob-include',
       };
 
       expect(rule.basePath).toBe('src/components');
@@ -251,11 +251,11 @@ describe('schema', () => {
 
     it('should allow maxDepth on RootIncludeRule', () => {
       const rule: RootIncludeRule = {
-        id: 'r1',
-        type: 'root-include',
-        roots: ['src'],
-        maxDepth: 2,
         createdAt: '2026-01-02T00:00:00Z',
+        id: 'r1',
+        maxDepth: 2,
+        roots: ['src'],
+        type: 'root-include',
       };
 
       expect(rule.maxDepth).toBe(2);
@@ -263,12 +263,12 @@ describe('schema', () => {
 
     it('should allow seed on CapRule with random strategy', () => {
       const rule: CapRule = {
-        id: 'r1',
-        type: 'cap',
-        maxCount: 50,
-        strategy: 'random',
-        seed: 12_345,
         createdAt: '2026-01-02T00:00:00Z',
+        id: 'r1',
+        maxCount: 50,
+        seed: 12_345,
+        strategy: 'random',
+        type: 'cap',
       };
 
       expect(rule.strategy).toBe('random');
@@ -280,11 +280,11 @@ describe('schema', () => {
 
       for (const strategy of strategies) {
         const rule: CapRule = {
+          createdAt: '2026-01-02T00:00:00Z',
           id: 'r1',
-          type: 'cap',
           maxCount: 10,
           strategy,
-          createdAt: '2026-01-02T00:00:00Z',
+          type: 'cap',
         };
         expect(rule.strategy).toBe(strategy);
       }

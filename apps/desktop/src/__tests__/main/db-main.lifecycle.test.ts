@@ -8,11 +8,11 @@ const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_IN
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
     configurable: true,
-    writable: true,
     value: {
       on: vi.fn(),
       postMessage: vi.fn(),
     },
+    writable: true,
   });
 }
 
@@ -68,36 +68,36 @@ const lstatSyncMock = vi.fn(() => ({
   isFile: () => false,
 }));
 vi.mock('node:fs', () => ({
-  existsSync: existsSyncMock,
-  mkdirSync: mkdirSyncMock,
-  rmSync: rmSyncMock,
-  renameSync: renameSyncMock,
-  utimesSync: utimesSyncMock,
-  statSync: statSyncMock,
-  cpSync: cpSyncMock,
-  openSync: openSyncMock,
-  writeFileSync: writeFileSyncMock,
   closeSync: closeSyncMock,
-  unlinkSync: unlinkSyncMock,
-  readFileSync: readFileSyncMock,
-  readdirSync: readdirSyncMock,
-  lstatSync: lstatSyncMock,
+  cpSync: cpSyncMock,
   default: {
-    existsSync: existsSyncMock,
-    mkdirSync: mkdirSyncMock,
-    rmSync: rmSyncMock,
-    renameSync: renameSyncMock,
-    utimesSync: utimesSyncMock,
-    statSync: statSyncMock,
-    cpSync: cpSyncMock,
-    openSync: openSyncMock,
-    writeFileSync: writeFileSyncMock,
     closeSync: closeSyncMock,
-    unlinkSync: unlinkSyncMock,
-    readFileSync: readFileSyncMock,
-    readdirSync: readdirSyncMock,
+    cpSync: cpSyncMock,
+    existsSync: existsSyncMock,
     lstatSync: lstatSyncMock,
+    mkdirSync: mkdirSyncMock,
+    openSync: openSyncMock,
+    readdirSync: readdirSyncMock,
+    readFileSync: readFileSyncMock,
+    renameSync: renameSyncMock,
+    rmSync: rmSyncMock,
+    statSync: statSyncMock,
+    unlinkSync: unlinkSyncMock,
+    utimesSync: utimesSyncMock,
+    writeFileSync: writeFileSyncMock,
   },
+  existsSync: existsSyncMock,
+  lstatSync: lstatSyncMock,
+  mkdirSync: mkdirSyncMock,
+  openSync: openSyncMock,
+  readdirSync: readdirSyncMock,
+  readFileSync: readFileSyncMock,
+  renameSync: renameSyncMock,
+  rmSync: rmSyncMock,
+  statSync: statSyncMock,
+  unlinkSync: unlinkSyncMock,
+  utimesSync: utimesSyncMock,
+  writeFileSync: writeFileSyncMock,
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -131,10 +131,10 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
     }),
   };
 });
@@ -757,13 +757,13 @@ describe('db-main lifecycle', () => {
       ),
       // Reset backups now exclude engine-upgrade `.bak` siblings via a filter.
       expect.objectContaining({
-        recursive: true,
         errorOnExist: true,
-        force: false,
         filter: expect.any(Function),
+        force: false,
+        recursive: true,
       })
     );
-    expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { force: true, recursive: true });
   });
 
   it('prunes stale profile backups during reset', async () => {
@@ -771,13 +771,13 @@ describe('db-main lifecycle', () => {
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
     readdirSyncMock.mockReturnValueOnce([
-      { name: 'test-profile-2026-02-15T07-00-00-000Z', isDirectory: () => true },
-      { name: 'test-profile-2026-02-14T07-00-00-000Z', isDirectory: () => true },
-      { name: 'test-profile-2026-02-13T07-00-00-000Z', isDirectory: () => true },
-      { name: 'test-profile-2026-02-12T07-00-00-000Z', isDirectory: () => true },
-      { name: 'test-profile-2026-02-11T07-00-00-000Z', isDirectory: () => true },
-      { name: 'test-profile-2026-02-10T07-00-00-000Z', isDirectory: () => true },
-      { name: 'other-profile-2026-02-10T07-00-00-000Z', isDirectory: () => true },
+      { isDirectory: () => true, name: 'test-profile-2026-02-15T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'test-profile-2026-02-14T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'test-profile-2026-02-13T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'test-profile-2026-02-12T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'test-profile-2026-02-11T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'test-profile-2026-02-10T07-00-00-000Z' },
+      { isDirectory: () => true, name: 'other-profile-2026-02-10T07-00-00-000Z' },
     ]);
 
     const { resetLocalDatabase } = await import('../../db-main');
@@ -787,7 +787,7 @@ describe('db-main lifecycle', () => {
     expect(readdirSyncMock).toHaveBeenCalledWith(backupRootPath, { withFileTypes: true });
     expect(rmSyncMock).toHaveBeenCalledWith(
       path.join(backupRootPath, 'test-profile-2026-02-10T07-00-00-000Z'),
-      { recursive: true, force: true }
+      { force: true, recursive: true }
     );
   });
 

@@ -4,11 +4,6 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 
 export default defineConfig({
   test: {
-    environment: 'node',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['*.test.ts', '*.test.tsx', '**/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
     coverage: {
       enabled: coverageEnabled,
       exclude: [
@@ -23,5 +18,10 @@ export default defineConfig({
         'test-helpers.ts',
       ],
     },
+    environment: 'node',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    include: ['*.test.ts', '*.test.tsx', '**/__tests__/**/*.test.{ts,tsx}'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 });

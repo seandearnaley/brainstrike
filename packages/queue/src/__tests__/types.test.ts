@@ -15,13 +15,13 @@ import type {
 import { toWorkerRequest } from '../types';
 
 const basePayload = {
-  kind: 'embed' as const,
   deviceHint: 'wasm' as const,
+  kind: 'embed' as const,
 };
 
 const baseRequest = {
-  type: 'embed' as const,
   deviceHint: 'wasm' as const,
+  type: 'embed' as const,
 };
 
 describe('toWorkerRequest', () => {
@@ -66,40 +66,40 @@ describe('toWorkerRequest', () => {
   it('should include dtype when provided', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
+      dtype: 'fp32',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      dtype: 'fp32',
     };
 
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
       ...baseRequest,
+      dtype: 'fp32',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      dtype: 'fp32',
     });
   });
 
   it('should include deviceHint', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
+      deviceHint: 'webgpu',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
     };
 
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
       ...baseRequest,
+      deviceHint: 'webgpu',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
     });
   });
 
@@ -107,9 +107,9 @@ describe('toWorkerRequest', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
       id: 'task-123',
+      maxBatchSize: 32,
       model: 'test-model',
       texts: ['hello'],
-      maxBatchSize: 32,
     };
 
     const result = toWorkerRequest(payload);
@@ -117,9 +117,9 @@ describe('toWorkerRequest', () => {
     expect(result).toEqual({
       ...baseRequest,
       id: 'task-123',
+      maxBatchSize: 32,
       model: 'test-model',
       texts: ['hello'],
-      maxBatchSize: 32,
     });
   });
 
@@ -128,8 +128,8 @@ describe('toWorkerRequest', () => {
       ...basePayload,
       id: 'task-123',
       model: 'test-model',
-      texts: ['hello'],
       provider: 'openai',
+      texts: ['hello'],
     };
 
     const result = toWorkerRequest(payload);
@@ -138,8 +138,8 @@ describe('toWorkerRequest', () => {
       ...baseRequest,
       id: 'task-123',
       model: 'test-model',
-      texts: ['hello'],
       provider: 'openai',
+      texts: ['hello'],
     });
   });
 
@@ -148,8 +148,8 @@ describe('toWorkerRequest', () => {
       ...basePayload,
       id: 'task-123',
       model: 'test-model',
-      texts: ['hello'],
       targetDimension: 768,
+      texts: ['hello'],
     };
 
     const result = toWorkerRequest(payload);
@@ -158,60 +158,60 @@ describe('toWorkerRequest', () => {
       ...baseRequest,
       id: 'task-123',
       model: 'test-model',
-      texts: ['hello'],
       targetDimension: 768,
+      texts: ['hello'],
     });
   });
 
   it('should include dimensionParameter when provided', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
+      dimensionParameter: 'dimensions',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      dimensionParameter: 'dimensions',
     };
 
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
       ...baseRequest,
+      dimensionParameter: 'dimensions',
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
-      dimensionParameter: 'dimensions',
     });
   });
 
   it('should include all optional fields when all are provided', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
-      id: 'task-456',
-      model: 'bert-base',
-      texts: ['first', 'second', 'third'],
-      truncateDim: 384,
-      dtype: 'fp16',
       deviceHint: 'wasm',
+      dimensionParameter: 'output_dimensionality',
+      dtype: 'fp16',
+      id: 'task-456',
       maxBatchSize: 16,
+      model: 'bert-base',
       provider: 'huggingface',
       targetDimension: 512,
-      dimensionParameter: 'output_dimensionality',
+      texts: ['first', 'second', 'third'],
+      truncateDim: 384,
     };
 
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
       ...baseRequest,
-      id: 'task-456',
-      model: 'bert-base',
-      texts: ['first', 'second', 'third'],
-      truncateDim: 384,
-      dtype: 'fp16',
       deviceHint: 'wasm',
+      dimensionParameter: 'output_dimensionality',
+      dtype: 'fp16',
+      id: 'task-456',
       maxBatchSize: 16,
+      model: 'bert-base',
       provider: 'huggingface',
       targetDimension: 512,
-      dimensionParameter: 'output_dimensionality',
+      texts: ['first', 'second', 'third'],
+      truncateDim: 384,
     });
   });
 
@@ -234,7 +234,7 @@ describe('toWorkerRequest', () => {
     });
 
     // Verify no extra keys are present
-    expect(Object.keys(result)).toEqual(['type', 'id', 'model', 'texts', 'deviceHint']);
+    expect(Object.keys(result)).toEqual(['id', 'model', 'texts', 'type', 'deviceHint']);
   });
 
   it('should handle empty texts array', () => {
@@ -293,11 +293,11 @@ describe('toWorkerRequest', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,
       id: 'task-zero',
+      maxBatchSize: 0,
       model: 'test-model',
+      targetDimension: 0,
       texts: ['hello'],
       truncateDim: 0,
-      maxBatchSize: 0,
-      targetDimension: 0,
     };
 
     const result = toWorkerRequest(payload);
@@ -305,11 +305,11 @@ describe('toWorkerRequest', () => {
     expect(result).toEqual({
       ...baseRequest,
       id: 'task-zero',
+      maxBatchSize: 0,
       model: 'test-model',
+      targetDimension: 0,
       texts: ['hello'],
       truncateDim: 0,
-      maxBatchSize: 0,
-      targetDimension: 0,
     });
   });
 
@@ -337,10 +337,10 @@ describe('toWorkerRequest', () => {
     for (const param of parameters) {
       const payload: EmbedTaskPayload = {
         ...basePayload,
+        dimensionParameter: param,
         id: `task-${param}`,
         model: 'test-model',
         texts: ['hello'],
-        dimensionParameter: param,
       };
 
       const result = toWorkerRequest(payload);
@@ -373,8 +373,8 @@ describe('WorkerClient types (BST-165)', () => {
   describe('WorkerClientError', () => {
     it('should create valid error objects', () => {
       const error: WorkerClientError = {
-        type: 'initialization_timeout',
         message: 'Worker failed to initialize within timeout',
+        type: 'initialization_timeout',
       };
       expect(error.type).toBe('initialization_timeout');
       expect(error.message).toBeDefined();
@@ -384,9 +384,9 @@ describe('WorkerClient types (BST-165)', () => {
     it('should allow optional cause', () => {
       const cause = new Error('Original error');
       const error: WorkerClientError = {
-        type: 'worker_error',
-        message: 'Worker crashed',
         cause,
+        message: 'Worker crashed',
+        type: 'worker_error',
       };
       expect(error.cause).toBe(cause);
     });
@@ -395,8 +395,8 @@ describe('WorkerClient types (BST-165)', () => {
   describe('WorkerClient', () => {
     it('should define required lifecycle methods', () => {
       const client: WorkerClient = {
-        isReady: () => true,
         getState: () => 'ready',
+        isReady: () => true,
         terminate: () => {},
       };
 
@@ -408,8 +408,8 @@ describe('WorkerClient types (BST-165)', () => {
     it('should support state transitions', () => {
       let state: WorkerClientState = 'initializing';
       const client: WorkerClient = {
-        isReady: () => state === 'ready',
         getState: () => state,
+        isReady: () => state === 'ready',
         terminate: () => {
           state = 'terminated';
         },
@@ -429,8 +429,8 @@ describe('WorkerClient types (BST-165)', () => {
   describe('WorkerClientWithTimeout', () => {
     it('should extend WorkerClient with waitForReady', () => {
       const client: WorkerClientWithTimeout = {
-        isReady: () => true,
         getState: () => 'ready',
+        isReady: () => true,
         terminate: () => {},
         waitForReady: async () => true,
       };
@@ -441,8 +441,8 @@ describe('WorkerClient types (BST-165)', () => {
 
     it('should allow optional timeout parameter', async () => {
       const client: WorkerClientWithTimeout = {
-        isReady: () => true,
         getState: () => 'ready',
+        isReady: () => true,
         terminate: () => {},
         waitForReady: async (_timeout?: number) => true,
       };
@@ -462,11 +462,11 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
   describe('DurableQueueStats', () => {
     it('should represent durable queue state counts', () => {
       const stats: DurableQueueStats = {
+        failed: 1,
+        nextRunnableAt: '2025-01-04T12:00:00Z',
         queued: 10,
         running: 2,
-        failed: 1,
         succeeded: 100,
-        nextRunnableAt: '2025-01-04T12:00:00Z',
       };
       expect(stats.queued).toBe(10);
       expect(stats.running).toBe(2);
@@ -477,11 +477,11 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
 
     it('should allow null nextRunnableAt', () => {
       const stats: DurableQueueStats = {
+        failed: 0,
+        nextRunnableAt: null,
         queued: 0,
         running: 0,
-        failed: 0,
         succeeded: 50,
-        nextRunnableAt: null,
       };
       expect(stats.nextRunnableAt).toBeNull();
     });
@@ -493,12 +493,12 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
         active: 3,
         completed: 50,
         failed: 2,
-        totalEnqueued: 55,
         lastError: 'Model download failed',
-        throughputPerMinute: 12.5,
         latencyAvgMs: 250,
         latencyP50Ms: 200,
         latencyP95Ms: 500,
+        throughputPerMinute: 12.5,
+        totalEnqueued: 55,
         windowErrorCount: 1,
       };
       expect(metrics.active).toBe(3);
@@ -511,12 +511,12 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
         active: 0,
         completed: 0,
         failed: 0,
-        totalEnqueued: 0,
         lastError: null,
-        throughputPerMinute: 0,
         latencyAvgMs: null,
         latencyP50Ms: null,
         latencyP95Ms: null,
+        throughputPerMinute: 0,
+        totalEnqueued: 0,
         windowErrorCount: 0,
       };
       expect(metrics.latencyAvgMs).toBeNull();
@@ -527,9 +527,9 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
   describe('WorkerHealthStatus', () => {
     it('should represent healthy worker state', () => {
       const health: WorkerHealthStatus = {
-        state: 'ready',
-        isReady: true,
         error: null,
+        isReady: true,
+        state: 'ready',
       };
       expect(health.state).toBe('ready');
       expect(health.isReady).toBe(true);
@@ -538,12 +538,12 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
 
     it('should represent error state with details', () => {
       const health: WorkerHealthStatus = {
-        state: 'error',
-        isReady: false,
         error: {
-          type: 'initialization_timeout',
           message: 'Worker failed to initialize within 30s',
+          type: 'initialization_timeout',
         },
+        isReady: false,
+        state: 'error',
       };
       expect(health.state).toBe('error');
       expect(health.isReady).toBe(false);
@@ -556,30 +556,30 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
       const now = Date.now();
       const health: QueueHealthMetrics = {
         durableQueue: {
+          failed: 0,
+          nextRunnableAt: null,
           queued: 5,
           running: 1,
-          failed: 0,
           succeeded: 200,
-          nextRunnableAt: null,
         },
         ephemeralQueue: {
           active: 1,
           completed: 20,
           failed: 0,
-          totalEnqueued: 21,
           lastError: null,
-          throughputPerMinute: 8.0,
           latencyAvgMs: 180,
           latencyP50Ms: 150,
           latencyP95Ms: 350,
+          throughputPerMinute: 8.0,
+          totalEnqueued: 21,
           windowErrorCount: 0,
         },
-        workerHealth: {
-          state: 'ready',
-          isReady: true,
-          error: null,
-        },
         lastUpdated: now,
+        workerHealth: {
+          error: null,
+          isReady: true,
+          state: 'ready',
+        },
       };
 
       expect(health.durableQueue?.queued).toBe(5);
@@ -592,8 +592,8 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
       const health: QueueHealthMetrics = {
         durableQueue: null, // DB not connected
         ephemeralQueue: null, // Workerpool not initialized
-        workerHealth: null, // No worker client
         lastUpdated: Date.now(),
+        workerHealth: null, // No worker client
       };
 
       expect(health.durableQueue).toBeNull();
@@ -609,20 +609,20 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
           active: 2,
           completed: 10,
           failed: 1,
-          totalEnqueued: 13,
           lastError: 'Rate limited',
-          throughputPerMinute: 5.0,
           latencyAvgMs: 300,
           latencyP50Ms: 250,
           latencyP95Ms: 600,
+          throughputPerMinute: 5.0,
+          totalEnqueued: 13,
           windowErrorCount: 1,
         },
-        workerHealth: {
-          state: 'ready',
-          isReady: true,
-          error: null,
-        },
         lastUpdated: Date.now(),
+        workerHealth: {
+          error: null,
+          isReady: true,
+          state: 'ready',
+        },
       };
 
       expect(health.durableQueue).toBeNull();
@@ -641,8 +641,8 @@ describe('Queue Health Diagnostics types (BST-166)', () => {
       const health: QueueHealthMetrics = {
         durableQueue: null,
         ephemeralQueue: null,
-        workerHealth: null,
         lastUpdated: Date.now(),
+        workerHealth: null,
       };
 
       listener(health);

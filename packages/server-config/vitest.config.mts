@@ -9,11 +9,11 @@ export default defineConfig({
     },
   },
   test: {
-    globals: true,
     environment: 'node',
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
+    globals: true,
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    setupFiles: ['../test-utils/src/vitest.setup.ts'],
     // Coverage consolidated at root vitest.config.mts
   },
 });

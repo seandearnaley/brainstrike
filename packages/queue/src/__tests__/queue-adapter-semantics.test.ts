@@ -54,7 +54,7 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
           resumeWaiters.push(() => {
             activeTasks += 1;
             new Promise<QueueResult>((resolve, reject) => {
-              pendingTasks.set(task.id, { resolve, reject });
+              pendingTasks.set(task.id, { reject, resolve });
             })
               .then(outerResolve)
               .catch(outerReject)
@@ -71,7 +71,7 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
       // Not paused - start immediately
       activeTasks += 1;
       return new Promise<QueueResult>((resolve, reject) => {
-        pendingTasks.set(task.id, { resolve, reject });
+        pendingTasks.set(task.id, { reject, resolve });
       }).finally(() => {
         activeTasks = Math.max(activeTasks - 1, 0);
         pendingTasks.delete(task.id);
@@ -86,25 +86,6 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
       }
       const promises = tasks.map((task) => this.add(task));
       return Promise.all(promises);
-    },
-
-    onProgress(_listener) {
-      return () => {};
-    },
-
-    pause() {
-      paused = true;
-    },
-
-    resume() {
-      if (!paused) {
-        return;
-      }
-      paused = false;
-      while (resumeWaiters.length > 0) {
-        const resolve = resumeWaiters.shift();
-        resolve?.();
-      }
     },
 
     async cancel() {
@@ -144,23 +125,42 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
       return activeTasks > 0;
     },
 
+    onProgress(_listener) {
+      return () => {};
+    },
+
+    pause() {
+      paused = true;
+    },
+
+    resume() {
+      if (!paused) {
+        return;
+      }
+      paused = false;
+      while (resumeWaiters.length > 0) {
+        const resolve = resumeWaiters.shift();
+        resolve?.();
+      }
+    },
+
     // Test helper to simulate task completion
     simulateTaskComplete(id: string) {
       const task = pendingTasks.get(id);
       if (task) {
         task.resolve({
-          type: 'result',
           id,
-          vectors: [new Float32Array([0.1, 0.2, 0.3])],
           metadata: {
-            model: 'test-model',
-            device: 'wasm',
-            dtype: 'fp32',
             batchSize: 1,
+            device: 'wasm',
+            dimensions: 3,
+            dtype: 'fp32',
             elapsedMs: 10,
             fallbackApplied: false,
-            dimensions: 3,
+            model: 'test-model',
           },
+          type: 'result',
+          vectors: [new Float32Array([0.1, 0.2, 0.3])],
         });
       }
     },
@@ -168,11 +168,11 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
 }
 
 const createTask = (id: string): TaskPayload => ({
-  kind: 'embed',
+  deviceHint: 'wasm',
   id,
+  kind: 'embed',
   model: 'test-model',
   texts: ['test'],
-  deviceHint: 'wasm',
 });
 
 describe('QueueAdapter control semantics (BST-164)', () => {

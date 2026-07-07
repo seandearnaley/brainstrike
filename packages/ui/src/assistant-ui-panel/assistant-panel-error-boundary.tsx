@@ -21,8 +21,8 @@ export class AssistantPanelErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     logger.error('Assistant panel render error', {
-      error: error.message,
       componentStack: info.componentStack,
+      error: error.message,
     });
   }
 

@@ -159,8 +159,8 @@ const CHAT_NAME_PATTERN =
 // OpenAI-compatible `/v1/models` endpoint returns only `{id}` and is kept as a
 // compatibility fallback for older Ollama builds or non-default configurations.
 const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
-  { path: '/api/tags', source: 'ollama_api_tags', parser: parseOllamaTagsPayload },
-  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
+  { parser: parseOllamaTagsPayload, path: '/api/tags', source: 'ollama_api_tags' },
+  { parser: parseOpenAiModelsPayload, path: '/v1/models', source: 'openai_v1_models' },
 ];
 
 // Native `/api/v1/models` (LM Studio 0.4.0+) and `/api/v0/models` (legacy but
@@ -169,21 +169,21 @@ const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
 // surfaces authoritative LLM/embedding/vision classifications; fall back to the
 // OpenAI shape for forward-compat if the native paths are ever disabled.
 const LM_STUDIO_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
-  { path: '/api/v1/models', source: 'lmstudio_api_v1_models', parser: parseLmStudioModelsPayload },
-  { path: '/api/v0/models', source: 'lmstudio_api_v0_models', parser: parseLmStudioModelsPayload },
-  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
+  { parser: parseLmStudioModelsPayload, path: '/api/v1/models', source: 'lmstudio_api_v1_models' },
+  { parser: parseLmStudioModelsPayload, path: '/api/v0/models', source: 'lmstudio_api_v0_models' },
+  { parser: parseOpenAiModelsPayload, path: '/v1/models', source: 'openai_v1_models' },
 ];
 
 const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
-  ollama: {
-    runtime: 'ollama',
-    modelPaths: OLLAMA_MODEL_PATHS,
-    embeddingProbePaths: ['/v1/embeddings', '/api/embeddings'],
-  },
   lmstudio: {
-    runtime: 'lmstudio',
-    modelPaths: LM_STUDIO_MODEL_PATHS,
     embeddingProbePaths: ['/v1/embeddings'],
+    modelPaths: LM_STUDIO_MODEL_PATHS,
+    runtime: 'lmstudio',
+  },
+  ollama: {
+    embeddingProbePaths: ['/v1/embeddings', '/api/embeddings'],
+    modelPaths: OLLAMA_MODEL_PATHS,
+    runtime: 'ollama',
   },
 };
 
@@ -194,8 +194,8 @@ function buildRuntimeModelEndpoints(
   const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
   return RUNTIME_ADAPTERS[runtime].modelPaths.map((definition) => ({
     endpoint: buildRuntimeEndpoint(baseUrl, definition.path),
-    source: definition.source,
     parser: definition.parser,
+    source: definition.source,
   }));
 }
 
@@ -443,18 +443,18 @@ function resolveReportedCapabilities(
       // Dimensions still need a probe to confirm the exact vector size; the
       // runtime tells us the model IS an embedding model but not its shape.
       return {
-        llm: false,
-        embeddings: 'supported',
-        dimensionsKnown: { state: 'needs_verification' },
         capabilitySource: 'provider_reported',
+        dimensionsKnown: { state: 'needs_verification' },
+        embeddings: 'supported',
+        llm: false,
       };
     case 'llm':
     case 'vlm':
       return {
-        llm: true,
-        embeddings: 'unsupported',
-        dimensionsKnown: { state: 'not_applicable' },
         capabilitySource: 'provider_reported',
+        dimensionsKnown: { state: 'not_applicable' },
+        embeddings: 'unsupported',
+        llm: true,
       };
   }
 }
@@ -468,29 +468,29 @@ function inferCapabilitiesFromName(modelId: string, displayName: string): Resolv
     // Prefer embedding classification when both patterns match so "embedding"-labeled
     // models remain actionable for this catalog even if names also contain chat terms.
     return {
-      llm: hasChatHint,
-      embeddings: 'supported',
-      dimensionsKnown: { state: 'needs_verification' },
       capabilitySource: 'inferred',
+      dimensionsKnown: { state: 'needs_verification' },
+      embeddings: 'supported',
+      llm: hasChatHint,
     };
   }
 
   if (hasChatHint) {
     return {
-      llm: true,
-      embeddings: 'unsupported',
-      dimensionsKnown: { state: 'not_applicable' },
       capabilitySource: 'inferred',
+      dimensionsKnown: { state: 'not_applicable' },
+      embeddings: 'unsupported',
+      llm: true,
     };
   }
 
   // Unknown model families are treated as LLM-capable and embedding-uncertain so
   // custom names still surface and can be verified through runtime probing.
   return {
-    llm: true,
-    embeddings: 'needs_verification',
-    dimensionsKnown: { state: 'needs_verification' },
     capabilitySource: 'inferred',
+    dimensionsKnown: { state: 'needs_verification' },
+    embeddings: 'needs_verification',
+    llm: true,
   };
 }
 
@@ -666,11 +666,11 @@ export class LocalRuntimeModelCatalogService {
     const trimmed = modelId.trim();
     if (trimmed.length === 0) {
       return {
-        state: 'unavailable',
-        modelId,
+        checkedAt: this.now(),
         endpoint: showEndpoint,
         message: 'modelId is required',
-        checkedAt: this.now(),
+        modelId,
+        state: 'unavailable',
       };
     }
 
@@ -697,11 +697,11 @@ export class LocalRuntimeModelCatalogService {
 
     if (!this.fetchImpl) {
       return {
-        state: 'unavailable',
-        modelId: trimmed,
+        checkedAt: this.now(),
         endpoint: showEndpoint,
         message: 'Fetch implementation is not available',
-        checkedAt: this.now(),
+        modelId: trimmed,
+        state: 'unavailable',
       };
     }
 
@@ -709,48 +709,48 @@ export class LocalRuntimeModelCatalogService {
     const checkedAt = this.now();
     try {
       const result = await fetchJsonWithTimeout(showEndpoint, {
-        fetchImpl: this.fetchImpl,
-        timeoutMs: this.requestTimeoutMs,
-        method: 'POST',
         body: JSON.stringify({ model: trimmed }),
+        fetchImpl: this.fetchImpl,
+        method: 'POST',
+        timeoutMs: this.requestTimeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(authHeaders ? { headers: authHeaders } : {}),
       });
 
       if (!result.response.ok) {
         return {
-          state: 'unavailable',
-          modelId: trimmed,
-          endpoint: showEndpoint,
-          status: result.response.status,
-          message: `Ollama /api/show responded with ${result.response.status}`,
           checkedAt,
+          endpoint: showEndpoint,
+          message: `Ollama /api/show responded with ${result.response.status}`,
+          modelId: trimmed,
+          state: 'unavailable',
+          status: result.response.status,
         };
       }
 
       if (result.parseError) {
         return {
-          state: 'unavailable',
-          modelId: trimmed,
+          checkedAt,
           endpoint: showEndpoint,
           message: 'Ollama /api/show returned non-JSON payload',
-          checkedAt,
+          modelId: trimmed,
+          state: 'unavailable',
         };
       }
 
       const capabilities = parseOllamaCapabilityList(result.payload);
       const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
-        state: 'resolved',
-        modelId: trimmed,
-        endpoint: showEndpoint,
-        checkedAt,
         capabilities,
-        llm: capabilities.includes('completion'),
+        checkedAt,
         embedding: capabilities.includes('embedding'),
+        endpoint: showEndpoint,
+        insert: capabilities.includes('insert'),
+        llm: capabilities.includes('completion'),
+        modelId: trimmed,
+        state: 'resolved',
+        thinking: capabilities.includes('thinking'),
         tools: capabilities.includes('tools'),
         vision: capabilities.includes('vision'),
-        thinking: capabilities.includes('thinking'),
-        insert: capabilities.includes('insert'),
       };
       // Evict the least-recently-used entry once we exceed the cap. Map
       // iterates in insertion order, so the first key is the oldest — but
@@ -765,8 +765,8 @@ export class LocalRuntimeModelCatalogService {
         }
       }
       this.ollamaCapabilitiesCache.set(cacheKey, {
-        result: resolved,
         expiresAt: checkedAt + this.successTtlMs,
+        result: resolved,
       });
       return resolved;
     } catch (error) {
@@ -774,11 +774,11 @@ export class LocalRuntimeModelCatalogService {
         throw error;
       }
       return {
-        state: 'unavailable',
-        modelId: trimmed,
+        checkedAt,
         endpoint: showEndpoint,
         message: `Ollama /api/show request failed: ${extractErrorMessage(error)}`,
-        checkedAt,
+        modelId: trimmed,
+        state: 'unavailable',
       };
     }
   }
@@ -792,8 +792,8 @@ export class LocalRuntimeModelCatalogService {
     ]);
 
     return {
-      ollama,
       lmstudio,
+      ollama,
     };
   }
 
@@ -905,37 +905,37 @@ export class LocalRuntimeModelCatalogService {
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
       ...(options.signal ? { signal: options.signal } : {}),
-      verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
       maxVerificationModels: sanitizeVerificationLimit(options.maxVerificationModels),
+      verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
       ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
 
     if (loaded.ok) {
       const shared = {
-        runtime,
-        checkedAt,
         availability,
+        checkedAt,
         endpoint: loaded.endpoint.endpoint,
-        source: loaded.endpoint.source,
         freshness: 'live' as const,
+        runtime,
+        source: loaded.endpoint.source,
       };
 
       const state: LocalRuntimeModelCatalogState =
         loaded.models.length > 0
-          ? { ...shared, state: 'loaded_non_empty' as const, models: loaded.models }
-          : { ...shared, state: 'loaded_empty' as const, models: [] as const };
+          ? { ...shared, models: loaded.models, state: 'loaded_non_empty' as const }
+          : { ...shared, models: [] as const, state: 'loaded_empty' as const };
 
       this.cache.set(runtime, {
         baseUrl: effectiveBaseUrl,
-        status: state,
-        nextRefreshAt: now + this.successTtlMs,
         consecutiveFailures: 0,
         lastSuccess: {
           checkedAt,
           endpoint: shared.endpoint,
-          source: shared.source,
           models: loaded.models,
+          source: shared.source,
         },
+        nextRefreshAt: now + this.successTtlMs,
+        status: state,
       });
 
       return state;
@@ -963,16 +963,16 @@ export class LocalRuntimeModelCatalogService {
   ): Promise<LocalRuntimeEmbeddingDimensionProbeResult> {
     if (!this.fetchImpl) {
       return {
-        state: 'failed',
         checkedAt: this.now(),
         message: 'Fetch implementation is not available',
+        state: 'failed',
       };
     }
 
     const probeEndpoints = buildRuntimeEmbeddingProbeEndpoints(runtime, options.endpoint);
     const probePayload = JSON.stringify({
-      model: modelId,
       input: options.probeText ?? DEFAULT_DIMENSION_PROBE_TEXT,
+      model: modelId,
     });
 
     const unsupportedMessages: string[] = [];
@@ -1000,9 +1000,9 @@ export class LocalRuntimeModelCatalogService {
     }
 
     return {
-      state: 'failed',
       checkedAt: this.now(),
       message: `No embedding probe endpoint configured for ${runtime}`,
+      state: 'failed',
     };
   }
 
@@ -1018,9 +1018,9 @@ export class LocalRuntimeModelCatalogService {
       return {
         kind: 'failed',
         result: {
-          state: 'failed',
           checkedAt: this.now(),
           message: 'Fetch implementation is not available',
+          state: 'failed',
         },
       };
     }
@@ -1034,8 +1034,8 @@ export class LocalRuntimeModelCatalogService {
         timeoutMs: this.requestTimeoutMs,
         ...(signal ? { signal } : {}),
         ...(authHeaders ? { headers: authHeaders } : {}),
-        method: 'POST',
         body: payload,
+        method: 'POST',
       });
 
       if (!result.response.ok) {
@@ -1049,9 +1049,9 @@ export class LocalRuntimeModelCatalogService {
         return {
           kind: 'failed',
           result: {
-            state: 'failed',
             checkedAt,
             message: `Embedding probe failed (${result.response.status}) at ${probeUrl}`,
+            state: 'failed',
           },
         };
       }
@@ -1068,10 +1068,10 @@ export class LocalRuntimeModelCatalogService {
         return {
           kind: 'verified',
           result: {
-            state: 'verified',
             checkedAt,
-            endpoint: probeUrl,
             dimensions,
+            endpoint: probeUrl,
+            state: 'verified',
           },
         };
       }
@@ -1096,10 +1096,10 @@ export class LocalRuntimeModelCatalogService {
     unsupportedMessages: readonly string[]
   ): LocalRuntimeEmbeddingDimensionUnsupported {
     return {
-      state: 'unsupported',
       checkedAt: this.now(),
       endpoint: endpoints[0] ?? 'unknown',
       message: unsupportedMessages.at(-1) ?? 'Embedding probe reported unsupported response shape',
+      state: 'unsupported',
     };
   }
 
@@ -1121,21 +1121,21 @@ export class LocalRuntimeModelCatalogService {
 
     const staleState = this.toStaleState(runtime, checkedAt, availability, failureMessage, cached);
     const nextStatus: LocalRuntimeModelCatalogState = staleState ?? {
-      state: 'failed',
-      runtime,
-      checkedAt,
       availability,
+      checkedAt,
       message: failureMessage,
+      runtime,
+      state: 'failed',
     };
 
     const effectiveBaseUrl =
       baseUrl ?? cached?.baseUrl ?? resolveRuntimeBaseUrl(runtime, undefined);
     this.cache.set(runtime, {
       baseUrl: effectiveBaseUrl,
-      status: nextStatus,
-      nextRefreshAt: this.now() + backoffMs,
       consecutiveFailures: nextFailures,
       lastSuccess: cached?.lastSuccess ?? null,
+      nextRefreshAt: this.now() + backoffMs,
+      status: nextStatus,
     });
 
     // Surface the first catalog failure so "empty model dropdown while runtime
@@ -1143,11 +1143,11 @@ export class LocalRuntimeModelCatalogService {
     // repeated failures because unavailable local runtimes are normal when the
     // user does not run Ollama or LM Studio.
     const catalogFailurePayload = {
-      runtime,
-      state: nextStatus.state,
-      message: failureMessage,
       availability: availability.state,
       consecutiveFailures: nextFailures,
+      message: failureMessage,
+      runtime,
+      state: nextStatus.state,
     };
     if (nextStatus.state === 'stale_cached' || nextFailures > 1 || diagnosticLogLevel === 'debug') {
       this.logger.debug('local runtime model catalog failed', catalogFailurePayload);
@@ -1171,16 +1171,16 @@ export class LocalRuntimeModelCatalogService {
     }
 
     return {
-      state: 'stale_cached',
-      runtime,
-      checkedAt,
       availability,
-      message,
+      checkedAt,
       endpoint: lastSuccess.endpoint,
-      source: lastSuccess.source,
       freshness: 'stale_cached',
       lastSuccessfulAt: lastSuccess.checkedAt,
+      message,
       models: lastSuccess.models.map((model) => setModelFreshness(model, 'stale_cached')),
+      runtime,
+      source: lastSuccess.source,
+      state: 'stale_cached',
     };
   }
 
@@ -1224,8 +1224,8 @@ export class LocalRuntimeModelCatalogService {
   > {
     if (!this.fetchImpl) {
       return {
-        ok: false,
         message: 'Fetch implementation is not available',
+        ok: false,
       };
     }
 
@@ -1235,17 +1235,17 @@ export class LocalRuntimeModelCatalogService {
       const attempt = await this.attemptModelEndpoint(runtime, endpoint, options);
       if (attempt.ok) {
         return {
-          ok: true,
           endpoint,
           models: attempt.models,
+          ok: true,
         };
       }
       errors.push(attempt.message);
     }
 
     return {
-      ok: false,
       message: errors.at(-1) ?? buildRuntimeAvailabilityMessage(runtime, availability),
+      ok: false,
     };
   }
 
@@ -1261,8 +1261,8 @@ export class LocalRuntimeModelCatalogService {
   ): Promise<ModelEndpointAttemptOutcome> {
     if (!this.fetchImpl) {
       return {
-        ok: false,
         message: 'Fetch implementation is not available',
+        ok: false,
       };
     }
 
@@ -1277,23 +1277,23 @@ export class LocalRuntimeModelCatalogService {
 
       if (!result.response.ok) {
         return {
-          ok: false,
           message: `Model list failed (${result.response.status}) at ${endpoint.endpoint}`,
+          ok: false,
         };
       }
 
       if (result.parseError) {
         return {
-          ok: false,
           message: `Model list returned invalid JSON at ${endpoint.endpoint}`,
+          ok: false,
         };
       }
 
       const parsed = endpoint.parser(result.payload);
       if (!parsed) {
         return {
-          ok: false,
           message: `Unexpected model list payload at ${endpoint.endpoint}`,
+          ok: false,
         };
       }
 
@@ -1309,19 +1309,19 @@ export class LocalRuntimeModelCatalogService {
       }
 
       return {
-        ok: true,
         models: normalized.map((model) => ({
           ...model,
           freshness: 'live',
         })),
+        ok: true,
       };
     } catch (error) {
       if (options.signal?.aborted) {
         throw error;
       }
       return {
-        ok: false,
         message: `Model list probe error at ${endpoint.endpoint}: ${extractErrorMessage(error)}`,
+        ok: false,
       };
     }
   }
@@ -1359,20 +1359,20 @@ export class LocalRuntimeModelCatalogService {
     const normalized = candidates.map((candidate) => {
       const resolved = resolveCandidateCapabilities(candidate);
       return {
-        runtime,
-        providerId: runtime,
-        modelId: candidate.id,
-        modelKey: `${runtime}::${candidate.id}`,
-        displayName: candidate.label,
-        endpoint: endpoint.endpoint,
-        source: endpoint.source,
-        freshness: 'live' as const,
         capabilities: {
-          llm: resolved.llm,
           embeddings: resolved.embeddings,
+          llm: resolved.llm,
         },
         capabilitySource: resolved.capabilitySource,
         dimensionsKnown: resolved.dimensionsKnown,
+        displayName: candidate.label,
+        endpoint: endpoint.endpoint,
+        freshness: 'live' as const,
+        modelId: candidate.id,
+        modelKey: `${runtime}::${candidate.id}`,
+        providerId: runtime,
+        runtime,
+        source: endpoint.source,
         ...(candidate.modelType ? { modelType: candidate.modelType } : {}),
         ...(typeof candidate.loaded === 'boolean' ? { loaded: candidate.loaded } : {}),
       } satisfies LocalRuntimeNormalizedModel;
@@ -1420,10 +1420,10 @@ export class LocalRuntimeModelCatalogService {
             embeddings: 'supported',
           },
           dimensionsKnown: {
+            endpoint: verification.endpoint,
             state: 'known',
             values: [verification.dimensions],
             verifiedAt: verification.checkedAt,
-            endpoint: verification.endpoint,
           },
         });
         continue;

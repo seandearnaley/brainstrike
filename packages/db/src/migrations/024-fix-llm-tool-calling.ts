@@ -12,7 +12,22 @@ import type { Migration } from './migration-runner';
  * This migration fixes the capabilities JSON for existing databases.
  */
 export const migration024FixLlmToolCalling: Migration = {
-  version: 24,
+  down: `
+    -- Revert to original (incorrect) values
+    UPDATE models
+    SET
+      capabilities = '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+      best_for = '["General tasks", "Instruction following", "Edge/Mobile"]',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
+
+    UPDATE models
+    SET
+      capabilities = '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+      best_for = '["General tasks", "Quick responses", "Low memory"]',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = 'onnx-community/Qwen3-0.6B-ONNX';
+  `,
   name: 'fix_llm_tool_calling',
   up: `
     -- Fix LFM2.5 tool calling capability
@@ -31,20 +46,5 @@ export const migration024FixLlmToolCalling: Migration = {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = 'onnx-community/Qwen3-0.6B-ONNX';
   `,
-  down: `
-    -- Revert to original (incorrect) values
-    UPDATE models
-    SET
-      capabilities = '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
-      best_for = '["General tasks", "Instruction following", "Edge/Mobile"]',
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
-
-    UPDATE models
-    SET
-      capabilities = '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
-      best_for = '["General tasks", "Quick responses", "Low memory"]',
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = 'onnx-community/Qwen3-0.6B-ONNX';
-  `,
+  version: 24,
 };

@@ -8,24 +8,24 @@ describe('mapMastraToolEvent', () => {
 
     const chunk = mapMastraToolEvent(
       {
-        type: 'tool-call',
+        args: { path: '/tmp' },
         toolCallId: 'call-1',
         toolName: 'filesystem_list',
-        args: { path: '/tmp' },
+        type: 'tool-call',
       },
       toolNames,
       sanitizedNames
     );
 
     expect(chunk).toMatchObject({
-      type: 'tool-event',
       name: 'filesystem.list',
-      status: 'start',
       payload: {
-        callId: 'call-1',
         args: { path: '/tmp' },
+        callId: 'call-1',
         input: { path: '/tmp' },
       },
+      status: 'start',
+      type: 'tool-event',
     });
     expect(toolNames.get('call-1')).toBe('filesystem_list');
   });
@@ -35,56 +35,56 @@ describe('mapMastraToolEvent', () => {
 
     const chunk = mapMastraToolEvent(
       {
-        type: 'tool-result',
-        toolCallId: 'call-1',
         result: { entries: [] },
+        toolCallId: 'call-1',
+        type: 'tool-result',
       },
       toolNames
     );
 
     expect(chunk).toMatchObject({
-      type: 'tool-event',
       name: 'filesystem.search',
-      status: 'success',
       payload: {
         callId: 'call-1',
-        result: { entries: [] },
         output: { entries: [] },
+        result: { entries: [] },
       },
+      status: 'success',
+      type: 'tool-event',
     });
   });
 
   it('maps guarded tool timeout results to error events', () => {
     const toolNames = new Map<string, string>([['call-1', 'filesystem.search']]);
     const timeoutResult = {
-      ok: false,
       error: {
         code: 'tool_timeout',
         message:
           'The tool timed out before returning a result. Try a smaller request or another approach.',
         toolName: 'filesystem.search',
       },
+      ok: false,
     };
 
     const chunk = mapMastraToolEvent(
       {
-        type: 'tool-result',
-        toolCallId: 'call-1',
         result: timeoutResult,
+        toolCallId: 'call-1',
+        type: 'tool-result',
       },
       toolNames
     );
 
     expect(chunk).toMatchObject({
-      type: 'tool-event',
       name: 'filesystem.search',
-      status: 'error',
       payload: {
         callId: 'call-1',
         error: timeoutResult,
         isError: true,
         result: timeoutResult,
       },
+      status: 'error',
+      type: 'tool-event',
     });
   });
 
@@ -93,22 +93,22 @@ describe('mapMastraToolEvent', () => {
 
     const chunk = mapMastraToolEvent(
       {
-        type: 'tool-call-delta',
-        toolCallId: 'call-1',
         argsTextDelta: '25%',
+        toolCallId: 'call-1',
+        type: 'tool-call-delta',
       },
       toolNames
     );
 
     expect(chunk).toMatchObject({
-      type: 'tool-event',
       name: 'filesystem.search',
-      status: 'progress',
       payload: {
         callId: 'call-1',
-        step: 'input_stream_delta',
         note: '25%',
+        step: 'input_stream_delta',
       },
+      status: 'progress',
+      type: 'tool-event',
     });
   });
 
@@ -117,21 +117,21 @@ describe('mapMastraToolEvent', () => {
 
     const chunk = mapMastraToolEvent(
       {
-        type: 'tool-error',
-        toolCallId: 'call-1',
         error: { message: 'boom' },
+        toolCallId: 'call-1',
+        type: 'tool-error',
       },
       toolNames
     );
 
     expect(chunk).toMatchObject({
-      type: 'tool-event',
       name: 'filesystem.search',
-      status: 'error',
       payload: {
         callId: 'call-1',
         error: { message: 'boom' },
       },
+      status: 'error',
+      type: 'tool-event',
     });
   });
 });

@@ -41,8 +41,8 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       .writeText(errorDetails)
       .then(() => {
         this.props.toast({
-          title: 'Success',
           description: 'Error details copied to clipboard',
+          title: 'Success',
         });
       })
       .catch((_err) => {});
@@ -100,7 +100,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       );
     }
 
-    return { icon, displayTitle, message, color, actions };
+    return { actions, color, displayTitle, icon, message };
   }
 
   public override render() {

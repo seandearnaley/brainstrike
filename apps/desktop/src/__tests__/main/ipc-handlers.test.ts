@@ -6,28 +6,28 @@ const mockIpcMain = {
 };
 
 const mockElectronFileSystemAdapter = {
-  requestDirectoryAccess: vi.fn(),
+  exists: vi.fn(),
   readDirectory: vi.fn(),
   readFile: vi.fn(),
-  exists: vi.fn(),
+  requestDirectoryAccess: vi.fn(),
 };
 
 const mockElectronStorageAdapter = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
   clear: vi.fn(),
   getAllKeys: vi.fn(),
+  getItem: vi.fn(),
+  removeItem: vi.fn(),
+  setItem: vi.fn(),
 };
 
 vi.mock('electron', () => ({
-  ipcMain: mockIpcMain,
   app: {
     isPackaged: false,
-    whenReady: vi.fn(),
     on: vi.fn(),
+    whenReady: vi.fn(),
   },
   BrowserWindow: vi.fn(),
+  ipcMain: mockIpcMain,
   session: {
     defaultSession: {
       webRequest: {
@@ -99,9 +99,9 @@ describe('IPC Handlers Expected Behavior', () => {
 
     it('should have working file system adapter methods', async () => {
       const mockDirectoryHandle = {
-        path: '/test',
-        name: 'test',
         kind: 'directory',
+        name: 'test',
+        path: '/test',
         platform: 'electron',
       };
 

@@ -1,7 +1,12 @@
 import type { Migration } from './migration-runner';
 
 export const migration036WorkspaceIndexSystemRole: Migration = {
-  version: 36,
+  down: `
+    DROP INDEX IF EXISTS idx_embedding_sets_workspace_index_system_role;
+    --> statement-breakpoint
+    ALTER TABLE embedding_sets
+      DROP COLUMN IF EXISTS system_role;
+  `,
   name: 'workspace_index_system_role',
   up: `
     ALTER TABLE embedding_sets
@@ -12,10 +17,5 @@ export const migration036WorkspaceIndexSystemRole: Migration = {
       ON embedding_sets(system_role)
       WHERE system_role = 'workspace-index';
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_embedding_sets_workspace_index_system_role;
-    --> statement-breakpoint
-    ALTER TABLE embedding_sets
-      DROP COLUMN IF EXISTS system_role;
-  `,
+  version: 36,
 };

@@ -31,27 +31,27 @@ type BulkDirectoryChildrenApplicator = (
 
 function createFileNode(overrides: Partial<IFileNode>): IFileNode {
   return {
-    name: 'file.txt',
-    path: '/root/file.txt',
-    type: 'file',
     depth: 1,
     handle: {} as FileSystemFileHandle,
-    selectionState: 'unchecked',
+    name: 'file.txt',
+    path: '/root/file.txt',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
 
 function createDirectoryNode(overrides: Partial<IFileNode>): IFileNode {
   return {
-    name: 'dir',
-    path: '/root/dir',
-    type: 'directory',
     depth: 0,
     handle: {} as FileSystemDirectoryHandle,
-    selectionState: 'unchecked',
-    rootFolderId: 'root',
     loadState: 'loaded',
+    name: 'dir',
+    path: '/root/dir',
+    rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -68,17 +68,17 @@ describe('normalized-file-tree', () => {
   it('round-trips a nested tree through normalized state', () => {
     const tree: IFileNode[] = [
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
-          createFileNode({ name: 'index.ts', path: '/root/src/index.ts', depth: 1 }),
+          createFileNode({ depth: 1, name: 'index.ts', path: '/root/src/index.ts' }),
           createDirectoryNode({
+            children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ];
 
@@ -90,24 +90,24 @@ describe('normalized-file-tree', () => {
   it('replaces a directory subtree and updates descendant file counts', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
-          createFileNode({ name: 'old.ts', path: '/root/src/old.ts', depth: 1 }),
+          createFileNode({ depth: 1, name: 'old.ts', path: '/root/src/old.ts' }),
           createDirectoryNode({
+            children: [
+              createFileNode({ depth: 2, name: 'nested.ts', path: '/root/src/nested/nested.ts' }),
+            ],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [
-              createFileNode({ name: 'nested.ts', path: '/root/src/nested/nested.ts', depth: 2 }),
-            ],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ]);
 
     const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
-      createFileNode({ name: 'new.ts', path: '/root/src/new.ts', depth: 1 }),
+      createFileNode({ depth: 1, name: 'new.ts', path: '/root/src/new.ts' }),
     ]);
 
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
@@ -129,59 +129,59 @@ describe('normalized-file-tree', () => {
 
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'root',
-        path: '/root',
         children: Array.from({ length: 3 }, (_, index) =>
           createDirectoryNode({
-            name: `dir-${index}`,
-            path: `/root/dir-${index}`,
             depth: 1,
             loadState: 'unloaded',
+            name: `dir-${index}`,
+            path: `/root/dir-${index}`,
           })
         ),
+        name: 'root',
+        path: '/root',
       }),
     ]);
 
     const nextState = applyBulkDirectoryChildren(state, [
       {
-        path: '/root/dir-0',
-        loadState: 'loaded',
         children: [
           createFileNode({
+            depth: 2,
             name: 'a.ts',
             path: '/root/dir-0/a.ts',
-            depth: 2,
           }),
         ],
+        loadState: 'loaded',
+        path: '/root/dir-0',
       },
       {
-        path: '/root/dir-1',
-        loadState: 'loaded',
         children: [
           createFileNode({
+            depth: 2,
             name: 'b.ts',
             path: '/root/dir-1/b.ts',
-            depth: 2,
           }),
         ],
+        loadState: 'loaded',
+        path: '/root/dir-1',
       },
       {
-        path: '/root/dir-2',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'nested',
-            path: '/root/dir-2/nested',
-            depth: 2,
             children: [
               createFileNode({
+                depth: 3,
                 name: 'c.ts',
                 path: '/root/dir-2/nested/c.ts',
-                depth: 3,
               }),
             ],
+            depth: 2,
+            name: 'nested',
+            path: '/root/dir-2/nested',
           }),
         ],
+        loadState: 'loaded',
+        path: '/root/dir-2',
       },
     ]);
 
@@ -211,35 +211,35 @@ describe('normalized-file-tree', () => {
 
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
+        children: [],
         name: 'root',
         path: '/root',
-        children: [],
       }),
     ]);
 
     const nextState = applyBulkDirectoryChildren(state, [
       {
-        path: '/root/src',
-        loadState: 'loaded',
         children: [
           createFileNode({
+            depth: 2,
             name: 'index.ts',
             path: '/root/src/index.ts',
-            depth: 2,
           }),
         ],
+        loadState: 'loaded',
+        path: '/root/src',
       },
       {
-        path: '/root',
-        loadState: 'loaded',
         children: [
           createDirectoryNode({
-            name: 'src',
-            path: '/root/src',
             depth: 1,
             loadState: 'unloaded',
+            name: 'src',
+            path: '/root/src',
           }),
         ],
+        loadState: 'loaded',
+        path: '/root',
       },
     ]);
 
@@ -251,10 +251,10 @@ describe('normalized-file-tree', () => {
   it('updates load state without changing descendant file counts', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
+        children: [createFileNode({ depth: 1, name: 'a.ts', path: '/root/src/a.ts' })],
+        loadState: 'unloaded',
         name: 'src',
         path: '/root/src',
-        loadState: 'unloaded',
-        children: [createFileNode({ name: 'a.ts', path: '/root/src/a.ts', depth: 1 })],
       }),
     ]);
 
@@ -279,16 +279,16 @@ describe('normalized-file-tree', () => {
   it('sets load errors and clears them when the directory load state is reset', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
+        loadState: 'unloaded',
         name: 'src',
         path: '/root/src',
-        loadState: 'unloaded',
       }),
     ]);
 
     const erroredState = setNormalizedNodeLoadState(state, '/root/src', 'error', 'boom');
     expect(getNormalizedNode(erroredState, '/root/src')).toMatchObject({
-      loadState: 'error',
       loadError: 'boom',
+      loadState: 'error',
     });
 
     const recoveredState = setNormalizedNodeLoadState(erroredState, '/root/src', 'loaded');
@@ -301,25 +301,25 @@ describe('normalized-file-tree', () => {
   it('materializes a single subtree on demand', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
           createDirectoryNode({
+            children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ]);
 
     expect(materializeNormalizedSubtree(state, '/root/src/nested')).toEqual(
       createDirectoryNode({
+        children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+        depth: 1,
         name: 'nested',
         path: '/root/src/nested',
-        depth: 1,
-        children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
       })
     );
   });
@@ -327,18 +327,18 @@ describe('normalized-file-tree', () => {
   it('materializes shallow nodes and parent links without descending recursively', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
           createDirectoryNode({
+            children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
-      createFileNode({ name: 'readme.md', path: '/root/readme.md', depth: 0 }),
+      createFileNode({ depth: 0, name: 'readme.md', path: '/root/readme.md' }),
     ]);
 
     expect(materializeNormalizedNode(state, '/root/src')).toMatchObject({
@@ -347,15 +347,15 @@ describe('normalized-file-tree', () => {
     });
     expect(materializeNormalizedShallowNode(state, '/root/src')).toEqual(
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
           createDirectoryNode({
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       })
     );
     expect(getNormalizedChildPaths(state, '/root/src')).toEqual(['/root/src/nested']);
@@ -378,16 +378,16 @@ describe('normalized-file-tree', () => {
   it('does not loop forever if parent references become cyclic during count recomputation', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
           createDirectoryNode({
+            children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ]);
 
@@ -395,7 +395,7 @@ describe('normalized-file-tree', () => {
     state.parentPathByPath.set('/root/src/nested', '/root/src');
 
     const nextState = replaceNormalizedDirectoryChildren(state, '/root/src/nested', [
-      createFileNode({ name: 'b.ts', path: '/root/src/nested/b.ts', depth: 2 }),
+      createFileNode({ depth: 2, name: 'b.ts', path: '/root/src/nested/b.ts' }),
     ]);
 
     expect(getNormalizedDescendantFileCount(nextState, '/root/src/nested')).toBe(1);
@@ -405,23 +405,23 @@ describe('normalized-file-tree', () => {
   it('does not loop forever if subtree child paths become cyclic during replacement', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
           createDirectoryNode({
+            children: [createFileNode({ depth: 2, name: 'a.ts', path: '/root/src/nested/a.ts' })],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ]);
 
     state.childPathsByPath.set('/root/src/nested', ['/root/src']);
 
     const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
-      createFileNode({ name: 'replacement.ts', path: '/root/src/replacement.ts', depth: 1 }),
+      createFileNode({ depth: 1, name: 'replacement.ts', path: '/root/src/replacement.ts' }),
     ]);
 
     expect(getNormalizedChildPaths(nextState, '/root/src')).toEqual(['/root/src/replacement.ts']);
@@ -431,29 +431,29 @@ describe('normalized-file-tree', () => {
   it('keeps ancestor links and counts intact when a non-root subtree has a cyclic child edge to its parent', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'root',
-        path: '/root',
         children: [
           createDirectoryNode({
-            name: 'src',
-            path: '/root/src',
-            depth: 1,
             children: [
               createDirectoryNode({
-                name: 'nested',
-                path: '/root/src/nested',
-                depth: 2,
                 children: [
                   createFileNode({
+                    depth: 3,
                     name: 'a.ts',
                     path: '/root/src/nested/a.ts',
-                    depth: 3,
                   }),
                 ],
+                depth: 2,
+                name: 'nested',
+                path: '/root/src/nested',
               }),
             ],
+            depth: 1,
+            name: 'src',
+            path: '/root/src',
           }),
         ],
+        name: 'root',
+        path: '/root',
       }),
     ]);
 
@@ -461,9 +461,9 @@ describe('normalized-file-tree', () => {
 
     const nextState = replaceNormalizedDirectoryChildren(state, '/root/src/nested', [
       createFileNode({
+        depth: 3,
         name: 'replacement.ts',
         path: '/root/src/nested/replacement.ts',
-        depth: 3,
       }),
     ]);
 
@@ -476,25 +476,25 @@ describe('normalized-file-tree', () => {
   it('only removes descendants that match on a path boundary', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
+        children: [createFileNode({ depth: 2, name: 'index.ts', path: '/root/src/index.ts' })],
         name: 'src',
         path: '/root/src',
-        children: [createFileNode({ name: 'index.ts', path: '/root/src/index.ts', depth: 2 })],
       }),
       createDirectoryNode({
-        name: 'src-generated',
-        path: '/root/src-generated',
         children: [
           createFileNode({
+            depth: 2,
             name: 'generated.ts',
             path: '/root/src-generated/generated.ts',
-            depth: 2,
           }),
         ],
+        name: 'src-generated',
+        path: '/root/src-generated',
       }),
     ]);
 
     const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
-      createFileNode({ name: 'replacement.ts', path: '/root/src/replacement.ts', depth: 2 }),
+      createFileNode({ depth: 2, name: 'replacement.ts', path: '/root/src/replacement.ts' }),
     ]);
 
     expect(getNormalizedNode(nextState, '/root/src-generated')).toMatchObject({
@@ -516,9 +516,9 @@ describe('normalized-file-tree', () => {
     }
 
     let currentNode = createFileNode({
+      depth,
       name: 'leaf.ts',
       path: `${currentPath}/leaf.ts`,
-      depth,
     });
 
     for (let index = directoryPaths.length - 1; index >= 0; index -= 1) {
@@ -527,10 +527,10 @@ describe('normalized-file-tree', () => {
         continue;
       }
       currentNode = createDirectoryNode({
+        children: [currentNode],
+        depth: index,
         name: `dir-${index}`,
         path: directoryPath,
-        depth: index,
-        children: [currentNode],
       });
     }
 
@@ -539,9 +539,9 @@ describe('normalized-file-tree', () => {
     expect(() =>
       replaceNormalizedDirectoryChildren(state, currentNode.path, [
         createFileNode({
+          depth: 1,
           name: 'replacement.ts',
           path: `${currentNode.path}/replacement.ts`,
-          depth: 1,
         }),
       ])
     ).not.toThrow();
@@ -550,20 +550,20 @@ describe('normalized-file-tree', () => {
   it('lists descendant file paths breadth-first with an optional max count', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
-        name: 'src',
-        path: '/root/src',
         children: [
-          createFileNode({ name: 'a.ts', path: '/root/src/a.ts', depth: 1 }),
+          createFileNode({ depth: 1, name: 'a.ts', path: '/root/src/a.ts' }),
           createDirectoryNode({
+            children: [
+              createFileNode({ depth: 2, name: 'b.ts', path: '/root/src/nested/b.ts' }),
+              createFileNode({ depth: 2, name: 'c.ts', path: '/root/src/nested/c.ts' }),
+            ],
+            depth: 1,
             name: 'nested',
             path: '/root/src/nested',
-            depth: 1,
-            children: [
-              createFileNode({ name: 'b.ts', path: '/root/src/nested/b.ts', depth: 2 }),
-              createFileNode({ name: 'c.ts', path: '/root/src/nested/c.ts', depth: 2 }),
-            ],
           }),
         ],
+        name: 'src',
+        path: '/root/src',
       }),
     ]);
 

@@ -15,14 +15,14 @@ function createRepositoryStub(
     completeThreadRun: vi.fn(async () => {}),
     createThread: vi.fn(),
     createThreadRun: vi.fn(async (input) => ({ ...input, createdAt: 0, status: 'running' })),
-    getThreadCumulativeUsage: vi.fn(async () => null),
-    getCrossRootUsage: vi.fn(async () => []),
-    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
+    getCrossRootUsage: vi.fn(async () => []),
+    getThreadCumulativeUsage: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(async () => []),
+    recordRunUsage: vi.fn(),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
     ...overrides,
@@ -140,9 +140,9 @@ describe('useAssistantRequestLifecycle', () => {
         }),
       {
         initialProps: {
-          provider: 'openai',
-          model: 'gpt-5.2',
           focusedRootId: 'root-a',
+          model: 'gpt-5.2',
+          provider: 'openai',
         } as PickerProps,
       }
     );
@@ -157,15 +157,15 @@ describe('useAssistantRequestLifecycle', () => {
 
     // The user switches BOTH the model picker AND the focused root MID-RUN
     // (before usage fires).
-    rerender({ provider: 'anthropic', model: 'claude-opus-4-8', focusedRootId: 'root-b' });
+    rerender({ focusedRootId: 'root-b', model: 'claude-opus-4-8', provider: 'anthropic' });
 
     // The active run's usage context must still reflect the REQUEST-START
     // model AND root, not the new picker/focus selection.
     expect(result.current.getActiveRunUsageContext()).toEqual({
-      runId: 'run-attribution',
-      provider: 'openai',
       model: 'gpt-5.2',
+      provider: 'openai',
       rootId: 'root-a',
+      runId: 'run-attribution',
     });
 
     // After completion the snapshot is cleared.
@@ -205,10 +205,10 @@ describe('useAssistantRequestLifecycle', () => {
     });
 
     expect(result.current.getActiveRunUsageContext()).toEqual({
-      runId: 'run-no-root',
-      provider: 'openai',
       model: 'gpt-5.2',
+      provider: 'openai',
       rootId: null,
+      runId: 'run-no-root',
     });
   });
 

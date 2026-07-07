@@ -79,9 +79,9 @@ export function validateDesktopBridgeContract(
   }
 
   return {
-    ok: false,
-    missing,
     message:
       'Desktop preload bridge is incomplete. This means the Electron preload script did not initialize correctly.',
+    missing,
+    ok: false,
   };
 }

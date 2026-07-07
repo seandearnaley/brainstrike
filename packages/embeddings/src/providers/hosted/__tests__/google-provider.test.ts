@@ -11,13 +11,13 @@ describe('GoogleEmbeddingProvider', () => {
     const mockFetch = createMockFetch(response);
 
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: 'hello', modelId: 'gemini-embedding-001' };
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: 'hello' };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
 
@@ -45,13 +45,13 @@ describe('GoogleEmbeddingProvider', () => {
     const mockFetch = createMockFetch(response);
 
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: ['a', 'b'], modelId: 'gemini-embedding-001' };
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: ['a', 'b'] };
     const result = await provider.embed(input);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -84,13 +84,13 @@ describe('GoogleEmbeddingProvider', () => {
   it('returns a validation error for empty inputs', async () => {
     const mockFetch = createMockFetch(new Response('{}', { status: 200 }));
     const provider = new GoogleEmbeddingProvider({
-      modelId: 'gemini-embedding-001',
       apiKey: 'test-api-key',
       fetch: mockFetch as typeof fetch,
+      modelId: 'gemini-embedding-001',
       outputDimensions: 2,
     });
 
-    const input: EmbeddingInput = { text: [], modelId: 'gemini-embedding-001' };
+    const input: EmbeddingInput = { modelId: 'gemini-embedding-001', text: [] };
     const result = await provider.embed(input);
     expect(result.ok).toBe(false);
     if (!result.ok) {

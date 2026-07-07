@@ -11,32 +11,32 @@ export interface ColumnConfig {
 
 export const COLUMN_CONFIGS: ColumnConfig[] = [
   {
-    id: 'checkbox',
-    label: 'Selection',
     accessor: 'checkbox',
     canHide: false,
     defaultVisible: true,
+    id: 'checkbox',
+    label: 'Selection',
   },
   {
-    id: 'rootFolderId',
-    label: 'Folder',
     accessor: 'rootFolderId',
     canHide: true,
     defaultVisible: true,
+    id: 'rootFolderId',
+    label: 'Folder',
   },
-  { id: 'path', label: 'File Path', accessor: 'path', canHide: false, defaultVisible: true },
-  { id: 'type', label: 'Type', accessor: 'type', canHide: true, defaultVisible: true },
-  { id: 'tokens', label: 'Tokens', accessor: 'tokens', canHide: true, defaultVisible: true },
-  { id: 'size', label: 'Size', accessor: 'size', canHide: true, defaultVisible: true },
+  { accessor: 'path', canHide: false, defaultVisible: true, id: 'path', label: 'File Path' },
+  { accessor: 'type', canHide: true, defaultVisible: true, id: 'type', label: 'Type' },
+  { accessor: 'tokens', canHide: true, defaultVisible: true, id: 'tokens', label: 'Tokens' },
+  { accessor: 'size', canHide: true, defaultVisible: true, id: 'size', label: 'Size' },
 ];
 
 const DEFAULT_COLUMN_VISIBILITY = {
   checkbox: true,
-  rootFolderId: true,
   path: true,
-  type: true,
-  tokens: true,
+  rootFolderId: true,
   size: true,
+  tokens: true,
+  type: true,
 } satisfies ColumnVisibility;
 
 export const createDefaultColumnVisibility = (): ColumnVisibility => ({

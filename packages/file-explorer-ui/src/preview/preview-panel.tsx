@@ -220,12 +220,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     footerMode,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
+    footerMode: 'default',
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
     // Keep range-aware export on by default so context output follows the active tapestry selection model.
     useTapestryRangesForContextOutput: true,
-    footerMode: 'default',
   });
 
   // Gate expensive Tapestry computations behind active tab.
@@ -242,14 +242,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [columnVisibility, groupingConfig]);
 
   const state = usePreviewPanelState({
-    selectedFiles,
+    decodeFileSelection,
     fileContents,
+    fileSizes,
     loadingFiles,
     onSelectionChange,
-    fileSizes,
-    decodeFileSelection,
-    tokenCounting,
     performUndoableAction,
+    selectedFiles,
+    tokenCounting,
   });
 
   const { totalStats, flatListItems } = state;
@@ -262,9 +262,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
     }
     return createSelectedFileContentSnapshot({
+      fileContents,
       selectedFiles,
       tapestryRangesByKey: deferredTapestryRangesByKey,
-      fileContents,
     });
   }, [fileContents, selectedFiles, deferredTapestryRangesByKey, useTapestryRangesForContextOutput]);
 
@@ -272,13 +272,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
 
     return computeContextSelectedTokenSummary({
-      sourceSelectedTokens: totalStats.totalTokens,
-      sourcePendingCount: totalStats.pendingCount,
+      fileContents: selectedFileContentSnapshot,
       selectedFiles,
-      useTapestryRangesForContextOutput,
+      sourcePendingCount: totalStats.pendingCount,
+      sourceSelectedTokens: totalStats.totalTokens,
       tapestryRangesByKey: deferredTapestryRangesByKey,
       tokenCountByFile,
-      fileContents: selectedFileContentSnapshot,
+      useTapestryRangesForContextOutput,
     });
   }, [
     deferredFlatListItems,
@@ -292,14 +292,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const tokenUsage = useMemo(
     () =>
       getTokenUsageMetrics({
+        activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
         budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
         includeProjectTree,
         projectTreeTokenCount,
         projectTreeTokenCountLoading,
+        rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
         selectedTokens: contextSelectedTokenSummary.outputSelectedTokens,
         sourceSelectedTokens: contextSelectedTokenSummary.sourceSelectedTokens,
-        rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
-        activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
       }),
     [
       tokenBudget,
@@ -335,11 +335,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         const rootDisplayName = resolveRootDisplayName?.(decoded.folderId);
         const rootPath = resolveRootPath?.(decoded.folderId);
         const result: TableRowData = {
-          id: fileItem.compositeKey,
-          rootFolderId: decoded.folderId,
-          path: decoded.path,
-          type: getFileExtension(decoded.path) || EXTENSIONLESS_FILE_TYPE,
           compositeKey: fileItem.compositeKey,
+          id: fileItem.compositeKey,
+          path: decoded.path,
+          rootFolderId: decoded.folderId,
+          type: getFileExtension(decoded.path) || EXTENSIONLESS_FILE_TYPE,
         };
 
         if (rootDisplayName !== undefined) {
@@ -373,9 +373,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         const hasRanges = ranges.length > 0;
         const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
         return {
-          path: item.path,
           approxTokens: item.tokens ?? null,
           outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
+          path: item.path,
           ranges,
           // Multi-root (Phase 6): citations need the root identity to
           // disambiguate the same relative path across roots.
@@ -388,14 +388,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
     setWorkspaceContextSnapshot({
       files,
-      selectionFolderId,
-      tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-      selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
-      selectedOutputApproxTokens: contextSelectedTokenSummary.outputSelectedTokens,
-      useTapestryRanges: useTapestryRangesForContextOutput,
       includeProjectTree,
       projectTreeApproxTokens: projectTreeTokenCountLoading ? null : projectTreeTokenCount,
       projectTreeTokenCountLoading,
+      selectedOutputApproxTokens: contextSelectedTokenSummary.outputSelectedTokens,
+      selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
+      selectionFolderId,
+      tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+      useTapestryRanges: useTapestryRangesForContextOutput,
     });
   }, [
     contextSelectedTokenSummary.outputSelectedTokens,
@@ -435,7 +435,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       ) {
         map.set(item.compositeKey, cached.base);
       } else {
-        map.set(item.compositeKey, buildTapestryFileBase({ item, content, isLoading }));
+        map.set(item.compositeKey, buildTapestryFileBase({ content, isLoading, item }));
       }
     }
 
@@ -523,7 +523,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       GROUPING_CONFIGS[groupingConfig as keyof typeof GROUPING_CONFIGS] ?? GROUPING_CONFIGS.none;
     const grouped = groupData(sorted, config);
 
-    return { sortedData: sorted, groupedData: grouped };
+    return { groupedData: grouped, sortedData: sorted };
   }, [tableData, sortField, sortDirection, groupingConfig]);
 
   // Calculate total items for pagination (including group headers)
@@ -562,13 +562,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Use pagination hooks (table + tapestry)
   const tablePagination = usePagination({
-    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
     pageSize: effectivePageSize,
+    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
   });
   const tapestryPageSize = Math.min(effectivePageSize, TAPESTRY_MAX_PAGE_SIZE);
   const tapestryPagination = usePagination({
-    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
     pageSize: tapestryPageSize,
+    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
   });
 
   const {
@@ -597,9 +597,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Use group selection hook
   const groupSelection = useGroupSelection({
-    selections: previewSelections,
-    onSelectionChange: setPreviewSelections,
     getItemKey: (item: TableRowData) => item.compositeKey,
+    onSelectionChange: setPreviewSelections,
+    selections: previewSelections,
   });
 
   const {
@@ -812,9 +812,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Keep export payload synchronized with the latest range edits and tree toggle state.
   const contextExportOptions = useMemo<ContextExportOptions>(
     () => ({
+      projectTreeUsesViewFilters,
       selectedLineRangesByFile: tapestryRangesByKey,
       useTapestryRanges: useTapestryRangesForContextOutput,
-      projectTreeUsesViewFilters,
     }),
     [projectTreeUsesViewFilters, tapestryRangesByKey, useTapestryRangesForContextOutput]
   );
@@ -844,8 +844,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
     performUndoableAction('batch-remove', 'batch-remove', {
       actionName: 'Files removed',
-      itemDescription: `Removed ${previewSelections.size} files from selection`,
       getStateSnapshot: () => new Set(selectedFiles),
+      itemDescription: `Removed ${previewSelections.size} files from selection`,
       onUndo: (_key, snapshot) => {
         onSelectionChange(snapshot);
       },
@@ -866,12 +866,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const contextSelectionActions = useMemo<BulkAction[]>(
     () => [
       {
+        applicableTypes: ['file'],
+        compactLabel: 'Remove',
+        destructive: true,
+        icon: <FileX2 className="size-3.5" />,
         id: 'remove-selected-from-project',
         label: 'Remove Selected from Project',
-        compactLabel: 'Remove',
-        icon: <FileX2 className="size-3.5" />,
-        destructive: true,
-        applicableTypes: ['file'],
         onAction: () => {
           handleBatchRemove();
         },

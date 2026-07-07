@@ -311,8 +311,8 @@ export function usePersistentTokenCache({
               error,
             });
             failedRequestsRef.current.set(compositeKey, {
-              stateKey: countingRuntimeStateKey,
               failedAt: Date.now(),
+              stateKey: countingRuntimeStateKey,
             });
           })
           .finally(() => {
@@ -322,7 +322,6 @@ export function usePersistentTokenCache({
 
         pendingRequestsRef.current.set(compositeKey, pending);
       }
-
       return;
     },
     [fileContents, persistentCache, tokenCounting, decodeFileSelection, onTokenResolved]
@@ -344,8 +343,6 @@ export function usePersistentTokenCache({
         }
         return persistentCache.getFileSize(folderId, normalizedPath);
       }
-
-      // No fallback for file size in in-memory mode
       return;
     },
     [persistentCache, decodeFileSelection]
@@ -366,12 +363,12 @@ export function usePersistentTokenCache({
   );
 
   return {
-    getTokenCount,
-    getFileSize,
+    cacheVersion: persistentCache?.cacheVersion ?? 0,
     getCachedSelectionStats,
+    getFileSize,
+    getTokenCount,
     isAnyLoading: persistentCache?.isAnyLoading ?? pendingRequestsRef.current.size > 0,
     pendingRequestsRef,
     tokenCacheRef,
-    cacheVersion: persistentCache?.cacheVersion ?? 0,
   };
 }

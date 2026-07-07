@@ -80,19 +80,19 @@ async function runWorkerWarmup(
   isCancelled: () => boolean
 ): Promise<{ attempts: number; lastError: Error | null; success: boolean }> {
   const warmupRequest: TokenCountRequest = {
-    id: '__warmup__',
     content: '',
+    id: '__warmup__',
     mode: 'heuristic',
   };
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < WARMUP_MAX_RETRIES; attempt++) {
     if (isCancelled()) {
-      return { success: false, attempts: attempt, lastError };
+      return { attempts: attempt, lastError, success: false };
     }
     try {
       await pool.exec('countTokens', [warmupRequest]);
-      return { success: true, attempts: attempt + 1, lastError: null };
+      return { attempts: attempt + 1, lastError: null, success: true };
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error(`Token cache warmup failed: ${String(error)}`);
@@ -108,7 +108,7 @@ async function runWorkerWarmup(
       }
     }
   }
-  return { success: false, attempts: WARMUP_MAX_RETRIES, lastError };
+  return { attempts: WARMUP_MAX_RETRIES, lastError, success: false };
 }
 
 const terminalWorkerInitErrorsByUrl = new Map<string, Error>();
@@ -300,7 +300,7 @@ class InMemoryTokenCacheStore {
       }
     }
 
-    return { entryCount, totalTokens, accurateCount, heuristicCount };
+    return { accurateCount, entryCount, heuristicCount, totalTokens };
   }
 
   async findByCountingMode(
@@ -391,7 +391,7 @@ interface TokenCacheProviderProps {
 
 function createNoopWorkerPool(): WorkerPool {
   return {
-    exec: async () => ({ id: '', tokenCount: 0, contentHash: '', mode: 'heuristic' }),
+    exec: async () => ({ contentHash: '', id: '', mode: 'heuristic', tokenCount: 0 }),
     terminate: async () => {},
   };
 }
@@ -411,13 +411,13 @@ type WorkerAction =
 function workerReducer(state: WorkerState, action: WorkerAction): WorkerState {
   switch (action.type) {
     case 'POOL_CREATED':
-      return { ...state, pool: action.pool, ready: false, initError: null };
+      return { ...state, initError: null, pool: action.pool, ready: false };
     case 'WARMUP_SUCCESS':
-      return { ...state, ready: true, initError: null };
+      return { ...state, initError: null, ready: true };
     case 'WARMUP_FAILED':
-      return { pool: action.noopPool, ready: false, initError: action.error };
+      return { initError: action.error, pool: action.noopPool, ready: false };
     case 'RESET':
-      return { pool: action.noopPool, ready: false, initError: null };
+      return { initError: null, pool: action.noopPool, ready: false };
     default:
       return state;
   }
@@ -442,9 +442,9 @@ export function TokenCacheProvider({
     store: TokenCacheStore;
   } | null>(null);
   const [workerState, dispatchWorker] = useReducer(workerReducer, {
+    initError: null,
     pool: noopWorkerPool,
     ready: false,
-    initError: null,
   });
   const workerReady = workerState.ready;
   const workerInitError = workerState.initError;
@@ -465,14 +465,14 @@ export function TokenCacheProvider({
   // When db is null (startup/teardown), keep writes in-memory; once db is available, use persistent store.
   const storeState = useMemo<{ store: TokenCacheStoreLike; hasPersistentStore: boolean }>(() => {
     if (!db) {
-      return { store: inMemoryStore, hasPersistentStore: false };
+      return { hasPersistentStore: false, store: inMemoryStore };
     }
 
     const cachedPersistentStore = persistentStoreRef.current;
     if (cachedPersistentStore?.query === db.query) {
       return {
-        store: cachedPersistentStore.store,
         hasPersistentStore: true,
+        store: cachedPersistentStore.store,
       };
     }
 
@@ -484,8 +484,8 @@ export function TokenCacheProvider({
       store: persistentStore,
     };
     return {
-      store: persistentStore,
       hasPersistentStore: true,
+      store: persistentStore,
     };
   }, [db, inMemoryStore]);
   const store = storeState.store;
@@ -521,7 +521,7 @@ export function TokenCacheProvider({
   const initializeWorkerPool = useCallback(async (): Promise<WorkerPool> => {
     const markWorkerUnavailable = (resolvedWorkerUrl: string, error: Error): void => {
       terminalWorkerInitErrorsByUrl.set(resolvedWorkerUrl, error);
-      dispatchWorker({ type: 'WARMUP_FAILED', error, noopPool: noopWorkerPool });
+      dispatchWorker({ error, noopPool: noopWorkerPool, type: 'WARMUP_FAILED' });
     };
 
     const throwIfWorkerUnavailable = (resolvedWorkerUrl: string): void => {
@@ -532,9 +532,9 @@ export function TokenCacheProvider({
       const terminalInitError = terminalWorkerInitErrorsByUrl.get(resolvedWorkerUrl);
       if (terminalInitError) {
         dispatchWorker({
-          type: 'WARMUP_FAILED',
           error: terminalInitError,
           noopPool: noopWorkerPool,
+          type: 'WARMUP_FAILED',
         });
         throw terminalInitError;
       }
@@ -552,7 +552,7 @@ export function TokenCacheProvider({
       }
 
       workerPoolRef.current = pool;
-      dispatchWorker({ type: 'POOL_CREATED', pool });
+      dispatchWorker({ pool, type: 'POOL_CREATED' });
 
       const result = await runWorkerWarmup(pool, () => providerDisposedRef.current);
       if (providerDisposedRef.current) {
@@ -590,8 +590,8 @@ export function TokenCacheProvider({
     }
 
     logger.debug('TokenCacheProvider: creating worker pool', {
-      url: resolvedWorkerUrl,
       lazyWorkerInit,
+      url: resolvedWorkerUrl,
     });
 
     const initPromise = createAndWarmWorkerPool(resolvedWorkerUrl).catch((error: unknown) => {
@@ -631,7 +631,7 @@ export function TokenCacheProvider({
           await workerPoolRef.current.terminate();
           workerPoolRef.current = null;
         }
-        dispatchWorker({ type: 'RESET', noopPool: noopWorkerPool });
+        dispatchWorker({ noopPool: noopWorkerPool, type: 'RESET' });
       },
     }),
     [initializeWorkerPool, noopWorkerPool, workerReady]
@@ -654,17 +654,17 @@ export function TokenCacheProvider({
       if (pool) {
         void pool.terminate();
       }
-      dispatchWorker({ type: 'RESET', noopPool: noopWorkerPool });
+      dispatchWorker({ noopPool: noopWorkerPool, type: 'RESET' });
     };
   }, [initializeWorkerPool, lazyWorkerInit, noopWorkerPool]);
 
   // Use the token cache hook with initialized infrastructure
   // WorkerPool interface is compatible with WorkerPoolLike from useTokenCache
   const tokenCache = useTokenCache({
-    store: store as TokenCacheStore,
-    hasher,
-    workerPool: workerPoolProxy,
     countingMode,
+    hasher,
+    store: store as TokenCacheStore,
+    workerPool: workerPoolProxy,
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });
 
@@ -697,8 +697,8 @@ export function TokenCacheProvider({
 
       try {
         const request: TokenCountRequest = {
-          id: '__text__',
           content: text,
+          id: '__text__',
           mode: countingMode,
         };
 
@@ -718,18 +718,18 @@ export function TokenCacheProvider({
 
   const disabledTokenCache = useMemo<UseTokenCacheReturn>(
     () => ({
-      getTokenCount: () => null,
-      getFileSize: () => undefined,
-      getTotalTokens: async () => 0,
-      isLoading: () => false,
-      isAnyLoading: false,
-      queueForCounting: () => {},
-      preloadFolder: async () => {},
-      clearHotCache: () => {},
-      invalidate: () => {},
-      updateHotCache: () => {},
-      updateFileSizeCache: () => {},
       cacheVersion: 0,
+      clearHotCache: () => {},
+      getFileSize: () => undefined,
+      getTokenCount: () => null,
+      getTotalTokens: async () => 0,
+      invalidate: () => {},
+      isAnyLoading: false,
+      isLoading: () => false,
+      preloadFolder: async () => {},
+      queueForCounting: () => {},
+      updateFileSizeCache: () => {},
+      updateHotCache: () => {},
     }),
     []
   );
@@ -738,13 +738,13 @@ export function TokenCacheProvider({
     () => ({
       // Enable counting when operational (even without persistence)
       ...(isOperational ? tokenCache : disabledTokenCache),
-      isReady, // Deprecated - use isOperational or isPersisted
-      isOperational,
-      isPersisted,
-      persistenceMode,
-      isWorkerReady: workerReady,
       countingMode,
       countTextTokens,
+      isOperational,
+      isPersisted,
+      isReady, // Deprecated - use isOperational or isPersisted
+      isWorkerReady: workerReady,
+      persistenceMode,
       store,
     }),
     [

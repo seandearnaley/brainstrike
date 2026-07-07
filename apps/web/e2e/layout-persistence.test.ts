@@ -218,11 +218,11 @@ test.describe('IDE Layout Persistence', () => {
 
       // Verify width changed (dragging left on right panel)
       const newWidth = await dragPanelWider({
+        initialWidth,
+        isRightPanel: true,
         page,
         panel: rightPanel,
         resizeHandle,
-        initialWidth,
-        isRightPanel: true,
       });
       expect(newWidth).toBeGreaterThan(initialWidth);
       await expectLayoutState(page, (state) => typeof state?.state?.sizes?.[1] === 'number', {

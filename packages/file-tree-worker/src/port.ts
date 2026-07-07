@@ -76,21 +76,21 @@ function sendLoadResults(worker: Worker, requestId: string, results: BatchLoadRe
   for (const result of results) {
     if (result.error) {
       worker.postMessage({
-        type: 'loadError',
         payload: {
-          path: result.path,
           error: result.error,
+          path: result.path,
           requestId,
         },
+        type: 'loadError',
       } satisfies MainToWorkerMessage);
     } else if (result.children) {
       worker.postMessage({
-        type: 'loadResult',
         payload: {
-          path: result.path,
           children: result.children,
+          path: result.path,
           requestId,
         },
+        type: 'loadResult',
       } satisfies MainToWorkerMessage);
     }
   }
@@ -102,12 +102,12 @@ function sendLoadResults(worker: Worker, requestId: string, results: BatchLoadRe
 function sendLoadErrors(worker: Worker, requestId: string, paths: string[], err: unknown): void {
   for (const path of paths) {
     worker.postMessage({
-      type: 'loadError',
       payload: {
-        requestId,
-        path,
         error: err instanceof Error ? err.message : String(err),
+        path,
+        requestId,
       },
+      type: 'loadError',
     } satisfies MainToWorkerMessage);
   }
 }
@@ -117,86 +117,88 @@ function sendLoadErrors(worker: Worker, requestId: string, paths: string[], err:
  */
 export interface FileTreeWorkerPort {
   /** Abort current operation */
-  abort(): void;
+  abort: () => void;
 
   /** Collapse all directories */
-  collapseAll(): void;
+  collapseAll: () => void;
 
   /** Start expand-all operation */
-  expandAll(folderId: string): Promise<{
+  expandAll: (folderId: string) => Promise<{
     patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
 
   /** Request worker to flatten tree with given expanded paths */
-  flattenTree(expandedPaths: string[]): void;
+  flattenTree: (expandedPaths: string[]) => void;
   /** Initialize worker with root nodes */
-  init(rootNodes: WorkerFileNode[], folderId: string): void;
+  init: (rootNodes: WorkerFileNode[], folderId: string) => void;
 
   /** Check if worker is ready */
-  isReady(): boolean;
+  isReady: () => boolean;
 
   /** Load specific paths (for restoration) */
-  loadPaths(paths: string[]): Promise<{
+  loadPaths: (paths: string[]) => Promise<{
     patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
 
   /** Load all descendants of a specific directory (for recursive folder selection) */
-  loadSubtree(startPath: string): Promise<{
+  loadSubtree: (startPath: string) => Promise<{
     patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
 
   /** Register handler for loaded-children patches */
-  onChildrenLoaded(handler: (path: string, children: WorkerFileNode[]) => void): () => void;
+  onChildrenLoaded: (handler: (path: string, children: WorkerFileNode[]) => void) => () => void;
 
   /** Register handler for errors */
-  onError(handler: (message: string, path?: string) => void): () => void;
+  onError: (handler: (message: string, path?: string) => void) => () => void;
 
   /** Register handler for expanded-path delta patches */
-  onExpandedPathsDelta(handler: (added: string[], removed: string[]) => void): () => void;
+  onExpandedPathsDelta: (handler: (added: string[], removed: string[]) => void) => () => void;
 
   /** Register handler for flattened tree results */
-  onFlattenedRows(
+  onFlattenedRows: (
     handler: (nodes: FlattenedNode[], count: number, durationMs: number) => void
-  ): () => void;
+  ) => () => void;
 
   /** Register handler for log messages */
-  onLog(
+  onLog: (
     handler: (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown) => void
-  ): () => void;
+  ) => () => void;
 
   /** Register handler for node load-state patches */
-  onNodeLoadStateChanged(
+  onNodeLoadStateChanged: (
     handler: (path: string, loadState: DirectoryLoadState, loadError?: string) => void
-  ): () => void;
+  ) => () => void;
 
   /** Register handler for progress updates */
-  onProgress(handler: (loaded: number, total: number, currentPath: string) => void): () => void;
+  onProgress: (handler: (loaded: number, total: number, currentPath: string) => void) => () => void;
 
   /** Register handler for load requests from worker */
-  onRequestLoad(
+  onRequestLoad: (
     handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>
-  ): () => void;
+  ) => () => void;
 
   /** Register handler for tree snapshots */
-  onTreeSnapshot(handler: (tree: WorkerFileNode[], expandedPaths: string[]) => void): () => void;
+  onTreeSnapshot: (
+    handler: (tree: WorkerFileNode[], expandedPaths: string[]) => void
+  ) => () => void;
 
   /** Send load error back to worker */
-  sendLoadError(path: string, error: string): void;
+  sendLoadError: (path: string, error: string) => void;
 
   /** Send load results back to worker */
-  sendLoadResult(path: string, children: WorkerFileNode[]): void;
+  sendLoadResult: (path: string, children: WorkerFileNode[]) => void;
 
   /** Terminate the worker */
-  terminate(): void;
+  terminate: () => void;
 
   /** Update tree with loaded children (single directory) */
-  updateTree(path: string, children: WorkerFileNode[]): void;
+  updateTree: (path: string, children: WorkerFileNode[]) => void;
 }
 
 /**
@@ -264,7 +266,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       } satisfies MainToWorkerMessage);
     }
 
-    pending.operation = { resolve, reject, operationId, patches: [] };
+    pending.operation = { operationId, patches: [], reject, resolve };
     return operationId;
   };
 
@@ -334,9 +336,9 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     // Prevents stale completions from racing with new operations
     if (pending.operation && pending.operation.operationId === message.operationId) {
       pending.operation.resolve({
-        patches: pending.operation.patches,
         expandedPaths: message.payload.expandedPaths,
         loadedCount: message.payload.loadedCount,
+        patches: pending.operation.patches,
       });
       pending.operation = null;
     }
@@ -440,60 +442,6 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   });
 
   return {
-    init(rootNodes, folderId) {
-      runtime.throwIfFailed();
-      transport.postMessage({
-        type: 'init',
-        payload: { rootNodes, folderId },
-      } satisfies MainToWorkerMessage);
-    },
-
-    expandAll(folderId) {
-      runtime.throwIfFailed();
-      return new Promise((resolve, reject) => {
-        const thisOperationId = startOperation(resolve, reject);
-
-        transport.postMessage({
-          type: 'expandAll',
-          operationId: thisOperationId,
-          payload: { folderId },
-        } satisfies MainToWorkerMessage);
-      });
-    },
-
-    loadPaths(paths) {
-      runtime.throwIfFailed();
-      return new Promise((resolve, reject) => {
-        const thisOperationId = startOperation(resolve, reject);
-
-        transport.postMessage({
-          type: 'loadPaths',
-          operationId: thisOperationId,
-          payload: { paths },
-        } satisfies MainToWorkerMessage);
-      });
-    },
-
-    loadSubtree(startPath) {
-      runtime.throwIfFailed();
-      return new Promise((resolve, reject) => {
-        const thisOperationId = startOperation(resolve, reject);
-
-        transport.postMessage({
-          type: 'loadSubtree',
-          operationId: thisOperationId,
-          payload: { startPath },
-        } satisfies MainToWorkerMessage);
-      });
-    },
-
-    collapseAll() {
-      runtime.throwIfFailed();
-      transport.postMessage({
-        type: 'collapseAll',
-      } satisfies MainToWorkerMessage);
-    },
-
     abort() {
       if (pending.operation) {
         pending.operation.reject(new Error('Operation aborted'));
@@ -505,69 +453,75 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       } satisfies MainToWorkerMessage);
     },
 
-    updateTree(path, children) {
+    collapseAll() {
       runtime.throwIfFailed();
       transport.postMessage({
-        type: 'updateTree',
-        payload: { path, children, loadState: 'loaded' },
+        type: 'collapseAll',
       } satisfies MainToWorkerMessage);
     },
 
-    sendLoadResult(path, children) {
+    expandAll(folderId) {
+      runtime.throwIfFailed();
+      return new Promise((resolve, reject) => {
+        const thisOperationId = startOperation(resolve, reject);
+
+        transport.postMessage({
+          operationId: thisOperationId,
+          payload: { folderId },
+          type: 'expandAll',
+        } satisfies MainToWorkerMessage);
+      });
+    },
+
+    flattenTree(expandedPaths) {
       runtime.throwIfFailed();
       transport.postMessage({
-        type: 'loadResult',
-        payload: { path, children },
+        payload: { expandedPaths },
+        type: 'flattenTree',
+      } satisfies MainToWorkerMessage);
+    },
+    init(rootNodes, folderId) {
+      runtime.throwIfFailed();
+      transport.postMessage({
+        payload: { folderId, rootNodes },
+        type: 'init',
       } satisfies MainToWorkerMessage);
     },
 
-    sendLoadError(path, error) {
+    isReady() {
+      return runtime.isReady();
+    },
+
+    loadPaths(paths) {
       runtime.throwIfFailed();
-      transport.postMessage({
-        type: 'loadError',
-        payload: { path, error },
-      } satisfies MainToWorkerMessage);
+      return new Promise((resolve, reject) => {
+        const thisOperationId = startOperation(resolve, reject);
+
+        transport.postMessage({
+          operationId: thisOperationId,
+          payload: { paths },
+          type: 'loadPaths',
+        } satisfies MainToWorkerMessage);
+      });
     },
 
-    onRequestLoad(handler) {
-      requestLoadHandler = handler;
-      return () => {
-        requestLoadHandler = null;
-      };
-    },
+    loadSubtree(startPath) {
+      runtime.throwIfFailed();
+      return new Promise((resolve, reject) => {
+        const thisOperationId = startOperation(resolve, reject);
 
-    onProgress(handler) {
-      progressHandler = handler;
-      return () => {
-        progressHandler = null;
-      };
-    },
-
-    onTreeSnapshot(handler) {
-      treeSnapshotHandler = handler;
-      return () => {
-        treeSnapshotHandler = null;
-      };
+        transport.postMessage({
+          operationId: thisOperationId,
+          payload: { startPath },
+          type: 'loadSubtree',
+        } satisfies MainToWorkerMessage);
+      });
     },
 
     onChildrenLoaded(handler) {
       childrenLoadedHandler = handler;
       return () => {
         childrenLoadedHandler = null;
-      };
-    },
-
-    onNodeLoadStateChanged(handler) {
-      nodeLoadStateChangedHandler = handler;
-      return () => {
-        nodeLoadStateChangedHandler = null;
-      };
-    },
-
-    onExpandedPathsDelta(handler) {
-      expandedPathsDeltaHandler = handler;
-      return () => {
-        expandedPathsDeltaHandler = null;
       };
     },
 
@@ -578,10 +532,10 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       };
     },
 
-    onLog(handler) {
-      logHandler = handler;
+    onExpandedPathsDelta(handler) {
+      expandedPathsDeltaHandler = handler;
       return () => {
-        logHandler = null;
+        expandedPathsDeltaHandler = null;
       };
     },
 
@@ -592,16 +546,55 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       };
     },
 
-    flattenTree(expandedPaths) {
+    onLog(handler) {
+      logHandler = handler;
+      return () => {
+        logHandler = null;
+      };
+    },
+
+    onNodeLoadStateChanged(handler) {
+      nodeLoadStateChangedHandler = handler;
+      return () => {
+        nodeLoadStateChangedHandler = null;
+      };
+    },
+
+    onProgress(handler) {
+      progressHandler = handler;
+      return () => {
+        progressHandler = null;
+      };
+    },
+
+    onRequestLoad(handler) {
+      requestLoadHandler = handler;
+      return () => {
+        requestLoadHandler = null;
+      };
+    },
+
+    onTreeSnapshot(handler) {
+      treeSnapshotHandler = handler;
+      return () => {
+        treeSnapshotHandler = null;
+      };
+    },
+
+    sendLoadError(path, error) {
       runtime.throwIfFailed();
       transport.postMessage({
-        type: 'flattenTree',
-        payload: { expandedPaths },
+        payload: { error, path },
+        type: 'loadError',
       } satisfies MainToWorkerMessage);
     },
 
-    isReady() {
-      return runtime.isReady();
+    sendLoadResult(path, children) {
+      runtime.throwIfFailed();
+      transport.postMessage({
+        payload: { children, path },
+        type: 'loadResult',
+      } satisfies MainToWorkerMessage);
     },
 
     terminate() {
@@ -609,6 +602,14 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       runtime.dispose();
       runtime.resetReady();
       worker.terminate();
+    },
+
+    updateTree(path, children) {
+      runtime.throwIfFailed();
+      transport.postMessage({
+        payload: { children, loadState: 'loaded', path },
+        type: 'updateTree',
+      } satisfies MainToWorkerMessage);
     },
   };
 }

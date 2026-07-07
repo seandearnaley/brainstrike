@@ -28,31 +28,31 @@ export interface TokenCountingRuntimeSupport {
 }
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
-  checking: {
-    label: 'Checking runtime…',
-    description: 'Loading the WASM tokenizer to confirm availability.',
-    icon: Loader2,
-    variant: 'outline',
-  },
   accurate: {
-    label: 'Using WASM tokenizer',
     description: 'Accurate token counts are applied across previews and chunking.',
     icon: CheckCircle2,
+    label: 'Using WASM tokenizer',
     variant: 'secondary',
   },
-  unavailable: {
-    label: 'Accurate tokenizer unavailable',
-    description:
-      'BrainStrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
-    icon: AlertTriangle,
-    variant: 'destructive',
+  checking: {
+    description: 'Loading the WASM tokenizer to confirm availability.',
+    icon: Loader2,
+    label: 'Checking runtime…',
+    variant: 'outline',
   },
   disabled: {
-    label: 'Heuristic mode (explicit)',
     description:
       'Accurate counting is disabled by preference. Token counts use the 4 chars/token heuristic only because you explicitly selected it.',
     icon: MinusCircle,
+    label: 'Heuristic mode (explicit)',
     variant: 'outline',
+  },
+  unavailable: {
+    description:
+      'BrainStrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
+    icon: AlertTriangle,
+    label: 'Accurate tokenizer unavailable',
+    variant: 'destructive',
   },
 };
 

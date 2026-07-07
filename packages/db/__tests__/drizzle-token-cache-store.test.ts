@@ -25,15 +25,15 @@ describe('DrizzleTokenCacheStore', () => {
 
   function createEntry(overrides: Partial<TokenCacheEntry> = {}): TokenCacheEntry {
     return {
-      folderId: testFolderId,
-      filePath: 'src/test.ts',
       contentHash: 'abc123',
+      countingMode: 'accurate',
+      createdAt: new Date().toISOString(),
+      filePath: 'src/test.ts',
       fileSize: 1024,
+      folderId: testFolderId,
+      modelEncoding: 'o200k_base',
       mtimeMs: Date.now(),
       tokenCount: 100,
-      countingMode: 'accurate',
-      modelEncoding: 'o200k_base',
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...overrides,
     };
@@ -41,7 +41,7 @@ describe('DrizzleTokenCacheStore', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
 
     const migrationResult = await runMigrations(client);
@@ -197,7 +197,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should get all entries for a folder', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
       await store.set(createEntry({ filePath: 'src/file2.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file3.ts' }));
+      await store.set(createEntry({ filePath: 'src/file3.ts', folderId: 'other-folder' }));
 
       const entries = await store.getAllForFolder(testFolderId);
 
@@ -246,7 +246,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should clear all entries for a folder', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
       await store.set(createEntry({ filePath: 'src/file2.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file3.ts' }));
+      await store.set(createEntry({ filePath: 'src/file3.ts', folderId: 'other-folder' }));
 
       const cleared = await store.clearFolder(testFolderId);
 
@@ -263,7 +263,7 @@ describe('DrizzleTokenCacheStore', () => {
   describe('clearAll', () => {
     it('should clear all entries and return count', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts' }));
-      await store.set(createEntry({ folderId: 'other-folder', filePath: 'src/file2.ts' }));
+      await store.set(createEntry({ filePath: 'src/file2.ts', folderId: 'other-folder' }));
 
       const cleared = await store.clearAll();
 
@@ -291,10 +291,10 @@ describe('DrizzleTokenCacheStore', () => {
   describe('getStats', () => {
     it('should return statistics for folder', async () => {
       await store.set(
-        createEntry({ filePath: 'src/file1.ts', tokenCount: 100, countingMode: 'accurate' })
+        createEntry({ countingMode: 'accurate', filePath: 'src/file1.ts', tokenCount: 100 })
       );
       await store.set(
-        createEntry({ filePath: 'src/file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+        createEntry({ countingMode: 'heuristic', filePath: 'src/file2.ts', tokenCount: 200 })
       );
 
       const stats = await store.getStats(testFolderId);
@@ -308,7 +308,7 @@ describe('DrizzleTokenCacheStore', () => {
     it('should return global statistics when no folder specified', async () => {
       await store.set(createEntry({ filePath: 'src/file1.ts', tokenCount: 100 }));
       await store.set(
-        createEntry({ folderId: 'other-folder', filePath: 'src/file2.ts', tokenCount: 200 })
+        createEntry({ filePath: 'src/file2.ts', folderId: 'other-folder', tokenCount: 200 })
       );
 
       const stats = await store.getStats();
@@ -320,9 +320,9 @@ describe('DrizzleTokenCacheStore', () => {
 
   describe('findByCountingMode', () => {
     it('should find entries by counting mode', async () => {
-      await store.set(createEntry({ filePath: 'src/file1.ts', countingMode: 'accurate' }));
-      await store.set(createEntry({ filePath: 'src/file2.ts', countingMode: 'heuristic' }));
-      await store.set(createEntry({ filePath: 'src/file3.ts', countingMode: 'heuristic' }));
+      await store.set(createEntry({ countingMode: 'accurate', filePath: 'src/file1.ts' }));
+      await store.set(createEntry({ countingMode: 'heuristic', filePath: 'src/file2.ts' }));
+      await store.set(createEntry({ countingMode: 'heuristic', filePath: 'src/file3.ts' }));
 
       const heuristic = await store.findByCountingMode(testFolderId, 'heuristic');
 
@@ -331,7 +331,7 @@ describe('DrizzleTokenCacheStore', () => {
 
     it('should respect limit', async () => {
       for (let i = 0; i < 5; i++) {
-        await store.set(createEntry({ filePath: `src/file${i}.ts`, countingMode: 'heuristic' }));
+        await store.set(createEntry({ countingMode: 'heuristic', filePath: `src/file${i}.ts` }));
       }
 
       const limited = await store.findByCountingMode(testFolderId, 'heuristic', 3);

@@ -25,23 +25,23 @@ function noopLogger(): PermissionToolGateLogger {
 // A minimal tool map shape — the gate never inspects tool internals, it only
 // keys by the sanitized id and copies the value across.
 const TOOLS = {
-  read_tool: { id: 'read_tool' },
   edit_tool: { id: 'edit_tool' },
   execute_tool: { id: 'execute_tool' },
+  read_tool: { id: 'read_tool' },
 } as const;
 
 const RISK_BY_TOOL = {
-  read_tool: 'read',
   edit_tool: 'edit',
   execute_tool: 'execute',
+  read_tool: 'read',
 } as const;
 
 function snapshot(overrides: Partial<PermissionToolGateSnapshot> = {}): PermissionToolGateSnapshot {
   return {
-    policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' },
-    yolo: false,
-    riskByTool: { ...RISK_BY_TOOL },
     defaultRisk: 'mcp',
+    policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+    riskByTool: { ...RISK_BY_TOOL },
+    yolo: false,
     ...overrides,
   };
 }
@@ -92,7 +92,7 @@ describe('filterToolsByPermissionWithMetadata', () => {
   it("omits a 'deny' tool and does NOT record it in askToolIds", () => {
     const result = filterToolsByPermissionWithMetadata(
       { ...TOOLS },
-      snapshot({ policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' } }),
+      snapshot({ policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' } }),
       NAME_MAP,
       noopLogger()
     );

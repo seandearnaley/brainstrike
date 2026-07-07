@@ -35,10 +35,36 @@ const RESTORED_TAB_ID = `${RESTORED_ROOT_ID}:${RESTORED_COMPOSITE_KEY}`;
 
 function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> {
   return {
-    // Storage v5: older versions are discarded by the migration guard.
-    version: FILE_EXPLORER_STORAGE_VERSION,
     state: {
       activeRootIds: [RESTORED_ROOT_ID],
+      currentFolderId: RESTORED_ROOT_ID,
+      devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
+      excludeFilters: [...DEFAULT_STATE.excludeFilters],
+      expandedDirectoryPaths: [],
+      folderAccessOrder: [RESTORED_ROOT_ID],
+      folderStates: {
+        [RESTORED_ROOT_ID]: {
+          excludeFilters: [...DEFAULT_STATE.excludeFilters],
+          expandedDirectoryPaths: [],
+          folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+          includeFilters: [...DEFAULT_STATE.includeFilters],
+          includeProjectTree: DEFAULT_STATE.includeProjectTree,
+          lastAccessed: Date.now(),
+          lastActiveTab: DEFAULT_STATE.lastActiveTab,
+          maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+          selectedFilePaths: [],
+          tokenBudget: DEFAULT_STATE.tokenBudget,
+          useRegex: DEFAULT_STATE.useRegex,
+          viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
+        },
+      },
+      folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+      includeFilters: [...DEFAULT_STATE.includeFilters],
+      includeProjectTree: DEFAULT_STATE.includeProjectTree,
+      isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
+      lastActiveTab: DEFAULT_STATE.lastActiveTab,
+      maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+      quickFilter: DEFAULT_STATE.quickFilter,
       rootDescriptors: {
         [RESTORED_ROOT_ID]: {
           displayName: RESTORED_FOLDER_NAME,
@@ -46,47 +72,21 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
           rootId: RESTORED_ROOT_ID,
         },
       },
-      currentFolderId: RESTORED_ROOT_ID,
-      folderStates: {
-        [RESTORED_ROOT_ID]: {
-          selectedFilePaths: [],
-          expandedDirectoryPaths: [],
-          includeFilters: [...DEFAULT_STATE.includeFilters],
-          excludeFilters: [...DEFAULT_STATE.excludeFilters],
-          useRegex: DEFAULT_STATE.useRegex,
-          includeProjectTree: DEFAULT_STATE.includeProjectTree,
-          tokenBudget: DEFAULT_STATE.tokenBudget,
-          folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
-          maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
-          lastActiveTab: DEFAULT_STATE.lastActiveTab,
-          lastAccessed: Date.now(),
-          viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
-        },
-      },
-      folderAccessOrder: [RESTORED_ROOT_ID],
       selectedFilePaths: [],
-      expandedDirectoryPaths: [],
-      includeFilters: [...DEFAULT_STATE.includeFilters],
-      excludeFilters: [...DEFAULT_STATE.excludeFilters],
-      useRegex: DEFAULT_STATE.useRegex,
-      includeProjectTree: DEFAULT_STATE.includeProjectTree,
-      tokenBudget: DEFAULT_STATE.tokenBudget,
-      folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
-      maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
-      lastActiveTab: DEFAULT_STATE.lastActiveTab,
-      quickFilter: DEFAULT_STATE.quickFilter,
-      devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
       selectionModel: {
-        mode: DEFAULT_STATE.selectionModel.mode,
         explicitPaths: [],
-        ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
-        materializedPaths: null,
         materializedAt: DEFAULT_STATE.selectionModel.materializedAt,
+        materializedPaths: null,
+        mode: DEFAULT_STATE.selectionModel.mode,
         queryDescriptor: DEFAULT_STATE.selectionModel.queryDescriptor,
+        ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
       },
+      tokenBudget: DEFAULT_STATE.tokenBudget,
+      useRegex: DEFAULT_STATE.useRegex,
       viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
-      isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
     },
+    // Storage v5: older versions are discarded by the migration guard.
+    version: FILE_EXPLORER_STORAGE_VERSION,
   };
 }
 
@@ -95,17 +95,17 @@ function createPersistedTabState(): PersistedEnvelope<{
   tabs: Array<{ compositeKey: string; id: string; path: string }>;
 }> {
   return {
-    version: 1,
     state: {
       activeTabId: RESTORED_TAB_ID,
       tabs: [
         {
+          compositeKey: RESTORED_COMPOSITE_KEY,
           id: RESTORED_TAB_ID,
           path: RESTORED_FILE_PATH,
-          compositeKey: RESTORED_COMPOSITE_KEY,
         },
       ],
     },
+    version: 1,
   };
 }
 
@@ -151,53 +151,53 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
       }
 
       const runtimeFolderState = {
-        selectedFilePaths: new Set<string>(),
-        expandedDirectoryPaths: new Set<string>(),
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
         excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        useRegex: nextFileExplorerState.state.useRegex,
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        tokenBudget: nextFileExplorerState.state.tokenBudget,
+        expandedDirectoryPaths: new Set<string>(),
         folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
+        includeFilters: [...nextFileExplorerState.state.includeFilters],
+        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
         lastAccessed: Date.now(),
+        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
+        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
+        selectedFilePaths: new Set<string>(),
+        tokenBudget: nextFileExplorerState.state.tokenBudget,
+        useRegex: nextFileExplorerState.state.useRegex,
         viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
       };
 
       fileExplorerStore.setState({
         currentFolderId: restoredRootId,
+        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
+        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
+        expandedDirectoryPaths: new Set<string>(),
+        folderAccessOrder: [restoredRootId],
         folderStates: {
           [restoredRootId]: runtimeFolderState,
         },
-        folderAccessOrder: [restoredRootId],
-        selectedFilePaths: new Set<string>(),
-        expandedDirectoryPaths: new Set<string>(),
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        useRegex: nextFileExplorerState.state.useRegex,
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        tokenBudget: nextFileExplorerState.state.tokenBudget,
         folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        quickFilter: nextFileExplorerState.state.quickFilter,
-        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
-        selectionModel: {
-          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
-          explicitPaths: new Set<string>(),
-          ruleSetJson: nextFileExplorerState.state.selectionModel?.ruleSetJson ?? null,
-          materializedPaths: null,
-          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
-        },
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
+        includeFilters: [...nextFileExplorerState.state.includeFilters],
+        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
         isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
+        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
+        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
+        quickFilter: nextFileExplorerState.state.quickFilter,
         rootDirectoryHandle: {
-          path: restoredFolderPath,
-          name: restoredFolderName,
           kind: 'directory',
+          name: restoredFolderName,
+          path: restoredFolderPath,
           platform: 'electron',
         },
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
+          materializedPaths: null,
+          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
+          ruleSetJson: nextFileExplorerState.state.selectionModel?.ruleSetJson ?? null,
+        },
+        tokenBudget: nextFileExplorerState.state.tokenBudget,
+        useRegex: nextFileExplorerState.state.useRegex,
+        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
       });
 
       await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));

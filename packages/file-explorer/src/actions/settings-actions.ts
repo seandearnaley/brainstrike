@@ -67,28 +67,10 @@ export const createSettingsActions = (
   setFilters: (include: readonly string[], exclude: readonly string[]) => {
     set((state: FileExplorerState) =>
       updateWithFolderState(state, {
-        includeFilters: [...include],
         excludeFilters: [...exclude],
+        includeFilters: [...include],
       })
     );
-  },
-
-  setUseRegex: (useRegex: boolean) => {
-    set((state: FileExplorerState) => updateWithFolderState(state, { useRegex }));
-  },
-
-  setIncludeProjectTree: (value: boolean) => {
-    set((state: FileExplorerState) => updateWithFolderState(state, { includeProjectTree: value }));
-  },
-
-  setTokenBudget: (budget: number) => {
-    if (!Number.isFinite(budget)) {
-      return;
-    }
-
-    const normalized = Math.round(budget);
-    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
-    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
   },
 
   setFolderSummaryThreshold: (value: number) => {
@@ -98,6 +80,14 @@ export const createSettingsActions = (
         Math.min(value, MAX_FOLDER_SUMMARY_THRESHOLD)
       ),
     });
+  },
+
+  setIncludeProjectTree: (value: boolean) => {
+    set((state: FileExplorerState) => updateWithFolderState(state, { includeProjectTree: value }));
+  },
+
+  setLastActiveTab: (tab: string) => {
+    set({ lastActiveTab: tab });
   },
 
   setMaxSelectionCount: (count: number) => {
@@ -125,15 +115,25 @@ export const createSettingsActions = (
       );
 
       return {
+        folderStates,
         maxSelectionCount: clampedCount,
         selectedFilePaths: newSelectedFilePaths,
-        folderStates,
       };
     });
   },
 
-  setLastActiveTab: (tab: string) => {
-    set({ lastActiveTab: tab });
+  setTokenBudget: (budget: number) => {
+    if (!Number.isFinite(budget)) {
+      return;
+    }
+
+    const normalized = Math.round(budget);
+    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
+    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
+  },
+
+  setUseRegex: (useRegex: boolean) => {
+    set((state: FileExplorerState) => updateWithFolderState(state, { useRegex }));
   },
 
   setViewFilterPresetId: (presetId: string | null) => {

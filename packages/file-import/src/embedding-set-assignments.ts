@@ -1,5 +1,5 @@
 export interface EmbeddingSetAssignmentSqlPort {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 export async function backfillEmbeddingSetAssignments(

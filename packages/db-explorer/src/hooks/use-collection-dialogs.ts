@@ -49,20 +49,19 @@ export function useCollectionDialogs() {
   }, []);
 
   return {
+    // Handlers to close dialogs
+    closeCreateDialog,
+    closeDeleteDialog,
+    closeRenameDialog,
     // Dialog open states
     createCollectionOpen,
-    renameDialogOpen,
     deleteDialogOpen,
-    selectedCollection,
 
     // Handlers to open dialogs
     handleCreateCollection,
-    handleEditCollection,
     handleDeleteCollection,
-
-    // Handlers to close dialogs
-    closeCreateDialog,
-    closeRenameDialog,
-    closeDeleteDialog,
+    handleEditCollection,
+    renameDialogOpen,
+    selectedCollection,
   };
 }

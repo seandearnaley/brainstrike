@@ -50,45 +50,6 @@ export function createSafeStorage(errorHandler?: StorageErrorHandler): Storage {
   const memory = new Map<string, string>();
 
   return {
-    getItem(key: string): string | null {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          return localStorage.getItem(key);
-        }
-      } catch (error) {
-        logger.warn(`localStorage.getItem("${key}") failed, using in-memory fallback:`, error);
-        errorHandler?.({ operation: 'get', key, error });
-      }
-      return memory.get(key) ?? null;
-    },
-
-    setItem(key: string, value: string): void {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(key, value);
-          return;
-        }
-      } catch (error) {
-        logger.error(`localStorage.setItem("${key}") failed, using in-memory fallback:`, error);
-        errorHandler?.({ operation: 'set', key, error });
-        // Fall through to memory storage
-      }
-      memory.set(key, value);
-    },
-
-    removeItem(key: string): void {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.removeItem(key);
-          return;
-        }
-      } catch (error) {
-        logger.warn(`localStorage.removeItem("${key}") failed, using in-memory fallback:`, error);
-        errorHandler?.({ operation: 'remove', key, error });
-      }
-      memory.delete(key);
-    },
-
     clear(): void {
       try {
         if (typeof localStorage !== 'undefined') {
@@ -97,9 +58,20 @@ export function createSafeStorage(errorHandler?: StorageErrorHandler): Storage {
         }
       } catch (error) {
         logger.error('localStorage.clear() failed, clearing in-memory storage:', error);
-        errorHandler?.({ operation: 'clear', key: '*', error });
+        errorHandler?.({ error, key: '*', operation: 'clear' });
       }
       memory.clear();
+    },
+    getItem(key: string): string | null {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.getItem(key);
+        }
+      } catch (error) {
+        logger.warn(`localStorage.getItem("${key}") failed, using in-memory fallback:`, error);
+        errorHandler?.({ error, key, operation: 'get' });
+      }
+      return memory.get(key) ?? null;
     },
 
     key(index: number): string | null {
@@ -109,7 +81,7 @@ export function createSafeStorage(errorHandler?: StorageErrorHandler): Storage {
         }
       } catch (error) {
         logger.warn(`localStorage.key(${index}) failed, using in-memory fallback:`, error);
-        errorHandler?.({ operation: 'key', key: String(index), error });
+        errorHandler?.({ error, key: String(index), operation: 'key' });
       }
       return Array.from(memory.keys())[index] ?? null;
     },
@@ -124,6 +96,33 @@ export function createSafeStorage(errorHandler?: StorageErrorHandler): Storage {
         logger.debug('localStorage.length failed, using in-memory fallback:', error);
       }
       return memory.size;
+    },
+
+    removeItem(key: string): void {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(key);
+          return;
+        }
+      } catch (error) {
+        logger.warn(`localStorage.removeItem("${key}") failed, using in-memory fallback:`, error);
+        errorHandler?.({ error, key, operation: 'remove' });
+      }
+      memory.delete(key);
+    },
+
+    setItem(key: string, value: string): void {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(key, value);
+          return;
+        }
+      } catch (error) {
+        logger.error(`localStorage.setItem("${key}") failed, using in-memory fallback:`, error);
+        errorHandler?.({ error, key, operation: 'set' });
+        // Fall through to memory storage
+      }
+      memory.set(key, value);
     },
   };
 }
@@ -151,8 +150,8 @@ export function createSafeStorageAdapter(errorHandler?: StorageErrorHandler) {
 
   return {
     getItem: (key: string) => storage.getItem(key),
-    setItem: (key: string, value: string) => storage.setItem(key, value),
     removeItem: (key: string) => storage.removeItem(key),
+    setItem: (key: string, value: string) => storage.setItem(key, value),
   };
 }
 
@@ -177,14 +176,14 @@ export function createSafeJsonStorageAdapter(options: SafeJsonStorageAdapterOpti
         return raw;
       } catch (error) {
         if (logParseErrors) {
-          logger.warn('Invalid JSON in storage; clearing key', { key, error });
+          logger.warn('Invalid JSON in storage; clearing key', { error, key });
         }
-        errorHandler?.({ operation: 'get', key, error });
+        errorHandler?.({ error, key, operation: 'get' });
         storage.removeItem(key);
         return null;
       }
     },
-    setItem: (key: string, value: string) => storage.setItem(key, value),
     removeItem: (key: string) => storage.removeItem(key),
+    setItem: (key: string, value: string) => storage.setItem(key, value),
   };
 }

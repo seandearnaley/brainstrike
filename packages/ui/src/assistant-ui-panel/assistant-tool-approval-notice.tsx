@@ -38,8 +38,8 @@ function isAssistantToolApprovalRequest(value: unknown): value is AssistantToolA
 const RISK_CATEGORY_REASON: Record<string, string> = {
   edit: 'edit (modifies files or state)',
   execute: 'execute (runs a command)',
-  read: 'read',
   mcp: 'external MCP tool',
+  read: 'read',
 };
 
 function resolveApprovalReason(approval: AssistantToolApprovalRequest): string | null {
@@ -214,7 +214,7 @@ export function AssistantToolApprovalNotice({ data }: AssistantToolApprovalNotic
       };
       const verb = action === 'approve' ? 'Approved' : 'Declined';
       const message = {
-        content: [{ type: 'text', text: `${verb} ${approval.toolName}.` }],
+        content: [{ text: `${verb} ${approval.toolName}.`, type: 'text' }],
         metadata: {
           custom: {
             [TOOL_APPROVAL_RUN_CONFIG_KEY]: approvalAction,

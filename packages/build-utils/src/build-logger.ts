@@ -1,6 +1,6 @@
 interface BuildLogger {
-  debug(message: string, metadata?: Record<string, unknown>): void;
-  warn(message: string, metadata?: Record<string, unknown>): void;
+  debug: (message: string, metadata?: Record<string, unknown>) => void;
+  warn: (message: string, metadata?: Record<string, unknown>) => void;
 }
 
 function formatMetadata(metadata: Record<string, unknown> | undefined): string {

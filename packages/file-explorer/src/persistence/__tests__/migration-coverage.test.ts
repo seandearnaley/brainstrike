@@ -20,21 +20,15 @@ class LocalStorageMock {
 }
 
 const memoryAdapter: StorageAdapter = {
-  async getItem() {
-    return null;
-  },
-  async setItem() {
-    return;
-  },
-  async removeItem() {
-    return;
-  },
-  async clear() {
-    return;
-  },
+  async clear() {},
   async getAllKeys() {
     return [];
   },
+  async getItem() {
+    return null;
+  },
+  async removeItem() {},
+  async setItem() {},
 };
 
 describe('createPersistOptions migration (coverage)', () => {
@@ -77,17 +71,17 @@ describe('createPersistOptions migration (coverage)', () => {
     const staleV4State = JSON.stringify({
       state: {
         currentFolderId: '/some/stale/path',
-        folderStates: { '/some/stale/path': { lastAccessed: 1 } },
-        folderAccessOrder: ['/some/stale/path'],
-        selectedFilePaths: ['/some/stale/path|@|file.ts'],
-        expandedDirectoryPaths: [],
-        includeFilters: [],
         excludeFilters: [],
-        useRegex: false,
-        includeProjectTree: true,
+        expandedDirectoryPaths: [],
+        folderAccessOrder: ['/some/stale/path'],
+        folderStates: { '/some/stale/path': { lastAccessed: 1 } },
         folderSummaryThreshold: 5,
-        maxSelectionCount: 10,
+        includeFilters: [],
+        includeProjectTree: true,
         lastActiveTab: 'files',
+        maxSelectionCount: 10,
+        selectedFilePaths: ['/some/stale/path|@|file.ts'],
+        useRegex: false,
       },
       version: 4,
     });

@@ -4,10 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const scriptPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../run-env.mjs'
-);
+const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../run-env.mjs');
 
 describe('run-env', () => {
   it('preserves empty environment assignments', () => {

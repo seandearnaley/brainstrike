@@ -8,10 +8,10 @@ const loggerWarn = vi.fn();
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: () => ({
-    warn: loggerWarn,
-    info: vi.fn(),
-    error: vi.fn(),
     debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: loggerWarn,
   }),
 }));
 
@@ -139,6 +139,6 @@ describe('agent-client-loader', () => {
 
     cwdSpy.mockRestore();
     loadSpy.mockRestore();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { force: true, recursive: true });
   });
 });

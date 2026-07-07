@@ -3,26 +3,25 @@
  */
 
 export const TEST_TIMEOUTS = {
-  // Unit tests - fast, isolated tests
-  unit: 10_000, // 10 seconds
-
-  // Integration tests - tests involving multiple components
-  integration: 15_000, // 15 seconds
-
   // Database tests - tests involving database operations
   database: 20_000, // 20 seconds
-
-  // UI component tests - tests involving rendering and interactions
-  uiComponent: 15_000, // 15 seconds
 
   // E2E tests - full application tests
   e2e: 60_000, // 60 seconds
 
+  // Heavy/slow tests - computationally intensive tests
+  heavy: 30_000, // 30 seconds
+
+  // Integration tests - tests involving multiple components
+  integration: 15_000, // 15 seconds
+
   // Performance tests - performance measurement tests
   performance: 120_000, // 2 minutes
 
-  // Heavy/slow tests - computationally intensive tests
-  heavy: 30_000, // 30 seconds
+  // UI component tests - tests involving rendering and interactions
+  uiComponent: 15_000, // 15 seconds
+  // Unit tests - fast, isolated tests
+  unit: 10_000, // 10 seconds
 } as const;
 
 /**

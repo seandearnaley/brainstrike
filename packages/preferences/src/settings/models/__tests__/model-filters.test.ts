@@ -9,21 +9,21 @@ import {
 } from '../model-filters';
 
 const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
-  id: 'test-model',
-  providerId: 'test-provider',
-  name: 'Test Model',
-  description: 'A test model for unit testing',
-  tagline: 'Test tagline',
   bestFor: ['testing', 'development'],
-  icon: null,
-  isEnabled: true,
   capabilities: {
-    type: 'embedding',
-    streaming: false,
     defaultDimension: 768,
+    streaming: false,
+    type: 'embedding',
   },
+  description: 'A test model for unit testing',
+  icon: null,
+  id: 'test-model',
+  isEnabled: true,
+  name: 'Test Model',
   parameters: null,
+  providerId: 'test-provider',
   sortOrder: 0,
+  tagline: 'Test tagline',
   ...overrides,
 });
 
@@ -179,9 +179,9 @@ describe('model-filters', () => {
 
     it('filters by type', () => {
       const models = [
-        createMockModel({ id: 'model-1', capabilities: { type: 'llm' } }),
-        createMockModel({ id: 'model-2', capabilities: { type: 'embedding' } }),
-        createMockModel({ id: 'model-3', capabilities: { type: 'llm' } }),
+        createMockModel({ capabilities: { type: 'llm' }, id: 'model-1' }),
+        createMockModel({ capabilities: { type: 'embedding' }, id: 'model-2' }),
+        createMockModel({ capabilities: { type: 'llm' }, id: 'model-3' }),
       ];
 
       const result = filterModels(models, '', 'all', 'chat', 'all', {});
@@ -205,28 +205,28 @@ describe('model-filters', () => {
     it('combines multiple filters', () => {
       const models = [
         createMockModel({
+          capabilities: { type: 'llm' },
           id: 'model-1',
           name: 'GPT-4',
           providerId: 'openai',
-          capabilities: { type: 'llm' },
         }),
         createMockModel({
+          capabilities: { type: 'llm' },
           id: 'model-2',
           name: 'GPT-3.5',
           providerId: 'openai',
-          capabilities: { type: 'llm' },
         }),
         createMockModel({
+          capabilities: { type: 'llm' },
           id: 'model-3',
           name: 'Claude',
           providerId: 'anthropic',
-          capabilities: { type: 'llm' },
         }),
         createMockModel({
+          capabilities: { type: 'embedding' },
           id: 'model-4',
           name: 'text-embedding-3-small',
           providerId: 'openai',
-          capabilities: { type: 'embedding' },
         }),
       ];
 

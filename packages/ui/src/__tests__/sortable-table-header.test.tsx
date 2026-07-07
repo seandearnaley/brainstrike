@@ -19,10 +19,10 @@ describe('SortableTableHeader', () => {
   it('applies aria-sort and icon based on sort state', () => {
     const { rerender } = renderHeader({
       field: 'name',
-      title: 'Name',
-      sortField: 'name',
-      sortDirection: 'asc',
       onSort: vi.fn(),
+      sortDirection: 'asc',
+      sortField: 'name',
+      title: 'Name',
     });
 
     const header = screen.getByRole('columnheader', { name: 'Name' });
@@ -50,7 +50,7 @@ describe('SortableTableHeader', () => {
   it('triggers onSort on click and keyboard events', async () => {
     const user = userEvent.setup();
     const onSort = vi.fn();
-    renderHeader({ field: 'name', title: 'Name', onSort });
+    renderHeader({ field: 'name', onSort, title: 'Name' });
 
     const header = screen.getByRole('columnheader', { name: 'Name' });
     await user.click(header);

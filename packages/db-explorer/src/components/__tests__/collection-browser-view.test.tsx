@@ -54,8 +54,8 @@ const semanticSearchMock = vi.hoisted(() => ({
 vi.mock('../../contexts/semantic-search-context', () => ({
   useSemanticSearch: () => ({
     ...semanticSearchMock.state,
-    executeSearch: semanticSearchMock.executeSearch,
     clearResults: semanticSearchMock.clearResults,
+    executeSearch: semanticSearchMock.executeSearch,
   }),
 }));
 
@@ -420,12 +420,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         aria-label="Apply search config"
         onClick={() =>
           onConfigChange?.({
-            threshold: 0.42,
-            resultLimit: 17,
             distanceMetric: 'cosine',
-            retrievalMode: 'hybrid',
-            vectorWeight: 0.7,
             ftsWeight: 0.3,
+            resultLimit: 17,
+            retrievalMode: 'hybrid',
+            threshold: 0.42,
+            vectorWeight: 0.7,
           })
         }
         type="button"
@@ -478,26 +478,26 @@ vi.mock('react-resizable-panels', () => ({
 
 const TEST_RECORDS: FileRecord[] = [
   {
+    createdAt: '2026-01-01T00:00:00.000Z',
     id: '1',
     name: 'one.ts',
     path: '/one.ts',
     size: 100,
-    createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
 ];
 
 const TEST_CHUNKS: FileChunk[] = [
   {
-    id: 'chunk-1',
-    fileRecordId: '1',
     chunkIndex: 0,
+    chunkSize: 16,
+    chunkType: 'code',
     content: 'const one = 1;',
     contentHash: 'chunk-hash',
-    tokenCount: 4,
-    chunkType: 'code',
-    chunkSize: 16,
     createdAt: '2026-01-01T00:00:00.000Z',
+    fileRecordId: '1',
+    id: 'chunk-1',
+    tokenCount: 4,
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
 ];
@@ -677,9 +677,9 @@ describe('CollectionBrowserView', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apply filters' }));
     expect(useCollectionBrowserStore.getState()).toMatchObject({
-      searchQuery: 'needle',
-      nodeTypes: ['file', 'chunk'],
       embeddingStatus: 'complete',
+      nodeTypes: ['file', 'chunk'],
+      searchQuery: 'needle',
     });
 
     await user.click(screen.getByRole('button', { name: 'Apply sort' }));
@@ -911,19 +911,19 @@ describe('CollectionBrowserView', () => {
     const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
     expect(latestProps).toMatchObject({
       data: {
+        chunks: [
+          expect.objectContaining({
+            chunkIndex: 7,
+            embeddingDimensions: 1536,
+            hasEmbedding: true,
+            id: 'result-chunk',
+            tokenCount: 128,
+          }),
+        ],
         files: [
           expect.objectContaining({
             id: 'result-file',
             size: 4096,
-          }),
-        ],
-        chunks: [
-          expect.objectContaining({
-            id: 'result-chunk',
-            chunkIndex: 7,
-            tokenCount: 128,
-            embeddingDimensions: 1536,
-            hasEmbedding: true,
           }),
         ],
       },
@@ -943,9 +943,9 @@ describe('CollectionBrowserView', () => {
           },
           {
             ...TEST_CHUNKS[0]!,
-            id: 'other-chunk',
             embeddingSetId: 'collection-2',
             fileRecordId: 'other-file',
+            id: 'other-chunk',
           },
         ]}
         height={500}
@@ -960,8 +960,8 @@ describe('CollectionBrowserView', () => {
           },
           {
             ...TEST_RECORDS[0]!,
-            id: 'other-file',
             embeddingSetId: 'collection-2',
+            id: 'other-file',
           },
         ]}
       />
@@ -970,21 +970,21 @@ describe('CollectionBrowserView', () => {
     const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
     expect(latestProps).toMatchObject({
       data: {
-        files: [
-          expect.objectContaining({
-            id: '1',
-            chunksCount: 2,
-            embeddedChunksCount: 1,
-            embeddingSetId: 'collection-1',
-            processedAt: '2026-01-02T00:00:00.000Z',
-          }),
-        ],
         chunks: [
           expect.objectContaining({
-            id: 'chunk-1',
             embeddingDimensions: 1536,
             embeddingSetId: 'collection-1',
             hasEmbedding: true,
+            id: 'chunk-1',
+          }),
+        ],
+        files: [
+          expect.objectContaining({
+            chunksCount: 2,
+            embeddedChunksCount: 1,
+            embeddingSetId: 'collection-1',
+            id: '1',
+            processedAt: '2026-01-02T00:00:00.000Z',
           }),
         ],
         pendingChunkIds: new Set(['chunk-1']),
@@ -1054,8 +1054,8 @@ describe('CollectionBrowserView', () => {
       searchResults: [
         {
           chunkId: 'hit-1',
-          content: 'semantic hit one',
           chunkIndex: 0,
+          content: 'semantic hit one',
           embeddingSetId: 'set-1',
           fileName: 'alpha.ts',
           filePath: '/alpha.ts',
@@ -1064,8 +1064,8 @@ describe('CollectionBrowserView', () => {
         },
         {
           chunkId: 'hit-2',
-          content: 'semantic hit two',
           chunkIndex: 0,
+          content: 'semantic hit two',
           embeddingSetId: 'set-1',
           fileName: 'beta.ts',
           filePath: '/beta.ts',
@@ -1156,12 +1156,12 @@ describe('CollectionBrowserView', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apply search config' }));
     expect(useCollectionBrowserStore.getState()).toMatchObject({
-      searchConfigThreshold: 0.42,
-      searchConfigLimit: 17,
       searchConfigDistanceMetric: 'cosine',
-      searchConfigRetrievalMode: 'hybrid',
-      searchConfigVectorWeight: 0.7,
       searchConfigFtsWeight: 0.3,
+      searchConfigLimit: 17,
+      searchConfigRetrievalMode: 'hybrid',
+      searchConfigThreshold: 0.42,
+      searchConfigVectorWeight: 0.7,
     });
 
     await user.click(screen.getByRole('button', { name: 'Switch quick mode' }));
@@ -1189,8 +1189,8 @@ describe('CollectionBrowserView', () => {
     expect(semanticSearchMock.executeSearch).toHaveBeenCalledWith(
       'mock semantic query',
       expect.objectContaining({
-        threshold: expect.any(Number),
         resultLimit: expect.any(Number),
+        threshold: expect.any(Number),
       }),
       'set-1'
     );
@@ -1429,25 +1429,25 @@ describe('CollectionBrowserView', () => {
   it('expands freshly loaded chunk children from the context menu', async () => {
     const loadFileChunkSummaries = vi.fn().mockResolvedValue([
       {
-        id: 'loaded-chunk-1',
-        fileRecordId: '1',
         chunkIndex: 0,
-        tokenCount: 12,
-        hasEmbedding: true,
         contentPreview: 'const one = 1;',
-        embeddingSetId: 'collection-1',
         createdAt: '2026-01-01T00:00:00.000Z',
+        embeddingSetId: 'collection-1',
+        fileRecordId: '1',
+        hasEmbedding: true,
+        id: 'loaded-chunk-1',
+        tokenCount: 12,
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
       {
-        id: 'loaded-chunk-2',
-        fileRecordId: '1',
         chunkIndex: 1,
-        tokenCount: 10,
-        hasEmbedding: false,
         contentPreview: 'const two = 2;',
-        embeddingSetId: 'collection-1',
         createdAt: '2026-01-01T00:00:00.000Z',
+        embeddingSetId: 'collection-1',
+        fileRecordId: '1',
+        hasEmbedding: false,
+        id: 'loaded-chunk-2',
+        tokenCount: 10,
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     ]);
@@ -1460,14 +1460,14 @@ describe('CollectionBrowserView', () => {
         loadFileChunkSummaries={loadFileChunkSummaries}
         records={[
           {
+            chunksCount: 2,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            embeddingSetId: 'collection-1',
             id: '1',
             name: 'one.ts',
             path: '/one.ts',
             size: 100,
-            createdAt: '2026-01-01T00:00:00.000Z',
             updatedAt: '2026-01-01T00:00:00.000Z',
-            chunksCount: 2,
-            embeddingSetId: 'collection-1',
           },
         ]}
       />
@@ -1489,13 +1489,13 @@ describe('CollectionBrowserView', () => {
     const user = userEvent.setup();
     const loadFileChunkSummaries = vi.fn().mockResolvedValue([
       {
-        id: 'loaded-chunk-1',
-        fileRecordId: '1',
         chunkIndex: 0,
-        tokenCount: 12,
-        hasEmbedding: true,
-        embeddingSetId: 'collection-1',
         createdAt: '2026-01-01T00:00:00.000Z',
+        embeddingSetId: 'collection-1',
+        fileRecordId: '1',
+        hasEmbedding: true,
+        id: 'loaded-chunk-1',
+        tokenCount: 12,
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     ]);
@@ -1508,14 +1508,14 @@ describe('CollectionBrowserView', () => {
         loadFileChunkSummaries={loadFileChunkSummaries}
         records={[
           {
+            chunksCount: 1,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            embeddingSetId: 'collection-1',
             id: '1',
             name: 'one.ts',
             path: '/one.ts',
             size: 100,
-            createdAt: '2026-01-01T00:00:00.000Z',
             updatedAt: '2026-01-01T00:00:00.000Z',
-            chunksCount: 1,
-            embeddingSetId: 'collection-1',
           },
         ]}
       />
@@ -1677,11 +1677,11 @@ describe('CollectionBrowserView', () => {
     const largeRecordSet = Array.from({ length: 250 }, (_, index): FileRecord => {
       const id = `large-${index}`;
       return {
+        createdAt: '2026-01-01T00:00:00.000Z',
         id,
         name: `${id}.ts`,
         path: `/${id}.ts`,
         size: index + 1,
-        createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       };
     });
@@ -1760,8 +1760,8 @@ describe('CollectionBrowserView', () => {
     await clickMenuItem('Inspect');
 
     expect(useCollectionBrowserStore.getState()).toMatchObject({
-      selectedId: 'file-1',
       isInspectorCollapsed: false,
+      selectedId: 'file-1',
     });
     expect(screen.getByTestId('node-inspector')).toHaveTextContent('file:1');
   });

@@ -115,8 +115,8 @@ export function useEmbeddingControls({
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
       toast({
-        title: 'API Key Required',
         description: validation.message ?? 'Please configure your API key before embedding.',
+        title: 'API Key Required',
         variant: 'destructive',
       });
       return;
@@ -126,20 +126,20 @@ export function useEmbeddingControls({
 
   // Worker controls (start/stop/reset)
   const workerControls = useEmbeddingWorkerControls({
-    controller: runtimeController,
     activeEmbeddingSetId: activeId,
+    controller: runtimeController,
     onBackfill: invokeBackfill,
     toast,
   });
 
   // Queue state (coverage, counts, throughput, latency, etc.)
   const queueState = useVectorQueueState({
-    controller: runtimeController,
-    service,
     activeEmbeddingSetId: activeId,
-    shouldAutoBackfill: workerControls.workerLocalRunning,
-    isImporting,
+    controller: runtimeController,
     isEmbeddingActive,
+    isImporting,
+    service,
+    shouldAutoBackfill: workerControls.workerLocalRunning,
   });
 
   // Update refs
@@ -158,9 +158,9 @@ export function useEmbeddingControls({
   const handleBackfillWithWorkerStart = useCallback(async () => {
     if (!service) {
       toast({
-        title: 'Database Not Ready',
         description:
           'The vector queue service is not available. Try switching tabs or restarting the app.',
+        title: 'Database Not Ready',
         variant: 'destructive',
       });
       return;
@@ -168,8 +168,8 @@ export function useEmbeddingControls({
 
     if (!activeId) {
       toast({
-        title: 'No Collection Selected',
         description: 'Please select an embedding collection before backfilling.',
+        title: 'No Collection Selected',
         variant: 'destructive',
       });
       return;
@@ -179,8 +179,8 @@ export function useEmbeddingControls({
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
       toast({
-        title: 'API Key Required',
         description: validation.message ?? 'Please configure your API key before embedding.',
+        title: 'API Key Required',
         variant: 'destructive',
       });
       return;
@@ -204,8 +204,8 @@ export function useEmbeddingControls({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
-        title: 'Backfill Failed',
         description: message,
+        title: 'Backfill Failed',
         variant: 'destructive',
       });
       throw error;
@@ -215,9 +215,9 @@ export function useEmbeddingControls({
   // Get disabled state for backfill button
   const { disabled: backfillDisabled, title: disabledReason } = getBackfillDisabledState({
     activeId,
-    hasDb: Boolean(db),
     backfilling: queueState.activeSetBackfilling,
     coverage: queueState.coverage,
+    hasDb: Boolean(db),
     queueCounts: queueState.activeSetQueueCounts,
   });
 
@@ -262,7 +262,7 @@ export function useEmbeddingControls({
 
   return {
     dropdownProps,
-    statusBarProps,
     hasDb,
+    statusBarProps,
   };
 }

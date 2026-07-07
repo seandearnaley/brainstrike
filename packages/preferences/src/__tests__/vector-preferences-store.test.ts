@@ -12,9 +12,9 @@ describe('vector-preferences-store', () => {
     vi.restoreAllMocks();
     const store = useVectorPreferencesStore;
     store.setState({
-      hasHydrated: false,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      hasHydrated: false,
       reinitEveryN: 200,
       verboseOrtLogs: false,
     });
@@ -128,43 +128,43 @@ describe('vector-preferences-store', () => {
       verboseOrtLogs: false,
     });
     expect(options.migrate({ devicePref: 'wasm', reinitEveryN: 8 }, 1)).toEqual({
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
       reinitEveryN: 8,
       verboseOrtLogs: false,
     });
     expect(options.migrate({ devicePref: 'invalid', verboseOrtLogs: true }, 1)).toEqual({
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
       reinitEveryN: 200,
       verboseOrtLogs: true,
     });
 
     const v2Snapshot = { devicePref: 'wasm' as const, reinitEveryN: 32, verboseOrtLogs: true };
     expect(options.migrate(v2Snapshot, 2)).toEqual({
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
       reinitEveryN: 32,
       verboseOrtLogs: true,
     });
 
     const configuredV3Snapshot = {
-      devicePrefConfigured: true,
       devicePref: 'wasm' as const,
+      devicePrefConfigured: true,
       reinitEveryN: 32,
       verboseOrtLogs: true,
     };
     expect(options.migrate(configuredV3Snapshot, 3)).toEqual(configuredV3Snapshot);
 
     const unconfiguredV3Snapshot = {
-      devicePrefConfigured: false,
       devicePref: 'wasm' as const,
+      devicePrefConfigured: false,
       reinitEveryN: 32,
       verboseOrtLogs: true,
     };
     expect(options.migrate(unconfiguredV3Snapshot, 3)).toEqual({
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
       reinitEveryN: 32,
       verboseOrtLogs: true,
     });
@@ -189,18 +189,18 @@ describe('vector-preferences-store', () => {
     }
 
     useVectorPreferencesStore.setState({
-      hasHydrated: false,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      hasHydrated: false,
       reinitEveryN: 200,
       verboseOrtLogs: false,
     });
 
     const rehydrateSpy = vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
       useVectorPreferencesStore.setState({
-        hasHydrated: true,
-        devicePrefConfigured: true,
         devicePref: 'wasm',
+        devicePrefConfigured: true,
+        hasHydrated: true,
         reinitEveryN: 16,
         verboseOrtLogs: true,
       });
@@ -222,18 +222,18 @@ describe('vector-preferences-store', () => {
     }
 
     useVectorPreferencesStore.setState({
-      hasHydrated: true,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      hasHydrated: true,
       reinitEveryN: 200,
       verboseOrtLogs: false,
     });
 
     const rehydrateSpy = vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
       useVectorPreferencesStore.setState({
-        hasHydrated: true,
-        devicePrefConfigured: true,
         devicePref: 'wasm',
+        devicePrefConfigured: true,
+        hasHydrated: true,
         reinitEveryN: 32,
         verboseOrtLogs: true,
       });
@@ -250,9 +250,9 @@ describe('vector-preferences-store', () => {
     const persistApi = storeWithPersist.persist;
 
     useVectorPreferencesStore.setState({
-      hasHydrated: false,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      hasHydrated: false,
       reinitEveryN: 200,
       verboseOrtLogs: false,
     });
@@ -260,9 +260,9 @@ describe('vector-preferences-store', () => {
     vi.spyOn(persistApi, 'hasHydrated').mockReturnValue(false);
     vi.spyOn(persistApi, 'rehydrate').mockImplementation(async () => {
       useVectorPreferencesStore.setState({
-        hasHydrated: true,
-        devicePrefConfigured: false,
         devicePref: 'webgpu',
+        devicePrefConfigured: false,
+        hasHydrated: true,
         reinitEveryN: 200,
         verboseOrtLogs: false,
       });
@@ -278,9 +278,9 @@ describe('vector-preferences-store', () => {
     const persistApi = storeWithPersist.persist;
 
     useVectorPreferencesStore.setState({
-      hasHydrated: false,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      hasHydrated: false,
       reinitEveryN: 200,
       verboseOrtLogs: false,
     });

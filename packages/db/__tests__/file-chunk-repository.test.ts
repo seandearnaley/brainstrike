@@ -18,15 +18,15 @@ function makeVector(dim: number, entries: [number, number][]): number[] {
 function makeChunk(overrides: Partial<FileChunkInsert> = {}): FileChunkInsert {
   const now = new Date().toISOString();
   return {
-    id: overrides.id ?? 'chunk-test',
-    fileRecordId: overrides.fileRecordId ?? 'file1',
     chunkIndex: overrides.chunkIndex ?? 0,
+    chunkSize: overrides.chunkSize ?? 100,
+    chunkType: overrides.chunkType ?? 'text',
     content: overrides.content ?? 'chunk content',
     contentHash: overrides.contentHash ?? 'chunk-hash',
-    tokenCount: overrides.tokenCount ?? 3,
-    chunkType: overrides.chunkType ?? 'text',
-    chunkSize: overrides.chunkSize ?? 100,
     createdAt: overrides.createdAt ?? now,
+    fileRecordId: overrides.fileRecordId ?? 'file1',
+    id: overrides.id ?? 'chunk-test',
+    tokenCount: overrides.tokenCount ?? 3,
     updatedAt: overrides.updatedAt ?? now,
     ...overrides,
   };
@@ -47,24 +47,24 @@ describe('FileChunkRepository', () => {
 
     // Create test file records that chunks can reference
     await fileRepository.create({
+      content: 'Test file 1 content',
+      createdAt: new Date().toISOString(),
       id: 'file1',
+      mimeType: 'text/plain',
       name: 'test1.txt',
       path: '/test1.txt',
-      content: 'Test file 1 content',
-      mimeType: 'text/plain',
       size: 19,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
 
     await fileRepository.create({
+      content: 'Test file 2 content',
+      createdAt: new Date().toISOString(),
       id: 'file2',
+      mimeType: 'text/plain',
       name: 'test2.txt',
       path: '/test2.txt',
-      content: 'Test file 2 content',
-      mimeType: 'text/plain',
       size: 19,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
   });
@@ -78,15 +78,15 @@ describe('FileChunkRepository', () => {
   describe('insert', () => {
     it('should insert a new file chunk', async () => {
       const chunk: FileChunkInsert = {
-        id: 'chunk1',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'This is a test chunk.',
         contentHash: 'hash123',
-        tokenCount: 5,
-        chunkType: 'text',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'chunk1',
+        tokenCount: 5,
         updatedAt: new Date().toISOString(),
       };
 
@@ -111,16 +111,16 @@ describe('FileChunkRepository', () => {
         [4, 0.5],
       ]);
       const chunk: FileChunkInsert = {
-        id: 'chunk2',
-        fileRecordId: 'file1',
         chunkIndex: 1,
+        chunkSize: 100,
+        chunkType: 'sentence',
         content: 'Another test chunk.',
         contentHash: 'hash456',
-        tokenCount: 4,
-        chunkType: 'sentence',
-        chunkSize: 100,
-        embedding,
         createdAt: new Date().toISOString(),
+        embedding,
+        fileRecordId: 'file1',
+        id: 'chunk2',
+        tokenCount: 4,
         updatedAt: new Date().toISOString(),
       };
 
@@ -135,8 +135,8 @@ describe('FileChunkRepository', () => {
       await expect(
         repository.insert(
           makeChunk({
-            id: 'chunk-null-insert',
             content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+            id: 'chunk-null-insert',
           })
         )
       ).rejects.toThrow('File chunk content cannot contain null bytes.');
@@ -147,27 +147,27 @@ describe('FileChunkRepository', () => {
     it('should insert multiple chunks', async () => {
       const chunks: FileChunkInsert[] = [
         {
-          id: 'chunk1',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'First chunk',
           contentHash: 'hash1',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk1',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk2',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Second chunk',
           contentHash: 'hash2',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk2',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
       ];
@@ -190,11 +190,11 @@ describe('FileChunkRepository', () => {
     it('rejects null bytes in chunk content before batch insert reaches PGlite', async () => {
       await expect(
         repository.insertMany([
-          makeChunk({ id: 'chunk-clean', content: 'clean chunk' }),
+          makeChunk({ content: 'clean chunk', id: 'chunk-clean' }),
           makeChunk({
-            id: 'chunk-null-batch',
             chunkIndex: 1,
             content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
+            id: 'chunk-null-batch',
           }),
         ])
       ).rejects.toThrow('File chunk content cannot contain null bytes.');
@@ -209,15 +209,15 @@ describe('FileChunkRepository', () => {
 
     it('should find chunk by id', async () => {
       const chunk: FileChunkInsert = {
-        id: 'findme',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'recursive',
         content: 'Find this chunk',
         contentHash: 'hash123',
-        tokenCount: 3,
-        chunkType: 'recursive',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'findme',
+        tokenCount: 3,
         updatedAt: new Date().toISOString(),
       };
 
@@ -239,39 +239,39 @@ describe('FileChunkRepository', () => {
     it('should find all chunks for a file record', async () => {
       const chunks: FileChunkInsert[] = [
         {
-          id: 'chunk1',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'First chunk',
           contentHash: 'hash1',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk1',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk2',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Second chunk',
           contentHash: 'hash2',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk2',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk3',
-          fileRecordId: 'file2',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Different file chunk',
           contentHash: 'hash3',
-          tokenCount: 3,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file2',
+          id: 'chunk3',
+          tokenCount: 3,
           updatedAt: new Date().toISOString(),
         },
       ];
@@ -288,27 +288,27 @@ describe('FileChunkRepository', () => {
     it('should return chunks in order by chunk index', async () => {
       const chunks: FileChunkInsert[] = [
         {
-          id: 'chunk2',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Second chunk',
           contentHash: 'hash2',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk2',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk1',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'First chunk',
           contentHash: 'hash1',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk1',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
       ];
@@ -328,15 +328,15 @@ describe('FileChunkRepository', () => {
     it('should update chunk content and properties', async () => {
       // First insert a chunk
       const chunk: FileChunkInsert = {
-        id: 'updateme',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Original content',
         contentHash: 'original_hash',
-        tokenCount: 2,
-        chunkType: 'text',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'updateme',
+        tokenCount: 2,
         updatedAt: new Date().toISOString(),
       };
 
@@ -344,9 +344,9 @@ describe('FileChunkRepository', () => {
 
       // Now update it
       const updateData: FileChunkUpdate = {
-        id: 'updateme',
         content: 'Updated content',
         contentHash: 'updated_hash',
+        id: 'updateme',
         tokenCount: 3,
         updatedAt: new Date().toISOString(),
       };
@@ -363,15 +363,15 @@ describe('FileChunkRepository', () => {
 
     it('should update embedding', async () => {
       const chunk: FileChunkInsert = {
-        id: 'embedme',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Content to embed',
         contentHash: 'hash123',
-        tokenCount: 3,
-        chunkType: 'text',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'embedme',
+        tokenCount: 3,
         updatedAt: new Date().toISOString(),
       };
 
@@ -383,8 +383,8 @@ describe('FileChunkRepository', () => {
         [2, 0.7],
       ]);
       const updateData: FileChunkUpdate = {
-        id: 'embedme',
         embedding,
+        id: 'embedme',
         updatedAt: new Date().toISOString(),
       };
 
@@ -396,15 +396,15 @@ describe('FileChunkRepository', () => {
 
     it('rejects embedding updates that exceed the pgvector maximum dimension', async () => {
       const chunk: FileChunkInsert = {
-        id: 'embedme-too-large',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Content to embed (max check)',
         contentHash: 'hash-max-check',
-        tokenCount: 3,
-        chunkType: 'text',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'embedme-too-large',
+        tokenCount: 3,
         updatedAt: new Date().toISOString(),
       };
 
@@ -415,8 +415,8 @@ describe('FileChunkRepository', () => {
         [16_000, 0.6],
       ]);
       const updateData: FileChunkUpdate = {
-        id: 'embedme-too-large',
         embedding,
+        id: 'embedme-too-large',
         updatedAt: new Date().toISOString(),
       };
 
@@ -430,39 +430,39 @@ describe('FileChunkRepository', () => {
     it('should delete all chunks for a file record', async () => {
       const chunks: FileChunkInsert[] = [
         {
-          id: 'chunk1',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'First chunk',
           contentHash: 'hash1',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk1',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk2',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Second chunk',
           contentHash: 'hash2',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk2',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'chunk3',
-          fileRecordId: 'file2',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Different file chunk',
           contentHash: 'hash3',
-          tokenCount: 3,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file2',
+          id: 'chunk3',
+          tokenCount: 3,
           updatedAt: new Date().toISOString(),
         },
       ];
@@ -512,43 +512,43 @@ describe('FileChunkRepository', () => {
 
       await repository.insertMany([
         {
-          id: 'set-1-chunk-embedded',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 120,
+          chunkType: 'text',
           content: 'Embedded set 1 chunk',
           contentHash: 'set-1-hash-1',
-          tokenCount: 4,
-          chunkType: 'text',
-          chunkSize: 120,
+          createdAt: now,
           embedding: makeVector(768, [[0, 0.1]]),
           embeddingSetId: 'set-1',
-          createdAt: now,
+          fileRecordId: 'file1',
+          id: 'set-1-chunk-embedded',
+          tokenCount: 4,
           updatedAt: now,
         },
         {
-          id: 'set-1-chunk-pending',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 120,
+          chunkType: 'text',
           content: 'Pending set 1 chunk',
           contentHash: 'set-1-hash-2',
-          tokenCount: 4,
-          chunkType: 'text',
-          chunkSize: 120,
           createdAt: now,
+          fileRecordId: 'file1',
+          id: 'set-1-chunk-pending',
+          tokenCount: 4,
           updatedAt: now,
         },
         {
-          id: 'set-2-chunk-embedded',
-          fileRecordId: 'file2',
           chunkIndex: 0,
+          chunkSize: 120,
+          chunkType: 'text',
           content: 'Embedded set 2 chunk',
           contentHash: 'set-2-hash-1',
-          tokenCount: 4,
-          chunkType: 'text',
-          chunkSize: 120,
+          createdAt: now,
           embedding: makeVector(768, [[0, 0.2]]),
           embeddingSetId: 'set-2',
-          createdAt: now,
+          fileRecordId: 'file2',
+          id: 'set-2-chunk-embedded',
+          tokenCount: 4,
           updatedAt: now,
         },
       ]);
@@ -556,8 +556,8 @@ describe('FileChunkRepository', () => {
       const coverage = await repository.getCoverageForSet('set-1');
 
       expect(coverage).toEqual({
-        totalChunks: 2,
         chunksWithEmbeddingsForSet: 1,
+        totalChunks: 2,
       });
     });
 
@@ -579,17 +579,17 @@ describe('FileChunkRepository', () => {
         updatedAt: now,
       });
       await repository.insert({
-        id: 'clear-failure-chunk',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 120,
+        chunkType: 'text',
         content: 'Embedded chunk',
         contentHash: 'clear-failure-hash',
-        tokenCount: 4,
-        chunkType: 'text',
-        chunkSize: 120,
+        createdAt: now,
         embedding: makeVector(768, [[0, 0.1]]),
         embeddingSetId: 'set-1',
-        createdAt: now,
+        fileRecordId: 'file1',
+        id: 'clear-failure-chunk',
+        tokenCount: 4,
         updatedAt: now,
       });
 
@@ -619,15 +619,15 @@ describe('FileChunkRepository', () => {
   describe('embedding parsing', () => {
     it('should handle null embedding', async () => {
       const chunk: FileChunkInsert = {
-        id: 'no_embedding',
-        fileRecordId: 'file1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'No embedding',
         contentHash: 'hash123',
-        tokenCount: 2,
-        chunkType: 'text',
-        chunkSize: 100,
         createdAt: new Date().toISOString(),
+        fileRecordId: 'file1',
+        id: 'no_embedding',
+        tokenCount: 2,
         updatedAt: new Date().toISOString(),
       };
 
@@ -680,17 +680,17 @@ describe('FileChunkRepository', () => {
           [1, 0.2],
         ]);
         const chunk: FileChunkInsert = {
-          id: 'chunk_384d',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash384',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
+          createdAt: new Date().toISOString(),
           embedding,
           embeddingSetId: 'set-768',
-          createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk_384d',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -712,17 +712,17 @@ describe('FileChunkRepository', () => {
           [1, 0.2],
         ]);
         const chunk: FileChunkInsert = {
-          id: 'chunk_1024d',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash1024',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
+          createdAt: now,
           embedding,
           embeddingSetId: 'set-1024',
-          createdAt: now,
+          fileRecordId: 'file1',
+          id: 'chunk_1024d',
+          tokenCount: 2,
           updatedAt: now,
         };
 
@@ -738,16 +738,16 @@ describe('FileChunkRepository', () => {
           [767, 0.3],
         ]);
         const chunk: FileChunkInsert = {
-          id: 'chunk_768d',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash768',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
-          embedding,
           createdAt: new Date().toISOString(),
+          embedding,
+          fileRecordId: 'file1',
+          id: 'chunk_768d',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -762,16 +762,16 @@ describe('FileChunkRepository', () => {
           [16_000, 0.75],
         ]);
         const chunk: FileChunkInsert = {
-          id: 'chunk_exceeds_max_dim',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'High-dimension chunk',
           contentHash: 'hash_max_dim',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
-          embedding,
           createdAt: new Date().toISOString(),
+          embedding,
+          fileRecordId: 'file1',
+          id: 'chunk_exceeds_max_dim',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -782,15 +782,15 @@ describe('FileChunkRepository', () => {
 
       it('should accept null/undefined embeddings', async () => {
         const chunk: FileChunkInsert = {
-          id: 'chunk_no_embedding',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash_no_emb',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk_no_embedding',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -811,31 +811,31 @@ describe('FileChunkRepository', () => {
 
         const chunks: FileChunkInsert[] = [
           {
-            id: 'chunk1',
-            fileRecordId: 'file1',
             chunkIndex: 0,
+            chunkSize: 100,
+            chunkType: 'text',
             content: 'First chunk',
             contentHash: 'hash1',
-            tokenCount: 2,
-            chunkType: 'text',
-            chunkSize: 100,
+            createdAt: new Date().toISOString(),
             embedding: makeVector(768, [[0, 0.1]]),
             embeddingSetId: 'set-768',
-            createdAt: new Date().toISOString(),
+            fileRecordId: 'file1',
+            id: 'chunk1',
+            tokenCount: 2,
             updatedAt: new Date().toISOString(),
           },
           {
-            id: 'chunk2',
-            fileRecordId: 'file1',
             chunkIndex: 1,
+            chunkSize: 100,
+            chunkType: 'text',
             content: 'Second chunk',
             contentHash: 'hash2',
-            tokenCount: 2,
-            chunkType: 'text',
-            chunkSize: 100,
+            createdAt: new Date().toISOString(),
             embedding: makeVector(384, [[0, 0.2]]), // Invalid!
             embeddingSetId: 'set-768',
-            createdAt: new Date().toISOString(),
+            fileRecordId: 'file1',
+            id: 'chunk2',
+            tokenCount: 2,
             updatedAt: new Date().toISOString(),
           },
         ];
@@ -862,37 +862,37 @@ describe('FileChunkRepository', () => {
 
         const chunks: FileChunkInsert[] = [
           {
-            id: 'chunk1',
-            fileRecordId: 'file1',
             chunkIndex: 0,
+            chunkSize: 100,
+            chunkType: 'text',
             content: 'First chunk',
             contentHash: 'hash1',
-            tokenCount: 2,
-            chunkType: 'text',
-            chunkSize: 100,
+            createdAt: new Date().toISOString(),
             embedding: makeVector(768, [
               [0, 0.1],
               [1, 0.2],
             ]),
             embeddingSetId: 'set-768',
-            createdAt: new Date().toISOString(),
+            fileRecordId: 'file1',
+            id: 'chunk1',
+            tokenCount: 2,
             updatedAt: new Date().toISOString(),
           },
           {
-            id: 'chunk2',
-            fileRecordId: 'file1',
             chunkIndex: 1,
+            chunkSize: 100,
+            chunkType: 'text',
             content: 'Second chunk',
             contentHash: 'hash2',
-            tokenCount: 2,
-            chunkType: 'text',
-            chunkSize: 100,
+            createdAt: new Date().toISOString(),
             embedding: makeVector(768, [
               [0, 0.3],
               [1, 0.4],
             ]),
             embeddingSetId: 'set-768',
-            createdAt: new Date().toISOString(),
+            fileRecordId: 'file1',
+            id: 'chunk2',
+            tokenCount: 2,
             updatedAt: new Date().toISOString(),
           },
         ];
@@ -915,17 +915,17 @@ describe('FileChunkRepository', () => {
 
         const chunks: FileChunkInsert[] = [
           {
-            id: 'chunk_tx_1',
-            fileRecordId: 'file1',
             chunkIndex: 0,
+            chunkSize: 100,
+            chunkType: 'text',
             content: 'First chunk',
             contentHash: 'hash_tx1',
-            tokenCount: 2,
-            chunkType: 'text',
-            chunkSize: 100,
+            createdAt: new Date().toISOString(),
             embedding: makeVector(1024, [[0, 0.1]]), // Invalid!
             embeddingSetId: 'set-768',
-            createdAt: new Date().toISOString(),
+            fileRecordId: 'file1',
+            id: 'chunk_tx_1',
+            tokenCount: 2,
             updatedAt: new Date().toISOString(),
           },
         ];
@@ -959,15 +959,15 @@ describe('FileChunkRepository', () => {
 
         // First insert a chunk without embedding
         const chunk: FileChunkInsert = {
-          id: 'chunk_update_test',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash_update',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk_update_test',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -975,9 +975,9 @@ describe('FileChunkRepository', () => {
 
         // Try to update with 384D embedding
         const update: FileChunkUpdate = {
-          id: 'chunk_update_test',
           embedding: makeVector(384, [[0, 0.1]]),
           embeddingSetId: 'set-768',
+          id: 'chunk_update_test',
           updatedAt: new Date().toISOString(),
         };
 
@@ -997,15 +997,15 @@ describe('FileChunkRepository', () => {
 
         // First insert a chunk without embedding
         const chunk: FileChunkInsert = {
-          id: 'chunk_update_success',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Test chunk',
           contentHash: 'hash_update_ok',
-          tokenCount: 2,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'chunk_update_success',
+          tokenCount: 2,
           updatedAt: new Date().toISOString(),
         };
 
@@ -1017,9 +1017,9 @@ describe('FileChunkRepository', () => {
           [1, 0.6],
         ]);
         const update: FileChunkUpdate = {
-          id: 'chunk_update_success',
           embedding,
           embeddingSetId: 'set-768',
+          id: 'chunk_update_success',
           updatedAt: new Date().toISOString(),
         };
 
@@ -1035,52 +1035,52 @@ describe('FileChunkRepository', () => {
       // Insert chunks with content that will be indexed for full-text search
       const chunks: FileChunkInsert[] = [
         {
-          id: 'fts-chunk1',
-          fileRecordId: 'file1',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content:
             'Authentication middleware handles user login and session management. The JWT tokens are validated here.',
           contentHash: 'fts-hash1',
-          tokenCount: 15,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'fts-chunk1',
+          tokenCount: 15,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'fts-chunk2',
-          fileRecordId: 'file1',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'code',
           content: 'The database connection pool manages PostgreSQL connections efficiently.',
           contentHash: 'fts-hash2',
-          tokenCount: 10,
-          chunkType: 'code',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file1',
+          id: 'fts-chunk2',
+          tokenCount: 10,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'fts-chunk3',
-          fileRecordId: 'file2',
           chunkIndex: 0,
+          chunkSize: 100,
+          chunkType: 'text',
           content: 'Error handling in authentication flow includes retry logic and rate limiting.',
           contentHash: 'fts-hash3',
-          tokenCount: 12,
-          chunkType: 'text',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file2',
+          id: 'fts-chunk3',
+          tokenCount: 12,
           updatedAt: new Date().toISOString(),
         },
         {
-          id: 'fts-chunk4',
-          fileRecordId: 'file2',
           chunkIndex: 1,
+          chunkSize: 100,
+          chunkType: 'sentence',
           content: 'User profile management includes avatar uploads and settings storage.',
           contentHash: 'fts-hash4',
-          tokenCount: 10,
-          chunkType: 'sentence',
-          chunkSize: 100,
           createdAt: new Date().toISOString(),
+          fileRecordId: 'file2',
+          id: 'fts-chunk4',
+          tokenCount: 10,
           updatedAt: new Date().toISOString(),
         },
       ];

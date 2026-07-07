@@ -37,12 +37,12 @@ const LANGUAGE_ALLOWLIST = new Set([
 
 const LANGUAGE_ALIASES: Record<string, string> = {
   js: 'javascript',
-  ts: 'typescript',
+  md: 'markdown',
   sh: 'bash',
   shell: 'bash',
-  zsh: 'bash',
+  ts: 'typescript',
   yml: 'yaml',
-  md: 'markdown',
+  zsh: 'bash',
 };
 
 let highlighterPromise: Promise<HighlighterCore> | null = null;
@@ -58,7 +58,7 @@ const getHighlighter = (): Promise<HighlighterCore> => {
   }
 
   highlighterPromise = createHighlighterCore({
-    themes: [import('@shikijs/themes/github-light'), import('@shikijs/themes/github-dark')],
+    engine: createOnigurumaEngine(import('shiki/wasm')),
     langs: [
       import('@shikijs/langs/bash'),
       import('@shikijs/langs/css'),
@@ -77,7 +77,7 @@ const getHighlighter = (): Promise<HighlighterCore> => {
       import('@shikijs/langs/typescript'),
       import('@shikijs/langs/yaml'),
     ],
-    engine: createOnigurumaEngine(import('shiki/wasm')),
+    themes: [import('@shikijs/themes/github-light'), import('@shikijs/themes/github-dark')],
   })
     .then((instance) => {
       highlighterCache = instance;
@@ -164,8 +164,8 @@ const SyntaxHighlighterImpl = ({ language, code, components }: SyntaxHighlighter
       highlighter={highlighter}
       language={resolvedLanguage}
       theme={{
-        light: 'github-light',
         dark: 'github-dark',
+        light: 'github-light',
       }}
     >
       {code}

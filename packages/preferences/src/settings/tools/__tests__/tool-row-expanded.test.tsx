@@ -51,33 +51,33 @@ vi.mock('../tool-playground', () => ({
 
 describe('ToolRowExpanded', () => {
   const nativeTool: ToolDisplayMetadata = {
-    id: 'brainstrike.retrieveContext',
-    source: 'native',
     category: 'retrieval',
-    loadingTier: 'critical',
     description: 'Retrieve context from the knowledge base for AI-assisted queries',
     enabled: true,
     estimatedTokens: 150,
+    id: 'brainstrike.retrieveContext',
+    loadingTier: 'critical',
     requiresApproval: false,
+    source: 'native',
   };
 
   const mcpTool: ToolDisplayMetadata = {
-    id: 'mcp.filesystem.read',
-    source: 'mcp',
     category: 'action',
-    loadingTier: 'conditional',
     description: 'Read files from the filesystem using MCP server',
     enabled: true,
     estimatedTokens: 200,
+    id: 'mcp.filesystem.read',
+    inputSchema: { properties: { path: { type: 'string' } }, type: 'object' },
+    loadingTier: 'conditional',
     requiresApproval: true,
     serverName: 'filesystem-server',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+    source: 'mcp',
   };
 
   const mockExecuteTest = vi.fn().mockResolvedValue({
-    success: true,
-    result: { data: 'test' },
     durationMs: 100,
+    result: { data: 'test' },
+    success: true,
   });
 
   beforeEach(() => {

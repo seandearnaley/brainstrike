@@ -96,8 +96,8 @@ describe('DbProvider default dbPath', () => {
     expect(getDefaultDbPath()).toBe('idb://app-pg18');
     // Temporarily set window to undefined to simulate Node.js environment
     Object.defineProperty(globalThis, 'window', {
-      value: undefined,
       configurable: true,
+      value: undefined,
       writable: true,
     });
     // In Node.js environment, it should point to the temp directory
@@ -105,8 +105,8 @@ describe('DbProvider default dbPath', () => {
     expect(nodePath).toBe(path.join(os.tmpdir(), 'app.db'));
     // Restore original window
     Object.defineProperty(globalThis, 'window', {
-      value: originalWindow,
       configurable: true,
+      value: originalWindow,
       writable: true,
     });
   });

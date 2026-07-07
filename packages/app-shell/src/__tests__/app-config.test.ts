@@ -13,8 +13,8 @@ describe('createAppConfig', () => {
 
   test('merges provided config with defaults', () => {
     const customConfig = {
+      navigationItems: [{ icon: () => null, name: 'Test', path: '/test' }],
       title: 'Custom App',
-      navigationItems: [{ name: 'Test', icon: () => null, path: '/test' }],
     };
 
     const config = createAppConfig(customConfig);

@@ -7,7 +7,7 @@ interface ModelRegistryRow {
 }
 
 interface QueryableDb {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 export interface PersistedEmbeddingSetMetadata {
@@ -92,8 +92,8 @@ async function findRegistryCandidatesByName(
 
 function toResolvedRegistryMetadata(row: ModelRegistryRow): ResolvedEmbeddingSetMetadata {
   return {
-    modelKey: formatProviderModelKey(row.providerId, row.id),
     modelId: row.id,
+    modelKey: formatProviderModelKey(row.providerId, row.id),
   };
 }
 
@@ -107,8 +107,8 @@ export async function tryResolveEmbeddingSetMetadata(
   const parsed = parseProviderModelKey(input.modelKey);
   if (parsed) {
     return {
-      modelKey: formatProviderModelKey(parsed.provider, parsed.modelId),
       modelId: parsed.modelId,
+      modelKey: formatProviderModelKey(parsed.provider, parsed.modelId),
     };
   }
 
@@ -154,8 +154,8 @@ export async function normalizeEmbeddingSetInputMetadata(
     throw new Error('Embedding set metadata is invalid. modelKey and modelId are required.');
   }
   return {
-    modelKey,
     modelId,
+    modelKey,
   };
 }
 

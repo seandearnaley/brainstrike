@@ -13,8 +13,8 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToolbar>> = {}) {
   return {
-    onDirectorySelect: vi.fn().mockResolvedValue(undefined),
     isLoading: false,
+    onDirectorySelect: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

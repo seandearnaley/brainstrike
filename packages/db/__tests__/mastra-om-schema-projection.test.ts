@@ -49,16 +49,16 @@ interface ColumnRow {
  * the same PR as the version bump — that is the whole point of the guard.
  */
 const REQUIRED_OM_COLUMNS: Record<string, { dataType: string; isNullable: 'NO' | 'YES' }> = {
+  createdAt: { dataType: 'timestamp with time zone', isNullable: 'NO' },
+  generationCount: { dataType: 'integer', isNullable: 'NO' },
   // Row identity + latest-generation ordering (getObservationalMemory orders by
   // generationCount DESC, createdAt DESC).
   id: { dataType: 'text', isNullable: 'NO' },
-  generationCount: { dataType: 'integer', isNullable: 'NO' },
-  createdAt: { dataType: 'timestamp with time zone', isNullable: 'NO' },
   // Row keying — the meter looks up `thread:{threadId}` against lookupKey.
   lookupKey: { dataType: 'text', isNullable: 'NO' },
-  threadId: { dataType: 'text', isNullable: 'YES' },
   // The "observation" segment value.
   observationTokenCount: { dataType: 'integer', isNullable: 'NO' },
+  threadId: { dataType: 'text', isNullable: 'YES' },
   // The compaction-benefit stat numerator (totalTokensObserved − observationTokenCount).
   totalTokensObserved: { dataType: 'integer', isNullable: 'NO' },
 };
@@ -67,7 +67,7 @@ describe('Mastra OM schema projection (drift guard)', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    db = new PGlite({ extensions: { vector, pg_trgm: pgTrgm } });
+    db = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
   });
 

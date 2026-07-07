@@ -1,7 +1,15 @@
 import type { Migration } from './migration-runner';
 
 export const migration001InitialSchema: Migration = {
-  version: 1,
+  down: `
+		-- Drop indexes
+		DROP INDEX IF EXISTS idx_file_records_updated_at;
+		DROP INDEX IF EXISTS idx_file_records_name;
+		DROP INDEX IF EXISTS idx_file_records_path;
+
+		-- Drop table
+		DROP TABLE IF EXISTS file_records;
+	`,
   name: 'initial_schema',
   up: `
 		-- Create file_records table
@@ -19,13 +27,5 @@ export const migration001InitialSchema: Migration = {
 		CREATE INDEX IF NOT EXISTS idx_file_records_name ON file_records(name);
 		CREATE INDEX IF NOT EXISTS idx_file_records_updated_at ON file_records(updated_at);
 	`,
-  down: `
-		-- Drop indexes
-		DROP INDEX IF EXISTS idx_file_records_updated_at;
-		DROP INDEX IF EXISTS idx_file_records_name;
-		DROP INDEX IF EXISTS idx_file_records_path;
-		
-		-- Drop table
-		DROP TABLE IF EXISTS file_records;
-	`,
+  version: 1,
 };

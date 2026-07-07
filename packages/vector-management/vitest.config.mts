@@ -13,42 +13,12 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 
 // Vitest 4: use maxWorkers instead of poolOptions
 const poolConfig = {
-  pool: 'forks' as const,
   // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
   maxWorkers: process.env['CI'] ? '50%' : '100%',
+  pool: 'forks' as const,
 };
 
 export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'happy-dom',
-    setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
-    unstubGlobals: true,
-    ...poolConfig,
-    coverage: {
-      enabled: coverageEnabled,
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/**',
-        'dist/**',
-        '**/*.d.ts',
-        '**/*.config.*',
-        '**/mockData/**',
-        'src/**/__tests__/**',
-        '**/index.ts', // Barrel files - re-exports are tested via their sources
-        '**/vector-status.tsx', // Large UI component - business logic tested via extracted hooks
-        '**/vector-status-with-dialog.tsx', // Wrapper component - tested via integration
-        'src/embedding-set-management/**', // UI dialog components - tested via integration
-      ],
-      thresholds: {
-        lines: 70,
-        functions: 60,
-        branches: 60,
-        statements: 70,
-      },
-    },
-  },
   resolve: {
     alias: [
       {
@@ -157,5 +127,35 @@ export default defineConfig({
         replacement: resolve(__dirname, '../preferences/src/index.ts'),
       },
     ],
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
+    unstubGlobals: true,
+    ...poolConfig,
+    coverage: {
+      enabled: coverageEnabled,
+      exclude: [
+        'node_modules/**',
+        'dist/**',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/mockData/**',
+        'src/**/__tests__/**',
+        '**/index.ts', // Barrel files - re-exports are tested via their sources
+        '**/vector-status.tsx', // Large UI component - business logic tested via extracted hooks
+        '**/vector-status-with-dialog.tsx', // Wrapper component - tested via integration
+        'src/embedding-set-management/**', // UI dialog components - tested via integration
+      ],
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      thresholds: {
+        branches: 60,
+        functions: 60,
+        lines: 70,
+        statements: 70,
+      },
+    },
   },
 });

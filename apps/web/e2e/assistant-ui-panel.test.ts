@@ -178,12 +178,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       const emitProgress = (requestId: string, payload: MockProgressPayloadInput) => {
         for (const listener of progressListeners) {
           const event: MockProgressEvent = {
-            type: 'progress',
-            requestId,
             payload: {
               clientRequestId: requestId,
               ...payload,
             },
+            requestId,
+            type: 'progress',
           };
           listener(event);
         }
@@ -193,11 +193,6 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
       // @ts-expect-error local runtime host mock for e2e
       window.llmHost = {
-        warmup: async () => undefined,
-        onProgress(callback: (event: MockProgressEvent) => void) {
-          progressListeners.add(callback);
-          return () => progressListeners.delete(callback);
-        },
         async generate({ requestId, messages }: MockLlmGenerateRequest) {
           const latestUserMessage = [...messages]
             .reverse()
@@ -216,20 +211,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
             });
             await delay(STREAM_STEP_DELAY_MS);
             return {
-              text: '',
-              reasoningText: 'Inspect whether a tool is needed.',
               finishReason: 'tool_calls',
+              reasoningText: 'Inspect whether a tool is needed.',
+              text: '',
               toolCalls: [
                 {
+                  function: {
+                    arguments: JSON.stringify({ text: 'hello from mock' }),
+                    name: 'web.echo',
+                  },
                   id: 'tool-call-1',
                   type: 'function',
-                  function: {
-                    name: 'web.echo',
-                    arguments: JSON.stringify({ text: 'hello from mock' }),
-                  },
                 },
               ] satisfies MockToolCall[],
-              usage: { promptTokens: 12, completionTokens: 10, totalTokens: 22 },
+              usage: { completionTokens: 10, promptTokens: 12, totalTokens: 22 },
             };
           }
 
@@ -247,25 +242,30 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
           });
           await delay(STREAM_STEP_DELAY_MS);
           return {
-            text: 'Assistant: Mock response from tests.',
-            reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
             finishReason: 'stop',
-            usage: { promptTokens: 12, completionTokens: 24, totalTokens: 36 },
+            reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
+            text: 'Assistant: Mock response from tests.',
+            usage: { completionTokens: 24, promptTokens: 12, totalTokens: 36 },
           };
         },
+        onProgress(callback: (event: MockProgressEvent) => void) {
+          progressListeners.add(callback);
+          return () => progressListeners.delete(callback);
+        },
+        warmup: async () => undefined,
       };
 
       // @ts-expect-error tool bridge mock for local-runtime tool execution
       window.tools = {
         async execute(toolId: string, input: unknown) {
           return {
-            success: true,
             durationMs: 5,
             result: {
-              toolId,
-              input,
               echoed: 'hello from mock',
+              input,
+              toolId,
             },
+            success: true,
           };
         },
       };
@@ -317,7 +317,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
 
     await expect
       .poll(async () => await readFirstAssistantThreadMetadata(page))
-      .toMatchObject({ icon: 'bug', color: 'rose' });
+      .toMatchObject({ color: 'rose', icon: 'bug' });
     await page.waitForFunction(() =>
       Boolean(
         (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
@@ -343,7 +343,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       .toBe(dbPathBeforeReload);
     await expect
       .poll(async () => await readFirstAssistantThreadMetadata(page))
-      .toMatchObject({ icon: 'bug', color: 'rose' });
+      .toMatchObject({ color: 'rose', icon: 'bug' });
     const reloadedThreadRow = page.getByTestId('thread-row').first();
     await expect(reloadedThreadRow).toBeVisible();
     await expect(reloadedThreadRow.getByTestId('thread-icon-bug')).toBeVisible();

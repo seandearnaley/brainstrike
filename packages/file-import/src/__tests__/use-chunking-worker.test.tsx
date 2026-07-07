@@ -93,6 +93,13 @@ function createMockWorker() {
         errorHandlers.push(handler as (event: ErrorEvent) => void);
       }
     }),
+    clearPostedMessages: () => {
+      postedMessages.length = 0;
+    },
+    getPostedMessages: () => postedMessages,
+    postMessage: vi.fn((message: unknown) => {
+      postedMessages.push(message);
+    }),
     removeEventListener: vi.fn((type: string, handler: (event: unknown) => void) => {
       if (type === 'message') {
         const index = messageHandlers.indexOf(
@@ -108,31 +115,24 @@ function createMockWorker() {
         }
       }
     }),
-    postMessage: vi.fn((message: unknown) => {
-      postedMessages.push(message);
-    }),
-    terminate: vi.fn(),
+    simulateError: (message: string) => {
+      const event = {
+        colno: 2,
+        filename: 'worker.js',
+        lineno: 1,
+        message,
+      } as ErrorEvent;
+      for (const handler of [...errorHandlers]) {
+        handler(event);
+      }
+    },
     simulateMessage: (data: WorkerResponse) => {
       const event = { data } as MessageEvent<WorkerResponse>;
       for (const handler of [...messageHandlers]) {
         handler(event);
       }
     },
-    simulateError: (message: string) => {
-      const event = {
-        message,
-        filename: 'worker.js',
-        lineno: 1,
-        colno: 2,
-      } as ErrorEvent;
-      for (const handler of [...errorHandlers]) {
-        handler(event);
-      }
-    },
-    clearPostedMessages: () => {
-      postedMessages.length = 0;
-    },
-    getPostedMessages: () => postedMessages,
+    terminate: vi.fn(),
   };
 
   return mockWorker as unknown as Worker & {
@@ -195,13 +195,13 @@ describe('useChunkingWorker', () => {
     }
 
     const workerResult: ChunkResult = {
-      type: 'result',
-      id: postedMessage.id,
-      fileRecordId: 'file-1',
       chunks: [],
+      fileRecordId: 'file-1',
+      id: postedMessage.id,
+      skipped: false,
       strategyUsed: 'sentence',
       totalTokens: 5,
-      skipped: false,
+      type: 'result',
     };
 
     await emitWorkerMessage(worker, workerResult);
@@ -290,9 +290,9 @@ describe('useChunkingWorker', () => {
     }
 
     await emitWorkerMessage(worker, {
-      type: 'error',
-      id: '__init__',
       error: 'bootstrap failed',
+      id: '__init__',
+      type: 'error',
     } as WorkerResponse);
 
     await waitForExpect(() => expect(result.current.error?.message).toBe('bootstrap failed'));
@@ -339,9 +339,9 @@ describe('useChunkingWorker', () => {
     }
 
     await emitWorkerMessage(worker, {
-      type: 'error',
-      id: '__init__',
       error: '',
+      id: '__init__',
+      type: 'error',
     } as WorkerResponse);
 
     await waitForExpect(() =>
@@ -365,7 +365,7 @@ describe('useChunkingWorker', () => {
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
     // Simulate ErrorEvent with all fields empty/missing
-    const event = { message: '', filename: '', lineno: 0, colno: 0 } as ErrorEvent;
+    const event = { colno: 0, filename: '', lineno: 0, message: '' } as ErrorEvent;
     await act(async () => {
       for (const handler of (
         worker as unknown as {
@@ -399,9 +399,9 @@ describe('useChunkingWorker', () => {
 
     const readyErrorPromise = standalone.waitForReady().catch((error: unknown) => error);
     await emitWorkerMessage(worker, {
-      type: 'error',
-      id: '__init__',
       error: 'init boom',
+      id: '__init__',
+      type: 'error',
     } as WorkerResponse);
 
     const readyError = await readyErrorPromise;

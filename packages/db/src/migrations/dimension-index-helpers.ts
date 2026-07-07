@@ -111,8 +111,8 @@ export function hnswParams(): HnswParams {
   const ef = Number(envObj?.['HNSW_EF_CONSTRUCTION'] ?? '64');
 
   return {
-    m: Number.isFinite(m) && m > 0 ? Math.floor(m) : 16,
     ef: Number.isFinite(ef) && ef > 0 ? Math.floor(ef) : 64,
+    m: Number.isFinite(m) && m > 0 ? Math.floor(m) : 16,
   };
 }
 

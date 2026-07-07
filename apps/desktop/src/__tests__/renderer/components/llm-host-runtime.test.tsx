@@ -110,30 +110,30 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
+        payload: {
+          clientRequestId: 'client-1',
+          kind: 'generate',
+          messages: [{ content: 'first', role: 'user' }],
+          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+          options: {},
+        },
         requestId: 'req-1',
         runtimeId: 'test-runtime',
-        payload: {
-          kind: 'generate',
-          clientRequestId: 'client-1',
-          modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'first' }],
-          options: {},
-        },
+        type: 'request',
       });
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-2',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-2',
+          kind: 'generate',
+          messages: [{ content: 'second', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'second' }],
           options: {},
         },
+        requestId: 'req-2',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
     });
 
@@ -209,17 +209,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-retry-success',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-retry-success',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-retry-success',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -227,11 +227,11 @@ describe('LlmHostRuntime', () => {
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'result',
-          requestId: 'req-retry-success',
           payload: expect.objectContaining({
             result: expect.objectContaining({ text: 'retried result' }),
           }),
+          requestId: 'req-retry-success',
+          type: 'result',
         })
       );
     });
@@ -241,16 +241,16 @@ describe('LlmHostRuntime', () => {
     // The retry is never silent: a stage progress report announces it.
     expect(reportProgressMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        requestId: 'req-retry-success',
         payload: expect.objectContaining({
           kind: 'stage',
           message: expect.stringContaining('retrying'),
         }),
+        requestId: 'req-retry-success',
       })
     );
     // No error was reported for the recovered request.
     expect(reportResponseMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'error', requestId: 'req-retry-success' })
+      expect.objectContaining({ requestId: 'req-retry-success', type: 'error' })
     );
   });
 
@@ -266,17 +266,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-gpu-fault',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-gpu-fault',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-gpu-fault',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -284,11 +284,11 @@ describe('LlmHostRuntime', () => {
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
-          requestId: 'req-gpu-fault',
           payload: expect.objectContaining({
             errorMessage: expect.stringContaining('local model engine was reset'),
           }),
+          requestId: 'req-gpu-fault',
+          type: 'error',
         })
       );
     });
@@ -317,24 +317,24 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-aborted',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-aborted',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-aborted',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
 
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error', requestId: 'req-aborted' })
+        expect.objectContaining({ requestId: 'req-aborted', type: 'error' })
       );
     });
     expect(disposeMock).not.toHaveBeenCalled();
@@ -365,17 +365,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-abort-race',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-abort-race',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-abort-race',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -387,11 +387,11 @@ describe('LlmHostRuntime', () => {
     // teardown rejects the generation with a non-AbortError engine-fault error.
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
+        payload: { kind: 'cancel', requestId: 'req-abort-race' },
         requestId: 'cancel-abort-race',
         runtimeId: 'test-runtime',
-        payload: { kind: 'cancel', requestId: 'req-abort-race' },
+        type: 'request',
       });
       rejectGenerate(new Error('Device lost: the logical device was destroyed'));
       await Promise.resolve();
@@ -399,7 +399,7 @@ describe('LlmHostRuntime', () => {
 
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error', requestId: 'req-abort-race' })
+        expect.objectContaining({ requestId: 'req-abort-race', type: 'error' })
       );
     });
     // No recovery: engine not disposed, no reset notice, no engineReset flag.
@@ -428,24 +428,24 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-non-gpu-error',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-non-gpu-error',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-non-gpu-error',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
 
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error', requestId: 'req-non-gpu-error' })
+        expect.objectContaining({ requestId: 'req-non-gpu-error', type: 'error' })
       );
     });
     expect(disposeMock).not.toHaveBeenCalled();
@@ -467,17 +467,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-device-lost',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-device-lost',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-device-lost',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -485,11 +485,11 @@ describe('LlmHostRuntime', () => {
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
-          requestId: 'req-device-lost',
           payload: expect.objectContaining({
             errorMessage: expect.stringContaining('local model engine was reset'),
           }),
+          requestId: 'req-device-lost',
+          type: 'error',
         })
       );
     });
@@ -516,17 +516,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-ort-overflow',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-ort-overflow',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-ort-overflow',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -534,14 +534,14 @@ describe('LlmHostRuntime', () => {
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
-          requestId: 'req-ort-overflow',
           payload: expect.objectContaining({
-            errorMessage: expect.stringContaining('local model engine was reset'),
             // engineReset is the SOLE bridge to the main-process window-reset
             // escalation — assert it end-to-end here, not just in the manager test.
             errorDetails: expect.objectContaining({ engineReset: true }),
+            errorMessage: expect.stringContaining('local model engine was reset'),
           }),
+          requestId: 'req-ort-overflow',
+          type: 'error',
         })
       );
     });
@@ -564,17 +564,17 @@ describe('LlmHostRuntime', () => {
 
     await act(async () => {
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'req-bad-alloc',
-        runtimeId: 'test-runtime',
         payload: {
-          kind: 'generate',
           clientRequestId: 'client-bad-alloc',
+          kind: 'generate',
+          messages: [{ content: 'hello', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-          messages: [{ role: 'user', content: 'hello' }],
           options: {},
         },
+        requestId: 'req-bad-alloc',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
       await Promise.resolve();
     });
@@ -582,12 +582,12 @@ describe('LlmHostRuntime', () => {
     await waitFor(() => {
       expect(reportResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
-          requestId: 'req-bad-alloc',
           payload: expect.objectContaining({
-            errorMessage: expect.stringContaining('local model engine was reset'),
             errorDetails: expect.objectContaining({ engineReset: true }),
+            errorMessage: expect.stringContaining('local model engine was reset'),
           }),
+          requestId: 'req-bad-alloc',
+          type: 'error',
         })
       );
     });
@@ -607,14 +607,14 @@ describe('LlmHostRuntime', () => {
       // swallowed (a silent drop leaves the main-process caller waiting out
       // its full multi-minute timeout).
       requestListener({
-        type: 'request',
         channel: 'llm',
-        requestId: 'main:bad-warmup-1',
-        runtimeId: 'test-runtime',
         payload: {
           kind: 'warmup',
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
         },
+        requestId: 'main:bad-warmup-1',
+        runtimeId: 'test-runtime',
+        type: 'request',
       });
     });
 
@@ -622,11 +622,11 @@ describe('LlmHostRuntime', () => {
     expect(initializeMock).not.toHaveBeenCalled();
     expect(reportResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
-        requestId: 'main:bad-warmup-1',
         payload: expect.objectContaining({
           errorMessage: expect.stringContaining('clientRequestId'),
         }),
+        requestId: 'main:bad-warmup-1',
+        type: 'error',
       })
     );
   });

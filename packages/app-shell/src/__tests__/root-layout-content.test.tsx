@@ -12,8 +12,8 @@ import type { NavigationItem } from '../types';
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    storageAdapter: new MemoryStorageAdapter(),
     fileSystemAdapter: null,
+    storageAdapter: new MemoryStorageAdapter(),
   }),
 }));
 
@@ -21,12 +21,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
-  WorkspaceTabHost: ({ className }: { className?: string }) => (
-    <div className={className} data-testid="workspace-tab-host" />
-  ),
   useFileSystem: () => ({
     rootDirectoryHandle: null,
   }),
+  WorkspaceTabHost: ({ className }: { className?: string }) => (
+    <div className={className} data-testid="workspace-tab-host" />
+  ),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
@@ -57,18 +57,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    PanelLayoutProvider: ({
-      children,
-      onChange,
-    }: {
-      children: React.ReactNode;
-      onChange?: (state: PanelLayoutState) => void;
-    }) => {
-      if (onChange) {
-        mockHandlers.panelLayoutChanges.push(onChange);
-      }
-      return <>{children}</>;
-    },
     IdeLayout: ({
       children,
       leftPanelContent,
@@ -87,6 +75,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
       </div>
     ),
+    PanelLayoutProvider: ({
+      children,
+      onChange,
+    }: {
+      children: React.ReactNode;
+      onChange?: (state: PanelLayoutState) => void;
+    }) => {
+      if (onChange) {
+        mockHandlers.panelLayoutChanges.push(onChange);
+      }
+      return <>{children}</>;
+    },
   };
 });
 
@@ -163,8 +163,8 @@ describe('RootLayoutContent', () => {
   });
 
   const navigationItems: NavigationItem[] = [
-    { name: 'Context Explorer', path: '/', icon: () => <div /> },
-    { name: 'Settings', path: '/settings', icon: () => <div /> },
+    { icon: () => <div />, name: 'Context Explorer', path: '/' },
+    { icon: () => <div />, name: 'Settings', path: '/settings' },
   ];
 
   const renderComponent = (
@@ -281,16 +281,16 @@ describe('RootLayoutContent', () => {
 
     act(() => {
       handlePanelLayoutChange({
-        sizes: [30, 25, 15],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [30, 25, 15],
       });
       handlePanelLayoutChange({
-        sizes: [35, 30, 10],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [35, 30, 10],
       });
     });
 
@@ -337,10 +337,10 @@ describe('RootLayoutContent', () => {
 
     act(() => {
       handlePanelLayoutChange({
-        sizes: [40, 30, 10],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [40, 30, 10],
       });
       handlePanelLayoutChange({
         showConsole: false,
@@ -382,10 +382,10 @@ describe('RootLayoutContent', () => {
 
     act(() => {
       handlePanelLayoutChange({
-        sizes: [45, 25, 10],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [45, 25, 10],
       });
     });
 

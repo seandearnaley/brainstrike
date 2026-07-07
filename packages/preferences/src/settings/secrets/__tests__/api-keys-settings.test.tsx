@@ -117,8 +117,8 @@ describe('ApiKeysSettings', () => {
     vi.clearAllMocks();
     __resetSecretsStoreForTests();
     listProvidersMock.mockReturnValue([
-      { id: 'openai', displayName: 'OpenAI' },
-      { id: 'google', displayName: 'Google' },
+      { displayName: 'OpenAI', id: 'openai' },
+      { displayName: 'Google', id: 'google' },
     ]);
     setSecretsApi(createSecretsApi());
   });
@@ -179,7 +179,7 @@ describe('ApiKeysSettings', () => {
     const base = createSecretsApi();
     setSecretsApi({
       ...base,
-      saveKey: vi.fn().mockResolvedValue({ ok: false, error: 'encryption_unavailable' }),
+      saveKey: vi.fn().mockResolvedValue({ error: 'encryption_unavailable', ok: false }),
     });
 
     render(<ApiKeysSettings />);
@@ -212,7 +212,7 @@ describe('ApiKeysSettings', () => {
   });
 
   it('renders provider-specific hint for google provider', async () => {
-    listProvidersMock.mockReturnValue([{ id: 'google', displayName: 'Google' }]);
+    listProvidersMock.mockReturnValue([{ displayName: 'Google', id: 'google' }]);
     render(<ApiKeysSettings />);
 
     await waitFor(() => {

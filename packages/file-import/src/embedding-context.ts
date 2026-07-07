@@ -113,63 +113,63 @@ export function detectLanguage(filePath: string): string | undefined {
   }
 
   const languageMap: Record<string, string> = {
-    // JavaScript/TypeScript
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    mjs: 'javascript',
-    cjs: 'javascript',
-
-    // Web
-    html: 'html',
-    css: 'css',
-    scss: 'scss',
-    sass: 'sass',
-    vue: 'vue',
-    svelte: 'svelte',
-
-    // Systems
-    rs: 'rust',
-    go: 'go',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-
-    // JVM
-    java: 'java',
-    kt: 'kotlin',
-    scala: 'scala',
-
-    // Scripting
-    py: 'python',
-    rb: 'ruby',
-    php: 'php',
-    sh: 'shell',
     bash: 'shell',
+    c: 'c',
+    cjs: 'javascript',
+    cpp: 'cpp',
 
     // .NET
     cs: 'csharp',
+    css: 'css',
+    go: 'go',
+    h: 'c',
+    hpp: 'cpp',
 
-    // Mobile
-    swift: 'swift',
-    m: 'objective-c',
-    mm: 'objective-c',
+    // Web
+    html: 'html',
+
+    // JVM
+    java: 'java',
+    // JavaScript/TypeScript
+    js: 'javascript',
 
     // Data/Config
     json: 'json',
-    yaml: 'yaml',
-    yml: 'yaml',
-    toml: 'toml',
-    xml: 'xml',
+    jsx: 'javascript',
+    kt: 'kotlin',
+    m: 'objective-c',
 
     // Documentation
     md: 'markdown',
     mdx: 'markdown',
+    mjs: 'javascript',
+    mm: 'objective-c',
+    php: 'php',
+
+    // Scripting
+    py: 'python',
+    rb: 'ruby',
+
+    // Systems
+    rs: 'rust',
+    sass: 'sass',
+    scala: 'scala',
+    scss: 'scss',
+    sh: 'shell',
 
     // Database
     sql: 'sql',
+    svelte: 'svelte',
+
+    // Mobile
+    swift: 'swift',
+    toml: 'toml',
+    ts: 'typescript',
+    tsx: 'typescript',
+    vue: 'vue',
+    xml: 'xml',
+    yaml: 'yaml',
+    yml: 'yaml',
   };
 
   return languageMap[ext];

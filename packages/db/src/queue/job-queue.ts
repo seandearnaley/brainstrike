@@ -43,24 +43,24 @@ const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'job-queue';
 
 function fromRow(row: JobRow): Job {
   const job: Job = {
-    id: row.id,
-    queue: row.queue,
-    jobType: row.job_type as JobType,
-    payload: row.payload ?? null,
-    state: row.state,
-    runAt: row.run_at,
     attempts: row.attempts,
-    max_attempts: row.max_attempts,
     backoff_ms: row.backoff_ms,
-    lease_token: row.lease_token ?? null,
-    leasedUntil: row.leased_until ?? null,
-    worker_id: row.worker_id ?? null,
-    dedupe_key: row.dedupe_key ?? null,
     chunk_id: row.chunk_id ?? null,
+    created_at: row.created_at,
+    dedupe_key: row.dedupe_key ?? null,
     embedding_set_id: row.embedding_set_id ?? null,
     error: row.error ?? null,
-    created_at: row.created_at,
+    id: row.id,
+    jobType: row.job_type as JobType,
+    lease_token: row.lease_token ?? null,
+    leasedUntil: row.leased_until ?? null,
+    max_attempts: row.max_attempts,
+    payload: row.payload ?? null,
+    queue: row.queue,
+    runAt: row.run_at,
+    state: row.state,
     updated_at: row.updated_at,
+    worker_id: row.worker_id ?? null,
   };
   return job;
 }
@@ -339,30 +339,30 @@ export class JobQueue {
 
     if (isNewEnqueue) {
       logger.debug('Job enqueued', {
-        jobId: job.id,
-        queue: job.queue,
-        jobType: job.jobType,
-        runAt: job.runAt,
         dedupeKey: dedupe,
+        jobId: job.id,
+        jobType: job.jobType,
+        queue: job.queue,
+        runAt: job.runAt,
       });
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
         event: 'enqueue',
-        taskId: job.id,
         metadata: {
-          queue: job.queue,
-          jobType: job.jobType,
           dedupeKey: dedupe,
+          jobType: job.jobType,
+          queue: job.queue,
         },
+        taskId: job.id,
+        timestamp: Date.now(),
       });
     } else {
       logger.debug('Job enqueue deduped; returning existing job', {
-        jobId: job.id,
-        queue: job.queue,
-        jobType: job.jobType,
-        runAt: job.runAt,
         dedupeKey: dedupe,
+        jobId: job.id,
+        jobType: job.jobType,
+        queue: job.queue,
+        runAt: job.runAt,
       });
     }
     return job;
@@ -523,15 +523,15 @@ export class JobQueue {
         const isNew = newIdSet.has(job.id);
         if (isNew) {
           emitQueueTelemetry({
-            timestamp: Date.now(),
             adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
             event: 'enqueue',
-            taskId: job.id,
             metadata: {
-              queue: job.queue,
-              jobType: job.jobType,
               dedupeKey: job.dedupe_key ?? undefined,
+              jobType: job.jobType,
+              queue: job.queue,
             },
+            taskId: job.id,
+            timestamp: Date.now(),
           });
         }
       }
@@ -590,25 +590,25 @@ export class JobQueue {
     if (jobs.length > 0) {
       logger.trace('Jobs claimed', {
         count: jobs.length,
-        queue: params.queue,
         leaseToken,
+        queue: params.queue,
         workerId: params.workerId ?? null,
       });
 
       // Emit 'start' telemetry for each claimed job
       for (const job of jobs) {
         emitQueueTelemetry({
-          timestamp: Date.now(),
           adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
           event: 'start',
-          taskId: job.id,
           metadata: {
-            queue: job.queue,
-            jobType: job.jobType,
             attempt: job.attempts,
-            workerId: params.workerId ?? null,
+            jobType: job.jobType,
             leaseMs: params.leaseMs,
+            queue: job.queue,
+            workerId: params.workerId ?? null,
           },
+          taskId: job.id,
+          timestamp: Date.now(),
         });
       }
     }
@@ -630,8 +630,8 @@ export class JobQueue {
     const job = fromRow(res.rows[0]);
     logger.debug('Heartbeat extended lease', {
       jobId: job.id,
-      leaseToken: params.leaseToken,
       leasedUntil: job.leasedUntil,
+      leaseToken: params.leaseToken,
     });
     return job;
   }
@@ -722,14 +722,14 @@ export class JobQueue {
     for (const job of completedJobs) {
       const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
         event: 'complete',
         taskId: job.id,
+        timestamp: Date.now(),
         ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
         metadata: {
-          queue: job.queue,
           jobType: job.jobType,
+          queue: job.queue,
         },
       });
     }
@@ -830,14 +830,14 @@ export class JobQueue {
     for (const job of completedJobs) {
       const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
         event: 'complete',
         taskId: job.id,
+        timestamp: Date.now(),
         ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
         metadata: {
-          queue: job.queue,
           jobType: job.jobType,
+          queue: job.queue,
         },
       });
     }
@@ -858,17 +858,17 @@ export class JobQueue {
     }
     const job = fromRow(res.rows[0]);
     // Use debug level for per-job completion to reduce log noise during bulk operations
-    logger.debug('Job completed', { jobId: job.id, queue: job.queue, jobType: job.jobType });
+    logger.debug('Job completed', { jobId: job.id, jobType: job.jobType, queue: job.queue });
     const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
       event: 'complete',
       taskId: job.id,
+      timestamp: Date.now(),
       ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
       metadata: {
-        queue: job.queue,
         jobType: job.jobType,
+        queue: job.queue,
       },
     });
     return job;
@@ -902,22 +902,22 @@ export class JobQueue {
       }
       const failedJob = fromRow(res.rows[0]);
       logger.error('Job failed permanently', {
+        error: params.error,
         jobId: failedJob.id,
         queue: failedJob.queue,
-        error: params.error,
       });
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
-        event: 'error',
-        taskId: failedJob.id,
         errorMessage: params.error,
+        event: 'error',
         metadata: {
-          queue: failedJob.queue,
-          jobType: failedJob.jobType,
           attempts,
+          jobType: failedJob.jobType,
+          queue: failedJob.queue,
           terminal: true,
         },
+        taskId: failedJob.id,
+        timestamp: Date.now(),
       });
       return failedJob;
     }
@@ -944,23 +944,23 @@ export class JobQueue {
     }
     const retriedJob = fromRow(res.rows[0]);
     logger.warn('Job failed; retry scheduled', {
+      attempts,
       jobId: retriedJob.id,
       queue: retriedJob.queue,
-      attempts,
       retryAt: runAt,
     });
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
-      event: 'error',
-      taskId: retriedJob.id,
       errorMessage: params.error,
+      event: 'error',
       metadata: {
-        queue: retriedJob.queue,
-        jobType: retriedJob.jobType,
         attempts,
+        jobType: retriedJob.jobType,
+        queue: retriedJob.queue,
         retryAt: runAt,
       },
+      taskId: retriedJob.id,
+      timestamp: Date.now(),
     });
     return retriedJob;
   }
@@ -968,17 +968,17 @@ export class JobQueue {
   private emitFailTelemetry(jobs: Job[], error: string, terminal: boolean): void {
     for (const job of jobs) {
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
-        event: 'error',
-        taskId: job.id,
         errorMessage: error,
+        event: 'error',
         metadata: {
-          queue: job.queue,
-          jobType: job.jobType,
           attempts: job.attempts,
+          jobType: job.jobType,
+          queue: job.queue,
           ...(terminal ? { terminal: true } : { retryAt: job.runAt }),
         },
+        taskId: job.id,
+        timestamp: Date.now(),
       });
     }
   }
@@ -1123,9 +1123,9 @@ export class JobQueue {
 
     if (allResults.length > 0) {
       logger.debug('Jobs failed in batch', {
-        total: allResults.length,
         exhausted: exhausted.ids.length,
         retried: retry.ids.length,
+        total: allResults.length,
       });
     }
 
@@ -1155,21 +1155,21 @@ export class JobQueue {
     const job = fromRow(res.rows[0]);
     logger.info('Job canceled', {
       jobId: job.id,
-      queue: job.queue,
       jobType: job.jobType,
+      queue: job.queue,
       reason: params.reason,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
       event: 'cancel',
-      taskId: job.id,
       metadata: {
-        queue: job.queue,
         jobType: job.jobType,
+        queue: job.queue,
         reason: params.reason,
       },
+      taskId: job.id,
+      timestamp: Date.now(),
     });
 
     return job;
@@ -1206,16 +1206,16 @@ export class JobQueue {
       for (const row of toCancel.rows) {
         const job = fromRow(row);
         emitQueueTelemetry({
-          timestamp: Date.now(),
           adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
           event: 'cancel',
-          taskId: job.id,
           metadata: {
-            queue: job.queue,
-            jobType: job.jobType,
-            reason,
             bulkCancel: true,
+            jobType: job.jobType,
+            queue: job.queue,
+            reason,
           },
+          taskId: job.id,
+          timestamp: Date.now(),
         });
       }
     }
@@ -1263,7 +1263,7 @@ export class JobQueue {
     );
     const removed = Number(res.rows[0]?.count ?? 0);
     if (removed > 0) {
-      logger.info('Pruned historical jobs', { count: removed, states, olderThanIso });
+      logger.info('Pruned historical jobs', { count: removed, olderThanIso, states });
     }
     return removed;
   }
@@ -1280,7 +1280,7 @@ export class JobQueue {
        ORDER BY queue, state`,
       queue ? [queue] : []
     );
-    return res.rows.map((r) => ({ queue: r.queue, state: r.state, count: Number(r.count) }));
+    return res.rows.map((r) => ({ count: Number(r.count), queue: r.queue, state: r.state }));
   }
 
   async getQueueStats(queue?: string): Promise<
@@ -1299,7 +1299,7 @@ export class JobQueue {
       { queued: number; running: number; failed: number; succeeded: number }
     >();
     for (const c of counts) {
-      const entry = queues.get(c.queue) ?? { queued: 0, running: 0, failed: 0, succeeded: 0 };
+      const entry = queues.get(c.queue) ?? { failed: 0, queued: 0, running: 0, succeeded: 0 };
       if (c.state === 'queued') {
         entry.queued += c.count;
       }
@@ -1328,12 +1328,12 @@ export class JobQueue {
     }
 
     return Array.from(queues.entries()).map(([q, stats]) => ({
+      failed: stats.failed,
+      nextRunnableAt: minRunAt.get(q) ?? null,
       queue: q,
       queued: stats.queued,
       running: stats.running,
-      failed: stats.failed,
       succeeded: stats.succeeded,
-      nextRunnableAt: minRunAt.get(q) ?? null,
     }));
   }
 

@@ -74,6 +74,7 @@ function migrateLegacyTabKey(name: string): string | null {
       activeTabId?: string | null;
     };
     const migrated: PersistedState = {
+      activeTabId: (parsed.activeTabId ?? null) as string | null,
       // Filter out malformed legacy entries before stringifying — without this, a
       // missing field would produce String(undefined) === 'undefined' and create a
       // phantom tab with that literal id. Unlikely on existing installs but cheap
@@ -87,12 +88,11 @@ function migrateLegacyTabKey(name: string): string | null {
                 typeof t.compositeKey === 'string'
             )
             .map((t) => ({
+              compositeKey: t.compositeKey,
               id: t.id,
               path: t.path,
-              compositeKey: t.compositeKey,
             }))
         : [],
-      activeTabId: (parsed.activeTabId ?? null) as string | null,
     };
     const wrapped = JSON.stringify({ state: migrated, version: 1 });
     try {
@@ -131,58 +131,29 @@ function migrateV1ToV2(ps: PersistedState): PersistedState {
       continue;
     }
     seen.add(nextId);
-    tabs.push({ id: nextId, path: t.path, compositeKey: t.compositeKey });
+    tabs.push({ compositeKey: t.compositeKey, id: nextId, path: t.path });
   }
   const remappedActive =
     ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
   // If the originally-active id deduped away, fall back to the first remaining tab.
   const activeTabId =
     remappedActive !== null && seen.has(remappedActive) ? remappedActive : (tabs[0]?.id ?? null);
-  return { tabs, activeTabId };
+  return { activeTabId, tabs };
 }
 
 const storage = createJSONStorage(() =>
   createSafeJsonStateStorage({
-    scope: 'TabManagerStore',
     migrateOnGet: migrateLegacyTabKey,
+    scope: 'TabManagerStore',
   })
 );
 
 export const useTabManagerStore = create<TabManagerStore>()(
   persist(
     (set, get) => ({
-      tabs: [],
       activeTabId: null,
 
-      openTab: (path, tabId, compositeKey) => {
-        set((state) => {
-          const existing = state.tabs.find((t) => t.id === tabId);
-          if (existing) {
-            return { ...state, activeTabId: tabId };
-          }
-          const newTab: FileTabState = {
-            id: tabId,
-            path,
-            compositeKey,
-            content: null,
-            isLoading: true,
-          };
-          const nextTabs = [...state.tabs, newTab];
-          if (nextTabs.length > MAX_TABS) {
-            // TODO(tab-eviction-ux): surface a toast or visual cue when the oldest
-            // tab is evicted so a 21st open does not look like a disappearing tab.
-            // Until then, log a warning so the silent eviction is at least debuggable.
-            const evicted = nextTabs[0];
-            logger.warn('Tab limit reached; evicting oldest tab', {
-              evictedId: evicted?.id,
-              evictedPath: evicted?.path,
-              limit: MAX_TABS,
-            });
-            nextTabs.shift();
-          }
-          return { tabs: nextTabs, activeTabId: tabId };
-        });
-      },
+      clearTabs: () => set({ activeTabId: null, tabs: [] }),
 
       closeTab: (tabId) => {
         // Compute the successor against the snapshot from get() so the value we return
@@ -198,17 +169,45 @@ export const useTabManagerStore = create<TabManagerStore>()(
           const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
           nextActive = candidate ? candidate.id : null;
         }
-        set({ tabs: newTabs, activeTabId: nextActive });
+        set({ activeTabId: nextActive, tabs: newTabs });
         return nextActive;
+      },
+
+      openTab: (path, tabId, compositeKey) => {
+        set((state) => {
+          const existing = state.tabs.find((t) => t.id === tabId);
+          if (existing) {
+            return { ...state, activeTabId: tabId };
+          }
+          const newTab: FileTabState = {
+            compositeKey,
+            content: null,
+            id: tabId,
+            isLoading: true,
+            path,
+          };
+          const nextTabs = [...state.tabs, newTab];
+          if (nextTabs.length > MAX_TABS) {
+            // TODO(tab-eviction-ux): surface a toast or visual cue when the oldest
+            // tab is evicted so a 21st open does not look like a disappearing tab.
+            // Until then, log a warning so the silent eviction is at least debuggable.
+            const evicted = nextTabs[0];
+            logger.warn('Tab limit reached; evicting oldest tab', {
+              evictedId: evicted?.id,
+              evictedPath: evicted?.path,
+              limit: MAX_TABS,
+            });
+            nextTabs.shift();
+          }
+          return { activeTabId: tabId, tabs: nextTabs };
+        });
       },
 
       setActiveTab: (tabId) => set({ activeTabId: tabId }),
 
-      updateTabContent: (tabId, content) =>
+      setTabError: (tabId, error) =>
         set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === tabId ? { ...t, content, isLoading: false, error: undefined } : t
-          ),
+          tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, error, isLoading: false } : t)),
         })),
 
       setTabLoading: (tabId, isLoading) =>
@@ -217,29 +216,35 @@ export const useTabManagerStore = create<TabManagerStore>()(
             t.id === tabId
               ? {
                   ...t,
-                  isLoading,
                   content: isLoading ? null : t.content,
                   error: isLoading ? undefined : t.error,
+                  isLoading,
                 }
               : t
           ),
         })),
+      tabs: [],
 
-      setTabError: (tabId, error) =>
+      updateTabContent: (tabId, content) =>
         set((state) => ({
-          tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, error, isLoading: false } : t)),
+          tabs: state.tabs.map((t) =>
+            t.id === tabId ? { ...t, content, error: undefined, isLoading: false } : t
+          ),
         })),
-
-      clearTabs: () => set({ tabs: [], activeTabId: null }),
     }),
     {
-      name: STORE_NAME,
-      version: 2,
-      storage,
-      partialize: (s): PersistedState => ({
-        tabs: s.tabs.map((t) => ({ id: t.id, path: t.path, compositeKey: t.compositeKey })),
-        activeTabId: s.activeTabId,
-      }),
+      merge: (persisted, current) => {
+        const ps = (persisted as unknown as PersistedState) || { activeTabId: null, tabs: [] };
+        const reconstructed: FileTabState[] = ps.tabs.map((t) => ({
+          compositeKey: t.compositeKey,
+          content: null,
+          error: undefined,
+          id: t.id,
+          isLoading: false,
+          path: t.path,
+        }));
+        return { ...current, activeTabId: ps.activeTabId, tabs: reconstructed } as TabManagerStore;
+      },
       // Migrations are written as a per-version chain so adding a v3 step is purely
       // additive — no need to update an existing guard. Future shape:
       //   let next = ps;
@@ -248,26 +253,21 @@ export const useTabManagerStore = create<TabManagerStore>()(
       //   return next;
       migrate: (persisted, version) => {
         let ps = (persisted as PersistedState | undefined) ?? {
-          tabs: [],
           activeTabId: null,
+          tabs: [],
         };
         if (version < 2) {
           ps = migrateV1ToV2(ps);
         }
         return ps;
       },
-      merge: (persisted, current) => {
-        const ps = (persisted as unknown as PersistedState) || { tabs: [], activeTabId: null };
-        const reconstructed: FileTabState[] = ps.tabs.map((t) => ({
-          id: t.id,
-          path: t.path,
-          compositeKey: t.compositeKey,
-          content: null,
-          isLoading: false,
-          error: undefined,
-        }));
-        return { ...current, tabs: reconstructed, activeTabId: ps.activeTabId } as TabManagerStore;
-      },
+      name: STORE_NAME,
+      partialize: (s): PersistedState => ({
+        activeTabId: s.activeTabId,
+        tabs: s.tabs.map((t) => ({ compositeKey: t.compositeKey, id: t.id, path: t.path })),
+      }),
+      storage,
+      version: 2,
     }
   )
 );
@@ -276,7 +276,7 @@ export const useTabManagerStore = create<TabManagerStore>()(
 export function __resetTabManagerStoreForTests() {
   try {
     // Clear in-memory state
-    useTabManagerStore.setState({ tabs: [], activeTabId: null });
+    useTabManagerStore.setState({ activeTabId: null, tabs: [] });
     // Clear persisted storage if available
     const persistApi = (
       useTabManagerStore as unknown as {

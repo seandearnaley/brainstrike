@@ -112,10 +112,10 @@ function buildPlugins(options: ParseOptions): ParserPlugin[] {
 async function parse(content: string, options: ParseOptions): Promise<AstNode> {
   const { parse: babelParse } = await loadBabelParser();
   const ast = babelParse(content, {
-    sourceType: 'module',
-    plugins: buildPlugins(options),
-    errorRecovery: options.errorRecovery,
     allowReturnOutsideFunction: true,
+    errorRecovery: options.errorRecovery,
+    plugins: buildPlugins(options),
+    sourceType: 'module',
   });
   return ast as unknown as AstNode;
 }

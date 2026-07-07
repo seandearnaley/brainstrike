@@ -261,13 +261,13 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     });
     const utilsLogger = await import('@brainstrike/utils/logger');
     const createLoggerSpy = vi.spyOn(utilsLogger, 'createLogger').mockReturnValue({
-      trace: vi.fn(),
+      child: vi.fn(),
       debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
       error: vi.fn(),
       fatal: vi.fn(),
-      child: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
     } as unknown as ReturnType<typeof utilsLogger.createLogger>);
 
     const { calculateGroupTokens } = await import('../token-utils');
@@ -287,8 +287,8 @@ describe('Token Utils - Edge Cases Without Mocking', () => {
     );
     expect(summaryCall).toBeDefined();
     expect(summaryCall?.[1]).toMatchObject({
-      faultCount: 2,
       batchSize: 4,
+      faultCount: 2,
       firstError: expect.objectContaining({ message: 'first synthetic fault' }),
       lastError: expect.objectContaining({ message: 'last synthetic fault' }),
     });

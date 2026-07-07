@@ -1,5 +1,5 @@
 export interface RetryableLazyModuleLoader<TModule> {
-  load(): Promise<TModule>;
+  load: () => Promise<TModule>;
 }
 
 export function createRetryableLazyModuleLoader<TModule>(

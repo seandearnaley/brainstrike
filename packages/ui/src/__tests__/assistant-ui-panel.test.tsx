@@ -113,7 +113,7 @@ vi.mock('../../src/assistant-ui-panel/local-runtime-adapter', () => ({
 // Mock theme provider for ModelPicker
 vi.mock('../../src/theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
+  useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
 }));
 
 vi.mock('@assistant-ui/react', () => {
@@ -168,41 +168,50 @@ vi.mock('@assistant-ui/react', () => {
 
   return {
     ActionBarPrimitive: {
-      Root: Primitive,
-      Edit: Primitive,
       Copy: Primitive,
+      Edit: Primitive,
       Reload: Primitive,
+      Root: Primitive,
     },
     AssistantRuntimeProvider: ({ children }: ProviderProps) => <>{children}</>,
-    ChainOfThoughtPrimitive: {
-      Root: Primitive,
-      AccordionTrigger: Primitive,
-      Parts: Primitive,
-    },
     BranchPickerPrimitive: {
-      Root: Primitive,
-      Previous: Primitive,
+      Count: ({ children }: CounterProps) => (
+        <span data-testid="branch-count">{children ?? '1'}</span>
+      ),
       Next: Primitive,
       Number: ({ children }: CounterProps) => (
         <span data-testid="branch-number">{children ?? '1'}</span>
       ),
-      Count: ({ children }: CounterProps) => (
-        <span data-testid="branch-count">{children ?? '1'}</span>
-      ),
+      Previous: Primitive,
+      Root: Primitive,
+    },
+    ChainOfThoughtPrimitive: {
+      AccordionTrigger: Primitive,
+      Parts: Primitive,
+      Root: Primitive,
     },
     ComposerPrimitive: {
-      Root: Primitive,
-      Input: (props: InputProps) => <textarea data-testid="composer-input" {...props} />,
-      Send: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
-        <button data-testid="composer-send" type="submit" {...props}>
-          {children}
-        </button>
-      ),
       Cancel: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
         <button data-testid="composer-cancel" type="button" {...props}>
           {children}
         </button>
       ),
+      Input: (props: InputProps) => <textarea data-testid="composer-input" {...props} />,
+      Root: Primitive,
+      Send: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
+        <button data-testid="composer-send" type="submit" {...props}>
+          {children}
+        </button>
+      ),
+      Unstable_TriggerPopover: Object.assign(
+        ({ children }: { children: React.ReactNode }) => <>{children}</>,
+        {
+          Action: () => null,
+          Directive: () => null,
+        }
+      ),
+      Unstable_TriggerPopoverItem: () => null,
+      Unstable_TriggerPopoverItems: () => null,
       // "/" and "@" trigger-popover primitives (unified under one
       // Unstable_TriggerPopoverRoot since @assistant-ui/react 0.12.26). The
       // popover only renders its content when the trigger is active, which
@@ -211,28 +220,14 @@ vi.mock('@assistant-ui/react', () => {
       // the behavior sub-primitives (Action/Directive) render nothing (they
       // contribute no DOM in the real library either).
       Unstable_TriggerPopoverRoot: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-      Unstable_TriggerPopover: Object.assign(
-        ({ children }: { children: React.ReactNode }) => <>{children}</>,
-        {
-          Action: () => null,
-          Directive: () => null,
-        }
-      ),
-      Unstable_TriggerPopoverItems: () => null,
-      Unstable_TriggerPopoverItem: () => null,
     },
     ErrorPrimitive: {
-      Root: Primitive,
       // Mirrors the real primitive: renders nothing when the message has no error.
       Message: () => null,
+      Root: Primitive,
     },
     MessagePrimitive: {
-      Root: Primitive,
-      Parts: ({ components }: PartsProps) => {
-        messagePartsComponentsMock(components);
-        const Text = components?.Text ?? TextStub;
-        return <Text />;
-      },
+      If,
       PartByIndex: ({
         index,
         components,
@@ -254,8 +249,27 @@ vi.mock('@assistant-ui/react', () => {
         }
         return null;
       },
-      If,
+      Parts: ({ components }: PartsProps) => {
+        messagePartsComponentsMock(components);
+        const Text = components?.Text ?? TextStub;
+        return <Text />;
+      },
+      Root: Primitive,
     },
+    ThreadPrimitive: {
+      If,
+      Messages: ({ components }: MessagesProps) => {
+        const Assistant = components?.AssistantMessage;
+        return Assistant ? <Assistant /> : null;
+      },
+      Root: Primitive,
+      Viewport: Primitive,
+    },
+    unstable_useSlashCommandAdapter: () => ({
+      categories: () => [],
+      categoryItems: () => [],
+      search: () => [],
+    }),
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
       chainOfThought: () => ({
@@ -264,25 +278,11 @@ vi.mock('@assistant-ui/react', () => {
     }),
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
-    unstable_useSlashCommandAdapter: () => ({
-      categories: () => [],
-      categoryItems: () => [],
-      search: () => [],
-    }),
     useMessagePartReasoning: () => ({
-      type: 'reasoning' as const,
-      text: 'Reasoning text',
       status: { type: 'complete' as const },
+      text: 'Reasoning text',
+      type: 'reasoning' as const,
     }),
-    ThreadPrimitive: {
-      Root: Primitive,
-      Viewport: Primitive,
-      Messages: ({ components }: MessagesProps) => {
-        const Assistant = components?.AssistantMessage;
-        return Assistant ? <Assistant /> : null;
-      },
-      If,
-    },
   };
 });
 
@@ -306,90 +306,90 @@ beforeAll(() => {
 
 const providerGroups: ProviderGroupConfig[] = [
   {
-    runtime: 'hosted',
     label: 'Cloud',
     providers: [
       {
-        id: 'openai',
-        name: 'OpenAI',
-        runtime: 'hosted',
         capabilities: {
-          llm: true,
           embeddings: false,
+          llm: true,
           streaming: true,
           supportsStandardEmbeddingDimension: false,
         },
+        id: 'openai',
         models: [
           {
+            default: true,
+            enabled: true,
             id: 'gpt-5.2',
             label: 'GPT-5.2',
-            type: 'llm',
-            enabled: true,
-            default: true,
             supportsStreaming: true,
+            type: 'llm',
           },
         ],
+        name: 'OpenAI',
+        runtime: 'hosted',
       },
     ],
+    runtime: 'hosted',
   },
   {
-    runtime: 'gateway',
     label: 'Gateway',
     providers: [
       {
-        id: 'anthropic',
-        name: 'Anthropic',
-        runtime: 'gateway',
         capabilities: {
-          llm: true,
           embeddings: false,
+          llm: true,
           streaming: true,
           supportsStandardEmbeddingDimension: false,
         },
+        id: 'anthropic',
         models: [
           {
+            enabled: true,
             id: 'claude-sonnet-4-6',
             label: 'Claude Sonnet 4.6',
-            type: 'llm',
-            enabled: true,
             supportsStreaming: true,
+            type: 'llm',
           },
         ],
+        name: 'Anthropic',
+        runtime: 'gateway',
       },
     ],
+    runtime: 'gateway',
   },
 ];
 
 // ModelPicker-compatible providers (matching the enabled models in providerGroups)
 const pickerProviders: ModelPickerProvider[] = [
-  { id: 'openai', name: 'OpenAI', icon: null },
-  { id: 'anthropic', name: 'Anthropic', icon: null },
+  { icon: null, id: 'openai', name: 'OpenAI' },
+  { icon: null, id: 'anthropic', name: 'Anthropic' },
 ];
 
 // ModelPicker-compatible models (only enabled models)
 const pickerModels: ModelPickerModel[] = [
   {
-    id: 'gpt-5.2',
-    providerId: 'openai',
-    name: 'GPT-5.2',
+    capabilities: { streaming: true, type: 'llm' },
     description: null,
-    capabilities: { type: 'llm', streaming: true },
+    id: 'gpt-5.2',
+    name: 'GPT-5.2',
+    providerId: 'openai',
   },
   {
-    id: 'claude-sonnet-4-6',
-    providerId: 'anthropic',
-    name: 'Claude Sonnet 4.6',
+    capabilities: { streaming: true, type: 'llm' },
     description: null,
-    capabilities: { type: 'llm', streaming: true },
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
+    providerId: 'anthropic',
   },
 ];
 
 const baseProps = {
-  providerGroups,
   pickerModels,
   pickerProviders,
-  selectedProvider: 'openai',
+  providerGroups,
   selectedModel: 'openai::gpt-5.2',
+  selectedProvider: 'openai',
 };
 
 const renderCapturedChainOfThought = () => {
@@ -599,9 +599,9 @@ describe('AssistantUiPanel model picker', () => {
   it('prepares per-run request data when the hosted runtime starts a request', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-1',
         runId: 'run-1',
+        threadId: 'thread-1',
       },
     }));
 
@@ -620,14 +620,14 @@ describe('AssistantUiPanel model picker', () => {
 
     await expect(options.body?.()).resolves.toEqual({
       data: {
-        tokenBudget: 123,
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
-        provider: 'openai',
         model: 'gpt-5.2',
+        provider: 'openai',
+        tokenBudget: 123,
       },
     });
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
@@ -636,9 +636,9 @@ describe('AssistantUiPanel model picker', () => {
   it('completes hosted prepared requests from data stream terminal callbacks', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-1',
         runId: 'run-1',
+        threadId: 'thread-1',
       },
     }));
     const completePreparedRequest = vi.fn();
@@ -675,9 +675,9 @@ describe('AssistantUiPanel model picker', () => {
     expect(completePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
       },
       'completed',
@@ -688,9 +688,9 @@ describe('AssistantUiPanel model picker', () => {
   it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-1',
         runId: 'run-1',
+        threadId: 'thread-1',
       },
     }));
     const firstCompletePreparedRequest = vi.fn();
@@ -725,9 +725,9 @@ describe('AssistantUiPanel model picker', () => {
     expect(secondCompletePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
       },
       'completed',
@@ -740,16 +740,16 @@ describe('AssistantUiPanel model picker', () => {
       .fn()
       .mockResolvedValueOnce({
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
       })
       .mockResolvedValueOnce({
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-2',
+          threadId: 'thread-1',
         },
       });
     const completePreparedRequest = vi.fn();
@@ -779,9 +779,9 @@ describe('AssistantUiPanel model picker', () => {
     expect(completePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
       },
       'cancelled',
@@ -792,9 +792,9 @@ describe('AssistantUiPanel model picker', () => {
   it('marks hosted prepared requests failed when the data stream errors', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-1',
         runId: 'run-1',
+        threadId: 'thread-1',
       },
     }));
     const completePreparedRequest = vi.fn();
@@ -819,9 +819,9 @@ describe('AssistantUiPanel model picker', () => {
     expect(completePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-1',
           runId: 'run-1',
+          threadId: 'thread-1',
         },
       },
       'failed',
@@ -832,38 +832,38 @@ describe('AssistantUiPanel model picker', () => {
   it('forwards per-run request preparation and completion to local runtime runs', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
-        threadId: 'thread-local',
         resourceId: 'workspace-local',
         runId: 'run-local',
+        threadId: 'thread-local',
       },
     }));
     const completePreparedRequest = vi.fn();
     const localGroups: ProviderGroupConfig[] = [
       {
-        runtime: 'local',
         label: 'Local',
         providers: [
           {
-            id: 'local',
-            name: 'Local',
-            runtime: 'local',
             capabilities: {
-              llm: true,
               embeddings: false,
+              llm: true,
               streaming: false,
               supportsStandardEmbeddingDimension: false,
             },
+            id: 'local',
             models: [
               {
+                default: true,
+                enabled: true,
                 id: 'onnx-community/gemma-4-E2B-it-ONNX',
                 label: 'Gemma 4 E2B',
                 type: 'llm',
-                enabled: true,
-                default: true,
               },
             ],
+            name: 'Local',
+            runtime: 'local',
           },
         ],
+        runtime: 'local',
       },
     ];
 
@@ -873,14 +873,14 @@ describe('AssistantUiPanel model picker', () => {
         onModelChange={() => {}}
         pickerModels={[
           {
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            providerId: 'local',
-            name: 'Gemma 4 E2B',
+            capabilities: { streaming: false, type: 'llm' },
             description: null,
-            capabilities: { type: 'llm', streaming: false },
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            name: 'Gemma 4 E2B',
+            providerId: 'local',
           },
         ]}
-        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
         prepareRequestData={prepareRequestData}
         providerGroups={localGroups}
         requestData={{ tokenBudget: 456 }}
@@ -890,12 +890,12 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     await expect(capturedLocalAdapterOptions?.prepareRuntimeData?.()).resolves.toEqual({
-      tokenBudget: 456,
       memory: {
-        threadId: 'thread-local',
         resourceId: 'workspace-local',
         runId: 'run-local',
+        threadId: 'thread-local',
       },
+      tokenBudget: 456,
     });
     await capturedLocalAdapterOptions?.completeRuntimeData?.(
       { memory: { runId: 'run-local' } },
@@ -913,30 +913,30 @@ describe('AssistantUiPanel model picker', () => {
 
     const localGroups: ProviderGroupConfig[] = [
       {
-        runtime: 'local',
         label: 'Local',
         providers: [
           {
-            id: 'local',
-            name: 'Local',
-            runtime: 'local',
             capabilities: {
-              llm: true,
               embeddings: false,
+              llm: true,
               streaming: false,
               supportsStandardEmbeddingDimension: false,
             },
+            id: 'local',
             models: [
               {
+                default: true,
+                enabled: true,
                 id: 'onnx-community/gemma-4-E2B-it-ONNX',
                 label: 'Gemma 4 E2B',
                 type: 'llm',
-                enabled: true,
-                default: true,
               },
             ],
+            name: 'Local',
+            runtime: 'local',
           },
         ],
+        runtime: 'local',
       },
     ];
 
@@ -945,14 +945,14 @@ describe('AssistantUiPanel model picker', () => {
         onModelChange={() => {}}
         pickerModels={[
           {
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            providerId: 'local',
-            name: 'Gemma 4 E2B',
+            capabilities: { streaming: false, type: 'llm' },
             description: null,
-            capabilities: { type: 'llm', streaming: false },
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            name: 'Gemma 4 E2B',
+            providerId: 'local',
           },
         ]}
-        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
         providerGroups={localGroups}
         selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
         selectedProvider="local"
@@ -961,9 +961,9 @@ describe('AssistantUiPanel model picker', () => {
 
     act(() => {
       capturedLocalAdapterOptions?.onLoadingProgress?.({
-        stage: 'loading',
-        progress: 42,
         message: 'Warming up local model host...',
+        progress: 42,
+        stage: 'loading',
       });
     });
 
@@ -977,9 +977,9 @@ describe('AssistantUiPanel model picker', () => {
 
     act(() => {
       capturedLocalAdapterOptions?.onLoadingProgress?.({
-        stage: 'ready',
-        progress: 100,
         message: 'Local model ready.',
+        progress: 100,
+        stage: 'ready',
       });
     });
 
@@ -994,30 +994,30 @@ describe('AssistantUiPanel model picker', () => {
   it('shows the labelled downloading progress bar during local model download', () => {
     const localGroups: ProviderGroupConfig[] = [
       {
-        runtime: 'local',
         label: 'Local',
         providers: [
           {
-            id: 'local',
-            name: 'Local',
-            runtime: 'local',
             capabilities: {
-              llm: true,
               embeddings: false,
+              llm: true,
               streaming: false,
               supportsStandardEmbeddingDimension: false,
             },
+            id: 'local',
             models: [
               {
+                default: true,
+                enabled: true,
                 id: 'onnx-community/gemma-4-E2B-it-ONNX',
                 label: 'Gemma 4 E2B',
                 type: 'llm',
-                enabled: true,
-                default: true,
               },
             ],
+            name: 'Local',
+            runtime: 'local',
           },
         ],
+        runtime: 'local',
       },
     ];
 
@@ -1026,14 +1026,14 @@ describe('AssistantUiPanel model picker', () => {
         onModelChange={() => {}}
         pickerModels={[
           {
-            id: 'onnx-community/gemma-4-E2B-it-ONNX',
-            providerId: 'local',
-            name: 'Gemma 4 E2B',
+            capabilities: { streaming: false, type: 'llm' },
             description: null,
-            capabilities: { type: 'llm', streaming: false },
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            name: 'Gemma 4 E2B',
+            providerId: 'local',
           },
         ]}
-        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        pickerProviders={[{ icon: null, id: 'local', name: 'Local' }]}
         providerGroups={localGroups}
         selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
         selectedProvider="local"
@@ -1042,10 +1042,10 @@ describe('AssistantUiPanel model picker', () => {
 
     act(() => {
       capturedLocalAdapterOptions?.onLoadingProgress?.({
-        stage: 'downloading',
-        progress: 33,
-        message: 'Downloading model weights...',
         file: 'model.onnx',
+        message: 'Downloading model weights...',
+        progress: 33,
+        stage: 'downloading',
       });
     });
 
@@ -1163,10 +1163,10 @@ describe('AssistantUiPanel model picker', () => {
         toolMenu={{
           items: [
             {
-              id: 'brainstrike.readWorkspaceFile',
-              label: 'Read workspace file',
               enabled: true,
               group: 'Workspace',
+              id: 'brainstrike.readWorkspaceFile',
+              label: 'Read workspace file',
               source: 'native',
             },
           ],

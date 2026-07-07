@@ -86,7 +86,7 @@ describe('registerParserHostIpcHandlers', () => {
       event: unknown,
       payload: unknown
     ) => Promise<ParserHostParseResponse>;
-    const response = await handler({}, { requestId: 'bad', content: 999 });
+    const response = await handler({}, { content: 999, requestId: 'bad' });
 
     expect(manager.parse).not.toHaveBeenCalled();
     expect(response.ok).toBe(false);

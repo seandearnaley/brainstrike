@@ -20,16 +20,16 @@ describe('JobQueue Race Condition', () => {
     // 1. Enqueue a batch of jobs
     for (let i = 0; i < JOB_COUNT; i++) {
       await jq.enqueue({
-        queue: 'race-test-queue',
         jobType: 'embed_chunk',
         payload: { index: i },
+        queue: 'race-test-queue',
       });
     }
 
     // 2. Simulate concurrent workers claiming jobs
     const workers = Array.from({ length: WORKER_COUNT }, (_, i) => ({
-      id: `worker-${i}`,
       claimed: 0,
+      id: `worker-${i}`,
     }));
 
     // Run a loop for each worker to claim jobs until empty
@@ -37,9 +37,9 @@ describe('JobQueue Race Condition', () => {
       workers.map(async (worker) => {
         while (true) {
           const job = await jq.claim({
+            leaseMs: 1000,
             queue: 'race-test-queue',
             workerId: worker.id,
-            leaseMs: 1000,
           });
 
           if (!job) {

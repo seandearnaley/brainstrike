@@ -228,11 +228,11 @@ function buildStreamerOptions(options: StreamerOptions): Record<string, unknown>
 
 function buildGenerateOptions(options: LocalLlmGenerationOptions): Record<string, unknown> {
   return {
-    ['max_new_tokens']: options.maxNewTokens ?? 512,
     ['do_sample']: options.doSample ?? false,
+    ['max_new_tokens']: options.maxNewTokens ?? 512,
     temperature: options.temperature ?? 1.0,
-    ['top_p']: options.topP ?? 0.95,
     ['top_k']: options.topK ?? 64,
+    ['top_p']: options.topP ?? 0.95,
   };
 }
 
@@ -276,20 +276,20 @@ function describeCallable(value: unknown): CallableDiagnostics {
       : [];
   const prototype = value ? Object.getPrototypeOf(value) : null;
   return {
-    type: typeof value,
     constructorName: getConstructorName(value),
-    hasBind: Boolean(
-      value &&
-        (typeof value === 'object' || typeof value === 'function') &&
-        typeof Reflect.get(value as Record<string, unknown>, 'bind') === 'function'
-    ),
     hasApply: Boolean(
       value &&
         (typeof value === 'object' || typeof value === 'function') &&
         typeof Reflect.get(value as Record<string, unknown>, 'apply') === 'function'
     ),
+    hasBind: Boolean(
+      value &&
+        (typeof value === 'object' || typeof value === 'function') &&
+        typeof Reflect.get(value as Record<string, unknown>, 'bind') === 'function'
+    ),
     ownKeys,
     prototypeConstructorName: getConstructorName(prototype),
+    type: typeof value,
   };
 }
 
@@ -307,11 +307,11 @@ function invokeCallable(
     return Function.prototype.apply.call(value, thisArg, args);
   } catch (error) {
     logger.error('Gemma callable invocation failed', {
-      label,
-      diagnostics: describeCallable(value),
-      thisArgConstructorName: getConstructorName(thisArg),
       argsCount: args.length,
+      diagnostics: describeCallable(value),
       error: error instanceof Error ? error.message : String(error),
+      label,
+      thisArgConstructorName: getConstructorName(thisArg),
       ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
     });
     throw error;
@@ -363,20 +363,20 @@ function normalizeGemmaProcessor(value: unknown): LoadedGemmaProcessor {
   const decode = getCallable(tokenizerRecord, 'decode', 'Gemma tokenizer');
 
   const tokenizer: TokenizerLike = {
-    raw: tokenizerCandidate,
-    encode: (text: string) =>
-      (encode as (textValue: string) => { length: number } | readonly unknown[])(text),
     decode: (tokens: readonly bigint[], options: GemmaDecodeOptions) =>
       decode(tokens, buildDecodeOptions(options)) as string,
+    encode: (text: string) =>
+      (encode as (textValue: string) => { length: number } | readonly unknown[])(text),
+    raw: tokenizerCandidate,
   };
 
   return {
-    tokenizer,
-    run: async (prompt, images, audio, options) =>
-      normalizeProcessorInputs(await run(prompt, images, audio, buildProcessorRunOptions(options))),
     applyChatTemplate: (messages, options) =>
       applyChatTemplate(messages, buildTemplateOptions(options)) as string,
     batchDecode: (tokens, options) => batchDecode(tokens, buildDecodeOptions(options)) as string[],
+    run: async (prompt, images, audio, options) =>
+      normalizeProcessorInputs(await run(prompt, images, audio, buildProcessorRunOptions(options))),
+    tokenizer,
   };
 }
 
@@ -449,10 +449,10 @@ async function getTransformersModule(): Promise<TransformersModule> {
           opts: Record<string, unknown>
         ) => GemmaTextStreamer
       )(tokenizer, buildStreamerOptions(options)),
-    loadProcessor: async (modelId, options) =>
-      normalizeGemmaProcessor(await loadProcessor(modelId, buildLoaderOptions(options))),
     loadModel: async (modelId, options) =>
       normalizeGemmaModel(await loadModel(modelId, buildModelLoaderOptions(options))),
+    loadProcessor: async (modelId, options) =>
+      normalizeGemmaProcessor(await loadProcessor(modelId, buildLoaderOptions(options))),
   };
 }
 
@@ -484,11 +484,11 @@ function injectGemmaSystemMessages(
     }
     if (message.toolCalls && message.toolCalls.length > 0) {
       chatMessage['tool_calls'] = message.toolCalls.map((toolCall) => ({
-        type: 'function',
         function: {
-          name: toolCall.function.name,
           arguments: normalizeToolCallArguments(toolCall.function.arguments),
+          name: toolCall.function.name,
         },
+        type: 'function',
       }));
     }
     if (message.toolResponses && message.toolResponses.length > 0) {
@@ -530,9 +530,9 @@ const GEMMA_THOUGHT_CHANNEL_SUFFIXES = ['<channel|>', '<|channel|>'] as const;
 const GEMMA_TURN_MARKERS = ['<turn|>', '<|turn|>'] as const;
 const GEMMA_EOS_MARKERS = ['</eos>', '<eos>', '<eos/>', '<eos />', '</s>', '<|eos|>'] as const;
 const GEMMA_TOOL_CALL_BOUNDARIES = [
-  { open: '<|tool_call>', close: '<tool_call|>' },
-  { open: '<|tool_call|>', close: '<tool_call|>' },
-  { open: '<tool_call>', close: '</tool_call>' },
+  { close: '<tool_call|>', open: '<|tool_call>' },
+  { close: '<tool_call|>', open: '<|tool_call|>' },
+  { close: '</tool_call>', open: '<tool_call>' },
 ] as const;
 
 function stripGemmaControlTokens(text: string): string {
@@ -658,19 +658,19 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
         argumentsText = JSON.stringify(JSON.parse(normalizedQuotedArgumentsText) as unknown);
       } catch (error) {
         logger.warn('Gemma tool call arguments could not be normalized as JSON', {
+          error: error instanceof Error ? error.message : String(error),
           functionName,
           normalizedArgumentsText: normalizedQuotedArgumentsText,
-          error: error instanceof Error ? error.message : String(error),
         });
       }
 
       toolCalls.push({
+        function: {
+          arguments: argumentsText,
+          name: functionName,
+        },
         id: crypto.randomUUID(),
         type: 'function',
-        function: {
-          name: functionName,
-          arguments: argumentsText,
-        },
       });
     }
   }
@@ -987,12 +987,12 @@ function parseGenericToolCall(text: string): LocalLlmToolCall[] {
       if (typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
         return [
           {
+            function: {
+              arguments: JSON.stringify(parsed.arguments ?? {}),
+              name: parsed.name,
+            },
             id: crypto.randomUUID(),
             type: 'function',
-            function: {
-              name: parsed.name,
-              arguments: JSON.stringify(parsed.arguments ?? {}),
-            },
           },
         ];
       }
@@ -1046,21 +1046,21 @@ function createGemmaStreamingState(
   };
 
   return {
-    rawParts,
-    streamer: transformers.createTextStreamer(tokenizer, {
-      skipPrompt: true,
-      skipSpecialTokens: false,
-      callbackFunction: (text) => {
-        throwIfAborted(options.signal);
-        rawParts.push(text);
-        emitSnapshot(streamAccumulator.append(text));
-      },
-    }),
     finalize: (rawText) => {
       const snapshot = streamAccumulator.finalize(rawText);
       emitSnapshot(snapshot);
       return snapshot;
     },
+    rawParts,
+    streamer: transformers.createTextStreamer(tokenizer, {
+      callbackFunction: (text) => {
+        throwIfAborted(options.signal);
+        rawParts.push(text);
+        emitSnapshot(streamAccumulator.append(text));
+      },
+      skipPrompt: true,
+      skipSpecialTokens: false,
+    }),
   };
 }
 
@@ -1090,8 +1090,8 @@ export class Gemma4Engine {
     let stage = 'resolve-transformers-module';
     try {
       logger.info('Gemma initialize started', {
-        modelId: this.spec.modelId,
         device,
+        modelId: this.spec.modelId,
         quantization: this.spec.quantization,
         revision: this.spec.remoteRevision,
       });
@@ -1120,22 +1120,22 @@ export class Gemma4Engine {
       }
       const model = await transformers.loadModel(this.spec.modelId, modelOptions);
       logger.info('Gemma model loaded', {
-        modelId: this.spec.modelId,
         model: describeCallable(model),
+        modelId: this.spec.modelId,
       });
 
       this.processor = processor;
       this.model = model;
       logger.info('Gemma initialize completed', {
-        modelId: this.spec.modelId,
         device,
+        modelId: this.spec.modelId,
       });
     } catch (error) {
       logger.error('Gemma initialize failed', {
-        modelId: this.spec.modelId,
         device,
-        stage,
         error: error instanceof Error ? error.message : String(error),
+        modelId: this.spec.modelId,
+        stage,
         ...(error instanceof Error && typeof error.stack === 'string'
           ? { stack: error.stack }
           : {}),
@@ -1173,11 +1173,11 @@ export class Gemma4Engine {
     let promptTokenCount = 0;
     try {
       logger.info('Gemma generation started', {
-        modelId: this.spec.modelId,
-        messageCount: messages.length,
-        toolCount: options.tools?.length ?? 0,
-        thinkingEnabled: options.thinking?.enabled ?? true,
         maxNewTokens: options.maxNewTokens ?? 512,
+        messageCount: messages.length,
+        modelId: this.spec.modelId,
+        thinkingEnabled: options.thinking?.enabled ?? true,
+        toolCount: options.tools?.length ?? 0,
       });
       const promptMessages = injectGemmaSystemMessages(messages);
       throwIfAborted(options.signal);
@@ -1225,13 +1225,13 @@ export class Gemma4Engine {
       const completionTokens = countTokens(this.processor.tokenizer, visibleText);
 
       logger.info('Gemma generation complete', {
+        completionTokens,
         modelId: this.spec.modelId,
         promptLength: promptText.length,
-        rawTextLength: rawText.length,
-        visibleTextLength: visibleText.length,
         promptTokens,
-        completionTokens,
+        rawTextLength: rawText.length,
         toolCalls: toolCalls.length,
+        visibleTextLength: visibleText.length,
       });
 
       return {
@@ -1241,21 +1241,21 @@ export class Gemma4Engine {
         text: visibleText,
         toolCalls,
         usage: {
-          promptTokens,
           completionTokens,
+          promptTokens,
           totalTokens: promptTokens + completionTokens,
         },
       };
     } catch (error) {
       logger.error('Gemma generation failed', {
-        modelId: this.spec.modelId,
-        stage,
+        error: error instanceof Error ? error.message : String(error),
         messageCount: messages.length,
-        toolCount: options.tools?.length ?? 0,
-        thinkingEnabled: options.thinking?.enabled ?? true,
+        modelId: this.spec.modelId,
         promptLength,
         promptTokenCount,
-        error: error instanceof Error ? error.message : String(error),
+        stage,
+        thinkingEnabled: options.thinking?.enabled ?? true,
+        toolCount: options.tools?.length ?? 0,
         ...(error instanceof Error && typeof error.stack === 'string'
           ? { stack: error.stack }
           : {}),

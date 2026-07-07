@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
+import { spawnSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildDbUnitLaneMap } from './db-test-lane-manifest.mjs';
 
@@ -71,7 +71,14 @@ function runLane(laneName) {
 
   const result = spawnSync(
     'pnpm',
-    ['exec', 'vitest', 'run', '--project', 'unit', ...files.map((file) => path.join('__tests__', file))],
+    [
+      'exec',
+      'vitest',
+      'run',
+      '--project',
+      'unit',
+      ...files.map((file) => path.join('__tests__', file)),
+    ],
     {
       cwd: packageRoot,
       env: {

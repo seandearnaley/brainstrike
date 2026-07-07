@@ -6,22 +6,22 @@ const cliMocks = vi.hoisted(() => {
   const start = vi.fn().mockResolvedValue(undefined);
   const stop = vi.fn().mockResolvedValue(undefined);
   const getEndpoint = vi.fn().mockReturnValue('http://localhost:4130/queue-telemetry');
-  return { start, stop, getEndpoint };
+  return { getEndpoint, start, stop };
 });
 
 // Mock dependencies
 vi.mock('../src/collector', () => ({
   createQueueTelemetryCollector: vi.fn(() => ({
+    getEndpoint: cliMocks.getEndpoint,
     start: cliMocks.start,
     stop: cliMocks.stop,
-    getEndpoint: cliMocks.getEndpoint,
   })),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: () => ({
-    info: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   }),
 }));
 
@@ -50,28 +50,28 @@ describe('CLI', () => {
     expect(collectorModule.createQueueTelemetryCollector).toHaveBeenCalledWith(
       expect.objectContaining({
         host: '0.0.0.0',
-        port: 4130,
-        path: '/queue-telemetry',
         maxBodyBytes: 256_000,
+        path: '/queue-telemetry',
+        port: 4130,
       })
     );
   });
 
   it('starts collector with env var options', async () => {
     await cli.runQueueTelemetryCollectorCli({
-      QUEUE_TELEMETRY_HOST: '127.0.0.1',
-      QUEUE_TELEMETRY_PORT: '5000',
-      QUEUE_TELEMETRY_PATH: '/telemetry',
       QUEUE_TELEMETRY_API_KEY: 'secret',
+      QUEUE_TELEMETRY_HOST: '127.0.0.1',
       QUEUE_TELEMETRY_MAX_BODY_BYTES: '1024',
+      QUEUE_TELEMETRY_PATH: '/telemetry',
+      QUEUE_TELEMETRY_PORT: '5000',
     });
 
     expect(collectorModule.createQueueTelemetryCollector).toHaveBeenCalledWith({
-      host: '127.0.0.1',
-      port: 5000,
-      path: '/telemetry',
       apiKey: 'secret',
+      host: '127.0.0.1',
       maxBodyBytes: 1024,
+      path: '/telemetry',
+      port: 5000,
     });
   });
 

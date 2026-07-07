@@ -32,26 +32,26 @@ describe('useLocalModelLoading', () => {
 
       act(() => {
         result.current.handleLocalLoadingStateChange({
-          stage: 'downloading',
-          progress: 60,
           message: 'Downloading model.onnx',
+          progress: 60,
+          stage: 'downloading',
         });
       });
       act(() => {
         // Per-file progress resets to 0 for each artifact; the badge must not
         // jump backwards (the "fast layout shift" jank).
         result.current.handleLocalLoadingStateChange({
-          stage: 'downloading',
-          progress: 5,
           message: 'Downloading tokenizer.json',
+          progress: 5,
+          stage: 'downloading',
         });
         vi.advanceTimersByTime(300);
       });
 
       expect(result.current.localLoadingState).toMatchObject({
-        stage: 'downloading',
-        progress: 60,
         message: 'Downloading tokenizer.json',
+        progress: 60,
+        stage: 'downloading',
       });
     } finally {
       vi.useRealTimers();
@@ -70,34 +70,34 @@ describe('useLocalModelLoading', () => {
 
       act(() => {
         result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
-          progress: 100,
-          message: 'Loading config.json',
           file: 'config.json',
-        });
-        result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
-          progress: 20,
-          message: 'Loading onnx/decoder_model_merged_q4f16.onnx_data',
-          file: 'onnx/decoder_model_merged_q4f16.onnx_data',
-        });
-        result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
+          message: 'Loading config.json',
           progress: 100,
-          message: 'Loading onnx/embed_tokens_q4f16.onnx',
+          stage: 'loading',
+        });
+        result.current.handleLocalLoadingStateChange({
+          file: 'onnx/decoder_model_merged_q4f16.onnx_data',
+          message: 'Loading onnx/decoder_model_merged_q4f16.onnx_data',
+          progress: 20,
+          stage: 'loading',
+        });
+        result.current.handleLocalLoadingStateChange({
           file: 'onnx/embed_tokens_q4f16.onnx',
+          message: 'Loading onnx/embed_tokens_q4f16.onnx',
+          progress: 100,
+          stage: 'loading',
         });
         vi.advanceTimersByTime(300);
       });
 
       // Mean of {100, 20, 100}, never pinned to a single file's 100.
       expect(result.current.localLoadingState).toMatchObject({
-        stage: 'loading',
-        progress: 73,
         // The label sticks to the laggard (the file users are waiting on),
         // not whichever file reported last.
         file: 'onnx/decoder_model_merged_q4f16.onnx_data',
         message: 'Loading model files (2/3)',
+        progress: 73,
+        stage: 'loading',
       });
     } finally {
       vi.useRealTimers();
@@ -113,10 +113,10 @@ describe('useLocalModelLoading', () => {
 
       act(() => {
         result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
-          progress: 10,
-          message: 'Loading a.onnx',
           file: 'a.onnx',
+          message: 'Loading a.onnx',
+          progress: 10,
+          stage: 'loading',
         });
       });
       // First report of the stage applies immediately.
@@ -124,16 +124,16 @@ describe('useLocalModelLoading', () => {
 
       act(() => {
         result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
-          progress: 50,
-          message: 'Loading a.onnx',
           file: 'a.onnx',
+          message: 'Loading a.onnx',
+          progress: 50,
+          stage: 'loading',
         });
         result.current.handleLocalLoadingStateChange({
-          stage: 'loading',
-          progress: 90,
-          message: 'Loading a.onnx',
           file: 'a.onnx',
+          message: 'Loading a.onnx',
+          progress: 90,
+          stage: 'loading',
         });
       });
       // Burst inside the throttle window: the badge has not flashed through
@@ -156,27 +156,27 @@ describe('useLocalModelLoading', () => {
 
     act(() => {
       result.current.handleLocalLoadingStateChange({
-        stage: 'loading',
+        message: 'Loading model',
         progress: 90,
-        message: 'Loading model',
-      });
-    });
-    act(() => {
-      result.current.handleLocalLoadingStateChange({
-        stage: 'ready',
-        progress: 100,
-        message: 'Model ready',
-      });
-    });
-    act(() => {
-      result.current.handleLocalLoadingStateChange({
         stage: 'loading',
-        progress: 10,
+      });
+    });
+    act(() => {
+      result.current.handleLocalLoadingStateChange({
+        message: 'Model ready',
+        progress: 100,
+        stage: 'ready',
+      });
+    });
+    act(() => {
+      result.current.handleLocalLoadingStateChange({
         message: 'Loading model',
+        progress: 10,
+        stage: 'loading',
       });
     });
 
-    expect(result.current.localLoadingState).toMatchObject({ stage: 'loading', progress: 10 });
+    expect(result.current.localLoadingState).toMatchObject({ progress: 10, stage: 'loading' });
   });
 
   it('surfaces main-initiated host loading progress (cold memory warmups) and resolves to ready', () => {
@@ -189,32 +189,32 @@ describe('useLocalModelLoading', () => {
 
       act(() => {
         progressListener?.({
-          type: 'progress',
+          payload: {
+            file: 'model.onnx',
+            kind: 'loading',
+            message: 'Downloading model',
+            progress: 37,
+          },
           requestId: 'main:abc',
           runtimeId: 'llm-host:runtime',
-          payload: {
-            kind: 'loading',
-            progress: 37,
-            message: 'Downloading model',
-            file: 'model.onnx',
-          },
+          type: 'progress',
         });
       });
       expect(result.current.localLoadingState).toMatchObject({
-        stage: 'loading',
-        progress: 37,
         file: 'model.onnx',
+        progress: 37,
+        stage: 'loading',
       });
 
       act(() => {
         progressListener?.({
-          type: 'progress',
+          payload: { kind: 'loading', message: 'Model loaded', progress: 100 },
           requestId: 'main:warmup-complete',
           runtimeId: 'llm-host:runtime',
-          payload: { kind: 'loading', progress: 100, message: 'Model loaded' },
+          type: 'progress',
         });
       });
-      expect(result.current.localLoadingState).toMatchObject({ stage: 'ready', progress: 100 });
+      expect(result.current.localLoadingState).toMatchObject({ progress: 100, stage: 'ready' });
 
       act(() => {
         vi.advanceTimersByTime(1300);
@@ -232,10 +232,10 @@ describe('useLocalModelLoading', () => {
 
     act(() => {
       progressListener?.({
-        type: 'progress',
+        payload: { kind: 'text', text: 'partial answer' },
         requestId: 'main:gen',
         runtimeId: 'llm-host:runtime',
-        payload: { kind: 'text', text: 'partial answer' },
+        type: 'progress',
       });
     });
     expect(result.current.localLoadingState).toBeUndefined();

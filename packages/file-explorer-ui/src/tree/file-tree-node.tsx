@@ -52,11 +52,11 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       handleNodeSelection,
       wouldExceedLimit,
     } = useFileTreeNodeSelection({
-      node,
       folderId,
-      selectedFilePaths,
       maxSelectionCount,
+      node,
       onToggleFileSelection,
+      selectedFilePaths,
     });
 
     /**

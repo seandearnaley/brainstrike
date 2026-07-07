@@ -138,12 +138,12 @@ export function deserializeMaterializedSelection(json: string): MaterializedSele
   }
 
   return {
-    paths: new Set(parsed.paths),
     appliedRules: parsed.appliedRules,
     capped: parsed.capped,
-    originalCount: parsed.originalCount,
-    warnings: parsed.warnings,
     materializedAt: parsed.materializedAt,
+    originalCount: parsed.originalCount,
+    paths: new Set(parsed.paths),
+    warnings: parsed.warnings,
   };
 }
 

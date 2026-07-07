@@ -15,13 +15,7 @@ const themeStorageAdapter: ThemeStorageAdapter = {
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
-    const mockState = {
-      devInlineFixtureEnabled: false,
-      setDevInlineFixtureEnabled: vi.fn(),
-    };
-    return selector(mockState);
-  },
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   useFileExplorerStoreContext: () => {
     // Return a mock store function that returns default values
     const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
@@ -33,7 +27,13 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     };
     return mockStore;
   },
-  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
+    const mockState = {
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+    };
+    return selector(mockState);
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
@@ -109,32 +109,32 @@ beforeEach(() => {
   window.location.hash = '';
 
   const secrets: SecretsApi = {
+    deleteKey: vi.fn().mockResolvedValue(undefined),
+    getKey: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([]),
     listStored: vi.fn().mockResolvedValue([]),
     saveKey: vi.fn().mockResolvedValue(true),
-    getKey: vi.fn().mockResolvedValue(null),
-    deleteKey: vi.fn().mockResolvedValue(undefined),
   };
 
   const mcp: McpApi = {
-    getConfig: vi.fn().mockResolvedValue({ path: '/tmp/mcp.json', exists: true, servers: [] }),
-    getPath: vi.fn().mockResolvedValue('/tmp/mcp.json'),
-    selectPath: vi.fn().mockResolvedValue(null),
-    setPath: vi.fn().mockResolvedValue({ success: true, path: '/tmp/mcp.json' }),
-    readConfigText: vi.fn().mockResolvedValue({
-      path: '/tmp/mcp.json',
-      exists: true,
-      created: false,
-      content: '{\n  "servers": []\n}',
-    }),
-    writeConfigText: vi.fn().mockResolvedValue({ success: true, path: '/tmp/mcp.json' }),
-    listTools: vi.fn().mockResolvedValue({}),
-    getToolStats: vi.fn().mockResolvedValue({ total: 0, enabled: 0, disabled: 0, servers: 0 }),
-    disableTools: vi.fn().mockResolvedValue(undefined),
-    enableTools: vi.fn().mockResolvedValue(undefined),
-    enableServerTools: vi.fn().mockResolvedValue(undefined),
     disableServerTools: vi.fn().mockResolvedValue(undefined),
+    disableTools: vi.fn().mockResolvedValue(undefined),
+    enableServerTools: vi.fn().mockResolvedValue(undefined),
+    enableTools: vi.fn().mockResolvedValue(undefined),
+    getConfig: vi.fn().mockResolvedValue({ exists: true, path: '/tmp/mcp.json', servers: [] }),
+    getPath: vi.fn().mockResolvedValue('/tmp/mcp.json'),
+    getToolStats: vi.fn().mockResolvedValue({ disabled: 0, enabled: 0, servers: 0, total: 0 }),
+    listTools: vi.fn().mockResolvedValue({}),
+    readConfigText: vi.fn().mockResolvedValue({
+      content: '{\n  "servers": []\n}',
+      created: false,
+      exists: true,
+      path: '/tmp/mcp.json',
+    }),
     resetTools: vi.fn().mockResolvedValue(undefined),
+    selectPath: vi.fn().mockResolvedValue(null),
+    setPath: vi.fn().mockResolvedValue({ path: '/tmp/mcp.json', success: true }),
+    writeConfigText: vi.fn().mockResolvedValue({ path: '/tmp/mcp.json', success: true }),
   };
 
   const extendedWindow = getWindowWithExtensions();

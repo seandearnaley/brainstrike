@@ -533,10 +533,10 @@ export async function runMigrations(
       onMigrationComplete?.(migration.name);
     }
 
-    return { success: true, appliedMigrations };
+    return { appliedMigrations, success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return { success: false, appliedMigrations, error: errorMessage };
+    return { appliedMigrations, error: errorMessage, success: false };
   }
 }
 
@@ -561,9 +561,9 @@ export async function getMigrationStatus(db: PGlite): Promise<{
     const pending = allMigrations.filter((m) => !applied.has(m.hash)).map((m) => m.name);
 
     return {
-      total: allMigrations.length,
       applied: applied.size,
       pending,
+      total: allMigrations.length,
     };
   } catch (error) {
     if (!isMissingDrizzleMigrationsLedgerError(error)) {
@@ -572,9 +572,9 @@ export async function getMigrationStatus(db: PGlite): Promise<{
 
     // Ledger table is absent, so no Drizzle validation migrations have been recorded.
     return {
-      total: allMigrations.length,
       applied: 0,
       pending: allMigrations.map((m) => m.name),
+      total: allMigrations.length,
     };
   }
 }

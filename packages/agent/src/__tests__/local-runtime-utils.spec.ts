@@ -126,16 +126,16 @@ describe('local-runtime-utils', () => {
   it('adds JSON content-type when sending body and no content-type header is provided', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
-        status: 200,
         headers: { 'content-type': 'application/json' },
+        status: 200,
       })
     );
 
     const result = await fetchJsonWithTimeout('http://localhost:1234/v1/embeddings', {
-      fetchImpl,
-      timeoutMs: 500,
-      method: 'POST',
       body: JSON.stringify({ input: 'hello' }),
+      fetchImpl,
+      method: 'POST',
+      timeoutMs: 500,
     });
 
     expect(result.parseError).toBeNull();
@@ -149,8 +149,8 @@ describe('local-runtime-utils', () => {
   it('returns parseError when response json decoding fails', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response('not-json', {
-        status: 200,
         headers: { 'content-type': 'application/json' },
+        status: 200,
       })
     );
 
@@ -172,16 +172,16 @@ describe('local-runtime-utils', () => {
         throw new DOMException('Aborted', 'AbortError');
       }
       return new Response('{}', {
-        status: 200,
         headers: { 'content-type': 'application/json' },
+        status: 200,
       });
     });
 
     await expect(
       fetchJsonWithTimeout('http://localhost:1234/v1/models', {
         fetchImpl,
-        timeoutMs: 500,
         signal: controller.signal,
+        timeoutMs: 500,
       })
     ).rejects.toThrow();
   });

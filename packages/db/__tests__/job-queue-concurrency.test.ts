@@ -14,10 +14,10 @@ describe('JobQueue concurrency claim behavior', () => {
 
   it('only one claimant gets the single available job', async () => {
     const jq = new JobQueue(db);
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
     const [a, b] = await Promise.all([
-      jq.claim({ queue: 'embeddings', leaseMs: 5000 }),
-      jq.claim({ queue: 'embeddings', leaseMs: 5000 }),
+      jq.claim({ leaseMs: 5000, queue: 'embeddings' }),
+      jq.claim({ leaseMs: 5000, queue: 'embeddings' }),
     ]);
     const results = [a, b].filter(Boolean);
     expect(results).toHaveLength(1);

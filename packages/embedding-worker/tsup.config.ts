@@ -30,15 +30,15 @@ const stripErroneousSourcemaps: Plugin = {
 };
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/embedding.worker.ts'],
-  format: ['esm', 'cjs'],
-  splitting: false,
-  sourcemap: false,
-  dts: false,
-  outDir: 'dist',
   clean: false,
-  target: 'es2020',
-  platform: 'browser',
+  dts: false,
+  entry: ['src/index.ts', 'src/embedding.worker.ts'],
+  esbuildPlugins: [stripErroneousSourcemaps],
+  external: ['onnxruntime-node', 'sharp', 'worker_threads', 'os', 'child_process'],
+  format: ['esm', 'cjs'],
+  loader: {
+    '.wasm': 'file',
+  },
   noExternal: [
     '@brainstrike/types',
     '@huggingface/transformers',
@@ -47,9 +47,9 @@ export default defineConfig({
     'onnxruntime-web',
     'workerpool',
   ],
-  external: ['onnxruntime-node', 'sharp', 'worker_threads', 'os', 'child_process'],
-  loader: {
-    '.wasm': 'file',
-  },
-  esbuildPlugins: [stripErroneousSourcemaps],
+  outDir: 'dist',
+  platform: 'browser',
+  sourcemap: false,
+  splitting: false,
+  target: 'es2020',
 });

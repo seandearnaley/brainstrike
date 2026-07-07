@@ -147,8 +147,8 @@ class DirectTokenCacheWorkerPool implements WorkerPoolInterface {
   constructor(workerUrl: string, workerOptions: WorkerPoolOptions | undefined) {
     const workerType = workerOptions?.workerOpts?.type ?? 'module';
     this.worker = new Worker(workerUrl, {
-      type: workerType,
       name: 'brainstrike-token-cache',
+      type: workerType,
     });
     this.worker.addEventListener('message', this.handleMessage);
     this.worker.addEventListener('error', this.handleError);
@@ -168,14 +168,14 @@ class DirectTokenCacheWorkerPool implements WorkerPoolInterface {
 
     const requestId = createRequestId();
     const request: TokenWorkerRequestEnvelope = {
-      type: 'request',
-      requestId,
       method,
       params,
+      requestId,
+      type: 'request',
     };
 
     return new Promise<unknown>((resolve, reject) => {
-      this.pendingRequests.set(requestId, { resolve, reject });
+      this.pendingRequests.set(requestId, { reject, resolve });
       try {
         this.worker.postMessage(request);
       } catch (error) {
@@ -192,11 +192,11 @@ class DirectTokenCacheWorkerPool implements WorkerPoolInterface {
   stats() {
     const activeTasks = this.pendingRequests.size;
     return {
-      totalWorkers: this.terminated ? 0 : 1,
+      activeTasks,
       busyWorkers: activeTasks > 0 ? 1 : 0,
       idleWorkers: this.terminated ? 0 : activeTasks > 0 ? 0 : 1,
       pendingTasks: activeTasks,
-      activeTasks,
+      totalWorkers: this.terminated ? 0 : 1,
     };
   }
 

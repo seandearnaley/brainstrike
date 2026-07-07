@@ -16,19 +16,19 @@ describe('useSavePanelState debounce stability', () => {
   let onSaved: (state: PanelPersistenceState) => void;
 
   const makeState = (sizes: number[]): PanelPersistenceState => ({
-    sizes,
     showConsole: false,
     showLeftPanel: true,
     showRightPanel: false,
+    sizes,
   });
 
   beforeEach(() => {
     vi.useFakeTimers();
     onSaved = vi.fn();
     mockAdapter = {
+      flush: vi.fn().mockResolvedValue(undefined),
       load: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
-      flush: vi.fn().mockResolvedValue(undefined),
     };
   });
 
@@ -99,14 +99,14 @@ describe('useSavePanelState debounce stability', () => {
 
   it('calls the latest save function even after adapter changes', () => {
     const adapter1: PanelPersistenceAdapter = {
+      flush: vi.fn().mockResolvedValue(undefined),
       load: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
-      flush: vi.fn().mockResolvedValue(undefined),
     };
     const adapter2: PanelPersistenceAdapter = {
+      flush: vi.fn().mockResolvedValue(undefined),
       load: vi.fn().mockResolvedValue(null),
       save: vi.fn().mockResolvedValue(undefined),
-      flush: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result, rerender } = renderHook(

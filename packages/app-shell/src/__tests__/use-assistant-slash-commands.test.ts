@@ -18,11 +18,11 @@ afterEach(() => {
 });
 
 const fileTarget: ContextTarget = {
+  absolutePath: '/abs/src/main.ts',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'main.ts',
   relativePath: 'src/main.ts',
-  absolutePath: '/abs/src/main.ts',
-  entryType: 'file',
   rootFolderId: 'root-1',
 };
 
@@ -43,8 +43,8 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
   it('omits a desktop-only command under a WEB capability set (capability gating, no isElectron)', () => {
     const parts = webParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: fileTarget,
     });
     const context = buildAppCommandContext({ parts, target: fileTarget });
@@ -61,8 +61,8 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
   it('includes the desktop-only command under a DESKTOP capability set', () => {
     const parts = desktopParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: fileTarget,
     });
     const context = buildAppCommandContext({ parts, target: fileTarget });
@@ -73,15 +73,15 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
 
   it('excludes the danger group (no destructive command in a one-keystroke menu)', () => {
     const dangerCommand: Command = {
+      group: 'danger',
       id: 'workspace.factory-reset',
       label: 'Factory reset',
-      group: 'danger',
       run: () => Promise.resolve({ ok: true }),
     };
     const safeCommand: Command = {
+      group: 'thread',
       id: 'thread.new',
       label: 'New thread',
-      group: 'thread',
       run: () => Promise.resolve({ ok: true }),
     };
     // Minimal registry stub returning both commands as "available".
@@ -119,20 +119,20 @@ describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
     const command: Command = {
       id: 'thread.new',
       label: 'New thread',
-      run: () => Promise.resolve({ ok: false, error: 'boom' }),
+      run: () => Promise.resolve({ error: 'boom', ok: false }),
     };
 
     try {
-      await runSlashCommand(command, context, { toast, logger });
+      await runSlashCommand(command, context, { logger, toast });
     } finally {
       stop();
     }
 
     expect(toast).toHaveBeenCalledTimes(1);
     expect(toast).toHaveBeenCalledWith({
-      variant: 'destructive',
-      title: 'Command failed',
       description: 'boom',
+      title: 'Command failed',
+      variant: 'destructive',
     });
     const errorRecord = records.find(
       (record) =>
@@ -140,7 +140,7 @@ describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
         record.message?.includes('Slash command failed')
     );
     expect(errorRecord).toBeDefined();
-    expect(errorRecord?.args).toContainEqual({ id: 'thread.new', description: 'boom' });
+    expect(errorRecord?.args).toContainEqual({ description: 'boom', id: 'thread.new' });
   });
 
   it('surfaces a destructive toast + logger.error when run REJECTS (not swallowed)', async () => {
@@ -156,15 +156,15 @@ describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
     try {
       // The rejection must be caught inside runSlashCommand — awaiting here must
       // NOT throw (the failure is surfaced, never swallowed AND never escapes).
-      await expect(runSlashCommand(command, context, { toast, logger })).resolves.toBeUndefined();
+      await expect(runSlashCommand(command, context, { logger, toast })).resolves.toBeUndefined();
     } finally {
       stop();
     }
 
     expect(toast).toHaveBeenCalledWith({
-      variant: 'destructive',
-      title: 'Command failed',
       description: 'bridge exploded',
+      title: 'Command failed',
+      variant: 'destructive',
     });
     const errorRecord = records.find(
       (record) =>
@@ -172,8 +172,8 @@ describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
         record.message?.includes('Slash command failed')
     );
     expect(errorRecord?.args).toContainEqual({
-      id: 'fs.reveal',
       description: 'bridge exploded',
+      id: 'fs.reveal',
     });
   });
 
@@ -188,7 +188,7 @@ describe('runSlashCommand (no-silent-fallbacks failure seam)', () => {
     };
 
     try {
-      await runSlashCommand(command, context, { toast, logger });
+      await runSlashCommand(command, context, { logger, toast });
     } finally {
       stop();
     }

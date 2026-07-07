@@ -62,10 +62,10 @@ export function useTokenCounting(): TokenCountingState {
 
   return useMemo(
     () => ({
+      countTokens,
+      loading,
       mode,
       reason,
-      loading,
-      countTokens,
     }),
     [mode, reason, loading, countTokens]
   );

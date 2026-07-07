@@ -57,7 +57,7 @@ async function initWebMastraStorage(): Promise<PgliteMastraMemoryResult> {
   // drift from future extension additions. `live` is renderer-only (client
   // reactive queries) and is not loaded server-side — matching pglite-worker-entry.
   // biome-ignore lint/style/useNamingConvention: `pg_trgm` is PGlite's external extension key, not ours to rename.
-  const database = new PGlite({ extensions: { vector, pg_trgm: pgTrgm } });
+  const database = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
   await database.waitReady;
   activeDatabase = database;
   logger.info('Web Mastra storage initialized (in-memory PGlite, dev/preview)');
@@ -102,9 +102,9 @@ export async function buildWebAssistantStream(params: {
   const { storage } = await getWebMastraStorage();
   if (params.toolApprovalAction) {
     return streamMastraToolApprovalAction(params.toolApprovalAction, {
-      storage,
       requireToolApproval: true,
       runtime,
+      storage,
     });
   }
   return toAiSdkStyleStream(params.agentMessages, runtime, { storage });

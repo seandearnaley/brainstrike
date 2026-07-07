@@ -20,9 +20,9 @@ console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
 test.describe('Performance Regression Tests - Measuring Real Improvements', () => {
   test('measure file loading performance with size validation', async ({ page }) => {
     const tree: FileTree = {
-      'small-file.js': 'console.log("small");',
       'medium-file.js': `// Medium file\n${'console.log("line");'.repeat(100)}`,
       'normal-file.js': `// Normal file\n${'const value = "test";'.repeat(50)}`,
+      'small-file.js': 'console.log("small");',
     };
 
     await mockBrowserApis(page, 'size-test', tree);
@@ -35,8 +35,8 @@ test.describe('Performance Regression Tests - Measuring Real Improvements', () =
       if (url.includes('large-test-file')) {
         // Our size validation should block this
         await route.fulfill({
-          status: 413, // Request Entity Too Large
           body: 'File too large: 2MB (max: 1MB)',
+          status: 413, // Request Entity Too Large
         });
         return;
       }
@@ -134,12 +134,12 @@ export const Component${i} = () => {
 
     // Track comprehensive metrics
     const metrics = {
-      initialMemory: 0,
-      treeLoadTime: 0,
-      selectionTime: 0,
-      memoryAfterLoad: 0,
       finalMemory: 0,
+      initialMemory: 0,
+      memoryAfterLoad: 0,
       renderCount: 0,
+      selectionTime: 0,
+      treeLoadTime: 0,
     };
 
     const getMemory = async () =>
@@ -151,10 +151,10 @@ export const Component${i} = () => {
     // Install comprehensive tracking
     await page.evaluate(() => {
       (window as any).__comprehensiveTracker = {
-        renderCount: 0,
-        trackRender: () => (window as any).__comprehensiveTracker.renderCount++,
         getRenderCount: () => (window as any).__comprehensiveTracker.renderCount,
+        renderCount: 0,
         reset: () => ((window as any).__comprehensiveTracker.renderCount = 0),
+        trackRender: () => (window as any).__comprehensiveTracker.renderCount++,
       };
     });
 

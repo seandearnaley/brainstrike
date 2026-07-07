@@ -276,17 +276,17 @@ async function getEmbeddingSetQueueCounts(
   const row = result.rows[0];
   if (!row) {
     return {
+      failed: 0,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 0,
     };
   }
 
   return {
+    failed: Number(row.failed ?? 0),
     queued: Number(row.queued ?? 0),
     running: Number(row.running ?? 0),
-    failed: Number(row.failed ?? 0),
     succeeded: Number(row.succeeded ?? 0),
   };
 }
@@ -299,9 +299,9 @@ function finalizeBackfillCounts(
 ): EmbeddingBackfillQueueCounts {
   logger.info('Backfill complete', {
     embeddingSetId,
-    total,
     enqueued: done,
     queueCounts,
+    total,
   });
   return queueCounts;
 }
@@ -567,8 +567,8 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
       logger.info('Completed deferred dimension HNSW index rebuild after canceled backfill', {
         counts,
         dimension,
-        embeddingSetId,
         dimensionIndexMaintenanceStrategy,
+        embeddingSetId,
         rebuildDimensionIndexOnCompletion,
       });
     } catch (error) {
@@ -610,10 +610,10 @@ async function restoreCanceledBackfillDimensionIndex(
       backlogPollMs: options.backlogPollMs,
       db,
       dimension,
+      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
       drainTimeoutMs: options.drainTimeoutMs,
       embeddingSetId,
       now,
-      dimensionIndexMaintenanceStrategy: options.dimensionIndexMaintenanceStrategy,
       rebuildDimensionIndexOnCompletion: options.rebuildDimensionIndexOnCompletion,
       requestDimensionIndexMaintenance: options.requestDimensionIndexMaintenance,
     });
@@ -742,15 +742,15 @@ async function resolveEmbeddingSetJobMetadata(
   const expectedDimension = Number(row.dimensions ?? Number.NaN);
   if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
     logger.error('Failed to resolve embedding set metadata (invalid dimension)', {
-      embeddingSetId,
       dimensions: row.dimensions,
+      embeddingSetId,
     });
     throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata`);
   }
 
   return {
-    modelKey: canonical.composite,
     expectedDimension,
+    modelKey: canonical.composite,
   };
 }
 
@@ -862,17 +862,17 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      queue: EMBEDDINGS_QUEUE,
+      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
       jobType: 'embed_chunk' as const,
+      maxAttempts: 5,
       payload: {
         chunkId: String(row.id),
-        fileRecordId: String(row.fileRecordId),
         embeddingSetId,
-        modelKey: metadata.modelKey,
         expectedDimension: metadata.expectedDimension,
+        fileRecordId: String(row.fileRecordId),
+        modelKey: metadata.modelKey,
       },
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
-      maxAttempts: 5,
+      queue: EMBEDDINGS_QUEUE,
     }))
   );
 
@@ -1053,8 +1053,8 @@ async function enqueueBackfillCandidateBatches(
       metadata
     );
     logger.trace('Embedded batch enqueued', {
-      embeddingSetId,
       batchSize: batch.length,
+      embeddingSetId,
       inserted,
     });
     logger.info('Backfill enqueue batch completed', {
@@ -1150,10 +1150,10 @@ export async function enqueueEmbeddingBackfill(
     const candidates = await countBackfillCandidates(db, embeddingSetId);
     const total = done + candidates;
     logger.info('Embedding set metadata resolved for backfill', {
-      embeddingSetId,
-      modelKey: metadata.modelKey,
-      expectedDimension: metadata.expectedDimension,
       candidates,
+      embeddingSetId,
+      expectedDimension: metadata.expectedDimension,
+      modelKey: metadata.modelKey,
       preExistingDrained: done,
       total,
     });
@@ -1221,7 +1221,7 @@ export async function enqueueEmbeddingBackfill(
         requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
       })
     );
-    logger.info('Backfill complete', { embeddingSetId, total, done });
+    logger.info('Backfill complete', { done, embeddingSetId, total });
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
   } catch (error) {
     if (dimensionIndexSuspended) {

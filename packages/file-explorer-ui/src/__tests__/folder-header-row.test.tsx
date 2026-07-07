@@ -9,7 +9,7 @@ describe('FolderHeaderRow', () => {
     render(
       <FolderHeaderRow
         isCollapsed={false}
-        item={{ folderId: 'folderA', fileCount: 3, totalTokens: 100 }}
+        item={{ fileCount: 3, folderId: 'folderA', totalTokens: 100 }}
         onToggleCollapse={onToggle}
       />
     );

@@ -86,8 +86,8 @@ export function SearchCollectionSelector({
     }
     lastToastErrorRef.current = message;
     toast({
-      title: 'Failed to Load Collections',
       description: message,
+      title: 'Failed to Load Collections',
       variant: 'destructive',
     });
   }, [error, toast]);

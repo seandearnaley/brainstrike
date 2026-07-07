@@ -28,7 +28,7 @@ describe('DrizzleEmbeddingCacheRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
 
     const migrationResult = await runMigrations(client);
@@ -177,15 +177,15 @@ describe('DrizzleEmbeddingCacheRepository', () => {
       const count = await repo.setBatch([
         {
           contentHash: testContentHash1,
-          modelKey: testModelKey,
-          embedding: testEmbedding1,
           dimensions: testDimensions,
+          embedding: testEmbedding1,
+          modelKey: testModelKey,
         },
         {
           contentHash: testContentHash2,
-          modelKey: testModelKey,
-          embedding: testEmbedding2,
           dimensions: testDimensions,
+          embedding: testEmbedding2,
+          modelKey: testModelKey,
         },
       ]);
 
@@ -209,9 +209,9 @@ describe('DrizzleEmbeddingCacheRepository', () => {
         repo.setBatch([
           {
             contentHash: testContentHash1,
-            modelKey: testModelKey,
-            embedding: testEmbedding1,
             dimensions: 10, // Wrong dimensions
+            embedding: testEmbedding1,
+            modelKey: testModelKey,
           },
         ])
       ).rejects.toThrow('dimension mismatch');

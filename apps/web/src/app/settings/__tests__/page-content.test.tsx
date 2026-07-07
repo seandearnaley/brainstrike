@@ -15,10 +15,10 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
     ...actual,
     createAppearanceSettingsCategory: vi.fn(() => ({
       content: <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
-      id: 'appearance',
-      title: 'Appearance',
       description: 'Appearance settings',
+      id: 'appearance',
       keywords: ['appearance'],
+      title: 'Appearance',
     })),
   };
 });
@@ -28,27 +28,21 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   return {
     ...actual,
     useRestoreAccess: vi.fn(() => ({
-      storedFolders: [],
+      beginRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
       clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
       isCheckingStoredHandles: false,
       pendingRestore: null,
       showDeniedBanner: false,
       showStaleBanner: false,
-      beginRestore: vi.fn(),
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
+      storedFolders: [],
     })),
   };
 });
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
-    const mockState = {
-      devInlineFixtureEnabled: false,
-      setDevInlineFixtureEnabled: vi.fn(),
-    };
-    return selector(mockState);
-  },
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   useFileExplorerStoreContext: () => {
     const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
       const mockState = {
@@ -59,7 +53,13 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     };
     return mockStore;
   },
-  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
+    const mockState = {
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+    };
+    return selector(mockState);
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({

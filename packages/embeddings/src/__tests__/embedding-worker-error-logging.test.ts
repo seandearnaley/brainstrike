@@ -22,11 +22,11 @@ vi.setConfig({
 });
 
 const loggerCalls = {
-  error: [] as unknown[][],
-  warn: [] as unknown[][],
-  info: [] as unknown[][],
   debug: [] as unknown[][],
+  error: [] as unknown[][],
+  info: [] as unknown[][],
   trace: [] as unknown[][],
+  warn: [] as unknown[][],
 };
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -34,11 +34,11 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   return {
     ...actual,
     createLogger: () => ({
-      error: (...args: unknown[]) => loggerCalls.error.push(args),
-      warn: (...args: unknown[]) => loggerCalls.warn.push(args),
-      info: (...args: unknown[]) => loggerCalls.info.push(args),
       debug: (...args: unknown[]) => loggerCalls.debug.push(args),
+      error: (...args: unknown[]) => loggerCalls.error.push(args),
+      info: (...args: unknown[]) => loggerCalls.info.push(args),
       trace: (...args: unknown[]) => loggerCalls.trace.push(args),
+      warn: (...args: unknown[]) => loggerCalls.warn.push(args),
     }),
     generateUUID: () => 'test-uuid',
   };
@@ -70,8 +70,8 @@ vi.mock('../bge-m3-service', () => {
 
     async generateEmbedding(text: string): Promise<EmbeddingResult> {
       return {
-        embedding: new Array(this.dimensions).fill(0.1),
         dimensions: this.dimensions,
+        embedding: new Array(this.dimensions).fill(0.1),
         model: this.modelId,
         usage: { totalTokens: text.length },
       };
@@ -89,7 +89,7 @@ vi.mock('../bge-m3-service', () => {
       }) => Promise<void> | void
     ): Promise<void> {
       const results = await this.generateEmbeddings(texts);
-      await onBatch({ startIndex: 0, endIndex: results.length, results });
+      await onBatch({ endIndex: results.length, results, startIndex: 0 });
     }
 
     async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -101,7 +101,7 @@ vi.mock('../bge-m3-service', () => {
     }
 
     calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-      return { similarity: 1, distance: 0, method: 'cosine' };
+      return { distance: 0, method: 'cosine', similarity: 1 };
     }
 
     getStatus(): EmbeddingStatus {
@@ -165,16 +165,16 @@ describe('embedding-worker error logging', () => {
         JSON.stringify({
           chunkId: 'missing-chunk',
           embeddingSetId: 'set-missing',
-          modelKey: 'local::mock-model',
           expectedDimension: 768,
+          modelKey: 'local::mock-model',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 500,
     });
 
@@ -243,8 +243,8 @@ describe('embedding-worker error logging', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey,
             expectedDimension: 384,
+            modelKey,
           }),
           now,
         ]
@@ -252,9 +252,9 @@ describe('embedding-worker error logging', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
-      concurrency: 1,
       claimBatchSize: 1,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: modelId,
     });
@@ -306,16 +306,16 @@ describe('embedding-worker error logging', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey,
           expectedDimension: 384,
+          modelKey,
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       initializeLocalModelOnStart: false,
       leaseMs: 1000,
       modelKey: modelId,
@@ -346,10 +346,15 @@ describe('embedding-worker error logging', () => {
     const metricLogs: Record<string, unknown>[] = [];
     let resolverCalls = 0;
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
-      concurrency: 1,
       claimBatchSize: 4,
+      concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
+      log: (event, meta) => {
+        if (event === 'worker_metrics') {
+          metricLogs.push(meta as Record<string, unknown>);
+        }
+      },
       metricsIntervalMs: 5000,
       resolveClaimBatchSize: async () => {
         resolverCalls += 1;
@@ -357,11 +362,6 @@ describe('embedding-worker error logging', () => {
           return 2;
         }
         throw new Error('resolver unavailable');
-      },
-      log: (event, meta) => {
-        if (event === 'worker_metrics') {
-          metricLogs.push(meta as Record<string, unknown>);
-        }
       },
     });
 

@@ -9,10 +9,10 @@ import {
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
   debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -39,11 +39,11 @@ function createMockErrorEvent(init: {
   error?: Error;
 }): ErrorEvent {
   return {
-    message: init.message,
-    filename: init.filename,
-    lineno: init.lineno,
     colno: init.colno,
     error: init.error,
+    filename: init.filename,
+    lineno: init.lineno,
+    message: init.message,
   } as ErrorEvent;
 }
 
@@ -99,7 +99,7 @@ describe('installRendererErrorHooks - Simple Tests', () => {
       const onError = () => {};
 
       expect(() => {
-        const cleanup = installRendererErrorHooks({ scope: 'Custom', onError });
+        const cleanup = installRendererErrorHooks({ onError, scope: 'Custom' });
         cleanup();
       }).not.toThrow();
     });
@@ -189,16 +189,16 @@ describe('installRendererErrorHooks - Simple Tests', () => {
 
     it('should NOT filter regular errors', () => {
       const errorEvent = createMockErrorEvent({
-        message: 'TypeError: Cannot read property of undefined',
         error: new TypeError('Cannot read property of undefined'),
+        message: 'TypeError: Cannot read property of undefined',
       });
       capturedHandlers.error?.(errorEvent);
 
       expect(onErrorMock).toHaveBeenCalledTimes(1);
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
           message: 'TypeError: Cannot read property of undefined',
+          type: 'error',
         })
       );
       expect(mockLogger.error).toHaveBeenCalledWith('Unhandled renderer error', expect.any(Object));
@@ -213,8 +213,8 @@ describe('installRendererErrorHooks - Simple Tests', () => {
       expect(onErrorMock).toHaveBeenCalledTimes(1);
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
           message: 'ResizeObserver is not defined',
+          type: 'error',
         })
       );
     });
@@ -228,8 +228,8 @@ describe('installRendererErrorHooks - Simple Tests', () => {
       expect(onErrorMock).toHaveBeenCalledTimes(1);
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'unhandledrejection',
           message: 'Async operation failed',
+          type: 'unhandledrejection',
         })
       );
       expect(mockLogger.error).toHaveBeenCalledWith(
@@ -247,8 +247,8 @@ describe('installRendererErrorHooks - Simple Tests', () => {
       expect(onErrorMock).toHaveBeenCalledTimes(1);
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'unhandledrejection',
           message: 'Simple string error',
+          type: 'unhandledrejection',
         })
       );
     });
@@ -262,8 +262,8 @@ describe('installRendererErrorHooks - Simple Tests', () => {
       expect(onErrorMock).toHaveBeenCalledTimes(1);
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'unhandledrejection',
           message: 'Unhandled promise rejection',
+          type: 'unhandledrejection',
         })
       );
     });
@@ -301,20 +301,20 @@ describe('installRendererErrorHooks - Simple Tests', () => {
 
     it('should include source and line information when available', () => {
       const errorEvent = createMockErrorEvent({
-        message: 'Test error',
+        colno: 10,
         filename: '/path/to/file.js',
         lineno: 42,
-        colno: 10,
+        message: 'Test error',
       });
       capturedHandlers.error?.(errorEvent);
 
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
+          column: 10,
+          line: 42,
           message: 'Test error',
           source: '/path/to/file.js',
-          line: 42,
-          column: 10,
+          type: 'error',
         })
       );
     });
@@ -322,15 +322,15 @@ describe('installRendererErrorHooks - Simple Tests', () => {
     it('should include stack trace when error object has one', () => {
       const testError = new Error('Test error with stack');
       const errorEvent = createMockErrorEvent({
-        message: testError.message,
         error: testError,
+        message: testError.message,
       });
       capturedHandlers.error?.(errorEvent);
 
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'error',
           stack: expect.stringContaining('Error: Test error with stack'),
+          type: 'error',
         })
       );
     });
@@ -344,8 +344,8 @@ describe('installRendererErrorHooks - Simple Tests', () => {
 
       expect(onErrorMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'unhandledrejection',
           stack: expect.stringContaining('Error: Async error with stack'),
+          type: 'unhandledrejection',
         })
       );
     });

@@ -3,20 +3,20 @@ import { z } from 'zod';
 export const McpTransportEnum = z.enum(['stdio', 'sse']);
 
 const StdioSchema = z.object({
-  transport: z.literal('stdio'),
-  name: z.string().min(1),
-  command: z.string().min(1),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  command: z.string().min(1),
   enabledTools: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  name: z.string().min(1),
+  transport: z.literal('stdio'),
 });
 
 const SseSchema = z.object({
-  transport: z.literal('sse'),
-  name: z.string().min(1),
-  url: z.string().url(),
-  headers: z.record(z.string(), z.string()).optional(),
   enabledTools: z.array(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  name: z.string().min(1),
+  transport: z.literal('sse'),
+  url: z.string().url(),
 });
 
 export const McpServerSchema = z.discriminatedUnion('transport', [StdioSchema, SseSchema]);
@@ -30,7 +30,7 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
   const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  return { path, message: issue.message };
+  return { message: issue.message, path };
 }
 
 export function parseMcpConfig(jsonText: string): McpConfig {

@@ -13,7 +13,7 @@ export interface GpuMemoryReclaimConfig {
 }
 
 interface EmbeddingHostMaintenanceControl {
-  reset(): Promise<EmbeddingHostStatus>;
+  reset: () => Promise<EmbeddingHostStatus>;
 }
 
 type BackfillMaintenanceState = 'failed' | 'idle' | 'requested' | 'running';

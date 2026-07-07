@@ -65,10 +65,10 @@ function extractMigrations(migrationsDir: string): Migration[] {
     try {
       const sql = readFileSync(sqlFile, 'utf-8');
       migrations.push({
-        version: entry.version,
+        hash: computeHash(sql),
         name: entry.tag,
         sql,
-        hash: computeHash(sql),
+        version: entry.version,
       });
     } catch {
       console.error(`Could not read migration file: ${sqlFile}`);
@@ -88,7 +88,9 @@ function extractFinalSnapshotTables(migrationsDir: string): string[] {
     .sort((left, right) => left.localeCompare(right));
 }
 
-function extractFinalSnapshotColumnTypes(migrationsDir: string): Record<string, Record<string, string>> {
+function extractFinalSnapshotColumnTypes(
+  migrationsDir: string
+): Record<string, Record<string, string>> {
   const finalSnapshot = readFinalSnapshot(migrationsDir);
   const columnTypes: Record<string, Record<string, string>> = {};
 
@@ -160,11 +162,11 @@ function main() {
   const finalSnapshotColumnTypes = extractFinalSnapshotColumnTypes(migrationsDir);
 
   const manifest: MigrationManifest = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
     finalSnapshotColumnTypes,
     finalSnapshotTables,
+    generatedAt: new Date().toISOString(),
     migrations,
+    version: 1,
   };
 
   writeFileSync(outputPath, JSON.stringify(manifest, null, 2));

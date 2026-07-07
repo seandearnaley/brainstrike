@@ -52,8 +52,8 @@ async function runAgentChat(
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {
       ...runtimeWithoutMcpConfig,
-      provider,
       apiKey,
+      provider,
       ...(config.config ? { mcpConfig: config.config } : {}),
     },
   });
@@ -95,8 +95,8 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
   const storedKey = await readProviderSecretKey(supportedProvider);
   if (storedKey) {
     logger.info('Retrieved stored API key for provider', {
-      provider,
       prefix: storedKey.slice(0, 10),
+      provider,
     });
     return storedKey;
   }
@@ -108,7 +108,6 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
     }
     return fallback ?? undefined;
   }
-
   return;
 }
 

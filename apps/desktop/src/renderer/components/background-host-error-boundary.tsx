@@ -26,9 +26,9 @@ export class BackgroundHostErrorBoundary extends Component<
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('Background host renderer crashed during render', {
-      host: this.props.host,
-      error,
       componentStack: errorInfo.componentStack,
+      error,
+      host: this.props.host,
     });
   }
 

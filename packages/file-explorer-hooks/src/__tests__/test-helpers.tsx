@@ -49,9 +49,9 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     return {
-      path: 'mock-root',
-      name: 'mock-root',
       kind: 'directory',
+      name: 'mock-root',
+      path: 'mock-root',
       platform: 'web',
     };
   }
@@ -101,9 +101,9 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     }
 
     return {
-      path: MockFileSystemAdapter.mockLastFolderPath,
-      name: MockFileSystemAdapter.mockLastFolderPath.split('/').pop() || 'unknown',
       kind: 'directory',
+      name: MockFileSystemAdapter.mockLastFolderPath.split('/').pop() || 'unknown',
+      path: MockFileSystemAdapter.mockLastFolderPath,
       platform: 'web',
     };
   }

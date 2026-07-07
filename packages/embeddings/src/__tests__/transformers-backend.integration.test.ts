@@ -8,6 +8,7 @@ vi.mock('@huggingface/transformers', () => {
     shouldThrowOnCreate = v;
   };
   const module = {
+    __setThrow: setThrow,
     pipeline: async (_task: string, _model: string, _config: unknown) => {
       if (shouldThrowOnCreate) {
         // After first failure, next call succeeds
@@ -19,7 +20,6 @@ vi.mock('@huggingface/transformers', () => {
       });
       return fn;
     },
-    __setThrow: setThrow,
   } as unknown as Record<string, unknown>;
   return module;
 });
@@ -41,8 +41,8 @@ describe('TransformersBackend', () => {
     const backend = new TransformersBackend();
     await expect(
       backend.initialize({
-        modelId: 'bge-m3',
         device: 'webgpu',
+        modelId: 'bge-m3',
         quantized: false,
       })
     ).rejects.toThrow('creation failed');

@@ -191,8 +191,8 @@ async function loadBatchDirectories(args: {
         failedLoads += 1;
         firstError ??= error instanceof Error ? error : new Error(String(error));
         logger.warn('Skipping failed directory during batched traversal', {
-          path,
           error: error instanceof Error ? error.message : String(error),
+          path,
         });
       }
     },

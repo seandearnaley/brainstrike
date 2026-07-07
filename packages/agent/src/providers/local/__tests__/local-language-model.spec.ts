@@ -4,11 +4,11 @@ import type { LocalLlmGenerationResult } from '../types';
 
 // Store mock generate function for test manipulation
 const mockGenerateResult: LocalLlmGenerationResult = {
-  text: 'Test response',
   finishReason: 'stop',
+  text: 'Test response',
   usage: {
-    promptTokens: 10,
     completionTokens: 5,
+    promptTokens: 10,
     totalTokens: 15,
   },
 };
@@ -79,7 +79,7 @@ describe('LocalLanguageModel', () => {
     it('returns a PromiseLike result', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = model.doGenerate(options);
@@ -94,8 +94,8 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
         prompt: [
-          { role: 'system' as const, content: 'You are helpful' },
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+          { content: 'You are helpful', role: 'system' as const },
+          { content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const },
         ],
       };
 
@@ -107,9 +107,9 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
         prompt: [
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hi' }] },
-          { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'Hello!' }] },
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'How are you?' }] },
+          { content: [{ text: 'Hi', type: 'text' as const }], role: 'user' as const },
+          { content: [{ text: 'Hello!', type: 'text' as const }], role: 'assistant' as const },
+          { content: [{ text: 'How are you?', type: 'text' as const }], role: 'user' as const },
         ],
       };
 
@@ -125,17 +125,17 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
 
       const result = await model.doGenerate({
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       });
 
       expect(result.content).toEqual([
         {
-          type: 'reasoning',
           text: 'Analyze the request first.',
+          type: 'reasoning',
         },
         {
-          type: 'text',
           text: 'Test response',
+          type: 'text',
         },
       ]);
     });
@@ -144,17 +144,17 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
         prompt: [
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'What time is it?' }] },
+          { content: [{ text: 'What time is it?', type: 'text' as const }], role: 'user' as const },
           {
-            role: 'tool' as const,
             content: [
               {
-                type: 'tool-result' as const,
+                result: { time: '12:00' },
                 toolCallId: 'call-123',
                 toolName: 'get_time',
-                result: { time: '12:00' },
+                type: 'tool-result' as const,
               },
             ],
+            role: 'tool' as const,
           },
         ],
       };
@@ -176,8 +176,8 @@ describe('LocalLanguageModel', () => {
     it('respects maxOutputTokens from options', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
         maxOutputTokens: 100,
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -188,7 +188,7 @@ describe('LocalLanguageModel', () => {
     it('respects temperature from options', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
         temperature: 0.8,
       };
 
@@ -201,19 +201,19 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
         prompt: [
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'What time?' }] },
+          { content: [{ text: 'What time?', type: 'text' as const }], role: 'user' as const },
         ],
         tools: [
           {
-            type: 'function' as const,
-            name: 'get_time',
             description: 'Get current time',
             inputSchema: {
-              type: 'object' as const,
               properties: {
                 timezone: { type: 'string' },
               },
+              type: 'object' as const,
             },
+            name: 'get_time',
+            type: 'function' as const,
           },
         ],
       };
@@ -225,14 +225,14 @@ describe('LocalLanguageModel', () => {
     it('filters non-function tools', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
         tools: [
           { type: 'other' as const } as unknown as { type: 'function'; name: string },
           {
-            type: 'function' as const,
-            name: 'test_tool',
             description: 'Test',
-            inputSchema: { type: 'object' as const, properties: {} },
+            inputSchema: { properties: {}, type: 'object' as const },
+            name: 'test_tool',
+            type: 'function' as const,
           },
         ],
       };
@@ -245,8 +245,8 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
       const abortController = new AbortController();
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
         abortSignal: abortController.signal,
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -258,7 +258,7 @@ describe('LocalLanguageModel', () => {
     it('returns a stream result', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doStream(options);
@@ -270,7 +270,7 @@ describe('LocalLanguageModel', () => {
     it('stream contains text-delta part', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doStream(options);
@@ -294,7 +294,7 @@ describe('LocalLanguageModel', () => {
     it('stream contains finish part', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doStream(options);
@@ -322,7 +322,7 @@ describe('LocalLanguageModel', () => {
       const model = new LocalLanguageModel('test-model');
 
       const result = await model.doStream({
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       });
       const reader = result.stream.getReader();
       const parts: unknown[] = [];
@@ -353,7 +353,7 @@ describe('LocalLanguageModel', () => {
     it('preserves compact text part IDs while using secure randomness', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doStream(options);
@@ -390,7 +390,7 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           null as unknown as { role: 'user'; content: { type: 'text'; text: string }[] },
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+          { content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const },
         ],
       };
 
@@ -403,7 +403,7 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           undefined as unknown as { role: 'user'; content: { type: 'text'; text: string }[] },
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+          { content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const },
         ],
       };
 
@@ -417,7 +417,7 @@ describe('LocalLanguageModel', () => {
         prompt: [
           'string' as unknown as { role: 'user'; content: { type: 'text'; text: string }[] },
           123 as unknown as { role: 'user'; content: { type: 'text'; text: string }[] },
-          { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+          { content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const },
         ],
       };
 
@@ -428,7 +428,7 @@ describe('LocalLanguageModel', () => {
     it('handles empty content array', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [] }],
+        prompt: [{ content: [], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -440,8 +440,8 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'user' as const,
             content: 'string content' as unknown as { type: 'text'; text: string }[],
+            role: 'user' as const,
           },
         ],
       };
@@ -455,11 +455,11 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'user' as const,
             content: [
-              { type: 'text' as const, text: 'Part 1' },
-              { type: 'text' as const, text: 'Part 2' },
+              { text: 'Part 1', type: 'text' as const },
+              { text: 'Part 2', type: 'text' as const },
             ],
+            role: 'user' as const,
           },
         ],
       };
@@ -473,14 +473,14 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'user' as const,
             content: [
-              { type: 'image' as const, image: 'data:...' } as unknown as {
+              { image: 'data:...', type: 'image' as const } as unknown as {
                 type: 'text';
                 text: string;
               },
-              { type: 'text' as const, text: 'Describe this' },
+              { text: 'Describe this', type: 'text' as const },
             ],
+            role: 'user' as const,
           },
         ],
       };
@@ -494,15 +494,15 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'tool' as const,
             content: [
               {
-                type: 'tool-result' as const,
+                result: 'string result',
                 toolCallId: 'call-1',
                 toolName: 'test',
-                result: 'string result',
+                type: 'tool-result' as const,
               },
             ],
+            role: 'tool' as const,
           },
         ],
       };
@@ -516,15 +516,15 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'tool' as const,
             content: [
               {
-                type: 'tool-result' as const,
+                result: { data: 'value' },
                 toolCallId: 'call-1',
                 toolName: 'test',
-                result: { data: 'value' },
+                type: 'tool-result' as const,
               },
             ],
+            role: 'tool' as const,
           },
         ],
       };
@@ -538,8 +538,8 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
+            content: [{ data: 'value', type: 'other' } as unknown as { type: 'tool-result' }],
             role: 'tool' as const,
-            content: [{ type: 'other', data: 'value' } as unknown as { type: 'tool-result' }],
           },
         ],
       };
@@ -553,14 +553,14 @@ describe('LocalLanguageModel', () => {
       const options = {
         prompt: [
           {
-            role: 'tool' as const,
             content: [
               {
-                type: 'tool-result' as const,
-                toolName: 'test',
                 result: 'result',
+                toolName: 'test',
+                type: 'tool-result' as const,
               } as unknown as { type: 'tool-result'; toolCallId: string },
             ],
+            role: 'tool' as const,
           },
         ],
       };
@@ -573,14 +573,14 @@ describe('LocalLanguageModel', () => {
   describe('finish reason mapping', () => {
     it('maps length finish reason', async () => {
       mockGenerate.mockResolvedValueOnce({
-        text: 'Truncated',
         finishReason: 'length',
-        usage: { promptTokens: 10, completionTokens: 100, totalTokens: 110 },
+        text: 'Truncated',
+        usage: { completionTokens: 100, promptTokens: 10, totalTokens: 110 },
       });
 
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -589,21 +589,21 @@ describe('LocalLanguageModel', () => {
 
     it('maps tool_calls finish reason', async () => {
       mockGenerate.mockResolvedValueOnce({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: { arguments: '{}', name: 'test' },
             id: 'call-1',
             type: 'function',
-            function: { name: 'test', arguments: '{}' },
           },
         ],
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
       });
 
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -620,24 +620,24 @@ describe('LocalLanguageModel', () => {
   describe('tool calls in stream', () => {
     it('streams tool calls', async () => {
       mockGenerate.mockResolvedValueOnce({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: { arguments: '{"city":"London"}', name: 'get_weather' },
             id: 'call-1',
             type: 'function',
-            function: { name: 'get_weather', arguments: '{"city":"London"}' },
           },
         ],
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
       });
 
       const model = new LocalLanguageModel('test-model');
       const options = {
         prompt: [
           {
+            content: [{ text: 'Weather in London?', type: 'text' as const }],
             role: 'user' as const,
-            content: [{ type: 'text' as const, text: 'Weather in London?' }],
           },
         ],
       };
@@ -666,15 +666,15 @@ describe('LocalLanguageModel', () => {
       mockGenerate.mockImplementationOnce((_: unknown, opts: unknown) => {
         capturedOptions = opts;
         return Promise.resolve({
-          text: 'Response',
           finishReason: 'stop',
-          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          text: 'Response',
+          usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
         });
       });
 
       const model = new LocalLanguageModel('test-model', { maxNewTokens: 256 });
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       await model.doGenerate(options);
@@ -686,15 +686,15 @@ describe('LocalLanguageModel', () => {
       mockGenerate.mockImplementationOnce((_: unknown, opts: unknown) => {
         capturedOptions = opts;
         return Promise.resolve({
-          text: 'Response',
           finishReason: 'stop',
-          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          text: 'Response',
+          usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
         });
       });
 
       const model = new LocalLanguageModel('test-model', { temperature: 0.5 });
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       await model.doGenerate(options);
@@ -706,9 +706,9 @@ describe('LocalLanguageModel', () => {
       mockGenerate.mockImplementationOnce((_: unknown, opts: unknown) => {
         capturedOptions = opts;
         return Promise.resolve({
-          text: 'Response',
           finishReason: 'stop',
-          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          text: 'Response',
+          usage: { completionTokens: 5, promptTokens: 10, totalTokens: 15 },
         });
       });
 
@@ -717,7 +717,7 @@ describe('LocalLanguageModel', () => {
         topP: 0.8,
       });
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
         temperature: 0.9,
         topP: 0.95,
       };
@@ -733,7 +733,7 @@ describe('LocalLanguageModel', () => {
     it('handles empty tools array', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
         tools: [],
       };
 
@@ -745,14 +745,14 @@ describe('LocalLanguageModel', () => {
   describe('no text in result', () => {
     it('handles result with no text', async () => {
       mockGenerate.mockResolvedValueOnce({
-        text: '',
         finishReason: 'stop',
-        usage: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
+        text: '',
+        usage: { completionTokens: 0, promptTokens: 10, totalTokens: 10 },
       });
 
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doGenerate(options);
@@ -763,14 +763,14 @@ describe('LocalLanguageModel', () => {
 
     it('stream handles result with no text', async () => {
       mockGenerate.mockResolvedValueOnce({
-        text: '',
         finishReason: 'stop',
-        usage: { promptTokens: 10, completionTokens: 0, totalTokens: 10 },
+        text: '',
+        usage: { completionTokens: 0, promptTokens: 10, totalTokens: 10 },
       });
 
       const model = new LocalLanguageModel('test-model');
       const options = {
-        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+        prompt: [{ content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const }],
       };
 
       const result = await model.doStream(options);

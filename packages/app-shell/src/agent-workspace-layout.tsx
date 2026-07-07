@@ -9,21 +9,21 @@ export interface AgentWorkspaceLayoutProps {
 }
 
 const AGENT_LEFT_PANEL_CHROME = {
-  title: 'Agent',
-  showButtonLabel: 'Show agent panel',
-  showButtonTestId: 'show-threads-panel',
   hideButtonLabel: 'Hide agent panel',
   hideButtonTestId: 'hide-threads-panel',
   icon: PanelLeftClose,
+  showButtonLabel: 'Show agent panel',
+  showButtonTestId: 'show-threads-panel',
+  title: 'Agent',
 } as const;
 
 const AGENT_RIGHT_PANEL_CHROME = {
-  title: 'Workspace',
-  showButtonLabel: 'Show workspace panel',
-  showButtonTestId: 'show-workspace-panel',
   hideButtonLabel: 'Hide workspace panel',
   hideButtonTestId: 'hide-workspace-panel',
   icon: PanelRightClose,
+  showButtonLabel: 'Show workspace panel',
+  showButtonTestId: 'show-workspace-panel',
+  title: 'Workspace',
 } as const;
 
 const AGENT_PANEL_CONSTRAINTS = {

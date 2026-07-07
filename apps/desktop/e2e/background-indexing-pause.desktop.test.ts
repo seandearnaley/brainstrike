@@ -66,8 +66,8 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
 
     await expect
       .poll(async () => await readBackgroundIndexingPreferences(window), {
-        timeout: 15_000,
         message: 'Expected activating Pause workspace index to persist paused=true.',
+        timeout: 15_000,
       })
       .toMatchObject({ paused: true });
 
@@ -76,8 +76,8 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
 
     await expect
       .poll(async () => await readBackgroundIndexingPreferences(window), {
-        timeout: 15_000,
         message: 'Expected activating Resume workspace index to persist paused=false.',
+        timeout: 15_000,
       })
       .toMatchObject({ paused: false });
 

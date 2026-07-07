@@ -184,8 +184,8 @@ export class UnifiedToolRegistry {
   registerNativeTool(options: NativeToolRegistrationOptions): void {
     this.registerNativeToolInternal(options);
     logger.debug('Native tool registered', {
-      id: options.id,
       category: options.category ?? getNativeToolDefaults(options.id)?.category ?? 'action',
+      id: options.id,
       loadingTier:
         options.loadingTier ?? getNativeToolDefaults(options.id)?.loadingTier ?? 'conditional',
     });
@@ -223,16 +223,16 @@ export class UnifiedToolRegistry {
       const nativeDefaults = getNativeToolDefaults(toolId);
 
       const metadata: UnifiedToolMetadata = {
-        id: toolId,
-        source: 'mcp',
         category: categoryOverride ?? nativeDefaults?.category ?? DEFAULT_MCP_CATEGORY,
-        loadingTier: tierOverride ?? nativeDefaults?.loadingTier ?? DEFAULT_MCP_TIER,
         description,
-        enabled: existing?.enabled ?? true,
         discoveredAt: existing?.discoveredAt ?? discoveredAt,
-        serverName,
+        enabled: existing?.enabled ?? true,
         estimatedTokens: nativeDefaults?.estimatedTokens ?? DEFAULT_MCP_TOOL_TOKENS,
+        id: toolId,
+        loadingTier: tierOverride ?? nativeDefaults?.loadingTier ?? DEFAULT_MCP_TIER,
         requiresApproval: nativeDefaults?.requiresApproval ?? false,
+        serverName,
+        source: 'mcp',
       };
 
       if (inputSchema !== undefined) {
@@ -258,9 +258,9 @@ export class UnifiedToolRegistry {
     this.toolsByServer.set(serverName, toolIds);
 
     logger.info('MCP tools registered', {
-      serverName,
       count: toolIds.size,
       enabled: Array.from(toolIds).filter((id) => this.tools.get(id)?.enabled).length,
+      serverName,
     });
 
     this.notifyListeners();
@@ -362,8 +362,8 @@ export class UnifiedToolRegistry {
    */
   getToolsBySource(): ToolsBySource {
     const result: ToolsBySource = {
-      native: [],
       mcp: {},
+      native: [],
     };
 
     for (const tool of this.getAllTools()) {
@@ -400,7 +400,7 @@ export class UnifiedToolRegistry {
    * Get tools by loading tier.
    */
   getToolsByTier(tier: ToolLoadingTier): UnifiedToolMetadata[] {
-    return this.getFilteredTools({ loadingTier: tier, enabled: true });
+    return this.getFilteredTools({ enabled: true, loadingTier: tier });
   }
 
   /**
@@ -514,23 +514,23 @@ export class UnifiedToolRegistry {
     const mcpServers = new Set<string>();
 
     const stats: ToolRegistryStats = {
-      total: tools.length,
-      enabled: 0,
-      disabled: 0,
-      bySource: { native: 0, mcp: 0 },
       byCategory: {
-        retrieval: 0,
         action: 0,
         analysis: 0,
         configuration: 0,
+        retrieval: 0,
         validation: 0,
       },
+      bySource: { mcp: 0, native: 0 },
       byTier: {
-        critical: 0,
         conditional: 0,
+        critical: 0,
         deferred: 0,
       },
+      disabled: 0,
+      enabled: 0,
       mcpServers: 0,
+      total: tools.length,
     };
 
     for (const tool of tools) {
@@ -600,7 +600,7 @@ export class UnifiedToolRegistry {
     }
     this.toolsByServer.delete(serverName);
 
-    logger.info('Server tools cleared', { serverName, count: toolIds.size });
+    logger.info('Server tools cleared', { count: toolIds.size, serverName });
     this.notifyListeners();
   }
 
@@ -668,15 +668,15 @@ export class UnifiedToolRegistry {
 
     const existing = this.tools.get(id);
     const metadata: UnifiedToolMetadata = {
-      id,
-      source: 'native',
       category,
-      loadingTier,
       description,
-      enabled: existing?.enabled ?? enabled,
       discoveredAt: existing?.discoveredAt ?? Date.now(),
+      enabled: existing?.enabled ?? enabled,
       estimatedTokens,
+      id,
+      loadingTier,
       requiresApproval,
+      source: 'native',
     };
 
     if (resolvedInputSchema !== undefined) {
@@ -697,7 +697,7 @@ export class UnifiedToolRegistry {
     }
 
     const description = tool['description'];
-    if (description != null) {
+    if (description !== null) {
       return String(description);
     }
 
@@ -738,8 +738,8 @@ export class UnifiedToolRegistry {
         UnifiedToolRegistry.patternCache.set(pattern, regex);
       } catch (error) {
         logger.warn('Invalid tool pattern provided', {
-          pattern,
           error: error instanceof Error ? error.message : String(error),
+          pattern,
         });
         return false;
       }

@@ -4,7 +4,7 @@ import { usePagination } from '../use-pagination';
 
 describe('usePagination', () => {
   it('navigates between pages correctly', () => {
-    const { result } = renderHook(() => usePagination({ totalItems: 200, pageSize: 50 }));
+    const { result } = renderHook(() => usePagination({ pageSize: 50, totalItems: 200 }));
 
     expect(result.current.currentPage).toBe(0);
     expect(result.current.totalPages).toBe(4);
@@ -33,7 +33,7 @@ describe('usePagination', () => {
   });
 
   it('handles boundary conditions', () => {
-    const { result } = renderHook(() => usePagination({ totalItems: 35, pageSize: 10 }));
+    const { result } = renderHook(() => usePagination({ pageSize: 10, totalItems: 35 }));
 
     expect(result.current.totalPages).toBe(4);
 
@@ -61,7 +61,7 @@ describe('usePagination', () => {
 
   it('resets to first page when totalItems decreases and current page is out of bounds', () => {
     const { result, rerender } = renderHook(
-      ({ totalItems }) => usePagination({ totalItems, pageSize: 10, initialPage: 5 }),
+      ({ totalItems }) => usePagination({ initialPage: 5, pageSize: 10, totalItems }),
       { initialProps: { totalItems: 100 } }
     );
 
@@ -77,7 +77,7 @@ describe('usePagination', () => {
   });
 
   it('should handle edge case when totalPages is exactly 0', () => {
-    const { result } = renderHook(() => usePagination({ totalItems: 0, pageSize: 10 }));
+    const { result } = renderHook(() => usePagination({ pageSize: 10, totalItems: 0 }));
 
     expect(result.current.currentPage).toBe(0);
     expect(result.current.totalPages).toBe(0);
@@ -87,7 +87,7 @@ describe('usePagination', () => {
 
   it('should handle transition from non-zero to zero pages', () => {
     const { result, rerender } = renderHook(
-      ({ totalItems }) => usePagination({ totalItems, pageSize: 10 }),
+      ({ totalItems }) => usePagination({ pageSize: 10, totalItems }),
       { initialProps: { totalItems: 50 } }
     );
 
@@ -110,7 +110,7 @@ describe('usePagination', () => {
 
   it('should reset to first page when current page equals totalPages', () => {
     const { result, rerender } = renderHook(
-      ({ totalItems }) => usePagination({ totalItems, pageSize: 10 }),
+      ({ totalItems }) => usePagination({ pageSize: 10, totalItems }),
       { initialProps: { totalItems: 50 } }
     );
 
@@ -129,7 +129,7 @@ describe('usePagination', () => {
   });
 
   it('should handle page boundary when totalPages is 1', () => {
-    const { result } = renderHook(() => usePagination({ totalItems: 5, pageSize: 10 }));
+    const { result } = renderHook(() => usePagination({ pageSize: 10, totalItems: 5 }));
 
     expect(result.current.totalPages).toBe(1);
     expect(result.current.isFirstPage).toBe(true);
@@ -147,7 +147,7 @@ describe('usePagination', () => {
   });
 
   it('should correctly calculate isLastPage for exact page boundary', () => {
-    const { result } = renderHook(() => usePagination({ totalItems: 50, pageSize: 10 }));
+    const { result } = renderHook(() => usePagination({ pageSize: 10, totalItems: 50 }));
 
     expect(result.current.totalPages).toBe(5);
 

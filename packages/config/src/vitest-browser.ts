@@ -98,21 +98,21 @@ export function createBrowserProject(config?: BrowserTestConfig) {
 
   return {
     test: {
-      name: 'browser',
-      include: [testPattern],
-      // Output directory for traces and screenshots
-      outputDir: traceOutputDir,
       browser: {
         enabled: true,
-        provider: playwright(createPlaywrightOptions(config)),
-        instances: [{ browser: 'chromium' as const }],
         headless,
+        instances: [{ browser: 'chromium' as const }],
+        provider: playwright(createPlaywrightOptions(config)),
+        // Capture screenshots on failure for quick visual debugging
+        screenshotFailures: true,
         // Playwright trace configuration
         // Generates .zip trace files viewable with `npx playwright show-trace <file>`
         trace,
-        // Capture screenshots on failure for quick visual debugging
-        screenshotFailures: true,
       },
+      include: [testPattern],
+      name: 'browser',
+      // Output directory for traces and screenshots
+      outputDir: traceOutputDir,
     },
   };
 }

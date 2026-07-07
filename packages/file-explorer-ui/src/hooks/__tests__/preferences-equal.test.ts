@@ -8,24 +8,24 @@ import {
 describe('preferencesEqual', () => {
   const columns: ColumnVisibility = {
     checkbox: true,
-    rootFolderId: false,
     path: true,
-    type: true,
-    tokens: false,
+    rootFolderId: false,
     size: true,
+    tokens: false,
+    type: true,
   };
 
   const base: PreviewPanelPreferences<{ path: string }> = {
-    columnVisibility: columns,
-    sortField: 'path',
-    sortDirection: 'asc',
-    groupingConfig: 'none',
     collapsedGroups: [],
+    columnVisibility: columns,
+    groupingConfig: 'none',
     pageSize: 10,
+    sortDirection: 'asc',
+    sortField: 'path',
   };
 
   it('returns true for identical preferences', () => {
-    const other = { ...base, columnVisibility: { ...columns }, collapsedGroups: [] };
+    const other = { ...base, collapsedGroups: [], columnVisibility: { ...columns } };
     expect(preferencesEqual(base, other)).toBe(true);
   });
 

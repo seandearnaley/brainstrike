@@ -65,8 +65,8 @@ describe('WebGPU embedding memory growth', () => {
 
     for (let batch = 0; batch < TOTAL_BATCHES; batch++) {
       const output = await extractor(sampleTexts, {
-        pooling: 'mean',
         normalize: false,
+        pooling: 'mean',
       });
 
       // Dispose output tensor (belt-and-suspenders — doesn't free GPU buffers)
@@ -99,12 +99,12 @@ describe('WebGPU embedding memory growth', () => {
 
     console.log(
       JSON.stringify({
-        type: 'WEBGPU_MEMORY_RESULT',
-        totalInferences,
         baselineHeapMB: baselineHeap,
         finalHeapMB: finalHeap,
         heapGrowthMB,
         heapTrend: heapSnapshots,
+        totalInferences,
+        type: 'WEBGPU_MEMORY_RESULT',
       })
     );
 

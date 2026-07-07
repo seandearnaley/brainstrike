@@ -55,7 +55,7 @@ export function Sidebar({
 
           <Button
             className="w-full justify-start font-normal"
-            onClick={() => onFilterChange({ favoritesOnly: true, categoryId: null })}
+            onClick={() => onFilterChange({ categoryId: null, favoritesOnly: true })}
             variant={filter.favoritesOnly ? 'secondary' : 'ghost'}
           >
             <Star className="mr-2 h-4 w-4 text-yellow-500" />

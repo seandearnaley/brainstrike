@@ -32,16 +32,16 @@ describe('hf proxy route', () => {
 
     fetchMock.mockResolvedValue(
       new Response(upstreamBody, {
-        status: 206,
-        statusText: 'Partial Content',
         headers: {
           'accept-ranges': 'bytes',
-          'content-type': 'application/octet-stream',
-          'content-length': '2',
           'cache-control': 'public, max-age=60',
+          'content-length': '2',
           'content-range': 'bytes 0-1/2',
+          'content-type': 'application/octet-stream',
           etag: '"abc"',
         },
+        status: 206,
+        statusText: 'Partial Content',
       })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -142,9 +142,9 @@ describe('hf proxy route', () => {
   it('marks transient upstream errors as non-cacheable', async () => {
     fetchMock.mockResolvedValue(
       new Response('busy', {
+        headers: { 'cache-control': 'public, max-age=31536000, immutable' },
         status: 503,
         statusText: 'Busy',
-        headers: { 'cache-control': 'public, max-age=31536000, immutable' },
       })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -216,11 +216,11 @@ describe('hf proxy route', () => {
   it('supports HEAD not-modified metadata probes', async () => {
     fetchMock.mockResolvedValue(
       new Response(null, {
-        status: 304,
         headers: {
           'cache-control': 'public, max-age=60',
           etag: '"head-etag"',
         },
+        status: 304,
       })
     );
     vi.stubGlobal('fetch', fetchMock);

@@ -21,8 +21,8 @@ describe('FolderBadge', () => {
   beforeEach(() => {
     // Setup default mock return value
     (getFolderColor as MockedGetFolderColor).mockReturnValue({
-      light: { bg: '#e2e8f0', text: '#334155' },
       dark: { bg: '#334155', text: '#e2e8f0' },
+      light: { bg: '#e2e8f0', text: '#334155' },
     });
   });
 
@@ -54,8 +54,8 @@ describe('FolderBadge', () => {
 
   test('applies the correct colors based on getFolderColor result', () => {
     const mockColors = {
-      light: { bg: '#ff0000', text: '#ffffff' },
       dark: { bg: '#000000', text: '#ffffff' },
+      light: { bg: '#ff0000', text: '#ffffff' },
     };
 
     (getFolderColor as MockedGetFolderColor).mockReturnValue(mockColors);

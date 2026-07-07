@@ -119,8 +119,8 @@ export class EmbeddingSetsRepository {
 
   async getOrCreateWorkspaceIndexSet(): Promise<EmbeddingSet> {
     const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
-      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
       modelId: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelId,
+      modelKey: WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.modelKey,
     });
     const id = generateUUID();
     const now = new Date().toISOString();
@@ -213,8 +213,8 @@ export class EmbeddingSetsRepository {
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet> {
     const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
-      modelKey,
       modelId,
+      modelKey,
     });
     const id = generateUUID();
     const now = new Date().toISOString();
@@ -281,10 +281,10 @@ export class EmbeddingSetsRepository {
     this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {
-      id,
-      modelKey: normalizedMetadata.modelKey,
       dimensions,
       distance,
+      id,
+      modelKey: normalizedMetadata.modelKey,
       name,
     });
     return this.fromRow(insertResult.rows[0] as Record<string, unknown>);
@@ -308,8 +308,8 @@ export class EmbeddingSetsRepository {
 
   async getByModelKey(modelKey: string): Promise<EmbeddingSet[] | []> {
     const normalizedMetadata = await tryResolveEmbeddingSetMetadata(this.db, {
-      modelKey,
       modelId: '',
+      modelKey,
     });
     const lookupModelKey = normalizedMetadata?.modelKey ?? modelKey;
     const result = await this.db.query('SELECT * FROM embedding_sets WHERE model_key = $1', [
@@ -429,12 +429,12 @@ export class EmbeddingSetsRepository {
 
   private fromRow(row: Record<string, unknown>): EmbeddingSet {
     const base = {
-      id: String(row['id']),
-      modelKey: String(row['model_key']),
-      modelId: String(row['model_id']),
+      createdAt: String(row['created_at']),
       dimensions: Number(row['dimensions']),
       distance: String(row['distance']) as EmbeddingDistance,
-      createdAt: String(row['created_at']),
+      id: String(row['id']),
+      modelId: String(row['model_id']),
+      modelKey: String(row['model_key']),
     };
 
     // Add optional metadata fields only if they exist
@@ -463,14 +463,14 @@ export class EmbeddingSetsRepository {
     options: ListEmbeddingSpacesOptions
   ): EmbeddingSpaceListing {
     const listing: EmbeddingSpaceListing = {
-      id: row.id,
-      name: row.name,
+      createdAt: row.createdAt,
       description: row.description,
-      modelKey: row.modelKey,
-      modelId: row.modelId,
       dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
       distance: row.distance,
-      createdAt: row.createdAt,
+      id: row.id,
+      modelId: row.modelId,
+      modelKey: row.modelKey,
+      name: row.name,
     };
     if (options.includeStats !== true) {
       return listing;
@@ -478,18 +478,18 @@ export class EmbeddingSetsRepository {
     return {
       ...listing,
       stats: {
-        fileCount: readOptionalFiniteNumber(row.fileCount, 'fileCount'),
-        totalChunks: readOptionalFiniteNumber(row.totalChunks, 'totalChunks'),
-        embeddedChunks: readOptionalFiniteNumber(row.embeddedChunks, 'embeddedChunks'),
-        tokenizedChunkCount: readOptionalFiniteNumber(
-          row.tokenizedChunkCount,
-          'tokenizedChunkCount'
-        ),
-        totalTokens: readOptionalFiniteNumber(row.totalTokens, 'totalTokens'),
         averageTokensPerChunk: readOptionalFiniteNumber(
           row.averageTokensPerChunk,
           'averageTokensPerChunk'
         ),
+        embeddedChunks: readOptionalFiniteNumber(row.embeddedChunks, 'embeddedChunks'),
+        fileCount: readOptionalFiniteNumber(row.fileCount, 'fileCount'),
+        tokenizedChunkCount: readOptionalFiniteNumber(
+          row.tokenizedChunkCount,
+          'tokenizedChunkCount'
+        ),
+        totalChunks: readOptionalFiniteNumber(row.totalChunks, 'totalChunks'),
+        totalTokens: readOptionalFiniteNumber(row.totalTokens, 'totalTokens'),
       },
     };
   }
@@ -498,16 +498,16 @@ export class EmbeddingSetsRepository {
     const embeddingSet = this.fromRow(row);
     const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.db, {
       id: embeddingSet.id,
-      modelKey: embeddingSet.modelKey,
       modelId: embeddingSet.modelId,
+      modelKey: embeddingSet.modelKey,
     });
     if (!repairedMetadata) {
       return embeddingSet;
     }
     return {
       ...embeddingSet,
-      modelKey: repairedMetadata.modelKey,
       modelId: repairedMetadata.modelId,
+      modelKey: repairedMetadata.modelKey,
     };
   }
 }

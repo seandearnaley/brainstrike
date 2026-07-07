@@ -6,19 +6,19 @@ describe('MCP config parser', () => {
     const text = JSON.stringify({
       servers: [
         {
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '~/Documents'],
+          command: 'npx',
+          env: { NODE_ENV: 'test' },
           name: 'filesystem',
           transport: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '~/Documents'],
-          env: { NODE_ENV: 'test' },
         },
         {
-          name: 'web',
-          transport: 'sse',
-          url: 'http://localhost:7801/sse',
           headers: {
             Authorization: 'Bearer foo',
           },
+          name: 'web',
+          transport: 'sse',
+          url: 'http://localhost:7801/sse',
         },
       ],
     });

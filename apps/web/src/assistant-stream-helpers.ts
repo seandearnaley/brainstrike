@@ -56,8 +56,8 @@ export async function handleChatEndpoint(
   } catch (error) {
     logger.error('Failed to initialize chat stream', { error });
     res.writeHead(502, {
-      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
     });
     res.end(
       JSON.stringify({
@@ -69,8 +69,8 @@ export async function handleChatEndpoint(
   }
 
   res.writeHead(200, {
-    'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
   });
 
   for await (const chunk of stream) {
@@ -141,8 +141,8 @@ export async function handleAssistantEndpoint(
     // client-supplied policy) so ask tools actually suspend on a normal turn.
     agentStream = await buildWebAssistantStream({
       agentMessages: toolApprovalAction ? [] : convertAssistantUiMessages(rawMessages),
-      data,
       apiKey: provider.apiKey,
+      data,
       signal: abortController.signal,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
     });
@@ -171,8 +171,8 @@ export async function handleAssistantEndpoint(
 export function sendAssistantStatusResponse(res: http.ServerResponse): void {
   const provider = resolveAssistantProviderConfig();
   res.writeHead(200, {
-    'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(assistantStatusPayload(provider)));
 }
@@ -182,8 +182,8 @@ function sendAssistantDisabledResponse(
   provider: AssistantProviderConfig
 ): void {
   res.writeHead(503, {
-    'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(
     JSON.stringify({

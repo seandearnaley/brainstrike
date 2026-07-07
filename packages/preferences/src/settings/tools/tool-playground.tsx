@@ -231,9 +231,9 @@ export function ToolPlayground({
         return await onExecute(parsedInput);
       } catch (err) {
         return {
-          success: false,
-          error: err instanceof Error ? err.message : 'Execution failed',
           durationMs: 0,
+          error: err instanceof Error ? err.message : 'Execution failed',
+          success: false,
         };
       }
     };

@@ -88,8 +88,8 @@ describe('settings-test-runtime-access', () => {
     vi.stubEnv('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES', '1');
 
     expect(getLocalRuntimeStatusTestOverride('ollama')).toMatchObject({
-      state: 'unavailable',
       message: 'External local runtime probing is disabled for deterministic desktop E2E.',
+      state: 'unavailable',
     });
   });
 });

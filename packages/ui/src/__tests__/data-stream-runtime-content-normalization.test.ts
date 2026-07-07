@@ -20,11 +20,11 @@ import { BrainstrikeDataStreamRuntimeAdapter } from '../assistant-ui-panel/data-
 
 function message(id: string, role: ThreadMessage['role']): ThreadMessage {
   return {
-    id,
-    role,
-    content: [{ type: 'text', text: id }],
+    content: [{ text: id, type: 'text' }],
     createdAt: new Date(0),
+    id,
     metadata: { custom: {} },
+    role,
   } as ThreadMessage;
 }
 
@@ -66,21 +66,21 @@ describe('BrainstrikeDataStreamRuntimeAdapter content normalization', () => {
   it('normalizes non-array hosted message content before serialization', async () => {
     genericMessages.value = [
       {
-        role: 'system',
         content: undefined,
+        role: 'system',
       },
       {
-        role: 'user',
         content: 'plain prompt',
+        role: 'user',
       },
       {
-        role: 'assistant',
         content: {
           args: { query: 'status' },
           toolCallId: 'call-object',
           toolName: 'lookup',
           type: 'tool-call',
         },
+        role: 'assistant',
       },
     ];
 
@@ -109,23 +109,23 @@ describe('BrainstrikeDataStreamRuntimeAdapter content normalization', () => {
 
     expect(requestBody?.['messages']).toEqual([
       {
-        role: 'system',
         content: [],
+        role: 'system',
       },
       {
-        role: 'user',
         content: [{ text: 'plain prompt' }],
+        role: 'user',
       },
       {
-        role: 'assistant',
         content: [
           {
-            type: 'tool-call',
+            input: { query: 'status' },
             toolCallId: 'call-object',
             toolName: 'lookup',
-            input: { query: 'status' },
+            type: 'tool-call',
           },
         ],
+        role: 'assistant',
       },
     ]);
   });

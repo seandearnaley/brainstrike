@@ -162,8 +162,8 @@ export async function readWorkspaceIndexDebugRows(
 ): Promise<unknown[]> {
   if (!query) {
     accessIssues.push({
-      source,
       reason: 'database query bridge unavailable',
+      source,
     });
     return [];
   }
@@ -173,8 +173,8 @@ export async function readWorkspaceIndexDebugRows(
     return Array.isArray(result.rows) ? result.rows : [];
   } catch (error) {
     accessIssues.push({
-      source,
       reason: error instanceof Error ? error.message : String(error),
+      source,
     });
     return [];
   }

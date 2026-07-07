@@ -21,8 +21,8 @@ describe('useSelectionManager', () => {
 
   it('returns the current selected file paths', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     expect(result.current.selectedFilePaths).toEqual(initialSelectedPaths);
@@ -30,8 +30,8 @@ describe('useSelectionManager', () => {
 
   it('checks if selection would exceed limit and returns true when it would', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     const wouldExceed = result.current.wouldExceedSelectionLimit([
@@ -45,8 +45,8 @@ describe('useSelectionManager', () => {
 
   it('checks if selection would exceed limit and returns false when it would not', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     const wouldExceed = result.current.wouldExceedSelectionLimit(['file3', 'file4', 'file5']);
@@ -55,8 +55,8 @@ describe('useSelectionManager', () => {
 
   it('excludes already selected files when checking limit', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     const wouldExceed = result.current.wouldExceedSelectionLimit([
@@ -71,8 +71,8 @@ describe('useSelectionManager', () => {
 
   it('clips selection to the max instead of showing a limit error', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     act(() => {
@@ -83,8 +83,8 @@ describe('useSelectionManager', () => {
 
   it('updates selection when new selection is within limit', () => {
     const { result } = renderSelectionManager({
-      selectedFilePaths: initialSelectedPaths,
       maxSelectionCount: maxCount,
+      selectedFilePaths: initialSelectedPaths,
       setSelectedFiles: mockSetSelectedFiles,
     });
     const newSelection = new Set(['file1', 'file2', 'file3']);
@@ -96,8 +96,8 @@ describe('useSelectionManager', () => {
 
   it('re-evaluates selection limits after dependencies change', () => {
     const initialProps: UseSelectionManagerArgs = {
-      selectedFilePaths: new Set(['file1']),
       maxSelectionCount: 1,
+      selectedFilePaths: new Set(['file1']),
       setSelectedFiles: mockSetSelectedFiles,
     };
 
@@ -107,8 +107,8 @@ describe('useSelectionManager', () => {
     const nextSetSelectedFiles = vi.fn();
 
     rerender({
-      selectedFilePaths: new Set(['file1', 'file2']),
       maxSelectionCount: 3,
+      selectedFilePaths: new Set(['file1', 'file2']),
       setSelectedFiles: nextSetSelectedFiles,
     });
 
@@ -117,8 +117,8 @@ describe('useSelectionManager', () => {
 
   it('uses latest handlers when dependencies change', () => {
     const initialProps: UseSelectionManagerArgs = {
-      selectedFilePaths: new Set(['file1']),
       maxSelectionCount: 1,
+      selectedFilePaths: new Set(['file1']),
       setSelectedFiles: mockSetSelectedFiles,
     };
 
@@ -127,8 +127,8 @@ describe('useSelectionManager', () => {
     const nextSetSelectedFiles = vi.fn();
 
     rerender({
-      selectedFilePaths: new Set(),
       maxSelectionCount: 3,
+      selectedFilePaths: new Set(),
       setSelectedFiles: nextSetSelectedFiles,
     });
 

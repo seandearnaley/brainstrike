@@ -23,8 +23,8 @@ class WrongDimService implements EmbeddingService {
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(10).fill(0.1), // Wrong dimension (10 vs 768)
       dimensions: 10,
+      embedding: new Array(10).fill(0.1), // Wrong dimension (10 vs 768)
       model: 'wrong-dim-model',
       usage: { totalTokens: 10 },
     };
@@ -41,7 +41,7 @@ class WrongDimService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -50,7 +50,7 @@ class WrongDimService implements EmbeddingService {
     return this.generateEmbedding(text);
   }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 0, distance: 1, method: 'cosine' };
+    return { distance: 1, method: 'cosine', similarity: 0 };
   }
   getStatus(): EmbeddingStatus {
     return this.status;
@@ -73,16 +73,16 @@ describe('embedding-worker: dimension mismatch handling', () => {
 
   it('initializes worker with non-default embedding dimensions', async () => {
     const controller384 = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       modelKey: 'Xenova/all-MiniLM-L6-v2', // 384D model
     });
     expect(controller384).toBeDefined();
     await controller384.stop();
 
     const controller1024 = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       modelKey: 'bge-large-en-v1.5', // 1024D model
     });
     expect(controller1024).toBeDefined();
@@ -92,8 +92,8 @@ describe('embedding-worker: dimension mismatch handling', () => {
   it('initializes worker with 768D models', async () => {
     // jina-code is 768D, should work
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
     });
     expect(controller).toBeDefined();
@@ -101,8 +101,8 @@ describe('embedding-worker: dimension mismatch handling', () => {
 
     // bge-base-en-v1.5 is also 768D, should work
     const controller2 = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       modelKey: 'Xenova/bge-base-en-v1.5',
     });
     expect(controller2).toBeDefined();
@@ -147,16 +147,16 @@ describe('embedding-worker: dimension mismatch handling', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new WrongDimService(),
@@ -218,16 +218,16 @@ describe('embedding-worker: dimension mismatch handling', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 384,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code', // 768D model
     });

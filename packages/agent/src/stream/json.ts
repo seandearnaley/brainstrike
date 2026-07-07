@@ -79,8 +79,8 @@ function serializePrimitive(value: unknown): PrimitiveResult {
 function serializeBuffer(buffer: Buffer): JsonBufferLike {
   return {
     __type: 'Buffer',
-    encoding: 'base64',
     data: buffer.toString('base64'),
+    encoding: 'base64',
     size: buffer.length,
   } satisfies JsonBufferLike;
 }
@@ -94,19 +94,19 @@ function serializeTypedArray(view: ArrayBufferView): JsonTypedArrayLike {
   if (typeof Buffer !== 'undefined') {
     return {
       __type: view.constructor?.name ?? 'TypedArray',
-      encoding: 'base64',
-      data: Buffer.from(uint8).toString('base64'),
-      byteOffset: view.byteOffset,
       byteLength: view.byteLength,
+      byteOffset: view.byteOffset,
+      data: Buffer.from(uint8).toString('base64'),
+      encoding: 'base64',
     } satisfies JsonTypedArrayLike;
   }
 
   return {
     __type: view.constructor?.name ?? 'TypedArray',
-    encoding: 'array',
-    data: Array.from(uint8),
-    byteOffset: view.byteOffset,
     byteLength: view.byteLength,
+    byteOffset: view.byteOffset,
+    data: Array.from(uint8),
+    encoding: 'array',
   } satisfies JsonTypedArrayLike;
 }
 
@@ -125,8 +125,8 @@ function serializeSet(setValue: Set<unknown>, seen: WeakSet<object>): JsonSetLik
 
 function serializeError(errorValue: Error, seen: WeakSet<object>): Record<string, unknown> {
   const base: Record<string, unknown> = {
-    name: errorValue.name,
     message: errorValue.message,
+    name: errorValue.name,
     stack: errorValue.stack,
   };
 

@@ -81,9 +81,9 @@ function aggregateFileProgress(
   }
   const verb = state.stage === 'downloading' ? 'Downloading' : 'Loading';
   return {
-    stage: state.stage,
-    progress: Math.round(total / fileProgress.size),
     message: `${verb} model files (${completed}/${fileProgress.size})`,
+    progress: Math.round(total / fileProgress.size),
+    stage: state.stage,
     ...(laggardFile ? { file: laggardFile } : {}),
   };
 }
@@ -201,16 +201,16 @@ export function useLocalModelLoading(args: {
       const progress = typeof payload.progress === 'number' ? payload.progress : 0;
       if (progress >= 100) {
         handleLocalLoadingStateChange({
-          stage: 'ready',
-          progress: 100,
           message: payload.message ?? 'Model ready',
+          progress: 100,
+          stage: 'ready',
         });
         return;
       }
       handleLocalLoadingStateChange({
-        stage: 'loading',
-        progress,
         message: payload.message ?? 'Loading local model',
+        progress,
+        stage: 'loading',
         ...(payload.file ? { file: payload.file } : {}),
       });
     });
@@ -230,12 +230,12 @@ export function useLocalModelLoading(args: {
           modelId: modelName,
           onLoadingProgress: handleLocalLoadingStateChange,
         });
-        handleLocalLoadingStateChange({ stage: 'ready', progress: 100, message: 'Model ready' });
+        handleLocalLoadingStateChange({ message: 'Model ready', progress: 100, stage: 'ready' });
       } catch (error) {
         handleLocalLoadingStateChange({
-          stage: 'error',
-          progress: 0,
           message: error instanceof Error ? error.message : String(error),
+          progress: 0,
+          stage: 'error',
         });
         throw error;
       }

@@ -33,9 +33,9 @@ export async function readProviderSecretKey(
     const value = await secretsService.getKey(provider);
     return normalizeSecretValue(value);
   } catch (error) {
-    logger.error('Failed to read secrets entry for provider', { provider, error });
-    return;
+    logger.error('Failed to read secrets entry for provider', { error, provider });
   }
+  return;
 }
 
 export async function readProviderApiKey(provider: SupportedProvider): Promise<string | undefined> {

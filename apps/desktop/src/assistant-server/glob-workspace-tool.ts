@@ -80,7 +80,6 @@ async function walkRoot(args: {
 }): Promise<RootWalkState> {
   const matches: GlobWorkspaceMatch[] = [];
   const { scanLimited } = await walkWorkspaceRoot({
-    root: args.root,
     includeIgnored: args.includeIgnored,
     onFile: ({ relativePath }) => {
       if (args.matcher.match(relativePath)) {
@@ -91,6 +90,7 @@ async function walkRoot(args: {
         });
       }
     },
+    root: args.root,
   });
   return { matches, scanLimited };
 }
@@ -131,12 +131,12 @@ function buildResult(args: {
         (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
       : undefined;
     return {
-      matches,
       count: matches.length,
-      totalMatches,
+      matches,
       offset,
-      truncated,
       scanLimited,
+      totalMatches,
+      truncated,
       ...(hint ? { hint } : {}),
     };
   });
@@ -168,7 +168,7 @@ export async function runGlobWorkspace(
   const allMatches: GlobWorkspaceMatch[] = [];
   let scanLimited = false;
   for (const root of roots) {
-    const state = await walkRoot({ root, matcher, includeIgnored });
+    const state = await walkRoot({ includeIgnored, matcher, root });
     allMatches.push(...state.matches);
     scanLimited = scanLimited || state.scanLimited;
   }
@@ -183,9 +183,9 @@ export async function runGlobWorkspace(
   // not the capped window size.
   const limited = allMatches.slice(0, offset + limit);
   return buildResult({
-    windowMatches: limited,
-    totalMatches: allMatches.length,
     offset,
     scanLimited,
+    totalMatches: allMatches.length,
+    windowMatches: limited,
   });
 }

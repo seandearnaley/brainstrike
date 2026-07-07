@@ -78,7 +78,7 @@ describe('Dimension HNSW Index Helpers', () => {
 
   describe('createDimensionIndex', () => {
     it('should create an HNSW index for a specific dimension', async () => {
-      const params = { m: 16, ef: 64 };
+      const params = { ef: 64, m: 16 };
       await createDimensionIndex(db, 128, params);
 
       // Verify index exists
@@ -87,14 +87,14 @@ describe('Dimension HNSW Index Helpers', () => {
     });
 
     it('should be idempotent - creating twice does not error', async () => {
-      const params = { m: 16, ef: 64 };
+      const params = { ef: 64, m: 16 };
       await createDimensionIndex(db, 256, params);
       await createDimensionIndex(db, 256, params); // Second call should not throw
       expect(await dimensionIndexExists(db, 256)).toBe(true);
     });
 
     it('builds a half-precision (halfvec) HNSW index to shrink the index and speed search', async () => {
-      await createDimensionIndex(db, 768, { m: 16, ef: 64 });
+      await createDimensionIndex(db, 768, { ef: 64, m: 16 });
       const def = await db.query<{ indexdef: string }>(
         "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_768'"
       );
@@ -108,14 +108,14 @@ describe('Dimension HNSW Index Helpers', () => {
       // vector HNSW caps at 2000 dims; halfvec raises it to 4000, so large models
       // (text-embedding-3-large = 3072) get an ANN index instead of a seq scan.
       expect(MAX_HNSW_DIMENSION).toBe(4000);
-      await createDimensionIndex(db, 3072, { m: 16, ef: 64 });
+      await createDimensionIndex(db, 3072, { ef: 64, m: 16 });
       expect(await dimensionIndexExists(db, 3072)).toBe(true);
     });
   });
 
   describe('dropDimensionIndex', () => {
     it('should drop an existing index', async () => {
-      const params = { m: 16, ef: 64 };
+      const params = { ef: 64, m: 16 };
       await createDimensionIndex(db, 384, params);
       expect(await dimensionIndexExists(db, 384)).toBe(true);
 
@@ -222,7 +222,7 @@ describe('Dimension HNSW Index Query Plan', () => {
     `);
 
     // Create HNSW index for 768 dimensions
-    const params = { m: 16, ef: 64 };
+    const params = { ef: 64, m: 16 };
     await createDimensionIndex(db, 768, params);
 
     // Insert test data with 768-dimensional embeddings

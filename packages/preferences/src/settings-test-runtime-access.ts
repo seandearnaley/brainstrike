@@ -164,9 +164,9 @@ export function getLocalRuntimeStatusTestOverride(
     return;
   }
   return {
-    state: 'unavailable',
     checkedAt: Date.now(),
     message: 'External local runtime probing is disabled for deterministic desktop E2E.',
+    state: 'unavailable',
   };
 }
 

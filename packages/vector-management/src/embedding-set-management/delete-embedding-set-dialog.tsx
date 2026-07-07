@@ -40,8 +40,8 @@ export function DeleteEmbeddingSetDialog({
   const handleDelete = async () => {
     if (!(db && embeddingSet)) {
       toast({
-        title: 'Error',
         description: 'Invalid configuration',
+        title: 'Error',
         variant: 'destructive',
       });
       return;
@@ -69,8 +69,8 @@ export function DeleteEmbeddingSetDialog({
       });
 
       toast({
-        title: 'Success',
         description: `Deleted collection: ${collectionName}`,
+        title: 'Success',
       });
 
       setDeleting(false);
@@ -79,8 +79,8 @@ export function DeleteEmbeddingSetDialog({
       setDeleting(false);
       logger.error('Failed to delete embedding set', { error });
       toast({
-        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to delete collection',
+        title: 'Error',
         variant: 'destructive',
       });
       return;

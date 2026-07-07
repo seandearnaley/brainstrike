@@ -95,7 +95,6 @@ export function resolveAssistantVendorChunk(
   if (ASSISTANT_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
     return 'assistant-vendor';
   }
-
   return;
 }
 
@@ -198,11 +197,11 @@ const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
  */
 export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGrammarCopyTarget[] {
   return VENDORED_TREE_SITTER_GRAMMARS.map((language) => ({
+    dest: 'assets/grammars',
+    rename: { stripBase: true },
     src: toVitePath(
       path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`)
     ),
-    dest: 'assets/grammars',
-    rename: { stripBase: true },
   }));
 }
 
@@ -251,7 +250,6 @@ export function findPGliteWasm(baseDir: string): string | null {
 
 export function fullReloadOnCompilerHotspots(): Plugin {
   return {
-    name: 'full-reload-on-compiler-hotspots',
     handleHotUpdate(ctx: HmrContext) {
       if (isCompilerHotspot(ctx.file)) {
         ctx.server.ws.send({ type: 'full-reload' });
@@ -259,5 +257,6 @@ export function fullReloadOnCompilerHotspots(): Plugin {
       }
       return;
     },
+    name: 'full-reload-on-compiler-hotspots',
   };
 }

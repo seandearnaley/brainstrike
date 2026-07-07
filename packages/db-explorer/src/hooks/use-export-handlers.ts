@@ -23,8 +23,8 @@ export function useExportHandlers(
       const { records } = await loadExportData();
       if (records.length === 0) {
         toast({
-          title: 'No Data to Export',
           description: 'Import some files first before exporting.',
+          title: 'No Data to Export',
           variant: 'destructive',
         });
         return;
@@ -43,13 +43,13 @@ export function useExportHandlers(
       URL.revokeObjectURL(link.href);
 
       toast({
-        title: 'Export Successful',
         description: `Exported ${records.length} files to ${filename}`,
+        title: 'Export Successful',
       });
     } catch (error) {
       toast({
-        title: 'Export Failed',
         description: error instanceof Error ? error.message : 'Failed to export files',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     }
@@ -60,8 +60,8 @@ export function useExportHandlers(
       const { chunks } = await loadExportData();
       if (chunks.length === 0) {
         toast({
-          title: 'No Chunks to Export',
           description: 'Process some files with chunking enabled first.',
+          title: 'No Chunks to Export',
           variant: 'destructive',
         });
         return;
@@ -80,13 +80,13 @@ export function useExportHandlers(
       URL.revokeObjectURL(link.href);
 
       toast({
-        title: 'Export Successful',
         description: `Exported ${chunks.length} chunks to ${filename}`,
+        title: 'Export Successful',
       });
     } catch (error) {
       toast({
-        title: 'Export Failed',
         description: error instanceof Error ? error.message : 'Failed to export chunks',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     }
@@ -98,8 +98,8 @@ export function useExportHandlers(
       const chunksWithEmbeddings = chunks.filter((chunk) => chunk.embedding);
       if (chunksWithEmbeddings.length === 0) {
         toast({
-          title: 'No Embeddings to Export',
           description: 'Generate embeddings for chunks first.',
+          title: 'No Embeddings to Export',
           variant: 'destructive',
         });
         return;
@@ -118,13 +118,13 @@ export function useExportHandlers(
       URL.revokeObjectURL(link.href);
 
       toast({
-        title: 'Export Successful',
         description: `Exported ${chunksWithEmbeddings.length} embeddings to ${filename}`,
+        title: 'Export Successful',
       });
     } catch (error) {
       toast({
-        title: 'Export Failed',
         description: error instanceof Error ? error.message : 'Failed to export embeddings',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     }
@@ -135,30 +135,30 @@ export function useExportHandlers(
       const { records, chunks } = await loadExportData();
       if (records.length === 0 && chunks.length === 0) {
         toast({
-          title: 'No Data to Export',
           description: 'Import some files first before exporting.',
+          title: 'No Data to Export',
           variant: 'destructive',
         });
         return;
       }
       await exportAllDataAsZip(records, chunks);
       toast({
-        title: 'Export Successful',
         description: 'All data exported as ZIP archive',
+        title: 'Export Successful',
       });
     } catch (error) {
       toast({
-        title: 'Export Failed',
         description: error instanceof Error ? error.message : 'Failed to export all data',
+        title: 'Export Failed',
         variant: 'destructive',
       });
     }
   }, [loadExportData, toast]);
 
   return {
-    handleExportFiles,
+    handleExportAll,
     handleExportChunks,
     handleExportEmbeddings,
-    handleExportAll,
+    handleExportFiles,
   };
 }

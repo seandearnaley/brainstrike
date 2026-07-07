@@ -8,15 +8,15 @@ import {
 describe('parseProviderModelKey', () => {
   it('parses double-colon composite keys', () => {
     expect(parseProviderModelKey('local::jinaai/jina-embeddings-v2-base-code')).toEqual({
-      provider: 'local',
       modelId: 'jinaai/jina-embeddings-v2-base-code',
+      provider: 'local',
     });
   });
 
   it('parses legacy single-colon composites for backwards compatibility', () => {
     expect(parseProviderModelKey('local:jinaai/jina-embeddings-v2-base-code')).toEqual({
-      provider: 'local',
       modelId: 'jinaai/jina-embeddings-v2-base-code',
+      provider: 'local',
     });
   });
 
@@ -31,27 +31,27 @@ describe('canonicalizeProviderModelKey', () => {
   it('returns provider/model/composite triple for well-formed keys', () => {
     const result = canonicalizeProviderModelKey('openai::text-embedding-3-large');
     expect(result).toEqual({
-      provider: 'openai',
-      modelId: 'text-embedding-3-large',
       composite: 'openai::text-embedding-3-large',
+      modelId: 'text-embedding-3-large',
+      provider: 'openai',
     });
   });
 
   it('normalizes legacy single-colon values into the :: format', () => {
     const result = canonicalizeProviderModelKey('local:jinaai/jina-embeddings-v2-base-code');
     expect(result).toEqual({
-      provider: 'local',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
       composite: formatProviderModelKey('local', 'jinaai/jina-embeddings-v2-base-code'),
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      provider: 'local',
     });
   });
 
   it('infers provider from hint when composite lacks namespace', () => {
     const result = canonicalizeProviderModelKey('bge-m3', 'local');
     expect(result).toEqual({
-      provider: 'local',
-      modelId: 'bge-m3',
       composite: formatProviderModelKey('local', 'bge-m3'),
+      modelId: 'bge-m3',
+      provider: 'local',
     });
   });
 

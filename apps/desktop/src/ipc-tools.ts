@@ -98,30 +98,30 @@ function sanitizeMcpInput(
     serializedSize = serialized.length;
   } catch {
     return {
-      ok: false,
       error: 'Tool input must be JSON-serializable.',
+      ok: false,
     };
   }
 
   if (serializedSize > MAX_INPUT_SIZE) {
     return {
-      ok: false,
       error: `Tool input exceeds ${MAX_INPUT_SIZE} bytes.`,
+      ok: false,
     };
   }
 
   if (!isPlainObject(input)) {
     return {
-      ok: false,
       error: 'Tool input must be a JSON object.',
+      ok: false,
     };
   }
 
   const visited = new WeakSet<object>();
   if (!isJsonValue(input, 0, visited)) {
     return {
-      ok: false,
       error: 'Tool input must be JSON-serializable (no functions, symbols, or non-finite numbers).',
+      ok: false,
     };
   }
 
@@ -177,7 +177,7 @@ function sanitizeWorkspaceContextRange(input: unknown): RuntimeWorkspaceContextR
     return null;
   }
 
-  const range: RuntimeWorkspaceContextRange = { startLine, endLine };
+  const range: RuntimeWorkspaceContextRange = { endLine, startLine };
   const approxTokens = readOptionalTokenValue(input, 'approxTokens');
   if (approxTokens !== undefined) {
     range.approxTokens = approxTokens;
@@ -434,9 +434,9 @@ function buildDuration(startTime: number): number {
 
 function buildFailureResult(startTime: number, error: string): ToolExecutionResult {
   return {
-    success: false,
-    error,
     durationMs: buildDuration(startTime),
+    error,
+    success: false,
   };
 }
 
@@ -452,8 +452,8 @@ function sanitizeToolInput(
   }
 
   logger.warn(`Rejected ${logScope} tool input`, {
-    toolId,
     error: sanitizedInput.error,
+    toolId,
   });
   return {
     ok: false,
@@ -482,9 +482,9 @@ async function tryExecuteAssistantRuntimeTool(
 
   const result = await assistantTool.execute(sanitizedInput.value, undefined);
   return {
-    success: true,
-    result,
     durationMs: buildDuration(startTime),
+    result,
+    success: true,
   };
 }
 
@@ -501,15 +501,15 @@ async function executeMcpTool(
   const result = await callTool(toolId, sanitizedInput.value);
   const durationMs = buildDuration(startTime);
   logger.info('Tool executed', {
-    toolId,
     durationMs,
     source: 'mcp',
+    toolId,
   });
 
   return {
-    success: true,
-    result,
     durationMs,
+    result,
+    success: true,
   };
 }
 
@@ -567,7 +567,7 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
         return await executeMcpTool(startTime, normalizedToolId, input);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
-        logger.error('Tool execution failed', { toolId: normalizedToolId, error: errorMessage });
+        logger.error('Tool execution failed', { error: errorMessage, toolId: normalizedToolId });
         return buildFailureResult(startTime, errorMessage);
       }
     }

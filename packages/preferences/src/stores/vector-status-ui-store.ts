@@ -202,8 +202,8 @@ function createVectorStatusUIStorage(): StateStorage {
   if (electronStorage) {
     return {
       getItem: (key: string) => electronStorage.getItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
       removeItem: (key: string) => electronStorage.removeItem(key),
+      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
     };
   }
 
@@ -234,19 +234,24 @@ function areQueueStatsSnapshotsEqual(
 export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
   persist(
     (set) => ({
-      activeEmbeddingSetId: null,
       activeBackfill: null,
-      isImporting: false,
-      isEmbeddingActive: false,
-      isEmbeddingQueueActive: false,
-      isJobQueueActive: false,
-      durableQueueStats: null,
+      activeEmbeddingSetId: null,
       cachedCollections: [],
       cachedFileData: null,
+      durableQueueStats: null,
+      isEmbeddingActive: false,
+      isEmbeddingQueueActive: false,
+      isImporting: false,
+      isJobQueueActive: false,
+      removeCachedCollection: (collectionId) =>
+        set((state) => ({
+          cachedCollections: state.cachedCollections.filter((c) => c.id !== collectionId),
+        })),
       schemaVerified: false,
-      setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
       setActiveBackfill: (backfill) => set({ activeBackfill: backfill }),
-      setIsImporting: (importing) => set({ isImporting: importing }),
+      setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
+      setCachedCollections: (collections) => set({ cachedCollections: collections }),
+      setCachedFileData: (data) => set({ cachedFileData: data }),
       setDurableQueueStats: (stats) =>
         set((state) =>
           areQueueStatsSnapshotsEqual(state.durableQueueStats, stats)
@@ -255,19 +260,16 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
         ),
       setIsEmbeddingQueueActive: (active) =>
         set((state) => ({
-          isEmbeddingQueueActive: active,
           isEmbeddingActive: active || state.isJobQueueActive,
+          isEmbeddingQueueActive: active,
         })),
+      setIsImporting: (importing) => set({ isImporting: importing }),
       setIsJobQueueActive: (active) =>
         set((state) => ({
-          isJobQueueActive: active,
           isEmbeddingActive: state.isEmbeddingQueueActive || active,
+          isJobQueueActive: active,
         })),
-      setCachedCollections: (collections) => set({ cachedCollections: collections }),
-      removeCachedCollection: (collectionId) =>
-        set((state) => ({
-          cachedCollections: state.cachedCollections.filter((c) => c.id !== collectionId),
-        })),
+      setSchemaVerified: (verified) => set({ schemaVerified: verified }),
       upsertCachedCollection: (collection) =>
         set((state) => {
           const next = state.cachedCollections.filter(
@@ -277,29 +279,27 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
           next.sort(compareCollectionsDesc);
           return { cachedCollections: next };
         }),
-      setCachedFileData: (data) => set({ cachedFileData: data }),
-      setSchemaVerified: (verified) => set({ schemaVerified: verified }),
     }),
     {
       name: STORE_NAME,
-      version: 1,
-      storage,
       // Only persist activeEmbeddingSetId - import/embedding flags and cached data are transient
       partialize: (s) => ({ activeEmbeddingSetId: s.activeEmbeddingSetId }),
+      storage,
+      version: 1,
     }
   )
 );
 
 export const vectorStatusUISelectors = {
-  activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
   activeBackfill: (s: VectorStatusUIStore) => s.activeBackfill,
-  isImporting: (s: VectorStatusUIStore) => s.isImporting,
-  isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
-  isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
-  isJobQueueActive: (s: VectorStatusUIStore) => s.isJobQueueActive,
-  durableQueueStats: (s: VectorStatusUIStore) => s.durableQueueStats,
+  activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
   cachedCollections: (s: VectorStatusUIStore) => s.cachedCollections,
   cachedFileData: (s: VectorStatusUIStore) => s.cachedFileData,
+  durableQueueStats: (s: VectorStatusUIStore) => s.durableQueueStats,
+  isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
+  isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
+  isImporting: (s: VectorStatusUIStore) => s.isImporting,
+  isJobQueueActive: (s: VectorStatusUIStore) => s.isJobQueueActive,
   schemaVerified: (s: VectorStatusUIStore) => s.schemaVerified,
 };
 
@@ -315,15 +315,15 @@ export function __resetVectorStatusUIStoreForTests() {
     // Intentionally silent in tests - storage errors should not fail test resets.
   }
   useVectorStatusUIStore.setState({
-    activeEmbeddingSetId: null,
     activeBackfill: null,
-    isImporting: false,
-    isEmbeddingActive: false,
-    isEmbeddingQueueActive: false,
-    isJobQueueActive: false,
-    durableQueueStats: null,
+    activeEmbeddingSetId: null,
     cachedCollections: [],
     cachedFileData: null,
+    durableQueueStats: null,
+    isEmbeddingActive: false,
+    isEmbeddingQueueActive: false,
+    isImporting: false,
+    isJobQueueActive: false,
     schemaVerified: false,
   });
 }

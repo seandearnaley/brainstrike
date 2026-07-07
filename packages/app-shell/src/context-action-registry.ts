@@ -63,11 +63,11 @@ export function buildAppActionRegistryParts(): AppActionRegistryParts {
     services.platformFs = {
       openPath: async (absolutePath) => {
         const result = await platformBridge.openPath(absolutePath);
-        return result.ok ? { ok: true } : { ok: false, error: result.error ?? 'Open failed' };
+        return result.ok ? { ok: true } : { error: result.error ?? 'Open failed', ok: false };
       },
       showItemInFolder: async (absolutePath) => {
         const result = await platformBridge.showItemInFolder(absolutePath);
-        return result.ok ? { ok: true } : { ok: false, error: result.error ?? 'Reveal failed' };
+        return result.ok ? { ok: true } : { error: result.error ?? 'Reveal failed', ok: false };
       },
     };
     capabilities.add('fs.reveal');

@@ -264,8 +264,8 @@ describe('FactoryResetPanel', () => {
 
     it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
       const resetLocal = vi.fn().mockResolvedValue({
-        success: false,
         message: 'desktop reset failed',
+        success: false,
       });
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
@@ -430,8 +430,8 @@ describe('FactoryResetPanel', () => {
 
       await waitFor(() => {
         expect(mockToast).toHaveBeenCalledWith({
-          title: 'Factory Reset Failed',
           description: 'Error: Reset failed',
+          title: 'Factory Reset Failed',
           variant: 'destructive',
         });
       });

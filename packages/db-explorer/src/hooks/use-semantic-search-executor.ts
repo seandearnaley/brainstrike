@@ -113,9 +113,8 @@ async function createHostedEmbedder(
 
   const provider = providerResult.value;
   return {
-    runtime: 'hosted',
     embedQuery: async (text: string) => {
-      const result = await provider.embed({ text, modelId });
+      const result = await provider.embed({ modelId, text });
       if (!result.ok) {
         const error: EmbedderError = result.error;
         const msg =
@@ -128,6 +127,7 @@ async function createHostedEmbedder(
       }
       return { embedding: result.value.embedding };
     },
+    runtime: 'hosted',
   };
 }
 
@@ -146,13 +146,13 @@ async function createLocalEmbedder(
   logger.info('Local model initialized');
 
   return {
-    runtime: devicePreference,
+    dispose: () => svc.dispose(),
     embedQuery: async (text: string) => {
       logger.info('Generating query embedding with local model...');
       const result = await svc.generateQueryEmbedding(text);
       return { embedding: Array.from(result.embedding) };
     },
-    dispose: () => svc.dispose(),
+    runtime: devicePreference,
   };
 }
 
@@ -221,16 +221,16 @@ function transformToSearchResults(
     };
 
     const searchResult: SemanticSearchResult = {
-      nodeId: `chunk-${result.chunk.id}`,
       chunkId: result.chunk.id,
       chunkIndex: result.chunk.chunkIndex,
-      fileRecordId: result.chunk.fileRecordId,
-      similarity: result.similarity,
       content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount,
       fileName: fileInfo.name,
       filePath: fileInfo.path,
+      fileRecordId: result.chunk.fileRecordId,
       fileSize: fileInfo.size,
+      nodeId: `chunk-${result.chunk.id}`,
+      similarity: result.similarity,
+      tokenCount: result.chunk.tokenCount,
     };
     if (result.chunk.startLine !== undefined) {
       searchResult.startLine = result.chunk.startLine;
@@ -296,7 +296,7 @@ async function buildFileRecordsMap(
       fileRecordsMap.set(fileId, info);
     } else {
       // Log failed lookups but continue with partial results
-      logger.warn('Failed to fetch file record', { fileId, error: result.reason });
+      logger.warn('Failed to fetch file record', { error: result.reason, fileId });
       fileRecordsMap.set(fileId, { name: 'Error loading', path: '(error)', size: 0 });
     }
   }
@@ -321,19 +321,19 @@ function transformHybridResults(
     };
 
     const searchResult: SemanticSearchResult = {
-      nodeId: `chunk-${result.chunk.id}`,
       chunkId: result.chunk.id,
       chunkIndex: result.chunk.chunkIndex,
-      fileRecordId: result.chunk.fileRecordId,
-      // Use RRF score as similarity (already normalized 0-1)
-      similarity: result.rrfScore,
       content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount,
       fileName: fileInfo.name,
       filePath: fileInfo.path,
+      fileRecordId: result.chunk.fileRecordId,
       fileSize: fileInfo.size,
+      nodeId: `chunk-${result.chunk.id}`,
+      // Use RRF score as similarity (already normalized 0-1)
+      similarity: result.rrfScore,
       // Include hybrid metadata
       sourceCount: result.sourceCount,
+      tokenCount: result.chunk.tokenCount,
     };
 
     // Add optional fields if present
@@ -373,12 +373,18 @@ async function executeHybridSearch(
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
-    vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
     ftsWeight: config.ftsWeight ?? DEFAULT_FTS_WEIGHT,
+    vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
   });
 
   const hybridService = createHybridSearchService(chunkRepository);
   const hybridResponse = await hybridService.search(query, embedding, {
+    embeddingSetId,
+    ftsLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
+    ftsWeight: config.ftsWeight ?? DEFAULT_FTS_WEIGHT,
+    // The search UI doesn't render FTS headlines, so skip the costly per-row
+    // ts_headline generation across the (up to 2,000-row) FTS source pool.
+    includeHeadline: false,
     limit: config.resultLimit,
     // RRF fusion can only emit as many unique hits as the union of its source
     // pools holds. The service defaults both pools to 50, which silently caps
@@ -386,31 +392,25 @@ async function executeHybridSearch(
     // requested limit so a large resultLimit is reachable, but never shrink
     // below the default — RRF needs a candidate pool larger than the final cut.
     vectorLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
-    ftsLimit: Math.max(HYBRID_MIN_SOURCE_POOL, config.resultLimit),
-    // The search UI doesn't render FTS headlines, so skip the costly per-row
-    // ts_headline generation across the (up to 2,000-row) FTS source pool.
-    includeHeadline: false,
     vectorThreshold: config.threshold,
-    embeddingSetId,
     vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
-    ftsWeight: config.ftsWeight ?? DEFAULT_FTS_WEIGHT,
     ...filterOptions,
   });
 
   logger.info('Hybrid search completed', {
-    resultCount: hybridResponse.results.length,
-    vectorResultCount: hybridResponse.metadata.vectorResultCount,
     ftsResultCount: hybridResponse.metadata.ftsResultCount,
+    resultCount: hybridResponse.results.length,
     totalMs: hybridResponse.metadata.totalMs,
+    vectorResultCount: hybridResponse.metadata.vectorResultCount,
   });
 
   // Normalize RRF scores to 0-1 range for consistency with vector similarity
   const normalizedResults = normalizeRRFScores(
     hybridResponse.results.map((r) => ({
+      contributions: [],
       id: r.chunk.id,
       rrfScore: r.rrfScore,
       sourceCount: r.sourceCount,
-      contributions: [],
     }))
   );
 
@@ -441,12 +441,12 @@ async function executeVectorSearch(
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   const searchResults = await chunkRepository.searchSimilar(embedding, {
-    limit: config.resultLimit,
-    threshold: config.threshold,
     embeddingSetId,
     // Result rows only need the embedding DIMENSION (preserved via vector_dims),
     // never the vector values — so project the heavy payload away.
     includeEmbedding: false,
+    limit: config.resultLimit,
+    threshold: config.threshold,
     ...filterOptions,
   });
   logger.info('Vector search completed', { resultCount: searchResults.length });
@@ -512,8 +512,8 @@ export function useSemanticSearchExecutor({
       logger.debug('Disposed cached embedder', { reason });
     } catch (error: unknown) {
       logger.error('Failed to dispose embedder', {
-        reason,
         error: error instanceof Error ? error.message : String(error),
+        reason,
       });
     }
   }, []);
@@ -568,8 +568,8 @@ export function useSemanticSearchExecutor({
       }
       return resolveEmbeddingSetModelInfo(
         {
-          modelKey: row.modelKey,
           dimensions: parseStrictEmbeddingDimensions(row.dimensions),
+          modelKey: row.modelKey,
         },
         modelConfigMap
       );
@@ -596,26 +596,26 @@ export function useSemanticSearchExecutor({
   const createHostedConfig = useCallback(
     (provider: string, modelId: string, dimensions: number): EmbeddingProviderConfig => {
       if (provider === 'openai') {
-        return { runtime: 'hosted', provider: 'openai', modelId, dimensions };
+        return { dimensions, modelId, provider: 'openai', runtime: 'hosted' };
       }
       if (provider === 'google') {
         return {
-          runtime: 'hosted',
-          provider: 'google',
           modelId,
           outputDimensionality: dimensions,
+          provider: 'google',
+          runtime: 'hosted',
         };
       }
       if (provider === 'cohere') {
         return {
-          runtime: 'hosted',
-          provider: 'cohere',
-          modelId,
           inputType: 'search_query',
+          modelId,
+          provider: 'cohere',
+          runtime: 'hosted',
         };
       }
       if (provider === 'voyage') {
-        return { runtime: 'hosted', provider: 'voyage', modelId, inputType: 'query' };
+        return { inputType: 'query', modelId, provider: 'voyage', runtime: 'hosted' };
       }
       throw new Error(`Unsupported hosted provider: ${provider}`);
     },
@@ -629,7 +629,7 @@ export function useSemanticSearchExecutor({
    */
   const ensureEmbedderReady = useCallback(
     async ({ modelKey, dimensions, modelConfig }: EffectiveModelInfo): Promise<SearchEmbedder> => {
-      logger.info('ensureEmbedderReady called', { modelKey, dimensions });
+      logger.info('ensureEmbedderReady called', { dimensions, modelKey });
 
       // Reuse cached embedder if same model
       if (embedderRef.current && currentModelKeyRef.current === modelKey) {
@@ -708,11 +708,11 @@ export function useSemanticSearchExecutor({
       embeddingSetId: string | null
     ): Promise<SemanticSearchResult[]> => {
       logger.info('searchExecutor called', {
-        query: query.slice(0, 50),
-        embeddingSetId,
         config,
+        embeddingSetId,
         hasChunkRepo: !!chunkRepository,
         hasFileRepo: !!fileRepository,
+        query: query.slice(0, 50),
       });
 
       if (!(chunkRepository && fileRepository)) {
@@ -727,8 +727,8 @@ export function useSemanticSearchExecutor({
       logger.info('Getting model info for embedding set...');
       const modelInfo = await getModelInfo(embeddingSetId);
       logger.info('Model info retrieved', {
-        modelKey: modelInfo.modelKey,
         dimensions: modelInfo.dimensions,
+        modelKey: modelInfo.modelKey,
       });
 
       // Ensure embedder is ready
@@ -772,10 +772,10 @@ export function useSemanticSearchExecutor({
       const retrievalMode = safeConfig.retrievalMode ?? 'hybrid';
 
       logger.info('Searching for similar chunks...', {
-        retrievalMode,
+        filterMode: getFilterModeLabel(filterOptions),
         hasFilePaths: Boolean(safeConfig.filePaths?.length),
         hasSnapshotId: Boolean(safeConfig.selectionSnapshotId),
-        filterMode: getFilterModeLabel(filterOptions),
+        retrievalMode,
       });
 
       // Perform search based on retrieval mode
@@ -813,8 +813,8 @@ export function useSemanticSearchExecutor({
 
     previousAvailabilityRef.current = hasExecutor;
     logger.debug('Semantic search executor availability changed', {
-      hasExecutor,
       hasChunkRepo: !!chunkRepository,
+      hasExecutor,
       hasFileRepo: !!fileRepository,
     });
   }, [chunkRepository, fileRepository, hasExecutor]);

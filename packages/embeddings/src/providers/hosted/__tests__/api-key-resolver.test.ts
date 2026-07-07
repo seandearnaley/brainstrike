@@ -51,8 +51,8 @@ describe('api-key-resolver', () => {
     it('clears cache for specific provider', async () => {
       globalThis.process = {
         env: {
-          OPENAI_API_KEY: 'openai-key',
           GOOGLE_API_KEY: 'google-key',
+          OPENAI_API_KEY: 'openai-key',
         },
       } as unknown as NodeJS.Process;
 
@@ -75,8 +75,8 @@ describe('api-key-resolver', () => {
     it('clears cache for all providers when no provider specified', async () => {
       globalThis.process = {
         env: {
-          OPENAI_API_KEY: 'openai-key',
           GOOGLE_API_KEY: 'google-key',
+          OPENAI_API_KEY: 'openai-key',
         },
       } as unknown as NodeJS.Process;
 
@@ -162,8 +162,8 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: {
-          OPENAI_API_KEY: 'standard-key',
           BRAINSTRIKE_OPENAI_API_KEY: 'brainstrike-key',
+          OPENAI_API_KEY: 'standard-key',
         },
       } as unknown as NodeJS.Process;
 

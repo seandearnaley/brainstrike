@@ -51,10 +51,10 @@ export function resolveShellInvocation(
 ): { shell: string; args: string[] } {
   if (platform === 'win32') {
     const shell = process.env['ComSpec'] || 'cmd.exe';
-    return { shell, args: ['/d', '/s', '/c', command] };
+    return { args: ['/d', '/s', '/c', command], shell };
   }
   const shell = process.env['SHELL'] || '/bin/sh';
-  return { shell, args: ['-c', command] };
+  return { args: ['-c', command], shell };
 }
 
 export interface ExecuteCommandToolResult {
@@ -122,9 +122,9 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     // ESRCH = the group is already gone (normal once the child has exited).
     if (code !== 'ESRCH') {
       logger.warn('Process-group kill failed; falling back to tree-kill', {
+        code,
         pid,
         signal,
-        code,
       });
     }
   }
@@ -134,7 +134,7 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     // Only log when the group kill ALSO did not land and the failure is not the
     // expected "already dead" race after a successful kill (no-silent-fallbacks).
     if (!groupKilled && error && !/no such process/i.test(error.message)) {
-      logger.warn('tree-kill failed', { pid, signal, error: error.message });
+      logger.warn('tree-kill failed', { error: error.message, pid, signal });
     }
   });
 }
@@ -242,13 +242,13 @@ function runShellCommand(args: {
       child = spawn(shell, shellArgs, {
         cwd,
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           // Discourage interactive prompts that would hang a non-interactive run.
           // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
           CI: 'true',
         },
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
       // Spawn failure (e.g. shell missing) is REPORTED, never swallowed.
@@ -361,8 +361,8 @@ function runShellCommand(args: {
       resolve({
         exitCode: code,
         signal: closeSignal,
-        stdout,
         stderr,
+        stdout,
         timedOut,
       });
     });
@@ -469,9 +469,9 @@ function buildResult(args: {
     durationMs,
     exitCode: outcome.exitCode,
     signal: outcome.signal,
-    timedOut: outcome.timedOut,
-    stdout: fittedStdout.text,
     stderr: fittedStderr.text,
+    stdout: fittedStdout.text,
+    timedOut: outcome.timedOut,
     truncated,
     ...(truncated
       ? {
@@ -504,8 +504,8 @@ export async function runExecuteCommand(
   const outcome = await runShellCommand({
     command: input.command,
     cwd,
-    timeoutMs,
     signal: options?.signal,
+    timeoutMs,
   });
   const durationMs = Date.now() - startedAt;
 
@@ -513,8 +513,8 @@ export async function runExecuteCommand(
     logger.warn('Command timed out and its process tree was killed', {
       command: REDACTED_COMMAND_LOG_VALUE,
       cwd: REDACTED_CWD_LOG_VALUE,
-      timeoutMs,
       durationMs,
+      timeoutMs,
     });
   } else if (outcome.exitCode !== 0) {
     logger.info('Command exited non-zero', {

@@ -19,20 +19,20 @@ export function useImportSettings(): ImportSettings {
   const setChunkTokenLimit = useImportSettingsStore((s) => s.setChunkTokenLimit);
 
   return {
-    enableChunking,
-    setEnableChunking,
     chunkingPreset,
-    setChunkingPreset,
     chunkingStrategy,
-    setChunkingStrategy,
     chunkingStrategyExplicit,
-    chunkSize,
-    setChunkSize,
     chunkOverlap,
-    setChunkOverlap,
-    tokenTrueSizing,
-    setTokenTrueSizing,
+    chunkSize,
     chunkTokenLimit,
+    enableChunking,
+    setChunkingPreset,
+    setChunkingStrategy,
+    setChunkOverlap,
+    setChunkSize,
     setChunkTokenLimit,
+    setEnableChunking,
+    setTokenTrueSizing,
+    tokenTrueSizing,
   };
 }

@@ -25,10 +25,10 @@ import {
 
 function makeFilters(overrides: Partial<CollectionBrowserFilters> = {}): CollectionBrowserFilters {
   return {
-    searchQuery: '',
-    nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
     embeddingStatus: 'all',
+    nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
     searchMatchesOnly: false,
+    searchQuery: '',
     ...overrides,
   };
 }
@@ -75,10 +75,10 @@ function generateTestData(
       const hasEmbedding = embeddingsPerChunk > 0 || status === 'complete';
 
       chunks.push({
-        id: chunkId,
-        fileRecordId: fileId,
         chunkIndex: c,
         content: `Content of chunk ${c} in file ${f}`,
+        fileRecordId: fileId,
+        id: chunkId,
         tokenCount: 50 + c,
         ...(hasEmbedding ? { embedding: [0.1, 0.2, 0.3] } : {}),
       });
@@ -89,7 +89,7 @@ function generateTestData(
     }
   }
 
-  return { files, chunks, pendingChunkIds };
+  return { chunks, files, pendingChunkIds };
 }
 
 // ---------------------------------------------------------------------------
@@ -145,17 +145,17 @@ describe('useCollectionTree — large datasets', () => {
         size: 100,
       });
       chunks.push({
-        id: `c${i}`,
-        fileRecordId: `f${i}`,
         chunkIndex: 0,
         content: 'content',
+        fileRecordId: `f${i}`,
+        id: `c${i}`,
         tokenCount: 10,
       });
     }
 
     const { result } = renderHook(() =>
       useCollectionTree({
-        data: { files, chunks },
+        data: { chunks, files },
         expandedIds: new Set<string>(),
         filters: makeFilters(),
         groupBy: 'type',
@@ -177,7 +177,7 @@ describe('useCollectionTree — empty and minimal data', () => {
   it('handles empty data (no files, no chunks)', () => {
     const { result } = renderHook(() =>
       useCollectionTree({
-        data: { files: [], chunks: [] },
+        data: { chunks: [], files: [] },
         expandedIds: new Set<string>(),
         filters: makeFilters(),
       })
@@ -191,8 +191,8 @@ describe('useCollectionTree — empty and minimal data', () => {
 
   it('handles single file with no chunks', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: 'empty.ts', path: '/empty.ts', size: 0 }],
       chunks: [],
+      files: [{ id: 'f1', name: 'empty.ts', path: '/empty.ts', size: 0 }],
     };
 
     const { result } = renderHook(() =>
@@ -269,13 +269,13 @@ describe('useCollectionTree — grouping', () => {
 
   it('groupBy "type" creates groups based on file extension', () => {
     const data: CollectionTreeInput = {
+      chunks: [],
       files: [
         { id: 'f1', name: 'app.tsx', path: '/app.tsx', size: 100 },
         { id: 'f2', name: 'utils.ts', path: '/utils.ts', size: 50 },
         { id: 'f3', name: 'style.css', path: '/style.css', size: 30 },
         { id: 'f4', name: 'index.tsx', path: '/index.tsx', size: 80 },
       ],
-      chunks: [],
     };
 
     const { result } = renderHook(() =>
@@ -293,11 +293,11 @@ describe('useCollectionTree — grouping', () => {
 
   it('expanding a group reveals its file children at correct depth', () => {
     const data: CollectionTreeInput = {
+      chunks: [{ chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 }],
       files: [
         { id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 },
         { id: 'f2', name: 'b.ts', path: '/b.ts', size: 100 },
       ],
-      chunks: [{ id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 }],
     };
 
     const groupId = 'group-type-.ts';
@@ -319,8 +319,8 @@ describe('useCollectionTree — grouping', () => {
 
   it('chunks are at depth 2 when grouping is active', () => {
     const data: CollectionTreeInput = {
+      chunks: [{ chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 }],
       files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
-      chunks: [{ id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 }],
     };
 
     const groupId = 'group-type-.ts';
@@ -346,6 +346,7 @@ describe('useCollectionTree — grouping', () => {
 describe('useCollectionTree — special characters', () => {
   it('handles unicode file names', () => {
     const data: CollectionTreeInput = {
+      chunks: [],
       files: [
         { id: 'f1', name: '\u6587\u4EF6.ts', path: '/\u6587\u4EF6.ts', size: 100 },
         {
@@ -356,7 +357,6 @@ describe('useCollectionTree — special characters', () => {
         },
         { id: 'f3', name: '\u{1F600}-emoji.tsx', path: '/\u{1F600}-emoji.tsx', size: 50 },
       ],
-      chunks: [],
     };
 
     const { result } = renderHook(() =>
@@ -377,8 +377,8 @@ describe('useCollectionTree — special characters', () => {
   it('handles very long file names (> 200 chars)', () => {
     const longName = `${'a'.repeat(250)}.ts`;
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: longName, path: `/${longName}`, size: 100 }],
       chunks: [],
+      files: [{ id: 'f1', name: longName, path: `/${longName}`, size: 100 }],
     };
 
     const { result } = renderHook(() =>
@@ -395,16 +395,16 @@ describe('useCollectionTree — special characters', () => {
 
   it('search finds unicode content', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: '\u6587\u4EF6.ts', path: '/\u6587\u4EF6.ts', size: 100 }],
       chunks: [
         {
-          id: 'c1',
-          fileRecordId: 'f1',
           chunkIndex: 0,
           content: '\u6587\u4EF6 content here',
+          fileRecordId: 'f1',
+          id: 'c1',
           tokenCount: 10,
         },
       ],
+      files: [{ id: 'f1', name: '\u6587\u4EF6.ts', path: '/\u6587\u4EF6.ts', size: 100 }],
     };
 
     const { result } = renderHook(() =>
@@ -426,15 +426,15 @@ describe('useCollectionTree — special characters', () => {
 describe('useCollectionTree — sorting', () => {
   it('sorts files by name ascending', () => {
     const data: CollectionTreeInput = {
+      chunks: [],
       files: [
         { id: 'f3', name: 'charlie.ts', path: '/c', size: 1 },
         { id: 'f1', name: 'alpha.ts', path: '/a', size: 3 },
         { id: 'f2', name: 'bravo.ts', path: '/b', size: 2 },
       ],
-      chunks: [],
     };
 
-    const sortState: CollectionSortState = { key: 'name', direction: 'asc' };
+    const sortState: CollectionSortState = { direction: 'asc', key: 'name' };
 
     const { result } = renderHook(() =>
       useCollectionTree({
@@ -451,15 +451,15 @@ describe('useCollectionTree — sorting', () => {
 
   it('sorts files by size descending', () => {
     const data: CollectionTreeInput = {
+      chunks: [],
       files: [
         { id: 'f1', name: 'a.ts', path: '/a', size: 10 },
         { id: 'f2', name: 'b.ts', path: '/b', size: 30 },
         { id: 'f3', name: 'c.ts', path: '/c', size: 20 },
       ],
-      chunks: [],
     };
 
-    const sortState: CollectionSortState = { key: 'size', direction: 'desc' };
+    const sortState: CollectionSortState = { direction: 'desc', key: 'size' };
 
     const { result } = renderHook(() =>
       useCollectionTree({
@@ -476,15 +476,15 @@ describe('useCollectionTree — sorting', () => {
 
   it('sorts chunks within expanded file by index', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: 'a.ts', path: '/a', size: 10 }],
       chunks: [
-        { id: 'c3', fileRecordId: 'f1', chunkIndex: 2, content: 'z', tokenCount: 5 },
-        { id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 },
-        { id: 'c2', fileRecordId: 'f1', chunkIndex: 1, content: 'y', tokenCount: 7 },
+        { chunkIndex: 2, content: 'z', fileRecordId: 'f1', id: 'c3', tokenCount: 5 },
+        { chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 },
+        { chunkIndex: 1, content: 'y', fileRecordId: 'f1', id: 'c2', tokenCount: 7 },
       ],
+      files: [{ id: 'f1', name: 'a.ts', path: '/a', size: 10 }],
     };
 
-    const sortState: CollectionSortState = { key: 'name', direction: 'asc' };
+    const sortState: CollectionSortState = { direction: 'asc', key: 'name' };
 
     const { result } = renderHook(() =>
       useCollectionTree({
@@ -509,25 +509,25 @@ describe('useCollectionTree — sorting', () => {
 describe('useCollectionTree — concurrent option changes', () => {
   it('toggle groupBy while semantic results are present', () => {
     const data: CollectionTreeInput = {
+      chunks: [
+        { chunkIndex: 0, content: 'hit', fileRecordId: 'f1', id: 'c1', tokenCount: 10 },
+        { chunkIndex: 0, content: 'miss', fileRecordId: 'f2', id: 'c2', tokenCount: 10 },
+      ],
       files: [
         { id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 },
         { id: 'f2', name: 'b.tsx', path: '/b.tsx', size: 200 },
-      ],
-      chunks: [
-        { id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'hit', tokenCount: 10 },
-        { id: 'c2', fileRecordId: 'f2', chunkIndex: 0, content: 'miss', tokenCount: 10 },
       ],
     };
 
     const semanticResults: SemanticSearchResult[] = [
       {
-        nodeId: 'chunk-c1',
         chunkId: 'c1',
-        fileRecordId: 'f1',
-        similarity: 0.9,
         content: 'hit',
         fileName: 'a.ts',
         filePath: '/a.ts',
+        fileRecordId: 'f1',
+        nodeId: 'chunk-c1',
+        similarity: 0.9,
       },
     ];
 
@@ -538,9 +538,9 @@ describe('useCollectionTree — concurrent option changes', () => {
           data,
           expandedIds: new Set<string>(['file-f1']),
           filters: makeFilters(),
-          semanticResults,
           filterToSemanticResults: true,
           groupBy: props.groupBy,
+          semanticResults,
         }),
       { initialProps: { groupBy: 'none' as GroupByKey } }
     );
@@ -561,25 +561,25 @@ describe('useCollectionTree — concurrent option changes', () => {
 
   it('toggle groupBy with group expanded reveals semantic matches', () => {
     const data: CollectionTreeInput = {
+      chunks: [
+        { chunkIndex: 0, content: 'hit', fileRecordId: 'f1', id: 'c1', tokenCount: 10 },
+        { chunkIndex: 0, content: 'miss', fileRecordId: 'f2', id: 'c2', tokenCount: 10 },
+      ],
       files: [
         { id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 },
         { id: 'f2', name: 'b.tsx', path: '/b.tsx', size: 200 },
-      ],
-      chunks: [
-        { id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'hit', tokenCount: 10 },
-        { id: 'c2', fileRecordId: 'f2', chunkIndex: 0, content: 'miss', tokenCount: 10 },
       ],
     };
 
     const semanticResults: SemanticSearchResult[] = [
       {
-        nodeId: 'chunk-c1',
         chunkId: 'c1',
-        fileRecordId: 'f1',
-        similarity: 0.9,
         content: 'hit',
         fileName: 'a.ts',
         filePath: '/a.ts',
+        fileRecordId: 'f1',
+        nodeId: 'chunk-c1',
+        similarity: 0.9,
       },
     ];
 
@@ -590,9 +590,9 @@ describe('useCollectionTree — concurrent option changes', () => {
         data,
         expandedIds: new Set<string>([groupId, 'file-f1']),
         filters: makeFilters(),
-        semanticResults,
         filterToSemanticResults: true,
         groupBy: 'type',
+        semanticResults,
       })
     );
 
@@ -606,12 +606,12 @@ describe('useCollectionTree — concurrent option changes', () => {
 
   it('change sort while filter is applied', () => {
     const data: CollectionTreeInput = {
+      chunks: [],
       files: [
         { id: 'f1', name: 'alpha.ts', path: '/alpha.ts', size: 300 },
         { id: 'f2', name: 'bravo.ts', path: '/bravo.ts', size: 100 },
         { id: 'f3', name: 'charlie.ts', path: '/charlie.ts', size: 200 },
       ],
-      chunks: [],
     };
 
     const { result, rerender } = renderHook(
@@ -622,22 +622,22 @@ describe('useCollectionTree — concurrent option changes', () => {
           filters: makeFilters({ searchQuery: '' }),
           ...(props.sortState ? { sortState: props.sortState } : {}),
         }),
-      { initialProps: { sortState: { key: 'name', direction: 'asc' } as CollectionSortState } }
+      { initialProps: { sortState: { direction: 'asc', key: 'name' } as CollectionSortState } }
     );
 
     let names = result.current.nodes.map((n) => (n.data as FileData).name);
     expect(names).toEqual(['alpha.ts', 'bravo.ts', 'charlie.ts']);
 
     // Switch to sort by size desc
-    rerender({ sortState: { key: 'size', direction: 'desc' } });
+    rerender({ sortState: { direction: 'desc', key: 'size' } });
     names = result.current.nodes.map((n) => (n.data as FileData).name);
     expect(names).toEqual(['alpha.ts', 'charlie.ts', 'bravo.ts']);
   });
 
   it('expandedIds update correctly when grouping creates new parent IDs', () => {
     const data: CollectionTreeInput = {
+      chunks: [{ chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 }],
       files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
-      chunks: [{ id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 }],
     };
 
     // Expand the group header for .ts
@@ -666,8 +666,8 @@ describe('useCollectionTree — concurrent option changes', () => {
 describe('useCollectionTree — embedding status', () => {
   it('computes "none" for file with no chunks', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
       chunks: [],
+      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
     };
 
     const { result } = renderHook(() =>
@@ -685,25 +685,25 @@ describe('useCollectionTree — embedding status', () => {
 
   it('computes "complete" when all chunks have embeddings', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
       chunks: [
         {
-          id: 'c1',
-          fileRecordId: 'f1',
           chunkIndex: 0,
           content: 'x',
-          tokenCount: 10,
           embedding: [0.1],
+          fileRecordId: 'f1',
+          id: 'c1',
+          tokenCount: 10,
         },
         {
-          id: 'c2',
-          fileRecordId: 'f1',
           chunkIndex: 1,
           content: 'y',
-          tokenCount: 10,
           embedding: [0.2],
+          fileRecordId: 'f1',
+          id: 'c2',
+          tokenCount: 10,
         },
       ],
+      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
     };
 
     const { result } = renderHook(() =>
@@ -721,18 +721,18 @@ describe('useCollectionTree — embedding status', () => {
 
   it('computes "pending" when some chunks have embeddings but none are processing', () => {
     const data: CollectionTreeInput = {
-      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
       chunks: [
         {
-          id: 'c1',
-          fileRecordId: 'f1',
           chunkIndex: 0,
           content: 'x',
-          tokenCount: 10,
           embedding: [0.1],
+          fileRecordId: 'f1',
+          id: 'c1',
+          tokenCount: 10,
         },
-        { id: 'c2', fileRecordId: 'f1', chunkIndex: 1, content: 'y', tokenCount: 10 },
+        { chunkIndex: 1, content: 'y', fileRecordId: 'f1', id: 'c2', tokenCount: 10 },
       ],
+      files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
     };
 
     const { result } = renderHook(() =>
@@ -750,8 +750,8 @@ describe('useCollectionTree — embedding status', () => {
 
   it('computes "processing" when pendingChunkIds includes a chunk', () => {
     const data: CollectionTreeInput = {
+      chunks: [{ chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 }],
       files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
-      chunks: [{ id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 }],
       pendingChunkIds: new Set(['c1']),
     };
 
@@ -775,19 +775,19 @@ describe('useCollectionTree — embedding status', () => {
 describe('useCollectionTree — search', () => {
   it('text search matches file names and chunk content', () => {
     const data: CollectionTreeInput = {
+      chunks: [
+        { chunkIndex: 0, content: 'hello world', fileRecordId: 'f1', id: 'c1', tokenCount: 10 },
+        {
+          chunkIndex: 0,
+          content: 'searchable content',
+          fileRecordId: 'f2',
+          id: 'c2',
+          tokenCount: 10,
+        },
+      ],
       files: [
         { id: 'f1', name: 'searchable.ts', path: '/searchable.ts', size: 100 },
         { id: 'f2', name: 'other.ts', path: '/other.ts', size: 50 },
-      ],
-      chunks: [
-        { id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'hello world', tokenCount: 10 },
-        {
-          id: 'c2',
-          fileRecordId: 'f2',
-          chunkIndex: 0,
-          content: 'searchable content',
-          tokenCount: 10,
-        },
       ],
     };
 
@@ -827,8 +827,8 @@ describe('useCollectionTree — search', () => {
         data,
         expandedIds: new Set<string>(),
         filters: makeFilters(),
-        semanticResults: [],
         filterToSemanticResults: true,
+        semanticResults: [],
       })
     );
 
@@ -844,20 +844,20 @@ describe('useCollectionTree — search', () => {
 describe('useCollectionTree — filtering', () => {
   it('filters by embedding status', () => {
     const data: CollectionTreeInput = {
+      chunks: [
+        {
+          chunkIndex: 0,
+          content: 'x',
+          embedding: [0.1],
+          fileRecordId: 'f1',
+          id: 'c1',
+          tokenCount: 10,
+        },
+        { chunkIndex: 0, content: 'y', fileRecordId: 'f2', id: 'c2', tokenCount: 10 },
+      ],
       files: [
         { id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 },
         { id: 'f2', name: 'b.ts', path: '/b.ts', size: 100 },
-      ],
-      chunks: [
-        {
-          id: 'c1',
-          fileRecordId: 'f1',
-          chunkIndex: 0,
-          content: 'x',
-          tokenCount: 10,
-          embedding: [0.1],
-        },
-        { id: 'c2', fileRecordId: 'f2', chunkIndex: 0, content: 'y', tokenCount: 10 },
       ],
     };
 
@@ -876,8 +876,8 @@ describe('useCollectionTree — filtering', () => {
 
   it('filters by node type', () => {
     const data: CollectionTreeInput = {
+      chunks: [{ chunkIndex: 0, content: 'x', fileRecordId: 'f1', id: 'c1', tokenCount: 10 }],
       files: [{ id: 'f1', name: 'a.ts', path: '/a.ts', size: 100 }],
-      chunks: [{ id: 'c1', fileRecordId: 'f1', chunkIndex: 0, content: 'x', tokenCount: 10 }],
     };
 
     const { result } = renderHook(() =>

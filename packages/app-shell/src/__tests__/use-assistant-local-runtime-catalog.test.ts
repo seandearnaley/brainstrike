@@ -7,43 +7,43 @@ import type {
 import { useAssistantLocalRuntimeCatalog } from '../hooks/use-assistant-local-runtime-catalog';
 
 const availableOllamaStatus: LocalRuntimeStatusMap = {
+  lmstudio: {
+    checkedAt: 10,
+    message: 'not detected',
+    state: 'unavailable',
+  },
   ollama: {
-    state: 'available',
     checkedAt: 10,
     endpoint: 'http://127.0.0.1:11434/v1/models',
     latencyMs: 5,
-  },
-  lmstudio: {
-    state: 'unavailable',
-    checkedAt: 10,
-    message: 'not detected',
+    state: 'available',
   },
 };
 
 const ollamaModelCatalog: LocalRuntimeModelCatalogMap = {
   ollama: {
-    state: 'loaded_non_empty',
-    runtime: 'ollama',
-    checkedAt: 20,
     availability: availableOllamaStatus.ollama,
+    checkedAt: 20,
     endpoint: 'http://127.0.0.1:11434/v1/models',
-    source: 'openai_v1_models',
     freshness: 'live',
     models: [
       {
-        runtime: 'ollama',
-        providerId: 'ollama',
-        modelId: 'llama3.2',
-        modelKey: 'ollama::llama3.2',
-        displayName: 'Llama 3.2',
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
-        capabilities: { llm: true, embeddings: 'unsupported' },
+        capabilities: { embeddings: 'unsupported', llm: true },
         capabilitySource: 'inferred',
         dimensionsKnown: { state: 'not_applicable' },
+        displayName: 'Llama 3.2',
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        freshness: 'live',
+        modelId: 'llama3.2',
+        modelKey: 'ollama::llama3.2',
+        providerId: 'ollama',
+        runtime: 'ollama',
+        source: 'openai_v1_models',
       },
     ],
+    runtime: 'ollama',
+    source: 'openai_v1_models',
+    state: 'loaded_non_empty',
   },
 };
 
@@ -74,15 +74,15 @@ describe('useAssistantLocalRuntimeCatalog', () => {
 
   it('does not load models when every runtime is unreachable and surfaces blocked-web hints', async () => {
     const getLocalRuntimeStatuses = vi.fn().mockResolvedValue({
-      ollama: {
-        state: 'blocked_web',
-        checkedAt: 10,
-        message: 'fetch was blocked',
-      },
       lmstudio: {
-        state: 'unavailable',
         checkedAt: 10,
         message: 'not detected',
+        state: 'unavailable',
+      },
+      ollama: {
+        checkedAt: 10,
+        message: 'fetch was blocked',
+        state: 'blocked_web',
       },
     } satisfies LocalRuntimeStatusMap);
     const getLocalRuntimeModels = vi.fn();

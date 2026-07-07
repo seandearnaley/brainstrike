@@ -5,21 +5,21 @@ import { createLogger } from '@brainstrike/utils/logger';
 const logger = createLogger('ToolPersistence');
 
 export interface FileSystemAdapter {
-  dirname(filePath: string): string;
-  join(...segments: string[]): string;
-  mkdir(dirPath: string, options: { recursive: boolean }): Promise<unknown>;
-  readFile(filePath: string, encoding: 'utf-8'): Promise<string>;
-  unlink(filePath: string): Promise<void>;
-  writeFile(filePath: string, content: string, encoding: 'utf-8'): Promise<void>;
+  dirname: (filePath: string) => string;
+  join: (...segments: string[]) => string;
+  mkdir: (dirPath: string, options: { recursive: boolean }) => Promise<unknown>;
+  readFile: (filePath: string, encoding: 'utf-8') => Promise<string>;
+  unlink: (filePath: string) => Promise<void>;
+  writeFile: (filePath: string, content: string, encoding: 'utf-8') => Promise<void>;
 }
 
 const defaultFs: FileSystemAdapter = {
-  readFile: (filePath, encoding) => fsp.readFile(filePath, encoding),
-  writeFile: (filePath, content, encoding) => fsp.writeFile(filePath, content, encoding),
-  mkdir: (dirPath, options) => fsp.mkdir(dirPath, options),
-  unlink: (filePath) => fsp.unlink(filePath),
-  join: (...segments) => path.join(...segments),
   dirname: (filePath) => path.dirname(filePath),
+  join: (...segments) => path.join(...segments),
+  mkdir: (dirPath, options) => fsp.mkdir(dirPath, options),
+  readFile: (filePath, encoding) => fsp.readFile(filePath, encoding),
+  unlink: (filePath) => fsp.unlink(filePath),
+  writeFile: (filePath, content, encoding) => fsp.writeFile(filePath, content, encoding),
 };
 
 export interface ToolPreferences {
@@ -52,8 +52,8 @@ export async function loadToolPreferences(
 
     logger.info('tool preferences loaded', {
       code: 'preferences_loaded',
-      enabledCount: parsed.enabledTools.length,
       disabledCount: parsed.disabledTools.length,
+      enabledCount: parsed.enabledTools.length,
     });
 
     return parsed;
@@ -68,8 +68,8 @@ export async function loadToolPreferences(
       code: 'load_preferences_failed',
       error: error instanceof Error ? error.message : String(error),
     });
-    return;
   }
+  return;
 }
 
 /**
@@ -99,8 +99,8 @@ export async function saveToolPreferences(
 
     logger.info('tool preferences saved', {
       code: 'preferences_saved',
-      enabledCount: preferences.enabledTools.length,
       disabledCount: preferences.disabledTools.length,
+      enabledCount: preferences.enabledTools.length,
     });
   } catch (error) {
     logger.error('failed to save tool preferences', {
@@ -163,9 +163,9 @@ function isValidToolPreferences(value: unknown): value is ToolPreferences {
  */
 export function createDefaultToolPreferences(): ToolPreferences {
   return {
-    enabledTools: [],
     disabledTools: [],
-    version: 1,
+    enabledTools: [],
     lastUpdated: Date.now(),
+    version: 1,
   };
 }

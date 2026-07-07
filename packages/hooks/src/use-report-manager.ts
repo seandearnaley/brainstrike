@@ -79,8 +79,8 @@ export const useReportManager = <A = unknown, O = unknown>({
     async (options?: O) => {
       if (!rootDirectoryHandle) {
         toast({
-          title: FileExplorerStrings.error.title,
           description: FileExplorerStrings.error.noRootDirectory,
+          title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
         return null;
@@ -95,8 +95,8 @@ export const useReportManager = <A = unknown, O = unknown>({
       } catch (error) {
         logError('Error generating context:', error);
         toast({
-          title: FileExplorerStrings.error.title,
           description: FileExplorerStrings.error.contextGenerationFailed,
+          title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
         return null;
@@ -113,9 +113,9 @@ export const useReportManager = <A = unknown, O = unknown>({
       errorMessage: string
     ): Promise<void> => {
       const contextToast = toast({
-        title: FileExplorerStrings.loading.generatingContext,
         description: FileExplorerStrings.prompts.waitForContext,
         duration: Number.POSITIVE_INFINITY,
+        title: FileExplorerStrings.loading.generatingContext,
       });
 
       try {
@@ -128,14 +128,14 @@ export const useReportManager = <A = unknown, O = unknown>({
         await action(context);
         contextToast?.dismiss?.();
         toast({
-          title: FileExplorerStrings.success.title,
           description: successMessage,
+          title: FileExplorerStrings.success.title,
         });
       } catch (error) {
         contextToast?.dismiss?.();
         toast({
-          title: FileExplorerStrings.error.title,
           description: error instanceof Error ? `${errorMessage}: ${error.message}` : errorMessage,
+          title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
       }
@@ -174,7 +174,7 @@ export const useReportManager = <A = unknown, O = unknown>({
   );
 
   return {
-    handleDownloadContext,
     handleCopyContext,
+    handleDownloadContext,
   };
 };

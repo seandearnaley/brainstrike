@@ -83,9 +83,9 @@ function coerceStoredRootDescriptor(value: unknown): StoredRootDescriptor | null
     return null;
   }
   return {
-    rootId: v['rootId'],
     displayName: v['displayName'],
     path: v['path'],
+    rootId: v['rootId'],
   };
 }
 
@@ -147,18 +147,18 @@ function deserializeQueryDescriptor(value: unknown): SerializedSelectionModel['q
   }
 
   return {
-    kind,
-    folderId,
-    rootPath: typeof descriptor['rootPath'] === 'string' ? descriptor['rootPath'] : null,
     coveredDirectoryPaths: coerceStringArray(descriptor['coveredDirectoryPaths']),
-    includeFilters: coerceStringArray(descriptor['includeFilters']),
-    excludeFilters: coerceStringArray(descriptor['excludeFilters']),
-    includedPaths: coerceStringArray(descriptor['includedPaths']),
     excludedPaths: coerceStringArray(descriptor['excludedPaths']),
+    excludeFilters: coerceStringArray(descriptor['excludeFilters']),
+    folderId,
+    includedPaths: coerceStringArray(descriptor['includedPaths']),
+    includeFilters: coerceStringArray(descriptor['includeFilters']),
+    kind,
     manifestFingerprint: coerceNullableString(descriptor['manifestFingerprint']),
     manifestSnapshotId: coerceNullableString(descriptor['manifestSnapshotId']),
-    useRegex: coerceBoolean(descriptor['useRegex'], false),
+    rootPath: typeof descriptor['rootPath'] === 'string' ? descriptor['rootPath'] : null,
     totalSelectedCount: Math.max(0, coerceNumber(descriptor['totalSelectedCount'], 0)),
+    useRegex: coerceBoolean(descriptor['useRegex'], false),
   };
 }
 
@@ -167,12 +167,12 @@ function deserializeQueryDescriptor(value: unknown): SerializedSelectionModel['q
  */
 function serializeSelectionModel(model: SelectionModel): SerializedSelectionModel {
   return {
-    mode: model.mode,
     explicitPaths: cachedSetToArray(model.explicitPaths),
-    ruleSetJson: model.ruleSetJson,
-    materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
     materializedAt: model.materializedAt,
+    materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
+    mode: model.mode,
     queryDescriptor: model.queryDescriptor,
+    ruleSetJson: model.ruleSetJson,
   };
 }
 
@@ -201,14 +201,14 @@ function deserializeSelectionModel(
         : 'explicit';
 
   return {
-    mode,
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
-    ruleSetJson: serialized.ruleSetJson ?? null,
+    materializedAt: serialized.materializedAt ?? null,
     materializedPaths: serialized.materializedPaths
       ? new Set(coerceStringArray(serialized.materializedPaths))
       : null,
-    materializedAt: serialized.materializedAt ?? null,
+    mode,
     queryDescriptor,
+    ruleSetJson: serialized.ruleSetJson ?? null,
   };
 }
 
@@ -224,74 +224,74 @@ export function serializeState(state: FileExplorerState): SerializedState {
     // Sync current top-level state into the current folder's state
     folderStatesToSerialize[currentFolderId] = {
       ...folderStatesToSerialize[currentFolderId],
+      excludeFilters: state.excludeFilters,
+      expandedDirectoryPaths: state.expandedDirectoryPaths,
+      folderSummaryThreshold: state.folderSummaryThreshold,
+      includeFilters: state.includeFilters,
+      includeProjectTree: state.includeProjectTree,
+      lastAccessed: Date.now(),
+      lastActiveTab: state.lastActiveTab ?? 'files',
+      maxSelectionCount: state.maxSelectionCount,
       selectedFilePaths: state.selectedFilePaths,
       selectionModel: state.selectionModel,
-      expandedDirectoryPaths: state.expandedDirectoryPaths,
-      includeFilters: state.includeFilters,
-      excludeFilters: state.excludeFilters,
-      useRegex: state.useRegex,
-      includeProjectTree: state.includeProjectTree,
       tokenBudget: state.tokenBudget,
-      folderSummaryThreshold: state.folderSummaryThreshold,
-      maxSelectionCount: state.maxSelectionCount,
-      lastActiveTab: state.lastActiveTab ?? 'files',
-      lastAccessed: Date.now(),
+      useRegex: state.useRegex,
       viewFilterPresetId: state.viewFilterPresetId,
     };
   } else if (currentFolderId && !folderStatesToSerialize[currentFolderId]) {
     // Create folder state if it doesn't exist yet
     folderStatesToSerialize[currentFolderId] = {
+      excludeFilters: state.excludeFilters,
+      expandedDirectoryPaths: state.expandedDirectoryPaths,
+      folderSummaryThreshold: state.folderSummaryThreshold,
+      includeFilters: state.includeFilters,
+      includeProjectTree: state.includeProjectTree,
+      lastAccessed: Date.now(),
+      lastActiveTab: state.lastActiveTab ?? 'files',
+      maxSelectionCount: state.maxSelectionCount,
       selectedFilePaths: state.selectedFilePaths,
       selectionModel: state.selectionModel,
-      expandedDirectoryPaths: state.expandedDirectoryPaths,
-      includeFilters: state.includeFilters,
-      excludeFilters: state.excludeFilters,
-      useRegex: state.useRegex,
-      includeProjectTree: state.includeProjectTree,
       tokenBudget: state.tokenBudget,
-      folderSummaryThreshold: state.folderSummaryThreshold,
-      maxSelectionCount: state.maxSelectionCount,
-      lastActiveTab: state.lastActiveTab ?? 'files',
-      lastAccessed: Date.now(),
+      useRegex: state.useRegex,
       viewFilterPresetId: state.viewFilterPresetId,
     };
   }
 
   const serialized: SerializedState = {
     activeRootIds: state.activeRootIds,
-    rootDescriptors: state.rootDescriptors,
     currentFolderId: state.currentFolderId,
+    devInlineFixtureEnabled: state.devInlineFixtureEnabled,
+    excludeFilters: state.excludeFilters,
+    expandedDirectoryPaths: cachedSetToArray(state.expandedDirectoryPaths),
+    folderAccessOrder: state.folderAccessOrder,
     folderStates: Object.fromEntries(
       Object.entries(folderStatesToSerialize || {}).map(([id, folderState]) => [
         id,
         {
           ...folderState,
+          expandedDirectoryPaths: cachedSetToArray(folderState?.expandedDirectoryPaths),
+          lastAccessed: folderState?.lastAccessed || Date.now(),
           selectedFilePaths: cachedSetToArray(folderState?.selectedFilePaths),
           selectionModel: serializeSelectionModel(
             folderState?.selectionModel ?? createEmptySelectionModel()
           ),
-          expandedDirectoryPaths: cachedSetToArray(folderState?.expandedDirectoryPaths),
-          lastAccessed: folderState?.lastAccessed || Date.now(),
         },
       ])
     ),
-    folderAccessOrder: state.folderAccessOrder,
-    selectedFilePaths: cachedSetToArray(state.selectedFilePaths),
-    expandedDirectoryPaths: cachedSetToArray(state.expandedDirectoryPaths),
-    includeFilters: state.includeFilters,
-    excludeFilters: state.excludeFilters,
-    useRegex: state.useRegex,
-    includeProjectTree: state.includeProjectTree,
-    tokenBudget: state.tokenBudget,
     folderSummaryThreshold: state.folderSummaryThreshold,
-    maxSelectionCount: state.maxSelectionCount,
-    lastActiveTab: state.lastActiveTab ?? 'files',
-    quickFilter: state.quickFilter,
-    devInlineFixtureEnabled: state.devInlineFixtureEnabled,
-    selectionModel: serializeSelectionModel(state.selectionModel),
-    viewFilterPresetId: state.viewFilterPresetId,
-    isFiltersExpanded: state.isFiltersExpanded,
+    includeFilters: state.includeFilters,
+    includeProjectTree: state.includeProjectTree,
     isFilterChipsVisible: state.isFilterChipsVisible,
+    isFiltersExpanded: state.isFiltersExpanded,
+    lastActiveTab: state.lastActiveTab ?? 'files',
+    maxSelectionCount: state.maxSelectionCount,
+    quickFilter: state.quickFilter,
+    rootDescriptors: state.rootDescriptors,
+    selectedFilePaths: cachedSetToArray(state.selectedFilePaths),
+    selectionModel: serializeSelectionModel(state.selectionModel),
+    tokenBudget: state.tokenBudget,
+    useRegex: state.useRegex,
+    viewFilterPresetId: state.viewFilterPresetId,
   };
 
   return serialized;
@@ -333,7 +333,10 @@ export function mergeState(
   const mergedState: FileExplorerState = {
     ...current,
     ...persistedSerialized,
-    selectedFilePaths: topLevelSelectedFilePaths,
+    devInlineFixtureEnabled: coerceBoolean(
+      persistedSerialized.devInlineFixtureEnabled,
+      current.devInlineFixtureEnabled
+    ),
     expandedDirectoryPaths: topLevelExpandedDirectoryPaths,
     folderAccessOrder: coerceStringArray(persistedSerialized.folderAccessOrder),
     folderStates: Object.fromEntries(
@@ -366,6 +369,9 @@ export function mergeState(
           {
             ...(currentFolderState ?? ({} as FolderState)),
             ...psFolderState,
+            expandedDirectoryPaths: shouldUseTopLevelExpansions
+              ? topLevelExpandedDirectoryPaths
+              : new Set(coerceStringArray(psFolderState.expandedDirectoryPaths)),
             selectedFilePaths: shouldUseTopLevelSelections
               ? topLevelSelectedFilePaths
               : new Set(coerceStringArray(psFolderState.selectedFilePaths)),
@@ -373,29 +379,23 @@ export function mergeState(
               shouldUseTopLevelSelections && persistedSerialized.selectionModel
                 ? topLevelSelectionModel
                 : deserializeSelectionModel(psFolderState.selectionModel),
-            expandedDirectoryPaths: shouldUseTopLevelExpansions
-              ? topLevelExpandedDirectoryPaths
-              : new Set(coerceStringArray(psFolderState.expandedDirectoryPaths)),
             tokenBudget: coerceNumber(psFolderState.tokenBudget, fallbackTokenBudget),
           },
         ];
       })
     ),
-    tokenBudget: coerceNumber(persistedSerialized.tokenBudget, current.tokenBudget),
-    quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
-    devInlineFixtureEnabled: coerceBoolean(
-      persistedSerialized.devInlineFixtureEnabled,
-      current.devInlineFixtureEnabled
-    ),
-    selectionModel: topLevelSelectionModel,
-    isFiltersExpanded: coerceBoolean(
-      persistedSerialized.isFiltersExpanded,
-      current.isFiltersExpanded
-    ),
     isFilterChipsVisible: coerceBoolean(
       persistedSerialized.isFilterChipsVisible,
       current.isFilterChipsVisible
     ),
+    isFiltersExpanded: coerceBoolean(
+      persistedSerialized.isFiltersExpanded,
+      current.isFiltersExpanded
+    ),
+    quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
+    selectedFilePaths: topLevelSelectedFilePaths,
+    selectionModel: topLevelSelectionModel,
+    tokenBudget: coerceNumber(persistedSerialized.tokenBudget, current.tokenBudget),
     // Multi-root (Phase 4) fields — coerced safely from persisted data
     ...mergeActiveRoots(persistedSerialized, current),
   };

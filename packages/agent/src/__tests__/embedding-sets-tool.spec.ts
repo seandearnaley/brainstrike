@@ -20,14 +20,14 @@ describe('Embedding Sets Tools', () => {
   };
 
   const sampleSet: EmbeddingSetInfo = {
-    id: 'set-1',
-    modelKey: 'openai::text-embedding-3-small',
-    modelId: 'text-embedding-3-small',
+    createdAt: '2024-01-15T10:00:00Z',
+    description: 'A test embedding set',
     dimensions: 1536,
     distance: 'cosine',
+    id: 'set-1',
+    modelId: 'text-embedding-3-small',
+    modelKey: 'openai::text-embedding-3-small',
     name: 'Test Set',
-    description: 'A test embedding set',
-    createdAt: '2024-01-15T10:00:00Z',
   };
 
   describe('createListEmbeddingSetsTool', () => {
@@ -36,11 +36,11 @@ describe('Embedding Sets Tools', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       deps = {
-        listSets: vi.fn().mockResolvedValue([sampleSet]),
         createSet: vi.fn(),
         getCoverageStats: vi.fn().mockResolvedValue({
-          'set-1': { totalChunks: 100, embeddedChunks: 80, coveragePercent: 80 },
+          'set-1': { coveragePercent: 80, embeddedChunks: 80, totalChunks: 100 },
         }),
+        listSets: vi.fn().mockResolvedValue([sampleSet]),
         logger: mockLogger,
       };
     });
@@ -105,8 +105,8 @@ describe('Embedding Sets Tools', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       deps = {
+        createSet: vi.fn().mockResolvedValue({ created: true, set: sampleSet }),
         listSets: vi.fn(),
-        createSet: vi.fn().mockResolvedValue({ set: sampleSet, created: true }),
         logger: mockLogger,
       };
     });
@@ -121,9 +121,9 @@ describe('Embedding Sets Tools', () => {
       const tool = createCreateEmbeddingSetTool(deps);
       const result = await tool.execute({
         context: {
-          name: 'Test Set',
-          modelKey: 'openai::text-embedding-3-small',
           description: 'A test set',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Test Set',
         },
       });
 
@@ -138,12 +138,12 @@ describe('Embedding Sets Tools', () => {
     });
 
     it('returns existing set when duplicate', async () => {
-      deps.createSet = vi.fn().mockResolvedValue({ set: sampleSet, created: false });
+      deps.createSet = vi.fn().mockResolvedValue({ created: false, set: sampleSet });
       const tool = createCreateEmbeddingSetTool(deps);
       const result = await tool.execute({
         context: {
-          name: 'Test Set',
           modelKey: 'openai::text-embedding-3-small',
+          name: 'Test Set',
         },
       });
 
@@ -158,8 +158,8 @@ describe('Embedding Sets Tools', () => {
       await expect(
         tool.execute({
           context: {
-            name: 'Test Set',
             modelKey: 'openai::text-embedding-3-small',
+            name: 'Test Set',
           },
         })
       ).rejects.toThrow(EMBEDDING_SETS_ERROR_MESSAGES.createFailed);
@@ -169,8 +169,8 @@ describe('Embedding Sets Tools', () => {
       const tool = createCreateEmbeddingSetTool(deps);
       await tool.execute({
         context: {
-          name: 'Minimal Set',
           modelKey: 'openai::text-embedding-3-small',
+          name: 'Minimal Set',
         },
       });
 

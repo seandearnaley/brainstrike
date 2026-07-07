@@ -25,24 +25,24 @@ export type ApiKeyValidationResult =
  * Environment variable names for each hosted provider
  */
 const PROVIDER_ENV_HINTS: Record<HostedProviderType, string[]> = {
-  openai: ['OPENAI_API_KEY', 'BRAINSTRIKE_OPENAI_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
   cohere: ['COHERE_API_KEY'],
-  voyage: ['VOYAGE_API_KEY'],
-  ollama: ['OLLAMA_API_KEY'],
+  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
   lmstudio: ['LMSTUDIO_API_KEY'],
+  ollama: ['OLLAMA_API_KEY'],
+  openai: ['OPENAI_API_KEY', 'BRAINSTRIKE_OPENAI_API_KEY'],
+  voyage: ['VOYAGE_API_KEY'],
 };
 
 /**
  * Human-readable provider names for error messages
  */
 const PROVIDER_DISPLAY_NAMES: Record<HostedProviderType, string> = {
-  openai: 'OpenAI',
-  google: 'Google',
   cohere: 'Cohere',
-  voyage: 'Voyage AI',
-  ollama: 'Ollama',
+  google: 'Google',
   lmstudio: 'LM Studio',
+  ollama: 'Ollama',
+  openai: 'OpenAI',
+  voyage: 'Voyage AI',
 };
 
 /**
@@ -99,9 +99,9 @@ export async function checkApiKeyAvailability(
 
   return {
     available: false,
+    message: `${displayName} API key not configured. Please add your API key${envHintText} in Settings → Secrets or set the environment variable.`,
     provider,
     reason: 'missing-provider-key',
-    message: `${displayName} API key not configured. Please add your API key${envHintText} in Settings → Secrets or set the environment variable.`,
   };
 }
 

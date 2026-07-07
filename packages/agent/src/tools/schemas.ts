@@ -7,31 +7,31 @@ import { z } from 'zod';
 
 export const HybridSearchInputSchema = z
   .object({
-    query: z.string().min(1).max(2000).describe('Search query text'),
-    embeddingSetId: z.string().min(1).describe('Embedding set ID for vector search'),
-    limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
-    vectorWeight: z
-      .number()
-      .min(0)
-      .max(2)
+    chunkType: z
+      .enum(['text', 'code', 'sentence', 'recursive'])
       .optional()
-      .describe('Weight for vector search (default 1.0)'),
+      .describe('Filter by chunk type'),
+    embeddingSetId: z.string().min(1).describe('Embedding set ID for vector search'),
+    filePaths: z
+      .array(z.string().min(1))
+      .max(1000)
+      .optional()
+      .describe('Filter to specific file paths'),
     ftsWeight: z
       .number()
       .min(0)
       .max(2)
       .optional()
       .describe('Weight for full-text search (default 1.0)'),
+    limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
+    query: z.string().min(1).max(2000).describe('Search query text'),
     vectorThreshold: z.number().min(0).max(1).optional().describe('Minimum similarity threshold'),
-    filePaths: z
-      .array(z.string().min(1))
-      .max(1000)
+    vectorWeight: z
+      .number()
+      .min(0)
+      .max(2)
       .optional()
-      .describe('Filter to specific file paths'),
-    chunkType: z
-      .enum(['text', 'code', 'sentence', 'recursive'])
-      .optional()
-      .describe('Filter by chunk type'),
+      .describe('Weight for vector search (default 1.0)'),
   })
   .strict();
 
@@ -71,9 +71,9 @@ export type ListEmbeddingSetsInput = z.infer<typeof ListEmbeddingSetsInputSchema
 
 export const CreateEmbeddingSetInputSchema = z
   .object({
-    name: z.string().min(1).max(100).describe('Name for the embedding set'),
-    modelKey: z.string().min(1).describe('Model key (provider::model format)'),
     description: z.string().max(500).optional().describe('Optional description'),
+    modelKey: z.string().min(1).describe('Model key (provider::model format)'),
+    name: z.string().min(1).max(100).describe('Name for the embedding set'),
   })
   .strict();
 
@@ -85,10 +85,10 @@ export type CreateEmbeddingSetInput = z.infer<typeof CreateEmbeddingSetInputSche
 
 export const QueryFileTreeInputSchema = z
   .object({
+    includeHidden: z.boolean().optional().describe('Include hidden files/directories'),
+    maxDepth: z.number().int().positive().max(10).optional().describe('Maximum depth to traverse'),
     path: z.string().optional().describe('Directory path to query (defaults to root)'),
     pattern: z.string().optional().describe('Glob pattern to filter files'),
-    maxDepth: z.number().int().positive().max(10).optional().describe('Maximum depth to traverse'),
-    includeHidden: z.boolean().optional().describe('Include hidden files/directories'),
   })
   .strict();
 
@@ -132,9 +132,6 @@ const ROOT_WRITE_GUARD_DESCRIPTION =
 
 export const ReadWorkspaceFileInputSchema = z
   .object({
-    path: z.string().min(1).describe('Workspace-relative file path'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    startLine: z.number().int().positive().optional().describe('Optional starting line (1-based)'),
     endLine: z.number().int().positive().optional().describe('Optional ending line (1-based)'),
     maxChars: z
       .number()
@@ -143,6 +140,9 @@ export const ReadWorkspaceFileInputSchema = z
       .max(50_000)
       .optional()
       .describe('Maximum characters to return before truncation'),
+    path: z.string().min(1).describe('Workspace-relative file path'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
+    startLine: z.number().int().positive().optional().describe('Optional starting line (1-based)'),
   })
   .strict();
 
@@ -150,18 +150,18 @@ export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema
 
 export const WriteWorkspaceFileInputSchema = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
-      ),
     content: z
       // Outer DoS guard only; the desktop tool enforces the authoritative ~2 MB
       // UTF-8 BYTE cap (this counts UTF-16 code units, so it sits well above it).
       .string()
       .max(8_000_000)
       .describe('Full UTF-8 file content to write (up to ~2 MB). Overwrites any existing file.'),
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        'Workspace-relative file path to write (same path convention as readWorkspaceFile). Parent directories are created if missing.'
+      ),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -170,12 +170,10 @@ export type WriteWorkspaceFileInput = z.infer<typeof WriteWorkspaceFileInputSche
 
 export const StringReplaceWorkspaceFileInputSchema = z
   .object({
-    path: z
+    newStr: z
       .string()
-      .min(1)
-      .describe(
-        'Workspace-relative file path to edit (same path convention as readWorkspaceFile). The file must already exist.'
-      ),
+      .max(8_000_000)
+      .describe('The replacement text. Use an empty string to delete the matched block.'),
     oldStr: z
       // Outer DoS guard only; the desktop tool reads the file under the same
       // ~2 MB BYTE cap as readWorkspaceFile (this counts UTF-16 code units).
@@ -185,10 +183,12 @@ export const StringReplaceWorkspaceFileInputSchema = z
       .describe(
         'The exact block of existing text to replace. Pass WHOLE LINES with enough surrounding context that the block uniquely identifies ONE location: a block that matches more than once is REFUSED (re-call with more context), and a short fragment can match inside a larger token (e.g. "bar" inside "foobarbaz"), so prefer complete lines over substrings.'
       ),
-    newStr: z
+    path: z
       .string()
-      .max(8_000_000)
-      .describe('The replacement text. Use an empty string to delete the matched block.'),
+      .min(1)
+      .describe(
+        'Workspace-relative file path to edit (same path convention as readWorkspaceFile). The file must already exist.'
+      ),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
@@ -197,9 +197,14 @@ export type StringReplaceWorkspaceFileInput = z.infer<typeof StringReplaceWorksp
 
 export const ReadWorkspaceDirectoryInputSchema = z
   .object({
-    path: z.string().optional().describe('Directory path (defaults to root)'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     depth: z.number().int().min(0).max(5).optional().describe('Maximum traversal depth'),
+    detail: z
+      .boolean()
+      .optional()
+      .describe('Include per-entry size and depth metadata (default false: path + type only)'),
+    includeDirectories: z.boolean().optional().describe('Include directories in the listing'),
+    includeFiles: z.boolean().optional().describe('Include files in the listing'),
+    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
     maxEntries: z
       .number()
       .int()
@@ -207,13 +212,6 @@ export const ReadWorkspaceDirectoryInputSchema = z
       .max(500)
       .optional()
       .describe('Maximum entries to return'),
-    includeFiles: z.boolean().optional().describe('Include files in the listing'),
-    includeDirectories: z.boolean().optional().describe('Include directories in the listing'),
-    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
-    detail: z
-      .boolean()
-      .optional()
-      .describe('Include per-entry size and depth metadata (default false: path + type only)'),
     offset: z
       .number()
       .int()
@@ -221,6 +219,8 @@ export const ReadWorkspaceDirectoryInputSchema = z
       .max(5000)
       .optional()
       .describe('Skip this many entries to continue a truncated listing'),
+    path: z.string().optional().describe('Directory path (defaults to root)'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
 
@@ -228,10 +228,6 @@ export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryI
 
 export const FindWorkspaceSymbolInputSchema = z
   .object({
-    path: z.string().min(1).describe('Workspace-relative file path'),
-    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
-    query: z.string().min(1).describe('Symbol name or substring to find'),
-    maxMatches: z.number().int().positive().max(20).optional().describe('Max matches (default 5)'),
     contextLines: z
       .number()
       .int()
@@ -239,6 +235,10 @@ export const FindWorkspaceSymbolInputSchema = z
       .max(10)
       .optional()
       .describe('Preview lines before/after each match (default 2)'),
+    maxMatches: z.number().int().positive().max(20).optional().describe('Max matches (default 5)'),
+    path: z.string().min(1).describe('Workspace-relative file path'),
+    query: z.string().min(1).describe('Symbol name or substring to find'),
+    root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
   })
   .strict();
 
@@ -246,16 +246,16 @@ export type FindWorkspaceSymbolInput = z.infer<typeof FindWorkspaceSymbolInputSc
 
 export const ListWorkspaceContextInputSchema = z
   .object({
-    includeTokenEstimates: z
-      .boolean()
-      .optional()
-      .describe('Include token estimates for selected files when available'),
     detail: z
       .boolean()
       .optional()
       .describe(
         'Include full curated-context metadata with per-file Tapestry ranges (default: compact summary with counts and token budgets)'
       ),
+    includeTokenEstimates: z
+      .boolean()
+      .optional()
+      .describe('Include token estimates for selected files when available'),
     offset: z
       .number()
       .int()
@@ -276,6 +276,20 @@ export const ReadWorkspaceContextInputSchema = z
       .max(5000)
       .optional()
       .describe('Workspace-relative file paths to read. Defaults to selected workspace context.'),
+    maxCharsPerFile: z
+      .number()
+      .int()
+      .positive()
+      .max(50_000)
+      .optional()
+      .describe('Maximum characters to return per file before truncation'),
+    maxFiles: z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .optional()
+      .describe('Maximum number of files to include'),
     root: z.string().optional().describe(ROOT_QUALIFIER_DESCRIPTION),
     tokenBudget: z
       .number()
@@ -284,20 +298,6 @@ export const ReadWorkspaceContextInputSchema = z
       .max(200_000)
       .optional()
       .describe('Maximum approximate output tokens for all returned file contents'),
-    maxFiles: z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .optional()
-      .describe('Maximum number of files to include'),
-    maxCharsPerFile: z
-      .number()
-      .int()
-      .positive()
-      .max(50_000)
-      .optional()
-      .describe('Maximum characters to return per file before truncation'),
     useTapestrySelections: z
       .boolean()
       .optional()
@@ -314,11 +314,11 @@ export const UpdateWorkspaceContextSelectionInputSchema = z
       .min(1)
       .max(5000)
       .describe('Workspace-relative file paths to select in the workspace context explorer'),
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
     mode: z
       .enum(['replace', 'add', 'remove'])
       .optional()
       .describe('Selection update strategy (default: add)'),
-    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
     root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
   })
   .strict();
@@ -329,15 +329,15 @@ export type UpdateWorkspaceContextSelectionInput = z.infer<
 
 const WorkspaceTapestryRangeInputSchema = z
   .object({
-    startLine: z.number().int().positive().describe('1-based inclusive starting line'),
-    endLine: z.number().int().positive().describe('1-based inclusive ending line'),
-    isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
     color: z
       .enum(TAPESTRY_COLOR_NAMES)
       .optional()
       .describe(
         'Optional named color to group related ranges (red, orange, yellow, green, cyan, blue, purple, pink, gray). Reuse the same color for the same concept. Omit to auto-assign.'
       ),
+    endLine: z.number().int().positive().describe('1-based inclusive ending line'),
+    isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
+    startLine: z.number().int().positive().describe('1-based inclusive starting line'),
   })
   .strict()
   .refine((value) => value.endLine >= value.startLine, {
@@ -347,6 +347,16 @@ const WorkspaceTapestryRangeInputSchema = z
 
 export const UpdateWorkspaceTapestrySelectionsInputSchema = z
   .object({
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+    mode: z
+      .enum(['replace', 'add', 'clear'])
+      .optional()
+      .describe('Range update strategy for each file (default: replace)'),
+    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
+    selectFiles: z
+      .boolean()
+      .optional()
+      .describe('Also add affected files to the workspace context selection (default: true)'),
     updates: z
       .array(
         z
@@ -362,16 +372,6 @@ export const UpdateWorkspaceTapestrySelectionsInputSchema = z
       .min(1)
       .max(500)
       .describe('Tapestry selection updates grouped by file'),
-    mode: z
-      .enum(['replace', 'add', 'clear'])
-      .optional()
-      .describe('Range update strategy for each file (default: replace)'),
-    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
-    root: z.string().optional().describe(ROOT_WRITE_GUARD_DESCRIPTION),
-    selectFiles: z
-      .boolean()
-      .optional()
-      .describe('Also add affected files to the workspace context selection (default: true)'),
   })
   .strict();
 
@@ -390,15 +390,15 @@ export const SelectRootTreeFilesInputSchema = z
       .min(1)
       .max(5000)
       .describe('Workspace-relative file paths to add to the left root tree selection'),
-    mode: z
-      .enum(['replace', 'add', 'remove'])
-      .optional()
-      .describe('Selection update strategy for root tree selection (default: add)'),
     folderId: z
       .string()
       .min(1)
       .optional()
       .describe('Optional folder identifier when multiple roots are present'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy for root tree selection (default: add)'),
   })
   .strict();
 
@@ -416,15 +416,15 @@ export const UpdatePreviewContextFilesInputSchema = z
       .min(1)
       .max(5000)
       .describe('Workspace-relative file paths to adjust in the preview context selection'),
-    mode: z
-      .enum(['replace', 'add', 'remove'])
-      .optional()
-      .describe('Selection update strategy for preview context files (default: add)'),
     folderId: z
       .string()
       .min(1)
       .optional()
       .describe('Optional folder identifier when multiple roots are present'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy for preview context files (default: add)'),
   })
   .strict();
 
@@ -435,20 +435,20 @@ const EchoInput = z.object({ text: z.string().min(1) }).strict();
 
 export const RetrievalContextInputSchema = z
   .object({
-    query: z.string().min(1).max(2000),
-    limit: z.number().int().positive().max(100).optional(),
-    threshold: z.number().min(0).max(1).optional(),
-    tokenBudget: z.number().int().positive().max(200_000).optional(),
-    maxChunks: z.number().int().positive().max(100).optional(),
     embeddingSetId: z.string().min(1).optional(),
     filePaths: z.array(z.string().min(1)).max(5000).optional(),
-    selectionSnapshotId: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(100).optional(),
+    maxChunks: z.number().int().positive().max(100).optional(),
+    query: z.string().min(1).max(2000),
     root: z
       .string()
       .optional()
       .describe(
         'Optional: scope retrieval to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are labelled with their root.'
       ),
+    selectionSnapshotId: z.string().min(1).optional(),
+    threshold: z.number().min(0).max(1).optional(),
+    tokenBudget: z.number().int().positive().max(200_000).optional(),
   })
   .strict();
 
@@ -464,27 +464,7 @@ export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSc
 
 export const GrepSearchInputSchema = z
   .object({
-    pattern: z
-      .string()
-      .min(2)
-      .max(500)
-      .describe('Exact text (default) or JavaScript regex to find in indexed file content'),
-    isRegex: z
-      .boolean()
-      .optional()
-      .describe('Treat pattern as a JavaScript regular expression (default false)'),
     caseSensitive: z.boolean().optional().describe('Case-sensitive matching (default false)'),
-    filePaths: z
-      .array(z.string().min(1))
-      .max(1000)
-      .optional()
-      .describe('Restrict the search to specific indexed file paths'),
-    root: z
-      .string()
-      .optional()
-      .describe(
-        'Optional: scope the search to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are always labelled with their root.'
-      ),
     contextLines: z
       .number()
       .int()
@@ -492,6 +472,15 @@ export const GrepSearchInputSchema = z
       .max(5)
       .optional()
       .describe("Lines of context before/after each match in 'content' mode (default 1)"),
+    filePaths: z
+      .array(z.string().min(1))
+      .max(1000)
+      .optional()
+      .describe('Restrict the search to specific indexed file paths'),
+    isRegex: z
+      .boolean()
+      .optional()
+      .describe('Treat pattern as a JavaScript regular expression (default false)'),
     maxResults: z
       .number()
       .int()
@@ -499,12 +488,6 @@ export const GrepSearchInputSchema = z
       .max(200)
       .optional()
       .describe("Maximum 'content' matches to return (default 50)"),
-    outputMode: z
-      .enum(['files', 'content'])
-      .optional()
-      .describe(
-        "'files' (default) lists matching file paths with per-file match counts — a cheap survey for narrowing. 'content' returns line-level matches with context; scope it with filePaths."
-      ),
     offset: z
       .number()
       .int()
@@ -513,6 +496,23 @@ export const GrepSearchInputSchema = z
       .optional()
       .describe(
         'Skip this many files/matches to continue a truncated result instead of re-querying'
+      ),
+    outputMode: z
+      .enum(['files', 'content'])
+      .optional()
+      .describe(
+        "'files' (default) lists matching file paths with per-file match counts — a cheap survey for narrowing. 'content' returns line-level matches with context; scope it with filePaths."
+      ),
+    pattern: z
+      .string()
+      .min(2)
+      .max(500)
+      .describe('Exact text (default) or JavaScript regex to find in indexed file content'),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: scope the search to one open folder by its name or id (from listWorkspaceContext or a result). Omit to search every open folder; results are always labelled with their root.'
       ),
   })
   .strict()
@@ -541,18 +541,11 @@ export type GrepSearchInput = z.infer<typeof GrepSearchInputSchema>;
 
 export const GlobWorkspaceInputSchema = z
   .object({
-    pattern: z
-      .string()
-      .min(1)
-      .max(500)
-      .describe(
-        'Glob pattern matched against workspace-relative paths, e.g. "**/*.test.ts", "src/**/*.tsx", "**/package.json". A bare pattern with no leading "**/" or "/" matches at any depth (so "*.ts" behaves like "**/*.ts").'
-      ),
-    root: z
-      .string()
+    includeIgnored: z
+      .boolean()
       .optional()
       .describe(
-        'Optional: scope the walk to one open folder by its name or id (from listWorkspaceContext or a result). Omit to enumerate every open folder; results are always labelled with their root.'
+        'Include files normally excluded (.git, node_modules, dist/build output, lockfiles, minified/generated artifacts). Default false: the same exclusions the workspace indexer applies.'
       ),
     limit: z
       .number()
@@ -568,11 +561,18 @@ export const GlobWorkspaceInputSchema = z
       .max(100_000)
       .optional()
       .describe('Skip this many matches to continue a truncated result instead of re-querying'),
-    includeIgnored: z
-      .boolean()
+    pattern: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe(
+        'Glob pattern matched against workspace-relative paths, e.g. "**/*.test.ts", "src/**/*.tsx", "**/package.json". A bare pattern with no leading "**/" or "/" matches at any depth (so "*.ts" behaves like "**/*.ts").'
+      ),
+    root: z
+      .string()
       .optional()
       .describe(
-        'Include files normally excluded (.git, node_modules, dist/build output, lockfiles, minified/generated artifacts). Default false: the same exclusions the workspace indexer applies.'
+        'Optional: scope the walk to one open folder by its name or id (from listWorkspaceContext or a result). Omit to enumerate every open folder; results are always labelled with their root.'
       ),
   })
   .strict();
@@ -585,13 +585,6 @@ export type GlobWorkspaceInput = z.infer<typeof GlobWorkspaceInputSchema>;
 
 export const WebSearchInputSchema = z
   .object({
-    query: z
-      .string()
-      .min(2)
-      .max(400)
-      .describe(
-        'The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents.'
-      ),
     maxResults: z
       .number()
       .int()
@@ -599,6 +592,13 @@ export const WebSearchInputSchema = z
       .max(10)
       .optional()
       .describe('Maximum number of results to return (default 5, max 10)'),
+    query: z
+      .string()
+      .min(2)
+      .max(400)
+      .describe(
+        'The web search query. Sent to an external search service (Tavily) — never include secrets or private workspace contents.'
+      ),
   })
   .strict();
 
@@ -613,17 +613,17 @@ export const ExecuteCommandInputSchema = z
       .describe(
         'The shell command line to run, passed verbatim to the shell as `-c command`. Arbitrary execution — there is NO sandbox.'
       ),
-    root: z
-      .string()
-      .optional()
-      .describe(
-        'Optional: which open folder to start in, by name or id (from listWorkspaceContext). Omit when only one folder is open; required to disambiguate when several are.'
-      ),
     cwd: z
       .string()
       .optional()
       .describe(
         'Optional start directory. Absolute, or relative to the chosen root. MUST resolve inside an open workspace folder (the command itself is unrestricted; only the start dir is pinned). Defaults to the workspace root.'
+      ),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        'Optional: which open folder to start in, by name or id (from listWorkspaceContext). Omit when only one folder is open; required to disambiguate when several are.'
       ),
     timeoutMs: z
       .number()
@@ -640,24 +640,24 @@ export const ExecuteCommandInputSchema = z
 export type ExecuteCommandInput = z.infer<typeof ExecuteCommandInputSchema>;
 
 const schemaMap: Record<string, z.ZodSchema> = {
-  // Web tools
-  'web.echo': EchoInput,
+  'brainstrike.executeCommand': ExecuteCommandInputSchema,
   // Minimal BrainStrike native tools
   'brainstrike.findWorkspaceSymbol': FindWorkspaceSymbolInputSchema,
-  'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
-  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
-  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
-  'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
+  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
+  'brainstrike.grepSearch': GrepSearchInputSchema,
+  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
+  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
+  'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
+  'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.stringReplaceWorkspaceFile': StringReplaceWorkspaceFileInputSchema,
   'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
   'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
-  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
-  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
-  'brainstrike.grepSearch': GrepSearchInputSchema,
-  'brainstrike.globWorkspace': GlobWorkspaceInputSchema,
   'brainstrike.webSearch': WebSearchInputSchema,
-  'brainstrike.executeCommand': ExecuteCommandInputSchema,
+  'brainstrike.writeWorkspaceFile': WriteWorkspaceFileInputSchema,
+  // Web tools
+  'web.echo': EchoInput,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {
@@ -673,11 +673,11 @@ function parseWithSchema(
   const res = schema.safeParse(params ?? {});
   if (!res.success) {
     return {
-      ok: false,
       issues: res.error.issues.map((issue) => formatZodIssue(issue)),
+      ok: false,
     };
   }
-  return { ok: true, data: res.data };
+  return { data: res.data, ok: true };
 }
 
 export function validateToolInput(
@@ -692,8 +692,8 @@ export function validateToolInput(
     // Only canonical BrainStrike-native tool IDs are validated here.
     // Runtime-discovered MCP tools must keep their server-provided names and are
     // forwarded without local aliasing or fallback validation.
-    return { ok: true, data: params ?? {} };
+    return { data: params ?? {}, ok: true };
   } catch (err) {
-    return { ok: false, issues: [err instanceof Error ? err.message : String(err)] };
+    return { issues: [err instanceof Error ? err.message : String(err)], ok: false };
   }
 }

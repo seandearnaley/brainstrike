@@ -19,8 +19,8 @@ let capturedOnFileIndexed:
 const indexFilesMock = vi.fn<(files: FileToIndex[]) => Promise<void>>(async () => {});
 const cancelIndexingMock = vi.fn();
 const mockBackgroundIndexer = {
-  indexFiles: indexFilesMock,
   cancelIndexing: cancelIndexingMock,
+  indexFiles: indexFilesMock,
   isIndexing: false,
   isReady: true,
   progress: null,
@@ -40,42 +40,42 @@ vi.mock('@brainstrike/token-cache/background-indexer', () => ({
 // Provide a minimal context value with the fields the integration hook reads.
 const createStoreMock = () =>
   ({
-    get: vi.fn(),
-    set: vi.fn(),
-    getBatch: vi.fn(async () => new Map()),
-    getAllForFolder: vi.fn(async () => []),
-    setBatch: vi.fn(async () => {}),
-    delete: vi.fn(async () => true),
-    clearFolder: vi.fn(async () => 0),
     clearAll: vi.fn(async () => 0),
-    getTotalTokens: vi.fn(async () => 0),
+    clearFolder: vi.fn(async () => 0),
+    delete: vi.fn(async () => true),
     findByCountingMode: vi.fn(async () => []),
+    get: vi.fn(),
+    getAllForFolder: vi.fn(async () => []),
+    getBatch: vi.fn(async () => new Map()),
+    getTotalTokens: vi.fn(async () => 0),
+    set: vi.fn(),
+    setBatch: vi.fn(async () => {}),
     vacuum: vi.fn(async () => {}),
   }) as unknown as TokenCacheContextValue['store'];
 
 const storeMock = createStoreMock();
 
 const createTokenCacheContext = (): TokenCacheContextValue => ({
-  isReady: true, // Deprecated - kept for backwards compatibility
-  isOperational: true, // Worker + hasher ready
-  isPersisted: true, // DB-backed storage available
-  persistenceMode: 'persistent',
-  isWorkerReady: true,
+  cacheVersion: 0,
+  clearHotCache: vi.fn(),
   countingMode: 'accurate',
   countTextTokens: vi.fn(async () => 0),
-  getTokenCount: vi.fn(),
   getFileSize: vi.fn(),
+  getTokenCount: vi.fn(),
   getTotalTokens: vi.fn(async () => 0),
-  isLoading: vi.fn(() => false),
-  isAnyLoading: false,
-  queueForCounting: vi.fn(),
-  preloadFolder: vi.fn(),
-  store: storeMock,
-  clearHotCache: vi.fn(),
   invalidate: vi.fn(),
-  updateHotCache: vi.fn(),
+  isAnyLoading: false,
+  isLoading: vi.fn(() => false),
+  isOperational: true, // Worker + hasher ready
+  isPersisted: true, // DB-backed storage available
+  isReady: true, // Deprecated - kept for backwards compatibility
+  isWorkerReady: true,
+  persistenceMode: 'persistent',
+  preloadFolder: vi.fn(),
+  queueForCounting: vi.fn(),
+  store: storeMock,
   updateFileSizeCache: vi.fn(),
-  cacheVersion: 0,
+  updateHotCache: vi.fn(),
 });
 
 const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext();
@@ -103,7 +103,7 @@ function createDeferredValue<T>(): DeferredValue<T> {
     resolve = innerResolve;
     reject = innerReject;
   });
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
@@ -123,7 +123,7 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
       const webFileHandleResolver = vi
         .fn()
-        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 256 });
+        .mockResolvedValue({ fileHandle: resolvedHandle, fileSize: 256, kind: 'handle' });
 
       mockFileTreeIndexContext = {
         getHandle: vi.fn(() => undefined),
@@ -135,9 +135,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([deepFileKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -169,7 +169,7 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const fileSize = new TextEncoder().encode(content).length;
       const webFileHandleResolver = vi
         .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
-        .mockResolvedValue({ kind: 'content', content, fileSize });
+        .mockResolvedValue({ content, fileSize, kind: 'content' });
 
       mockFileTreeIndexContext = {
         getHandle: vi.fn(() => undefined),
@@ -181,9 +181,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([deepFileKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -197,8 +197,8 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       expect(dispatched).toMatchObject({
         compositeKey: deepFileKey,
         content,
-        fileSize,
         filePath: 'src/deep/file.ts',
+        fileSize,
         folderId: rootFolderId,
       });
       // Critically: no fileHandle should be attached -- the worker must read
@@ -213,7 +213,7 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
       const webFileHandleResolver = vi
         .fn()
-        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 512 });
+        .mockResolvedValue({ fileHandle: resolvedHandle, fileSize: 512, kind: 'handle' });
 
       const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
         typeof vi.fn
@@ -234,9 +234,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([deepFileKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -271,9 +271,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: [],
+            onTokenResolved: vi.fn(),
             selectedFiles,
             webFileHandleResolver,
-            onTokenResolved: vi.fn(),
           }),
         { initialProps: new Set([deepFileKey]) }
       );
@@ -288,9 +288,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       // Simulate the FileTreeIndex repopulating (e.g., user expanded a subfolder).
       // The resolver now succeeds and the pending key should be retried automatically.
       webFileHandleResolver.mockResolvedValue({
-        kind: 'handle',
         fileHandle: resolvedHandle,
         fileSize: 256,
+        kind: 'handle',
       });
       mockFileTreeIndexContext = {
         getHandle: vi.fn(() => undefined),
@@ -332,9 +332,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([binaryKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -369,9 +369,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([largeKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -408,9 +408,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set(),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -430,7 +430,7 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
         const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
         deferredResolves
           .get(`${rootFolderId}/file-${i}.ts`)
-          ?.resolve({ kind: 'handle', fileHandle: handle, fileSize: 128 });
+          ?.resolve({ fileHandle: handle, fileSize: 128, kind: 'handle' });
       }
 
       await act(async () => {
@@ -452,7 +452,7 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
         const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
         deferredResolves
           .get(`${rootFolderId}/file-${i}.ts`)
-          ?.resolve({ kind: 'handle', fileHandle: handle, fileSize: 128 });
+          ?.resolve({ fileHandle: handle, fileSize: 128, kind: 'handle' });
       }
 
       await act(async () => {
@@ -478,9 +478,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const webFileHandleResolver = vi
         .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
         .mockResolvedValue({
-          kind: 'handle',
           fileHandle: oversizeHandle,
           fileSize: 800 * 1024, // > 750KB MAX_INDEXABLE_FILE_SIZE
+          kind: 'handle',
         });
 
       mockFileTreeIndexContext = {
@@ -493,9 +493,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([oversizeKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -521,9 +521,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const webFileHandleResolver = vi
         .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
         .mockResolvedValue({
-          kind: 'content',
           content: oversizeContent,
           fileSize: oversizeContent.length,
+          kind: 'content',
         });
 
       mockFileTreeIndexContext = {
@@ -536,9 +536,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
+          onTokenResolved: vi.fn(),
           selectedFiles: new Set([oversizeKey]),
           webFileHandleResolver,
-          onTokenResolved: vi.fn(),
         })
       );
 
@@ -561,9 +561,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
       const webFileHandleResolver = vi
         .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
         .mockResolvedValue({
-          kind: 'handle',
           fileHandle: oversizeHandle,
           fileSize: 800 * 1024,
+          kind: 'handle',
         });
 
       mockFileTreeIndexContext = {
@@ -577,9 +577,9 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: [],
+            onTokenResolved: vi.fn(),
             selectedFiles,
             webFileHandleResolver,
-            onTokenResolved: vi.fn(),
           }),
         { initialProps: new Set([oversizeKey]) }
       );
@@ -628,10 +628,10 @@ describe('useBackgroundTokenIndexerIntegration web resolver fallback', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
-        fileTree: [],
-        selectedFiles: new Set([deepFileKey]),
         electronFileReader,
+        fileTree: [],
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([deepFileKey]),
       })
     );
 

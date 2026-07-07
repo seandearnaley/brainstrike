@@ -17,7 +17,7 @@ export interface LocalEmbeddingHostQuery {
 }
 
 export interface LocalEmbeddingHostClient {
-  queryEmbedding(payload: LocalEmbeddingHostQuery): Promise<number[]>;
+  queryEmbedding: (payload: LocalEmbeddingHostQuery) => Promise<number[]>;
 }
 
 export function createLocalHostEmbeddingModel(args: {
@@ -39,13 +39,6 @@ export function createLocalHostEmbeddingModel(args: {
   };
 
   return {
-    specificationVersion: 'v2',
-    provider: 'local',
-    modelId,
-    maxEmbeddingsPerCall: undefined,
-    // The local embedding host serializes GPU work behind the foreground
-    // gate; issuing values sequentially avoids queueing pressure.
-    supportsParallelCalls: false,
     async doEmbed({ values }) {
       const dimensions = await getDimensions();
       const embeddings: number[][] = [];
@@ -61,5 +54,12 @@ export function createLocalHostEmbeddingModel(args: {
       }
       return { embeddings };
     },
+    maxEmbeddingsPerCall: undefined,
+    modelId,
+    provider: 'local',
+    specificationVersion: 'v2',
+    // The local embedding host serializes GPU work behind the foreground
+    // gate; issuing values sequentially avoids queueing pressure.
+    supportsParallelCalls: false,
   };
 }

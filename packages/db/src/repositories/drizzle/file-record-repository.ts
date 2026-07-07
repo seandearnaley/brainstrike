@@ -120,33 +120,33 @@ export class DrizzleFileRecordRepository {
 
   async create(record: FileRecord): Promise<void> {
     await this.db.insert(fileRecords).values({
+      chunkingStrategy: record.chunkingStrategy ?? null,
+      chunksCount: record.chunksCount ?? null,
+      createdAt: new Date(record.createdAt),
+      embeddingSetId: record.embeddingSetId ?? null,
       id: record.id,
       name: record.name,
       path: record.path,
       size: record.size,
-      createdAt: new Date(record.createdAt),
-      updatedAt: new Date(record.updatedAt),
       tokenCount: record.tokenCount ?? null,
-      embeddingSetId: record.embeddingSetId ?? null,
-      chunksCount: record.chunksCount ?? null,
-      chunkingStrategy: record.chunkingStrategy ?? null,
+      updatedAt: new Date(record.updatedAt),
     });
   }
 
   async createWithContent(record: FileRecord): Promise<void> {
     assertTextContentHasNoNullBytes(record.content, 'File record content');
     await this.db.insert(fileRecords).values({
+      content: record.content ?? null,
+      contentHash: record.contentHash ?? null,
+      createdAt: new Date(record.createdAt),
+      embeddingSetId: record.embeddingSetId ?? null,
       id: record.id,
       name: record.name,
       path: record.path,
-      size: record.size,
-      createdAt: new Date(record.createdAt),
-      updatedAt: new Date(record.updatedAt),
-      content: record.content ?? null,
-      contentHash: record.contentHash ?? null,
-      tokenCount: record.tokenCount ?? 0,
       processedAt: record.processedAt ? new Date(record.processedAt) : null,
-      embeddingSetId: record.embeddingSetId ?? null,
+      size: record.size,
+      tokenCount: record.tokenCount ?? 0,
+      updatedAt: new Date(record.updatedAt),
     });
   }
 
@@ -231,11 +231,11 @@ export class DrizzleFileRecordRepository {
     const boundedLimit = clampQuickOpenLimit(limit);
     const rows = await this.db
       .select({
-        id: fileRecords.id,
-        path: fileRecords.path,
-        name: fileRecords.name,
-        root_id: fileRecords.rootId,
         display_name: roots.displayName,
+        id: fileRecords.id,
+        name: fileRecords.name,
+        path: fileRecords.path,
+        root_id: fileRecords.rootId,
       })
       .from(fileRecords)
       .leftJoin(roots, eq(roots.id, fileRecords.rootId))
@@ -244,11 +244,11 @@ export class DrizzleFileRecordRepository {
       .limit(boundedLimit);
 
     return rows.map((row) => ({
-      id: row.id,
-      path: row.path,
-      name: row.name,
-      root_id: row.root_id ?? null,
       display_name: row.display_name ?? null,
+      id: row.id,
+      name: row.name,
+      path: row.path,
+      root_id: row.root_id ?? null,
     }));
   }
 
@@ -269,15 +269,15 @@ export class DrizzleFileRecordRepository {
   ): Promise<ManagedCacheEntryMetadata[]> {
     const rows = await this.db
       .select({
-        fileRecordId: fileRecords.id,
-        embeddingSetId: fileRecords.embeddingSetId,
-        rootId: fileRecords.rootId,
-        relativePath: fileRecords.path,
-        contentHash: fileRecords.contentHash,
-        size: fileRecords.size,
-        mtimeMs: fileRecords.mtimeMs,
         chunksCount: fileRecords.chunksCount,
         chunksProcessedAt: fileRecords.chunksProcessedAt,
+        contentHash: fileRecords.contentHash,
+        embeddingSetId: fileRecords.embeddingSetId,
+        fileRecordId: fileRecords.id,
+        mtimeMs: fileRecords.mtimeMs,
+        relativePath: fileRecords.path,
+        rootId: fileRecords.rootId,
+        size: fileRecords.size,
         updatedAt: fileRecords.updatedAt,
       })
       .from(fileRecords)
@@ -298,15 +298,15 @@ export class DrizzleFileRecordRepository {
       }
       return [
         {
-          fileRecordId: row.fileRecordId,
-          embeddingSetId: row.embeddingSetId,
-          rootId: row.rootId,
-          relativePath: row.relativePath,
-          contentHash: row.contentHash ?? '',
-          size: row.size,
-          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
           chunksCount: row.chunksCount,
           chunksProcessedAt: row.chunksProcessedAt?.toISOString() ?? null,
+          contentHash: row.contentHash ?? '',
+          embeddingSetId: row.embeddingSetId,
+          fileRecordId: row.fileRecordId,
+          mtimeMs: typeof row.mtimeMs === 'number' ? row.mtimeMs : null,
+          relativePath: row.relativePath,
+          rootId: row.rootId,
+          size: row.size,
           updatedAt: row.updatedAt.toISOString(),
         } satisfies ManagedCacheEntryMetadata,
       ];
@@ -459,8 +459,8 @@ export class DrizzleFileRecordRepository {
       .set({
         content,
         contentHash,
-        tokenCount,
         processedAt: now,
+        tokenCount,
         updatedAt: now,
       })
       .where(eq(fileRecords.id, id));
@@ -493,8 +493,8 @@ export class DrizzleFileRecordRepository {
     const logBulkImport = logBulkImportInfo ? logger.info.bind(logger) : logger.debug.bind(logger);
 
     logBulkImport('Starting bulk import', {
-      totalFiles: requests.length,
       batchSize: BATCH_SIZE,
+      totalFiles: requests.length,
     });
 
     const results: FileImportResult[] = [];
@@ -505,9 +505,9 @@ export class DrizzleFileRecordRepository {
       const batch = requests.slice(batchStart, batchEnd);
 
       logger.debug(`Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1}`, {
-        batchStart,
         batchEnd,
         batchSize: batch.length,
+        batchStart,
       });
 
       try {
@@ -520,18 +520,18 @@ export class DrizzleFileRecordRepository {
         results.push(...batchResults);
       } catch (error) {
         logger.error('Batch processing failed, marking all files in batch as errors', {
-          batchStart,
           batchEnd,
+          batchStart,
           error: error instanceof Error ? error.message : String(error),
         });
 
         // Mark all files in failed batch as errors
         for (const _request of batch) {
           results.push({
+            error: `Batch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            existed: false,
             id: '',
             imported: false,
-            existed: false,
-            error: `Batch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           });
         }
       }
@@ -542,11 +542,11 @@ export class DrizzleFileRecordRepository {
     const errorCount = results.filter((r) => r.error).length;
 
     logBulkImport('Bulk import complete', {
-      totalFiles: requests.length,
-      successCount,
-      errorCount,
       durationMs: duration,
+      errorCount,
       filesPerSecond: (requests.length / (duration / 1000)).toFixed(2),
+      successCount,
+      totalFiles: requests.length,
     });
 
     onProgress?.(requests.length, requests.length);
@@ -564,9 +564,9 @@ export class DrizzleFileRecordRepository {
 
     // Step 1: Pre-compute all content hashes in parallel
     const hashPromises = batch.map(async (request, index) => ({
+      hash: await generateContentHash(request.content),
       index,
       request,
-      hash: await generateContentHash(request.content),
     }));
 
     const hashResults = await Promise.all(hashPromises);
@@ -587,9 +587,9 @@ export class DrizzleFileRecordRepository {
 
       if (existing) {
         results[index] = {
+          existed: true,
           id: existing.id,
           imported: false,
-          existed: true,
         };
         continue;
       }
@@ -599,36 +599,36 @@ export class DrizzleFileRecordRepository {
       const id = generateUUID();
 
       const record: typeof fileRecords.$inferInsert = {
+        content: request.content,
+        contentHash: hash,
+        createdAt: now,
+        embeddingSetId: request.embeddingSetId ?? null,
         id,
         name: request.name,
         path: request.path,
-        size: request.size,
-        createdAt: now,
-        updatedAt: now,
-        content: request.content,
-        contentHash: hash,
-        tokenCount,
         processedAt: now,
-        embeddingSetId: request.embeddingSetId ?? null,
+        size: request.size,
+        tokenCount,
+        updatedAt: now,
       };
 
       recordsToInsert.push(record);
 
       // Track for deduplication within batch
       existingMap.set(dedupeKey, {
+        contentHash: hash,
+        createdAt: now.toISOString(),
         id,
         name: request.name,
         path: request.path,
         size: request.size,
-        createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
-        contentHash: hash,
       });
 
       results[index] = {
+        existed: false,
         id,
         imported: true,
-        existed: false,
       };
     }
 
@@ -698,11 +698,11 @@ export class DrizzleFileRecordRepository {
 
   private fromRow(row: typeof fileRecords.$inferSelect): FileRecord {
     const record: FileRecord = {
+      createdAt: row.createdAt.toISOString(),
       id: row.id,
       name: row.name,
       path: row.path,
       size: row.size,
-      createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
 

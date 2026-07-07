@@ -189,9 +189,9 @@ async function enqueueLocalBackfill(args: {
   const backfillAbortController = new AbortController();
   const signal = mergeAbortSignals([args.options?.signal, backfillAbortController.signal]);
   args.localBackfills.set(args.embeddingSetId, {
-    requestId,
     abortController: backfillAbortController,
     progress: null,
+    requestId,
     source,
   });
 
@@ -204,11 +204,11 @@ async function enqueueLocalBackfill(args: {
         }
         backfill.progress = { current: done, total };
         args.notifyBackfillProgress({
+          current: done,
           embeddingSetId: args.embeddingSetId,
           requestId,
           source,
           stage: 'backfill',
-          current: done,
           total,
         });
       },
@@ -221,11 +221,11 @@ async function enqueueLocalBackfill(args: {
     });
     const backfill = args.localBackfills.get(args.embeddingSetId);
     args.notifyBackfillProgress({
+      current: backfill?.progress?.current ?? 0,
       embeddingSetId: args.embeddingSetId,
       requestId,
       source,
       stage: 'complete',
-      current: backfill?.progress?.current ?? 0,
       total: backfill?.progress?.total ?? 0,
     });
     return { requestId };
@@ -236,13 +236,13 @@ async function enqueueLocalBackfill(args: {
     const message = error instanceof Error ? error.message : String(error);
     const backfill = args.localBackfills.get(args.embeddingSetId);
     args.notifyBackfillProgress({
+      current: backfill?.progress?.current ?? 0,
       embeddingSetId: args.embeddingSetId,
+      message,
       requestId,
       source,
       stage: 'error',
-      current: backfill?.progress?.current ?? 0,
       total: backfill?.progress?.total ?? 0,
-      message,
     });
     throw error;
   } finally {
@@ -362,10 +362,8 @@ export function useEmbeddingRuntimeController(
         const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
           db: createPriorityDbHandle(db, 'background'),
-          enable: true,
-          reinitEveryN,
           device: devicePreference,
-          streamingWorkerUrl: runtimeConfig.streamingWorkerUrl,
+          enable: true,
           onFatalError: (error: Error) => {
             updateLocalStatus(
               createBackgroundRuntimeStatus(
@@ -390,6 +388,8 @@ export function useEmbeddingRuntimeController(
               )
             );
           },
+          reinitEveryN,
+          streamingWorkerUrl: runtimeConfig.streamingWorkerUrl,
         });
         localWorkerControllerRef.current = controller;
         return updateLocalStatus(
@@ -406,6 +406,15 @@ export function useEmbeddingRuntimeController(
     };
 
     return {
+      cancelAllBackfills: async () => {
+        if (desktopHost?.cancelAllBackfills) {
+          await desktopHost.cancelAllBackfills();
+          return;
+        }
+        for (const backfill of localBackfillsRef.current.values()) {
+          backfill.abortController.abort();
+        }
+      },
       cancelBackfill: async (embeddingSetId: string) => {
         if (desktopHost?.cancelBackfill) {
           await desktopHost.cancelBackfill(embeddingSetId);
@@ -416,15 +425,6 @@ export function useEmbeddingRuntimeController(
           return;
         }
         backfill.abortController.abort();
-      },
-      cancelAllBackfills: async () => {
-        if (desktopHost?.cancelAllBackfills) {
-          await desktopHost.cancelAllBackfills();
-          return;
-        }
-        for (const backfill of localBackfillsRef.current.values()) {
-          backfill.abortController.abort();
-        }
       },
       enqueueBackfill: async (
         embeddingSetId: string,
@@ -465,9 +465,9 @@ export function useEmbeddingRuntimeController(
         return Array.from(localBackfillsRef.current.entries()).map(
           ([embeddingSetId, backfill]) => ({
             embeddingSetId,
+            progress: backfill.progress,
             requestId: backfill.requestId,
             source: backfill.source,
-            progress: backfill.progress,
           })
         );
       },

@@ -97,7 +97,7 @@ describe('workspace collection sync progress helpers', () => {
   it('maps enhanced import progress phases into status patches', () => {
     const completeProgress = createEnhancedProgressWithoutCurrent({
       completed: 5,
-      errors: [{ file: 'src/a.ts', error: 'read failed' }],
+      errors: [{ error: 'read failed', file: 'src/a.ts' }],
       phase: 'complete',
       total: 5,
     });
@@ -146,12 +146,12 @@ describe('workspace collection sync progress helpers', () => {
         currentChunk: null,
         modelName: 'model-a',
       },
+      queuedFiles: 3,
       queueProgress: {
         failed: 1,
         lastEvent: null,
         pending: 3,
       },
-      queuedFiles: 3,
       state: 'embedding',
     });
 
@@ -264,12 +264,12 @@ describe('workspace collection sync progress helpers', () => {
         chunksProcessed: 0,
         totalChunks: 0,
       },
+      queuedFiles: 0,
       queueProgress: {
         pending: 0,
         processed: 0,
         totalQueued: 0,
       },
-      queuedFiles: 0,
       state: 'embedding',
     });
   });
@@ -333,7 +333,7 @@ describe('workspace collection sync progress helpers', () => {
 
     expect(
       buildBatchImportErrors(
-        createEnhancedProgress({ errors: [{ file: 'src/a.ts', error: 'x' }] }),
+        createEnhancedProgress({ errors: [{ error: 'x', file: 'src/a.ts' }] }),
         2
       )
     ).toEqual([

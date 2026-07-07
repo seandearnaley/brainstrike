@@ -3,7 +3,12 @@ import type { Migration } from './migration-runner';
 // Migration 007: Job queue with leasing, retries, backoff, and dedupe
 // Uses TEXT timestamps for portability across PGlite/Node environments
 export const migration007JobQueue: Migration = {
-  version: 7,
+  down: `
+    DROP INDEX IF EXISTS idx_job_queue_lease;
+    DROP INDEX IF EXISTS idx_job_queue_scheduling;
+    DROP INDEX IF EXISTS idx_job_queue_dedupe_active;
+    DROP TABLE IF EXISTS job_queue;
+  `,
   name: 'job_queue',
   up: `
     -- Create job_queue table
@@ -35,10 +40,5 @@ export const migration007JobQueue: Migration = {
     CREATE INDEX IF NOT EXISTS idx_job_queue_scheduling ON job_queue(queue, state, run_at);
     CREATE INDEX IF NOT EXISTS idx_job_queue_lease ON job_queue(state, leased_until);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_job_queue_lease;
-    DROP INDEX IF EXISTS idx_job_queue_scheduling;
-    DROP INDEX IF EXISTS idx_job_queue_dedupe_active;
-    DROP TABLE IF EXISTS job_queue;
-  `,
+  version: 7,
 };

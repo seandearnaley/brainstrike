@@ -23,12 +23,12 @@ describe('state-migration coverage', () => {
   ) {
     expect(result).toMatchObject({
       currentFolderId: null,
-      folderStates: {},
-      folderAccessOrder: [],
-      selectedFilePaths: [],
-      expandedDirectoryPaths: [],
-      quickFilter: '',
       devInlineFixtureEnabled: false,
+      expandedDirectoryPaths: [],
+      folderAccessOrder: [],
+      folderStates: {},
+      quickFilter: '',
+      selectedFilePaths: [],
     });
   }
 
@@ -41,8 +41,8 @@ describe('state-migration coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Received persisted state candidate',
       expect.objectContaining({
-        version: 1,
         valueType: 'string',
+        version: 1,
       })
     );
     expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -97,37 +97,37 @@ describe('state-migration coverage', () => {
     const { migrateState } = await import('../state-migration');
     const serializedState = {
       currentFolderId: 'folder-1',
-      folderStates: {},
-      folderAccessOrder: [],
-      selectedFilePaths: ['folder-1|@|file.ts'],
-      expandedDirectoryPaths: [],
-      includeFilters: [],
       excludeFilters: [],
-      useRegex: false,
-      includeProjectTree: false,
+      expandedDirectoryPaths: [],
+      folderAccessOrder: [],
+      folderStates: {},
       folderSummaryThreshold: 10,
-      maxSelectionCount: 50,
+      includeFilters: [],
+      includeProjectTree: false,
       lastActiveTab: 'files',
+      maxSelectionCount: 50,
+      selectedFilePaths: ['folder-1|@|file.ts'],
       selectionModel: {
-        mode: 'explicit',
         explicitPaths: ['folder-1|@|file.ts'],
-        ruleSetJson: null,
-        materializedPaths: null,
         materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
         queryDescriptor: null,
+        ruleSetJson: null,
       },
+      useRegex: false,
     };
 
     // Storage version was bumped to 5 (phase-5 root identity re-key).
     const result = migrateState(serializedState, 5, true);
 
     expect(result.selectionModel).toEqual({
-      mode: 'explicit',
       explicitPaths: ['folder-1|@|file.ts'],
-      ruleSetJson: null,
-      materializedPaths: null,
       materializedAt: null,
+      materializedPaths: null,
+      mode: 'explicit',
       queryDescriptor: null,
+      ruleSetJson: null,
     });
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Returning valid SerializedState summary',
@@ -144,17 +144,17 @@ describe('state-migration coverage', () => {
     const { migrateState } = await import('../state-migration');
     const serializedState = {
       currentFolderId: 'folder-1',
-      folderStates: {},
-      folderAccessOrder: [],
-      selectedFilePaths: ['folder-1|@|file.ts'],
-      expandedDirectoryPaths: [],
-      includeFilters: [],
       excludeFilters: [],
-      useRegex: false,
-      includeProjectTree: false,
+      expandedDirectoryPaths: [],
+      folderAccessOrder: [],
+      folderStates: {},
       folderSummaryThreshold: 10,
-      maxSelectionCount: 50,
+      includeFilters: [],
+      includeProjectTree: false,
       lastActiveTab: 'files',
+      maxSelectionCount: 50,
+      selectedFilePaths: ['folder-1|@|file.ts'],
+      useRegex: false,
     };
 
     // Pass a future version (6) which is higher than the current VERSION (5).

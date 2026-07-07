@@ -28,15 +28,15 @@ interface GoogleModelConfig extends ModelConfig {
 
 const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
   'gemini-embedding-001': {
+    description: 'Gemini embedding model with configurable output dimensions.',
+    dimensions: 3072,
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
-    dimensions: 3072,
-    quantized: false,
-    description: 'Gemini embedding model with configurable output dimensions.',
-    tags: ['google', 'hosted', 'embedding'],
     origin: 'Google Gemini',
+    quantized: false,
     size: 'hosted',
     supportsOutputDimensionality: true,
+    tags: ['google', 'hosted', 'embedding'],
   },
 };
 
@@ -112,12 +112,12 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     return {
-      providerId: 'google',
-      modelKey: modelId,
       // Use configured targetDimensions (Google supports configurable outputDimensionality)
       dimensions: this.targetDimensions,
-      distance: DEFAULT_DISTANCE_METRIC,
       displayName: modelConfig.name,
+      distance: DEFAULT_DISTANCE_METRIC,
+      modelKey: modelId,
+      providerId: 'google',
       ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
     };
   }
@@ -127,22 +127,22 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (!apiKey) {
       return {
-        ok: false,
         error: {
-          type: 'missing_api_key',
           provider: 'google',
+          type: 'missing_api_key',
         },
+        ok: false,
       };
     }
 
     if (!this.fetchImpl) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'google',
           originalError: new Error('Fetch implementation not available'),
+          provider: 'google',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
 
@@ -159,12 +159,12 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
       return await this.handleSuccessResponse(response, normalizedTexts.value, input.modelId);
     } catch (error) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'google',
           originalError: error instanceof Error ? error : new Error(String(error)),
+          provider: 'google',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
   }
@@ -181,11 +181,11 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
     if (response.status === 429) {
       return {
-        ok: false,
         error: {
-          type: 'rate_limit_exceeded',
           provider: 'google',
+          type: 'rate_limit_exceeded',
         },
+        ok: false,
       };
     }
 
@@ -195,13 +195,13 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
       `Google embeddings request failed with status ${response.status}`;
 
     return {
-      ok: false,
       error: {
-        type: 'api_error',
+        message,
         provider: 'google',
         statusCode: response.status,
-        message,
+        type: 'api_error',
       },
+      ok: false,
     };
   }
 
@@ -215,25 +215,25 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (!embeddings || embeddings.length === 0) {
       return {
-        ok: false,
         error: {
-          type: 'api_error',
+          message: 'Google response did not include embedding values.',
           provider: 'google',
           statusCode: response.status,
-          message: 'Google response did not include embedding values.',
+          type: 'api_error',
         },
+        ok: false,
       };
     }
 
     if (embeddings.length !== texts.length) {
       return {
-        ok: false,
         error: {
-          type: 'api_error',
+          message: `Google response returned ${embeddings.length} embeddings for ${texts.length} inputs.`,
           provider: 'google',
           statusCode: response.status,
-          message: `Google response returned ${embeddings.length} embeddings for ${texts.length} inputs.`,
+          type: 'api_error',
         },
+        ok: false,
       };
     }
 
@@ -256,8 +256,8 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
       content: { parts: Array<{ text: string }> };
       outputDimensionality?: number;
     } = {
-      model: normalizeModelPath(this.modelId),
       content: buildContent(text),
+      model: normalizeModelPath(this.modelId),
     };
     if (this.supportsOutputDimensionality) {
       // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
@@ -265,12 +265,12 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     return fetchImpl(this.endpoint, {
-      method: 'POST',
+      body: JSON.stringify(body),
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify(body),
+      method: 'POST',
     });
   }
 
@@ -278,19 +278,19 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     const fetchImpl = this.fetchImpl.bind(globalThis);
     const model = normalizeModelPath(this.modelId);
     const requests = texts.map((text) => ({
-      model,
       content: buildContent(text),
+      model,
       // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
       ...(this.supportsOutputDimensionality ? { outputDimensionality: this.targetDimensions } : {}),
     }));
 
     return fetchImpl(this.batchEndpoint, {
-      method: 'POST',
+      body: JSON.stringify({ model, requests }),
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({ model, requests }),
+      method: 'POST',
     });
   }
 
@@ -302,13 +302,13 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (actualDimensions !== expectedDimensions) {
       return {
-        ok: false,
         error: {
-          type: 'dimension_mismatch',
           expected: expectedDimensions,
-          received: actualDimensions,
           modelId: this.modelId,
+          received: actualDimensions,
+          type: 'dimension_mismatch',
         },
+        ok: false,
       };
     }
 
@@ -336,22 +336,22 @@ function normalizeInputTexts(input: string | string[]): Result<string[], Embeddi
   const texts = Array.isArray(input) ? input : [input];
   if (texts.length === 0) {
     return {
-      ok: false,
       error: {
-        type: 'validation_error',
         field: 'text',
         message: 'At least one input string is required for embeddings.',
+        type: 'validation_error',
       },
+      ok: false,
     };
   }
   if (!texts.every((text) => typeof text === 'string')) {
     return {
-      ok: false,
       error: {
-        type: 'validation_error',
         field: 'text',
         message: 'Embedding inputs must be strings.',
+        type: 'validation_error',
       },
+      ok: false,
     };
   }
   return { ok: true, value: texts };
@@ -398,7 +398,6 @@ function extractEmbeddingVectors(payload: GoogleEmbeddingResponse): number[][] |
       return [embeddings.values];
     }
   }
-
   return;
 }
 
@@ -424,20 +423,20 @@ function buildEmbeddingOutput(
   const primaryEmbedding = embeddings[0];
   if (!primaryEmbedding) {
     return {
-      ok: false,
       error: {
-        type: 'api_error',
+        message: 'Google response did not include embedding values.',
         provider: 'google',
         statusCode: 200,
-        message: 'Google response did not include embedding values.',
+        type: 'api_error',
       },
+      ok: false,
     };
   }
 
   const output: EmbeddingOutput = {
+    dimensions: primaryEmbedding.length,
     embedding: primaryEmbedding,
     embeddings,
-    dimensions: primaryEmbedding.length,
     modelId,
     provider: 'google',
   };

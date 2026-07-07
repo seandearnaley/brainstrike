@@ -1,12 +1,13 @@
 'use strict';
 // @ts-check
 const config = {
-  plugins: ['@stryker-mutator/vitest-runner', '@stryker-mutator/typescript-checker'],
-  testRunner: 'vitest',
-  vitest: {
-    configFile: 'vitest.mutation.config.ts',
-  },
   checkers: ['typescript'],
+  concurrency: 2,
+  coverageAnalysis: 'perTest',
+  htmlReporter: {
+    fileName: 'reports/mutation/file-system/index.html',
+  },
+  ignorePatterns: ['dist/**', 'node_modules/**', 'coverage/**', 'reports/**'],
   mutate: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.test.{ts,tsx}',
@@ -14,20 +15,19 @@ const config = {
     '!src/**/__mocks__/**',
     '!src/**/*.d.ts',
   ],
-  coverageAnalysis: 'perTest',
-  concurrency: 2,
+  plugins: ['@stryker-mutator/vitest-runner', '@stryker-mutator/typescript-checker'],
   reporters: ['html', 'clear-text', 'progress'],
-  timeoutMS: 120_000,
-  htmlReporter: {
-    fileName: 'reports/mutation/file-system/index.html',
-  },
+  testRunner: 'vitest',
   thresholds: {
+    break: 50,
     high: 80,
     low: 65,
-    break: 50,
   },
-  ignorePatterns: ['dist/**', 'node_modules/**', 'coverage/**', 'reports/**'],
+  timeoutMS: 120_000,
   tsconfigFile: 'tsconfig.json',
+  vitest: {
+    configFile: 'vitest.mutation.config.ts',
+  },
 };
 
 module.exports = config;

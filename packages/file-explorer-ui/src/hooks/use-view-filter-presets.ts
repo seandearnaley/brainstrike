@@ -104,17 +104,17 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
       return [];
     }
     return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      icon: row.icon as ViewFilterPreset['icon'],
-      includes: row.includes ?? [],
-      excludes: row.excludes ?? [],
-      useRegex: row.useRegex,
-      isDefault: row.isDefault,
-      sortOrder: row.sortOrder,
       createdAt: row.createdAt,
+      description: row.description,
+      excludes: row.excludes ?? [],
+      icon: row.icon as ViewFilterPreset['icon'],
+      id: row.id,
+      includes: row.includes ?? [],
+      isDefault: row.isDefault,
+      name: row.name,
+      sortOrder: row.sortOrder,
       updatedAt: row.updatedAt,
+      useRegex: row.useRegex,
     }));
   }, [rows]);
 
@@ -252,13 +252,13 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   }, [useDrizzlePath, repository, fetchPresetsFromRepo]);
 
   return {
-    presets,
-    loading,
-    error,
     createPreset,
-    updatePreset,
     deletePreset,
+    error,
     getPreset,
+    loading,
+    presets,
     refresh,
+    updatePreset,
   };
 }

@@ -16,9 +16,9 @@ describe('getProviderColor', () => {
 
 describe('filterModels', () => {
   const models: ModelPickerModel[] = [
-    { id: '1', name: 'GPT-4', providerId: 'openai', capabilities: { type: 'llm' } },
-    { id: '2', name: 'Claude', providerId: 'anthropic', capabilities: { type: 'llm' } },
-    { id: '3', name: 'Embed', providerId: 'openai', capabilities: { type: 'embedding' } },
+    { capabilities: { type: 'llm' }, id: '1', name: 'GPT-4', providerId: 'openai' },
+    { capabilities: { type: 'llm' }, id: '2', name: 'Claude', providerId: 'anthropic' },
+    { capabilities: { type: 'embedding' }, id: '3', name: 'Embed', providerId: 'openai' },
   ];
 
   it('filters by type', () => {

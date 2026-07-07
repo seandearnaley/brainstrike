@@ -9,6 +9,8 @@ const shikiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-shiki/core', () => ({
+  createHighlighterCore: shikiMocks.createHighlighterCore,
+  createOnigurumaEngine: shikiMocks.createOnigurumaEngine,
   default: ({
     children,
     className,
@@ -29,15 +31,13 @@ vi.mock('react-shiki/core', () => ({
       {children}
     </div>
   ),
-  createHighlighterCore: shikiMocks.createHighlighterCore,
-  createOnigurumaEngine: shikiMocks.createOnigurumaEngine,
 }));
 
 const components: SyntaxHighlighterProps['components'] = {
-  Pre: ({ children }: { children?: ReactNode }) => <pre data-testid="fallback-pre">{children}</pre>,
   Code: ({ children }: { children?: ReactNode }) => (
     <code data-testid="fallback-code">{children}</code>
   ),
+  Pre: ({ children }: { children?: ReactNode }) => <pre data-testid="fallback-pre">{children}</pre>,
 };
 
 async function importSubject(): Promise<typeof import('../assistant-ui-panel/shiki-highlighter')> {

@@ -21,8 +21,8 @@ export interface StatusBarItemProps {
 const statusClasses: Record<StatusBarItemStatus, string> = {
   connected: 'text-green-600',
   disconnected: 'text-red-600',
-  warning: 'text-yellow-600',
   loading: 'text-muted-foreground animate-pulse',
+  warning: 'text-yellow-600',
 };
 
 /**

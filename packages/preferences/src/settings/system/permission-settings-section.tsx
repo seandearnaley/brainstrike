@@ -49,23 +49,23 @@ interface RiskCategoryMeta {
 const RISK_CATEGORY_META: readonly RiskCategoryMeta[] = [
   {
     category: 'read',
-    label: 'Read',
     description: 'Search and inspect the workspace (no changes).',
+    label: 'Read',
   },
   {
     category: 'edit',
-    label: 'Edit',
     description: 'Modify files or persistent state.',
+    label: 'Edit',
   },
   {
     category: 'execute',
-    label: 'Execute',
     description: 'Run commands or scripts.',
+    label: 'Execute',
   },
   {
     category: 'mcp',
-    label: 'MCP',
     description: 'Call external MCP server tools.',
+    label: 'MCP',
   },
 ];
 

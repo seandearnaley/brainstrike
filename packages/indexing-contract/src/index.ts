@@ -89,89 +89,89 @@ const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
 
 const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
   {
-    id: 'balanced',
-    label: 'Balanced',
-    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
     adaptiveRouting: true,
     bestFor: ['mixed repos', 'teams starting out', 'general retrieval'],
-    strategy: 'auto',
-    chunkSize: 256,
     chunkOverlap: 50,
-    tokenLimit: 4096,
+    chunkSize: 256,
+    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
+    id: 'balanced',
     isDefault: true,
+    label: 'Balanced',
+    strategy: 'auto',
+    tokenLimit: 4096,
     tradeoff: 'Not as aggressive as specialist presets for code-only or schema-heavy corpora.',
   },
   {
-    id: 'codebase',
-    label: 'Codebase',
-    description:
-      'Adaptive mixed-repo preset: code stays tight while docs and data keep their own structure.',
     adaptiveRouting: true,
     bestFor: ['monorepos', 'product docs + code', 'engineering assistants'],
-    strategy: 'auto',
-    chunkSize: 224,
     chunkOverlap: 40,
+    chunkSize: 224,
+    description:
+      'Adaptive mixed-repo preset: code stays tight while docs and data keep their own structure.',
+    id: 'codebase',
+    label: 'Codebase',
+    strategy: 'auto',
     tokenLimit: 3072,
     tradeoff: 'More conservative chunk sizing can increase chunk count on very large repos.',
   },
   {
-    id: 'strict-code',
-    label: 'Strict Code',
-    description:
-      'Forces recursive code-centric chunking for source-only corpora where locality matters most.',
     adaptiveRouting: false,
     bestFor: ['source-only repos', 'symbol retrieval', 'diff-aware assistants'],
-    strategy: 'recursive',
-    chunkSize: 192,
     chunkOverlap: 40,
+    chunkSize: 192,
+    description:
+      'Forces recursive code-centric chunking for source-only corpora where locality matters most.',
+    id: 'strict-code',
+    label: 'Strict Code',
+    strategy: 'recursive',
     tokenLimit: 3072,
     tradeoff: 'Will over-treat docs and schemas as code if you point it at a mixed corpus.',
   },
   {
-    id: 'docs',
-    label: 'Docs',
-    description: 'Prefers semantic markdown grouping for guides, notes, and README-heavy content.',
     adaptiveRouting: false,
     bestFor: ['handbooks', 'runbooks', 'README sets'],
-    strategy: 'semantic-markdown',
-    chunkSize: 320,
     chunkOverlap: 56,
+    chunkSize: 320,
+    description: 'Prefers semantic markdown grouping for guides, notes, and README-heavy content.',
+    id: 'docs',
+    label: 'Docs',
+    strategy: 'semantic-markdown',
     tokenLimit: 4096,
     tradeoff: "Non-markdown files won't benefit from the heading-family bias.",
   },
   {
-    id: 'api-reference',
-    label: 'API Reference',
-    description: 'Smaller, denser chunks for reference docs where precision matters.',
     adaptiveRouting: false,
     bestFor: ['API docs', 'SDK references', 'parameter lookups'],
-    strategy: 'markdown',
-    chunkSize: 192,
     chunkOverlap: 32,
+    chunkSize: 192,
+    description: 'Smaller, denser chunks for reference docs where precision matters.',
+    id: 'api-reference',
+    label: 'API Reference',
+    strategy: 'markdown',
     tokenLimit: 3072,
     tradeoff: 'Can fragment long-form guides more than general-purpose presets.',
   },
   {
-    id: 'structured-data',
-    label: 'Structured Data',
-    description: 'Structure-aware splitting for JSON-like payloads and schema-heavy content.',
     adaptiveRouting: false,
     bestFor: ['JSON payloads', 'schemas', 'machine-readable docs'],
-    strategy: 'json',
-    chunkSize: 384,
     chunkOverlap: 64,
+    chunkSize: 384,
+    description: 'Structure-aware splitting for JSON-like payloads and schema-heavy content.',
+    id: 'structured-data',
+    label: 'Structured Data',
+    strategy: 'json',
     tokenLimit: 6144,
     tradeoff: 'Less effective for prose-heavy files that only happen to live near structured data.',
   },
   {
-    id: 'large-context',
-    label: 'Large Context',
-    description: 'Fewer, larger chunks when downstream models can tolerate bigger payloads.',
     adaptiveRouting: false,
     bestFor: ['large-context models', 'broad semantic recall', 'fewer chunk boundaries'],
-    strategy: 'token',
-    chunkSize: 512,
     chunkOverlap: 64,
+    chunkSize: 512,
+    description: 'Fewer, larger chunks when downstream models can tolerate bigger payloads.',
+    id: 'large-context',
+    label: 'Large Context',
+    strategy: 'token',
     tokenLimit: 8192,
     tradeoff: 'Bigger chunks can reduce precision for exact retrieval and reranking.',
   },
@@ -179,33 +179,33 @@ const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
 
 const ROUTE_PREVIEW_CANDIDATES: readonly Omit<ChunkingRoutePreview, 'resolvedStrategy'>[] = [
   {
-    label: 'Code module',
     fileName: 'src/assistant/retrieval.ts',
+    label: 'Code module',
     reason: 'Keeps symbols and local control flow together for code retrieval.',
   },
   {
-    label: 'Guide / handbook',
     fileName: 'docs/getting-started.md',
+    label: 'Guide / handbook',
     reason: 'Preserves heading families so sections stay coherent in retrieval.',
   },
   {
-    label: 'Structured payload',
     fileName: 'schemas/search-response.json',
+    label: 'Structured payload',
     reason: 'Favors object and array boundaries instead of sentence splits.',
   },
   {
-    label: 'Markup page',
     fileName: 'public/reference/index.html',
+    label: 'Markup page',
     reason: 'Uses block and tag boundaries so markup stays readable in context.',
   },
   {
-    label: 'Research paper',
     fileName: 'notes/retrieval-paper.tex',
+    label: 'Research paper',
     reason: 'Prefers section and environment boundaries for long technical writing.',
   },
   {
-    label: 'Plain notes',
     fileName: 'notes/retro.txt',
+    label: 'Plain notes',
     reason: 'Falls back to natural sentence boundaries for general prose.',
   },
 ] as const;
@@ -355,11 +355,11 @@ export interface IndexingEmbeddingJobQueueBatchOptions<TTransaction = unknown> {
 }
 
 export interface IndexingEmbeddingJobQueuePort<TTransaction = unknown> {
-  enqueueBatch(
+  enqueueBatch: (
     chunks: readonly IndexingEmbeddingJobChunk[],
     fileRecordId: string,
     options?: IndexingEmbeddingJobQueueBatchOptions<TTransaction>
-  ): Promise<void>;
+  ) => Promise<void>;
   resetProgress?: () => void;
 }
 
@@ -424,21 +424,19 @@ const NO_API_KEY_HOSTED_PROVIDERS: ReadonlySet<HostedProviderType> = new Set([
 
 const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   {
-    id: 'local',
     displayName: 'Local (Browser)',
-    runtime: 'browser',
+    id: 'local',
     models: [],
+    runtime: 'browser',
   },
   {
-    id: 'transformers',
     displayName: 'Transformers.js',
-    runtime: 'browser',
+    id: 'transformers',
     models: [],
+    runtime: 'browser',
   },
   {
-    id: 'openai',
     displayName: 'OpenAI',
-    runtime: 'hosted',
     envKeys: [
       'BRAINSTRIKE_OPENAI_API_KEY',
       'BS_OPENAI_API_KEY',
@@ -447,100 +445,102 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
       'OPENAI_API_KEY_V1',
       'OPENAI_API_KEY_V2',
     ],
+    id: 'openai',
     models: [
       {
-        id: 'text-embedding-3-small',
-        type: 'embedding',
         default: true,
         defaultDimension: 1536,
-        supportsCustomDimensions: true,
         dimensionParameter: 'dimensions',
+        id: 'text-embedding-3-small',
+        supportsCustomDimensions: true,
         supportsStandardDimension: true,
+        type: 'embedding',
       },
       {
+        defaultDimension: 3072,
+        dimensionParameter: 'dimensions',
         id: 'text-embedding-3-large',
-        type: 'embedding',
-        defaultDimension: 3072,
         supportsCustomDimensions: true,
-        dimensionParameter: 'dimensions',
         supportsStandardDimension: true,
+        type: 'embedding',
       },
     ],
+    runtime: 'hosted',
   },
   {
-    id: 'google',
     displayName: 'Google AI Studio',
-    runtime: 'hosted',
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+    id: 'google',
     models: [
       {
-        id: 'gemini-embedding-001',
-        type: 'embedding',
         default: true,
         defaultDimension: 3072,
+        dimensionParameter: 'output_dimensionality',
+        id: 'gemini-embedding-001',
         supportsCustomDimensions: true,
         supportsStandardDimension: true,
-        dimensionParameter: 'output_dimensionality',
+        type: 'embedding',
       },
     ],
+    runtime: 'hosted',
   },
   {
-    id: 'cohere',
     displayName: 'Cohere',
-    runtime: 'hosted',
     envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+    id: 'cohere',
     models: [
       {
+        availableDimensions: [1024],
+        default: true,
+        defaultDimension: 1024,
         id: 'embed-english-v3.0',
-        type: 'embedding',
-        default: true,
-        defaultDimension: 1024,
-        availableDimensions: [1024],
         supportsStandardDimension: true,
+        type: 'embedding',
       },
       {
-        id: 'embed-multilingual-v3.0',
-        type: 'embedding',
-        defaultDimension: 1024,
         availableDimensions: [1024],
+        defaultDimension: 1024,
+        id: 'embed-multilingual-v3.0',
         supportsStandardDimension: true,
+        type: 'embedding',
       },
     ],
+    runtime: 'hosted',
   },
   {
-    id: 'voyage',
     displayName: 'Voyage AI',
-    runtime: 'hosted',
     envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+    id: 'voyage',
     models: [
       {
-        id: 'voyage-3',
-        type: 'embedding',
+        availableDimensions: [1024],
         default: true,
         defaultDimension: 1024,
-        availableDimensions: [1024],
+        id: 'voyage-3',
         supportsStandardDimension: true,
+        type: 'embedding',
       },
       {
-        id: 'voyage-3-lite',
-        type: 'embedding',
-        defaultDimension: 512,
         availableDimensions: [512],
+        defaultDimension: 512,
+        id: 'voyage-3-lite',
         supportsStandardDimension: false,
+        type: 'embedding',
       },
     ],
+    runtime: 'hosted',
   },
   {
-    id: 'ollama',
     displayName: 'Ollama (Local Runtime)',
-    runtime: 'hosted',
+    id: 'ollama',
     models: [],
+    runtime: 'hosted',
   },
   {
-    id: 'lmstudio',
     displayName: 'LM Studio (Local Runtime)',
-    runtime: 'hosted',
+    id: 'lmstudio',
     models: [],
+    runtime: 'hosted',
   },
 ];
 
@@ -594,8 +594,8 @@ export function parseEmbeddingProviderModelKey(
       return null;
     }
     return {
-      provider: provider as EmbeddingProviderType,
       modelId,
+      provider: provider as EmbeddingProviderType,
     };
   }
 
@@ -607,8 +607,8 @@ export function parseEmbeddingProviderModelKey(
       return null;
     }
     return {
-      provider: provider as EmbeddingProviderType,
       modelId,
+      provider: provider as EmbeddingProviderType,
     };
   }
 
@@ -626,9 +626,9 @@ export function canonicalizeEmbeddingProviderModelKey(
     return null;
   }
   return {
-    provider,
-    modelId: rawModelId,
     composite: formatEmbeddingProviderModelKey(provider, rawModelId),
+    modelId: rawModelId,
+    provider,
   };
 }
 

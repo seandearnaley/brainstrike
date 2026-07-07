@@ -38,8 +38,8 @@ export function validateGlobPattern(pattern: string): GlobPatternValidationResul
   // Check pattern length
   if (pattern.length > MAX_PATTERN_LENGTH) {
     return {
-      valid: false,
       reason: `Pattern exceeds maximum length of ${MAX_PATTERN_LENGTH} characters`,
+      valid: false,
     };
   }
 
@@ -47,8 +47,8 @@ export function validateGlobPattern(pattern: string): GlobPatternValidationResul
   const globstarCount = (pattern.match(/\*\*/g) ?? []).length;
   if (globstarCount > MAX_GLOBSTAR_COUNT) {
     return {
-      valid: false,
       reason: `Pattern has too many globstar (**) segments (max: ${MAX_GLOBSTAR_COUNT})`,
+      valid: false,
     };
   }
 
@@ -63,8 +63,8 @@ export function validateGlobPattern(pattern: string): GlobPatternValidationResul
   for (const dangerous of dangerousPatterns) {
     if (dangerous.test(pattern)) {
       return {
-        valid: false,
         reason: 'Pattern contains potentially dangerous nested quantifiers',
+        valid: false,
       };
     }
   }
@@ -76,8 +76,8 @@ export function validateGlobPattern(pattern: string): GlobPatternValidationResul
       const options = brace.slice(1, -1).split(',');
       if (options.length > 20) {
         return {
-          valid: false,
           reason: 'Brace expansion has too many options (max: 20)',
+          valid: false,
         };
       }
     }
@@ -146,12 +146,12 @@ export const CapStrategySchema = z.enum(['first', 'last', 'random', 'priority'])
 
 /** Base rule fields shared by all rule types */
 export const SelectionRuleBaseSchema = z.object({
-  id: z.string().min(1, 'Rule ID is required'),
-  type: SelectionRuleTypeSchema,
-  label: z.string().optional(),
-  enabled: z.boolean().optional(),
   createdAt: z.string().datetime({ message: 'createdAt must be ISO 8601 datetime' }),
+  enabled: z.boolean().optional(),
+  id: z.string().min(1, 'Rule ID is required'),
+  label: z.string().optional(),
   priority: z.number().int().optional(),
+  type: SelectionRuleTypeSchema,
 });
 
 // ============================================================================
@@ -160,50 +160,50 @@ export const SelectionRuleBaseSchema = z.object({
 
 /** Explicit file selection rule */
 export const ExplicitRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('explicit'),
-  paths: z.array(z.string()).min(1, 'At least one path is required'),
   mode: z.enum(['include', 'exclude']).optional(),
+  paths: z.array(z.string()).min(1, 'At least one path is required'),
+  type: z.literal('explicit'),
 });
 
 /** Glob pattern inclusion rule with ReDoS-safe pattern validation */
 export const GlobIncludeRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('glob-include'),
+  basePath: z.string().optional(),
   patterns: z
     .array(safeGlobPatternSchema)
     .min(1, 'At least one pattern is required')
     .max(50, 'Too many patterns (max: 50)'),
-  basePath: z.string().optional(),
+  type: z.literal('glob-include'),
 });
 
 /** Glob pattern exclusion rule with ReDoS-safe pattern validation */
 export const GlobExcludeRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('glob-exclude'),
+  basePath: z.string().optional(),
   patterns: z
     .array(safeGlobPatternSchema)
     .min(1, 'At least one pattern is required')
     .max(50, 'Too many patterns (max: 50)'),
-  basePath: z.string().optional(),
+  type: z.literal('glob-exclude'),
 });
 
 /** Root directory inclusion rule */
 export const RootIncludeRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('root-include'),
-  roots: z.array(z.string()).min(1, 'At least one root is required'),
   maxDepth: z.number().int().nonnegative().optional(),
+  roots: z.array(z.string()).min(1, 'At least one root is required'),
+  type: z.literal('root-include'),
 });
 
 /** Root directory exclusion rule */
 export const RootExcludeRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('root-exclude'),
   roots: z.array(z.string()).min(1, 'At least one root is required'),
+  type: z.literal('root-exclude'),
 });
 
 /** Selection cap/limit rule */
 export const CapRuleSchema = SelectionRuleBaseSchema.extend({
-  type: z.literal('cap'),
   maxCount: z.number().int().positive('maxCount must be positive'),
-  strategy: CapStrategySchema,
   seed: z.number().int().optional(),
+  strategy: CapStrategySchema,
+  type: z.literal('cap'),
 });
 
 // ============================================================================
@@ -227,17 +227,17 @@ export const SelectionRuleSchema = z.discriminatedUnion('type', [
 /** Rule set metadata */
 export const SelectionRuleSetMetadataSchema = z.object({
   createdAt: z.string().datetime({ message: 'createdAt must be ISO 8601 datetime' }),
-  updatedAt: z.string().datetime({ message: 'updatedAt must be ISO 8601 datetime' }),
-  migratedFrom: z.literal('explicit-set').optional(),
   description: z.string().optional(),
+  migratedFrom: z.literal('explicit-set').optional(),
+  updatedAt: z.string().datetime({ message: 'updatedAt must be ISO 8601 datetime' }),
 });
 
 /** Complete rule set for a folder context */
 export const SelectionRuleSetSchema = z.object({
-  version: SelectionRulesSchemaVersionSchema,
   folderId: z.string().min(1, 'folderId is required'),
-  rules: z.array(SelectionRuleSchema),
   metadata: SelectionRuleSetMetadataSchema,
+  rules: z.array(SelectionRuleSchema),
+  version: SelectionRulesSchemaVersionSchema,
 });
 
 // ============================================================================
@@ -260,9 +260,9 @@ export function validateSelectionRule(
 ): ValidationResult<z.infer<typeof SelectionRuleSchema>> {
   const result = SelectionRuleSchema.safeParse(rule);
   if (result.success) {
-    return { success: true, data: result.data };
+    return { data: result.data, success: true };
   }
-  return { success: false, errors: result.error };
+  return { errors: result.error, success: false };
 }
 
 /**
@@ -276,9 +276,9 @@ export function validateSelectionRuleSet(
 ): ValidationResult<z.infer<typeof SelectionRuleSetSchema>> {
   const result = SelectionRuleSetSchema.safeParse(ruleSet);
   if (result.success) {
-    return { success: true, data: result.data };
+    return { data: result.data, success: true };
   }
-  return { success: false, errors: result.error };
+  return { errors: result.error, success: false };
 }
 
 /**

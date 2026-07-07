@@ -21,7 +21,7 @@ describe('Performance Benchmark', () => {
   });
 
   afterEach(async () => {
-    await fsPromises.rm(tempDir, { recursive: true, force: true });
+    await fsPromises.rm(tempDir, { force: true, recursive: true });
   });
 
   it('benchmark readDirectoryStreaming with 2000 files', { timeout: 30_000 }, async () => {
@@ -39,9 +39,9 @@ describe('Performance Benchmark', () => {
 
     const adapter = new ElectronFileSystemAdapter({ cache: false });
     const handle: DirectoryHandle = {
-      path: tempDir,
-      name: path.basename(tempDir),
       kind: 'directory',
+      name: path.basename(tempDir),
+      path: tempDir,
       platform: 'electron',
     };
 
@@ -55,8 +55,8 @@ describe('Performance Benchmark', () => {
         count += batch.length;
       },
       {
-        includeMetadata: true, // This triggers the serial stat calls
         batchSize: 50,
+        includeMetadata: true, // This triggers the serial stat calls
       }
     );
 

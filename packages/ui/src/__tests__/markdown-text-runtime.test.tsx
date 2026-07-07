@@ -15,18 +15,18 @@ vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 const chatModel: ChatModelAdapter = {
   run: vi.fn().mockResolvedValue({
     content: [],
-    status: { type: 'complete', reason: 'stop' },
+    status: { reason: 'stop', type: 'complete' },
   }),
 };
 
 const initialMessages: readonly ThreadMessageLike[] = [
   {
-    role: 'assistant',
     content: [
-      { type: 'reasoning', text: 'Plan a short reply.' },
-      { type: 'text', text: 'Visible answer.' },
+      { text: 'Plan a short reply.', type: 'reasoning' },
+      { text: 'Visible answer.', type: 'text' },
     ],
-    status: { type: 'complete', reason: 'stop' },
+    role: 'assistant',
+    status: { reason: 'stop', type: 'complete' },
   },
 ];
 

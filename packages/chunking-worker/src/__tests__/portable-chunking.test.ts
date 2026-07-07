@@ -32,8 +32,8 @@ describe('portable-chunking', () => {
     describe('skip patterns', () => {
       it('should skip package-lock.json files', async () => {
         const result = await chunkContent('{"name": "test"}', {
-          strategy: 'sentence',
           fileName: 'package-lock.json',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -43,8 +43,8 @@ describe('portable-chunking', () => {
 
       it('should skip pnpm-lock.yaml files', async () => {
         const result = await chunkContent('lockfile: true', {
-          strategy: 'sentence',
           fileName: 'pnpm-lock.yaml',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -53,8 +53,8 @@ describe('portable-chunking', () => {
 
       it('should skip zero-byte files explicitly', async () => {
         const result = await chunkContent('', {
-          strategy: 'recursive',
           fileName: 'empty.ts',
+          strategy: 'recursive',
           tokenTrueSizing: true,
         });
 
@@ -66,8 +66,8 @@ describe('portable-chunking', () => {
 
       it('should skip node_modules paths', async () => {
         const result = await chunkContent('const x = 1;', {
-          strategy: 'sentence',
           filePath: '/project/node_modules/foo/index.js',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -75,8 +75,8 @@ describe('portable-chunking', () => {
 
       it('should skip minified files', async () => {
         const result = await chunkContent('function a(){return 1}', {
-          strategy: 'sentence',
           fileName: 'bundle.min.js',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -84,8 +84,8 @@ describe('portable-chunking', () => {
 
       it('should skip binary/wasm files', async () => {
         const result = await chunkContent('binary content', {
-          strategy: 'sentence',
           fileName: 'module.wasm',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -93,8 +93,8 @@ describe('portable-chunking', () => {
 
       it('should skip content with NUL bytes', async () => {
         const result = await chunkContent('hello\u0000world', {
-          strategy: 'sentence',
           fileName: 'mystery.dat',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -105,8 +105,8 @@ describe('portable-chunking', () => {
         const oversized = 'x'.repeat(CHUNKING_CONFIG.maxChunkableSize + 1);
 
         const result = await chunkContent(oversized, {
-          strategy: 'sentence',
           fileName: 'oversized.txt',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -117,9 +117,9 @@ describe('portable-chunking', () => {
         const repetitive = `${'same-line\n'.repeat(1001)}unique-tail`;
 
         const result = await chunkContent(repetitive, {
-          strategy: 'sentence',
-          fileName: 'generated.log',
           allowLargeFiles: true,
+          fileName: 'generated.log',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(true);
@@ -132,8 +132,8 @@ describe('portable-chunking', () => {
         const text =
           'This is the first sentence. This is the second sentence. And this is the third one.';
         const result = await chunkContent(text, {
-          strategy: 'sentence',
           fileName: 'readme.md',
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(false);
@@ -145,42 +145,42 @@ describe('portable-chunking', () => {
       it('should include chunk metadata', async () => {
         const text = 'Hello world. This is a test.';
         const result = await chunkContent(text, {
-          strategy: 'sentence',
           fileName: 'test.txt',
+          strategy: 'sentence',
         });
 
         expect(result.chunks[0]).toMatchObject({
           chunkIndex: 0,
+          chunkSize: expect.any(Number),
+          chunkType: expect.stringMatching(/^(text|sentence|recursive)$/),
           content: expect.any(String),
           contentHash: expect.any(String),
           tokenCount: expect.any(Number),
-          chunkType: expect.stringMatching(/^(text|sentence|recursive)$/),
-          chunkSize: expect.any(Number),
         });
       });
 
       it('should include source line and character ranges for chunks', async () => {
         const text = 'line one\nline two\nline three';
         const result = await chunkContent(text, {
-          strategy: 'sentence',
           fileName: 'test.txt',
+          strategy: 'sentence',
         });
 
         expect(result.chunks[0]).toMatchObject({
-          startLine: 1,
           endLine: 3,
-          startOffset: 0,
           endOffset: text.length,
+          startLine: 1,
+          startOffset: 0,
         });
       });
 
       it('advances source ranges for repeated identical chunk contents', async () => {
         const repeated = 'Alpha sentence.\n\nAlpha sentence.\n\nAlpha sentence.';
         const result = await chunkContent(repeated, {
-          strategy: 'markdown',
           fileName: 'notes.md',
           maxTokens: 8,
           overlap: 0,
+          strategy: 'markdown',
         });
 
         expect(result.chunks).toHaveLength(3);
@@ -197,10 +197,10 @@ describe('portable-chunking', () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const text = '# Title\r\n\r\nAlpha sentence\r\ncontinues here.\r\n\r\nBeta sentence.';
         const result = await chunkContent(text, {
-          strategy: 'markdown',
           fileName: 'notes.md',
           maxTokens: 16,
           overlap: 0,
+          strategy: 'markdown',
         });
 
         expect(result.chunks.map((chunk) => chunk.content)).toEqual([
@@ -221,10 +221,10 @@ describe('portable-chunking', () => {
         const text =
           '# Title\n\nIntro paragraph.\n\n## A\n\nAlpha paragraph.\n\n## B\n\nBeta paragraph.';
         const result = await chunkContent(text, {
-          strategy: 'auto',
           fileName: 'notes.md',
           maxTokens: 64,
           overlap: 0,
+          strategy: 'auto',
         });
 
         expect(result.chunks).toHaveLength(1);
@@ -232,10 +232,10 @@ describe('portable-chunking', () => {
           '# Title\n\nIntro paragraph.## A\n\nAlpha paragraph.## B\n\nBeta paragraph.'
         );
         expect(result.chunks[0]).toMatchObject({
-          startLine: 1,
           endLine: 11,
-          startOffset: 0,
           endOffset: text.length,
+          startLine: 1,
+          startOffset: 0,
         });
         expect(warnSpy).not.toHaveBeenCalled();
         warnSpy.mockRestore();
@@ -262,20 +262,20 @@ describe('portable-chunking', () => {
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
         const result = await isolatedChunkContent(text, {
-          strategy: 'sentence',
+          allowLargeFiles: true,
           fileName: 'large-repetitive.txt',
           maxTokens: 64,
           overlap: 0,
-          allowLargeFiles: true,
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(false);
         expect(result.chunks).toHaveLength(1);
         expect(result.chunks[0]).toMatchObject({
-          startLine: 12_052,
           endLine: 12_053,
-          startOffset,
           endOffset,
+          startLine: 12_052,
+          startOffset,
         });
         expect(warnSpy).not.toHaveBeenCalled();
         expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
@@ -307,18 +307,18 @@ describe('portable-chunking', () => {
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
         const result = await isolatedChunkContent(text, {
-          strategy: 'sentence',
+          allowLargeFiles: true,
           fileName: 'mixed-newline-anchor.txt',
           maxTokens: 64,
           overlap: 0,
-          allowLargeFiles: true,
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(false);
         expect(result.chunks).toHaveLength(1);
         expect(result.chunks[0]).toMatchObject({
-          startOffset,
           endOffset,
+          startOffset,
         });
         expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
           'x\nNeedle anchor phrase spans after a normalized newline.'
@@ -346,11 +346,11 @@ describe('portable-chunking', () => {
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
         const result = await isolatedChunkContent(text, {
-          strategy: 'sentence',
+          allowLargeFiles: true,
           fileName: 'global-anchor-budget.txt',
           maxTokens: 64,
           overlap: 0,
-          allowLargeFiles: true,
+          strategy: 'sentence',
         });
 
         expect(result).toMatchObject({
@@ -376,10 +376,10 @@ describe('portable-chunking', () => {
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
         const result = await isolatedChunkContent('First sentence. Second sentence.', {
-          strategy: 'sentence',
           fileName: 'unmocked.txt',
           maxTokens: 64,
           overlap: 0,
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(false);
@@ -401,8 +401,8 @@ describe('portable-chunking', () => {
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
         const result = await isolatedChunkContent('real source text', {
-          strategy: 'sentence',
           fileName: 'source.txt',
+          strategy: 'sentence',
         });
 
         expect(result).toMatchObject({
@@ -438,10 +438,10 @@ describe('portable-chunking', () => {
           ).join('\n')}\n}\n`;
 
         const result = await chunkContent(text, {
-          strategy: 'recursive',
           fileName: 'exported-functions.ts',
           maxTokens: 80,
           overlap: 16,
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -469,10 +469,10 @@ export function after(): void {
 `;
 
         const result = await chunkContent(text, {
-          strategy: 'recursive',
           fileName: 'nested-method.ts',
           maxTokens: 80,
           overlap: 16,
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -483,8 +483,8 @@ export function after(): void {
       it('should split punctuation-poor text to the configured chunk target', async () => {
         const text = 'x'.repeat(5000);
         const result = await chunkContent(text, {
-          strategy: 'sentence',
           fileName: 'plain.txt',
+          strategy: 'sentence',
         });
 
         expect(result.chunks.length).toBeGreaterThan(1);
@@ -511,8 +511,8 @@ function baz() {
 `.trim();
 
         const result = await chunkContent(code, {
-          strategy: 'recursive',
           fileName: 'code.ts',
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -534,8 +534,8 @@ const beta = () => 2;
 const gamma = () => alpha() + beta();
 `.repeat(40),
           {
-            strategy: 'recursive',
             fileName: 'broken.ts',
+            strategy: 'recursive',
           }
         );
 
@@ -547,17 +547,17 @@ const gamma = () => alpha() + beta();
       it('uses Babel parser modules bundled with a default export', async () => {
         vi.resetModules();
         const parse = vi.fn(() => ({
-          type: 'File',
           program: {
-            type: 'Program',
             body: [
               {
-                type: 'FunctionDeclaration',
-                start: 0,
                 end: 'function alpha() { return 1; }'.length,
+                start: 0,
+                type: 'FunctionDeclaration',
               },
             ],
+            type: 'Program',
           },
+          type: 'File',
         }));
         const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
         vi.doMock('@babel/parser', () => ({
@@ -568,8 +568,8 @@ const gamma = () => alpha() + beta();
         const result = await isolatedChunkContent(
           'function alpha() { return 1; }\n\nconst beta = 2;',
           {
-            strategy: 'recursive',
             fileName: 'default-parser.ts',
+            strategy: 'recursive',
           }
         );
 
@@ -593,8 +593,8 @@ const CONFIG = {
 export const FLAGS = ['alpha', 'beta', 'gamma'];
 `.repeat(50),
           {
-            strategy: 'recursive',
             fileName: 'config.ts',
+            strategy: 'recursive',
           }
         );
 
@@ -607,9 +607,9 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
         const markdown = '# Header\n\nParagraph one.\n\nParagraph two.';
 
         const result = await chunkContent(markdown, {
-          strategy: 'recursive',
           fileName: 'notes.md',
           forceStrategy: true,
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -620,10 +620,10 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
         const markdown = '# Title\n\nAlpha paragraph.\n\u00A0\nBeta paragraph.';
 
         const result = await chunkContent(markdown, {
-          strategy: 'markdown',
           fileName: 'notes.md',
           maxTokens: 32,
           overlap: 4,
+          strategy: 'markdown',
         });
 
         expect(result.skipped).toBe(false);
@@ -639,8 +639,8 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
         const longText = 'word '.repeat(2000); // ~2000 words
 
         const result = await chunkContent(longText, {
-          strategy: 'token',
           fileName: 'long.txt',
+          strategy: 'token',
         });
 
         expect(result.skipped).toBe(false);
@@ -658,8 +658,8 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
       it('should apply default recommendations for structured files', async () => {
         const json = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i })) });
         const result = await chunkContent(json, {
-          strategy: 'auto',
           fileName: 'dataset.json',
+          strategy: 'auto',
         });
 
         expect(result.skipped).toBe(false);
@@ -669,16 +669,16 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
 
       it('should route non-legacy auto strategies through the canonical resolver', async () => {
         const docsResult = await chunkContent('= Guide\n\nSection body.', {
-          strategy: 'auto',
           fileName: 'guide.adoc',
+          strategy: 'auto',
         });
         const dataResult = await chunkContent('{"rows":[{"id":1},{"id":2}]}', {
-          strategy: 'auto',
           fileName: 'records.jsonl',
+          strategy: 'auto',
         });
         const svgResult = await chunkContent('<svg><text>Hello</text></svg>', {
-          strategy: 'auto',
           fileName: 'diagram.svg',
+          strategy: 'auto',
         });
 
         expect(docsResult.strategyUsed).toBe('semantic-markdown');
@@ -690,11 +690,11 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
         const json = JSON.stringify({ rows: Array.from({ length: 600 }, (_, i) => ({ i })) });
         const explicitMaxTokens = 320;
         const result = await chunkContent(json, {
-          strategy: 'sentence',
           fileName: 'dataset.json',
           ignoreFileTypeRecommendations: true,
           maxTokens: explicitMaxTokens,
           overlap: 40,
+          strategy: 'sentence',
         });
 
         expect(result.skipped).toBe(false);
@@ -712,8 +712,8 @@ export function feature${index}() {
         ).join('\n');
 
         const result = await chunkContent(generatedCode, {
-          strategy: 'token',
           fileName: 'feature.ts',
+          strategy: 'token',
         });
 
         expect(result.skipped).toBe(false);
@@ -724,10 +724,10 @@ export function feature${index}() {
 
       it('should sanitize invalid maxTokensCap values to the safety cap', async () => {
         const result = await chunkContent('word '.repeat(1000), {
-          strategy: 'token',
           fileName: 'sanity.txt',
           maxTokens: 6000,
           maxTokensCap: Number.NaN,
+          strategy: 'token',
         });
 
         expect(result.skipped).toBe(false);
@@ -736,10 +736,10 @@ export function feature${index}() {
 
       it('clamps overlap below maxTokens when explicit overlap is too large', async () => {
         const result = await chunkContent('word '.repeat(200), {
-          strategy: 'token',
           fileName: 'overlap.txt',
           maxTokens: 32,
           overlap: 64,
+          strategy: 'token',
         });
 
         expect(result.skipped).toBe(false);
@@ -758,10 +758,10 @@ export function feature${index}() {
         }));
 
         const result = await chunkContent('word '.repeat(250), {
-          strategy: 'token',
           fileName: 'true-sized.txt',
           maxTokens: 32,
           overlap: 8,
+          strategy: 'token',
           tokenTrueSizing: true,
         });
 
@@ -778,8 +778,8 @@ export function feature${index}() {
     describe('small content handling', () => {
       it('should create single chunk for small content', async () => {
         const result = await chunkContent('Small content.', {
-          strategy: 'sentence',
           fileName: 'small.txt',
+          strategy: 'sentence',
         });
 
         expect(result.chunks).toHaveLength(1);
@@ -792,12 +792,12 @@ export function feature${index}() {
         const content = 'Test content for hashing.';
 
         const result1 = await chunkContent(content, {
-          strategy: 'sentence',
           fileName: 'test1.txt',
+          strategy: 'sentence',
         });
         const result2 = await chunkContent(content, {
-          strategy: 'sentence',
           fileName: 'test2.txt',
+          strategy: 'sentence',
         });
 
         expect(result1.chunks[0]?.contentHash).toBe(result2.chunks[0]?.contentHash);
@@ -805,12 +805,12 @@ export function feature${index}() {
 
       it('should generate different hashes for different content', async () => {
         const result1 = await chunkContent('Content A', {
-          strategy: 'sentence',
           fileName: 'a.txt',
+          strategy: 'sentence',
         });
         const result2 = await chunkContent('Content B', {
-          strategy: 'sentence',
           fileName: 'b.txt',
+          strategy: 'sentence',
         });
 
         expect(result1.chunks[0]?.contentHash).not.toBe(result2.chunks[0]?.contentHash);
@@ -821,8 +821,8 @@ export function feature${index}() {
       it('should detect TypeScript files', async () => {
         const tsCode = 'const x: number = 1;';
         const result = await chunkContent(tsCode, {
-          strategy: 'recursive',
           fileName: 'code.ts',
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -832,8 +832,8 @@ export function feature${index}() {
       it('should detect JavaScript files', async () => {
         const jsCode = 'const x = 1;';
         const result = await chunkContent(jsCode, {
-          strategy: 'recursive',
           fileName: 'code.js',
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);
@@ -842,8 +842,8 @@ export function feature${index}() {
       it('should handle Python files', async () => {
         const pyCode = 'def hello():\n    print("world")';
         const result = await chunkContent(pyCode, {
-          strategy: 'recursive',
           fileName: 'code.py',
+          strategy: 'recursive',
         });
 
         expect(result.skipped).toBe(false);

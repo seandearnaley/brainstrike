@@ -31,7 +31,7 @@ test.describe('File tree context menu', { tag: ['@smoke', '@web-smoke'] }, () =>
     const consoleMessages: string[] = [];
     page.on('console', (message) => consoleMessages.push(message.text()));
 
-    const explorer = await bootstrapFileExplorer(page, { tree, clipboard: true });
+    const explorer = await bootstrapFileExplorer(page, { clipboard: true, tree });
     await explorer.selectRoot();
 
     await expandDirectory(explorer, 'docs');

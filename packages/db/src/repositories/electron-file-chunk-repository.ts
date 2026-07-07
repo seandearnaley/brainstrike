@@ -416,8 +416,8 @@ export class ElectronFileChunkRepository {
 
     return filtered.slice(0, limit).map((row) => ({
       chunk: this.mapRowToChunk(row),
-      similarity: Number(row.similarity),
       rank: Number(row.rank),
+      similarity: Number(row.similarity),
     }));
   }
 
@@ -439,7 +439,7 @@ export class ElectronFileChunkRepository {
     efSearch?: number
   ): Promise<{ rows: Record<string, unknown>[] }> {
     const tuning = hnswSearchTuningStatements(efSearch).map((sql) => ({ sql }));
-    const statements = [...tuning, { sql: searchSql, params }];
+    const statements = [...tuning, { params, sql: searchSql }];
     const resultIndex = statements.length - 1;
 
     if (this.db.transaction) {
@@ -575,8 +575,8 @@ export class ElectronFileChunkRepository {
 
       const ftsResult: import('../models/file-chunk').FTSSearchResult = {
         chunk: this.mapRowToChunk(ftsRow),
-        rank,
         position: Number.parseInt(ftsRow.position, 10),
+        rank,
       };
       if (ftsRow.headline) {
         ftsResult.headline = ftsRow.headline;
@@ -627,10 +627,10 @@ export class ElectronFileChunkRepository {
     `);
 
     const stats = {
-      totalChunks: 0,
-      chunksWithEmbeddings: 0,
       averageTokenCount: 0,
+      chunksWithEmbeddings: 0,
       chunkTypeDistribution: {} as Record<string, number>,
+      totalChunks: 0,
     };
 
     for (const row of result.rows) {
@@ -704,8 +704,8 @@ export class ElectronFileChunkRepository {
       | undefined;
 
     return {
-      totalChunks: Number(row?.totalChunks ?? 0),
       chunksWithEmbeddingsForSet: Number(row?.chunksWithEmbeddingsForSet ?? 0),
+      totalChunks: Number(row?.totalChunks ?? 0),
     };
   }
 
@@ -905,19 +905,19 @@ export class ElectronFileChunkRepository {
 
     if (distance === 'l2') {
       return {
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
         orderExpr: `${embeddingCast} <-> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
         orderExpr: `${embeddingCast} <#> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
       };
     }
     return {
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
       orderExpr: `${embeddingCast} <=> ${paramCast}`,
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
     };
   }
 
@@ -976,14 +976,14 @@ export class ElectronFileChunkRepository {
     const embedding = row.embedding ? parseEmbeddingLoose(row.embedding) : undefined;
     const embeddingDimensions = resolveEmbeddingDimensions(embedding, row.embedding_dims);
     return {
-      id: row.id,
-      fileRecordId: row.file_record_id,
       chunkIndex: row.chunk_index,
+      chunkSize: row.chunk_size,
+      chunkType: row.chunk_type,
       content: row.content,
       contentHash: row.content_hash,
+      fileRecordId: row.file_record_id,
+      id: row.id,
       tokenCount: row.token_count,
-      chunkType: row.chunk_type,
-      chunkSize: row.chunk_size,
       ...(row.start_line !== null && row.start_line !== undefined && { startLine: row.start_line }),
       ...(row.end_line !== null && row.end_line !== undefined && { endLine: row.end_line }),
       ...(row.start_offset !== null &&

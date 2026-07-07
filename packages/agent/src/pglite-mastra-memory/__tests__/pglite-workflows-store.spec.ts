@@ -91,14 +91,14 @@ describe('PgliteWorkflowsStore', () => {
   it('persists and reloads cloned workflow snapshots for approval resume', async () => {
     const snapshot = createSnapshot({
       context: {
-        input: { requestId: 'approval-1' },
         'approval-step': {
           payload: { requestId: 'approval-1' },
           startedAt: Date.parse('2026-05-29T10:00:00Z'),
           status: 'suspended',
-          suspendPayload: { reason: 'approval required' },
           suspendedAt: Date.parse('2026-05-29T10:00:01Z'),
+          suspendPayload: { reason: 'approval required' },
         },
+        input: { requestId: 'approval-1' },
       },
       runId: 'approval-run-1',
       status: 'suspended',
@@ -170,8 +170,8 @@ describe('PgliteWorkflowsStore', () => {
     expect(context['approval-step']).toEqual(approvalResult);
     expect(updated).toMatchObject({
       context: {
-        input: { requestId: 'request-1' },
         'approval-step': approvalResult,
+        input: { requestId: 'request-1' },
       },
       requestContext: { userId: 'user-1' },
       resumeLabels: { approve: { stepId: 'approval-step' } },

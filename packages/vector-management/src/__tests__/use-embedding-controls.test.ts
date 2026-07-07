@@ -10,36 +10,36 @@ import type {
 import type { VectorQueueService } from '../vector-status/vector-queue-service';
 
 const RUNNING_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
-  runtimeKind: 'embedding-worker',
-  runtimeId: 'embedding-worker:test',
-  state: 'running',
   active: false,
   lastError: null,
+  runtimeId: 'embedding-worker:test',
+  runtimeKind: 'embedding-worker',
+  state: 'running',
 };
 
 const STOPPED_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
-  runtimeKind: 'embedding-worker',
-  runtimeId: 'embedding-worker:test',
-  state: 'stopped',
   active: false,
   lastError: null,
+  runtimeId: 'embedding-worker:test',
+  runtimeKind: 'embedding-worker',
+  state: 'stopped',
 };
 
 function createMockVectorQueueService(): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({
+      failed: 0,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 0,
     })),
     clearQueue: vi.fn(async () => undefined),
     reembedSet: vi.fn(async () => ({
       clearedCount: 0,
       queueCounts: {
+        failed: 0,
         queued: 0,
         running: 0,
-        failed: 0,
         succeeded: 0,
       },
     })),
@@ -47,7 +47,7 @@ function createMockVectorQueueService(): VectorQueueService {
       coverage: null,
       lastError: null,
       latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
-      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
       throughput: 0,
     })),
     retryFailed: vi.fn(async () => undefined),
@@ -81,21 +81,21 @@ function createQueueStateMock(
   return {
     activeSetBackfilling: false,
     activeSetBackfillProgress: null,
-    activeSetQueueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+    activeSetQueueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+    backfillActiveSet: vi.fn(async () => {}),
     backfilling: false,
     backfillProgress: null,
-    coverage: { total: 100, withSet: 50 },
-    queueCounts: { queued: 5, running: 2, failed: 1, succeeded: 50 },
-    throughput: 10.5,
-    latencyStats: { avgMs: 100, p50Ms: 95, p95Ms: 150 },
-    telemetryTrend: [] as readonly TelemetryTrendPoint[],
-    backfillActiveSet: vi.fn(async () => {}),
-    retryFailed: vi.fn(async () => {}),
     clearQueue: vi.fn(async () => {}),
-    wipeQueue: vi.fn(async () => {}),
-    validateApiKey: vi.fn(async () => ({ valid: true }) as const),
+    coverage: { total: 100, withSet: 50 },
     lastError: null,
+    latencyStats: { avgMs: 100, p50Ms: 95, p95Ms: 150 },
+    queueCounts: { failed: 1, queued: 5, running: 2, succeeded: 50 },
     recentErrorCount: 0,
+    retryFailed: vi.fn(async () => {}),
+    telemetryTrend: [] as readonly TelemetryTrendPoint[],
+    throughput: 10.5,
+    validateApiKey: vi.fn(async () => ({ valid: true }) as const),
+    wipeQueue: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -123,8 +123,8 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector) => {
     const state = {
       activeEmbeddingSetId: 'set-1',
-      isImporting: false,
       isEmbeddingActive: false,
+      isImporting: false,
     };
     return selector(state);
   }),
@@ -132,13 +132,13 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
 
 vi.mock('../vector-status/use-embedding-worker-controls', () => ({
   useEmbeddingWorkerControls: vi.fn(() => ({
-    workerLocalRunning: false,
-    startingWorker: false,
-    startWorkerError: null,
-    startWorker: vi.fn(async () => {}),
-    stopWorker: vi.fn(async () => {}),
-    resetWorker: vi.fn(async () => {}),
     clearWorkerError: vi.fn(),
+    resetWorker: vi.fn(async () => {}),
+    startingWorker: false,
+    startWorker: vi.fn(async () => {}),
+    startWorkerError: null,
+    stopWorker: vi.fn(async () => {}),
+    workerLocalRunning: false,
   })),
 }));
 
@@ -181,8 +181,8 @@ describe('useEmbeddingControls', () => {
   const mockToast = vi.fn();
   const testWindow = window as Window & { electronAPI?: unknown };
   const mockChunkRepository = {
-    getCoverageForSet: vi.fn(async () => ({ totalChunks: 100, chunksWithEmbeddingsForSet: 50 })),
     clearEmbeddingsForSet: vi.fn(async () => 10),
+    getCoverageForSet: vi.fn(async () => ({ chunksWithEmbeddingsForSet: 50, totalChunks: 100 })),
   };
 
   const defaultOptions: UseEmbeddingControlsOptions = {
@@ -201,20 +201,20 @@ describe('useEmbeddingControls', () => {
     vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
       const state = {
         activeEmbeddingSetId: 'set-1',
-        isImporting: false,
         isEmbeddingActive: false,
+        isImporting: false,
       };
       return selector(state as Parameters<typeof selector>[0]);
     });
 
     vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-      workerLocalRunning: false,
-      startingWorker: false,
-      startWorkerError: null,
-      startWorker: vi.fn(async () => {}),
-      stopWorker: vi.fn(async () => {}),
-      resetWorker: vi.fn(async () => {}),
       clearWorkerError: vi.fn(),
+      resetWorker: vi.fn(async () => {}),
+      startingWorker: false,
+      startWorker: vi.fn(async () => {}),
+      startWorkerError: null,
+      stopWorker: vi.fn(async () => {}),
+      workerLocalRunning: false,
     });
 
     vi.mocked(useVectorQueueState).mockReturnValue(createQueueStateMock());
@@ -284,18 +284,18 @@ describe('useEmbeddingControls', () => {
     it('passes queue counts correctly', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 10, running: 3, failed: 2, succeeded: 100 },
-          throughput: 5,
           latencyStats: { avgMs: 50, p50Ms: 45, p95Ms: 80 },
+          queueCounts: { failed: 2, queued: 10, running: 3, succeeded: 100 },
+          throughput: 5,
         })
       );
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.dropdownProps.queueCounts).toEqual({
+        failed: 2,
         queued: 10,
         running: 3,
-        failed: 2,
         succeeded: 100,
       });
       expect(result.current.dropdownProps.failedCount).toBe(2);
@@ -309,7 +309,7 @@ describe('useEmbeddingControls', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
           activeSetBackfilling: true,
-          activeSetQueueCounts: { queued: 4, running: 1, failed: 0, succeeded: 3 },
+          activeSetQueueCounts: { failed: 0, queued: 4, running: 1, succeeded: 3 },
           backfilling: true,
           backfillProgress: { done: 40, total: 100 },
         })
@@ -322,20 +322,20 @@ describe('useEmbeddingControls', () => {
       expect(vi.mocked(getBackfillDisabledState)).toHaveBeenCalledWith(
         expect.objectContaining({
           backfilling: true,
-          queueCounts: { queued: 4, running: 1, failed: 0, succeeded: 3 },
+          queueCounts: { failed: 0, queued: 4, running: 1, succeeded: 3 },
         })
       );
     });
 
     it('sets willAutoStartWorker to true on web when worker not running', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -346,13 +346,13 @@ describe('useEmbeddingControls', () => {
 
     it('sets willAutoStartWorker to false when worker is running', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: true,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: true,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -362,13 +362,13 @@ describe('useEmbeddingControls', () => {
 
     it('sets startingWorker from worker controls', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: true,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: true,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -379,13 +379,13 @@ describe('useEmbeddingControls', () => {
     it('does not expose hidden desktop host startup as dropdown starting state', () => {
       testWindow.electronAPI = {} as ElectronAPI;
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: true,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: true,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -395,13 +395,13 @@ describe('useEmbeddingControls', () => {
 
     it('keeps backfill progress visible even if worker controls report starting', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: true,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: true,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
@@ -444,9 +444,9 @@ describe('useEmbeddingControls', () => {
     it('passes throughput and latency stats', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 25.5,
           latencyStats: { avgMs: 200, p50Ms: 180, p95Ms: 250 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 25.5,
         })
       );
 
@@ -465,9 +465,9 @@ describe('useEmbeddingControls', () => {
     it('returns "error" when there are failed jobs', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 5, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 5, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -478,13 +478,13 @@ describe('useEmbeddingControls', () => {
 
     it('returns "error" when startWorkerError is set', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: 'WebGPU not supported',
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: 'WebGPU not supported',
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
@@ -494,21 +494,21 @@ describe('useEmbeddingControls', () => {
 
     it('returns "initializing" when startingWorker is true', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: true,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: true,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       // Reset queueCounts to have no failed jobs (failed jobs take precedence)
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -519,21 +519,21 @@ describe('useEmbeddingControls', () => {
 
     it('returns "running" when workerLocalRunning is true', () => {
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: true,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: true,
       });
 
       // Reset queueCounts to have no failed jobs (failed jobs take precedence)
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -545,9 +545,9 @@ describe('useEmbeddingControls', () => {
     it('returns "running" when there are running jobs', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 3, failed: 0, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 3, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -559,9 +559,9 @@ describe('useEmbeddingControls', () => {
     it('returns "running" when throughput > 0', () => {
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 5.5,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 5.5,
         })
       );
 
@@ -573,20 +573,20 @@ describe('useEmbeddingControls', () => {
     it('returns "disabled" on web when no activity', () => {
       // On web (no electronAPI), should return 'disabled' when idle
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker: vi.fn(async () => {}),
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker: vi.fn(async () => {}),
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -622,8 +622,8 @@ describe('useEmbeddingControls', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Database Not Ready',
         description: expect.any(String),
+        title: 'Database Not Ready',
         variant: 'destructive',
       });
     });
@@ -632,8 +632,8 @@ describe('useEmbeddingControls', () => {
       vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
         const state = {
           activeEmbeddingSetId: null,
-          isImporting: false,
           isEmbeddingActive: false,
+          isImporting: false,
         };
         return selector(state as Parameters<typeof selector>[0]);
       });
@@ -645,8 +645,8 @@ describe('useEmbeddingControls', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'No Collection Selected',
         description: expect.any(String),
+        title: 'No Collection Selected',
         variant: 'destructive',
       });
     });
@@ -654,17 +654,17 @@ describe('useEmbeddingControls', () => {
     it('shows toast when API key validation fails', async () => {
       const validateApiKey = vi.fn(
         async (): Promise<ApiKeyValidationResult> => ({
-          valid: false,
-          reason: 'missing-provider-key',
           message: 'Invalid API key',
+          reason: 'missing-provider-key',
+          valid: false,
         })
       );
 
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
           latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
           validateApiKey,
         })
       );
@@ -676,8 +676,8 @@ describe('useEmbeddingControls', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'API Key Required',
         description: 'Invalid API key',
+        title: 'API Key Required',
         variant: 'destructive',
       });
     });
@@ -687,21 +687,21 @@ describe('useEmbeddingControls', () => {
       const backfillActiveSet = vi.fn(async () => {});
 
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker,
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker,
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
-          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
           backfillActiveSet,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -723,21 +723,21 @@ describe('useEmbeddingControls', () => {
       });
 
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker,
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker,
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
-          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
           backfillActiveSet,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -750,8 +750,8 @@ describe('useEmbeddingControls', () => {
       });
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Backfill Failed',
         description: 'web backfill failed',
+        title: 'Backfill Failed',
         variant: 'destructive',
       });
     });
@@ -763,21 +763,21 @@ describe('useEmbeddingControls', () => {
       const backfillActiveSet = vi.fn(async () => {});
 
       vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
-        workerLocalRunning: false,
-        startingWorker: false,
-        startWorkerError: null,
-        startWorker,
-        stopWorker: vi.fn(async () => {}),
-        resetWorker: vi.fn(async () => {}),
         clearWorkerError: vi.fn(),
+        resetWorker: vi.fn(async () => {}),
+        startingWorker: false,
+        startWorker,
+        startWorkerError: null,
+        stopWorker: vi.fn(async () => {}),
+        workerLocalRunning: false,
       });
 
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
-          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-          throughput: 0,
-          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
           backfillActiveSet,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
+          throughput: 0,
         })
       );
 
@@ -791,8 +791,8 @@ describe('useEmbeddingControls', () => {
 
       expect(backfillActiveSet).not.toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Backfill Failed',
         description: 'worker boot failed',
+        title: 'Backfill Failed',
         variant: 'destructive',
       });
     });

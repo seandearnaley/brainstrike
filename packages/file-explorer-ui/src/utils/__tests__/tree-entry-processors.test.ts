@@ -14,22 +14,22 @@ import { processFileEntry } from '../process-file-entry';
 
 describe('processFileEntry', () => {
   const createMockDirectoryHandle = (platform: 'web' | 'electron'): DirectoryHandle => ({
-    path: '/root',
-    name: 'root',
-    kind: 'directory',
-    platform,
     _internal: undefined,
+    kind: 'directory',
+    name: 'root',
+    path: '/root',
+    platform,
   });
 
   const createMockFileEntry = (name: string, path: string): IFileNode =>
     ({
+      depth: 0,
+      handle: {} as FileSystemFileHandle,
       name,
       path,
-      type: 'file',
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: '',
-      handle: {} as FileSystemFileHandle,
+      selectionState: 'unchecked',
+      type: 'file',
     }) as IFileNode;
 
   it('should process a file entry with correct depth', () => {
@@ -73,15 +73,15 @@ describe('processFileEntry', () => {
   it('should preserve original entry properties while overwriting specific ones', () => {
     const directoryHandle = createMockDirectoryHandle('electron');
     const entry: IFileNode = {
+      depth: 99, // Will be overwritten
+      handle: {} as FileSystemFileHandle,
+      lastModified: 12_345,
       name: 'file.ts',
       path: 'file.ts',
-      type: 'file',
-      depth: 99, // Will be overwritten
-      selectionState: 'checked', // Will be overwritten
       rootFolderId: 'old-root', // Will be overwritten
-      handle: {} as FileSystemFileHandle,
+      selectionState: 'checked', // Will be overwritten
       size: 1024,
-      lastModified: 12_345,
+      type: 'file',
     };
 
     const result = processFileEntry(entry, '/a/b', directoryHandle, 'new-root');
@@ -109,22 +109,22 @@ describe('processFileEntry', () => {
 
 describe('processDirectoryEntry', () => {
   const createMockDirectoryHandle = (platform: 'web' | 'electron'): DirectoryHandle => ({
-    path: '/root',
-    name: 'root',
-    kind: 'directory',
-    platform,
     _internal: undefined,
+    kind: 'directory',
+    name: 'root',
+    path: '/root',
+    platform,
   });
 
   const createMockDirectoryEntry = (name: string, path: string): IFileNode =>
     ({
+      depth: 0,
+      handle: { kind: 'directory', name } as unknown as FileSystemDirectoryHandle,
       name,
       path,
-      type: 'directory',
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: '',
-      handle: { kind: 'directory', name } as unknown as FileSystemDirectoryHandle,
+      selectionState: 'unchecked',
+      type: 'directory',
     }) as IFileNode;
 
   it('should process a directory entry and fetch children', async () => {
@@ -135,13 +135,13 @@ describe('processDirectoryEntry', () => {
 
     const mockChildren: IFileNode[] = [
       {
+        depth: 2,
+        handle: {} as FileSystemFileHandle,
         name: 'child.txt',
         path: '/root/subdir/child.txt',
-        type: 'file',
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root-id',
-        handle: {} as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        type: 'file',
       } as IFileNode,
     ];
 
@@ -190,7 +190,7 @@ describe('processDirectoryEntry', () => {
     );
 
     expect(readTree).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'folder', kind: 'directory' }),
+      expect.objectContaining({ kind: 'directory', name: 'folder' }),
       rootHandle,
       '/base',
       false,
@@ -205,22 +205,22 @@ describe('processDirectoryEntry', () => {
 
     const unsortedChildren: IFileNode[] = [
       {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'b.txt',
         path: 'docs/b.txt',
-        type: 'file',
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: '',
-        handle: {} as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        type: 'file',
       } as IFileNode,
       {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'a.txt',
         path: 'docs/a.txt',
-        type: 'file',
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: '',
-        handle: {} as FileSystemFileHandle,
+        selectionState: 'unchecked',
+        type: 'file',
       } as IFileNode,
     ];
 

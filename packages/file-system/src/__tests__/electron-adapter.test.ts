@@ -42,10 +42,10 @@ const originalCwd = '/original/cwd';
 let currentCwd = originalCwd;
 
 const mockProcess = {
-  cwd: () => currentCwd,
   chdir: (dir: string) => {
     currentCwd = dir;
   },
+  cwd: () => currentCwd,
 };
 
 // Replace the limited process object with our mock
@@ -124,14 +124,14 @@ describe('ElectronFileSystemAdapter', () => {
     );
 
     const concurrency = 2;
-    const entries = await adapter.readDirectory(handle, { includeMetadata: true, concurrency });
+    const entries = await adapter.readDirectory(handle, { concurrency, includeMetadata: true });
     expect(entries.filter((e) => e.type === 'file')).toHaveLength(fileCount);
     expect(peak).toBeLessThanOrEqual(concurrency);
   });
 
   afterEach(async () => {
     processWithChdir.chdir(originalCwd);
-    await fsPromises.rm(tempDir, { recursive: true, force: true });
+    await fsPromises.rm(tempDir, { force: true, recursive: true });
   });
 
   it('should request directory access and return handle', async () => {
@@ -146,10 +146,10 @@ describe('ElectronFileSystemAdapter', () => {
     expect(handle.kind).toBe('directory');
     expect(handle.platform).toBe('electron');
     expect(dialog.showOpenDialog).toHaveBeenCalledWith({
-      properties: ['openDirectory'],
-      title: 'Select a folder to explore',
       buttonLabel: 'Select Folder',
       message: 'Choose a directory to explore with BrainStrike',
+      properties: ['openDirectory'],
+      title: 'Select a folder to explore',
     });
   });
 
@@ -245,9 +245,9 @@ describe('ElectronFileSystemAdapter', () => {
     const filePath = path.join(tempDir, 'file.txt');
     fs.writeFileSync(filePath, 'hello');
     const handle: FileHandle = {
-      path: filePath,
-      name: 'file.txt',
       kind: 'file',
+      name: 'file.txt',
+      path: filePath,
       platform: 'electron',
     };
     const content = await adapter.readFile(handle);
@@ -268,9 +268,9 @@ describe('ElectronFileSystemAdapter', () => {
   it('should throw AccessError when readFile fails', async () => {
     const filePath = path.join(tempDir, 'bad.txt');
     const handle: FileHandle = {
-      path: filePath,
-      name: 'bad.txt',
       kind: 'file',
+      name: 'bad.txt',
+      path: filePath,
       platform: 'electron',
     };
     vi.spyOn(fsPromises, 'readFile').mockRejectedValue(new Error('fail'));
@@ -296,8 +296,8 @@ describe('ElectronFileSystemAdapter', () => {
 
     // Mock chokidar watcher
     const mockWatcher = {
-      on: vi.fn().mockReturnThis(),
       close: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn().mockReturnThis(),
     };
 
     const chokidar = await import('chokidar');
@@ -314,15 +314,15 @@ describe('ElectronFileSystemAdapter', () => {
     expect(chokidar.default.watch).toHaveBeenCalledWith(
       tempDir,
       expect.objectContaining({
-        ignoreInitial: true,
-        persistent: true,
+        atomic: true,
         awaitWriteFinish: {
-          stabilityThreshold: 100,
           pollInterval: 100,
+          stabilityThreshold: 100,
         },
         followSymlinks: false,
-        atomic: true,
         ignored: expect.any(Function),
+        ignoreInitial: true,
+        persistent: true,
       })
     );
     const watchOptions = vi.mocked(chokidar.default.watch).mock.calls[0]?.[1] as Record<
@@ -339,7 +339,7 @@ describe('ElectronFileSystemAdapter', () => {
     }
 
     await waitForCondition(() => callback.mock.calls.length > 0);
-    expect(callback).toHaveBeenCalledWith([{ type: 'added', path: filePath, kind: 'file' }]);
+    expect(callback).toHaveBeenCalledWith([{ kind: 'file', path: filePath, type: 'added' }]);
 
     stop();
     expect(mockWatcher.close).toHaveBeenCalled();
@@ -526,9 +526,9 @@ describe('ElectronFileSystemAdapter', () => {
       await cachedAdapter.readDirectory(handle, { includeMetadata: true });
 
       const subHandle: DirectoryHandle = {
-        path: subDir,
-        name: 'subdir',
         kind: 'directory',
+        name: 'subdir',
+        path: subDir,
         platform: 'electron',
       };
       await cachedAdapter.readDirectory(subHandle, { includeMetadata: true });
@@ -571,8 +571,8 @@ describe('ElectronFileSystemAdapter', () => {
 
       // Set up watcher with mock chokidar
       const mockWatcher = {
-        on: vi.fn().mockReturnThis(),
         close: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn().mockReturnThis(),
       };
 
       const chokidar = await import('chokidar');
@@ -608,9 +608,9 @@ describe('ElectronFileSystemAdapter', () => {
       fs.mkdirSync(path.join(tempDir, 'subdir'));
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
@@ -618,7 +618,7 @@ describe('ElectronFileSystemAdapter', () => {
       await adapter.readDirectoryStreaming(
         handle,
         (nodes, meta) => {
-          batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+          batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
         },
         { batchSize: 2 }
       );
@@ -640,9 +640,9 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
@@ -666,9 +666,9 @@ describe('ElectronFileSystemAdapter', () => {
       fs.writeFileSync(path.join(tempDir, 'file.txt'), 'content');
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
@@ -696,9 +696,9 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
@@ -729,9 +729,9 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
@@ -755,7 +755,7 @@ describe('ElectronFileSystemAdapter', () => {
       await adapter.readDirectoryStreaming(
         handle,
         (nodes, meta) => {
-          batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+          batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
         },
         { batchSize: 50, signal: controller.signal }
       );
@@ -769,15 +769,15 @@ describe('ElectronFileSystemAdapter', () => {
 
     it('should handle empty directories', async () => {
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 
       const batches: { nodes: unknown[]; done: boolean; total: number }[] = [];
       await adapter.readDirectoryStreaming(handle, (nodes, meta) => {
-        batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+        batches.push({ done: meta.done, nodes: [...nodes], total: meta.total });
       });
 
       expect(batches.length).toBe(1);
@@ -788,9 +788,9 @@ describe('ElectronFileSystemAdapter', () => {
 
     it('should throw AccessError for non-existent directory', async () => {
       const handle: DirectoryHandle = {
-        path: '/non/existent/path',
-        name: 'path',
         kind: 'directory',
+        name: 'path',
+        path: '/non/existent/path',
         platform: 'electron',
       };
 
@@ -804,9 +804,9 @@ describe('ElectronFileSystemAdapter', () => {
       }
 
       const handle: DirectoryHandle = {
-        path: tempDir,
-        name: path.basename(tempDir),
         kind: 'directory',
+        name: path.basename(tempDir),
+        path: tempDir,
         platform: 'electron',
       };
 

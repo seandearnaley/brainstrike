@@ -110,7 +110,7 @@ describe('assistant request helpers', () => {
     const payload = parseAssistantRequestPayloadText(
       JSON.stringify({
         data: { memory: { resourceId: 'workspace', threadId: 'thread' } },
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+        messages: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
         runConfig: { maxTokens: 128 },
       })
     );
@@ -145,16 +145,16 @@ describe('assistant request helpers', () => {
 
   it('detects whether the latest assistant prompt has non-empty text', () => {
     const emptyPrompt: AgentMessage = {
+      parts: [{ text: '   ', type: 'text' }],
       role: 'user',
-      parts: [{ type: 'text', text: '   ' }],
     };
     const nonTextPrompt: AgentMessage = {
+      parts: [{ data: 'abc', mediaType: 'text/plain', type: 'file' }],
       role: 'user',
-      parts: [{ type: 'file', data: 'abc', mediaType: 'text/plain' }],
     } as AgentMessage;
     const nonEmptyPrompt: AgentMessage = {
+      parts: [{ text: '  summarize this  ', type: 'text' }],
       role: 'user',
-      parts: [{ type: 'text', text: '  summarize this  ' }],
     };
 
     expect(hasNonEmptyAssistantPrompt([])).toBe(false);

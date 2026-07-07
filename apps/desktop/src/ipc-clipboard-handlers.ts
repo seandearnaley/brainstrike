@@ -19,13 +19,13 @@ export function createClipboardIpcHandlers({ clipboard }: ClipboardIpcDependenci
   return {
     writeText: (rawText: unknown): ClipboardIpcResult => {
       if (typeof rawText !== 'string') {
-        return { ok: false, error: 'clipboard writeText requires a string payload' };
+        return { error: 'clipboard writeText requires a string payload', ok: false };
       }
       try {
         clipboard.writeText(rawText);
         return { ok: true };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
       }
     },
   };

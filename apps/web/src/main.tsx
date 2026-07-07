@@ -94,31 +94,31 @@ if (typeof window !== 'undefined') {
 }
 
 initializeLogging({
-  runtime: 'browser',
-  level: defaultLevel,
-  consoleLevel: defaultLevel,
   appName: 'brainstrike-web',
   appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'dev',
   baseBindings: {
     mode: import.meta.env.MODE,
   },
+  consoleLevel: defaultLevel,
+  level: defaultLevel,
+  runtime: 'browser',
 });
 
 const removeRendererErrorHooks =
   typeof window === 'undefined'
     ? () => {}
     : installRendererErrorHooks({
-        scope: 'WebRenderer',
         onError: () => {
           flushQueueTelemetry?.();
         },
+        scope: 'WebRenderer',
       });
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
   loggingStore.updatePreferences({
-    level: defaultLevel,
     consoleLevel: defaultLevel,
+    level: defaultLevel,
   });
 }
 
@@ -144,12 +144,12 @@ const telemetrySink =
         ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
           ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
-        runtime: 'browser',
         metadata: {
           app: 'web',
           mode: import.meta.env.MODE,
           version: import.meta.env['VITE_APP_VERSION'] ?? 'dev',
         },
+        runtime: 'browser',
       })
     : null;
 

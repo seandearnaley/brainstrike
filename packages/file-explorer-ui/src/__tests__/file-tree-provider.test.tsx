@@ -31,8 +31,8 @@ const {
   getNodeMock: vi.fn(),
   setExpandedPathsMock: vi.fn(),
   storeMock: vi.fn(),
-  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useExpandedPathRestorationMock: vi.fn(),
+  useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useFileTreeMock: vi.fn(),
 }));
 
@@ -76,11 +76,11 @@ vi.mock('../tree/file-tree-index', () => ({
 }));
 
 const rootHandle = {
+  _internal: undefined,
   kind: 'directory',
   name: 'workspace',
   path: '/workspace',
   platform: 'electron',
-  _internal: undefined,
 } as const;
 
 function Consumer(): ReactNode {
@@ -112,10 +112,10 @@ describe('FileTreeProvider', () => {
       __internalNormalizedTreeVersion: 7,
       cancelChildLoading: vi.fn(),
       cancelExpandAll: vi.fn(),
+      cancellable: false,
       cancelOperation: vi.fn(),
       cancelRecursiveSelect: vi.fn(),
       cancelSelectAll: vi.fn(),
-      cancellable: false,
       error: null,
       expandAllProgress: null,
       expandAllProgressively: vi.fn(),
@@ -123,13 +123,13 @@ describe('FileTreeProvider', () => {
       isCancelling: false,
       isExpandingAll: false,
       isLoading: false,
-      isLoadingForSelection: false,
       isLoadingForSelectAll: false,
+      isLoadingForSelection: false,
       loadChildren: vi.fn(),
-      loadSpecificPaths: vi.fn(),
       loadingPathForSelection: null,
       loadingPaths: new Set<string>(),
       loadingProgress: { isInitialLoading: false, loadingCount: 0 },
+      loadSpecificPaths: vi.fn(),
       refreshDirectory: vi.fn(),
       refreshTree: vi.fn(),
       selectAllRecursively: vi.fn(),

@@ -12,32 +12,32 @@ describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates assistant-ui history from Mastra memory messages', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-1',
-          role: 'user',
           content: { content: 'Remember the deploy window is Friday.' },
           createdAt: new Date('2026-04-22T10:00:00Z'),
+          id: 'message-1',
+          role: 'user',
         },
         {
-          id: 'message-2',
-          role: 'assistant',
           content: { content: 'I will remember that.' },
           createdAt: new Date('2026-04-22T10:00:01Z'),
+          id: 'message-2',
+          role: 'assistant',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
 
     const adapter = createAssistantThreadHistoryAdapter({
@@ -55,26 +55,26 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(history.messages.map((item) => item.parentId)).toEqual([null, 'message-1']);
     expect(history.messages.map((item) => item.message.id)).toEqual(['message-1', 'message-2']);
     expect(history.messages[0]?.message.content).toEqual([
-      { type: 'text', text: 'Remember the deploy window is Friday.' },
+      { text: 'Remember the deploy window is Friday.', type: 'text' },
     ]);
   });
 
   it('hydrates only the bounded latest message window from Mastra memory', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => []),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -92,19 +92,19 @@ describe('createAssistantThreadHistoryAdapter', () => {
   it('does not write client-side history because Mastra is the durable writer', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => []),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -114,15 +114,15 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     await expect(
       adapter.append({
-        parentId: null,
         message: {
-          id: 'message-1',
-          role: 'user',
-          content: [{ type: 'text', text: 'Hello' }],
           attachments: [],
+          content: [{ text: 'Hello', type: 'text' }],
           createdAt: new Date('2026-04-22T10:00:00Z'),
+          id: 'message-1',
           metadata: { custom: {} },
+          role: 'user',
         },
+        parentId: null,
       })
     ).resolves.toBeUndefined();
     expect(repository.listMessages).not.toHaveBeenCalled();
@@ -133,26 +133,26 @@ describe('createAssistantThreadHistoryAdapter', () => {
     cyclicContent['content'] = cyclicContent;
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-1',
-          role: 'user',
           content: cyclicContent,
           createdAt: new Date('2026-04-22T10:00:00Z'),
+          id: 'message-1',
+          role: 'user',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -166,43 +166,43 @@ describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates persisted assistant run events as assistant-ui data parts on the latest assistant message', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
+      listMessages: vi.fn(async () => [
+        {
+          content: { content: 'Use memory' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-1',
+          role: 'user',
+        },
+        {
+          content: { content: 'I used memory.' },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+          id: 'message-2',
+          role: 'assistant',
+        },
+      ]),
       listThreadRunEvents: vi.fn(async () => [
         {
           id: 'event-1',
           kind: 'memory.configured',
           label: 'Memory configured',
+          metadata: { threadId: 'thread-1' },
           runId: 'run-1',
           sequence: 1,
           status: 'completed',
           timestamp: '2026-04-24T12:00:00.000Z',
-          metadata: { threadId: 'thread-1' },
         } satisfies AssistantRunEvent,
       ]),
-      listMessages: vi.fn(async () => [
-        {
-          id: 'message-1',
-          role: 'user',
-          content: { content: 'Use memory' },
-          createdAt: new Date('2026-04-24T12:00:00Z'),
-        },
-        {
-          id: 'message-2',
-          role: 'assistant',
-          content: { content: 'I used memory.' },
-          createdAt: new Date('2026-04-24T12:00:01Z'),
-        },
-      ]),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -216,64 +216,64 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(repository.listThreadRunEvents).toHaveBeenCalledWith('thread-1', 'workspace-a');
     expect(assistant?.message.content).toEqual([
       {
-        type: 'data',
-        name: 'brainstrike.run-event',
         data: {
           id: 'event-1',
           kind: 'memory.configured',
           label: 'Memory configured',
+          metadata: { threadId: 'thread-1' },
           runId: 'run-1',
           sequence: 1,
           status: 'completed',
           timestamp: '2026-04-24T12:00:00.000Z',
-          metadata: { threadId: 'thread-1' },
         },
+        name: 'brainstrike.run-event',
+        type: 'data',
       },
-      { type: 'text', text: 'I used memory.' },
+      { text: 'I used memory.', type: 'text' },
     ]);
   });
 
   it('hydrates persisted assistant tool-call parts after reload', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-1',
-          role: 'user',
           content: { content: 'Search files' },
           createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-1',
+          role: 'user',
         },
         {
-          id: 'message-2',
-          role: 'assistant',
           content: {
             parts: [
               {
-                type: 'tool-call',
+                args: { path: '.', pattern: '*.ts' },
+                isError: false,
+                result: { matches: ['src/a.ts'] },
                 toolCallId: 'call-files',
                 toolName: 'filesystem.search_files',
-                args: { path: '.', pattern: '*.ts' },
-                result: { matches: ['src/a.ts'] },
-                isError: false,
+                type: 'tool-call',
               },
-              { type: 'text', text: 'I found one match.' },
+              { text: 'I found one match.', type: 'text' },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:01Z'),
+          id: 'message-2',
+          role: 'assistant',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -286,78 +286,78 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     expect(assistant?.message.content).toEqual([
       {
-        type: 'tool-call',
-        toolCallId: 'call-files',
-        toolName: 'filesystem.search_files',
         args: { path: '.', pattern: '*.ts' },
         argsText: '{"path":".","pattern":"*.ts"}',
-        result: { matches: ['src/a.ts'] },
         isError: false,
+        result: { matches: ['src/a.ts'] },
+        toolCallId: 'call-files',
+        toolName: 'filesystem.search_files',
+        type: 'tool-call',
       },
-      { type: 'text', text: 'I found one match.' },
+      { text: 'I found one match.', type: 'text' },
     ]);
   });
 
   it('hydrates separate persisted tool result rows back onto assistant tool calls', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-1',
-          role: 'user',
           content: { content: 'Search files' },
           createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-1',
+          role: 'user',
         },
         {
-          id: 'message-2',
-          role: 'assistant',
           content: {
             parts: [
               {
-                type: 'tool-call',
+                args: { path: '.', pattern: '*.ts' },
                 toolCallId: 'call-files',
                 toolName: 'filesystem.search_files',
-                args: { path: '.', pattern: '*.ts' },
+                type: 'tool-call',
               },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:01Z'),
+          id: 'message-2',
+          role: 'assistant',
         },
         {
-          id: 'message-3',
-          role: 'tool',
           content: {
             parts: [
               {
-                type: 'tool-result',
+                isError: false,
+                result: { matches: ['src/a.ts'] },
                 toolCallId: 'call-files',
                 toolName: 'filesystem.search_files',
-                result: { matches: ['src/a.ts'] },
-                isError: false,
+                type: 'tool-result',
               },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:02Z'),
+          id: 'message-3',
+          role: 'tool',
         },
         {
-          id: 'message-4',
-          role: 'assistant',
           content: { content: 'I found one match.' },
           createdAt: new Date('2026-04-24T12:00:03Z'),
+          id: 'message-4',
+          role: 'assistant',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -374,61 +374,61 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     expect(toolAssistant?.message.content).toEqual([
       {
-        type: 'tool-call',
-        toolCallId: 'call-files',
-        toolName: 'filesystem.search_files',
         args: { path: '.', pattern: '*.ts' },
         argsText: '{"path":".","pattern":"*.ts"}',
-        result: { matches: ['src/a.ts'] },
         isError: false,
+        result: { matches: ['src/a.ts'] },
+        toolCallId: 'call-files',
+        toolName: 'filesystem.search_files',
+        type: 'tool-call',
       },
-      { type: 'text', text: 'I found one match.' },
+      { text: 'I found one match.', type: 'text' },
     ]);
   });
 
   it('hydrates mixed content arrays and system messages while skipping malformed parts', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-system',
-          role: 'system',
           content: { text: 'System guard' },
           createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-system',
+          role: 'system',
         },
         {
-          id: 'message-user',
-          role: 'user',
           content: ['Use', { content: 'nested text' }],
           createdAt: new Date('2026-04-24T12:00:01Z'),
+          id: 'message-user',
+          role: 'user',
         },
         {
-          id: 'message-assistant',
-          role: 'assistant',
           content: {
             parts: [
               null,
               ['bad'],
-              { type: 'unknown', text: 'ignored' },
-              { type: 'text', text: '  ' },
-              { type: 'text', text: 'Visible answer' },
+              { text: 'ignored', type: 'unknown' },
+              { text: '  ', type: 'text' },
+              { text: 'Visible answer', type: 'text' },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:02Z'),
+          id: 'message-assistant',
+          role: 'assistant',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -444,52 +444,52 @@ describe('createAssistantThreadHistoryAdapter', () => {
       'message-user',
     ]);
     expect(history.messages.map((item) => item.message.content)).toEqual([
-      [{ type: 'text', text: 'System guard' }],
-      [{ type: 'text', text: 'Use\nnested text' }],
-      [{ type: 'text', text: 'Visible answer' }],
+      [{ text: 'System guard', type: 'text' }],
+      [{ text: 'Use\nnested text', type: 'text' }],
+      [{ text: 'Visible answer', type: 'text' }],
     ]);
   });
 
   it('hydrates legacy tool-result output and error snapshots', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-1',
-          role: 'assistant',
           content: {
             parts: [
-              { type: 'tool-call', toolCallId: 'call-output', toolName: 'workspace.read' },
-              { type: 'tool-call', toolCallId: 'call-error', toolName: 'workspace.write' },
+              { toolCallId: 'call-output', toolName: 'workspace.read', type: 'tool-call' },
+              { toolCallId: 'call-error', toolName: 'workspace.write', type: 'tool-call' },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-1',
+          role: 'assistant',
         },
         {
+          content: { output: { ok: true }, toolCallId: 'call-output' },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
           id: 'message-2',
           role: 'tool',
-          content: { toolCallId: 'call-output', output: { ok: true } },
-          createdAt: new Date('2026-04-24T12:00:01Z'),
         },
         {
+          content: { error: 'denied', toolCallId: 'call-error' },
+          createdAt: new Date('2026-04-24T12:00:02Z'),
           id: 'message-3',
           role: 'tool',
-          content: { toolCallId: 'call-error', error: 'denied' },
-          createdAt: new Date('2026-04-24T12:00:02Z'),
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -501,21 +501,21 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     expect(history.messages[0]?.message.content).toEqual([
       {
-        type: 'tool-call',
-        toolCallId: 'call-output',
-        toolName: 'workspace.read',
         args: {},
         argsText: '{}',
         result: { ok: true },
+        toolCallId: 'call-output',
+        toolName: 'workspace.read',
+        type: 'tool-call',
       },
       {
-        type: 'tool-call',
-        toolCallId: 'call-error',
-        toolName: 'workspace.write',
         args: {},
         argsText: '{}',
-        result: 'denied',
         isError: true,
+        result: 'denied',
+        toolCallId: 'call-error',
+        toolName: 'workspace.write',
+        type: 'tool-call',
       },
     ]);
   });
@@ -523,43 +523,43 @@ describe('createAssistantThreadHistoryAdapter', () => {
   it('drops malformed tool calls and empty system messages from hydrated history', async () => {
     const repository: AssistantThreadRepository = {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => []),
       listMessages: vi.fn(async () => [
         {
-          id: 'message-empty-system',
-          role: 'system',
           content: { text: '   ' },
           createdAt: new Date('2026-04-24T12:00:00Z'),
+          id: 'message-empty-system',
+          role: 'system',
         },
         {
-          id: 'message-empty-assistant',
-          role: 'assistant',
           content: {
             parts: [
-              { type: 'tool-call', toolCallId: '', toolName: 'workspace.read' },
-              { type: 'tool-call', toolCallId: 'call-missing-name', toolName: '' },
+              { toolCallId: '', toolName: 'workspace.read', type: 'tool-call' },
+              { toolCallId: 'call-missing-name', toolName: '', type: 'tool-call' },
             ],
           },
           createdAt: new Date('2026-04-24T12:00:01Z'),
+          id: 'message-empty-assistant',
+          role: 'assistant',
         },
         {
-          id: 'message-user',
-          role: 'user',
           content: { content: 'still visible' },
           createdAt: new Date('2026-04-24T12:00:02Z'),
+          id: 'message-user',
+          role: 'user',
         },
       ]),
+      listThreadRunEvents: vi.fn(async () => []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     };
     const adapter = createAssistantThreadHistoryAdapter({
       repository,
@@ -571,7 +571,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     expect(history.headId).toBe('message-user');
     expect(history.messages).toHaveLength(1);
-    expect(history.messages[0]?.message.content).toEqual([{ type: 'text', text: 'still visible' }]);
+    expect(history.messages[0]?.message.content).toEqual([{ text: 'still visible', type: 'text' }]);
   });
 
   describe('reasoning hydration', () => {
@@ -580,32 +580,32 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ): Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'] {
       return {
         appendThreadRunEvent: vi.fn(),
+        completeThreadRun: vi.fn(),
         createThread: vi.fn(),
         createThreadRun: vi.fn(),
-        getThreadCumulativeUsage: vi.fn(async () => null),
-        getCrossRootUsage: vi.fn(async () => []),
-        recordRunUsage: vi.fn(),
         deleteThread: vi.fn(),
-        listThreads: vi.fn(),
+        getCrossRootUsage: vi.fn(async () => []),
+        getThreadCumulativeUsage: vi.fn(async () => null),
         listLatestThreadRuns: vi.fn(),
-        renameThread: vi.fn(),
-        completeThreadRun: vi.fn(),
-        updateThreadMetadata: vi.fn(),
-        listThreadRunEvents: vi.fn(async () => []),
         listMessages: vi.fn(async () => [
           {
-            id: 'message-1',
-            role: 'user',
             content: { content: 'Think first.' },
             createdAt: new Date('2026-04-22T10:00:00Z'),
+            id: 'message-1',
+            role: 'user',
           },
           {
-            id: 'message-2',
-            role: 'assistant',
             content,
             createdAt: new Date('2026-04-22T10:00:01Z'),
+            id: 'message-2',
+            role: 'assistant',
           },
         ]),
+        listThreadRunEvents: vi.fn(async () => []),
+        listThreads: vi.fn(),
+        recordRunUsage: vi.fn(),
+        renameThread: vi.fn(),
+        updateThreadMetadata: vi.fn(),
       } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
     }
 
@@ -621,8 +621,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     it('reconstructs a reasoning part with text field alongside a text part', async () => {
       const repository = makeRepository([
-        { type: 'reasoning', text: 'because X' },
-        { type: 'text', text: 'the answer is 42' },
+        { text: 'because X', type: 'reasoning' },
+        { text: 'the answer is 42', type: 'text' },
       ]);
       const adapter = createAssistantThreadHistoryAdapter({
         repository,
@@ -634,14 +634,14 @@ describe('createAssistantThreadHistoryAdapter', () => {
       const assistant = history.messages.find((item) => item.message.id === 'message-2');
 
       expect(getReasoningTexts(history)).toEqual(['because X']);
-      expect(assistant?.message.content).toContainEqual({ type: 'reasoning', text: 'because X' });
-      expect(assistant?.message.content).toContainEqual({ type: 'text', text: 'the answer is 42' });
+      expect(assistant?.message.content).toContainEqual({ text: 'because X', type: 'reasoning' });
+      expect(assistant?.message.content).toContainEqual({ text: 'the answer is 42', type: 'text' });
     });
 
     it('reconstructs a reasoning part using the reasoning field as fallback when text is absent', async () => {
       const repository = makeRepository([
-        { type: 'reasoning', reasoning: 'alt thinking' },
-        { type: 'text', text: 'done' },
+        { reasoning: 'alt thinking', type: 'reasoning' },
+        { text: 'done', type: 'text' },
       ]);
       const adapter = createAssistantThreadHistoryAdapter({
         repository,
@@ -656,8 +656,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
     it('drops a reasoning part whose text is only whitespace', async () => {
       const repository = makeRepository([
-        { type: 'reasoning', text: '   ' },
-        { type: 'text', text: 'still here' },
+        { text: '   ', type: 'reasoning' },
+        { text: 'still here', type: 'text' },
       ]);
       const adapter = createAssistantThreadHistoryAdapter({
         repository,
@@ -693,19 +693,19 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
   }): Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'] {
     return {
       appendThreadRunEvent: vi.fn(),
+      completeThreadRun: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
-      getThreadCumulativeUsage: vi.fn(async () => null),
-      getCrossRootUsage: vi.fn(async () => []),
-      recordRunUsage: vi.fn(),
       deleteThread: vi.fn(),
-      listThreads: vi.fn(),
-      listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
+      getCrossRootUsage: vi.fn(async () => []),
+      getThreadCumulativeUsage: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
-      renameThread: vi.fn(),
-      completeThreadRun: vi.fn(),
-      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
+      listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
+      listThreads: vi.fn(),
+      recordRunUsage: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
     } as Parameters<typeof createAssistantThreadHistoryAdapter>[0]['repository'];
   }
 
@@ -718,23 +718,23 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     errorText?: string;
   }): Record<string, unknown> {
     return {
-      type: 'tool-invocation',
+      providerMetadata: { openai: { itemId: 'fc_test' } },
       toolInvocation: {
-        toolCallId: args.toolCallId,
-        toolName: args.toolName,
         args: args.input ?? {},
         state: args.state ?? 'result',
+        toolCallId: args.toolCallId,
+        toolName: args.toolName,
         ...(args.result === undefined ? {} : { result: args.result }),
         ...(args.errorText === undefined ? {} : { errorText: args.errorText }),
       },
-      providerMetadata: { openai: { itemId: 'fc_test' } },
+      type: 'tool-invocation',
     };
   }
 
   const OM_STATUS_PART = {
-    type: 'data-om-status',
-    data: { stepNumber: 1, recordId: 'om-record-1' },
     createdAt: 1_781_183_967_655,
+    data: { recordId: 'om-record-1', stepNumber: 1 },
+    type: 'data-om-status',
   };
 
   async function loadHistory(args: {
@@ -753,35 +753,35 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     const history = await loadHistory({
       messages: [
         {
-          id: 'message-user',
-          role: 'user',
           content: {
-            format: 2,
-            parts: [{ type: 'text', text: 'weather in Paris?' }],
             content: 'weather in Paris?',
+            format: 2,
+            parts: [{ text: 'weather in Paris?', type: 'text' }],
           },
           createdAt: new Date('2026-06-11T13:18:10Z'),
+          id: 'message-user',
+          role: 'user',
         },
         {
-          id: 'message-assistant',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               OM_STATUS_PART,
               // OpenAI encrypted reasoning persists as an empty-reasoning part.
-              { type: 'reasoning', reasoning: '', details: [{ type: 'text', text: '' }] },
+              { details: [{ text: '', type: 'text' }], reasoning: '', type: 'reasoning' },
               makeToolInvocationPart({
-                toolCallId: 'call-1',
-                toolName: 'get_weather',
                 input: { city: 'Paris' },
                 result: { city: 'Paris', temperatureC: 21 },
+                toolCallId: 'call-1',
+                toolName: 'get_weather',
               }),
               { type: 'step-start' },
-              { type: 'text', text: 'It is 21C in Paris.' },
+              { text: 'It is 21C in Paris.', type: 'text' },
             ],
           },
           createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'message-assistant',
+          role: 'assistant',
         },
       ],
     });
@@ -789,16 +789,16 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     const assistant = history.messages.find((item) => item.message.id === 'message-assistant');
     expect(assistant).toBeDefined();
     expect(assistant?.message.content).toContainEqual({
-      type: 'tool-call',
-      toolCallId: 'call-1',
-      toolName: 'get_weather',
       args: { city: 'Paris' },
       argsText: '{"city":"Paris"}',
       result: { city: 'Paris', temperatureC: 21 },
+      toolCallId: 'call-1',
+      toolName: 'get_weather',
+      type: 'tool-call',
     });
     expect(assistant?.message.content).toContainEqual({
-      type: 'text',
       text: 'It is 21C in Paris.',
+      type: 'text',
     });
     // Bookkeeping parts and empty reasoning never become visible content.
     const types = assistant?.message.content.map((part) => part.type);
@@ -810,33 +810,33 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     const history = await loadHistory({
       messages: [
         {
-          id: 'message-assistant',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               makeToolInvocationPart({
-                toolCallId: 'call-err',
-                toolName: 'get_weather',
+                errorText: 'city not found',
                 input: { city: 'Atlantis' },
                 state: 'output-error',
-                errorText: 'city not found',
+                toolCallId: 'call-err',
+                toolName: 'get_weather',
               }),
             ],
           },
           createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'message-assistant',
+          role: 'assistant',
         },
       ],
     });
 
     expect(history.messages[0]?.message.content).toContainEqual({
-      type: 'tool-call',
-      toolCallId: 'call-err',
-      toolName: 'get_weather',
       args: { city: 'Atlantis' },
       argsText: '{"city":"Atlantis"}',
-      result: 'city not found',
       isError: true,
+      result: 'city not found',
+      toolCallId: 'call-err',
+      toolName: 'get_weather',
+      type: 'tool-call',
     });
   });
 
@@ -848,66 +848,66 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     const history = await loadHistory({
       messages: [
         {
-          id: 'snapshot-1',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               OM_STATUS_PART,
               makeToolInvocationPart({
-                toolCallId: 'call-a',
-                toolName: 'grep_search',
                 input: { pattern: 'foo' },
                 state: 'call',
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
               }),
             ],
           },
           createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'snapshot-1',
+          role: 'assistant',
         },
         {
-          id: 'snapshot-2',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               makeToolInvocationPart({
-                toolCallId: 'call-a',
-                toolName: 'grep_search',
                 input: { pattern: 'foo' },
                 result: { matches: 3 },
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
               }),
               makeToolInvocationPart({
-                toolCallId: 'call-b',
-                toolName: 'read_file',
                 input: { path: 'a.ts' },
                 result: { ok: true },
+                toolCallId: 'call-b',
+                toolName: 'read_file',
               }),
             ],
           },
           createdAt: new Date('2026-06-11T13:18:29Z'),
+          id: 'snapshot-2',
+          role: 'assistant',
         },
         {
-          id: 'tail',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               makeToolInvocationPart({
-                toolCallId: 'call-a',
-                toolName: 'grep_search',
                 input: { pattern: 'foo' },
                 result: { matches: 3 },
+                toolCallId: 'call-a',
+                toolName: 'grep_search',
               }),
               makeToolInvocationPart({
-                toolCallId: 'call-b',
-                toolName: 'read_file',
                 input: { path: 'a.ts' },
                 result: { ok: true },
+                toolCallId: 'call-b',
+                toolName: 'read_file',
               }),
-              { type: 'text', text: 'Found 3 matches.' },
+              { text: 'Found 3 matches.', type: 'text' },
             ],
           },
           createdAt: new Date('2026-06-11T13:18:40Z'),
+          id: 'tail',
+          role: 'assistant',
         },
       ],
     });
@@ -926,7 +926,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     // First occurrence of call-a (state 'call' with no result in snapshot-1)
     // was upgraded with the result from the later snapshot.
     expect(merged?.message.content).toContainEqual(
-      expect.objectContaining({ toolCallId: 'call-a', result: { matches: 3 } })
+      expect.objectContaining({ result: { matches: 3 }, toolCallId: 'call-a' })
     );
 
     // Execution order, once each: call-a, call-b, then the final text.
@@ -940,60 +940,60 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
   it('interleaves run events with timestamped content parts in live order', async () => {
     const makeEvent = (id: string, timestamp: string, label: string): AssistantRunEvent => ({
       id,
-      runId: 'run-1',
       kind: 'run.step.finished',
-      status: 'completed',
       label,
+      runId: 'run-1',
       sequence: Number.parseInt(id.split('-')[1] ?? '0', 10),
+      status: 'completed',
       timestamp,
     });
     const history = await loadHistory({
-      runEvents: [
-        makeEvent('event-1', '2026-06-11T13:18:12.000Z', 'run started'),
-        makeEvent('event-2', '2026-06-11T13:18:20.000Z', 'step 1 completed'),
-        makeEvent('event-3', '2026-06-11T13:18:45.000Z', 'run completed'),
-      ],
       messages: [
         {
+          content: { content: 'go', format: 2, parts: [{ text: 'go', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
           id: 'message-user',
           role: 'user',
-          content: { format: 2, parts: [{ type: 'text', text: 'go' }], content: 'go' },
-          createdAt: new Date('2026-06-11T13:18:10Z'),
         },
         {
-          id: 'snapshot-1',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               {
                 ...makeToolInvocationPart({
-                  toolCallId: 'call-1',
-                  toolName: 'grep_search',
                   input: { pattern: 'x' },
                   result: { matches: 1 },
+                  toolCallId: 'call-1',
+                  toolName: 'grep_search',
                 }),
                 createdAt: Date.parse('2026-06-11T13:18:15.000Z'),
               },
             ],
           },
           createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'snapshot-1',
+          role: 'assistant',
         },
         {
-          id: 'tail',
-          role: 'assistant',
           content: {
             format: 2,
             parts: [
               {
-                type: 'text',
-                text: 'Done.',
                 createdAt: Date.parse('2026-06-11T13:18:40.000Z'),
+                text: 'Done.',
+                type: 'text',
               },
             ],
           },
           createdAt: new Date('2026-06-11T13:18:41Z'),
+          id: 'tail',
+          role: 'assistant',
         },
+      ],
+      runEvents: [
+        makeEvent('event-1', '2026-06-11T13:18:12.000Z', 'run started'),
+        makeEvent('event-2', '2026-06-11T13:18:20.000Z', 'step 1 completed'),
+        makeEvent('event-3', '2026-06-11T13:18:45.000Z', 'run completed'),
       ],
     });
 
@@ -1019,25 +1019,17 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       sequence: number
     ): AssistantRunEvent => ({
       id,
-      runId: 'run-1',
       kind,
-      status: kind === 'tool.started' ? 'running' : 'completed',
       label: toolCallId,
-      sequence,
-      timestamp,
       metadata: { toolCallId },
+      runId: 'run-1',
+      sequence,
+      status: kind === 'tool.started' ? 'running' : 'completed',
+      timestamp,
     });
     const history = await loadHistory({
-      runEvents: [
-        makeToolEvent('event-1', 'tool.started', '2026-06-11T13:18:12.000Z', 'call-early', 1),
-        makeToolEvent('event-2', 'tool.completed', '2026-06-11T13:18:13.000Z', 'call-early', 2),
-        makeToolEvent('event-3', 'tool.started', '2026-06-11T13:18:30.000Z', 'call-late', 3),
-        makeToolEvent('event-4', 'tool.completed', '2026-06-11T13:18:31.000Z', 'call-late', 4),
-      ],
       messages: [
         {
-          id: 'snapshot-1',
-          role: 'assistant',
           // BOTH calls persisted (untimed) in one snapshot row saved at
           // 13:18:35 — without event re-timing they would clump together
           // after every event.
@@ -1045,21 +1037,29 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
             format: 2,
             parts: [
               makeToolInvocationPart({
-                toolCallId: 'call-early',
-                toolName: 'grep_search',
                 input: { pattern: 'a' },
                 result: { matches: 1 },
+                toolCallId: 'call-early',
+                toolName: 'grep_search',
               }),
               makeToolInvocationPart({
-                toolCallId: 'call-late',
-                toolName: 'read_file',
                 input: { path: 'b.ts' },
                 result: { ok: true },
+                toolCallId: 'call-late',
+                toolName: 'read_file',
               }),
             ],
           },
           createdAt: new Date('2026-06-11T13:18:35Z'),
+          id: 'snapshot-1',
+          role: 'assistant',
         },
+      ],
+      runEvents: [
+        makeToolEvent('event-1', 'tool.started', '2026-06-11T13:18:12.000Z', 'call-early', 1),
+        makeToolEvent('event-2', 'tool.completed', '2026-06-11T13:18:13.000Z', 'call-early', 2),
+        makeToolEvent('event-3', 'tool.started', '2026-06-11T13:18:30.000Z', 'call-late', 3),
+        makeToolEvent('event-4', 'tool.completed', '2026-06-11T13:18:31.000Z', 'call-late', 4),
       ],
     });
 
@@ -1085,44 +1085,44 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     // turn's group on reload.
     const makeEvent = (id: string, timestamp: string, sequence: number): AssistantRunEvent => ({
       id,
-      runId: 'run-latest',
       kind: sequence === 1 ? 'memory.history.loaded' : 'run.finished',
-      status: 'completed',
       label: sequence === 1 ? 'Loaded conversation history' : 'Assistant run completed',
+      runId: 'run-latest',
       sequence,
+      status: 'completed',
       timestamp,
     });
     const history = await loadHistory({
+      messages: [
+        {
+          content: { content: 'first', format: 2, parts: [{ text: 'first', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
+          id: 'user-1',
+          role: 'user',
+        },
+        {
+          content: { format: 2, parts: [{ text: 'first answer', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'assistant-1',
+          role: 'assistant',
+        },
+        {
+          content: { content: 'second', format: 2, parts: [{ text: 'second', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:20:10Z'),
+          id: 'user-2',
+          role: 'user',
+        },
+        {
+          content: { format: 2, parts: [{ text: 'second answer', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:20:16Z'),
+          id: 'assistant-2',
+          role: 'assistant',
+        },
+      ],
       runEvents: [
         // Emitted after user-2 sent but before assistant-2 was first saved.
         makeEvent('event-early', '2026-06-11T13:20:12.000Z', 1),
         makeEvent('event-finished', '2026-06-11T13:20:20.000Z', 2),
-      ],
-      messages: [
-        {
-          id: 'user-1',
-          role: 'user',
-          content: { format: 2, parts: [{ type: 'text', text: 'first' }], content: 'first' },
-          createdAt: new Date('2026-06-11T13:18:10Z'),
-        },
-        {
-          id: 'assistant-1',
-          role: 'assistant',
-          content: { format: 2, parts: [{ type: 'text', text: 'first answer' }] },
-          createdAt: new Date('2026-06-11T13:18:16Z'),
-        },
-        {
-          id: 'user-2',
-          role: 'user',
-          content: { format: 2, parts: [{ type: 'text', text: 'second' }], content: 'second' },
-          createdAt: new Date('2026-06-11T13:20:10Z'),
-        },
-        {
-          id: 'assistant-2',
-          role: 'assistant',
-          content: { format: 2, parts: [{ type: 'text', text: 'second answer' }] },
-          createdAt: new Date('2026-06-11T13:20:16Z'),
-        },
       ],
     });
 
@@ -1139,29 +1139,29 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
   it('attaches run events to the newest assistant row even when no row has renderable parts', async () => {
     const runEvent: AssistantRunEvent = {
       id: 'event-1',
-      runId: 'run-1',
       kind: 'tool.completed',
-      status: 'completed',
       label: 'grep_search completed',
+      runId: 'run-1',
       sequence: 0,
+      status: 'completed',
       timestamp: '2026-06-11T13:18:20.000Z',
     };
     const history = await loadHistory({
-      runEvents: [runEvent],
       messages: [
         {
+          content: { content: 'hi', format: 2, parts: [{ text: 'hi', type: 'text' }] },
+          createdAt: new Date('2026-06-11T13:18:10Z'),
           id: 'message-user',
           role: 'user',
-          content: { format: 2, parts: [{ type: 'text', text: 'hi' }], content: 'hi' },
-          createdAt: new Date('2026-06-11T13:18:10Z'),
         },
         {
-          id: 'message-assistant-empty',
-          role: 'assistant',
           content: { format: 2, parts: [OM_STATUS_PART] },
           createdAt: new Date('2026-06-11T13:18:16Z'),
+          id: 'message-assistant-empty',
+          role: 'assistant',
         },
       ],
+      runEvents: [runEvent],
     });
 
     const assistant = history.messages.find(
@@ -1169,7 +1169,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     );
     expect(assistant).toBeDefined();
     expect(assistant?.message.content).toEqual([
-      { type: 'data', name: 'brainstrike.run-event', data: runEvent },
+      { data: runEvent, name: 'brainstrike.run-event', type: 'data' },
     ]);
   });
 });
@@ -1182,28 +1182,28 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         return {
           rows: [
             {
+              createdAt: new Date('2026-04-22T09:00:00Z'),
               id: 'thread-valid',
+              metadata: JSON.stringify({
+                color: 'rose',
+                icon: 'bug',
+                model: 'gpt-5.2',
+                provider: 'openai',
+              }),
               resourceId: '/tmp/workspace-a',
               title: 'Valid curated thread',
-              metadata: JSON.stringify({
-                icon: 'bug',
-                color: 'rose',
-                provider: 'openai',
-                model: 'gpt-5.2',
-              }),
-              createdAt: new Date('2026-04-22T09:00:00Z'),
               updatedAt: new Date('2026-04-22T10:00:00Z'),
             },
             {
+              createdAt: new Date('2026-04-22T08:00:00Z'),
               id: 'thread-invalid',
-              resourceId: '/tmp/workspace-a',
-              title: 'Invalid curated thread',
               metadata: JSON.stringify({
-                icon: 'raw-html',
                 color: '#ff00ff',
+                icon: 'raw-html',
                 provider: 'anthropic',
               }),
-              createdAt: new Date('2026-04-22T08:00:00Z'),
+              resourceId: '/tmp/workspace-a',
+              title: 'Invalid curated thread',
               updatedAt: new Date('2026-04-22T09:00:00Z'),
             },
           ],
@@ -1216,10 +1216,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const threads = await repository.listThreads('/tmp/workspace-a');
 
     expect(threads[0]?.metadata).toEqual({
-      icon: 'bug',
       color: 'rose',
-      provider: 'openai',
+      icon: 'bug',
       model: 'gpt-5.2',
+      provider: 'openai',
     });
     expect(threads[1]?.metadata).toEqual({
       provider: 'anthropic',
@@ -1232,8 +1232,8 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await expect(
       repository.updateThreadMetadata('thread-1', {
-        icon: 'raw-html',
         color: 'rose',
+        icon: 'raw-html',
       } as never)
     ).rejects.toThrow('Invalid assistant thread metadata icon.');
     expect(db.query).not.toHaveBeenCalledWith(
@@ -1248,13 +1248,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await repository.createThreadRun({
       id: 'run-1',
-      resourceId: '/tmp/workspace-a',
-      threadId: 'thread-1',
-      provider: 'openai',
       model: 'gpt-5.2',
-      runtimeKind: 'hosted',
       modelSettings: { maxOutputTokens: 512 },
+      provider: 'openai',
       providerOptions: { openai: { reasoningEffort: 'high' } },
+      resourceId: '/tmp/workspace-a',
+      runtimeKind: 'hosted',
+      threadId: 'thread-1',
     });
 
     expect(db.exec).toHaveBeenCalledTimes(1);
@@ -1282,14 +1282,14 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.recordRunUsage({
-      threadId: 'thread-1',
-      runId: 'run-1',
+      inputTokens: 120,
+      model: 'gpt-5.2',
+      outputTokens: 45,
+      provider: 'openai',
       resourceId: '/tmp/workspace-a',
       rootId: 'root-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
-      inputTokens: 120,
-      outputTokens: 45,
+      runId: 'run-1',
+      threadId: 'thread-1',
     });
 
     expect(db.exec).toHaveBeenCalledWith(
@@ -1315,13 +1315,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.recordRunUsage({
-      threadId: 'thread-1',
-      runId: 'run-1',
-      resourceId: '/tmp/workspace-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
       inputTokens: 10,
+      model: 'gpt-5.2',
       outputTokens: 5,
+      provider: 'openai',
+      resourceId: '/tmp/workspace-a',
+      runId: 'run-1',
+      threadId: 'thread-1',
     });
 
     const insert = db.query.mock.calls.find(([sql]) =>
@@ -1337,13 +1337,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await expect(
       repository.recordRunUsage({
-        threadId: 'thread-1',
-        runId: 'run-1',
-        resourceId: '/tmp/workspace-a',
-        model: 'gpt-5.2',
-        provider: 'openai',
         inputTokens: -1,
+        model: 'gpt-5.2',
         outputTokens: 0,
+        provider: 'openai',
+        resourceId: '/tmp/workspace-a',
+        runId: 'run-1',
+        threadId: 'thread-1',
       })
     ).rejects.toThrow();
     expect(db.query).not.toHaveBeenCalledWith(
@@ -1360,15 +1360,15 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       id: 'event-1',
       kind: 'tool.completed',
       label: 'Used workspace.read',
+      metadata: {
+        'api-key': 'hyphenated-secret',
+        apiKey: 'secret-key',
+        result: { content: 'full tool output' },
+        threadId: 'thread-1',
+      },
       sequence: 7,
       status: 'completed',
       timestamp: '2026-04-24T12:00:00.000Z',
-      metadata: {
-        threadId: 'thread-1',
-        apiKey: 'secret-key',
-        'api-key': 'hyphenated-secret',
-        result: { content: 'full tool output' },
-      },
     });
 
     const insert = db.query.mock.calls.find(([sql]) =>
@@ -1404,16 +1404,16 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         return {
           rows: [
             {
-              id: 'event-1',
-              run_id: 'run-1',
-              sequence: 1,
-              kind: 'run.started',
-              status: 'running',
-              label: 'Assistant run started',
               detail: null,
               duration_ms: null,
+              id: 'event-1',
+              kind: 'run.started',
+              label: 'Assistant run started',
               metadata: JSON.stringify({ model: 'gpt-5.2' }),
               occurred_at: '2026-04-24T12:00:00.000Z',
+              run_id: 'run-1',
+              sequence: 1,
+              status: 'running',
             },
           ],
         };
@@ -1447,8 +1447,8 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.completeThreadRun('run-1', {
-      status: 'failed',
       error: 'model unavailable',
+      status: 'failed',
     });
 
     expect(db.query).toHaveBeenCalledWith(
@@ -1468,10 +1468,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         return {
           rows: [
             {
+              createdAt: new Date('2026-04-22T09:00:00Z'),
               id: 'thread-1',
               resourceId: '/tmp/workspace-a',
               title: 'Persistence bug',
-              createdAt: new Date('2026-04-22T09:00:00Z'),
               updatedAt: new Date('2026-04-22T10:00:00Z'),
             },
           ],
@@ -1481,19 +1481,19 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         return {
           rows: [
             {
-              id: 'run-2',
-              resource_id: '/tmp/workspace-a',
-              thread_id: 'thread-1',
-              provider: 'anthropic',
-              model: 'claude-sonnet-4-6',
-              model_settings: JSON.stringify({ maxOutputTokens: 2048 }),
-              provider_options: null,
-              runtime_kind: 'hosted',
-              status: 'completed',
-              error: null,
-              started_at: new Date('2026-04-22T10:30:00Z'),
               completed_at: new Date('2026-04-22T10:31:00Z'),
               created_at: new Date('2026-04-22T10:30:00Z'),
+              error: null,
+              id: 'run-2',
+              model: 'claude-sonnet-4-6',
+              model_settings: JSON.stringify({ maxOutputTokens: 2048 }),
+              provider: 'anthropic',
+              provider_options: null,
+              resource_id: '/tmp/workspace-a',
+              runtime_kind: 'hosted',
+              started_at: new Date('2026-04-22T10:30:00Z'),
+              status: 'completed',
+              thread_id: 'thread-1',
               updated_at: new Date('2026-04-22T10:31:00Z'),
             },
           ],
@@ -1506,18 +1506,18 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     const threads = await repository.listThreads('/tmp/workspace-a');
 
     expect(threads[0]?.latestRun).toEqual({
-      id: 'run-2',
-      resourceId: '/tmp/workspace-a',
-      threadId: 'thread-1',
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
-      modelSettings: { maxOutputTokens: 2048 },
-      runtimeKind: 'hosted',
-      status: 'completed',
-      error: null,
-      startedAt: new Date('2026-04-22T10:30:00Z'),
       completedAt: new Date('2026-04-22T10:31:00Z'),
       createdAt: new Date('2026-04-22T10:30:00Z'),
+      error: null,
+      id: 'run-2',
+      model: 'claude-sonnet-4-6',
+      modelSettings: { maxOutputTokens: 2048 },
+      provider: 'anthropic',
+      resourceId: '/tmp/workspace-a',
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-22T10:30:00Z'),
+      status: 'completed',
+      threadId: 'thread-1',
       updatedAt: new Date('2026-04-22T10:31:00Z'),
     });
   });
@@ -1527,10 +1527,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'message-1',
-          role: 'user',
           content: { content: 'Hello' },
           createdAt: 'not-a-date',
+          id: 'message-1',
+          role: 'user',
         },
       ],
     });
@@ -1546,10 +1546,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     db.query.mockResolvedValueOnce({
       rows: [
         {
-          id: 'message-80',
-          role: 'user',
           content: { content: 'Latest window' },
           createdAt: '2026-04-24T12:00:00.000Z',
+          id: 'message-80',
+          role: 'user',
         },
       ],
     });
@@ -1591,27 +1591,27 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     await expect(
       repository.createThreadRun({
         id: 'run-1',
-        resourceId: '/tmp/workspace-a',
-        threadId: 'thread-1',
-        provider: 'openai',
         model: 'gpt-5.2',
+        provider: 'openai',
+        resourceId: '/tmp/workspace-a',
         runtimeKind: 'hosted',
+        threadId: 'thread-1',
       })
     ).rejects.toThrow('temporary bootstrap failure');
 
     await expect(
       repository.createThreadRun({
         id: 'run-2',
-        resourceId: '/tmp/workspace-a',
-        threadId: 'thread-1',
-        provider: 'openai',
         model: 'gpt-5.2',
+        provider: 'openai',
+        resourceId: '/tmp/workspace-a',
         runtimeKind: 'hosted',
+        threadId: 'thread-1',
       })
     ).resolves.toMatchObject({
       id: 'run-2',
-      threadId: 'thread-1',
       resourceId: '/tmp/workspace-a',
+      threadId: 'thread-1',
     });
     expect(db.exec).toHaveBeenCalledTimes(2);
   });
@@ -1661,19 +1661,19 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     await repositoryA.createThreadRun({
       id: 'run-1',
-      resourceId: '/tmp/workspace-a',
-      threadId: 'thread-1',
-      provider: 'openai',
       model: 'gpt-5.2',
+      provider: 'openai',
+      resourceId: '/tmp/workspace-a',
       runtimeKind: 'hosted',
+      threadId: 'thread-1',
     });
     await repositoryB.createThreadRun({
       id: 'run-2',
-      resourceId: '/tmp/workspace-a',
-      threadId: 'thread-2',
-      provider: 'anthropic',
       model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      resourceId: '/tmp/workspace-a',
       runtimeKind: 'hosted',
+      threadId: 'thread-2',
     });
 
     expect(db.exec).toHaveBeenCalledTimes(1);
@@ -1748,15 +1748,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const thread = await repository.createThread('workspace-a');
 
     await repository.updateThreadMetadata(thread.id, {
-      icon: 'bug',
       color: 'rose',
+      icon: 'bug',
     });
 
     const threads = await repository.listThreads('workspace-a');
 
     expect(threads[0]?.metadata).toEqual({
-      icon: 'bug',
       color: 'rose',
+      icon: 'bug',
       source: 'brainstrike',
     });
   });
@@ -1769,41 +1769,41 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // Same thread, three runs across TWO models — cost must be attributable
     // per model, so the read API returns per-model subtotals.
     await repository.recordRunUsage({
-      threadId: 'thread-cost',
-      runId: 'run-1',
-      resourceId: 'workspace-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
       inputTokens: 1000,
-      outputTokens: 200,
-    });
-    await repository.recordRunUsage({
-      threadId: 'thread-cost',
-      runId: 'run-2',
-      resourceId: 'workspace-a',
       model: 'gpt-5.2',
+      outputTokens: 200,
       provider: 'openai',
-      inputTokens: 500,
-      outputTokens: 100,
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      threadId: 'thread-cost',
     });
     await repository.recordRunUsage({
-      threadId: 'thread-cost',
-      runId: 'run-3',
+      inputTokens: 500,
+      model: 'gpt-5.2',
+      outputTokens: 100,
+      provider: 'openai',
       resourceId: 'workspace-a',
-      model: 'claude-opus-4-8',
-      provider: 'anthropic',
+      runId: 'run-2',
+      threadId: 'thread-cost',
+    });
+    await repository.recordRunUsage({
       inputTokens: 2000,
+      model: 'claude-opus-4-8',
       outputTokens: 300,
+      provider: 'anthropic',
+      resourceId: 'workspace-a',
+      runId: 'run-3',
+      threadId: 'thread-cost',
     });
     // A different thread must not bleed into the aggregate.
     await repository.recordRunUsage({
-      threadId: 'other-thread',
-      runId: 'run-x',
-      resourceId: 'workspace-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
       inputTokens: 9999,
+      model: 'gpt-5.2',
       outputTokens: 9999,
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      runId: 'run-x',
+      threadId: 'other-thread',
     });
 
     const usage = await repository.getThreadCumulativeUsage('thread-cost');
@@ -1816,16 +1816,16 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       (usage?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
     );
     expect(byModel.get('openai:gpt-5.2')).toEqual({
-      provider: 'openai',
-      model: 'gpt-5.2',
       inputTokens: 1500,
+      model: 'gpt-5.2',
       outputTokens: 300,
+      provider: 'openai',
     });
     expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
-      provider: 'anthropic',
-      model: 'claude-opus-4-8',
       inputTokens: 2000,
+      model: 'claude-opus-4-8',
       outputTokens: 300,
+      provider: 'anthropic',
     });
   });
 
@@ -1865,56 +1865,56 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // across two threads and two models. The aggregate must group by
     // (root, provider, model) and never bleed in a different workspace.
     await repository.recordRunUsage({
-      threadId: 'thread-1',
-      runId: 'run-1',
-      resourceId: 'workspace-a',
-      rootId: 'root-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
       inputTokens: 1000,
+      model: 'gpt-5.2',
       outputTokens: 200,
-    });
-    await repository.recordRunUsage({
-      threadId: 'thread-2',
-      runId: 'run-2',
+      provider: 'openai',
       resourceId: 'workspace-a',
       rootId: 'root-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
-      inputTokens: 500,
-      outputTokens: 100,
+      runId: 'run-1',
+      threadId: 'thread-1',
     });
     await repository.recordRunUsage({
-      threadId: 'thread-1',
-      runId: 'run-3',
+      inputTokens: 500,
+      model: 'gpt-5.2',
+      outputTokens: 100,
+      provider: 'openai',
+      resourceId: 'workspace-a',
+      rootId: 'root-a',
+      runId: 'run-2',
+      threadId: 'thread-2',
+    });
+    await repository.recordRunUsage({
+      inputTokens: 2000,
+      model: 'claude-opus-4-8',
+      outputTokens: 300,
+      provider: 'anthropic',
       resourceId: 'workspace-a',
       rootId: 'root-b',
-      model: 'claude-opus-4-8',
-      provider: 'anthropic',
-      inputTokens: 2000,
-      outputTokens: 300,
+      runId: 'run-3',
+      threadId: 'thread-1',
     });
     // No focused root → unattributed bucket (null root_id), honest not fake.
     await repository.recordRunUsage({
-      threadId: 'thread-3',
-      runId: 'run-4',
+      inputTokens: 50,
+      model: 'gpt-5.2',
+      outputTokens: 10,
+      provider: 'openai',
       resourceId: 'workspace-a',
       rootId: null,
-      model: 'gpt-5.2',
-      provider: 'openai',
-      inputTokens: 50,
-      outputTokens: 10,
+      runId: 'run-4',
+      threadId: 'thread-3',
     });
     // A different workspace must not contribute to workspace-a's aggregate.
     await repository.recordRunUsage({
-      threadId: 'thread-x',
-      runId: 'run-x',
+      inputTokens: 9999,
+      model: 'gpt-5.2',
+      outputTokens: 9999,
+      provider: 'openai',
       resourceId: 'workspace-b',
       rootId: 'root-a',
-      model: 'gpt-5.2',
-      provider: 'openai',
-      inputTokens: 9999,
-      outputTokens: 9999,
+      runId: 'run-x',
+      threadId: 'thread-x',
     });
 
     const rows = await repository.getCrossRootUsage('workspace-a');
@@ -1924,28 +1924,28 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // bucket carry a null name — never a fabricated one.
     expect(rows).toEqual([
       {
-        rootId: null,
-        rootDisplayName: null,
-        provider: 'openai',
-        model: 'gpt-5.2',
         inputTokens: 50,
-        outputTokens: 10,
-      },
-      {
-        rootId: 'root-a',
-        rootDisplayName: 'project-alpha',
-        provider: 'openai',
         model: 'gpt-5.2',
-        inputTokens: 1500,
-        outputTokens: 300,
+        outputTokens: 10,
+        provider: 'openai',
+        rootDisplayName: null,
+        rootId: null,
       },
       {
-        rootId: 'root-b',
-        rootDisplayName: null,
-        provider: 'anthropic',
-        model: 'claude-opus-4-8',
-        inputTokens: 2000,
+        inputTokens: 1500,
+        model: 'gpt-5.2',
         outputTokens: 300,
+        provider: 'openai',
+        rootDisplayName: 'project-alpha',
+        rootId: 'root-a',
+      },
+      {
+        inputTokens: 2000,
+        model: 'claude-opus-4-8',
+        outputTokens: 300,
+        provider: 'anthropic',
+        rootDisplayName: null,
+        rootId: 'root-b',
       },
     ]);
   });

@@ -131,11 +131,11 @@ export function resolveOmMeterState(input: OmMeterInput): OmMeterState {
   }
 
   return {
-    kind: 'stats',
-    observationTokens: parsed.observationTokenCount,
     // totalTokensObserved − observationTokenCount, clamped ≥ 0 (tokens compacted
     // away by reflection). 0 here means "active OM, nothing compacted yet" —
     // distinct from the suppressed-stat 'inactive' state.
     compactionSavedTokens: Math.max(0, parsed.totalTokensObserved - parsed.observationTokenCount),
+    kind: 'stats',
+    observationTokens: parsed.observationTokenCount,
   };
 }

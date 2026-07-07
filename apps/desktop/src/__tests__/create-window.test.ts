@@ -28,8 +28,8 @@ vi.mock('electron', () => ({
   },
   BrowserWindow: MockBrowserWindow,
   Menu: {
-    setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+    setApplicationMenu: vi.fn(),
   },
   screen: {
     getAllDisplays: screenMock,
@@ -47,25 +47,25 @@ describe('createWindow', () => {
 
     mockWebContents = {
       getURL: vi.fn(() => `${DESKTOP_DEV_RENDERER_URL}/`),
-      setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
       reload: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     };
 
     mockBrowserWindow = {
-      once: vi.fn(),
-      show: vi.fn(),
       isDestroyed: vi.fn(() => false),
       isFocused: vi.fn(() => true),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       maximize: vi.fn(),
       on: vi.fn(),
+      once: vi.fn(),
+      show: vi.fn(),
       webContents: mockWebContents,
     } as any;
 
-    screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }]);
+    screenMock.mockReturnValue([{ workArea: { height: 900, width: 1440, x: 0, y: 0 } }]);
 
     // Use function syntax for Vitest 4 constructor mocks
     MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
@@ -82,33 +82,33 @@ describe('createWindow', () => {
   describe('window creation', () => {
     it('should create window with correct configuration (production mode with sandbox enabled)', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
       // Ensure not in test mode - sandbox should be enabled in production
       Reflect.deleteProperty(process.env, 'CI');
 
       await createWindow();
 
       expect(BrowserWindow).toHaveBeenCalledWith({
-        width: 1440,
-        height: 800,
-        minWidth: 800,
-        minHeight: 600,
+        backgroundColor: '#0b1020',
         fullscreen: false,
+        height: 800,
+        minHeight: 600,
+        minWidth: 800,
+        show: false,
+        titleBarStyle: 'default',
         webPreferences: {
-          preload: expect.stringContaining('preload.js'),
-          nodeIntegration: false,
+          allowRunningInsecureContent: false,
+          backgroundThrottling: true,
           contextIsolation: true,
+          experimentalFeatures: false,
+          navigateOnDragDrop: false,
+          nodeIntegration: false,
+          preload: expect.stringContaining('preload.js'),
+          safeDialogs: true,
           sandbox: true,
           webSecurity: true,
-          allowRunningInsecureContent: false,
-          experimentalFeatures: false,
-          safeDialogs: true,
-          navigateOnDragDrop: false,
-          backgroundThrottling: true,
         },
-        titleBarStyle: 'default',
-        backgroundColor: '#0b1020',
-        show: false,
+        width: 1440,
       });
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
     });
@@ -117,7 +117,7 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(true);
 
       const storedState: DesktopWindowState = {
-        bounds: { width: 1024, height: 768, x: 120, y: 80 },
+        bounds: { height: 768, width: 1024, x: 120, y: 80 },
         isFullScreen: false,
         isMaximized: true,
       };
@@ -126,11 +126,11 @@ describe('createWindow', () => {
 
       expect(BrowserWindow).toHaveBeenCalledWith(
         expect.objectContaining({
-          width: 1024,
+          fullscreen: false,
           height: 768,
+          width: 1024,
           x: 120,
           y: 80,
-          fullscreen: false,
         })
       );
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
@@ -138,10 +138,10 @@ describe('createWindow', () => {
 
     it('should clamp stored window bounds to the visible work area', async () => {
       existsSyncMock.mockReturnValue(true);
-      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+      screenMock.mockReturnValue([{ workArea: { height: 800, width: 1200, x: 0, y: 0 } }]);
 
       const storedState: DesktopWindowState = {
-        bounds: { width: 1600, height: 900, x: 100, y: 100 },
+        bounds: { height: 900, width: 1600, x: 100, y: 100 },
         isFullScreen: false,
         isMaximized: false,
       };
@@ -150,8 +150,8 @@ describe('createWindow', () => {
 
       expect(BrowserWindow).toHaveBeenCalledWith(
         expect.objectContaining({
-          width: 1200,
           height: 800,
+          width: 1200,
           x: 0,
           y: 0,
         })
@@ -160,10 +160,10 @@ describe('createWindow', () => {
 
     it('should fall back to default bounds when stored window is off-screen', async () => {
       existsSyncMock.mockReturnValue(true);
-      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+      screenMock.mockReturnValue([{ workArea: { height: 800, width: 1200, x: 0, y: 0 } }]);
 
       const storedState: DesktopWindowState = {
-        bounds: { width: 900, height: 700, x: 5000, y: 4000 },
+        bounds: { height: 700, width: 900, x: 5000, y: 4000 },
         isFullScreen: false,
         isMaximized: true,
       };
@@ -174,8 +174,8 @@ describe('createWindow', () => {
 
       expect(args).toEqual(
         expect.objectContaining({
-          width: 1200,
           height: 800,
+          width: 1200,
         })
       );
       expect('x' in args).toBe(false);
@@ -184,10 +184,10 @@ describe('createWindow', () => {
 
     it('should clamp window size when position is undefined but size exceeds screen', async () => {
       existsSyncMock.mockReturnValue(true);
-      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+      screenMock.mockReturnValue([{ workArea: { height: 800, width: 1200, x: 0, y: 0 } }]);
 
       const storedState: DesktopWindowState = {
-        bounds: { width: 3000, height: 2000 },
+        bounds: { height: 2000, width: 3000 },
         isFullScreen: false,
         isMaximized: true,
       };
@@ -196,15 +196,15 @@ describe('createWindow', () => {
 
       expect(BrowserWindow).toHaveBeenCalledWith(
         expect.objectContaining({
-          width: 1200,
           height: 800,
+          width: 1200,
         })
       );
     });
 
     it('should disable sandbox in CI environment for Playwright compatibility', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
       process.env['CI'] = 'true';
 
       await createWindow();
@@ -220,7 +220,7 @@ describe('createWindow', () => {
 
     it('keeps the primary visible renderer opted into Chromium background throttling', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
 
       await createWindow();
 
@@ -276,7 +276,7 @@ describe('createWindow', () => {
       process.argv = [...process.argv, '--test-mode'];
 
       const storedState: DesktopWindowState = {
-        bounds: { width: 1024, height: 768, x: 120, y: 80 },
+        bounds: { height: 768, width: 1024, x: 120, y: 80 },
         isFullScreen: false,
         isMaximized: true,
       };
@@ -286,8 +286,8 @@ describe('createWindow', () => {
       expect(BrowserWindow).toHaveBeenCalledWith(
         expect.objectContaining({
           focusable: false,
-          skipTaskbar: true,
           show: false,
+          skipTaskbar: true,
         })
       );
       expect(mockBrowserWindow.maximize).not.toHaveBeenCalled();
@@ -310,14 +310,14 @@ describe('createWindow', () => {
       ) => void;
 
       // Each crash defers reload to a 3s fallback timer
-      handler({}, { reason: 'crashed', exitCode: 1 });
+      handler({}, { exitCode: 1, reason: 'crashed' });
       vi.advanceTimersByTime(3500);
-      handler({}, { reason: 'abnormal-exit', exitCode: 1 });
+      handler({}, { exitCode: 1, reason: 'abnormal-exit' });
       vi.advanceTimersByTime(3500);
-      handler({}, { reason: 'crashed', exitCode: 1 });
+      handler({}, { exitCode: 1, reason: 'crashed' });
       vi.advanceTimersByTime(3500);
       // 4th crash exceeds the limit — no reload scheduled
-      handler({}, { reason: 'crashed', exitCode: 1 });
+      handler({}, { exitCode: 1, reason: 'crashed' });
       vi.advanceTimersByTime(3500);
 
       expect(mockWebContents.reload).toHaveBeenCalledTimes(3);
@@ -342,7 +342,7 @@ describe('createWindow', () => {
       expect(focusHandler).toBeDefined();
 
       // Crash defers recovery
-      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+      rpcHandler({}, { exitCode: 5, reason: 'crashed' });
       expect(mockWebContents.reload).not.toHaveBeenCalled();
 
       // Focus triggers reload before the 3s timer
@@ -509,7 +509,7 @@ describe('createWindow', () => {
       expect(rpcHandler).toBeDefined();
       expect(activateHandler).toBeDefined();
 
-      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+      rpcHandler({}, { exitCode: 5, reason: 'crashed' });
       activateHandler();
       expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
 
@@ -526,8 +526,8 @@ describe('createWindow', () => {
         (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
 
-      rpcHandler({}, { reason: 'killed', exitCode: 0 });
-      rpcHandler({}, { reason: 'clean-exit', exitCode: 0 });
+      rpcHandler({}, { exitCode: 0, reason: 'killed' });
+      rpcHandler({}, { exitCode: 0, reason: 'clean-exit' });
 
       vi.advanceTimersByTime(5000);
       expect(mockWebContents.reload).not.toHaveBeenCalled();
@@ -547,7 +547,7 @@ describe('createWindow', () => {
 
       // Fill the crash window (3 crashes)
       for (let i = 0; i < 3; i++) {
-        rpcHandler({}, { reason: 'crashed', exitCode: 1 });
+        rpcHandler({}, { exitCode: 1, reason: 'crashed' });
         vi.advanceTimersByTime(3500);
       }
       expect(mockWebContents.reload).toHaveBeenCalledTimes(3);
@@ -556,7 +556,7 @@ describe('createWindow', () => {
       vi.advanceTimersByTime(30_001);
 
       // 4th crash after window reset should reload again
-      rpcHandler({}, { reason: 'crashed', exitCode: 1 });
+      rpcHandler({}, { exitCode: 1, reason: 'crashed' });
       vi.advanceTimersByTime(3500);
       expect(mockWebContents.reload).toHaveBeenCalledTimes(4);
 
@@ -573,7 +573,7 @@ describe('createWindow', () => {
         (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
 
-      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+      rpcHandler({}, { exitCode: 5, reason: 'crashed' });
 
       // Window destroyed before the 3s timer fires
       mockBrowserWindow.isDestroyed.mockReturnValue(true);
@@ -636,7 +636,7 @@ describe('createWindow', () => {
   describe('renderer loading', () => {
     it('should load production renderer when packaged', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: true });
 
       await createWindow();
 
@@ -648,7 +648,7 @@ describe('createWindow', () => {
 
     it('should load built renderer by default when unpackaged', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
 
       await createWindow();
 
@@ -660,7 +660,7 @@ describe('createWindow', () => {
 
     it('should connect to dev server only when dev-server mode is explicit', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       mockBrowserWindow.loadURL.mockResolvedValue(undefined);
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
@@ -673,7 +673,7 @@ describe('createWindow', () => {
 
     it('should throw when built renderer is missing in default built mode', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
 
       await expect(createWindow()).rejects.toThrow(
         'Built renderer is required in packaged/test mode but was not found'
@@ -685,7 +685,7 @@ describe('createWindow', () => {
 
     it('should load built renderer in CI test mode when not packaged', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.env['CI'] = 'true';
 
       await createWindow();
@@ -699,7 +699,7 @@ describe('createWindow', () => {
 
     it('should throw in CI test mode if built renderer is missing', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.env['CI'] = 'true';
 
       await expect(createWindow()).rejects.toThrow(
@@ -712,7 +712,7 @@ describe('createWindow', () => {
 
     it('should open devtools only when explicitly enabled', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
       await createWindow();
@@ -723,7 +723,7 @@ describe('createWindow', () => {
 
     it('should refuse production fallback when dev server fails even with built files', async () => {
       existsSyncMock.mockReturnValue(true);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
@@ -742,7 +742,7 @@ describe('createWindow', () => {
 
     it('should attempt the deterministic dev server URL in test runtime', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
@@ -755,7 +755,7 @@ describe('createWindow', () => {
 
     it('should not probe the legacy web-adjacent port in dev-server mode', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
@@ -772,7 +772,7 @@ describe('createWindow', () => {
 
     it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
-      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { configurable: true, value: false });
       process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       const error = new Error('All ports unavailable');

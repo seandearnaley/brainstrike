@@ -106,8 +106,8 @@ describe('collection-browser-store', () => {
 
     it('sets sort state directly', () => {
       useCollectionBrowserStore.getState().setSortState({
-        key: 'name',
         direction: 'asc',
+        key: 'name',
       });
       const { sortState } = useCollectionBrowserStore.getState();
       expect(sortState?.key).toBe('name');
@@ -139,7 +139,7 @@ describe('collection-browser-store', () => {
       const store = useCollectionBrowserStore.getState();
 
       // Sort by name descending
-      store.setSortState({ key: 'name', direction: 'desc' });
+      store.setSortState({ direction: 'desc', key: 'name' });
 
       // Toggle a different key - should start at asc
       store.toggleSort('size');
@@ -240,7 +240,7 @@ describe('collection-browser-store', () => {
       // Modify all state
       store.setExpandedIds(['node-1', 'node-2']);
       store.setSelectedId('file-123');
-      store.setSortState({ key: 'name', direction: 'asc' });
+      store.setSortState({ direction: 'asc', key: 'name' });
       store.setInspectorCollapsed(true);
       store.setInspectorWidth(40);
       store.setSearchQuery('test');
@@ -354,7 +354,7 @@ describe('collection-browser-store', () => {
 
         const store = useCollectionBrowserStore.getState();
         store.setExpandedIds(['node-1']);
-        store.setSortState({ key: 'name', direction: 'desc' });
+        store.setSortState({ direction: 'desc', key: 'name' });
 
         const persistedValue = storage.getItem(options.name);
         expect(persistedValue).not.toBeNull();
@@ -395,21 +395,21 @@ describe('collection-browser-store', () => {
       const store = useCollectionBrowserStore.getState();
       store.setExpandedIds(['a', 'b']);
       store.setSelectedId('test-id');
-      store.setSortState({ key: 'size', direction: 'asc' });
+      store.setSortState({ direction: 'asc', key: 'size' });
       store.setSearchQuery('search');
 
       const state = useCollectionBrowserStore.getState();
       expect(collectionBrowserSelectors.expandedIds(state)).toEqual(['a', 'b']);
       expect(collectionBrowserSelectors.selectedId(state)).toBe('test-id');
       expect(collectionBrowserSelectors.sortState(state)).toEqual({
-        key: 'size',
         direction: 'asc',
+        key: 'size',
       });
       expect(collectionBrowserSelectors.searchQuery(state)).toBe('search');
       expect(collectionBrowserSelectors.filters(state)).toEqual({
-        searchQuery: 'search',
-        nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
         embeddingStatus: 'all',
+        nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
+        searchQuery: 'search',
       });
     });
   });

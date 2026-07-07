@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -14,13 +14,7 @@ const DEFAULT_CONFIG = {
 
 const BINARY_SNIFF_BYTES = 8192;
 const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
-const EXPECTED_READ_ERROR_CODES = new Set([
-  'EACCES',
-  'EISDIR',
-  'ENOENT',
-  'ENOTDIR',
-  'EPERM',
-]);
+const EXPECTED_READ_ERROR_CODES = new Set(['EACCES', 'EISDIR', 'ENOENT', 'ENOTDIR', 'EPERM']);
 
 const SECRET_RULES = [
   {
@@ -72,8 +66,8 @@ function getLineAndColumn(text, index) {
   const prefix = text.slice(0, index);
   const lines = prefix.split('\n');
   return {
-    line: lines.length,
     column: lines.at(-1).length + 1,
+    line: lines.length,
   };
 }
 
@@ -180,9 +174,7 @@ function getStagedFiles() {
 
 function isExpectedReadFailure(error) {
   return (
-    error instanceof Error &&
-    'code' in error &&
-    EXPECTED_READ_ERROR_CODES.has(String(error.code))
+    error instanceof Error && 'code' in error && EXPECTED_READ_ERROR_CODES.has(String(error.code))
   );
 }
 
@@ -308,11 +300,15 @@ function runCli() {
 
   const findings = scanFileList({ config, files: scan.files, readFile: scan.readFile });
   if (findings.length === 0) {
-    console.log(`Secret scan passed (${scan.files.length} file${scan.files.length === 1 ? '' : 's'} checked).`);
+    console.log(
+      `Secret scan passed (${scan.files.length} file${scan.files.length === 1 ? '' : 's'} checked).`
+    );
     return 0;
   }
 
-  console.error(`Secret scan found ${findings.length} potential credential${findings.length === 1 ? '' : 's'}:`);
+  console.error(
+    `Secret scan found ${findings.length} potential credential${findings.length === 1 ? '' : 's'}:`
+  );
   for (const finding of findings) {
     console.error(`  ${formatFinding(finding)}`);
   }

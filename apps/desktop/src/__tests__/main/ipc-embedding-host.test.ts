@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { handlers, listeners, removeListener, removeHandler } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   listeners: new Map<string, (...args: unknown[]) => unknown>(),
-  removeListener: vi.fn(),
   removeHandler: vi.fn(),
+  removeListener: vi.fn(),
 }));
 
 vi.mock('electron', async () => {
@@ -22,8 +22,8 @@ vi.mock('electron', async () => {
   return {
     ipcMain: Object.assign(typedIpcMain, {
       on,
-      removeListener,
       removeHandler,
+      removeListener,
     }),
   };
 });
@@ -79,11 +79,11 @@ describe('embedding host IPC handlers', () => {
     statusListener(
       { sender: { id: 17 } },
       {
-        runtimeKind: 'embedding-host',
-        runtimeId: 'embedding-host:runtime-1',
-        state: 'running',
         active: true,
         lastError: null,
+        runtimeId: 'embedding-host:runtime-1',
+        runtimeKind: 'embedding-host',
+        state: 'running',
       }
     );
 
@@ -92,11 +92,11 @@ describe('embedding host IPC handlers', () => {
     expect(manager.reset).toHaveBeenCalledTimes(1);
     expect(manager.stop).toHaveBeenCalledTimes(1);
     expect(manager.acceptStatusReport).toHaveBeenCalledWith(17, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:runtime-1',
-      state: 'running',
       active: true,
       lastError: null,
+      runtimeId: 'embedding-host:runtime-1',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
   });
 
@@ -122,11 +122,11 @@ describe('embedding host IPC handlers', () => {
       statusListener(
         { sender: { id: 17 } },
         {
-          runtimeKind: 'chunking-host',
-          runtimeId: 'embedding-host:runtime-1',
-          state: 'running',
           active: true,
           lastError: null,
+          runtimeId: 'embedding-host:runtime-1',
+          runtimeKind: 'chunking-host',
+          state: 'running',
         }
       )
     ).toThrow('embedding-host status report must include runtimeKind="embedding-host".');
@@ -156,20 +156,20 @@ describe('embedding host IPC handlers', () => {
     queryResponseListener(
       { sender: { id: 17 } },
       {
-        type: 'result',
         channel: 'query-embedding-result',
+        payload: { embedding: [0.25, 0.5] },
         requestId: 'embedding-host-query:test',
         runtimeId: 'embedding-host:runtime-1',
-        payload: { embedding: [0.25, 0.5] },
+        type: 'result',
       }
     );
 
     expect(manager.acceptQueryEmbeddingResponseReport).toHaveBeenCalledWith(17, {
-      type: 'result',
       channel: 'query-embedding-result',
+      payload: { embedding: [0.25, 0.5] },
       requestId: 'embedding-host-query:test',
       runtimeId: 'embedding-host:runtime-1',
-      payload: { embedding: [0.25, 0.5] },
+      type: 'result',
     });
   });
 

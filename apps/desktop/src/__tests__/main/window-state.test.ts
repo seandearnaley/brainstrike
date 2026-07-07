@@ -38,7 +38,7 @@ describe('window-state', () => {
 
   it('resolves initial state from stored value', () => {
     const stored = {
-      bounds: { width: 900, height: 700, x: 10, y: 20 },
+      bounds: { height: 700, width: 900, x: 10, y: 20 },
       isFullScreen: false,
       isMaximized: false,
     };
@@ -48,11 +48,11 @@ describe('window-state', () => {
   });
 
   it('clamps bounds when x/y are missing', () => {
-    const workArea: Rectangle = { x: 0, y: 0, width: 1000, height: 700 };
+    const workArea: Rectangle = { height: 700, width: 1000, x: 0, y: 0 };
     getAllDisplays.mockReturnValue([{ workArea }]);
 
     const state = ensureWindowBoundsVisible({
-      bounds: { width: 2000, height: 1200 },
+      bounds: { height: 1200, width: 2000 },
       isFullScreen: false,
       isMaximized: false,
     });
@@ -62,11 +62,11 @@ describe('window-state', () => {
   });
 
   it('falls back to default bounds when off-screen', () => {
-    const workArea: Rectangle = { x: 0, y: 0, width: 800, height: 600 };
+    const workArea: Rectangle = { height: 600, width: 800, x: 0, y: 0 };
     getAllDisplays.mockReturnValue([{ workArea }]);
 
     const state = ensureWindowBoundsVisible({
-      bounds: { width: 900, height: 700, x: 5000, y: 5000 },
+      bounds: { height: 700, width: 900, x: 5000, y: 5000 },
       isFullScreen: false,
       isMaximized: false,
     });
@@ -76,11 +76,11 @@ describe('window-state', () => {
   });
 
   it('clamps bounds within a visible display', () => {
-    const workArea: Rectangle = { x: 0, y: 0, width: 1000, height: 800 };
+    const workArea: Rectangle = { height: 800, width: 1000, x: 0, y: 0 };
     getAllDisplays.mockReturnValue([{ workArea }]);
 
     const state = ensureWindowBoundsVisible({
-      bounds: { width: 500, height: 400, x: 900, y: 700 },
+      bounds: { height: 400, width: 500, x: 900, y: 700 },
       isFullScreen: false,
       isMaximized: false,
     });
@@ -93,7 +93,7 @@ describe('window-state', () => {
     const store = {
       get: () => ({
         v1: {
-          bounds: { width: 200, height: 200, x: 1, y: 2 },
+          bounds: { height: 200, width: 200, x: 1, y: 2 },
           isFullScreen: true,
           isMaximized: true,
         },
@@ -110,10 +110,10 @@ describe('window-state', () => {
 
   it('captures window state using normal bounds for maximized windows', () => {
     const win = {
+      getBounds: vi.fn().mockReturnValue({ height: 400, width: 600, x: 1, y: 2 }),
+      getNormalBounds: vi.fn().mockReturnValue({ height: 800, width: 1200, x: 5, y: 6 }),
       isFullScreen: vi.fn().mockReturnValue(false),
       isMaximized: vi.fn().mockReturnValue(true),
-      getNormalBounds: vi.fn().mockReturnValue({ x: 5, y: 6, width: 1200, height: 800 }),
-      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 600, height: 400 }),
     } as unknown as BrowserWindow;
 
     const state = captureWindowState(win);
@@ -128,11 +128,11 @@ describe('window-state', () => {
 
     const listeners: Record<string, () => void> = {};
     const win = {
+      getBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      getNormalBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      isDestroyed: vi.fn().mockReturnValue(false),
       isFullScreen: vi.fn().mockReturnValue(false),
       isMaximized: vi.fn().mockReturnValue(false),
-      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      isDestroyed: vi.fn().mockReturnValue(false),
       on: vi.fn((event: string, cb: () => void) => {
         listeners[event] = cb;
       }),
@@ -162,11 +162,11 @@ describe('window-state', () => {
     const listeners: Record<string, () => void> = {};
     const removeListener = vi.fn();
     const win = {
+      getBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      getNormalBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      isDestroyed: vi.fn().mockReturnValue(false),
       isFullScreen: vi.fn().mockReturnValue(false),
       isMaximized: vi.fn().mockReturnValue(false),
-      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      isDestroyed: vi.fn().mockReturnValue(false),
       on: vi.fn((event: string, cb: () => void) => {
         listeners[event] = cb;
       }),
@@ -210,11 +210,11 @@ describe('window-state', () => {
     const isDestroyed = vi.fn().mockReturnValue(false);
     const isFullScreen = vi.fn().mockReturnValue(false);
     const win = {
+      getBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      getNormalBounds: vi.fn().mockReturnValue({ height: 700, width: 900, x: 1, y: 2 }),
+      isDestroyed,
       isFullScreen,
       isMaximized: vi.fn().mockReturnValue(false),
-      getBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      getNormalBounds: vi.fn().mockReturnValue({ x: 1, y: 2, width: 900, height: 700 }),
-      isDestroyed,
       on: vi.fn((event: string, cb: () => void) => {
         listeners[event] = cb;
       }),

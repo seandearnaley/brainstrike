@@ -8,10 +8,10 @@ vi.mock('../use-shared-file-content-loading', () => ({
 }));
 
 const mockData = {
-  fileContents: { key: 'value' },
-  isLoading: false,
   error: null,
+  fileContents: { key: 'value' },
   handleFileContentLoading: vi.fn(),
+  isLoading: false,
   loadingFiles: new Set<string>(),
 };
 
@@ -34,10 +34,10 @@ describe('FileContentContext', () => {
     const { result } = renderHook(() => useFileContentContext(), { wrapper });
 
     expect(result.current).toStrictEqual({
-      fileContents: mockData.fileContents,
-      isLoading: mockData.isLoading,
       error: mockData.error,
+      fileContents: mockData.fileContents,
       handleFileContentLoading: mockData.handleFileContentLoading,
+      isLoading: mockData.isLoading,
     });
   });
 });

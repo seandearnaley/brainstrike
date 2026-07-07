@@ -35,20 +35,22 @@ function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
     }
 
     return {
-      embedding: new Array(768).fill(options.embeddingValue),
       dimensions: 768,
+      embedding: new Array(768).fill(options.embeddingValue),
       model: 'fake-model',
       usage: { totalTokens: options.totalTokens },
     };
   };
 
   return {
-    initialize(
-      _config?: Partial<EmbeddingConfig>,
-      _onProgress?: (progress: EmbeddingProgress) => void
-    ): Promise<void> {
-      status = 'ready';
-      return Promise.resolve();
+    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+      return { distance: 0, method: 'cosine', similarity: 1 };
+    },
+    async dispose(): Promise<void> {
+      status = 'disposed';
+    },
+    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
     },
     generateEmbedding,
     async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
@@ -67,25 +69,23 @@ function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
       }) => Promise<void> | void
     ): Promise<void> {
       const results = await this.generateEmbeddings(texts);
-      await onBatch({ startIndex: 0, endIndex: results.length, results });
-    },
-    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-      return generateEmbedding(text);
+      await onBatch({ endIndex: results.length, results, startIndex: 0 });
     },
     async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
       return generateEmbedding(text);
     },
-    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-      return { similarity: 1, distance: 0, method: 'cosine' };
+    getConfig(): EmbeddingConfig {
+      return { modelId: 'fake-model' };
     },
     getStatus(): EmbeddingStatus {
       return status;
     },
-    getConfig(): EmbeddingConfig {
-      return { modelId: 'fake-model' };
-    },
-    async dispose(): Promise<void> {
-      status = 'disposed';
+    initialize(
+      _config?: Partial<EmbeddingConfig>,
+      _onProgress?: (progress: EmbeddingProgress) => void
+    ): Promise<void> {
+      status = 'ready';
+      return Promise.resolve();
     },
   };
 }
@@ -152,22 +152,22 @@ describe('embedding-worker retries and backoff', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
-        shouldFail: (attempt) => attempt <= 2,
-        errorMessage: 'Temporary service failure',
         embeddingValue: 0.1,
+        errorMessage: 'Temporary service failure',
+        shouldFail: (attempt) => attempt <= 2,
         totalTokens: 10,
       }),
     });
@@ -219,22 +219,22 @@ describe('embedding-worker retries and backoff', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: createFlakyService({
-        shouldFail: (attempt) => attempt === 1,
-        errorMessage: 'Worker terminated unexpectedly',
         embeddingValue: 0.2,
+        errorMessage: 'Worker terminated unexpectedly',
+        shouldFail: (attempt) => attempt === 1,
         totalTokens: 8,
       }),
     });

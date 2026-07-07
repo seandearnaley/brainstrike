@@ -83,9 +83,17 @@ export function createToolsSettingsCategory(
   const { operations, mcpAvailable = false, budgetManager, onToolsChanged } = options;
 
   return {
-    id: 'ai-tools',
-    title: 'AI Tools',
+    content: (
+      <UnifiedToolsSettings
+        mcpAvailable={mcpAvailable}
+        operations={operations}
+        {...(budgetManager !== undefined && { budgetManager })}
+        {...(onToolsChanged !== undefined && { onToolsChanged })}
+      />
+    ),
     description: 'Configure which tools are available to the AI agent.',
+    icon: Wrench,
+    id: 'ai-tools',
     keywords: [
       'tools',
       'agent',
@@ -98,15 +106,7 @@ export function createToolsSettingsCategory(
       'queue',
       'playground',
     ],
-    icon: Wrench,
-    content: (
-      <UnifiedToolsSettings
-        mcpAvailable={mcpAvailable}
-        operations={operations}
-        {...(budgetManager !== undefined && { budgetManager })}
-        {...(onToolsChanged !== undefined && { onToolsChanged })}
-      />
-    ),
+    title: 'AI Tools',
   };
 }
 

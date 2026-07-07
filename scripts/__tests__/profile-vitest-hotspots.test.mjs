@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  DEFAULT_HOTSPOT_PACKAGES,
   buildProfileCommand,
+  DEFAULT_HOTSPOT_PACKAGES,
   parseArgs,
 } from '../profile-vitest-hotspots.mjs';
 

@@ -18,11 +18,11 @@ describe('embedding host shared command helpers', () => {
     );
 
     expect(command).toEqual({
-      type: 'request',
       channel: 'control',
+      payload: { action: 'reset', nextRuntimeId: 'embedding-host:runtime-2' },
       requestId: 'embedding-host-command:1234-5678-9012',
       runtimeId: 'embedding-host:runtime-1',
-      payload: { action: 'reset', nextRuntimeId: 'embedding-host:runtime-2' },
+      type: 'request',
     });
     expect(randomUUIDMock).toHaveBeenCalledTimes(1);
   });
@@ -30,11 +30,11 @@ describe('embedding host shared command helpers', () => {
   it('fails fast on malformed embedding host commands', () => {
     expect(() =>
       assertEmbeddingHostCommand({
-        type: 'request',
         channel: 'control',
+        payload: { action: 'pause' },
         requestId: 'request-1',
         runtimeId: 'embedding-host:runtime-1',
-        payload: { action: 'pause' },
+        type: 'request',
       })
     ).toThrow('Embedding host command payload.action must be "reset" or "stop".');
   });
@@ -42,11 +42,11 @@ describe('embedding host shared command helpers', () => {
   it('fails fast when reset commands omit nextRuntimeId', () => {
     expect(() =>
       assertEmbeddingHostCommand({
-        type: 'request',
         channel: 'control',
+        payload: { action: 'reset' },
         requestId: 'request-1',
         runtimeId: 'embedding-host:runtime-1',
-        payload: { action: 'reset' },
+        type: 'request',
       })
     ).toThrow('Embedding host reset commands require a non-empty payload.nextRuntimeId.');
   });

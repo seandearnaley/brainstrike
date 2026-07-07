@@ -23,10 +23,10 @@ function TestHookComponent({
   const { requestApproval, pendingTool, isPending, resolvePending } = useToolApproval(hookOptions);
 
   const testTool: ToolApprovalInfo = {
-    id: 'test.tool',
-    name: 'Test Tool',
     description: 'A test tool',
+    id: 'test.tool',
     input: { param1: 'value1' },
+    name: 'Test Tool',
   };
 
   return (
@@ -50,14 +50,14 @@ describe('ToolApprovalDialog', () => {
   const mockOnResult = vi.fn();
 
   const defaultTool: ToolApprovalInfo = {
-    id: 'brainstrike.createEmbeddingSet',
-    name: 'Create Embedding Set',
-    description: 'Creates a new embedding collection for storing document vectors.',
-    input: {
-      name: 'Test Collection',
-      modelKey: 'openai::text-embedding-3-small',
-    },
     category: 'action',
+    description: 'Creates a new embedding collection for storing document vectors.',
+    id: 'brainstrike.createEmbeddingSet',
+    input: {
+      modelKey: 'openai::text-embedding-3-small',
+      name: 'Test Collection',
+    },
+    name: 'Create Embedding Set',
   };
 
   beforeEach(() => {

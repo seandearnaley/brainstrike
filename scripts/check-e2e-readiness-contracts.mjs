@@ -1,12 +1,9 @@
 #!/usr/bin/env node
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 
-import {
-  findTaggedPlaywrightTitleRanges,
-  isInsideRange,
-} from './e2e-playwright-title-tags.mjs';
+import { findTaggedPlaywrightTitleRanges, isInsideRange } from './e2e-playwright-title-tags.mjs';
 
 const rootDir = process.cwd();
 const webE2EDir = path.join(rootDir, 'apps/web/e2e');
@@ -82,14 +79,14 @@ function isFastShardDbReadinessCall(node) {
 
   if (calleeName === 'waitForAppLoad') {
     const options = node.arguments[1];
-    if (!options || !hasExplicitShellOnlyOption(options)) {
+    if (!(options && hasExplicitShellOnlyOption(options))) {
       return 'waitForAppLoad defaults to DB readiness in a fast functional path';
     }
   }
 
   if (calleeName === 'resetLayoutState') {
     const options = node.arguments[1];
-    if (!options || !hasExplicitShellOnlyOption(options)) {
+    if (!(options && hasExplicitShellOnlyOption(options))) {
       return 'resetLayoutState defaults to DB readiness in a fast functional path';
     }
   }
@@ -100,7 +97,7 @@ function isFastShardDbReadinessCall(node) {
 
   if (calleeParts.length === 2 && calleeParts[0] === 'home' && calleeParts[1] === 'goto') {
     const options = node.arguments[0];
-    if (!options || !hasExplicitShellOnlyOption(options)) {
+    if (!(options && hasExplicitShellOnlyOption(options))) {
       return 'HomePage.goto defaults to DB readiness in a fast functional path';
     }
   }

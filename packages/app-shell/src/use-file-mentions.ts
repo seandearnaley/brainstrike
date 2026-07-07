@@ -106,11 +106,11 @@ export function useFileMentions(query: string): UseFileMentionsResult {
 
   const { rows, loading } = usePGliteLiveQuery<QuickOpenFileRow>({
     cacheKey: makeLiveQueryKey('file-mention', debounced),
-    query: QUICK_OPEN_NAME_SEARCH_SQL,
-    params: [debounced, QUICK_OPEN_MAX_LIMIT],
-    mode: 'incremental',
-    key: 'id',
     enabled,
+    key: 'id',
+    mode: 'incremental',
+    params: [debounced, QUICK_OPEN_MAX_LIMIT],
+    query: QUICK_OPEN_NAME_SEARCH_SQL,
   });
 
   // Rows from a prior query (debounce pending or subscription loading) belong to

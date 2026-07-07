@@ -110,12 +110,12 @@ export function useAbortControllers(): UseAbortControllersReturn {
   }, []);
 
   return {
-    rootAbortControllerRef,
+    cancelAllLoading,
+    cancelChildLoading,
+    cancelRootLoading,
     childAbortControllersRef,
     createAbortController,
-    cancelRootLoading,
-    cancelChildLoading,
-    cancelAllLoading,
     removeChildController,
+    rootAbortControllerRef,
   };
 }

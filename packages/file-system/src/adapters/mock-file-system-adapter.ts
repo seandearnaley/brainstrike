@@ -55,9 +55,9 @@ function addEntryToPath(
 
     if (!current[part]) {
       current[part] = {
+        children: {},
         name: part,
         type: 'directory',
-        children: {},
       };
     }
     current = current[part].children ?? {};
@@ -96,20 +96,20 @@ function createFileNode(
   selectedDirectory: string
 ): IFileNode {
   const baseNode: IFileNode = {
+    depth: 0,
+    handle: {
+      _internal: entry,
+      kind: entry.type,
+      name,
+      path: fullPath,
+      platform: 'web',
+    } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+    isVisible: true,
     name,
     path: fullPath,
-    type: entry.type,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: selectedDirectory,
-    isVisible: true,
-    handle: {
-      path: fullPath,
-      name,
-      kind: entry.type,
-      platform: 'web',
-      _internal: entry,
-    } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+    selectionState: 'unchecked',
+    type: entry.type,
   };
 
   if (entry.type === 'file') {
@@ -180,11 +180,11 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
     this.selectedDirectory = rootName;
 
     return {
-      path: rootName,
-      name: rootName,
-      kind: 'directory',
-      platform: 'web',
       _internal: { mockRoot: true },
+      kind: 'directory',
+      name: rootName,
+      path: rootName,
+      platform: 'web',
     };
   }
 
@@ -304,42 +304,42 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
    */
   static createSimpleFileSystem(): Record<string, MockFileEntry> {
     return {
-      src: {
-        name: 'src',
-        type: 'directory',
-        children: {
-          'index.ts': {
-            name: 'index.ts',
-            type: 'file',
-            content: 'export * from "./components";',
-          },
-          components: {
-            name: 'components',
-            type: 'directory',
-            children: {
-              'Button.tsx': {
-                name: 'Button.tsx',
-                type: 'file',
-                content: 'export const Button = () => <button>Click me</button>;',
-              },
-              'Input.tsx': {
-                name: 'Input.tsx',
-                type: 'file',
-                content: 'export const Input = () => <input />;',
-              },
-            },
-          },
-        },
-      },
       'package.json': {
+        content: '{"name": "test-package", "version": "1.0.0"}',
         name: 'package.json',
         type: 'file',
-        content: '{"name": "test-package", "version": "1.0.0"}',
       },
       'README.md': {
+        content: '# Test Project\n\nThis is a test project.',
         name: 'README.md',
         type: 'file',
-        content: '# Test Project\n\nThis is a test project.',
+      },
+      src: {
+        children: {
+          components: {
+            children: {
+              'Button.tsx': {
+                content: 'export const Button = () => <button>Click me</button>;',
+                name: 'Button.tsx',
+                type: 'file',
+              },
+              'Input.tsx': {
+                content: 'export const Input = () => <input />;',
+                name: 'Input.tsx',
+                type: 'file',
+              },
+            },
+            name: 'components',
+            type: 'directory',
+          },
+          'index.ts': {
+            content: 'export * from "./components";',
+            name: 'index.ts',
+            type: 'file',
+          },
+        },
+        name: 'src',
+        type: 'directory',
       },
     };
   }

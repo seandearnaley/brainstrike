@@ -166,7 +166,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
     // Keep dbByPath current so a subsequent root with the same path maps to this id
     dbByPath.set(root.handle.path, { id: root.rootId, kind: platformKind, path: root.handle.path });
     mapping.set(root.rootId, root.rootId);
-    logger.info('Registered new root', { rootId: root.rootId, kind: platformKind });
+    logger.info('Registered new root', { kind: platformKind, rootId: root.rootId });
   }
 
   return { dbRootIdByAdapterRootId: mapping };

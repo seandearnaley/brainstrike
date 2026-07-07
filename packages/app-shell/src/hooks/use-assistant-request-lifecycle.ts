@@ -145,13 +145,13 @@ export function useAssistantRequestLifecycle({
       // id implies both are present here.
       if (selectedProvider && resolvedModelName) {
         runUsageContextByRunIdRef.current.set(runId, {
-          runId,
-          provider: selectedProvider,
           model: resolvedModelName,
+          provider: selectedProvider,
           // Snapshot the focused root too — focus can change mid-run, so
           // durable usage must attribute to the root the run operated on.
           // No focused root → null (honest "unattributed", never a fake root).
           rootId: focusedRootId ?? null,
+          runId,
         });
       }
       activeAssistantForegroundRunIdRef.current = runId;

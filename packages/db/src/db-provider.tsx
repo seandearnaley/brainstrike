@@ -291,9 +291,9 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   }
 
   Object.defineProperty(handle, 'raw', {
-    value: executor,
-    enumerable: false,
     configurable: false,
+    enumerable: false,
+    value: executor,
   });
 
   return handle;
@@ -321,9 +321,9 @@ function splitExposedDatabaseWorkOptions(
   options: unknown
 ): { options: unknown; params: unknown[] | undefined } {
   if (options !== undefined || !isDatabaseWorkOptions(params)) {
-    return { params, options };
+    return { options, params };
   }
-  return { params: undefined, options: params };
+  return { options: params, params: undefined };
 }
 
 function formatDesktopDatabaseInitError(
@@ -487,10 +487,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       const repositoryDb = {
-        query: electronDB.query,
         exec: async (sql: string) => {
           await electronExec(sql);
         },
+        query: electronDB.query,
         // Atomic transaction primitive (#1141): lets repositories run tuning + SELECT
         // in ONE main-process pglite.transaction() so a concurrent FTS query can't
         // interleave. Omitted on older preloads → repos fall back to raw BEGIN/COMMIT.
@@ -508,7 +508,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       } catch (error) {
         diagnostics = await getElectronDiagnostics(electronDB);
         hasVector = false;
-        logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
+        logger.warn('Failed to detect pgvector extension over IPC', { diagnostics, error });
       }
       if (!hasVector) {
         if (!diagnostics) {
@@ -529,7 +529,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo(repositoryDb);
 
       if (!cancelled.value) {
-        connectionRef.current = { kind: 'ipc', bridge: electronDB };
+        connectionRef.current = { bridge: electronDB, kind: 'ipc' };
         setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
@@ -549,7 +549,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       logger.debug('Using direct PGlite connection');
 
       const db = await wasmLoader.createPGliteClient(resolvedPath);
-      connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
+      connectionRef.current = { dataDir: resolvedPath, db, kind: 'direct' };
 
       const scheduledDb = createScheduledDbHandle(
         db as unknown as QueryExecutor & object,
@@ -686,8 +686,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     const result = await electronDB.clearAll('CONFIRM_CLEAR_DATABASE');
     if (result.success) {
       return {
-        deletedFiles: result.deletedFiles || 0,
         deletedChunks: result.deletedChunks || 0,
+        deletedFiles: result.deletedFiles || 0,
       };
     }
     throw new Error(result.message || 'Failed to clear database via Electron IPC');
@@ -752,7 +752,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
       }
 
-      return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
+      return { deletedChunks: Number(deletedChunks), deletedFiles: Number(deletedFiles) };
     });
   }, [initializeDatabase]);
 
@@ -952,28 +952,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const contextValue = useMemo(
     () => ({
-      fileRecordRepository,
       chunkRepository,
-      embeddingSetsRepository,
-      viewFilterPresetsRepository,
-      drizzleDb,
-      error,
-      ready,
-      initializationStatus,
-      initializing,
-      db: exposedDb,
       clearAllData,
-      initializeDatabase,
-      vectorEnabled,
-      factoryReset: async () => {
-        const handled = await tryElectronHardReset();
-        if (handled) {
-          logger.info('[DbProvider] Electron hard reset completed');
-          return;
-        }
-
-        await resetPGliteState();
-      },
       clearQueuesAndEmbeddingSets: async () => {
         if (useElectronIPC) {
           // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
@@ -991,6 +971,26 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           await purgeQueuesAndSetsTx(tx);
         });
       },
+      db: exposedDb,
+      drizzleDb,
+      embeddingSetsRepository,
+      error,
+      factoryReset: async () => {
+        const handled = await tryElectronHardReset();
+        if (handled) {
+          logger.info('[DbProvider] Electron hard reset completed');
+          return;
+        }
+
+        await resetPGliteState();
+      },
+      fileRecordRepository,
+      initializationStatus,
+      initializeDatabase,
+      initializing,
+      ready,
+      vectorEnabled,
+      viewFilterPresetsRepository,
     }),
     [
       fileRecordRepository,

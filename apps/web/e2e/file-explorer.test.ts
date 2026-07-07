@@ -64,11 +64,11 @@ test.describe('File Explorer', () => {
     let explorer: FileExplorerPage;
 
     const defaultTree: FileTree = {
-      'test.ts': null,
-      'test2.ts': null,
       folder1: {
         'nested.txt': null,
       },
+      'test.ts': null,
+      'test2.ts': null,
     };
 
     test.beforeEach(async ({ page }) => {
@@ -288,8 +288,8 @@ test.describe('File Explorer', () => {
       explorer = await bootstrapFileExplorer(page, {
         resetSettings: true,
         tree: {
-          'tiny.json': '{}',
           'medium.ts': `export const medium = "${'x'.repeat(1400)}";`,
+          'tiny.json': '{}',
         },
       });
 
@@ -410,30 +410,30 @@ test.describe('File Explorer', () => {
     }
 
     const tree: FileTree = {
-      'Button.tsx': null,
       'Button.test.tsx': null,
-      'utils.ts': null,
-      'utils.test.ts': null,
+      'Button.tsx': null,
       'config.json': null,
-      'package.json': null,
       'legacy.js': null,
-      'OldComponent.jsx': null,
+      my_custom_coverage: {
+        'lcov.info': null,
+      },
       my_custom_modules: {
         'some-package': {
           'index.js': null,
         },
       },
-      my_custom_coverage: {
-        'lcov.info': null,
-      },
+      'OldComponent.jsx': null,
+      'package.json': null,
+      'utils.test.ts': null,
+      'utils.ts': null,
     };
 
     test.describe('default tree', () => {
       const bootstrapOptions: ExplorerBootstrapOptions = {
-        tree,
+        clearStorageKeys: ['panel-layout-store.v1'],
         projectName: 'test-project',
         resetSettings: true,
-        clearStorageKeys: ['panel-layout-store.v1'],
+        tree,
         waitForDatabase: true,
       };
 
@@ -495,40 +495,40 @@ test.describe('File Explorer', () => {
 
       const scenarios: FilterScenario[] = [
         {
-          title: 'matches files by substring',
-          query: 'Button',
-          expectedVisible: ['Button.tsx', 'Button.test.tsx'],
           expectedHidden: ['utils.ts', 'package.json'],
+          expectedVisible: ['Button.tsx', 'Button.test.tsx'],
+          query: 'Button',
+          title: 'matches files by substring',
         },
         {
-          title: 'filters down to test files',
-          query: '.test',
-          expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
           expectedHidden: ['Button.tsx', 'utils.ts'],
+          expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
+          query: '.test',
+          title: 'filters down to test files',
         },
         {
-          title: 'supports negation syntax',
-          query: 'utils -test',
-          expectedVisible: ['utils.ts'],
           expectedHidden: ['utils.test.ts', 'Button.tsx'],
+          expectedVisible: ['utils.ts'],
+          query: 'utils -test',
+          title: 'supports negation syntax',
         },
         {
-          title: 'clearing the filter restores the tree',
-          query: '',
-          expectedVisible: ['Button.tsx', 'utils.ts'],
-          expectedHidden: [],
           before: async ({ explorer }) => {
             await explorer.filterInput.fill('Button');
             await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
             await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
           },
+          expectedHidden: [],
+          expectedVisible: ['Button.tsx', 'utils.ts'],
+          query: '',
+          title: 'clearing the filter restores the tree',
         },
       ];
 
       for (const scenario of scenarios) {
         test(scenario.title, async ({ page }) => {
           if (scenario.before) {
-            await scenario.before({ page, explorer });
+            await scenario.before({ explorer, page });
           }
 
           await explorer.filterInput.fill(scenario.query);
@@ -548,30 +548,30 @@ test.describe('File Explorer', () => {
       page,
     }) => {
       const presetTree: FileTree = {
-        src: {
-          'app.ts': null,
-          'readme.md': null,
-          nested: {
-            'deep.tsx': null,
-            'notes.txt': null,
-          },
-        },
-        scripts: {
-          'build.js': null,
+        assets: {
+          'logo.png': null,
         },
         docs: {
           'guide.md': null,
         },
-        assets: {
-          'logo.png': null,
+        scripts: {
+          'build.js': null,
+        },
+        src: {
+          'app.ts': null,
+          nested: {
+            'deep.tsx': null,
+            'notes.txt': null,
+          },
+          'readme.md': null,
         },
       };
 
       const filteredExplorer = await bootstrapFileExplorer(page, {
-        tree: presetTree,
+        clearStorageKeys: ['panel-layout-store.v1'],
         projectName: 'filtered-select-all-project',
         resetSettings: true,
-        clearStorageKeys: ['panel-layout-store.v1'],
+        tree: presetTree,
         waitForDatabase: true,
       });
 
@@ -649,8 +649,6 @@ test.describe('File Explorer', () => {
 
     const settingsScenarios: SettingsScenario[] = [
       {
-        name: 'persists updates to max selection count',
-        tree: { 'example.ts': null },
         execute: async ({ page }) => {
           await setMaxSelectionCount(page, 5);
 
@@ -659,10 +657,10 @@ test.describe('File Explorer', () => {
           const maxCount = await getMaxSelectionCount(page);
           expect(maxCount).toBe('5');
         },
+        name: 'persists updates to max selection count',
+        tree: { 'example.ts': null },
       },
       {
-        name: 'validates Max Selection Count values',
-        tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page }) => {
           // Try to set invalid value (too low)
           const settingsButton = await openSelectionSettings(page);
@@ -703,16 +701,12 @@ test.describe('File Explorer', () => {
           maxCount = await getMaxSelectionCount(page);
           expect(maxCount).toBe('10');
         },
+        name: 'validates Max Selection Count values',
+        tree: { 'a.ts': null, 'b.ts': null },
       },
       // Note: Include/Exclude filters and Use Regex toggle were moved to ViewFilterPresetDropdown
       // Persistence of filter presets is tested in view-filter-preset tests
       {
-        name: 'persists Include Project Tree toggle',
-        tree: {
-          src: {
-            'component.tsx': null,
-          },
-        },
         execute: async ({ page, explorer }) => {
           await expect(explorer.includeProjectTreeToggle).toBeVisible();
           await explorer.includeProjectTreeToggle.click();
@@ -723,10 +717,14 @@ test.describe('File Explorer', () => {
           await expect(explorer.includeProjectTreeToggle).toBeVisible();
           await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
         },
+        name: 'persists Include Project Tree toggle',
+        tree: {
+          src: {
+            'component.tsx': null,
+          },
+        },
       },
       {
-        name: 'caps selections when Max Selection Count is reduced',
-        tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ explorer, page }) => {
           await explorer.selectRoot();
           await setMaxSelectionCount(page, 1);
@@ -740,20 +738,22 @@ test.describe('File Explorer', () => {
 
           await expect(page.getByText('1/1')).toBeVisible();
         },
+        name: 'caps selections when Max Selection Count is reduced',
+        tree: { 'a.ts': null, 'b.ts': null },
       },
     ];
 
     for (const scenario of settingsScenarios) {
       test(scenario.name, async ({ page }) => {
         const options: ExplorerBootstrapOptions = {
-          tree: scenario.tree,
           resetSettings: true,
+          tree: scenario.tree,
           ...(scenario.options ?? {}),
         };
 
         const explorer = await bootstrapFileExplorer(page, options);
 
-        await scenario.execute({ page, explorer });
+        await scenario.execute({ explorer, page });
       });
     }
   });
@@ -783,10 +783,10 @@ test.describe('File Explorer', () => {
         resetSettings: true,
         tree: {
           src: {
-            'shallow.ts': shallowContent,
             inner: {
               'deep.ts': deepContent,
             },
+            'shallow.ts': shallowContent,
           },
         },
       });

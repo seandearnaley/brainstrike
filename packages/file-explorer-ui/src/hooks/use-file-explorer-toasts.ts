@@ -37,8 +37,8 @@ export function useFileExplorerToasts({
     try {
       await refreshFileExplorer();
       showToast({
-        title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,
+        title: FileExplorerStrings.success.title,
       });
     } catch (error) {
       handleRefreshError(error);
@@ -57,7 +57,6 @@ export function useFileExplorerToasts({
     try {
       const handle = await handleRootDirectorySelect();
       if (handle === null) {
-        return;
       }
     } catch (error) {
       handleDirectorySelectError(error);
@@ -72,21 +71,21 @@ export function useFileExplorerToasts({
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
     showToast({
-      title: 'Operation Cancelled',
       description: 'The file loading operation has been cancelled.',
+      title: 'Operation Cancelled',
       variant: 'default',
     });
   }, [cancelOperation, showToast]);
 
   return {
-    toast,
-    showToast,
-    handleRefreshError,
     handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    isRefreshing,
-    handleRefresh,
-    handleDirectorySelect,
     handleCancelOperation,
+    handleDirectorySelect,
+    handleDirectorySelectError,
+    handleRefresh,
+    handleRefreshError,
+    isRefreshing,
+    showToast,
+    toast,
   };
 }

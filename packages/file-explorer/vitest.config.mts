@@ -3,31 +3,6 @@ import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: {
-    environment: 'node',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    // Use threads with single worker to avoid Tinypool EPIPE under Node 22 in CI
-    pool: 'threads',
-    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
-    maxWorkers: 1,
-    // Coverage consolidated at root vitest.config.mts
-    coverage: {
-      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
-      provider: 'v8',
-      include: ['src/**/*.ts', 'src/**/*.tsx'],
-      exclude: [
-        '**/*.d.ts',
-        '**/*.config.*',
-        '**/dist/**',
-        'src/index.ts',
-        'src/constants/index.ts',
-        'src/types/store-types.ts',
-      ],
-    },
-  },
   resolve: {
     alias: [
       {
@@ -55,5 +30,30 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../platform-utils/src'),
       },
     ],
+  },
+  test: {
+    // Coverage consolidated at root vitest.config.mts
+    coverage: {
+      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
+      exclude: [
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/dist/**',
+        'src/index.ts',
+        'src/constants/index.ts',
+        'src/types/store-types.ts',
+      ],
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      provider: 'v8',
+    },
+    environment: 'node',
+    exclude: ['node_modules', 'dist'],
+    globals: true,
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+    maxWorkers: 1,
+    // Use threads with single worker to avoid Tinypool EPIPE under Node 22 in CI
+    pool: 'threads',
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 });

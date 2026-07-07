@@ -54,12 +54,12 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const message = typeof event === 'string' ? event : (event as ErrorEvent).message;
     const filename = typeof event === 'object' ? (event as ErrorEvent).filename : undefined;
     const lineno = typeof event === 'object' ? (event as ErrorEvent).lineno : undefined;
-    errorLog('Uncaught worker error', { message, filename, lineno, event });
+    errorLog('Uncaught worker error', { event, filename, lineno, message });
     workerEmit({
-      type: 'error',
+      cause: filename ? `${filename}:${lineno}` : undefined,
       id: 'global',
       message: `Worker uncaught error: ${message}`,
-      cause: filename ? `${filename}:${lineno}` : undefined,
+      type: 'error',
     });
   };
 
@@ -68,12 +68,12 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const reason = event.reason;
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
-    errorLog('Unhandled worker promise rejection', { message, stack, reason });
+    errorLog('Unhandled worker promise rejection', { message, reason, stack });
     workerEmit({
-      type: 'error',
+      cause: stack,
       id: 'global',
       message: `Worker unhandled rejection: ${message}`,
-      cause: stack,
+      type: 'error',
     });
   };
 
@@ -119,7 +119,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
   ) => Promise<unknown>);
 
 interface CatchableCleanup {
-  catch(onRejected: () => void): unknown;
+  catch: (onRejected: () => void) => unknown;
 }
 
 function isCatchableCleanup(value: unknown): value is CatchableCleanup {
@@ -278,13 +278,13 @@ interface GpuCommandBuffer {
   readonly __brand: 'GPUCommandBuffer';
 }
 interface GpuCommandEncoder {
-  finish(): GpuCommandBuffer;
+  finish: () => GpuCommandBuffer;
 }
 interface GpuQueue {
-  submit(buffers: GpuCommandBuffer[]): void;
+  submit: (buffers: GpuCommandBuffer[]) => void;
 }
 interface GpuDeviceHandle {
-  createCommandEncoder(): GpuCommandEncoder;
+  createCommandEncoder: () => GpuCommandEncoder;
   readonly lost: Promise<GpuDeviceLostInfo>;
   readonly queue: GpuQueue;
 }
@@ -405,10 +405,10 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
       ? undefined
       : toPipelineCacheEntryDiagnostic(options.entry, timestamp);
   const baseEvent = {
-    type: 'diagnostic' as const,
+    cacheSize: pipelines.size,
     diagnostic: 'pipeline-cache' as const,
     emittedAt: timestamp,
-    cacheSize: pipelines.size,
+    type: 'diagnostic' as const,
     ...(shouldIncludePipelineCacheEntries(options.event)
       ? { entries: buildPipelineCacheEntryDiagnostics(timestamp) }
       : {}),
@@ -739,10 +739,10 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 
     if (hasActiveRequests) {
       workerEmit({
-        type: 'error',
+        cause: `reason=${String(info.reason)}`,
         id: 'device-lost',
         message: `WebGPU device lost: ${info.message}`,
-        cause: `reason=${String(info.reason)}`,
+        type: 'error',
       });
       notifyActiveStreamsOfDeviceLoss(info);
     }
@@ -842,10 +842,10 @@ function handlePipelineLoadFailure(
   const errorMsg = error instanceof Error ? error.message : String(error);
   const errorStack = error instanceof Error ? error.stack : undefined;
   debugLog('Pipeline load failed', {
-    model,
     device,
     dtype,
     error: errorMsg,
+    model,
     stack: errorStack,
   });
 }
@@ -872,7 +872,7 @@ async function loadPipeline(
     return existing.pipeline;
   }
 
-  debugLog('Loading pipeline', { model, device, dtype });
+  debugLog('Loading pipeline', { device, dtype, model });
 
   const rawLoader = createFeatureExtractor(model, device, dtype);
 
@@ -882,6 +882,11 @@ async function loadPipeline(
   const timestamp = now();
   const entry: PipelineCacheEntry = {
     cacheKey,
+    createdAt: timestamp,
+    device,
+    dtype,
+    lastUsedAt: timestamp,
+    model,
     pipeline: rawLoader.then(
       (extractor) => {
         if (pipelines.get(cacheKey) === entry) {
@@ -899,11 +904,6 @@ async function loadPipeline(
         throw error;
       }
     ),
-    device,
-    dtype,
-    model,
-    lastUsedAt: timestamp,
-    createdAt: timestamp,
   };
   pipelines.set(cacheKey, entry);
   startIdleSweep();
@@ -1003,13 +1003,13 @@ interface EmbeddingState {
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
   const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   const context: EmbeddingContext = {
+    dtype: payload.dtype ?? 'fp16',
     id: payload.id,
     model: payload.model,
-    texts: payload.texts,
-    dtype: payload.dtype ?? 'fp16',
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
-    total: payload.texts.length,
     targetDimension: requestedDimension,
+    texts: payload.texts,
+    total: payload.texts.length,
   };
   if (payload.truncateDim !== undefined) {
     (context as { truncateDim?: number }).truncateDim = payload.truncateDim;
@@ -1035,8 +1035,8 @@ function createInitialState(
   maxBatchSize: number | undefined
 ): EmbeddingState {
   return {
-    device: inferDevice(deviceHint),
     batchSize: computeInitialBatchSize(context.total, maxBatchSize),
+    device: inferDevice(deviceHint),
     fallbackApplied: false,
     ...(maxBatchSize === undefined ? {} : { maxBatchSize }),
   };
@@ -1051,26 +1051,26 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
 
   if (texts.length === 0) {
     return {
-      type: 'result',
       id,
-      vectors: [],
       metadata: {
-        model,
-        device: inferDevice(deviceHint),
-        dtype: context.dtype,
         batchSize: 0,
+        device: inferDevice(deviceHint),
+        dimensions: context.truncateDim ?? 0,
+        dtype: context.dtype,
         elapsedMs: 0,
         fallbackApplied: false,
-        dimensions: context.truncateDim ?? 0,
+        model,
       },
+      type: 'result',
+      vectors: [],
     };
   }
 
   workerEmit({
-    type: 'progress',
     id,
-    progress: 0,
     phase: 'initializing',
+    progress: 0,
+    type: 'progress',
   });
 
   const state = createInitialState(context, deviceHint, payload.maxBatchSize);
@@ -1178,10 +1178,10 @@ function postStreamEvent(
 function notifyActiveStreamsOfDeviceLoss(info: GpuDeviceLostInfo): void {
   for (const id of activeStreamRequestIds) {
     postStreamEvent({
-      type: 'error',
+      cause: `reason=${String(info.reason)}`,
       id,
       message: `WebGPU device lost: ${info.message}`,
-      cause: `reason=${String(info.reason)}`,
+      type: 'error',
     });
   }
 }
@@ -1191,10 +1191,10 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   const started = typeof performance === 'undefined' ? Date.now() : performance.now();
 
   postStreamEvent({
-    type: 'progress',
     id,
-    progress: 0,
     phase: 'initializing',
+    progress: 0,
+    type: 'progress',
   });
 
   const extractor = await loadPipeline(context.model, state.device, context.dtype, {
@@ -1208,8 +1208,8 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
     const rawOutput = await extractor(slice, {
-      pooling: 'mean',
       normalize: false,
+      pooling: 'mean',
     });
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
@@ -1225,21 +1225,21 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
 
     postStreamEvent(
       {
-        type: 'batch',
-        id,
         batchIndex,
-        startIndex,
         endIndex,
+        id,
+        startIndex,
+        type: 'batch',
         vectors: vectorsFromBatch,
       },
       vectorsFromBatch.map((vector) => vector.buffer)
     );
 
     postStreamEvent({
-      type: 'progress',
       id,
       phase: 'embedding',
       progress: normalizeProgress(endIndex / total),
+      type: 'progress',
     });
 
     await waitForBatchAck(id, batchIndex);
@@ -1248,17 +1248,17 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
 
   const finished = typeof performance === 'undefined' ? Date.now() : performance.now();
   postStreamEvent({
-    type: 'complete',
     id,
     metadata: {
-      model: context.model,
-      device: state.device,
-      dtype: context.dtype,
       batchSize: state.batchSize,
+      device: state.device,
+      dimensions,
+      dtype: context.dtype,
       elapsedMs: finished - started,
       fallbackApplied: state.fallbackApplied,
-      dimensions,
+      model: context.model,
     },
+    type: 'complete',
   });
 }
 
@@ -1278,8 +1278,8 @@ async function runBatches(
     // `truncation: true` to the tokenizer automatically. The tokenizer respects
     // the model's configured `model_max_length` to prevent ONNX/WASM crashes.
     const rawOutput = await extractor(slice, {
-      pooling: 'mean',
       normalize: false,
+      pooling: 'mean',
     });
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
@@ -1296,10 +1296,10 @@ async function runBatches(
     }
 
     workerEmit({
-      type: 'progress',
       id,
       phase: 'embedding',
       progress: normalizeProgress(endIndex / total),
+      type: 'progress',
     });
   }
 
@@ -1313,25 +1313,25 @@ function buildSuccessResult(
 ): EmbedWorkerSuccess {
   const finished = typeof performance === 'undefined' ? Date.now() : performance.now();
   workerEmit({
-    type: 'progress',
     id: context.id,
     phase: 'complete',
     progress: 1,
+    type: 'progress',
   });
 
   return {
-    type: 'result',
     id: context.id,
-    vectors,
     metadata: {
-      model: context.model,
-      device: state.device,
-      dtype: context.dtype,
       batchSize: state.batchSize,
+      device: state.device,
+      dimensions: vectors[0]?.length ?? context.truncateDim ?? 0,
+      dtype: context.dtype,
       elapsedMs: finished - context.started,
       fallbackApplied: state.fallbackApplied,
-      dimensions: vectors[0]?.length ?? context.truncateDim ?? 0,
+      model: context.model,
     },
+    type: 'result',
+    vectors,
   };
 }
 
@@ -1382,10 +1382,10 @@ function normalizeError(error: unknown): Error {
 function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
-    type: 'error',
+    cause: serializeErrorCause(error),
     id,
     message,
-    cause: serializeErrorCause(error),
+    type: 'error',
   };
   workerEmit(event);
 }
@@ -1416,9 +1416,9 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
     const request = message.request;
     if (!request || typeof request !== 'object') {
       postStreamEvent({
-        type: 'error',
         id: 'unknown',
         message: 'Streaming request payload must be an object.',
+        type: 'error',
       });
       return;
     }
@@ -1435,10 +1435,10 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         await streamEmbeddings(context, state);
       } catch (error) {
         postStreamEvent({
-          type: 'error',
+          cause: serializeErrorCause(error),
           id: context.id,
           message: error instanceof Error ? error.message : String(error),
-          cause: serializeErrorCause(error),
+          type: 'error',
         });
       } finally {
         activeStreamRequestIds.delete(context.id);

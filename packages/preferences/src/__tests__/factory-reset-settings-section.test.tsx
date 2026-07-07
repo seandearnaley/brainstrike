@@ -149,8 +149,8 @@ describe('FactoryResetSettingsSection', () => {
         <FactoryResetSettingsSection
           inlineFixtureSetting={{
             available: true,
-            loading: false,
             checked: false,
+            loading: false,
             onChange: vi.fn(),
           }}
         />
@@ -164,8 +164,8 @@ describe('FactoryResetSettingsSection', () => {
         <FactoryResetSettingsSection
           inlineFixtureSetting={{
             available: false,
-            loading: false,
             checked: false,
+            loading: false,
             onChange: vi.fn(),
           }}
         />
@@ -185,8 +185,8 @@ describe('FactoryResetSettingsSection', () => {
         <FactoryResetSettingsSection
           inlineFixtureSetting={{
             available: true,
-            loading: false,
             checked: true,
+            loading: false,
             onChange: vi.fn(),
           }}
         />
@@ -201,8 +201,8 @@ describe('FactoryResetSettingsSection', () => {
         <FactoryResetSettingsSection
           inlineFixtureSetting={{
             available: true,
-            loading: true,
             checked: false,
+            loading: true,
             onChange: vi.fn(),
           }}
         />

@@ -150,7 +150,6 @@ interface UsePreviewPanelStateMockReturn {
 }
 
 export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn => ({
-  usePreviewPanelState: vi.fn(),
   formatTokenCount: (tokens: number) => {
     if (tokens < 1000) {
       return tokens.toString();
@@ -160,24 +159,14 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
     }
     return `${(tokens / 1_000_000).toFixed(1)}M`;
   },
+  usePreviewPanelState: vi.fn(),
 });
 
 export const createUiModuleMock = () => ({
-  cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
   Badge: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="badge" {...props}>
       {children}
     </div>
-  ),
-  Button: ({
-    children,
-    onClick,
-    disabled,
-    ...props
-  }: MockComponentProps & { onClick?: () => void; disabled?: boolean }) => (
-    <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
-      {children}
-    </button>
   ),
   BulkActionBar: ({
     actions,
@@ -225,48 +214,15 @@ export const createUiModuleMock = () => ({
       </div>
     );
   },
-  // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
-  ErrorBoundary: class ErrorBoundary extends React.Component<
-    MockComponentProps,
-    { hasError: boolean }
-  > {
-    constructor(props: MockComponentProps) {
-      super(props);
-      this.state = { hasError: false };
-    }
-
-    static getDerivedStateFromError() {
-      return { hasError: true };
-    }
-
-    override render() {
-      if (this.state.hasError) {
-        return <div data-testid="error-boundary">Error occurred</div>;
-      }
-      return this.props.children;
-    }
-  },
-  Input: ({
-    ref,
-    ...props
-  }: MockComponentProps & { ref?: React.RefObject<HTMLInputElement | null> }) => (
-    <input data-testid="input" ref={ref} {...props} />
-  ),
-  TooltipProvider: ({ children }: MockComponentProps) => <>{children}</>,
-  Tooltip: ({ children }: MockComponentProps) => <>{children}</>,
-  TooltipTrigger: ({
+  Button: ({
     children,
-    asChild: _asChild,
+    onClick,
+    disabled,
     ...props
-  }: MockComponentProps & { asChild?: boolean }) => (
-    <div data-testid="tooltip-trigger" {...props}>
+  }: MockComponentProps & { onClick?: () => void; disabled?: boolean }) => (
+    <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
       {children}
-    </div>
-  ),
-  TooltipContent: ({ children, ...props }: MockComponentProps) => (
-    <div data-testid="tooltip-content" {...props}>
-      {children}
-    </div>
+    </button>
   ),
   Checkbox: ({
     checked,
@@ -281,114 +237,9 @@ export const createUiModuleMock = () => ({
       {...props}
     />
   ),
-  LightweightCheckbox: ({
-    checked,
-    disabled,
-    onCheckedChange,
-    ...props
-  }: MockComponentProps & {
-    checked?: boolean | 'indeterminate';
-    disabled?: boolean;
-    onCheckedChange?: (checked: boolean) => void;
-  }) => (
-    <input
-      aria-checked={checked === 'indeterminate' ? 'mixed' : Boolean(checked)}
-      checked={checked === true}
-      data-testid="lightweight-checkbox"
-      disabled={disabled}
-      onChange={(event) => onCheckedChange?.(event.target.checked)}
-      type="checkbox"
-      {...props}
-    />
-  ),
-  Switch: ({
-    checked,
-    id,
-    onCheckedChange,
-    ...props
-  }: MockComponentProps & {
-    checked?: boolean;
-    id?: string;
-    onCheckedChange?: (checked: boolean) => void;
-  }) => (
-    <input
-      aria-checked={Boolean(checked)}
-      checked={Boolean(checked)}
-      data-testid="switch"
-      id={id}
-      onChange={(event) => onCheckedChange?.(event.target.checked)}
-      role="switch"
-      type="checkbox"
-      {...props}
-    />
-  ),
-  Label: ({
-    children,
-    htmlFor,
-    ...props
-  }: MockComponentProps & { htmlFor?: string | undefined }) => (
-    <label htmlFor={htmlFor} {...props}>
-      {children}
-    </label>
-  ),
-  Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
-    <div data-testid="progress" data-value={value} {...props} />
-  ),
-  EmptyState: ({
-    title,
-    description,
-    icon,
-  }: {
-    title: string;
-    description?: string;
-    icon?: React.ReactNode;
-  }) => (
-    <div data-testid="empty-state">
-      {icon && <div data-testid="empty-state-icon">{icon}</div>}
-      {title && <h3>{title}</h3>}
-      {description && <p>{description}</p>}
-    </div>
-  ),
-  Popover: ({
-    children,
-    open,
-    onOpenChange: _onOpenChange,
-    ...props
-  }: MockComponentProps & { open?: boolean; onOpenChange?: (open: boolean) => void }) => (
-    <div data-open={open} data-testid="popover" {...props}>
-      {children}
-    </div>
-  ),
-  PopoverTrigger: ({
-    children,
-    asChild: _asChild,
-    ...props
-  }: MockComponentProps & { asChild?: boolean }) => (
-    <div data-testid="popover-trigger" {...props}>
-      {children}
-    </div>
-  ),
-  PopoverContent: ({
-    children,
-    align,
-    className,
-    ...props
-  }: MockComponentProps & { align?: string; className?: string }) => (
-    <div className={className} data-align={align} data-testid="popover-content" {...props}>
-      {children}
-    </div>
-  ),
+  cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
   DropdownMenu: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="dropdown-menu" {...props}>
-      {children}
-    </div>
-  ),
-  DropdownMenuTrigger: ({
-    children,
-    asChild: _asChild,
-    ...props
-  }: MockComponentProps & { asChild?: boolean }) => (
-    <div data-testid="dropdown-menu-trigger" {...props}>
       {children}
     </div>
   ),
@@ -433,6 +284,118 @@ export const createUiModuleMock = () => ({
       </button>
     );
   },
+  DropdownMenuTrigger: ({
+    children,
+    asChild: _asChild,
+    ...props
+  }: MockComponentProps & { asChild?: boolean }) => (
+    <div data-testid="dropdown-menu-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  EmptyState: ({
+    title,
+    description,
+    icon,
+  }: {
+    title: string;
+    description?: string;
+    icon?: React.ReactNode;
+  }) => (
+    <div data-testid="empty-state">
+      {icon && <div data-testid="empty-state-icon">{icon}</div>}
+      {title && <h3>{title}</h3>}
+      {description && <p>{description}</p>}
+    </div>
+  ),
+  // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
+  ErrorBoundary: class ErrorBoundary extends React.Component<
+    MockComponentProps,
+    { hasError: boolean }
+  > {
+    constructor(props: MockComponentProps) {
+      super(props);
+      this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError() {
+      return { hasError: true };
+    }
+
+    override render() {
+      if (this.state.hasError) {
+        return <div data-testid="error-boundary">Error occurred</div>;
+      }
+      return this.props.children;
+    }
+  },
+  Input: ({
+    ref,
+    ...props
+  }: MockComponentProps & { ref?: React.RefObject<HTMLInputElement | null> }) => (
+    <input data-testid="input" ref={ref} {...props} />
+  ),
+  Label: ({
+    children,
+    htmlFor,
+    ...props
+  }: MockComponentProps & { htmlFor?: string | undefined }) => (
+    <label htmlFor={htmlFor} {...props}>
+      {children}
+    </label>
+  ),
+  LightweightCheckbox: ({
+    checked,
+    disabled,
+    onCheckedChange,
+    ...props
+  }: MockComponentProps & {
+    checked?: boolean | 'indeterminate';
+    disabled?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <input
+      aria-checked={checked === 'indeterminate' ? 'mixed' : Boolean(checked)}
+      checked={checked === true}
+      data-testid="lightweight-checkbox"
+      disabled={disabled}
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
+      type="checkbox"
+      {...props}
+    />
+  ),
+  Popover: ({
+    children,
+    open,
+    onOpenChange: _onOpenChange,
+    ...props
+  }: MockComponentProps & { open?: boolean; onOpenChange?: (open: boolean) => void }) => (
+    <div data-open={open} data-testid="popover" {...props}>
+      {children}
+    </div>
+  ),
+  PopoverContent: ({
+    children,
+    align,
+    className,
+    ...props
+  }: MockComponentProps & { align?: string; className?: string }) => (
+    <div className={className} data-align={align} data-testid="popover-content" {...props}>
+      {children}
+    </div>
+  ),
+  PopoverTrigger: ({
+    children,
+    asChild: _asChild,
+    ...props
+  }: MockComponentProps & { asChild?: boolean }) => (
+    <div data-testid="popover-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
+    <div data-testid="progress" data-value={value} {...props} />
+  ),
   SortableTableHeader: ({
     title,
     onSort,
@@ -487,6 +450,60 @@ export const createUiModuleMock = () => ({
       </th>
     );
   },
+  Switch: ({
+    checked,
+    id,
+    onCheckedChange,
+    ...props
+  }: MockComponentProps & {
+    checked?: boolean;
+    id?: string;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <input
+      aria-checked={Boolean(checked)}
+      checked={Boolean(checked)}
+      data-testid="switch"
+      id={id}
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
+      role="switch"
+      type="checkbox"
+      {...props}
+    />
+  ),
+  TableGroupHeader: ({
+    groupLabel,
+    onToggleCollapse,
+    onSelectionChange,
+    isCollapsed,
+    groupKey: _groupKey,
+    isFullySelected: _isFullySelected,
+    isPartiallySelected: _isPartiallySelected,
+    isGroupSelected: _isGroupSelected,
+    isIndeterminate: _isIndeterminate,
+    filesInGroup: _filesInGroup,
+    ...domProps
+  }: MockTableGroupHeaderProps) => (
+    <tr data-testid="table-group-header" {...domProps}>
+      <td>
+        <input
+          aria-label={`Select all files in group ${groupLabel}`}
+          onChange={(event) => onSelectionChange?.(event.target.checked)}
+          type="checkbox"
+        />
+      </td>
+      <td>
+        <button
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+          onClick={onToggleCollapse}
+          type="button"
+        >
+          {groupLabel}
+        </button>
+      </td>
+    </tr>
+  ),
   TablePagination: ({
     currentPage,
     totalPages,
@@ -571,38 +588,93 @@ export const createUiModuleMock = () => ({
       </div>
     );
   },
-  TableGroupHeader: ({
-    groupLabel,
-    onToggleCollapse,
-    onSelectionChange,
-    isCollapsed,
-    groupKey: _groupKey,
-    isFullySelected: _isFullySelected,
-    isPartiallySelected: _isPartiallySelected,
-    isGroupSelected: _isGroupSelected,
-    isIndeterminate: _isIndeterminate,
-    filesInGroup: _filesInGroup,
-    ...domProps
-  }: MockTableGroupHeaderProps) => (
-    <tr data-testid="table-group-header" {...domProps}>
-      <td>
-        <input
-          aria-label={`Select all files in group ${groupLabel}`}
-          onChange={(event) => onSelectionChange?.(event.target.checked)}
-          type="checkbox"
-        />
-      </td>
-      <td>
-        <button
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
-          onClick={onToggleCollapse}
-          type="button"
-        >
-          {groupLabel}
-        </button>
-      </td>
-    </tr>
+  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
+    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
+    const isControlled = value !== undefined;
+    const activeValue = isControlled ? value : internalValue;
+
+    const handleValueChange = (nextValue: string) => {
+      if (!isControlled) {
+        setInternalValue(nextValue);
+      }
+      onValueChange?.(nextValue);
+    };
+
+    const contextValue: TabsContextValue =
+      activeValue === undefined
+        ? { onValueChange: handleValueChange }
+        : { onValueChange: handleValueChange, value: activeValue };
+
+    return (
+      <TabsContext.Provider value={contextValue}>
+        <div data-testid="tabs" {...props}>
+          {children}
+        </div>
+      </TabsContext.Provider>
+    );
+  },
+  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    if (!(isActive || forceMount)) {
+      return null;
+    }
+
+    return (
+      <div
+        data-state={isActive ? 'active' : 'inactive'}
+        hidden={!isActive}
+        role="tabpanel"
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  },
+  TabsList: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="tabs-list" role="tablist" {...props}>
+      {children}
+    </div>
+  ),
+  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    const handleClick = () => {
+      context?.onValueChange?.(value);
+      onClick?.();
+    };
+
+    return (
+      <button
+        aria-selected={isActive}
+        data-state={isActive ? 'active' : 'inactive'}
+        disabled={disabled}
+        onClick={handleClick}
+        role="tab"
+        type="button"
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  },
+  Tooltip: ({ children }: MockComponentProps) => <>{children}</>,
+  TooltipContent: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="tooltip-content" {...props}>
+      {children}
+    </div>
+  ),
+  TooltipProvider: ({ children }: MockComponentProps) => <>{children}</>,
+  TooltipTrigger: ({
+    children,
+    asChild: _asChild,
+    ...props
+  }: MockComponentProps & { asChild?: boolean }) => (
+    <div data-testid="tooltip-trigger" {...props}>
+      {children}
+    </div>
   ),
   TreeTable: ({
     ariaLabel,
@@ -642,12 +714,12 @@ export const createUiModuleMock = () => ({
                         </button>
                       )}
                       {column.cell({
-                        node,
                         depth: node.depth,
                         isExpanded,
-                        isSelected: false,
                         isHighlighted: false,
                         isInContext: false,
+                        isSelected: false,
+                        node,
                         rowIndex,
                       })}
                     </td>
@@ -659,78 +731,6 @@ export const createUiModuleMock = () => ({
       </table>
     </div>
   ),
-  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
-    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
-    const isControlled = value !== undefined;
-    const activeValue = isControlled ? value : internalValue;
-
-    const handleValueChange = (nextValue: string) => {
-      if (!isControlled) {
-        setInternalValue(nextValue);
-      }
-      onValueChange?.(nextValue);
-    };
-
-    const contextValue: TabsContextValue =
-      activeValue === undefined
-        ? { onValueChange: handleValueChange }
-        : { value: activeValue, onValueChange: handleValueChange };
-
-    return (
-      <TabsContext.Provider value={contextValue}>
-        <div data-testid="tabs" {...props}>
-          {children}
-        </div>
-      </TabsContext.Provider>
-    );
-  },
-  TabsList: ({ children, ...props }: MockComponentProps) => (
-    <div data-testid="tabs-list" role="tablist" {...props}>
-      {children}
-    </div>
-  ),
-  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
-    const context = React.useContext(TabsContext);
-    const isActive = context?.value === value;
-
-    const handleClick = () => {
-      context?.onValueChange?.(value);
-      onClick?.();
-    };
-
-    return (
-      <button
-        aria-selected={isActive}
-        data-state={isActive ? 'active' : 'inactive'}
-        disabled={disabled}
-        onClick={handleClick}
-        role="tab"
-        type="button"
-        {...props}
-      >
-        {children}
-      </button>
-    );
-  },
-  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
-    const context = React.useContext(TabsContext);
-    const isActive = context?.value === value;
-
-    if (!(isActive || forceMount)) {
-      return null;
-    }
-
-    return (
-      <div
-        data-state={isActive ? 'active' : 'inactive'}
-        hidden={!isActive}
-        role="tabpanel"
-        {...props}
-      >
-        {children}
-      </div>
-    );
-  },
   useToast: () => ({ toast: () => {} }),
 });
 
@@ -790,51 +790,51 @@ export const createHooksModuleMock = () => {
 
       return {
         currentPage,
-        totalPages,
-        startIndex,
         endIndex,
-        goToPage,
         goToNextPage,
+        goToPage,
         goToPreviousPage,
-        resetToFirstPage,
         isFirstPage: currentPage === 0,
         isLastPage: currentPage >= totalPages - 1 || totalPages <= 1,
+        resetToFirstPage,
+        startIndex,
+        totalPages,
       };
     }),
   };
 };
 
 export const createLucideModuleMock = () => ({
+  AlertTriangle: () => <div data-testid="alert" />,
   ArrowLeft: () => <div data-testid="arrow-left" />,
+  Check: () => <div data-testid="checkmark" />,
+  CheckCircle2: () => <div data-testid="check-circle" />,
+  CheckSquare: () => <div data-testid="check-square" />,
   ChevronDown: () => <div data-testid="chevron-down" />,
   ChevronRight: () => <div data-testid="chevron-right" />,
+  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
+  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   ChevronUp: () => <div data-testid="chevron-up" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
+  Files: () => <div data-testid="files" />,
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
   Group: () => <div data-testid="group" />,
-  Loader2: () => <div data-testid="loader" />,
-  CheckCircle2: () => <div data-testid="check-circle" />,
-  AlertTriangle: () => <div data-testid="alert" />,
-  MinusCircle: () => <div data-testid="minus" />,
-  Pencil: () => <div data-testid="pencil" />,
-  Check: () => <div data-testid="checkmark" />,
-  X: () => <div data-testid="x" />,
-  Target: () => <div data-testid="target" />,
-  TreePine: () => <div data-testid="tree-pine" />,
   Layers: () => <div data-testid="layers" />,
-  Files: () => <div data-testid="files" />,
-  CheckSquare: () => <div data-testid="check-square" />,
-  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
-  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
   ListChecks: () => <div data-testid="list-checks" />,
+  Loader2: () => <div data-testid="loader" />,
   Maximize2: () => <div data-testid="maximize" />,
   Minimize2: () => <div data-testid="minimize" />,
+  MinusCircle: () => <div data-testid="minus" />,
+  Pencil: () => <div data-testid="pencil" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
   Sparkles: () => <div data-testid="sparkles" />,
   Table: () => <div data-testid="table" />,
+  Target: () => <div data-testid="target" />,
+  TreePine: () => <div data-testid="tree-pine" />,
+  X: () => <div data-testid="x" />,
 });

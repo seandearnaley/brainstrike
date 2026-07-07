@@ -12,11 +12,11 @@ import {
 
 // Mock useTheme
 vi.mock('../../theme-provider', () => ({
-  useTheme: () => ({
-    theme: 'light',
-    setTheme: vi.fn(),
-  }),
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useTheme: () => ({
+    setTheme: vi.fn(),
+    theme: 'light',
+  }),
 }));
 
 // Mock ScrollArea because it might need ResizeObserver or other browser APIs
@@ -30,62 +30,62 @@ vi.mock('../../scroll-area', () => ({
 
 const mockCollections: CollectionPickerCollection[] = [
   {
-    id: '1',
-    modelKey: 'openai::text-embedding-3-small',
-    modelId: 'text-embedding-3-small',
+    category: null,
+    chunkCount: 100,
+    createdAt: new Date().toISOString(),
+    description: 'Description 1',
     dimensions: 1536,
     distance: 'cosine',
-    createdAt: new Date().toISOString(),
-    name: 'Collection 1',
-    description: 'Description 1',
-    tags: null,
-    category: null,
-    fileCount: 10,
-    chunkCount: 100,
     embeddingCount: 100,
+    fileCount: 10,
+    id: '1',
+    modelId: 'text-embedding-3-small',
+    modelKey: 'openai::text-embedding-3-small',
+    name: 'Collection 1',
+    tags: null,
   },
   {
-    id: '2',
-    modelKey: 'local::Xenova/bge-m3',
-    modelId: 'bge-m3',
+    category: null,
+    chunkCount: 50,
+    createdAt: new Date().toISOString(),
+    description: null,
     dimensions: 1024,
     distance: 'cosine',
-    createdAt: new Date().toISOString(),
-    name: null,
-    description: null,
-    tags: null,
-    category: null,
-    fileCount: 5,
-    chunkCount: 50,
     embeddingCount: 50,
+    fileCount: 5,
+    id: '2',
+    modelId: 'bge-m3',
+    modelKey: 'local::Xenova/bge-m3',
+    name: null,
+    tags: null,
   },
 ];
 
 const workspaceIndexCollection: CollectionPickerCollection = {
-  id: 'workspace-index',
-  modelKey: 'openai::text-embedding-3-small',
-  modelId: 'text-embedding-3-small',
+  category: null,
+  chunkCount: 420,
+  createdAt: new Date().toISOString(),
+  description: 'System-managed workspace index for assistant retrieval.',
   dimensions: 1536,
   distance: 'cosine',
-  createdAt: new Date().toISOString(),
-  name: 'Workspace Index',
-  description: 'System-managed workspace index for assistant retrieval.',
-  tags: null,
-  category: null,
-  fileCount: 42,
-  chunkCount: 420,
   embeddingCount: 300,
+  fileCount: 42,
+  id: 'workspace-index',
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai::text-embedding-3-small',
+  name: 'Workspace Index',
   systemRole: 'workspace-index',
+  tags: null,
 };
 
 describe('CollectionPicker', () => {
   const defaultProps = {
     collections: mockCollections,
-    selectedId: null,
-    onSelect: vi.fn(),
-    onEdit: vi.fn(),
-    onDelete: vi.fn(),
     onCreate: vi.fn(),
+    onDelete: vi.fn(),
+    onEdit: vi.fn(),
+    onSelect: vi.fn(),
+    selectedId: null,
   };
 
   const renderWithProvider = (ui: React.ReactElement) =>
@@ -212,10 +212,10 @@ describe('CollectionPicker', () => {
     }
     const singularCollection: CollectionPickerCollection = {
       ...baseCollection,
-      id: 'single',
       chunkCount: 1,
       embeddingCount: 0,
       fileCount: 1,
+      id: 'single',
       name: 'Single file collection',
     };
 
@@ -377,12 +377,12 @@ describe('collection color helpers', () => {
 
   it('returns deterministic light and dark theme colors', () => {
     expect(getCollectionColor('', 'light')).toEqual({
-      primary: 'hsl(0, 55%, 40%)',
       background: 'hsl(0, 55%, 97%)',
+      primary: 'hsl(0, 55%, 40%)',
     });
     expect(getCollectionColor('', 'dark')).toEqual({
-      primary: 'hsl(0, 55%, 55%)',
       background: 'hsl(0, 55%, 15%)',
+      primary: 'hsl(0, 55%, 55%)',
     });
   });
 });

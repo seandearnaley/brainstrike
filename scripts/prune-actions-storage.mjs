@@ -12,7 +12,7 @@ const DEFAULT_MAX_DELETIONS = 4000;
 function readFlagValue(args, name) {
   const index = args.indexOf(name);
   if (index === -1) {
-    return undefined;
+    return;
   }
   if (args.indexOf(name, index + 1) !== -1) {
     throw new Error(`${name} can only be provided once`);
@@ -46,7 +46,7 @@ function readPositiveInteger(value, fallback, name) {
 export function parseArgs(args = process.argv.slice(2), env = process.env) {
   const dryRun = args.includes('--dry-run');
   const repo = readFlagValue(args, '--repo') ?? env.GITHUB_REPOSITORY;
-  if (!repo || !repo.includes('/')) {
+  if (!repo?.includes('/')) {
     throw new Error('--repo is required when GITHUB_REPOSITORY is not set');
   }
   return {
@@ -97,9 +97,7 @@ export function selectArtifactsForDeletion(artifacts, options) {
       return true;
     }
     const createdAgeHours = ageHours(artifact.created_at, now);
-    return (
-      typeof createdAgeHours === 'number' && createdAgeHours >= options.artifactMaxAgeHours
-    );
+    return typeof createdAgeHours === 'number' && createdAgeHours >= options.artifactMaxAgeHours;
   });
 }
 
@@ -161,13 +159,13 @@ async function requestJson(url, token, init = {}, attempts = 3) {
     try {
       response = await fetch(url, {
         ...init,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${token}`,
           'X-GitHub-Api-Version': '2022-11-28',
           ...(init.headers ?? {}),
         },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
       // Includes AbortError from the per-request timeout above and any
@@ -289,9 +287,8 @@ async function deleteInBatches(items, concurrency, deleteItem, label) {
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(concurrency, Math.max(items.length, 1)) },
-    () => worker()
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(items.length, 1)) }, () =>
+    worker()
   );
   await Promise.all(workers);
 }

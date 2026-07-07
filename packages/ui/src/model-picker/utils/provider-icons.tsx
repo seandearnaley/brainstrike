@@ -39,11 +39,11 @@ export function getProviderIcon(
     string,
     React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   > = {
-    openai: Sparkles,
     anthropic: Brain,
-    google: Globe,
-    openrouter: Cloud,
     cohere: Cpu,
+    google: Globe,
+    openai: Sparkles,
+    openrouter: Cloud,
     voyage: Bot,
   };
   return icons[providerId] ?? Bot;

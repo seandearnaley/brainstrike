@@ -21,7 +21,7 @@ describe('RestorationStatus', () => {
       const { container } = render(
         <RestorationStatus
           isRestoring={false}
-          progress={{ loaded: 5, total: 10, currentPath: '/test/path' }}
+          progress={{ currentPath: '/test/path', loaded: 5, total: 10 }}
         />
       );
       expect(container.firstChild).toBeNull();
@@ -44,7 +44,7 @@ describe('RestorationStatus', () => {
       render(
         <RestorationStatus
           isRestoring={true}
-          progress={{ loaded: 5, total: 10, currentPath: '/test/path' }}
+          progress={{ currentPath: '/test/path', loaded: 5, total: 10 }}
         />
       );
       expect(screen.getByText('Restoring 5/10 folders')).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe('RestorationStatus', () => {
 
     it('should show 0% when total is 0', () => {
       render(
-        <RestorationStatus isRestoring={true} progress={{ loaded: 0, total: 0, currentPath: '' }} />
+        <RestorationStatus isRestoring={true} progress={{ currentPath: '', loaded: 0, total: 0 }} />
       );
       expect(screen.getByText('0%')).toBeInTheDocument();
     });
@@ -63,9 +63,9 @@ describe('RestorationStatus', () => {
         <RestorationStatus
           isRestoring={true}
           progress={{
+            currentPath: '/root/parent/child/subdir',
             loaded: 3,
             total: 10,
-            currentPath: '/root/parent/child/subdir',
           }}
         />
       );
@@ -76,7 +76,7 @@ describe('RestorationStatus', () => {
       render(
         <RestorationStatus
           isRestoring={true}
-          progress={{ loaded: 3, total: 10, currentPath: 'folder/file' }}
+          progress={{ currentPath: 'folder/file', loaded: 3, total: 10 }}
         />
       );
       expect(screen.getByText('folder/file')).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe('RestorationStatus', () => {
       render(
         <RestorationStatus
           isRestoring={true}
-          progress={{ loaded: 3, total: 10, currentPath: '' }}
+          progress={{ currentPath: '', loaded: 3, total: 10 }}
         />
       );
       // Should only have the status text, not the empty path
@@ -100,19 +100,19 @@ describe('RestorationStatus', () => {
 
     it('should calculate correct percentage for various values', () => {
       const { rerender } = render(
-        <RestorationStatus isRestoring={true} progress={{ loaded: 1, total: 4, currentPath: '' }} />
+        <RestorationStatus isRestoring={true} progress={{ currentPath: '', loaded: 1, total: 4 }} />
       );
       expect(screen.getByText('25%')).toBeInTheDocument();
 
       rerender(
-        <RestorationStatus isRestoring={true} progress={{ loaded: 3, total: 4, currentPath: '' }} />
+        <RestorationStatus isRestoring={true} progress={{ currentPath: '', loaded: 3, total: 4 }} />
       );
       expect(screen.getByText('75%')).toBeInTheDocument();
 
       rerender(
         <RestorationStatus
           isRestoring={true}
-          progress={{ loaded: 10, total: 10, currentPath: '' }}
+          progress={{ currentPath: '', loaded: 10, total: 10 }}
         />
       );
       expect(screen.getByText('100%')).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe('RestorationStatus', () => {
       render(
         <RestorationStatus
           isRestoring={true}
-          progress={{ loaded: 3, total: 10, currentPath: fullPath }}
+          progress={{ currentPath: fullPath, loaded: 3, total: 10 }}
         />
       );
       expect(screen.getByTitle(fullPath)).toBeInTheDocument();

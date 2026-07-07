@@ -11,7 +11,7 @@ export type AgentDevtoolsConfig =
 type EnvLike = Readonly<Record<string, string | undefined>>;
 
 interface ElectronCommandLineLike {
-  appendSwitch(name: string, value: string): void;
+  appendSwitch: (name: string, value: string) => void;
 }
 
 const DEFAULT_AGENT_DEVTOOLS_PORT = agentDevToolsDefaults.defaultPort;

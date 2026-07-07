@@ -174,9 +174,9 @@ describe('LoggingSettingsSection', () => {
     render(
       <LoggingSettingsSection
         fileCapabilities={{
-          fileLoggingSupported: true,
           canSelectDestination: true,
           defaultDestination: '/var/log/brainstrike.log',
+          fileLoggingSupported: true,
         }}
         onCommitPreferences={onCommit}
         onSelectLogDestination={onSelect}
@@ -228,9 +228,9 @@ describe('LoggingSettingsSection', () => {
     render(
       <LoggingSettingsSection
         fileCapabilities={{
-          fileLoggingSupported: true,
           canSelectDestination: true,
           defaultDestination: '/var/log/brainstrike.log',
+          fileLoggingSupported: true,
         }}
         onCommitPreferences={onCommit}
         onOpenLogDestination={onOpen}

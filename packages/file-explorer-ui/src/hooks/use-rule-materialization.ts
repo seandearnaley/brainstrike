@@ -62,9 +62,9 @@ function evaluateRules(
     const result = engine.materialize(treeAdapter);
 
     logger.info('Rules evaluated', {
-      matchedCount: result.paths.size,
       appliedRules: result.appliedRules,
       capped: result.capped,
+      matchedCount: result.paths.size,
       warnings: result.warnings.length,
     });
 
@@ -124,12 +124,12 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
       return result;
     },
 
-    pathExists(path: string): boolean {
-      return allFilePaths.has(path) || allDirectoryPaths.has(path);
-    },
-
     getTotalFileCount(): number {
       return allFilePaths.size;
+    },
+
+    pathExists(path: string): boolean {
+      return allFilePaths.has(path) || allDirectoryPaths.has(path);
     },
   };
 }
@@ -219,8 +219,8 @@ export function useRuleMaterialization({
   }, [enabled, selectionModel.mode, selectionModel.ruleSetJson, treeAdapter, setMaterializedPaths]);
 
   return {
-    isEvaluating: isEvaluatingRef.current,
     evaluationError: evaluationErrorRef.current,
+    isEvaluating: isEvaluatingRef.current,
     matchedCount: selectionModel.materializedPaths?.size ?? 0,
   };
 }

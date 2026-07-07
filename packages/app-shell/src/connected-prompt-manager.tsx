@@ -12,11 +12,11 @@ export function ConnectedPromptManager() {
       models
         .filter((m) => m.isEnabled)
         .map((m) => ({
-          id: m.id,
-          providerId: m.providerId,
-          name: m.name,
-          description: m.description,
           capabilities: m.capabilities,
+          description: m.description,
+          id: m.id,
+          name: m.name,
+          providerId: m.providerId,
         })),
     [models]
   );

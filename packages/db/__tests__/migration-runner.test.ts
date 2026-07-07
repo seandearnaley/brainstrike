@@ -2,10 +2,10 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockLogger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
-  error: vi.fn(),
-  debug: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -25,23 +25,23 @@ describe('MigrationRunner', () => {
   let runner: MigrationRunner;
 
   const testMigration1: Migration = {
-    version: 1,
+    down: 'DROP TABLE test_table;',
     name: 'test_migration_1',
     up: 'CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT);',
-    down: 'DROP TABLE test_table;',
+    version: 1,
   };
 
   const testMigration2: Migration = {
-    version: 2,
+    down: 'ALTER TABLE test_table DROP COLUMN created_at;',
     name: 'test_migration_2',
     up: 'ALTER TABLE test_table ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;',
-    down: 'ALTER TABLE test_table DROP COLUMN created_at;',
+    version: 2,
   };
 
   const testMigration3: Migration = {
-    version: 3,
     name: 'test_migration_no_rollback',
     up: 'CREATE INDEX idx_test_name ON test_table(name);',
+    version: 3,
     // No down migration - testing that rollback is optional
   };
 
@@ -169,10 +169,10 @@ describe('MigrationRunner', () => {
 
     it('should handle migration failures with rollback', async () => {
       const badMigration: Migration = {
-        version: 99,
+        down: 'DROP TABLE nonexistent;',
         name: 'bad_migration',
         up: 'INVALID SQL SYNTAX HERE;',
-        down: 'DROP TABLE nonexistent;',
+        version: 99,
       };
 
       await expect(runner.runMigration(badMigration)).rejects.toThrow('Migration 99 failed:');
@@ -214,10 +214,10 @@ describe('MigrationRunner', () => {
 
     it('should skip rollback for unapplied migrations', async () => {
       const unappliedMigration: Migration = {
-        version: 99,
+        down: 'DROP TABLE temp;',
         name: 'unapplied',
         up: 'CREATE TABLE temp (id INTEGER);',
-        down: 'DROP TABLE temp;',
+        version: 99,
       };
 
       await runner.rollback(unappliedMigration);
@@ -238,10 +238,10 @@ describe('MigrationRunner', () => {
 
     it('should handle rollback failures', async () => {
       const badRollbackMigration: Migration = {
-        version: 88,
+        down: 'INVALID ROLLBACK SQL;',
         name: 'bad_rollback',
         up: 'CREATE TABLE temp_table (id INTEGER);',
-        down: 'INVALID ROLLBACK SQL;',
+        version: 88,
       };
 
       await runner.runMigration(badRollbackMigration);
@@ -253,12 +253,12 @@ describe('MigrationRunner', () => {
 
     it('supports function-based rollback migrations', async () => {
       const functionRollbackMigration: Migration = {
-        version: 77,
-        name: 'function_rollback',
-        up: 'CREATE TABLE function_rollback_table (id INTEGER PRIMARY KEY);',
         down: async (transactionDb: PGlite) => {
           await transactionDb.exec('DROP TABLE function_rollback_table;');
         },
+        name: 'function_rollback',
+        up: 'CREATE TABLE function_rollback_table (id INTEGER PRIMARY KEY);',
+        version: 77,
       };
 
       await runner.runMigration(functionRollbackMigration);
@@ -327,10 +327,10 @@ describe('MigrationRunner', () => {
 
     it('should handle duplicate version numbers gracefully', async () => {
       const duplicateMigration: Migration = {
-        version: 1, // Same as testMigration1
+        down: 'DROP TABLE duplicate_table;',
         name: 'duplicate_version',
         up: 'CREATE TABLE duplicate_table (id INTEGER);',
-        down: 'DROP TABLE duplicate_table;',
+        version: 1, // Same as testMigration1
       };
 
       await runner.runMigration(testMigration1);

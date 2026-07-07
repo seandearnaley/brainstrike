@@ -159,8 +159,8 @@ const ToolbarPresetSelectorInner: React.FC<
 
     const activeFilters = useMemo<ActiveFilterState>(
       () => ({
-        includeFilters,
         excludeFilters,
+        includeFilters,
         useRegex,
       }),
       [includeFilters, excludeFilters, useRegex]

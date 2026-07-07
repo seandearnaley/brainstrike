@@ -113,12 +113,12 @@ describe('AssistantUiPanelWrapper', () => {
   test('shows local runtime unavailable message when a local provider is selected but not configured', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
-      selectedProvider: 'ollama',
-      selectedModel: 'ollama::nomic-embed-text',
       modelsByProvider: {
         ...state.modelsByProvider,
         ollama: 'nomic-embed-text',
       },
+      selectedModel: 'ollama::nomic-embed-text',
+      selectedProvider: 'ollama',
     }));
 
     await renderAssistantPanel([], () =>
@@ -137,70 +137,70 @@ describe('AssistantUiPanelWrapper', () => {
   test('reselects a valid local runtime model when the previously selected local model is unavailable', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
-      selectedProvider: 'ollama',
-      selectedModel: 'ollama::retired-model',
+      getLocalRuntimeModels: async () => ({
+        lmstudio: {
+          availability: {
+            checkedAt: 10,
+            message: 'not detected',
+            state: 'unavailable',
+          },
+          checkedAt: 10,
+          endpoint: 'http://localhost:1234/v1/models',
+          freshness: 'live',
+          models: [],
+          runtime: 'lmstudio',
+          source: 'openai_v1_models',
+          state: 'loaded_empty',
+        },
+        ollama: {
+          availability: {
+            checkedAt: 10,
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            latencyMs: 5,
+            state: 'available',
+          },
+          checkedAt: 10,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          freshness: 'live',
+          models: [
+            {
+              capabilities: { embeddings: 'supported', llm: true },
+              capabilitySource: 'inferred',
+              dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 10 },
+              displayName: 'Nomic Embed Text',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              freshness: 'live',
+              modelId: 'nomic-embed-text',
+              modelKey: 'ollama::nomic-embed-text',
+              providerId: 'ollama',
+              runtime: 'ollama',
+              source: 'openai_v1_models',
+            },
+          ],
+          runtime: 'ollama',
+          source: 'openai_v1_models',
+          state: 'loaded_non_empty',
+        },
+      }),
+      getLocalRuntimeStatuses: async () => ({
+        lmstudio: {
+          checkedAt: 10,
+          message: 'not detected',
+          state: 'unavailable',
+        },
+        ollama: {
+          checkedAt: 10,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 5,
+          state: 'available',
+        },
+      }),
       modelsByProvider: {
         ...state.modelsByProvider,
         ollama: 'retired-model',
       },
-      getLocalRuntimeStatuses: async () => ({
-        ollama: {
-          state: 'available',
-          checkedAt: 10,
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          latencyMs: 5,
-        },
-        lmstudio: {
-          state: 'unavailable',
-          checkedAt: 10,
-          message: 'not detected',
-        },
-      }),
-      getLocalRuntimeModels: async () => ({
-        ollama: {
-          state: 'loaded_non_empty',
-          runtime: 'ollama',
-          checkedAt: 10,
-          availability: {
-            state: 'available',
-            checkedAt: 10,
-            endpoint: 'http://127.0.0.1:11434/v1/models',
-            latencyMs: 5,
-          },
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          source: 'openai_v1_models',
-          freshness: 'live',
-          models: [
-            {
-              runtime: 'ollama',
-              providerId: 'ollama',
-              modelId: 'nomic-embed-text',
-              modelKey: 'ollama::nomic-embed-text',
-              displayName: 'Nomic Embed Text',
-              endpoint: 'http://127.0.0.1:11434/v1/models',
-              source: 'openai_v1_models',
-              freshness: 'live',
-              capabilities: { llm: true, embeddings: 'supported' },
-              capabilitySource: 'inferred',
-              dimensionsKnown: { state: 'known', values: [768], verifiedAt: 10, endpoint: '' },
-            },
-          ],
-        },
-        lmstudio: {
-          state: 'loaded_empty',
-          runtime: 'lmstudio',
-          checkedAt: 10,
-          availability: {
-            state: 'unavailable',
-            checkedAt: 10,
-            message: 'not detected',
-          },
-          endpoint: 'http://localhost:1234/v1/models',
-          source: 'openai_v1_models',
-          freshness: 'live',
-          models: [],
-        },
-      }),
+      selectedModel: 'ollama::retired-model',
+      selectedProvider: 'ollama',
     }));
 
     await renderAssistantPanel(['ollama'], () =>
@@ -223,79 +223,79 @@ describe('AssistantUiPanelWrapper', () => {
   test('includes local runtime detection hint when no providers are configured', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
-      getLocalRuntimeStatuses: async () => ({
-        ollama: {
-          state: 'available',
-          checkedAt: 20,
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          latencyMs: 7,
-        },
-        lmstudio: {
-          state: 'stale',
-          checkedAt: 20,
-          endpoint: 'http://localhost:1234/v1/models',
-          lastSuccessfulAt: 19,
-          reason: 'unavailable',
-        },
-      }),
       getLocalRuntimeModels: async () => ({
-        ollama: {
-          state: 'loaded_non_empty',
-          runtime: 'ollama',
-          checkedAt: 20,
-          availability: {
-            state: 'available',
-            checkedAt: 20,
-            endpoint: 'http://127.0.0.1:11434/v1/models',
-            latencyMs: 7,
-          },
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          source: 'openai_v1_models',
-          freshness: 'live',
-          models: [
-            {
-              runtime: 'ollama',
-              providerId: 'ollama',
-              modelId: 'qwen3',
-              modelKey: 'ollama::qwen3',
-              displayName: 'Qwen3',
-              endpoint: 'http://127.0.0.1:11434/v1/models',
-              source: 'openai_v1_models',
-              freshness: 'live',
-              capabilities: { llm: true, embeddings: 'unsupported' },
-              capabilitySource: 'inferred',
-              dimensionsKnown: { state: 'not_applicable' },
-            },
-            {
-              runtime: 'ollama',
-              providerId: 'ollama',
-              modelId: 'nomic-embed-text',
-              modelKey: 'ollama::nomic-embed-text',
-              displayName: 'Nomic Embed Text',
-              endpoint: 'http://127.0.0.1:11434/v1/models',
-              source: 'openai_v1_models',
-              freshness: 'live',
-              capabilities: { llm: false, embeddings: 'supported' },
-              capabilitySource: 'inferred',
-              dimensionsKnown: { state: 'known', values: [768], verifiedAt: 20, endpoint: '' },
-            },
-          ],
-        },
         lmstudio: {
-          state: 'loaded_empty',
-          runtime: 'lmstudio',
-          checkedAt: 20,
           availability: {
-            state: 'stale',
             checkedAt: 20,
             endpoint: 'http://localhost:1234/v1/models',
             lastSuccessfulAt: 19,
             reason: 'unavailable',
+            state: 'stale',
           },
+          checkedAt: 20,
           endpoint: 'http://localhost:1234/v1/models',
-          source: 'openai_v1_models',
           freshness: 'live',
           models: [],
+          runtime: 'lmstudio',
+          source: 'openai_v1_models',
+          state: 'loaded_empty',
+        },
+        ollama: {
+          availability: {
+            checkedAt: 20,
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            latencyMs: 7,
+            state: 'available',
+          },
+          checkedAt: 20,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          freshness: 'live',
+          models: [
+            {
+              capabilities: { embeddings: 'unsupported', llm: true },
+              capabilitySource: 'inferred',
+              dimensionsKnown: { state: 'not_applicable' },
+              displayName: 'Qwen3',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              freshness: 'live',
+              modelId: 'qwen3',
+              modelKey: 'ollama::qwen3',
+              providerId: 'ollama',
+              runtime: 'ollama',
+              source: 'openai_v1_models',
+            },
+            {
+              capabilities: { embeddings: 'supported', llm: false },
+              capabilitySource: 'inferred',
+              dimensionsKnown: { endpoint: '', state: 'known', values: [768], verifiedAt: 20 },
+              displayName: 'Nomic Embed Text',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              freshness: 'live',
+              modelId: 'nomic-embed-text',
+              modelKey: 'ollama::nomic-embed-text',
+              providerId: 'ollama',
+              runtime: 'ollama',
+              source: 'openai_v1_models',
+            },
+          ],
+          runtime: 'ollama',
+          source: 'openai_v1_models',
+          state: 'loaded_non_empty',
+        },
+      }),
+      getLocalRuntimeStatuses: async () => ({
+        lmstudio: {
+          checkedAt: 20,
+          endpoint: 'http://localhost:1234/v1/models',
+          lastSuccessfulAt: 19,
+          reason: 'unavailable',
+          state: 'stale',
+        },
+        ollama: {
+          checkedAt: 20,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 7,
+          state: 'available',
         },
       }),
     }));
@@ -315,40 +315,40 @@ describe('AssistantUiPanelWrapper', () => {
   test('includes blocked web policy hint when runtime localhost probing is blocked', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       ...state,
-      getLocalRuntimeStatuses: async () => ({
-        ollama: {
-          state: 'blocked_web',
-          checkedAt: 30,
-          message: 'Failed to fetch',
-        },
-        lmstudio: {
-          state: 'unavailable',
-          checkedAt: 30,
-          message: 'not detected',
-        },
-      }),
       getLocalRuntimeModels: async () => ({
-        ollama: {
-          state: 'failed',
-          runtime: 'ollama',
-          checkedAt: 30,
-          availability: {
-            state: 'blocked_web',
-            checkedAt: 30,
-            message: 'Failed to fetch',
-          },
-          message: 'probe blocked',
-        },
         lmstudio: {
-          state: 'failed',
-          runtime: 'lmstudio',
-          checkedAt: 30,
           availability: {
-            state: 'unavailable',
             checkedAt: 30,
             message: 'not detected',
+            state: 'unavailable',
           },
+          checkedAt: 30,
           message: 'not detected',
+          runtime: 'lmstudio',
+          state: 'failed',
+        },
+        ollama: {
+          availability: {
+            checkedAt: 30,
+            message: 'Failed to fetch',
+            state: 'blocked_web',
+          },
+          checkedAt: 30,
+          message: 'probe blocked',
+          runtime: 'ollama',
+          state: 'failed',
+        },
+      }),
+      getLocalRuntimeStatuses: async () => ({
+        lmstudio: {
+          checkedAt: 30,
+          message: 'not detected',
+          state: 'unavailable',
+        },
+        ollama: {
+          checkedAt: 30,
+          message: 'Failed to fetch',
+          state: 'blocked_web',
         },
       }),
     }));
@@ -587,9 +587,9 @@ describe('AssistantUiPanelWrapper', () => {
       listTools: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             description: 'Test tool',
             enabled: true,
+            id: 'mcp.tool',
           },
         ],
       }),
@@ -627,8 +627,8 @@ describe('AssistantUiPanelWrapper', () => {
       listTools: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             enabled: true,
+            id: 'mcp.tool',
           },
         ],
       }),
@@ -670,9 +670,9 @@ describe('AssistantUiPanelWrapper', () => {
     handleToolsUpdated?.({
       filesystem: [
         {
-          id: 'filesystem.list_directory',
           description: 'List directory contents',
           enabled: true,
+          id: 'filesystem.list_directory',
         },
       ],
     });
@@ -688,8 +688,8 @@ describe('AssistantUiPanelWrapper', () => {
       listTools: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             enabled: false,
+            id: 'mcp.tool',
           },
         ],
       }),
@@ -735,8 +735,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       handler?.({
-        folderId: 'test-folder',
         filePaths: ['alpha.ts', '/beta.ts', 'alpha.ts'],
+        folderId: 'test-folder',
       });
     });
 
@@ -770,8 +770,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       handler?.({
-        folderId: 'test-folder',
         filePaths: ['/remove-me.ts'],
+        folderId: 'test-folder',
         mode: 'remove',
       });
     });
@@ -802,8 +802,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       handler?.({
-        folderId: 'test-folder',
         filePaths: ['/curated.ts'],
+        folderId: 'test-folder',
         mode: 'add',
       });
     });
@@ -850,7 +850,7 @@ describe('AssistantUiPanelWrapper', () => {
         updates: [
           {
             path: '/curated.ts',
-            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+            ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
           },
         ],
       });
@@ -862,9 +862,9 @@ describe('AssistantUiPanelWrapper', () => {
     );
     expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[1]).toMatchObject([
       {
-        startLine: 3,
         endLine: 12,
         isActive: true,
+        startLine: 3,
         userModified: true,
       },
     ]);
@@ -902,7 +902,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     const compositeKey = encodeFileSelection('test-folder', '/curated.ts');
     fileExplorerMocks.tapestryRangesByKey = {
-      [compositeKey]: [{ startLine: 0, endLine: 2, isActive: true }],
+      [compositeKey]: [{ endLine: 2, isActive: true, startLine: 0 }],
     };
 
     act(() => {
@@ -912,7 +912,7 @@ describe('AssistantUiPanelWrapper', () => {
         updates: [
           {
             path: '/curated.ts',
-            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+            ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
           },
         ],
       });
@@ -921,8 +921,8 @@ describe('AssistantUiPanelWrapper', () => {
     expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledWith(
       compositeKey,
       expect.arrayContaining([
-        expect.objectContaining({ startLine: 0, endLine: 2 }),
-        expect.objectContaining({ startLine: 3, endLine: 12 }),
+        expect.objectContaining({ endLine: 2, startLine: 0 }),
+        expect.objectContaining({ endLine: 12, startLine: 3 }),
       ])
     );
   });
@@ -953,8 +953,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       handler?.({
-        folderId: 'test-folder',
         filePaths: ['new-file.ts', '/new-file.ts'],
+        folderId: 'test-folder',
         mode: 'replace',
       });
     });
@@ -992,8 +992,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     act(() => {
       handler?.({
-        folderId: '',
         filePaths: [],
+        folderId: '',
       });
     });
 
@@ -1004,7 +1004,6 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('keeps selected files as tool hints without sending hidden context controls', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
-      state: 'blocked',
       blockedReason: 'missing-provider-key',
       lastError: 'OpenAI key is required for Workspace Index.',
       queueProgress: {
@@ -1015,6 +1014,7 @@ describe('AssistantUiPanelWrapper', () => {
         processed: 7,
         totalQueued: 11,
       },
+      state: 'blocked',
     });
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
@@ -1034,21 +1034,21 @@ describe('AssistantUiPanelWrapper', () => {
       },
     };
     fileExplorerMocks.workspaceContextSnapshot = {
-      tokenBudget: 8192,
-      selectedSourceApproxTokens: 320,
-      selectedOutputApproxTokens: 180,
-      useTapestryRanges: true,
+      files: [
+        {
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          path: '/alpha.ts',
+          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
+        },
+      ],
       includeProjectTree: false,
       projectTreeApproxTokens: 1200,
       projectTreeTokenCountLoading: false,
-      files: [
-        {
-          path: '/alpha.ts',
-          approxTokens: 200,
-          outputApproxTokens: 60,
-          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
-        },
-      ],
+      selectedOutputApproxTokens: 180,
+      selectedSourceApproxTokens: 320,
+      tokenBudget: 8192,
+      useTapestryRanges: true,
     };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
@@ -1083,10 +1083,10 @@ describe('AssistantUiPanelWrapper', () => {
         );
         expect(requestData['workspaceIndexQueueProgress']).toEqual({
           failed: 1,
+          lastError: 'provider key unavailable',
           pending: 3,
           processed: 7,
           totalQueued: 11,
-          lastError: 'provider key unavailable',
         });
         expect(requestData['workspaceContext']).toEqual(fileExplorerMocks.workspaceContextSnapshot);
         expect(requestData['embeddingSetId']).toBeUndefined();
@@ -1104,22 +1104,22 @@ describe('AssistantUiPanelWrapper', () => {
       encodeFileSelection('test-folder', '/alpha.ts'),
     ]);
     fileExplorerMocks.workspaceContextSnapshot = {
-      selectionFolderId: 'other-folder',
-      tokenBudget: 8192,
-      selectedSourceApproxTokens: 320,
-      selectedOutputApproxTokens: 60,
-      useTapestryRanges: true,
+      files: [
+        {
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          path: '/alpha.ts',
+          ranges: [{ endLine: 12, isActive: true, startLine: 4 }],
+        },
+      ],
       includeProjectTree: false,
       projectTreeApproxTokens: 1200,
       projectTreeTokenCountLoading: false,
-      files: [
-        {
-          path: '/alpha.ts',
-          approxTokens: 200,
-          outputApproxTokens: 60,
-          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
-        },
-      ],
+      selectedOutputApproxTokens: 60,
+      selectedSourceApproxTokens: 320,
+      selectionFolderId: 'other-folder',
+      tokenBudget: 8192,
+      useTapestryRanges: true,
     };
 
     await renderAssistantPanel(['openai'], () =>
@@ -1156,8 +1156,6 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('builds model and provider options for openai settings', async () => {
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1172,6 +1170,8 @@ describe('AssistantUiPanelWrapper', () => {
           workingMemoryEnabled: false,
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], () =>
@@ -1200,8 +1200,6 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('uses per-thread draft settings instead of global provider settings for requests', async () => {
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1211,11 +1209,13 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
     useAssistantThreadStore.getState().setThreadDraftRuntime('thread-existing', {
-      provider: 'openai',
       model: 'gpt-5.2',
       modelSettings: { maxOutputTokens: 2048 },
+      provider: 'openai',
       providerOptions: { openai: { reasoningEffort: 'low' } },
     });
 
@@ -1233,8 +1233,6 @@ describe('AssistantUiPanelWrapper', () => {
   test('stores provider setting changes as per-thread draft runtime', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1244,6 +1242,8 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
@@ -1255,9 +1255,9 @@ describe('AssistantUiPanelWrapper', () => {
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
       expect.objectContaining({
-        provider: 'openai',
         model: 'gpt-5.2',
         modelSettings: { maxOutputTokens: 2048 },
+        provider: 'openai',
         providerOptions: { openai: { reasoningEffort: 'low' } },
       })
     );
@@ -1272,8 +1272,6 @@ describe('AssistantUiPanelWrapper', () => {
   test('removes per-thread draft provider settings when a control is toggled off', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1284,6 +1282,8 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
@@ -1295,8 +1295,8 @@ describe('AssistantUiPanelWrapper', () => {
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
       expect.objectContaining({
-        provider: 'openai',
         model: 'gpt-5.2',
+        provider: 'openai',
       })
     );
     expect(
@@ -1314,8 +1314,6 @@ describe('AssistantUiPanelWrapper', () => {
   test('stores provider setting changes globally when no thread prop is mounted', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1325,6 +1323,8 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1346,9 +1346,9 @@ describe('AssistantUiPanelWrapper', () => {
   test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantThreadPanel(['openai', 'anthropic'], 'thread-existing', async () => {
@@ -1359,8 +1359,8 @@ describe('AssistantUiPanelWrapper', () => {
     });
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
-      provider: 'anthropic',
       model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
     });
     expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
   });
@@ -1384,9 +1384,9 @@ describe('AssistantUiPanelWrapper', () => {
       isTestMode: true,
     };
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     const { unmount } = await renderAssistantThreadPanel(
@@ -1405,8 +1405,8 @@ describe('AssistantUiPanelWrapper', () => {
     });
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
-      provider: 'anthropic',
       model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
     });
     expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
       'anthropic::claude-sonnet-4-6'
@@ -1421,12 +1421,12 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const requestData = readPanelRequestData();
         expect(requestData['memory']).toMatchObject({
-          threadId: 'thread-existing',
-          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
           memoryOptions: {
             lastMessages: 40,
             workingMemory: { enabled: true, scope: 'resource' },
           },
+          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+          threadId: 'thread-existing',
         });
       })
     );
@@ -1474,11 +1474,11 @@ describe('AssistantUiPanelWrapper', () => {
   test('blocks unsupported persisted semantic recall embedding providers before assistant requests run', async () => {
     useAssistantMemoryPreferencesStore.setState({
       semanticRecall: {
-        enabled: true,
         embeddingModelTarget: 'cohere/embed-english-v3.0',
+        enabled: true,
+        messageRange: 2,
         scope: 'resource',
         topK: 5,
-        messageRange: 2,
       },
     });
 
@@ -1496,18 +1496,18 @@ describe('AssistantUiPanelWrapper', () => {
     useAssistantMemoryPreferencesStore.setState({
       observationalMemory: {
         enabled: true,
-        modelTarget: 'anthropic/claude-haiku-4-5',
-        scope: 'resource',
         messageTokens: 18_000,
+        modelTarget: 'anthropic/claude-haiku-4-5',
         observationTokens: 36_000,
         retrievalMode: 'messages',
+        scope: 'resource',
       },
       semanticRecall: {
-        enabled: false,
         embeddingModelTarget: 'openai/text-embedding-3-small',
+        enabled: false,
+        messageRange: 2,
         scope: 'resource',
         topK: 5,
-        messageRange: 2,
       },
     });
 
@@ -1518,18 +1518,18 @@ describe('AssistantUiPanelWrapper', () => {
           memorySettings: {
             observationalMemory: {
               enabled: true,
-              modelTarget: 'anthropic/claude-haiku-4-5',
-              scope: 'resource',
               messageTokens: 18_000,
+              modelTarget: 'anthropic/claude-haiku-4-5',
               observationTokens: 36_000,
               retrievalMode: 'messages',
+              scope: 'resource',
             },
             semanticRecall: {
-              enabled: false,
               embeddingModelTarget: 'openai/text-embedding-3-small',
+              enabled: false,
+              messageRange: 2,
               scope: 'resource',
               topK: 5,
-              messageRange: 2,
             },
           },
         });
@@ -1539,8 +1539,6 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('does not rewrite Mastra thread metadata just by selecting a thread', async () => {
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1549,6 +1547,8 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1567,8 +1567,6 @@ describe('AssistantUiPanelWrapper', () => {
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-00000000000d');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
       providerSettings: {
         ...state.providerSettings,
@@ -1577,6 +1575,8 @@ describe('AssistantUiPanelWrapper', () => {
           reasoningEffort: 'high',
         },
       },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1606,9 +1606,9 @@ describe('AssistantUiPanelWrapper', () => {
       mockDb.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE mastra_threads'))
     ).toBe(false);
     expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
-      threadId: 'thread-existing',
       resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
       runId: 'run-00000000-0000-4000-8000-00000000000d',
+      threadId: 'thread-existing',
     });
     const insertCall = mockDb.query.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO brainstrike_assistant_thread_runs')
@@ -1624,9 +1624,9 @@ describe('AssistantUiPanelWrapper', () => {
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-000000000012');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1658,9 +1658,9 @@ describe('AssistantUiPanelWrapper', () => {
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-000000000013');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1684,9 +1684,9 @@ describe('AssistantUiPanelWrapper', () => {
       .spyOn(crypto, 'randomUUID')
       .mockReturnValue('00000000-0000-4000-8000-000000000014');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     const renderResult = await renderAssistantPanel(['openai'], async () => {
@@ -1757,9 +1757,9 @@ describe('AssistantUiPanelWrapper', () => {
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000010')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000011');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1802,10 +1802,10 @@ describe('AssistantUiPanelWrapper', () => {
         return {
           rows: [
             {
+              createdAt: new Date('2026-04-22T10:00:00Z'),
               id: 'thread-existing',
               resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
               title: 'Existing thread',
-              createdAt: new Date('2026-04-22T10:00:00Z'),
               updatedAt: new Date('2026-04-22T10:00:00Z'),
             },
           ],
@@ -1819,19 +1819,19 @@ describe('AssistantUiPanelWrapper', () => {
         return {
           rows: [
             {
-              id: 'run-00000000-0000-4000-8000-00000000000f',
-              resource_id: WORKSPACE_MEMORY_RESOURCE_ID,
-              thread_id: 'thread-existing',
-              provider: 'openai',
-              model: 'gpt-5.2',
-              model_settings: null,
-              provider_options: null,
-              runtime_kind: 'hosted',
-              status: 'running',
-              error: null,
-              started_at: new Date('2026-04-22T10:00:00Z'),
               completed_at: null,
               created_at: new Date('2026-04-22T10:00:00Z'),
+              error: null,
+              id: 'run-00000000-0000-4000-8000-00000000000f',
+              model: 'gpt-5.2',
+              model_settings: null,
+              provider: 'openai',
+              provider_options: null,
+              resource_id: WORKSPACE_MEMORY_RESOURCE_ID,
+              runtime_kind: 'hosted',
+              started_at: new Date('2026-04-22T10:00:00Z'),
+              status: 'running',
+              thread_id: 'thread-existing',
               updated_at: new Date('2026-04-22T10:00:00Z'),
             },
           ],
@@ -1840,9 +1840,9 @@ describe('AssistantUiPanelWrapper', () => {
       return { rows: [] };
     });
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'openai',
-      selectedModel: 'openai::gpt-5.2',
       modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      selectedModel: 'openai::gpt-5.2',
+      selectedProvider: 'openai',
     }));
 
     await renderAssistantPanel(['openai'], async () => {
@@ -1863,8 +1863,6 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('builds provider options for anthropic settings', async () => {
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'anthropic',
-      selectedModel: 'anthropic::claude-sonnet-4-6',
       modelsByProvider: { ...state.modelsByProvider, anthropic: 'claude-sonnet-4-6' },
       providerSettings: {
         ...state.providerSettings,
@@ -1874,6 +1872,8 @@ describe('AssistantUiPanelWrapper', () => {
           anthropicThinkingBudgetTokens: 422.2,
         },
       },
+      selectedModel: 'anthropic::claude-sonnet-4-6',
+      selectedProvider: 'anthropic',
     }));
     await renderAssistantPanel(['anthropic'], () =>
       waitFor(() => {
@@ -1882,8 +1882,8 @@ describe('AssistantUiPanelWrapper', () => {
           anthropic: {
             effort: 'medium',
             thinking: {
-              type: 'enabled',
               budgetTokens: 422,
+              type: 'enabled',
             },
           },
         });
@@ -1894,8 +1894,6 @@ describe('AssistantUiPanelWrapper', () => {
   test('drops invalid google thinking level for gemini-3.1-pro-preview and opens tool settings', async () => {
     testEnabledModels.add('gemini-3.1-pro-preview');
     useAssistantPreferencesStore.setState((state) => ({
-      selectedProvider: 'google',
-      selectedModel: 'google::gemini-3.1-pro-preview',
       modelsByProvider: { ...state.modelsByProvider, google: 'gemini-3.1-pro-preview' },
       providerSettings: {
         ...state.providerSettings,
@@ -1904,6 +1902,8 @@ describe('AssistantUiPanelWrapper', () => {
           googleThinkingLevel: 'minimal',
         },
       },
+      selectedModel: 'google::gemini-3.1-pro-preview',
+      selectedProvider: 'google',
     }));
     usePanelLayoutStore.setState({ activeTab: 'explorer' });
     window.location.hash = '';
@@ -1945,8 +1945,8 @@ describe('AssistantUiPanelWrapper', () => {
       resolveList?.({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             enabled: true,
+            id: 'mcp.tool',
           },
         ],
       });

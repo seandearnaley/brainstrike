@@ -9,8 +9,8 @@ describe('computeCost', () => {
     );
     expect(result).toEqual({
       available: true,
-      usdAmount: 18,
       provenance: 'exact-pricing',
+      usdAmount: 18,
     });
   });
 
@@ -22,8 +22,8 @@ describe('computeCost', () => {
     // (1000 * 1.25 + 500 * 10) / 1_000_000 = (1250 + 5000) / 1e6 = 0.00625
     expect(result).toEqual({
       available: true,
-      usdAmount: 0.006_25,
       provenance: 'exact-pricing',
+      usdAmount: 0.006_25,
     });
   });
 
@@ -50,7 +50,7 @@ describe('computeCost', () => {
       { inputTokens: 1000, outputTokens: 1000 },
       { inputPerMTok: 0, outputPerMTok: 0 }
     );
-    expect(result).toEqual({ available: true, usdAmount: 0, provenance: 'exact-pricing' });
+    expect(result).toEqual({ available: true, provenance: 'exact-pricing', usdAmount: 0 });
   });
 
   it('throws on malformed (negative) token usage rather than coercing', () => {

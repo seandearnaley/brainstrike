@@ -83,7 +83,7 @@ describe('useVirtualList', () => {
     });
 
     const last = updates.at(-1);
-    expect(last).toEqual({ start: 8, end: 17 });
+    expect(last).toEqual({ end: 17, start: 8 });
   });
 
   it('clamps overscan within bounds', () => {
@@ -100,7 +100,7 @@ describe('useVirtualList', () => {
     });
 
     const last = updates.at(-1);
-    expect(last).toEqual({ start: 16, end: 19 });
+    expect(last).toEqual({ end: 19, start: 16 });
   });
 
   it('updates range once on initial mount', () => {
@@ -115,7 +115,7 @@ describe('useVirtualList', () => {
     act(() => {});
 
     const last = updates.at(-1);
-    expect(last).toEqual({ start: 0, end: 6 });
+    expect(last).toEqual({ end: 6, start: 0 });
   });
 
   it('recomputes range when container height changes', () => {
@@ -140,7 +140,7 @@ describe('useVirtualList', () => {
     });
 
     const last = updates.at(-1);
-    expect(last).toEqual({ start: 0, end: 10 });
+    expect(last).toEqual({ end: 10, start: 0 });
   });
 
   it('returns an empty range when there are no items', () => {
@@ -150,6 +150,6 @@ describe('useVirtualList', () => {
     );
 
     const last = updates.at(-1);
-    expect(last).toEqual({ start: 0, end: -1 });
+    expect(last).toEqual({ end: -1, start: 0 });
   });
 });

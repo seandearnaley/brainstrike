@@ -198,13 +198,13 @@ function normalizePage(value: number | undefined): number {
 
 function pagination(total: number, page: number, perPage: number | false) {
   if (perPage === false) {
-    return { total, page: 0, perPage, hasMore: false };
+    return { hasMore: false, page: 0, perPage, total };
   }
   return {
-    total,
+    hasMore: (page + 1) * perPage < total,
     page,
     perPage,
-    hasMore: (page + 1) * perPage < total,
+    total,
   };
 }
 
@@ -342,10 +342,10 @@ function appendLimit(
 
 function threadFromRow(row: ThreadRow): StorageThreadType {
   const thread: StorageThreadType = {
+    createdAt: toDate(row.createdAt),
     id: row.id,
     resourceId: row.resourceId,
     title: row.title,
-    createdAt: toDate(row.createdAt),
     updatedAt: toDate(row.updatedAt),
   };
   const metadata = parseJsonRecord(row.metadata);
@@ -357,20 +357,20 @@ function threadFromRow(row: ThreadRow): StorageThreadType {
 
 function messageFromRow(row: MessageRow): MastraDBMessage {
   return {
+    content: parseMessageContent(row.content),
+    createdAt: toDate(row.createdAt),
     id: row.id,
     role: row.role,
-    type: row.type,
     threadId: row.threadId,
-    createdAt: toDate(row.createdAt),
-    content: parseMessageContent(row.content),
+    type: row.type,
     ...(row.resourceId === null ? {} : { resourceId: row.resourceId }),
   } as MastraDBMessage;
 }
 
 function resourceFromRow(row: ResourceRow): StorageResourceType {
   const resource: StorageResourceType = {
-    id: row.id,
     createdAt: toDate(row.createdAt),
+    id: row.id,
     updatedAt: toDate(row.updatedAt),
   };
   if (row.workingMemory !== null) {
@@ -402,25 +402,25 @@ function normalizeBufferedChunks(
 
 function observationalMemoryFromRow(row: ObservationalMemoryRow): ObservationalMemoryRecord {
   const record: ObservationalMemoryRecord = {
-    id: row.id,
-    scope: row.scope,
-    threadId: row.threadId,
-    resourceId: row.resourceId ?? '',
-    createdAt: toDate(row.createdAt),
-    updatedAt: toDate(row.updatedAt),
-    originType: row.originType,
-    generationCount: row.generationCount,
     activeObservations: row.activeObservations,
-    totalTokensObserved: row.totalTokensObserved,
-    observationTokenCount: row.observationTokenCount,
-    pendingMessageTokens: row.pendingMessageTokens,
-    isReflecting: row.isReflecting,
-    isObserving: row.isObserving,
+    config: parseJsonRecord(row.config) ?? {},
+    createdAt: toDate(row.createdAt),
+    generationCount: row.generationCount,
+    id: row.id,
     isBufferingObservation: row.isBufferingObservation,
     isBufferingReflection: row.isBufferingReflection,
-    lastBufferedAtTokens: row.lastBufferedAtTokens,
+    isObserving: row.isObserving,
+    isReflecting: row.isReflecting,
     lastBufferedAtTime: row.lastBufferedAtTime ? toDate(row.lastBufferedAtTime) : null,
-    config: parseJsonRecord(row.config) ?? {},
+    lastBufferedAtTokens: row.lastBufferedAtTokens,
+    observationTokenCount: row.observationTokenCount,
+    originType: row.originType,
+    pendingMessageTokens: row.pendingMessageTokens,
+    resourceId: row.resourceId ?? '',
+    scope: row.scope,
+    threadId: row.threadId,
+    totalTokensObserved: row.totalTokensObserved,
+    updatedAt: toDate(row.updatedAt),
   };
   const lastObservedAt = toOptionalDate(row.lastObservedAt);
   if (lastObservedAt) {
@@ -514,12 +514,12 @@ function chooseBufferedActivationCount(
 
 function emptyBufferedActivation(): SwapBufferedToActiveResult {
   return {
-    chunksActivated: 0,
-    messageTokensActivated: 0,
-    observationTokensActivated: 0,
-    messagesActivated: 0,
     activatedCycleIds: [],
     activatedMessageIds: [],
+    chunksActivated: 0,
+    messagesActivated: 0,
+    messageTokensActivated: 0,
+    observationTokensActivated: 0,
   };
 }
 
@@ -938,8 +938,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     const existing = await this.getResourceById({ resourceId });
     const now = new Date();
     const next: StorageResourceType = {
-      id: resourceId,
       createdAt: existing?.createdAt ?? now,
+      id: resourceId,
       updatedAt: now,
     };
     if (workingMemory === undefined) {
@@ -1058,26 +1058,26 @@ export class PgliteMemoryStore extends MemoryStorage {
   ): Promise<ObservationalMemoryRecord> {
     const now = new Date();
     const record: ObservationalMemoryRecord = {
-      id: crypto.randomUUID(),
-      scope: input.scope,
-      threadId: input.threadId,
-      resourceId: input.resourceId,
-      createdAt: now,
-      updatedAt: now,
-      originType: 'initial',
-      generationCount: 0,
       activeObservations: '',
-      totalTokensObserved: 0,
-      observationTokenCount: 0,
-      pendingMessageTokens: 0,
-      isReflecting: false,
-      isObserving: false,
+      config: input.config,
+      createdAt: now,
+      generationCount: 0,
+      id: crypto.randomUUID(),
       isBufferingObservation: false,
       isBufferingReflection: false,
-      lastBufferedAtTokens: 0,
+      isObserving: false,
+      isReflecting: false,
       lastBufferedAtTime: null,
-      config: input.config,
+      lastBufferedAtTokens: 0,
       metadata: {},
+      observationTokenCount: 0,
+      originType: 'initial',
+      pendingMessageTokens: 0,
+      resourceId: input.resourceId,
+      scope: input.scope,
+      threadId: input.threadId,
+      totalTokensObserved: 0,
+      updatedAt: now,
     };
     if (input.observedTimezone) {
       record.observedTimezone = input.observedTimezone;
@@ -1125,8 +1125,8 @@ export class PgliteMemoryStore extends MemoryStorage {
     const record = await this.findObservationalMemoryRecordById(input.id);
     const chunk = {
       ...input.chunk,
-      id: `ombuf-${crypto.randomUUID()}`,
       createdAt: new Date(),
+      id: `ombuf-${crypto.randomUUID()}`,
     };
     record.bufferedObservationChunks = [...(record.bufferedObservationChunks ?? []), chunk];
     if (input.lastBufferedAtTime) {
@@ -1199,19 +1199,19 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
 
     return {
-      chunksActivated: activatedChunks.length,
-      messageTokensActivated: activatedMessageTokens,
-      observationTokensActivated: activatedTokens,
-      messagesActivated: activatedMessageCount,
       activatedCycleIds: activatedChunks.map((chunk) => chunk.cycleId).filter(Boolean),
       activatedMessageIds: activatedChunks.flatMap((chunk) => chunk.messageIds),
+      chunksActivated: activatedChunks.length,
+      messagesActivated: activatedMessageCount,
+      messageTokensActivated: activatedMessageTokens,
       observations: activatedContent,
+      observationTokensActivated: activatedTokens,
       perChunk: activatedChunks.map((chunk) => ({
         cycleId: chunk.cycleId,
-        messageTokens: chunk.messageTokens,
-        observationTokens: chunk.tokenCount,
         messageCount: chunk.messageIds.length,
+        messageTokens: chunk.messageTokens,
         observations: chunk.observations,
+        observationTokens: chunk.tokenCount,
       })),
       ...(latestChunk?.suggestedContinuation
         ? { suggestedContinuation: latestChunk.suggestedContinuation }
@@ -1225,27 +1225,27 @@ export class PgliteMemoryStore extends MemoryStorage {
   ): Promise<ObservationalMemoryRecord> {
     const now = new Date();
     const record: ObservationalMemoryRecord = {
-      id: crypto.randomUUID(),
-      scope: input.currentRecord.scope,
-      threadId: input.currentRecord.threadId,
-      resourceId: input.currentRecord.resourceId,
-      createdAt: now,
-      updatedAt: now,
-      lastObservedAt: input.currentRecord.lastObservedAt ?? now,
-      originType: 'reflection',
-      generationCount: input.currentRecord.generationCount + 1,
       activeObservations: input.reflection,
       config: input.currentRecord.config,
-      totalTokensObserved: input.currentRecord.totalTokensObserved,
-      observationTokenCount: input.tokenCount,
-      pendingMessageTokens: 0,
-      isReflecting: false,
-      isObserving: false,
+      createdAt: now,
+      generationCount: input.currentRecord.generationCount + 1,
+      id: crypto.randomUUID(),
       isBufferingObservation: false,
       isBufferingReflection: false,
-      lastBufferedAtTokens: 0,
+      isObserving: false,
+      isReflecting: false,
       lastBufferedAtTime: null,
+      lastBufferedAtTokens: 0,
+      lastObservedAt: input.currentRecord.lastObservedAt ?? now,
       metadata: {},
+      observationTokenCount: input.tokenCount,
+      originType: 'reflection',
+      pendingMessageTokens: 0,
+      resourceId: input.currentRecord.resourceId,
+      scope: input.currentRecord.scope,
+      threadId: input.currentRecord.threadId,
+      totalTokensObserved: input.currentRecord.totalTokensObserved,
+      updatedAt: now,
     };
     if (input.currentRecord.observedTimezone) {
       record.observedTimezone = input.currentRecord.observedTimezone;

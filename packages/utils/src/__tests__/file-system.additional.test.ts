@@ -9,10 +9,10 @@ vi.mock('../hash-utils', () => ({
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
   debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -30,34 +30,34 @@ describe('fileSystem', () => {
 
     // Create mock directory handles
     mockDirectoryHandle1 = {
-      kind: 'directory',
-      name: 'testDir',
       entries: vi.fn().mockImplementation(function* () {}),
       getDirectoryHandle: vi.fn(),
       getFileHandle: vi.fn(),
+      kind: 'directory',
+      name: 'testDir',
       removeEntry: vi.fn(),
       resolve: vi.fn(),
     } as unknown as FileSystemDirectoryHandle;
 
     mockDirectoryHandle2 = {
-      kind: 'directory',
-      name: 'testDir',
       entries: vi.fn().mockImplementation(function* () {}),
       getDirectoryHandle: vi.fn(),
       getFileHandle: vi.fn(),
+      kind: 'directory',
+      name: 'testDir',
       removeEntry: vi.fn(),
       resolve: vi.fn(),
     } as unknown as FileSystemDirectoryHandle;
 
     mockFileHandle = {
+      getFile: vi.fn().mockResolvedValue({
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(10)),
+        lastModified: 1_234_567_890,
+        size: 100,
+        text: vi.fn().mockResolvedValue('test content'),
+      }),
       kind: 'file',
       name: 'testFile.txt',
-      getFile: vi.fn().mockResolvedValue({
-        text: vi.fn().mockResolvedValue('test content'),
-        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(10)),
-        size: 100,
-        lastModified: 1_234_567_890,
-      }),
     } as unknown as FileSystemFileHandle;
   });
 
@@ -132,9 +132,9 @@ describe('fileSystem', () => {
   describe('getFullPath', () => {
     it('should get the full path of a directory handle', async () => {
       const parent = {
+        getParent: vi.fn().mockResolvedValue(null),
         kind: 'directory',
         name: 'parent',
-        getParent: vi.fn().mockResolvedValue(null),
       };
 
       // Setup nested directories structure
@@ -246,10 +246,10 @@ describe('fileSystem', () => {
       // Use Object.defineProperties to handle read-only properties
       const MockTextDecoder = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
         Object.defineProperties(this, {
+          decode: { value: mockDecode, writable: false },
           encoding: { value: 'utf-8', writable: false },
           fatal: { value: false, writable: false },
           ignoreBOM: { value: false, writable: false },
-          decode: { value: mockDecode, writable: false },
         });
       });
 
@@ -257,8 +257,8 @@ describe('fileSystem', () => {
 
       // Mock text() to fail and force arrayBuffer() path
       mockFileHandle.getFile = vi.fn().mockResolvedValue({
-        text: vi.fn().mockRejectedValue(new Error('text() not supported')),
         arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(10)),
+        text: vi.fn().mockRejectedValue(new Error('text() not supported')),
       });
 
       const content = await fileSystem.readFileContent(mockFileHandle);
@@ -273,8 +273,8 @@ describe('fileSystem', () => {
     it('should throw FileSystemOperationError when both methods fail', async () => {
       // Mock both text() and arrayBuffer() to fail
       mockFileHandle.getFile = vi.fn().mockResolvedValue({
-        text: vi.fn().mockRejectedValue(new Error('text() failed')),
         arrayBuffer: vi.fn().mockRejectedValue(new Error('arrayBuffer() failed')),
+        text: vi.fn().mockRejectedValue(new Error('text() failed')),
       });
 
       await expect(fileSystem.readFileContent(mockFileHandle)).rejects.toThrow(
@@ -309,15 +309,15 @@ describe('fileSystem', () => {
       const fileNode = await fileSystem.createFileNode(mockFileHandle, 'parent');
 
       expect(fileNode).toEqual({
+        depth: 1,
+        handle: mockFileHandle,
+        lastModified: 1_234_567_890,
         name: 'testFile.txt',
         path: 'parent/testFile.txt',
-        type: 'file',
-        handle: mockFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
         size: 100,
-        lastModified: 1_234_567_890,
+        type: 'file',
       });
     });
 

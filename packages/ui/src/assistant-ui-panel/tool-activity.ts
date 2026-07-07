@@ -67,7 +67,7 @@ export function summarizeToolActivity(parts: readonly unknown[]): ToolActivitySu
     }
   }
 
-  return { stepCount, runningCount, failedCount, activeLabel, activeArg };
+  return { activeArg, activeLabel, failedCount, runningCount, stepCount };
 }
 
 /**

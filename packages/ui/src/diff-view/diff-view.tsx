@@ -25,11 +25,12 @@ const MONO_FONT_FAMILY =
  * destructive / success-ish tokens.
  */
 const DIFF_THEME: Extension = EditorView.theme({
-  '&': {
-    backgroundColor: 'hsl(var(--background))',
-    color: 'hsl(var(--foreground))',
-    height: '100%',
-    minHeight: '100%',
+  // Merge-view chunk highlighting (tinted via theme tokens so it tracks dark mode).
+  '.cm-changedLine': {
+    backgroundColor: 'hsl(var(--primary) / 0.08)',
+  },
+  '.cm-changedText': {
+    backgroundColor: 'hsl(var(--primary) / 0.18)',
   },
   '.cm-content': {
     caretColor: 'hsl(var(--foreground))',
@@ -38,6 +39,9 @@ const DIFF_THEME: Extension = EditorView.theme({
     lineHeight: '1.55',
     minHeight: '100%',
     padding: '0.5rem 0',
+  },
+  '.cm-deletedChunk': {
+    backgroundColor: 'hsl(var(--destructive) / 0.12)',
   },
   '.cm-editor': {
     height: '100%',
@@ -50,26 +54,22 @@ const DIFF_THEME: Extension = EditorView.theme({
     borderRight: '1px solid hsl(var(--border))',
     color: 'hsl(var(--muted-foreground))',
   },
-  '.cm-scroller': {
-    fontFamily: MONO_FONT_FAMILY,
-    overflow: 'auto',
-  },
-  // Merge-view chunk highlighting (tinted via theme tokens so it tracks dark mode).
-  '.cm-changedLine': {
-    backgroundColor: 'hsl(var(--primary) / 0.08)',
-  },
-  '.cm-deletedChunk': {
-    backgroundColor: 'hsl(var(--destructive) / 0.12)',
-  },
   '.cm-insertedLine': {
     backgroundColor: 'hsl(142 70% 45% / 0.14)',
-  },
-  '.cm-changedText': {
-    backgroundColor: 'hsl(var(--primary) / 0.18)',
   },
   '.cm-merge-revert': {
     // Read-only diff: hide the revert gutter entirely.
     display: 'none',
+  },
+  '.cm-scroller': {
+    fontFamily: MONO_FONT_FAMILY,
+    overflow: 'auto',
+  },
+  '&': {
+    backgroundColor: 'hsl(var(--background))',
+    color: 'hsl(var(--foreground))',
+    height: '100%',
+    minHeight: '100%',
   },
 });
 
@@ -178,11 +178,11 @@ export function DiffView({
             doc: modified,
             extensions: [...BASE_EXTENSIONS, READ_ONLY_EXTENSIONS, languageExtension],
           },
-          parent: host,
-          orientation: 'a-b',
-          highlightChanges: true,
-          gutter: true,
           collapseUnchanged: { margin: 3, minSize: 4 },
+          gutter: true,
+          highlightChanges: true,
+          orientation: 'a-b',
+          parent: host,
         });
         return;
       }
@@ -196,11 +196,11 @@ export function DiffView({
             READ_ONLY_EXTENSIONS,
             languageExtension,
             unifiedMergeView({
-              original,
+              collapseUnchanged: { margin: 3, minSize: 4 },
+              gutter: true,
               // Read-only viewer: never show accept/reject chunk controls.
               mergeControls: false,
-              gutter: true,
-              collapseUnchanged: { margin: 3, minSize: 4 },
+              original,
             }),
           ],
         }),

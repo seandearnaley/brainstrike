@@ -58,10 +58,10 @@ function mapRowToStatus(row: FileStatusRow): FileCollectionStatus {
     fileId: row.file_id,
     fileName: row.file_name,
     filePath: row.file_path,
-    searchableInActive: searchableChunksCount > 0,
-    searchableChunksCount,
-    totalChunksCount,
     otherCollectionsCount,
+    searchableChunksCount,
+    searchableInActive: searchableChunksCount > 0,
+    totalChunksCount,
   };
 
   if (row.last_indexed) {
@@ -119,9 +119,9 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     cacheKey: makeLiveQueryKey('file-collection-status', activeCollectionId),
     query: FILE_STATUS_QUERY,
     ...(params ? { params } : {}),
-    mode: 'incremental',
-    key: 'file_id',
     enabled: Boolean(activeCollectionId),
+    key: 'file_id',
+    mode: 'incremental',
   });
 
   const statusMap = useMemo(() => {
@@ -153,5 +153,5 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     [activeCollectionId, statusMap]
   );
 
-  return { getFileStatus, error };
+  return { error, getFileStatus };
 }

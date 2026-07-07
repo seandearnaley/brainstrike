@@ -16,11 +16,11 @@ export function createDefaultTapestryRanges(
 ): TapestryRange[] {
   return [
     {
-      id: createRangeId(),
-      startLine: 0,
-      endLine: totalLines,
-      isActive: true,
       color: getStableColorForKey(compositeKey),
+      endLine: totalLines,
+      id: createRangeId(),
+      isActive: true,
+      startLine: 0,
       userModified: false,
     },
   ];
@@ -55,7 +55,7 @@ function clampRangeToTotal(range: TapestryRange, totalLines: number): TapestryRa
   if (startLine === range.startLine && endLine === range.endLine) {
     return range;
   }
-  return { ...range, startLine, endLine };
+  return { ...range, endLine, startLine };
 }
 
 function clampRangesToTotal(
@@ -70,7 +70,7 @@ function clampRangesToTotal(
     }
     return nextRange;
   });
-  return { ranges: nextRanges, changed };
+  return { changed, ranges: nextRanges };
 }
 
 export function syncTapestryRanges(args: {
@@ -118,5 +118,5 @@ export function syncTapestryRanges(args: {
     }
   }
 
-  return { next, changed, totals: nextTotals };
+  return { changed, next, totals: nextTotals };
 }

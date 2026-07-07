@@ -98,12 +98,12 @@ export function resolveCrossRootCostRows(
     }
     const cost: CostEstimate = aggregate.hasUnpriced
       ? { available: false, reason: 'unpriced_model' }
-      : { available: true, usdAmount: aggregate.cost, provenance: 'exact-pricing' };
+      : { available: true, provenance: 'exact-pricing', usdAmount: aggregate.cost };
     return {
-      rootId,
-      displayName: aggregate.displayName,
-      totalTokens: aggregate.totalTokens,
       cost,
+      displayName: aggregate.displayName,
+      rootId,
+      totalTokens: aggregate.totalTokens,
     };
   });
 }

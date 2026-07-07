@@ -14,45 +14,45 @@ describe('types module', () => {
   it('ChunkSearchResult type can be used correctly', () => {
     const result: ChunkSearchResult = {
       chunk: {
-        id: '1',
-        fileRecordId: 'file-1',
         chunkIndex: 0,
         content: 'test content',
         contentHash: 'hash123',
+        fileRecordId: 'file-1',
+        id: '1',
         tokenCount: 10,
       } as ChunkSearchResult['chunk'],
-      similarity: 0.9,
       fileRecord: {
+        createdAt: '2024-01-01',
         id: 'file-1',
         name: 'test.txt',
         path: '/path/test.txt',
         size: 100,
-        createdAt: '2024-01-01',
         updatedAt: '2024-01-01',
       } as ChunkSearchResult['fileRecord'],
+      similarity: 0.9,
     };
     expect(result.similarity).toBe(0.9);
   });
 
   it('EnhancedImportResult type can be used correctly', () => {
     const result: EnhancedImportResult = {
+      chunksCreated: 5,
+      existed: false,
       id: '1',
       imported: true,
-      existed: false,
-      chunksCreated: 5,
     };
     expect(result.imported).toBe(true);
   });
 
   it('EnhancedImportResult type supports optional fields', () => {
     const result: EnhancedImportResult = {
-      id: '2',
-      imported: false,
-      existed: true,
-      error: 'File already exists',
+      chunkingStrategy: 'sentence',
       chunksCreated: 0,
       chunksWithEmbeddings: 0,
-      chunkingStrategy: 'sentence',
+      error: 'File already exists',
+      existed: true,
+      id: '2',
+      imported: false,
     };
     expect(result.error).toBe('File already exists');
   });
@@ -60,10 +60,10 @@ describe('types module', () => {
   it('EnhancedImportProgress type extends ImportProgress', () => {
     // EnhancedImportProgress extends ImportProgress with additional phase info
     const progress: EnhancedImportProgress = {
-      phase: 'complete',
-      total: 10,
       completed: 10,
       errors: [],
+      phase: 'complete',
+      total: 10,
     };
     expect(progress.phase).toBe('complete');
     expect(progress.total).toBe(10);
@@ -72,38 +72,38 @@ describe('types module', () => {
 
   it('EnhancedImportProgress type supports queueProgress', () => {
     const progress: EnhancedImportProgress = {
-      phase: 'embedding',
-      total: 10,
       completed: 10,
       errors: [],
+      phase: 'embedding',
       queueProgress: {
+        failed: 1,
+        lastError: null,
         pending: 5,
         processed: 20,
-        failed: 1,
         totalQueued: 26,
-        lastError: null,
       },
+      total: 10,
     };
     expect(progress.queueProgress?.processed).toBe(20);
   });
 
   it('ImportSettings type has all required properties', () => {
     const settings: ImportSettings = {
-      enableChunking: true,
-      setEnableChunking: () => {},
       chunkingPreset: 'balanced',
-      setChunkingPreset: () => {},
       chunkingStrategy: 'auto',
-      setChunkingStrategy: () => {},
       chunkingStrategyExplicit: false,
-      chunkSize: 500,
-      setChunkSize: () => {},
       chunkOverlap: 50,
-      setChunkOverlap: () => {},
-      tokenTrueSizing: true,
-      setTokenTrueSizing: () => {},
+      chunkSize: 500,
       chunkTokenLimit: 8192,
+      enableChunking: true,
+      setChunkingPreset: () => {},
+      setChunkingStrategy: () => {},
+      setChunkOverlap: () => {},
+      setChunkSize: () => {},
       setChunkTokenLimit: () => {},
+      setEnableChunking: () => {},
+      setTokenTrueSizing: () => {},
+      tokenTrueSizing: true,
     };
     expect(settings.enableChunking).toBe(true);
     expect(settings.chunkingStrategy).toBe('auto');
@@ -111,10 +111,10 @@ describe('types module', () => {
 
   it('ExportHandlers type has all required methods', () => {
     const handlers: ExportHandlers = {
-      handleExportFiles: async () => {},
+      handleExportAll: async () => {},
       handleExportChunks: async () => {},
       handleExportEmbeddings: async () => {},
-      handleExportAll: async () => {},
+      handleExportFiles: async () => {},
     };
     expect(typeof handlers.handleExportFiles).toBe('function');
     expect(typeof handlers.handleExportAll).toBe('function');
@@ -122,14 +122,14 @@ describe('types module', () => {
 
   it('SearchFunctionality type has all required properties', () => {
     const search: SearchFunctionality = {
-      searchQuery: 'test query',
-      setSearchQuery: () => {},
-      searchResults: [],
-      searching: false,
-      searchThreshold: 0.5,
-      setSearchThreshold: () => {},
       handleSearch: async () => {},
       hasSearched: false,
+      searching: false,
+      searchQuery: 'test query',
+      searchResults: [],
+      searchThreshold: 0.5,
+      setSearchQuery: () => {},
+      setSearchThreshold: () => {},
     };
     expect(search.searchQuery).toBe('test query');
     expect(search.searching).toBe(false);

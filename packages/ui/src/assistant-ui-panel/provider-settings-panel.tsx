@@ -37,29 +37,29 @@ const ANTHROPIC_THINKING_MAX = 20_000;
 const ANTHROPIC_THINKING_STEP = 256;
 
 const OPENAI_EFFORT_OPTIONS: Array<{ value: OpenAiReasoningEffort | 'auto'; label: string }> = [
-  { value: 'auto', label: 'Auto (medium)' },
-  { value: 'none', label: 'None' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'X-High' },
+  { label: 'Auto (medium)', value: 'auto' },
+  { label: 'None', value: 'none' },
+  { label: 'Minimal', value: 'minimal' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+  { label: 'X-High', value: 'xhigh' },
 ];
 
 const OPENAI_SUMMARY_OPTIONS: Array<{
   value: OpenAiReasoningSummary | 'off';
   label: string;
 }> = [
-  { value: 'off', label: 'Off' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'detailed', label: 'Detailed' },
+  { label: 'Off', value: 'off' },
+  { label: 'Auto', value: 'auto' },
+  { label: 'Detailed', value: 'detailed' },
 ];
 
 const ANTHROPIC_EFFORT_OPTIONS: Array<{ value: AnthropicEffort | 'auto'; label: string }> = [
-  { value: 'auto', label: 'Auto (high)' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { label: 'Auto (high)', value: 'auto' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
 ];
 
 interface ProviderSettingsPanelProps {

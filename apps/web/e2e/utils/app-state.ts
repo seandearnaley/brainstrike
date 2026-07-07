@@ -109,10 +109,10 @@ export async function seedWorkspaceFocusedShellLayout(page: Page): Promise<void>
       'panel-layout-store.v1',
       JSON.stringify({
         state: {
-          sizes: [18, 60, 20],
+          showConsole: false,
           showLeftPanel: true,
           showRightPanel: true,
-          showConsole: false,
+          sizes: [18, 60, 20],
         },
         version: 4,
       })

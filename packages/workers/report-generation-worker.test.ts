@@ -6,13 +6,13 @@ import { MockFileSystemAdapter } from './test-helpers';
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 const baseRequest = {
-  selectedFiles: new Set(['a.ts']),
-  fileContents: { 'a.ts': 'content' },
-  includeFilters: [],
   excludeFilters: [],
-  useRegex: false,
-  includeProjectTree: false,
+  fileContents: { 'a.ts': 'content' },
   folderSummaryThreshold: 5,
+  includeFilters: [],
+  includeProjectTree: false,
+  selectedFiles: new Set(['a.ts']),
+  useRegex: false,
 };
 
 describe('report-generation-worker', () => {
@@ -69,21 +69,21 @@ describe('report-generation-worker', () => {
 
     await worker({
       ...baseRequest,
-      rootDirectoryHandle: rootHandle,
       projectTreeUsesViewFilters: false,
-      useTapestryRanges: true,
+      rootDirectoryHandle: rootHandle,
       selectedLineRangesByFile: {
-        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
       },
+      useTapestryRanges: true,
     });
 
     const call = spy.mock.calls[0];
     expect(call?.[8]).toEqual({
       projectTreeUsesViewFilters: false,
-      useTapestryRanges: true,
       selectedLineRangesByFile: {
-        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        'a.ts': [{ endLine: 1, isActive: true, startLine: 0 }],
       },
+      useTapestryRanges: true,
     });
   });
 });

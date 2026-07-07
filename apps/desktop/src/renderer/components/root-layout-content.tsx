@@ -23,10 +23,10 @@ import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 
-const GIT_NAVIGATION_ITEM: NavigationItem = { name: 'Git', icon: GitBranch, path: '/git' };
+const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
 const TERMINAL_NAVIGATION_ITEM: NavigationItem = {
-  name: 'Terminal',
   icon: SquareTerminal,
+  name: 'Terminal',
   path: '/terminal',
 };
 
@@ -104,11 +104,11 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
+    contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
-    contextExplorerPageContent: <ContextExplorerPageContent />,
-    settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
+    settingsPageContent: <SettingsPageContent />,
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
@@ -142,10 +142,10 @@ export default function RootLayoutContent() {
 
       logger.info('Desktop visible renderer heap changed materially', {
         activeToolsTab: activeToolsTabRef.current,
-        usedJSHeapBytes: currentMemory.usedJSHeapSize,
-        totalJSHeapBytes: currentMemory.totalJSHeapSize,
-        jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
         deltaBytes: usedHeapDelta,
+        jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
+        totalJSHeapBytes: currentMemory.totalJSHeapSize,
+        usedJSHeapBytes: currentMemory.usedJSHeapSize,
       });
     }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
 
@@ -242,12 +242,12 @@ export default function RootLayoutContent() {
       const currentMemory = performanceWithMemory?.memory;
       const payload = {
         activeToolsTab: activeToolsTabRef.current,
-        maxFrameGapMs: Math.round(maxFrameGapMs),
         frameCount,
-        stalledFrameCount,
-        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
-        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
         jsHeapSizeLimitBytes: currentMemory?.jsHeapSizeLimit ?? null,
+        maxFrameGapMs: Math.round(maxFrameGapMs),
+        stalledFrameCount,
+        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
+        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
       };
 
       logger.warn('Desktop visible renderer frame health degraded', payload);

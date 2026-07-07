@@ -49,22 +49,22 @@ describe('mcp-clients (sse progress)', () => {
 
       if (method === 'GET' && url.endsWith('/sse')) {
         const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(encoder.encode(': ok\n\n'));
-            streams.push(controller);
-          },
           cancel() {
             // Remove any controllers that were registered for this stream
             streams.splice(0, streams.length);
           },
+          start(controller) {
+            controller.enqueue(encoder.encode(': ok\n\n'));
+            streams.push(controller);
+          },
         });
         return new Response(stream, {
-          status: 200,
           headers: {
-            'Content-Type': 'text/event-stream',
-            Connection: 'keep-alive',
             'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'Content-Type': 'text/event-stream',
           },
+          status: 200,
         });
       }
 
@@ -83,7 +83,7 @@ describe('mcp-clients (sse progress)', () => {
 
   test('invokes onProgress callback before result', async () => {
     initClients({
-      servers: [{ transport: 'sse', name: 'web', url: `http://127.0.0.1:${port}/sse` }],
+      servers: [{ name: 'web', transport: 'sse', url: `http://127.0.0.1:${port}/sse` }],
     });
     const client = getClient('web');
     expect(client).toBeTruthy();

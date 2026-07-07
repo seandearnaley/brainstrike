@@ -31,21 +31,21 @@ describe('useProgressMessage', () => {
   });
 
   it('should return scanning message during counting phase', () => {
-    const progressState = { loaded: 0, total: 0, phase: 'counting' as const, currentPath: '' };
+    const progressState = { currentPath: '', loaded: 0, phase: 'counting' as const, total: 0 };
     const { result } = renderHook(() => useProgressMessage(false, undefined, false, progressState));
 
     expect(result.current).toBe('Scanning directory structure...');
   });
 
   it('should return preparing message when total is 0', () => {
-    const progressState = { loaded: 0, total: 0, phase: 'loading' as const, currentPath: '' };
+    const progressState = { currentPath: '', loaded: 0, phase: 'loading' as const, total: 0 };
     const { result } = renderHook(() => useProgressMessage(false, undefined, false, progressState));
 
     expect(result.current).toBe('Preparing...');
   });
 
   it('should return progress message with percentage', () => {
-    const progressState = { loaded: 50, total: 100, phase: 'loading' as const, currentPath: '' };
+    const progressState = { currentPath: '', loaded: 50, phase: 'loading' as const, total: 100 };
     const { result } = renderHook(() => useProgressMessage(false, undefined, false, progressState));
 
     expect(result.current).toBe('Processing files (50/100 - 50%)');
@@ -53,10 +53,10 @@ describe('useProgressMessage', () => {
 
   it('should include formatted path in progress message', () => {
     const progressState = {
-      loaded: 25,
-      total: 100,
-      phase: 'loading' as const,
       currentPath: '/root/folder/subfolder/file.ts',
+      loaded: 25,
+      phase: 'loading' as const,
+      total: 100,
     };
     const { result } = renderHook(() => useProgressMessage(false, undefined, false, progressState));
 
@@ -66,10 +66,10 @@ describe('useProgressMessage', () => {
 
   it('should show short path without truncation for paths with 2 or fewer parts', () => {
     const progressState = {
-      loaded: 10,
-      total: 100,
-      phase: 'loading' as const,
       currentPath: 'folder/file.ts',
+      loaded: 10,
+      phase: 'loading' as const,
+      total: 100,
     };
     const { result } = renderHook(() => useProgressMessage(false, undefined, false, progressState));
 
@@ -108,14 +108,14 @@ describe('useProgressDescription', () => {
   });
 
   it('should return counting phase message', () => {
-    const progressState = { loaded: 0, total: 0, phase: 'counting' as const, currentPath: '' };
+    const progressState = { currentPath: '', loaded: 0, phase: 'counting' as const, total: 0 };
     const { result } = renderHook(() => useProgressDescription(false, undefined, progressState));
 
     expect(result.current).toBe('This may take a moment for large directories');
   });
 
   it('should return default wait message during loading phase', () => {
-    const progressState = { loaded: 50, total: 100, phase: 'loading' as const, currentPath: '' };
+    const progressState = { currentPath: '', loaded: 50, phase: 'loading' as const, total: 100 };
     const { result } = renderHook(() => useProgressDescription(false, undefined, progressState));
 
     expect(result.current).toBe('Please wait while we load the file tree');

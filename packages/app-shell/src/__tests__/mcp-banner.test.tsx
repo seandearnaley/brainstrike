@@ -26,8 +26,8 @@ describe('McpBanner', () => {
   it('renders loaded state with server count', async () => {
     setMcpConfig(
       Promise.resolve({
-        path: '/Users/example/.brainstrike/mcp.json',
         exists: true,
+        path: '/Users/example/.brainstrike/mcp.json',
         servers: [{ name: 'local', transport: 'stdio' }],
       })
     );
@@ -40,7 +40,7 @@ describe('McpBanner', () => {
 
   it('renders missing state without servers', async () => {
     setMcpConfig(
-      Promise.resolve({ path: '/Users/example/.brainstrike/mcp.json', exists: false, servers: [] })
+      Promise.resolve({ exists: false, path: '/Users/example/.brainstrike/mcp.json', servers: [] })
     );
 
     render(<McpBanner />);

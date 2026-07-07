@@ -8,9 +8,9 @@ type McpApi = NonNullable<Window['mcp']>;
 
 function setMcpApi(overrides: Partial<McpApi> = {}): McpApi {
   const api: McpApi = {
-    listTools: vi.fn().mockResolvedValue({}),
-    enableTools: vi.fn().mockResolvedValue(undefined),
     disableTools: vi.fn().mockResolvedValue(undefined),
+    enableTools: vi.fn().mockResolvedValue(undefined),
+    listTools: vi.fn().mockResolvedValue({}),
     onToolsUpdated: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };
@@ -20,12 +20,12 @@ function setMcpApi(overrides: Partial<McpApi> = {}): McpApi {
 
 const nativeToolItems: AssistantToolMenuItem[] = [
   {
+    description: 'Search native files',
+    enabled: true,
+    group: 'Native Tools',
     id: 'native.search',
     label: 'Native Search',
-    enabled: true,
     source: 'native',
-    group: 'Native Tools',
-    description: 'Search native files',
   },
 ];
 
@@ -41,9 +41,9 @@ describe('useAssistantMcpMenuState', () => {
       listTools: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             description: 'Test MCP tool',
             enabled: true,
+            id: 'mcp.tool',
           },
         ],
       }),
@@ -77,8 +77,8 @@ describe('useAssistantMcpMenuState', () => {
       listTools: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
-            id: 'mcp.tool',
             enabled: false,
+            id: 'mcp.tool',
           },
         ],
       }),
@@ -143,9 +143,9 @@ describe('useAssistantMcpMenuState', () => {
       publishTools?.({
         filesystem: [
           {
-            id: 'filesystem.list_directory',
             description: 'List directory contents',
             enabled: true,
+            id: 'filesystem.list_directory',
           },
         ],
       });

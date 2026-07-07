@@ -61,12 +61,6 @@ const BASE_EXTENSIONS: Extension[] = [
   highlightActiveLine(),
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   EditorView.theme({
-    '&': {
-      backgroundColor: 'hsl(var(--background))',
-      color: 'hsl(var(--foreground))',
-      height: '100%',
-      minHeight: '100%',
-    },
     '.cm-content': {
       caretColor: 'hsl(var(--foreground))',
       fontFamily: MONO_FONT_FAMILY,
@@ -103,6 +97,12 @@ const BASE_EXTENSIONS: Extension[] = [
     '.cm-selectionBackground': {
       // CodeMirror injects selection styles with high specificity; keep app theme contrast.
       backgroundColor: 'hsl(var(--primary) / 0.2) !important',
+    },
+    '&': {
+      backgroundColor: 'hsl(var(--background))',
+      color: 'hsl(var(--foreground))',
+      height: '100%',
+      minHeight: '100%',
     },
   }),
 ];

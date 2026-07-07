@@ -48,12 +48,12 @@ export function buildNodeFromPath(
   }
 
   return {
+    depth,
+    handle,
     name,
     path,
-    type: 'directory',
-    depth,
     rootFolderId,
-    handle,
     selectionState: 'unchecked',
+    type: 'directory',
   };
 }

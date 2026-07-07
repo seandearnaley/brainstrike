@@ -75,7 +75,7 @@ export function useActiveWorkspaceFilters(): ActiveWorkspaceFilters {
   );
 
   return useMemo(
-    () => ({ includeFilters, excludeFilters, useRegex }),
+    () => ({ excludeFilters, includeFilters, useRegex }),
     [includeFilters, excludeFilters, useRegex]
   );
 }

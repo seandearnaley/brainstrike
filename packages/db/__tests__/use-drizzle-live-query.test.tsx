@@ -18,34 +18,34 @@ describe('useDrizzleLiveQuery', () => {
   beforeEach(() => {
     mocks.usePGliteLiveQuery.mockReset();
     mocks.usePGliteLiveQuery.mockReturnValue({
-      rows: [{ id: 1 }],
-      loading: false,
       error: null,
+      loading: false,
       refresh: vi.fn(),
+      rows: [{ id: 1 }],
     });
   });
 
   it('passes extracted SQL/params and pagination options to usePGliteLiveQuery', () => {
     const query: DrizzleQueryLike = {
-      toSQL: () => ({ sql: 'SELECT * FROM files WHERE id = $1', params: [123] }),
+      toSQL: () => ({ params: [123], sql: 'SELECT * FROM files WHERE id = $1' }),
     };
 
     const { result } = renderHook(() =>
-      useDrizzleLiveQuery<{ id: number }>(query, { enabled: true, offset: 10, limit: 5 })
+      useDrizzleLiveQuery<{ id: number }>(query, { enabled: true, limit: 5, offset: 10 })
     );
 
     expect(mocks.usePGliteLiveQuery).toHaveBeenCalledWith({
-      query: 'SELECT * FROM files WHERE id = $1',
-      params: [123],
       enabled: true,
-      offset: 10,
       limit: 5,
+      offset: 10,
+      params: [123],
+      query: 'SELECT * FROM files WHERE id = $1',
     });
     expect(result.current).toEqual(
       expect.objectContaining({
-        rows: [{ id: 1 }],
-        loading: false,
         error: null,
+        loading: false,
+        rows: [{ id: 1 }],
       })
     );
   });
@@ -54,8 +54,8 @@ describe('useDrizzleLiveQuery', () => {
     renderHook(() => useDrizzleLiveQuery<{ id: number }>(null));
 
     expect(mocks.usePGliteLiveQuery).toHaveBeenCalledWith({
-      query: 'SELECT 1 WHERE false',
       enabled: false,
+      query: 'SELECT 1 WHERE false',
     });
   });
 
@@ -69,22 +69,22 @@ describe('useDrizzleLiveQuery', () => {
     renderHook(() => useDrizzleLiveQuery<{ id: number }>(badQuery));
 
     expect(mocks.usePGliteLiveQuery).toHaveBeenCalledWith({
-      query: 'SELECT 1 WHERE false',
       enabled: false,
+      query: 'SELECT 1 WHERE false',
     });
   });
 
   it('honors explicit enabled=false even when query is valid', () => {
     const query: DrizzleQueryLike = {
-      toSQL: () => ({ sql: 'SELECT * FROM files', params: [] }),
+      toSQL: () => ({ params: [], sql: 'SELECT * FROM files' }),
     };
 
     renderHook(() => useDrizzleLiveQuery<{ id: number }>(query, { enabled: false }));
 
     expect(mocks.usePGliteLiveQuery).toHaveBeenCalledWith({
-      query: 'SELECT * FROM files',
-      params: [],
       enabled: false,
+      params: [],
+      query: 'SELECT * FROM files',
     });
   });
 });
@@ -92,14 +92,14 @@ describe('useDrizzleLiveQuery', () => {
 describe('useDrizzleLiveQueryWithRefresh', () => {
   it('exposes refreshCount and forceRefresh while preserving base result fields', () => {
     mocks.usePGliteLiveQuery.mockReturnValue({
-      rows: [{ id: 7 }],
-      loading: true,
       error: null,
+      loading: true,
       refresh: vi.fn(),
+      rows: [{ id: 7 }],
     });
 
     const query: DrizzleQueryLike = {
-      toSQL: () => ({ sql: 'SELECT * FROM files', params: [] }),
+      toSQL: () => ({ params: [], sql: 'SELECT * FROM files' }),
     };
 
     const { result } = renderHook(() => useDrizzleLiveQueryWithRefresh<{ id: number }>(query));

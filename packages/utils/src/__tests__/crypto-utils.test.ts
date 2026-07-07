@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
   debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -28,22 +28,22 @@ describe('crypto-utils', () => {
     // Restore original methods
     if (originalRandomUUID) {
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: originalRandomUUID,
         configurable: true,
+        value: originalRandomUUID,
         writable: true,
       });
     }
     if (originalSubtle) {
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: originalSubtle,
         configurable: true,
+        value: originalSubtle,
         writable: true,
       });
     }
     if (originalGetRandomValues) {
       Object.defineProperty(globalThis.crypto, 'getRandomValues', {
-        value: originalGetRandomValues,
         configurable: true,
+        value: originalGetRandomValues,
         writable: true,
       });
     }
@@ -56,8 +56,8 @@ describe('crypto-utils', () => {
 
       // Mock crypto.randomUUID
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: vi.fn().mockReturnValue(mockUUID),
         configurable: true,
+        value: vi.fn().mockReturnValue(mockUUID),
         writable: true,
       });
 
@@ -69,8 +69,8 @@ describe('crypto-utils', () => {
     it('falls back to getRandomValues when randomUUID is unavailable', () => {
       // Remove crypto.randomUUID but keep getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -89,13 +89,13 @@ describe('crypto-utils', () => {
     it('throws when secure UUID APIs are unavailable', () => {
       // Remove both crypto.randomUUID and crypto.getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
       Object.defineProperty(globalThis.crypto, 'getRandomValues', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -108,8 +108,8 @@ describe('crypto-utils', () => {
     it('generates unique UUIDs each time with fallback', () => {
       // Remove crypto.randomUUID to force fallback
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -133,8 +133,8 @@ describe('crypto-utils', () => {
 
       // Mock crypto.subtle
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: mockDigest },
         configurable: true,
+        value: { digest: mockDigest },
         writable: true,
       });
 
@@ -147,8 +147,8 @@ describe('crypto-utils', () => {
     it('falls back when crypto.subtle is not available', async () => {
       // Remove crypto.subtle
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -163,8 +163,8 @@ describe('crypto-utils', () => {
 
       // Mock crypto.subtle with failing digest
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: mockDigest },
         configurable: true,
+        value: { digest: mockDigest },
         writable: true,
       });
 
@@ -180,8 +180,8 @@ describe('crypto-utils', () => {
     it('generates consistent hashes for the same content', async () => {
       // Force fallback
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -196,8 +196,8 @@ describe('crypto-utils', () => {
     it('generates different hashes for different content', async () => {
       // Force fallback
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -212,8 +212,8 @@ describe('crypto-utils', () => {
     it('handles empty content', async () => {
       // Force fallback
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -225,8 +225,8 @@ describe('crypto-utils', () => {
     it('handles large content', async () => {
       // Force fallback
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -241,8 +241,8 @@ describe('crypto-utils', () => {
     it('returns true when crypto.subtle.digest is available', () => {
       // Ensure crypto.subtle is available with digest method
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: vi.fn() },
         configurable: true,
+        value: { digest: vi.fn() },
         writable: true,
       });
 
@@ -252,8 +252,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.subtle is undefined', () => {
       // Remove crypto.subtle
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -263,8 +263,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.subtle.digest is not a function', () => {
       // Set crypto.subtle with invalid digest
       Object.defineProperty(globalThis.crypto, 'subtle', {
-        value: { digest: 'not a function' },
         configurable: true,
+        value: { digest: 'not a function' },
         writable: true,
       });
 
@@ -276,8 +276,8 @@ describe('crypto-utils', () => {
     it('returns true when crypto.randomUUID is available', () => {
       // Ensure crypto.randomUUID is available
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: vi.fn(),
         configurable: true,
+        value: vi.fn(),
         writable: true,
       });
 
@@ -287,8 +287,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.randomUUID is undefined', () => {
       // Remove crypto.randomUUID
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: undefined,
         configurable: true,
+        value: undefined,
         writable: true,
       });
 
@@ -298,8 +298,8 @@ describe('crypto-utils', () => {
     it('returns false when crypto.randomUUID is not a function', () => {
       // Set crypto.randomUUID to invalid value
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
-        value: 'not a function',
         configurable: true,
+        value: 'not a function',
         writable: true,
       });
 

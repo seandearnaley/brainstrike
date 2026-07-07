@@ -33,7 +33,23 @@ const COMMON_DIMENSIONS = [768, 1024, 1536] as const;
  * ```
  */
 export const migration014DimensionHnswIndexes: Migration = {
-  version: 14,
+  down: async (db: MigrationTransactionalDb) => {
+    // Collect all dimensions that might have indexes
+    const dimensionsToClean = new Set<number>([...COMMON_DIMENSIONS]);
+
+    // Also include any existing dimensions from embedding_sets
+    try {
+      const existingDimensions = await getDistinctDimensions(db);
+      for (const dim of existingDimensions) {
+        dimensionsToClean.add(dim);
+      }
+    } catch {
+      // embedding_sets table might not exist during rollback
+    }
+
+    // Drop all dimension-based indexes
+    await dropAllDimensionIndexes(db, [...dimensionsToClean]);
+  },
   name: 'dimension_hnsw_indexes',
   up: async (db: MigrationTransactionalDb) => {
     // Check if pgvector extension is available
@@ -73,21 +89,5 @@ export const migration014DimensionHnswIndexes: Migration = {
       }
     }
   },
-  down: async (db: MigrationTransactionalDb) => {
-    // Collect all dimensions that might have indexes
-    const dimensionsToClean = new Set<number>([...COMMON_DIMENSIONS]);
-
-    // Also include any existing dimensions from embedding_sets
-    try {
-      const existingDimensions = await getDistinctDimensions(db);
-      for (const dim of existingDimensions) {
-        dimensionsToClean.add(dim);
-      }
-    } catch {
-      // embedding_sets table might not exist during rollback
-    }
-
-    // Drop all dimension-based indexes
-    await dropAllDimensionIndexes(db, [...dimensionsToClean]);
-  },
+  version: 14,
 };

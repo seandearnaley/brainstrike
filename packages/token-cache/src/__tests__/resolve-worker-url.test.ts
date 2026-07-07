@@ -66,7 +66,7 @@ describe('resolve-worker-url', () => {
   });
 
   it('includes worker context in background indexer failures', () => {
-    setImportMetaOverride({ url: undefined, dirname: undefined });
+    setImportMetaOverride({ dirname: undefined, url: undefined });
 
     let error: Error | null = null;
     try {

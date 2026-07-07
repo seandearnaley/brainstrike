@@ -89,17 +89,17 @@ export interface WorkerClient {
   /**
    * Get the current lifecycle state of the worker.
    */
-  getState(): WorkerClientState;
+  getState: () => WorkerClientState;
   /**
    * Check if the worker is ready to accept messages.
    * Equivalent to `getState() === 'ready'`.
    */
-  isReady(): boolean;
+  isReady: () => boolean;
   /**
    * Terminate the worker and release all resources.
    * After termination, `getState()` returns 'terminated'.
    */
-  terminate(): void;
+  terminate: () => void;
 }
 
 /**
@@ -124,7 +124,7 @@ export type WorkerClientWithTimeout = WorkerClient & {
    *                    If undefined, uses implementation default (typically 30s).
    * @returns Promise that resolves to true if ready, false if timed out.
    */
-  waitForReady(timeoutMs?: number): Promise<boolean>;
+  waitForReady: (timeoutMs?: number) => Promise<boolean>;
 };
 
 /**
@@ -135,17 +135,17 @@ export type WorkerClientWithTimeout = WorkerClient & {
  */
 export interface QueueAdapter {
   /** Submit a single task for execution */
-  add(task: TaskPayload, options?: QueueAddOptions): Promise<QueueResult>;
+  add: (task: TaskPayload, options?: QueueAddOptions) => Promise<QueueResult>;
   /** Submit multiple tasks for execution */
-  addBulk(
+  addBulk: (
     tasks: readonly TaskPayload[],
     options?: QueueAddBulkOptions
-  ): Promise<readonly QueueResult[]>;
+  ) => Promise<readonly QueueResult[]>;
   /**
    * Cancel all pending and running work.
    * Returns when all cancellations complete.
    */
-  cancel(): Promise<void>;
+  cancel: () => Promise<void>;
   /**
    * Release all resources (workers, listeners) held by the adapter.
    *
@@ -157,12 +157,12 @@ export interface QueueAdapter {
    * Optional: implementations without explicit lifecycle (e.g. durable queues
    * backed by a shared database) may omit this and rely on `cancel()`.
    */
-  dispose?(): Promise<void>;
+  dispose?: () => Promise<void>;
   /**
    * Wait for all in-flight work to complete.
    * Does not accept new work during drain (use pause() first).
    */
-  drain(): Promise<void>;
+  drain: () => Promise<void>;
   /**
    * Whether the adapter is paused.
    */
@@ -172,7 +172,7 @@ export interface QueueAdapter {
    */
   readonly isProcessing: boolean;
   /** Subscribe to progress/error events */
-  onProgress(listener: (event: QueueProgressEvent | QueueErrorEvent) => void): () => void;
+  onProgress: (listener: (event: QueueProgressEvent | QueueErrorEvent) => void) => () => void;
 
   // --- Control semantics (ADR-0002 QueueControl) ---
 
@@ -180,11 +180,11 @@ export interface QueueAdapter {
    * Pause accepting new work.
    * Existing running tasks continue to completion.
    */
-  pause(): void;
+  pause: () => void;
   /**
    * Resume accepting work after pause.
    */
-  resume(): void;
+  resume: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -292,10 +292,10 @@ export type QueueHealthListener = (metrics: QueueHealthMetrics) => void;
 
 export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
   const baseRequest = {
-    type: 'embed',
     id: payload.id,
     model: payload.model,
     texts: payload.texts,
+    type: 'embed',
   } satisfies Pick<EmbedWorkerRequest, 'type' | 'id' | 'model' | 'texts'>;
 
   const withOptionalFields: EmbedWorkerRequest = {

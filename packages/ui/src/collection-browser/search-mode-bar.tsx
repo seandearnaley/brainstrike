@@ -235,7 +235,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                 </Button>
               )}
             </div>
-            {advancedOptions != null && (
+            {advancedOptions !== undefined && advancedOptions !== null && (
               <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
                 <PopoverTrigger asChild>
                   <Button

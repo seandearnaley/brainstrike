@@ -45,16 +45,16 @@ export interface IconOption {
  * Default icon options available in the preset editor.
  */
 export const PRESET_ICON_OPTIONS: readonly IconOption[] = [
-  { name: 'file', label: 'Default' },
-  { name: 'file-code', label: 'Code' },
-  { name: 'file-text', label: 'Text' },
-  { name: 'database', label: 'Data' },
-  { name: 'settings', label: 'Config' },
-  { name: 'box', label: 'Module' },
-  { name: 'folder-open', label: 'Folder' },
-  { name: 'palette', label: 'Style' },
-  { name: 'flask-conical', label: 'Test' },
-  { name: 'globe', label: 'Web' },
+  { label: 'Default', name: 'file' },
+  { label: 'Code', name: 'file-code' },
+  { label: 'Text', name: 'file-text' },
+  { label: 'Data', name: 'database' },
+  { label: 'Config', name: 'settings' },
+  { label: 'Module', name: 'box' },
+  { label: 'Folder', name: 'folder-open' },
+  { label: 'Style', name: 'palette' },
+  { label: 'Test', name: 'flask-conical' },
+  { label: 'Web', name: 'globe' },
 ] as const;
 
 // ============================================================================

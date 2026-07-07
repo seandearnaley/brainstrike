@@ -241,8 +241,8 @@ async function resolveWorkspaceAbsolutePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
-    workspacePath: normalizedWorkspacePath,
     absolutePath: canonicalAbsolutePath,
+    workspacePath: normalizedWorkspacePath,
   };
 }
 
@@ -307,9 +307,9 @@ async function resolveWorkspaceWritePath(
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
+    absolutePath: canonicalAbsolutePath,
     canonicalRootPath,
     workspacePath: normalizedWorkspacePath,
-    absolutePath: canonicalAbsolutePath,
   };
 }
 
@@ -375,7 +375,7 @@ function sliceContentByLineRange(
   const resolvedStart = Math.max(1, Math.min(startLine ?? 1, totalLines));
   const resolvedEnd = Math.max(resolvedStart, Math.min(endLine ?? totalLines, totalLines));
   const sliced = lines.slice(resolvedStart - 1, resolvedEnd).join('\n');
-  return { content: sliced, startLine: resolvedStart, endLine: resolvedEnd, totalLines };
+  return { content: sliced, endLine: resolvedEnd, startLine: resolvedStart, totalLines };
 }
 
 function truncateContent(
@@ -383,12 +383,12 @@ function truncateContent(
   maxChars: number
 ): { content: string; truncated: boolean; omittedChars: number } {
   if (content.length <= maxChars) {
-    return { content, truncated: false, omittedChars: 0 };
+    return { content, omittedChars: 0, truncated: false };
   }
   return {
     content: content.slice(0, maxChars),
-    truncated: true,
     omittedChars: content.length - maxChars,
+    truncated: true,
   };
 }
 
@@ -421,9 +421,9 @@ export async function readWorkspaceTextFile(args: {
   }
 
   return {
+    content: fileBuffer.toString('utf8'),
     path: resolved.workspacePath,
     size: Number(stat.size),
-    content: fileBuffer.toString('utf8'),
   };
 }
 
@@ -442,12 +442,12 @@ async function runFindWorkspaceSymbol(
   // cap, NUL-byte binary probe). Symbol scanning returns only a tiny bounded
   // result, so a multi-MB bundle or binary file must error cleanly rather than
   // be loaded and scanned in full on the main process.
-  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath: input.path });
+  const file = await readWorkspaceTextFile({ requestedPath: input.path, rootPath: root.path });
   const { matches, totalMatches, truncated } = findSymbolMatches(file.content, input.query, {
-    maxMatches: input.maxMatches ?? 5,
     contextLines: input.contextLines ?? 2,
+    maxMatches: input.maxMatches ?? 5,
   });
-  return { rootName: root.displayName, path: file.path, totalMatches, truncated, matches };
+  return { matches, path: file.path, rootName: root.displayName, totalMatches, truncated };
 }
 
 async function runReadWorkspaceFile(
@@ -468,23 +468,23 @@ async function runReadWorkspaceFile(
 }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const requestedPath = input.path;
-  const file = await readWorkspaceTextFile({ rootPath: root.path, requestedPath });
+  const file = await readWorkspaceTextFile({ requestedPath, rootPath: root.path });
   const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
 
   return {
-    rootName: root.displayName,
-    path: file.path,
-    size: file.size,
-    tokenCount: null,
-    startLine: ranged.startLine,
-    endLine: ranged.endLine,
-    totalLines: ranged.totalLines,
-    truncated: truncated.truncated,
-    omittedChars: truncated.omittedChars,
     approxOutputTokens: countTokensHeuristic(truncated.content),
     content: truncated.content,
+    endLine: ranged.endLine,
+    omittedChars: truncated.omittedChars,
+    path: file.path,
+    rootName: root.displayName,
+    size: file.size,
+    startLine: ranged.startLine,
+    tokenCount: null,
+    totalLines: ranged.totalLines,
+    truncated: truncated.truncated,
   };
 }
 
@@ -604,12 +604,12 @@ async function triggerEditedFileReindex(args: {
   try {
     const relativePath = toFileRecordRelativePath(args.workspacePath);
     await reindexEditedFile(db, {
-      rootId: args.rootId,
-      relativePath,
-      name: path.basename(relativePath) || relativePath,
       content: args.content,
-      size: args.size,
       mtimeMs: await statMtimeMs(args.absolutePath),
+      name: path.basename(relativePath) || relativePath,
+      relativePath,
+      rootId: args.rootId,
+      size: args.size,
       workspaceIndexEmbeddingSetId: args.runtimeData?.workspaceIndexEmbeddingSetId,
     });
   } catch (error) {
@@ -652,26 +652,26 @@ async function runWriteWorkspaceFile(
   // failure surface.
   const { created } = await withFileLock(resolved.absolutePath, async () => {
     const writeResult = await writeContainedFileBytes({
-      resolved,
       buffer,
       requestedPath: input.path,
+      resolved,
     });
     await triggerEditedFileReindex({
-      runtimeData,
-      rootId: root.rootId,
-      workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
       content: input.content,
+      rootId: root.rootId,
+      runtimeData,
       size: buffer.byteLength,
+      workspacePath: resolved.workspacePath,
     });
     return writeResult;
   });
 
   return {
-    rootName: root.displayName,
-    path: resolved.workspacePath,
     bytesWritten: buffer.byteLength,
     created,
+    path: resolved.workspacePath,
+    rootName: root.displayName,
   };
 }
 
@@ -700,16 +700,16 @@ async function runStringReplaceWorkspaceFile(
     // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
     // edit inherits PR-2.1's path-escape protection on the read side too.
     const file = await readWorkspaceTextFile({
-      rootPath: root.path,
       requestedPath: input.path,
+      rootPath: root.path,
     });
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
     const replacement = applyStringReplace({
       fileContent: file.content,
-      oldStr: input.oldStr,
       newStr: input.newStr,
+      oldStr: input.oldStr,
     });
 
     const buffer = Buffer.from(replacement.newContent, 'utf8');
@@ -719,7 +719,7 @@ async function runStringReplaceWorkspaceFile(
       );
     }
 
-    await writeContainedFileBytes({ resolved, buffer, requestedPath: input.path });
+    await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
 
     // Keep the RAG index coherent: re-index the edited file INSIDE the same
     // per-file critical section as the read-modify-write. Running it after the
@@ -731,12 +731,12 @@ async function runStringReplaceWorkspaceFile(
     // catches+logs internally), so it never undoes a successful edit nor
     // extends the lock's failure surface.
     await triggerEditedFileReindex({
-      runtimeData,
-      rootId: root.rootId,
-      workspacePath: resolved.workspacePath,
       absolutePath: resolved.absolutePath,
       content: replacement.newContent,
+      rootId: root.rootId,
+      runtimeData,
       size: buffer.byteLength,
+      workspacePath: resolved.workspacePath,
     });
 
     return {
@@ -746,11 +746,11 @@ async function runStringReplaceWorkspaceFile(
   });
 
   return {
-    rootName: root.displayName,
-    path: resolved.workspacePath,
     bytesWritten: result.bytesWritten,
     matchType: result.matchType,
+    path: resolved.workspacePath,
     replaced: true,
+    rootName: root.displayName,
   };
 }
 
@@ -819,9 +819,9 @@ function buildDirectoryVisitContext(
   }
   return {
     childAbsolutePath: path.join(currentAbsolutePath, dirent.name),
-    childSegments,
-    childPath,
     childDepth: childSegments.length,
+    childPath,
+    childSegments,
   };
 }
 
@@ -864,9 +864,9 @@ async function processFileEntry(
   }
 
   pushDirectoryEntry(state, {
+    depth: context.childDepth,
     path: context.childPath,
     type: 'file',
-    depth: context.childDepth,
     ...(typeof size === 'number' ? { size } : {}),
   });
 }
@@ -910,18 +910,18 @@ async function runReadWorkspaceDirectory(
 
   const options: DirectoryTraversalOptions = {
     baseSegments: normalizedPath === '/' ? [] : toPathSegments(normalizedPath),
-    includeHidden,
-    includeDirectories,
-    includeFiles,
     depth,
     detail,
+    includeDirectories,
+    includeFiles,
+    includeHidden,
   };
   const state: DirectoryTraversalState = {
     entries: [],
     // Collect through the requested page so offset paging can skip into it.
     maxEntries: offset + maxEntries,
-    truncated: false,
     totalMatchedFiles: 0,
+    truncated: false,
   };
 
   const visit = async (currentAbsolutePath: string, relativeSegments: readonly string[]) => {
@@ -980,13 +980,13 @@ async function runReadWorkspaceDirectory(
           `${traversalNote} Continue with offset: ${offset + entries.length}, or list a more specific subdirectory.`
         : undefined;
       return {
-        rootName: root.displayName,
-        path: normalizedPath,
-        entries,
         count: entries.length,
+        entries,
+        offset,
+        path: normalizedPath,
+        rootName: root.displayName,
         totalEntries: state.entries.length,
         totalMatchedFiles: state.totalMatchedFiles,
-        offset,
         truncated,
         ...(hint ? { hint } : {}),
       };
@@ -1033,8 +1033,8 @@ function normalizeWorkspaceContextRange(
     return null;
   }
   return {
-    startLine: range.startLine,
     endLine: range.endLine,
+    startLine: range.startLine,
     ...(typeof range.approxTokens === 'number' ? { approxTokens: range.approxTokens } : {}),
     ...(range.isActive === false ? { isActive: false } : { isActive: true }),
   };
@@ -1185,13 +1185,13 @@ function runListWorkspaceContext(
         `Continue with offset: ${offset + files.length}.`
       : undefined;
     return {
-      workspaceRootPath,
-      workspaceRoots,
+      offset,
       selectedFileCount: selectedFiles.length,
       selectedFiles: files,
-      workspaceIndex,
-      offset,
       truncated,
+      workspaceIndex,
+      workspaceRootPath,
+      workspaceRoots,
       ...(outsideWorkspaceCount > 0
         ? { selectedFilesOutsideWorkspace: outsideWorkspaceCount }
         : {}),
@@ -1207,8 +1207,8 @@ function runListWorkspaceContext(
       ...(input.includeTokenEstimates === true
         ? {
             tokenEstimates: files.map((filePath) => ({
-              path: filePath,
               approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
+              path: filePath,
             })),
           }
         : {}),
@@ -1256,16 +1256,16 @@ function classifyReadContextError(
 ): WorkspaceContextSkippedFile {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('outside the selected workspace root')) {
-    return { path: workspacePath, reason: 'outsideWorkspace', message };
+    return { message, path: workspacePath, reason: 'outsideWorkspace' };
   }
   if (message.includes('is a binary file')) {
-    return { path: workspacePath, reason: 'binary', message };
+    return { message, path: workspacePath, reason: 'binary' };
   }
   if (message.includes('exceeds')) {
-    return { path: workspacePath, reason: 'oversized', message };
+    return { message, path: workspacePath, reason: 'oversized' };
   }
   if (message.includes('is not a file')) {
-    return { path: workspacePath, reason: 'notFile', message };
+    return { message, path: workspacePath, reason: 'notFile' };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
@@ -1298,8 +1298,8 @@ function buildRangedContextContent(args: {
   const activeRanges = args.ranges
     .filter((range) => range.isActive !== false)
     .map((range) => ({
-      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
       endLine: Math.max(1, Math.min(range.endLine, totalLines)),
+      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
     }))
     .filter((range) => range.endLine >= range.startLine)
     .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
@@ -1308,12 +1308,12 @@ function buildRangedContextContent(args: {
     return {
       approxTokens: 0,
       content: '<selection_summary>No active tapestry ranges selected.</selection_summary>',
-      startLine: 1,
       endLine: 1,
-      totalLines,
-      truncated: false,
       omittedChars: 0,
       ranges: [],
+      startLine: 1,
+      totalLines,
+      truncated: false,
     };
   }
 
@@ -1342,10 +1342,10 @@ function buildRangedContextContent(args: {
     }
     remainingChars -= truncatedRange.content.length;
     rangeResults.push({
-      startLine: range.startLine,
-      endLine: range.endLine,
       approxTokens: countTokensHeuristic(truncatedRange.content),
       content: truncatedRange.content,
+      endLine: range.endLine,
+      startLine: range.startLine,
     });
     if (remainingChars <= 0) {
       const laterRanges = activeRanges.slice(rangeIndex + 1);
@@ -1372,12 +1372,12 @@ ${escapeSelectionBoundaryTags(range.content)}
   return {
     approxTokens: countTokensHeuristic(content),
     content,
-    startLine: activeRanges[0]?.startLine ?? 1,
     endLine: activeRanges.at(-1)?.endLine ?? 1,
-    totalLines,
-    truncated,
     omittedChars,
     ranges: rangeResults,
+    startLine: activeRanges[0]?.startLine ?? 1,
+    totalLines,
+    truncated,
   };
 }
 
@@ -1403,8 +1403,8 @@ async function readWorkspaceContextFile(args: {
 }): Promise<WorkspaceContextResolvedFile> {
   if (args.tapestryRanges && args.tapestryRanges.length > 0) {
     const rawFile = await readWorkspaceTextFile({
-      rootPath: args.rootPath,
       requestedPath: args.requestedPath,
+      rootPath: args.rootPath,
     });
     const ranged = buildRangedContextContent({
       content: rawFile.content,
@@ -1412,37 +1412,37 @@ async function readWorkspaceContextFile(args: {
       ranges: args.tapestryRanges,
     });
     return {
+      approxOutputTokens: ranged.approxTokens,
+      content: ranged.content,
+      endLine: ranged.endLine,
+      omittedChars: ranged.omittedChars,
       path: rawFile.path,
       size: rawFile.size,
       startLine: ranged.startLine,
-      endLine: ranged.endLine,
-      totalLines: ranged.totalLines,
-      truncated: ranged.truncated,
-      omittedChars: ranged.omittedChars,
-      approxOutputTokens: ranged.approxTokens,
-      content: ranged.content,
       tapestryRangeCount: ranged.ranges.length,
       tapestryRanges: ranged.ranges,
+      totalLines: ranged.totalLines,
+      truncated: ranged.truncated,
     };
   }
 
   const file = await runReadWorkspaceFile(
     {
-      path: args.requestedPath,
       maxChars: args.maxCharsPerFile,
+      path: args.requestedPath,
     },
     { workspaceRootPath: args.rootPath }
   );
   return {
+    approxOutputTokens: file.approxOutputTokens,
+    content: file.content,
+    endLine: file.endLine,
+    omittedChars: file.omittedChars,
     path: file.path,
     size: file.size,
     startLine: file.startLine,
-    endLine: file.endLine,
     totalLines: file.totalLines,
     truncated: file.truncated,
-    omittedChars: file.omittedChars,
-    approxOutputTokens: file.approxOutputTokens,
-    content: file.content,
   };
 }
 
@@ -1468,9 +1468,9 @@ async function readWorkspaceContextBatch(args: {
     args.batchPaths.map(async (requestedPath) => {
       const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
       const file = await readWorkspaceContextFile({
-        rootPath: args.workspaceRootPath,
-        requestedPath: normalizedRequestedPath,
         maxCharsPerFile: args.maxCharsPerFile,
+        requestedPath: normalizedRequestedPath,
+        rootPath: args.workspaceRootPath,
         tapestryRanges: args.tapestryRangesByPath.get(normalizedRequestedPath),
       });
       return { file, requestedPath };
@@ -1491,15 +1491,15 @@ function toWorkspaceContextFileResult(
   approxTokens: number
 ): WorkspaceContextFileResult {
   const fileResult: WorkspaceContextFileResult = {
+    approxTokens,
+    content: file.content,
+    endLine: file.endLine,
+    omittedChars: file.omittedChars,
     path: file.path,
     size: file.size,
     startLine: file.startLine,
-    endLine: file.endLine,
     totalLines: file.totalLines,
     truncated: file.truncated,
-    omittedChars: file.omittedChars,
-    approxTokens,
-    content: file.content,
   };
   if (file.tapestryRangeCount !== undefined) {
     fileResult.tapestryRangeCount = file.tapestryRangeCount;
@@ -1527,9 +1527,9 @@ function appendWorkspaceContextBatch(args: {
     const approxTokens = result.file.approxOutputTokens;
     if (nextTotalApproxTokens + approxTokens > args.tokenBudget) {
       args.skippedFiles.push({
+        message: `Including this file would exceed the ${args.tokenBudget} token budget.`,
         path: result.file.path,
         reason: 'tokenBudget',
-        message: `Including this file would exceed the ${args.tokenBudget} token budget.`,
       });
       continue;
     }
@@ -1616,17 +1616,17 @@ async function runReadWorkspaceContext(
   }
 
   return {
-    workspaceRootPath,
+    files,
+    includedCount: files.length,
+    requestedCount: requestedPaths.length,
     rootId: root.rootId,
     rootName: root.displayName,
-    requestedCount: requestedPaths.length,
-    includedCount: files.length,
     skippedCount: skippedFiles.length,
+    skippedFiles,
     tokenBudget,
     totalApproxTokens,
     truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
-    files,
-    skippedFiles,
+    workspaceRootPath,
   };
 }
 
@@ -1646,10 +1646,10 @@ function classifySelectionPathError(
 ): WorkspaceContextSkippedPath {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes('outside the selected workspace root')) {
-    return { path: pathValue, reason: 'outsideWorkspace', message };
+    return { message, path: pathValue, reason: 'outsideWorkspace' };
   }
   if (message.includes('is not a file')) {
-    return { path: pathValue, reason: 'notFile', message };
+    return { message, path: pathValue, reason: 'notFile' };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === 'ENOENT') {
@@ -1751,10 +1751,10 @@ function resolveWriteBackTarget(
   inputRoot: string | undefined
 ): { rootPath: string; broadcastRoot: { rootId: string; rootPath: string } | undefined } {
   if (inputRoot === undefined) {
-    return { rootPath: resolveWorkspaceRootPath(runtimeData), broadcastRoot: undefined };
+    return { broadcastRoot: undefined, rootPath: resolveWorkspaceRootPath(runtimeData) };
   }
   const root = resolveWorkspaceRoot(runtimeData, inputRoot);
-  return { rootPath: root.path, broadcastRoot: { rootId: root.rootId, rootPath: root.path } };
+  return { broadcastRoot: { rootId: root.rootId, rootPath: root.path }, rootPath: root.path };
 }
 
 async function runUpdateWorkspaceContextSelection(
@@ -1774,28 +1774,28 @@ async function runUpdateWorkspaceContextSelection(
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'add';
   const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
-    rootPath,
     filePaths: input.filePaths,
     mode,
+    rootPath,
   });
   const notifiedWindowCount =
     selectedFiles.length > 0
       ? broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
-          folderId,
           filePaths: selectedFiles,
+          folderId,
           mode,
           ...(broadcastRoot ?? {}),
         })
       : 0;
   return {
+    appliedCount: selectedFiles.length,
     folderId,
     mode,
-    requestedCount,
-    appliedCount: selectedFiles.length,
-    skippedCount: skippedFiles.length,
-    selectedFiles,
-    skippedFiles,
     notifiedWindowCount,
+    requestedCount,
+    selectedFiles,
+    skippedCount: skippedFiles.length,
+    skippedFiles,
   };
 }
 
@@ -1818,17 +1818,17 @@ async function runUpdateWorkspaceTapestrySelections(
   const selectFiles = input.selectFiles !== false;
   const requestedPaths = input.updates.map((update) => update.path);
   const { selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
-    rootPath,
     filePaths: requestedPaths,
     mode,
+    rootPath,
   });
   const selectedFileSet = new Set(selectedFiles);
   const updates = input.updates
     .map((update) => ({
       path: normalizeWorkspacePath(update.path),
       ranges: update.ranges.map((range) => ({
-        startLine: range.startLine,
         endLine: range.endLine,
+        startLine: range.startLine,
         ...(range.isActive === undefined ? {} : { isActive: range.isActive }),
         ...(range.color === undefined ? {} : { color: range.color }),
       })),
@@ -1838,8 +1838,8 @@ async function runUpdateWorkspaceTapestrySelections(
   let notifiedWindowCount = 0;
   if (selectFiles && selectedFiles.length > 0) {
     notifiedWindowCount = broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
-      folderId,
       filePaths: selectedFiles,
+      folderId,
       mode: 'add',
       ...(broadcastRoot ?? {}),
     });
@@ -1857,14 +1857,14 @@ async function runUpdateWorkspaceTapestrySelections(
   }
 
   return {
+    appliedFileCount: updates.length,
     folderId,
     mode,
-    requestedFileCount: normalizeWorkspacePaths(requestedPaths).length,
-    appliedFileCount: updates.length,
-    skippedFileCount: skippedFiles.length,
-    selectedFiles,
-    skippedFiles,
     notifiedWindowCount,
+    requestedFileCount: normalizeWorkspacePaths(requestedPaths).length,
+    selectedFiles,
+    skippedFileCount: skippedFiles.length,
+    skippedFiles,
   };
 }
 
@@ -1885,15 +1885,15 @@ async function runListEmbeddingSpaces(
   const mappedSpaces = listings.map((listing: EmbeddingSpaceListing) => {
     const isWorkspaceIndex = listing.id === workspaceIndex.embeddingSetId;
     const space = {
-      id: listing.id,
-      name: listing.name,
+      createdAt: listing.createdAt,
       description: listing.description,
-      modelKey: listing.modelKey,
-      modelId: listing.modelId,
       dimensions: listing.dimensions,
       distance: listing.distance,
-      createdAt: listing.createdAt,
+      id: listing.id,
       isWorkspaceIndex,
+      modelId: listing.modelId,
+      modelKey: listing.modelKey,
+      name: listing.name,
       recommendedForWorkspaceSearch: isWorkspaceIndex,
     };
     if (input.includeStats !== true || !listing.stats) {
@@ -1910,13 +1910,13 @@ async function runListEmbeddingSpaces(
     return {
       ...space,
       coverage: {
+        averageTokensPerChunk,
+        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
         embeddedChunks,
         fileCount,
         tokenizedChunkCount,
         totalChunks,
         totalTokens,
-        averageTokensPerChunk,
-        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
       },
     };
   });
@@ -1924,7 +1924,7 @@ async function runListEmbeddingSpaces(
     input.workspaceIndexOnly === true
       ? mappedSpaces.filter((space) => space.isWorkspaceIndex)
       : mappedSpaces;
-  return { count: spaces.length, workspaceIndex, spaces };
+  return { count: spaces.length, spaces, workspaceIndex };
 }
 
 function resolveQueryEmbeddingSpaceInput(
@@ -1946,10 +1946,8 @@ export function buildDesktopAssistantTools(
 ): MastraTools {
   const tools: MastraTools = {
     [FIND_WORKSPACE_SYMBOL_TOOL_ID]: {
-      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
       description:
         "Find a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content. Matching is substring-based, so verify the returned range. Use this to get a function/type/section range, then pass it to brainstrike.updateWorkspaceTapestrySelections.",
-      inputSchema: FindWorkspaceSymbolInputSchema,
       execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
         const resolvedInput = parseToolExecuteInput(FindWorkspaceSymbolInputSchema, input);
         try {
@@ -1959,12 +1957,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: FIND_WORKSPACE_SYMBOL_TOOL_ID,
+      inputSchema: FindWorkspaceSymbolInputSchema,
     },
     [GREP_SEARCH_TOOL_ID]: {
-      id: GREP_SEARCH_TOOL_ID,
       description:
         "Grep file content for an exact string (default) or JavaScript regex. HYBRID: searches BOTH the index AND the live on-disk files and merges, so just-edited / not-yet-reindexed files are found fresh (each match is labelled source: 'index' | 'live' | 'both'; re-grep after an edit to confirm your change is on disk). Use this FIRST for identifiers, exact strings, and error messages. Default outputMode 'files' cheaply surveys WHICH files match; then call again with outputMode 'content' and filePaths to see the matching lines. Results are truncated to a fixed budget — follow the returned hint (offset, filters) to continue.",
-      inputSchema: GrepSearchInputSchema,
       execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
         const resolvedInput = parseToolExecuteInput(GrepSearchInputSchema, input);
         try {
@@ -1974,12 +1972,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: GREP_SEARCH_TOOL_ID,
+      inputSchema: GrepSearchInputSchema,
     },
     [GLOB_WORKSPACE_TOOL_ID]: {
-      id: GLOB_WORKSPACE_TOOL_ID,
       description:
         'Enumerate workspace files by glob pattern (e.g. **/*.test.ts, src/**/*.tsx, **/package.json). Use this to find files by NAME/PATH shape when you do not know their content — complementary to grepSearch (content) and readWorkspaceDirectory (one level). Skips .git/node_modules/build output by default (includeIgnored to override). Results are truncated to a fixed budget — follow the returned hint (offset, narrower pattern) to continue.',
-      inputSchema: GlobWorkspaceInputSchema,
       execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
         const resolvedInput = parseToolExecuteInput(GlobWorkspaceInputSchema, input);
         try {
@@ -1989,12 +1987,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: GLOB_WORKSPACE_TOOL_ID,
+      inputSchema: GlobWorkspaceInputSchema,
     },
     [WEB_SEARCH_TOOL_ID]: {
-      id: WEB_SEARCH_TOOL_ID,
       description:
         'Search the web via Tavily for current documentation, APIs, error messages, and library usage you do not already know. SENDS YOUR QUERY TO AN EXTERNAL SERVICE (Tavily) — never include secrets or private workspace contents. Use this only for general/public web knowledge; for THIS project\'s code use grepSearch/queryEmbeddingSpace instead. Requires a Tavily API key in Settings → API Keys: when none is configured the tool returns a non-fatal "unavailable, add a key" result rather than failing. Results (title, url, snippet) are truncated to a fixed budget.',
-      inputSchema: WebSearchInputSchema,
       // The Tavily key is resolved server-side inside runWebSearch and never
       // returned to the model. No injected deps here → real fetch + keychain.
       execute: async (input: ToolExecuteInput<WebSearchInput>) => {
@@ -2006,12 +2004,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: WEB_SEARCH_TOOL_ID,
+      inputSchema: WebSearchInputSchema,
     },
     [READ_WORKSPACE_FILE_TOOL_ID]: {
-      id: READ_WORKSPACE_FILE_TOOL_ID,
       description:
         'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
-      inputSchema: ReadWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceFileInputSchema, input);
         try {
@@ -2021,12 +2019,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: READ_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: ReadWorkspaceFileInputSchema,
     },
     [WRITE_WORKSPACE_FILE_TOOL_ID]: {
-      id: WRITE_WORKSPACE_FILE_TOOL_ID,
       description:
         'Write or create a UTF-8 file in the selected workspace root. Overwrites existing content and creates missing parent directories. The path is clamped to the workspace root and can never escape it. Requires user approval (edit-risk).',
-      inputSchema: WriteWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<WriteWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(WriteWorkspaceFileInputSchema, input);
         try {
@@ -2036,12 +2034,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: WRITE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: WriteWorkspaceFileInputSchema,
     },
     [STRING_REPLACE_WORKSPACE_FILE_TOOL_ID]: {
-      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
       description:
         'Surgically edit an existing workspace file: replace one oldStr block with newStr. Read the file first, then pass an oldStr with enough surrounding context to identify ONE location (a single line matching several places is refused), and the newStr (empty deletes the block). Matching is fuzzy (exact → whitespace-tolerant → close-match) but ambiguous or not-found matches are refused, never guessed. The path is clamped to the workspace root. Requires user approval (edit-risk).',
-      inputSchema: StringReplaceWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<StringReplaceWorkspaceFileInput>) => {
         const resolvedInput = parseToolExecuteInput(StringReplaceWorkspaceFileInputSchema, input);
         try {
@@ -2051,12 +2049,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: STRING_REPLACE_WORKSPACE_FILE_TOOL_ID,
+      inputSchema: StringReplaceWorkspaceFileInputSchema,
     },
     [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
-      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
       description:
         'List workspace directory entries (path + type by default; detail: true adds sizes). Prefer specific subdirectories over the root. Truncated listings include a hint with the offset to continue from.',
-      inputSchema: ReadWorkspaceDirectoryInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceDirectoryInputSchema, input);
         try {
@@ -2066,12 +2064,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
+      inputSchema: ReadWorkspaceDirectoryInputSchema,
     },
     [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
-      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
       description:
         'Inspect the current workspace root, selected context paths, token budgets, and workspace index hint without returning file contents. Compact summary by default; set detail: true for per-file Tapestry ranges. Use before reading selected context.',
-      inputSchema: ListWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
         const resolvedInput = parseToolExecuteInput(ListWorkspaceContextInputSchema, input);
         try {
@@ -2081,12 +2079,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
+      inputSchema: ListWorkspaceContextInputSchema,
     },
     [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
-      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
       description:
         'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Uses curated Tapestry ranges by default when available. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
-      inputSchema: ReadWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
         const resolvedInput = parseToolExecuteInput(ReadWorkspaceContextInputSchema, input);
         try {
@@ -2096,12 +2094,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
+      inputSchema: ReadWorkspaceContextInputSchema,
     },
     [UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID]: {
-      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
       description:
         'Bulk add, remove, or replace files selected in the workspace context explorer. Use this to curate reusable context for the user; listWorkspaceContext reports token counts afterward.',
-      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
         const resolvedInput = parseToolExecuteInput(
           UpdateWorkspaceContextSelectionInputSchema,
@@ -2114,12 +2112,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
+      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
     },
     [UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID]: {
-      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
       description:
         'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search and file reads to keep only verified source ranges.',
-      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
         const resolvedInput = parseToolExecuteInput(
           UpdateWorkspaceTapestrySelectionsInputSchema,
@@ -2132,12 +2130,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
+      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
     },
     [LIST_EMBEDDING_SPACES_TOOL_ID]: {
-      id: LIST_EMBEDDING_SPACES_TOOL_ID,
       description:
         'List available embedding spaces, identify the configured Workspace Index, and optionally include coverage stats. Use this when you need to inspect non-default embedding spaces or index coverage.',
-      inputSchema: ListEmbeddingSetsInputSchema,
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
         const resolvedInput = parseToolExecuteInput(ListEmbeddingSetsInputSchema, input);
         try {
@@ -2147,12 +2145,12 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: LIST_EMBEDDING_SPACES_TOOL_ID,
+      inputSchema: ListEmbeddingSetsInputSchema,
     },
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
-      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
         'Query semantic workspace context and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, omit embeddingSetId to use the Workspace Index. Provide embeddingSetId only for a specific non-default embedding space; use tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
-      inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
         try {
@@ -2164,6 +2162,8 @@ export function buildDesktopAssistantTools(
           throw error;
         }
       },
+      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+      inputSchema: QueryEmbeddingSpaceInputSchema,
     },
   };
 
@@ -2174,10 +2174,8 @@ export function buildDesktopAssistantTools(
   // execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it — that is
   // the permission gate's job now, not a registration-time conditional.
   tools[EXECUTE_COMMAND_TOOL_ID] = {
-    id: EXECUTE_COMMAND_TOOL_ID,
     description:
       "Run an arbitrary shell command on the user's machine (tests, builds, linters, git, package managers). This is ARBITRARY COMMAND EXECUTION with NO sandbox — the command can do anything the user can. The command runs in the user's shell starting in the workspace root (override with cwd, which must still be inside an open folder). On timeout or cancellation the ENTIRE process tree is killed so nothing is left running. Output is bounded to a fixed budget (most recent lines kept) — pipe through '| tail -n N' for long output. Prefer non-destructive commands; never run destructive ones (rm -rf, force pushes, resets) without an explicit user request.",
-    inputSchema: ExecuteCommandInputSchema,
     // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
     // we thread into the run so a cancelled run kills the process tree.
     execute: async (
@@ -2194,6 +2192,8 @@ export function buildDesktopAssistantTools(
         throw error;
       }
     },
+    id: EXECUTE_COMMAND_TOOL_ID,
+    inputSchema: ExecuteCommandInputSchema,
   };
 
   const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;

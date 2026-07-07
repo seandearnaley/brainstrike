@@ -45,21 +45,21 @@ describe('pipeline cache metadata and dispose', () => {
 
     // Load a pipeline to populate the cache
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'dispose-test',
       model: 'test-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(pipelineMock).toHaveBeenCalledTimes(1);
 
     // Load same model again — should be a cache hit (no new pipeline call)
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'dispose-test-2',
       model: 'test-model',
       texts: ['world'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(pipelineMock).toHaveBeenCalledTimes(1);
 
@@ -80,21 +80,21 @@ describe('pipeline cache metadata and dispose', () => {
     const runEmbedding2 = await loadWorker();
 
     await runEmbedding2({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'webgpu-dispose',
       model: 'gpu-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     // Load again — cache hit
     pipelineMock.mockClear();
     await runEmbedding2({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'webgpu-dispose-2',
       model: 'gpu-model',
       texts: ['world'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     expect(pipelineMock).not.toHaveBeenCalled();
   });
@@ -108,11 +108,11 @@ describe('pipeline cache metadata and dispose', () => {
     // Attempt to load a pipeline that will fail
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'webgpu',
         id: 'fail-dispose',
         model: 'broken-model',
         texts: ['hello'],
-        deviceHint: 'webgpu',
+        type: 'embed',
       })
     ).rejects.toThrow('load failed');
 
@@ -121,11 +121,11 @@ describe('pipeline cache metadata and dispose', () => {
     await installMockOrtWebGpuDevice();
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'retry-after-fail',
       model: 'broken-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     expect(result.vectors).toHaveLength(1);
     expect(pipelineMock).toHaveBeenCalledTimes(2);
@@ -164,9 +164,9 @@ describe('pipeline cache metadata and dispose', () => {
       onnx: {
         webgpu: {
           device: {
+            createCommandEncoder: () => ({ finish: () => ({}) }),
             lost,
             queue: { submit: vi.fn() },
-            createCommandEncoder: () => ({ finish: () => ({}) }),
           },
         },
       },
@@ -183,20 +183,20 @@ describe('pipeline cache metadata and dispose', () => {
 
     // Load a webgpu pipeline
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'gpu-1',
       model: 'gpu-model',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     // Load a wasm pipeline
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'wasm-1',
       model: 'wasm-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Trigger device loss which calls invalidateWebGpuPipelines
@@ -207,11 +207,11 @@ describe('pipeline cache metadata and dispose', () => {
     // After invalidation, GPU pipeline should require reload
     pipelineMock.mockClear();
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'gpu-2',
       model: 'gpu-model',
       texts: ['again'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     // GPU pipeline was invalidated, so pipeline() should be called again
     expect(pipelineMock).toHaveBeenCalledTimes(1);
@@ -219,11 +219,11 @@ describe('pipeline cache metadata and dispose', () => {
     // WASM pipeline should still be cached
     pipelineMock.mockClear();
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'wasm-2',
       model: 'wasm-model',
       texts: ['again'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     // WASM pipeline still cached, pipeline() should NOT be called
     expect(pipelineMock).not.toHaveBeenCalled();
@@ -237,11 +237,11 @@ describe('pipeline cache metadata and dispose', () => {
 
     // First load
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'lru-1',
       model: 'test-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Advance time
@@ -249,11 +249,11 @@ describe('pipeline cache metadata and dispose', () => {
 
     // Second load (cache hit) — should update lastUsedAt
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'lru-2',
       model: 'test-model',
       texts: ['world'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     // Verify it was a cache hit (pipeline() called only once)
@@ -267,21 +267,21 @@ describe('pipeline cache metadata and dispose', () => {
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'cache-diagnostics-load',
       model: 'diagnostic-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     vi.advanceTimersByTime(5000);
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'cache-diagnostics-hit',
       model: 'diagnostic-model',
       texts: ['world'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
 
     const diagnostics = workerEmitMock.mock.calls
@@ -290,11 +290,8 @@ describe('pipeline cache metadata and dispose', () => {
 
     expect(diagnostics).toEqual([
       expect.objectContaining({
-        type: 'diagnostic',
-        diagnostic: 'pipeline-cache',
-        event: 'loaded',
-        id: 'cache-diagnostics-load',
         cacheSize: 1,
+        diagnostic: 'pipeline-cache',
         entries: [
           expect.objectContaining({
             cacheKey: 'diagnostic-model|wasm|fp16',
@@ -310,19 +307,22 @@ describe('pipeline cache metadata and dispose', () => {
             model: 'diagnostic-model',
           }),
         ],
+        event: 'loaded',
+        id: 'cache-diagnostics-load',
+        type: 'diagnostic',
       }),
       expect.objectContaining({
-        type: 'diagnostic',
-        diagnostic: 'pipeline-cache',
-        event: 'hit',
-        id: 'cache-diagnostics-hit',
         cacheSize: 1,
+        diagnostic: 'pipeline-cache',
         entry: expect.objectContaining({
           cacheKey: 'diagnostic-model|wasm|fp16',
           createdAt: 0,
           lastUsedAt: 5000,
           residencyMs: 5000,
         }),
+        event: 'hit',
+        id: 'cache-diagnostics-hit',
+        type: 'diagnostic',
       }),
     ]);
   });
@@ -334,22 +334,22 @@ describe('pipeline cache metadata and dispose', () => {
     // First attempt fails
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'retry-1',
         model: 'flaky-model',
         texts: ['hello'],
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('network error');
 
     // Second attempt should retry (not return cached rejection)
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'retry-2',
       model: 'flaky-model',
       texts: ['hello'],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(result.vectors).toHaveLength(1);
     expect(pipelineMock).toHaveBeenCalledTimes(2);
@@ -358,9 +358,9 @@ describe('pipeline cache metadata and dispose', () => {
   it('does not delete a replacement pipeline when an evicted load later fails', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await installMockOrtWebGpuDevice();
-    const pendingRaceLoads: Array<
-      ReturnType<typeof createDeferred<ReturnType<typeof makeExtractor>['extractor']>>
-    > = [];
+    const pendingRaceLoads: ReturnType<
+      typeof createDeferred<ReturnType<typeof makeExtractor>['extractor']>
+    >[] = [];
 
     pipelineMock.mockImplementation((_task: string, model: string) => {
       if (model === 'race-model') {
@@ -374,29 +374,29 @@ describe('pipeline cache metadata and dispose', () => {
     const runEmbedding = await loadWorker();
 
     const firstRace = runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'race-1',
       model: 'race-model',
       texts: ['first'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     const firstRaceOutcome = firstRace.catch((error: unknown) => error);
     await flushMicrotasks();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'evictor',
       model: 'evictor-model',
       texts: ['evict'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     const replacementRace = runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'race-2',
       model: 'race-model',
       texts: ['replacement'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     await flushMicrotasks();
 
@@ -409,11 +409,11 @@ describe('pipeline cache metadata and dispose', () => {
     });
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'race-3',
       model: 'race-model',
       texts: ['cached'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     const raceLoads = pipelineMock.mock.calls.filter(([, model]) => model === 'race-model');

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -206,10 +206,7 @@ export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
       .map((sample) => getHeapUsedMb(sample.snapshot))
       .filter((value) => typeof value === 'number')
   );
-  if (
-    typeof options.maxRetainedHeapMb === 'number' &&
-    maxHeapUsedMb > options.maxRetainedHeapMb
-  ) {
+  if (typeof options.maxRetainedHeapMb === 'number' && maxHeapUsedMb > options.maxRetainedHeapMb) {
     throw new Error(
       `Workspace Index retained heap exceeded limit: ${roundMetric(maxHeapUsedMb)}MB > ${options.maxRetainedHeapMb}MB`
     );
@@ -225,11 +222,16 @@ export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
     0.001,
     (finalSample.elapsedMs - firstThroughputSample.elapsedMs) / 1000
   );
-  const embeddedDelta = Math.max(0, finalCounts.embeddedChunkCount - firstCounts.embeddedChunkCount);
+  const embeddedDelta = Math.max(
+    0,
+    finalCounts.embeddedChunkCount - firstCounts.embeddedChunkCount
+  );
   const integratedChunksPerSecond = embeddedDelta / elapsedSeconds;
   const bottleneckChunksPerSecond = resolveBottleneck(options.stageCeilings);
   const integratedToBottleneckRatio =
-    bottleneckChunksPerSecond === null ? null : integratedChunksPerSecond / bottleneckChunksPerSecond;
+    bottleneckChunksPerSecond === null
+      ? null
+      : integratedChunksPerSecond / bottleneckChunksPerSecond;
 
   if (
     typeof options.minIntegratedToBottleneckRatio === 'number' &&
@@ -298,7 +300,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     } else if (arg === '--stage-ceiling') {
       const [key, rawValue] = next().split('=');
       const value = Number(rawValue);
-      if (!key || !Number.isFinite(value) || value <= 0) {
+      if (!(key && Number.isFinite(value)) || value <= 0) {
         throw new Error('--stage-ceiling requires key=positive-number');
       }
       options.stageCeilings[key] = value;
@@ -392,10 +394,12 @@ export async function runElectronStageBenchmarks(options) {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_CHUNKS:
-            String(options.stageBenchmarkChunkCount ?? 512),
-          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_DIMENSIONS:
-            String(options.stageBenchmarkDimensions ?? 384),
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_CHUNKS: String(
+            options.stageBenchmarkChunkCount ?? 512
+          ),
+          BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_DIMENSIONS: String(
+            options.stageBenchmarkDimensions ?? 384
+          ),
           BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_EVIDENCE_PATH: evidencePath,
           BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_MODE: mode,
           LOG_LEVEL: process.env.LOG_LEVEL ?? 'warn',

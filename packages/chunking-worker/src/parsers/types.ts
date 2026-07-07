@@ -88,5 +88,5 @@ export interface ParserAdapter {
    * @returns root AstNode of the parsed tree
    * @throws when `options.errorRecovery === false` and source is malformed
    */
-  parse(content: string, options: ParseOptions): Promise<AstNode>;
+  parse: (content: string, options: ParseOptions) => Promise<AstNode>;
 }

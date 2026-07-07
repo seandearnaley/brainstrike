@@ -7,9 +7,9 @@ import {
 } from '../stores/tree-table-column-sizes-store';
 
 const BOUNDS = {
-  name: { defaultWidth: 200, minWidth: 80, maxWidth: 400 },
-  size: { defaultWidth: 120, minWidth: 60, maxWidth: 300 },
-  status: { defaultWidth: 44, minWidth: 44, maxWidth: 44 },
+  name: { defaultWidth: 200, maxWidth: 400, minWidth: 80 },
+  size: { defaultWidth: 120, maxWidth: 300, minWidth: 60 },
+  status: { defaultWidth: 44, maxWidth: 44, minWidth: 44 },
 } as const;
 
 function getPersistApi(store: ReturnType<typeof createTreeTableColumnSizesStore>): {
@@ -49,7 +49,7 @@ describe('sanitizeColumnSizes', () => {
   });
 
   it('ignores keys that are not declared in columnBounds', () => {
-    const result = sanitizeColumnSizes({ name: 200, mystery: 999 }, BOUNDS);
+    const result = sanitizeColumnSizes({ mystery: 999, name: 200 }, BOUNDS);
     expect(result).not.toHaveProperty('mystery');
   });
 
@@ -67,18 +67,18 @@ describe('sanitizeColumnSizes', () => {
 describe('createTreeTableColumnSizesStore', () => {
   it('initializes sizes with the defaultWidth from each column bound', () => {
     const store = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
       storeName: 'tree-table-test-defaults.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     expect(store.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
   });
 
   it('clamps setColumn updates to the per-column bounds', () => {
     const store = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
       storeName: 'tree-table-test-clamp.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     store.getState().setColumn('name', 9999);
     expect(store.getState().sizes['name']).toBe(400);
@@ -88,9 +88,9 @@ describe('createTreeTableColumnSizesStore', () => {
 
   it('ignores setColumn calls for unknown column ids and non-finite widths', () => {
     const store = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
       storeName: 'tree-table-test-unknown.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     store.getState().setColumn('unknown', 200);
     store.getState().setColumn('name', Number.NaN);
@@ -99,13 +99,13 @@ describe('createTreeTableColumnSizesStore', () => {
 
   it('replaces the full map via setAll and sanitizes input', () => {
     const store = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
       storeName: 'tree-table-test-set-all.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     store
       .getState()
-      .setAll({ name: -1, size: 240, status: 44, mystery: 999 } as Record<string, number>);
+      .setAll({ mystery: 999, name: -1, size: 240, status: 44 } as Record<string, number>);
     expect(store.getState().sizes).toEqual({
       name: 80, // clamped to min
       size: 240,
@@ -115,9 +115,9 @@ describe('createTreeTableColumnSizesStore', () => {
 
   it('reset() restores defaults', () => {
     const store = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
       storeName: 'tree-table-test-reset.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     store.getState().setColumn('name', 240);
     store.getState().reset();
@@ -135,10 +135,10 @@ describe('createTreeTableColumnSizesStore', () => {
     );
 
     const store = createTreeTableColumnSizesStore({
-      storeName: 'tree-table-test-persist.v1',
-      version: 1,
       columnBounds: BOUNDS,
       storage,
+      storeName: 'tree-table-test-persist.v1',
+      version: 1,
     });
     await getPersistApi(store).rehydrate();
 
@@ -156,15 +156,15 @@ describe('createTreeTableColumnSizesStore', () => {
     );
 
     const store = createTreeTableColumnSizesStore({
-      storeName: 'tree-table-test-migrate.v2',
-      version: 2,
       columnBounds: BOUNDS,
-      storage,
       migrate: (raw, version) => {
         expect(version).toBe(1);
         const previous = raw as { oldName?: number; size?: number };
         return { name: previous.oldName ?? 200, size: previous.size ?? 120 };
       },
+      storage,
+      storeName: 'tree-table-test-migrate.v2',
+      version: 2,
     });
     await getPersistApi(store).rehydrate();
 
@@ -183,20 +183,20 @@ describe('createTreeTableColumnSizesStore', () => {
     await storage.setItem('tree-table-test-malformed.v1', '{bad-json');
 
     const nullMigrationStore = createTreeTableColumnSizesStore({
+      columnBounds: BOUNDS,
+      migrate: () => null,
+      storage,
       storeName: 'tree-table-test-null-migrate.v2',
       version: 2,
-      columnBounds: BOUNDS,
-      storage,
-      migrate: () => null,
     });
     await getPersistApi(nullMigrationStore).rehydrate();
     expect(nullMigrationStore.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
 
     const malformedStore = createTreeTableColumnSizesStore({
-      storeName: 'tree-table-test-malformed.v1',
-      version: 1,
       columnBounds: BOUNDS,
       storage,
+      storeName: 'tree-table-test-malformed.v1',
+      version: 1,
     });
     await getPersistApi(malformedStore).rehydrate();
     expect(malformedStore.getState().sizes).toEqual({ name: 200, size: 120, status: 44 });
@@ -209,25 +209,25 @@ describe('createSingletonColumnSizesStore', () => {
     Reflect.deleteProperty(globalThis, globalKey);
 
     const first = createSingletonColumnSizesStore(globalKey, {
+      columnBounds: BOUNDS,
       storeName: 'tree-table-singleton.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     first.getState().setColumn('name', 260);
 
     const second = createSingletonColumnSizesStore(globalKey, {
+      columnBounds: BOUNDS,
       storeName: 'tree-table-singleton.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     expect(second).toBe(first);
     expect(second.getState().sizes['name']).toBe(260);
 
     (globalThis as unknown as Record<string, unknown>)[globalKey] = () => undefined;
     const replacement = createSingletonColumnSizesStore(globalKey, {
+      columnBounds: BOUNDS,
       storeName: 'tree-table-singleton.v1',
       version: 1,
-      columnBounds: BOUNDS,
     });
     expect(replacement).not.toBe(first);
 

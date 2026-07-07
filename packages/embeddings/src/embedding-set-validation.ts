@@ -94,26 +94,26 @@ export function validateEmbeddingSetParams(
   // Validate dimensions match
   if (params.dimensions !== providerMetadata.dimensions) {
     return {
-      ok: false,
       error: {
-        type: 'dimension_mismatch',
         expected: providerMetadata.dimensions,
-        provided: params.dimensions,
         modelKey: providerMetadata.modelKey,
+        provided: params.dimensions,
+        type: 'dimension_mismatch',
       },
+      ok: false,
     };
   }
 
   // Validate distance metric matches
   if (params.distance !== providerMetadata.distance) {
     return {
-      ok: false,
       error: {
-        type: 'distance_mismatch',
         expected: providerMetadata.distance,
-        provided: params.distance,
         modelKey: providerMetadata.modelKey,
+        provided: params.distance,
+        type: 'distance_mismatch',
       },
+      ok: false,
     };
   }
 
@@ -159,13 +159,13 @@ export function createEmbeddingSetParamsFromMetadata(
   const defaultName = `${providerMetadata.displayName} (${providerMetadata.dimensions}D)`;
 
   return {
+    dimensions: providerMetadata.dimensions,
+    distance: providerMetadata.distance,
+    modelId: providerMetadata.modelKey,
     // Map ProviderMetadata fields to EmbeddingSet creation params
     // Note: EmbeddingSet.modelKey stores the providerId (e.g., 'openai')
     // while EmbeddingSet.modelId stores the model key (e.g., 'text-embedding-3-small')
     modelKey: providerMetadata.providerId,
-    modelId: providerMetadata.modelKey,
-    dimensions: providerMetadata.dimensions,
-    distance: providerMetadata.distance,
     ...(userMetadata
       ? {
           metadata: {
@@ -215,12 +215,12 @@ export function validateEmbeddingDimensions(
 
   if (actualDimensions !== expectedDimensions) {
     return {
-      ok: false,
       error: {
-        type: 'dimension_mismatch',
-        expected: expectedDimensions,
         actual: actualDimensions,
+        expected: expectedDimensions,
+        type: 'dimension_mismatch',
       },
+      ok: false,
     };
   }
 
@@ -244,38 +244,38 @@ export function isProviderCompatibleWithSet(
   // Check provider matches
   if (setConfig.modelKey !== providerMetadata.providerId) {
     return {
-      ok: false,
       error: {
-        type: 'provider_mismatch',
         expected: setConfig.modelKey,
         provided: providerMetadata.providerId,
+        type: 'provider_mismatch',
       },
+      ok: false,
     };
   }
 
   // Check dimensions match
   if (setConfig.dimensions !== providerMetadata.dimensions) {
     return {
-      ok: false,
       error: {
-        type: 'dimension_mismatch',
         expected: setConfig.dimensions,
-        provided: providerMetadata.dimensions,
         modelKey: providerMetadata.modelKey,
+        provided: providerMetadata.dimensions,
+        type: 'dimension_mismatch',
       },
+      ok: false,
     };
   }
 
   // Check distance metric matches
   if (setConfig.distance !== providerMetadata.distance) {
     return {
-      ok: false,
       error: {
-        type: 'distance_mismatch',
         expected: setConfig.distance,
-        provided: providerMetadata.distance,
         modelKey: providerMetadata.modelKey,
+        provided: providerMetadata.distance,
+        type: 'distance_mismatch',
       },
+      ok: false,
     };
   }
 

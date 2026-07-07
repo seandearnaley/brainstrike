@@ -48,7 +48,7 @@ test.describe('Assistant tool card visuals (desktop)', () => {
   });
 
   test('tool card is compact, tinted internal, and badge-free', async ({ window }) => {
-    await setupAssistantMock(window, { variant: 'tool', message: 'Retrieved answer.' });
+    await setupAssistantMock(window, { message: 'Retrieved answer.', variant: 'tool' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
@@ -68,7 +68,7 @@ test.describe('Assistant tool card visuals (desktop)', () => {
 
   test('tool-error card renders the error state', async ({ window }) => {
     const errorMessage = 'Boom.';
-    await setupAssistantMock(window, { variant: 'tool-error', errorMessage });
+    await setupAssistantMock(window, { errorMessage, variant: 'tool-error' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 

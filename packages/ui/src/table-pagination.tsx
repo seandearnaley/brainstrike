@@ -466,12 +466,12 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const rangeSummary = useMemo(
     () =>
       formatRangeSummary({
-        showItemRange,
-        pageInfo,
-        totalItems,
-        resolvedDensity,
-        startItem,
         endItem,
+        pageInfo,
+        resolvedDensity,
+        showItemRange,
+        startItem,
+        totalItems,
       }),
     [showItemRange, pageInfo, totalItems, resolvedDensity, startItem, endItem]
   );

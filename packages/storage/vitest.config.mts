@@ -18,12 +18,17 @@ export default defineConfig({
   test: {
     projects: [
       {
+        resolve: {
+          alias: {
+            electron: path.resolve(import.meta.dirname, '__mocks__/electron.ts'),
+          },
+        },
         test: {
-          name: 'unit',
-          globals: true,
           environment: 'jsdom',
-          include: ['src/__tests__/**/*.test.{ts,tsx}'],
           exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          globals: true,
+          include: ['src/__tests__/**/*.test.{ts,tsx}'],
+          name: 'unit',
           // Vitest 4: server.deps replaces the deprecated deps config
           server: {
             deps: {
@@ -31,28 +36,23 @@ export default defineConfig({
             },
           },
         },
-        resolve: {
-          alias: {
-            electron: path.resolve(import.meta.dirname, '__mocks__/electron.ts'),
-          },
-        },
       },
       {
         test: {
-          name: 'browser',
-          globals: true,
-          include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
-          // Output directory for traces and screenshots
-          outputDir: 'test-results',
           browser: {
             enabled: true,
-            provider: playwright(),
             instances: [{ browser: 'chromium' }],
-            // Playwright trace: capture only for failing tests in CI
-            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
+            provider: playwright(),
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
+            // Playwright trace: capture only for failing tests in CI
+            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
           },
+          globals: true,
+          include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
+          name: 'browser',
+          // Output directory for traces and screenshots
+          outputDir: 'test-results',
         },
       },
     ],

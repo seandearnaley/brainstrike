@@ -101,14 +101,14 @@ export type CollectionSelectSize = 'compact' | 'default';
  */
 const SIZE_STYLES = {
   compact: {
-    trigger: 'h-7 text-[10px]',
-    item: 'text-xs',
     content: 'max-w-[300px]',
+    item: 'text-xs',
+    trigger: 'h-7 text-[10px]',
   },
   default: {
-    trigger: '',
-    item: '',
     content: 'max-w-[400px]',
+    item: '',
+    trigger: '',
   },
 } as const;
 
@@ -215,8 +215,8 @@ function useResolvedCollectionData(
 
   return {
     collections: externalCollections ?? internalData.collections,
-    loading: externalLoading ?? internalData.loading,
     error: externalError ?? internalData.error,
+    loading: externalLoading ?? internalData.loading,
     shouldFetchInternally,
   };
 }
@@ -226,25 +226,25 @@ function useResolvedCollectionData(
  */
 function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[] {
   return rows.map((row) => ({
-    id: row.id,
-    modelKey: row.modelKey,
-    modelId: row.modelId,
+    category: row.category,
+    chunkCount: Number(row.chunkCount ?? 0),
+    createdAt: row.createdAt,
+    description: row.description,
     dimensions: row.dimensions,
     distance: row.distance as 'cosine' | 'l2' | 'ip',
-    createdAt: row.createdAt,
-    name: row.name,
-    description: row.description,
-    tags: row.tags,
-    category: row.category,
-    fileCount: Number(row.fileCount ?? 0),
-    chunkCount: Number(row.chunkCount ?? 0),
     embeddingCount: Number(row.embeddingCount ?? 0),
+    fileCount: Number(row.fileCount ?? 0),
+    id: row.id,
+    modelId: row.modelId,
+    modelKey: row.modelKey,
+    name: row.name,
     statsAvailable:
       row.statsAvailable === undefined
         ? true
         : row.statsAvailable === true || row.statsAvailable === 'true',
     statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
     systemRole: row.systemRole ?? null,
+    tags: row.tags,
   }));
 }
 
@@ -387,16 +387,16 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     (_state: FetchState, action: FetchAction): FetchState => {
       switch (action.type) {
         case 'start':
-          return { loading: true, error: null };
+          return { error: null, loading: true };
         case 'success':
-          return { loading: false, error: null };
+          return { error: null, loading: false };
         case 'error':
-          return { loading: false, error: action.error };
+          return { error: action.error, loading: false };
         case 'reset':
-          return { loading: false, error: null };
+          return { error: null, loading: false };
       }
     },
-    { loading: false, error: null }
+    { error: null, loading: false }
   );
   // Track if we've done the initial fetch (separate from live query)
   const initialFetchedRef = useRef(false);
@@ -408,10 +408,10 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     refresh,
   } = usePGliteLiveQuery<CollectionRow>({
     cacheKey: makeLiveQueryKey('collections'),
-    query: COLLECTIONS_QUERY,
-    mode: 'incremental',
-    key: 'id',
     enabled: liveQueryEnabled,
+    key: 'id',
+    mode: 'incremental',
+    query: COLLECTIONS_QUERY,
   });
 
   const refreshCollectionsSnapshot = useCallback(async () => {
@@ -437,7 +437,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       dispatchFetch({ type: 'success' });
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error));
-      dispatchFetch({ type: 'error', error: normalized });
+      dispatchFetch({ error: normalized, type: 'error' });
       throw normalized;
     }
   }, [db, schemaVerified, setCachedCollections]);
@@ -584,7 +584,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
           const normalized = err instanceof Error ? err : new Error(String(err));
           // Reset flag on error so we can retry when conditions change
           initialFetchedRef.current = false;
-          dispatchFetch({ type: 'error', error: normalized });
+          dispatchFetch({ error: normalized, type: 'error' });
         }
       }
     };
@@ -605,8 +605,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Use initial loading/error state when live query is disabled
   return {
     collections: resolvedCollections,
-    loading: liveQueryEnabled ? loading : fetchState.loading,
     error: liveQueryEnabled ? error : fetchState.error,
+    loading: liveQueryEnabled ? loading : fetchState.loading,
   };
 }
 

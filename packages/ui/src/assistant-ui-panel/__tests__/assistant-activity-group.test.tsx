@@ -7,14 +7,14 @@ import { runEventsSpanMs, summarizeToolActivity, type ToolActivitySummary } from
 import { formatActivityDuration } from '../tool-durations';
 
 const toolPart = (overrides: Record<string, unknown>) => ({
-  type: 'tool-call',
   toolName: 'brainstrike.grepSearch',
+  type: 'tool-call',
   ...overrides,
 });
 
 const runEventPart = (timestamp: string) => ({
-  name: ASSISTANT_RUN_EVENT_DATA_NAME,
   data: { id: timestamp, kind: 'tool.started', label: 'x', status: 'completed', timestamp },
+  name: ASSISTANT_RUN_EVENT_DATA_NAME,
 });
 
 describe('summarizeToolActivity', () => {
@@ -23,7 +23,7 @@ describe('summarizeToolActivity', () => {
       toolPart({ status: { type: 'complete' } }),
       toolPart({ status: { type: 'running' } }),
       toolPart({ status: { type: 'incomplete' } }),
-      { type: 'reasoning', status: { type: 'complete' } },
+      { status: { type: 'complete' }, type: 'reasoning' },
     ]);
 
     expect(summary.stepCount).toBe(3);

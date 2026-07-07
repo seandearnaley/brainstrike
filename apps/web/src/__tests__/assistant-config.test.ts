@@ -70,8 +70,8 @@ describe('assistant-config', () => {
 
     const result = resolveAssistantProviderConfig();
     expect(result).toEqual({
-      enabled: false,
       disabledReason: 'missing_api_key',
+      enabled: false,
     });
     expect(getAssistantApiKey()).toBeUndefined();
   });

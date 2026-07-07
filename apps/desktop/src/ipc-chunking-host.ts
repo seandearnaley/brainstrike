@@ -19,16 +19,16 @@ import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-backgr
 
 export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): () => void {
   const unregisterLifecycle = registerBackgroundRuntimeLifecycleIpcHandlers({
-    manager,
     assertStatus: assertChunkingHostStatusReport,
     channels: {
       ensureStarted: CHUNKING_HOST_ENSURE_STARTED_CHANNEL,
-      stop: CHUNKING_HOST_STOP_CHANNEL,
-      reset: CHUNKING_HOST_RESET_CHANNEL,
       getStatus: CHUNKING_HOST_GET_STATUS_CHANNEL,
       reportStatus: CHUNKING_HOST_REPORT_STATUS_CHANNEL,
+      reset: CHUNKING_HOST_RESET_CHANNEL,
+      stop: CHUNKING_HOST_STOP_CHANNEL,
     },
     domain: 'chunking-host',
+    manager,
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 

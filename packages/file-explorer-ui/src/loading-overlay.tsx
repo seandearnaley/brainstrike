@@ -19,11 +19,11 @@ interface EtaState {
 
 const etaReducer = (state: EtaState, action: EtaAction): EtaState => {
   if (action.type === 'reset') {
-    return { startMs: null, nowMs: null };
+    return { nowMs: null, startMs: null };
   }
   return {
-    startMs: action.isStart ? action.now : (state.startMs ?? action.now),
     nowMs: action.now,
+    startMs: action.isStart ? action.now : (state.startMs ?? action.now),
   };
 };
 
@@ -76,7 +76,7 @@ export const LoadingOverlay = ({
   const progressDescription = useProgressDescription(isCancelling, description, progressState);
 
   // Track start time and current time for ETA using useReducer for single-dispatch updates.
-  const [etaTimes, dispatchEta] = useReducer(etaReducer, { startMs: null, nowMs: null });
+  const [etaTimes, dispatchEta] = useReducer(etaReducer, { nowMs: null, startMs: null });
   const isLoadingPhase = progressState?.phase === 'loading';
   const hasJustStarted = progressState?.loaded === 0;
 
@@ -86,7 +86,7 @@ export const LoadingOverlay = ({
       return;
     }
     if (isLoadingPhase) {
-      dispatchEta({ type: 'tick', now: performance.now(), isStart: hasJustStarted });
+      dispatchEta({ isStart: hasJustStarted, now: performance.now(), type: 'tick' });
     }
   }, [isLoadingPhase, hasJustStarted, isCancelling, progressState]);
 

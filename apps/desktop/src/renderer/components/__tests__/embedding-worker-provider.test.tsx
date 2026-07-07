@@ -6,12 +6,12 @@ import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 
 // Use vi.hoisted to ensure mock functions are available during module initialization
 const { mockUsePGliteDatabase, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
-  mockUsePGliteDatabase: vi.fn(),
-  mockStartEmbeddingWorker: vi.fn(),
   mockLogger: {
-    info: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
+  mockStartEmbeddingWorker: vi.fn(),
+  mockUsePGliteDatabase: vi.fn(),
 }));
 
 type MockDb = IDatabase & {
@@ -53,13 +53,13 @@ function expectWorkerConfig(
   modelKey: string | undefined
 ): void {
   expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-    db: mockDb,
     concurrency,
+    db: mockDb,
     leaseMs,
-    modelKey,
-    streamingWorkerUrl: expect.any(String),
     log: expect.any(Function),
+    modelKey,
     onDownloadProgress: expect.any(Function),
+    streamingWorkerUrl: expect.any(String),
   });
 }
 

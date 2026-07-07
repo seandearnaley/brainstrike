@@ -44,10 +44,10 @@ describe('useAssistantThreadRequestData', () => {
     expect(result.current.requestData).toMatchObject({
       enabledNativeToolIds: ['filesystem.read_file'],
       memory: {
-        threadId: 'thread-a',
-        resourceId: 'workspace-a',
         memoryOptions: buildAssistantMemoryOptions(undefined),
         memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+        resourceId: 'workspace-a',
+        threadId: 'thread-a',
       },
       modelSettings: { maxOutputTokens: 512 },
       providerOptions: { openai: { reasoningEffort: 'medium' } },

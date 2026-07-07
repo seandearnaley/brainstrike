@@ -25,9 +25,9 @@ import {
 import type { DistanceMetric, RetrievalMode, SearchConfigPanelProps } from './types';
 
 const DISTANCE_METRICS: Array<{ value: DistanceMetric; label: string; tooltip: string }> = [
-  { value: 'cosine', label: 'Cosine', tooltip: 'Best for normalized embeddings' },
-  { value: 'l2', label: 'Euclidean (L2)', tooltip: 'Geometric distance' },
-  { value: 'ip', label: 'Inner Product', tooltip: 'Dot product similarity' },
+  { label: 'Cosine', tooltip: 'Best for normalized embeddings', value: 'cosine' },
+  { label: 'Euclidean (L2)', tooltip: 'Geometric distance', value: 'l2' },
+  { label: 'Inner Product', tooltip: 'Dot product similarity', value: 'ip' },
 ];
 
 const RETRIEVAL_MODES: Array<{
@@ -36,12 +36,12 @@ const RETRIEVAL_MODES: Array<{
   tooltip: string;
   icon: 'Zap' | 'Sparkles';
 }> = [
-  { value: 'vector', label: 'Vector', tooltip: 'Fast semantic similarity search', icon: 'Zap' },
+  { icon: 'Zap', label: 'Vector', tooltip: 'Fast semantic similarity search', value: 'vector' },
   {
-    value: 'hybrid',
+    icon: 'Sparkles',
     label: 'Hybrid',
     tooltip: 'Combines vector similarity with keyword matching',
-    icon: 'Sparkles',
+    value: 'hybrid',
   },
 ];
 

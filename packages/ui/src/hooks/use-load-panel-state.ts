@@ -17,10 +17,10 @@ export function useLoadPanelState(
 ] {
   // Start from defaults; adapter (if provided) will hydrate asynchronously
   const [state, setState] = useState<PanelPersistenceState>(() => ({
-    sizes: validateAndNormalizeSizes(defaultSizes),
     showConsole: defaultShowConsole,
     showLeftPanel: defaultShowLeftPanel,
     showRightPanel: defaultShowRightPanel,
+    sizes: validateAndNormalizeSizes(defaultSizes),
   }));
 
   const lastSavedStateRef = useRef<PanelPersistenceState | null>(state);
@@ -36,10 +36,10 @@ export function useLoadPanelState(
         const stored = await adapter.load();
         if (stored) {
           const loadedState: PanelPersistenceState = {
-            sizes: validateAndNormalizeSizes(stored.sizes ?? defaultSizes),
             showConsole: stored.showConsole ?? defaultShowConsole,
             showLeftPanel: stored.showLeftPanel ?? defaultShowLeftPanel,
             showRightPanel: stored.showRightPanel ?? defaultShowRightPanel,
+            sizes: validateAndNormalizeSizes(stored.sizes ?? defaultSizes),
           };
           setState(loadedState);
           lastSavedStateRef.current = loadedState;

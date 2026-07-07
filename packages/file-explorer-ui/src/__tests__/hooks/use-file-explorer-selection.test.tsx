@@ -10,8 +10,8 @@ const mockHandleSelectionChange = vi.fn();
 
 vi.mock('../../shell/use-selection-manager-context', () => ({
   useSelectionManager: () => ({
-    selectedFilePaths: mockSelectedFilePaths,
     handleSelectionChange: mockHandleSelectionChange,
+    selectedFilePaths: mockSelectedFilePaths,
   }),
 }));
 
@@ -25,10 +25,10 @@ const createWrapper = () => {
 const createMockFileNode = (
   overrides: Partial<IFileNode> & { name: string; path: string; type: 'file' | 'directory' }
 ): IFileNode => ({
-  handle: {} as FileSystemFileHandle,
   depth: 0,
-  selectionState: 'unchecked',
+  handle: {} as FileSystemFileHandle,
   rootFolderId: 'root-1',
+  selectionState: 'unchecked',
   ...overrides,
 });
 
@@ -84,16 +84,16 @@ describe('useFileExplorerSelection', () => {
   it('should include visible files in displayedFiles', () => {
     const fileTree: IFileNode[] = [
       createMockFileNode({
+        isVisible: true,
         name: 'file1.ts',
         path: '/root/file1.ts',
         type: 'file',
-        isVisible: true,
       }),
       createMockFileNode({
+        isVisible: true,
         name: 'file2.ts',
         path: '/root/file2.ts',
         type: 'file',
-        isVisible: true,
       }),
     ];
 
@@ -110,16 +110,16 @@ describe('useFileExplorerSelection', () => {
   it('should exclude hidden files from displayedFiles', () => {
     const fileTree: IFileNode[] = [
       createMockFileNode({
+        isVisible: true,
         name: 'visible.ts',
         path: '/root/visible.ts',
         type: 'file',
-        isVisible: true,
       }),
       createMockFileNode({
+        isVisible: false,
         name: 'hidden.ts',
         path: '/root/hidden.ts',
         type: 'file',
-        isVisible: false,
       }),
     ];
 
@@ -155,33 +155,33 @@ describe('useFileExplorerSelection', () => {
   it('should traverse nested directories to find files', () => {
     const fileTree: IFileNode[] = [
       createMockFileNode({
-        name: 'src',
-        path: '/root/src',
-        type: 'directory',
         children: [
           createMockFileNode({
+            depth: 1,
+            isVisible: true,
             name: 'file1.ts',
             path: '/root/src/file1.ts',
             type: 'file',
-            isVisible: true,
-            depth: 1,
           }),
           createMockFileNode({
-            name: 'components',
-            path: '/root/src/components',
-            type: 'directory',
-            depth: 1,
             children: [
               createMockFileNode({
+                depth: 2,
+                isVisible: true,
                 name: 'Button.tsx',
                 path: '/root/src/components/Button.tsx',
                 type: 'file',
-                isVisible: true,
-                depth: 2,
               }),
             ],
+            depth: 1,
+            name: 'components',
+            path: '/root/src/components',
+            type: 'directory',
           }),
         ],
+        name: 'src',
+        path: '/root/src',
+        type: 'directory',
       }),
     ];
 
@@ -198,11 +198,11 @@ describe('useFileExplorerSelection', () => {
   it('should not include directories in displayedFiles', () => {
     const fileTree: IFileNode[] = [
       createMockFileNode({
+        children: [],
+        isVisible: true,
         name: 'src',
         path: '/root/src',
         type: 'directory',
-        isVisible: true,
-        children: [],
       }),
     ];
 
@@ -218,10 +218,10 @@ describe('useFileExplorerSelection', () => {
   it('should update displayedFiles when quickFilteredTree changes', () => {
     const initialTree: IFileNode[] = [
       createMockFileNode({
+        isVisible: true,
         name: 'file1.ts',
         path: '/root/file1.ts',
         type: 'file',
-        isVisible: true,
       }),
     ];
 
@@ -234,16 +234,16 @@ describe('useFileExplorerSelection', () => {
 
     const newTree: IFileNode[] = [
       createMockFileNode({
+        isVisible: true,
         name: 'file1.ts',
         path: '/root/file1.ts',
         type: 'file',
-        isVisible: true,
       }),
       createMockFileNode({
+        isVisible: true,
         name: 'file2.ts',
         path: '/root/file2.ts',
         type: 'file',
-        isVisible: true,
       }),
     ];
 

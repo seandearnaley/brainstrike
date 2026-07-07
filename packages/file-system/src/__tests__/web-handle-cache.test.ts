@@ -4,18 +4,18 @@ import { type StoredRootHandle, WebHandleCache } from '../adapters/web-handle-ca
 
 const createDirectoryHandle = (name: string) =>
   ({
+    entries: vi.fn(),
     kind: 'directory',
     name,
-    entries: vi.fn(),
     queryPermission: vi.fn().mockResolvedValue('granted'),
     requestPermission: vi.fn().mockResolvedValue('granted'),
   }) as unknown as FileSystemDirectoryHandle;
 
 const createFileHandle = (name: string) =>
   ({
+    getFile: vi.fn(),
     kind: 'file',
     name,
-    getFile: vi.fn(),
     queryPermission: vi.fn().mockResolvedValue('granted'),
     requestPermission: vi.fn().mockResolvedValue('granted'),
   }) as unknown as FileSystemFileHandle;
@@ -185,9 +185,9 @@ describe('WebHandleCache', () => {
     const cache = new WebHandleCache();
     const queryPermission = vi.fn().mockResolvedValue('prompt');
     const handle = {
+      entries: vi.fn(),
       kind: 'directory',
       name: 'root',
-      entries: vi.fn(),
       queryPermission,
     } as unknown as FileSystemDirectoryHandle;
 
@@ -245,9 +245,9 @@ describe('WebHandleCache', () => {
   it('restores handles without the optional permission API', async () => {
     const cache = new WebHandleCache();
     const handle = {
+      entries: vi.fn(),
       kind: 'directory',
       name: 'legacy-root',
-      entries: vi.fn(),
     } as unknown as FileSystemDirectoryHandle;
 
     await cache.storeRootHandle('legacy-root', handle);
@@ -538,9 +538,9 @@ describe('WebHandleCache', () => {
 
       // Create a handle that will fail validation
       const invalidHandle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'invalid',
-        entries: vi.fn(),
         // queryPermission throws, simulating a stale/revoked handle
         queryPermission: vi.fn().mockRejectedValue(new Error('Permission revoked')),
         requestPermission: vi.fn().mockRejectedValue(new Error('Permission revoked')),

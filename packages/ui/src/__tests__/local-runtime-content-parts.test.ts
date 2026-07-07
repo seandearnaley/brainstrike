@@ -13,35 +13,35 @@ import {
 
 function toolCall(id: string, argsText: string): LocalLlmToolCall {
   return {
+    function: {
+      arguments: argsText,
+      name: 'brainstrike.search',
+    },
     id,
     type: 'function',
-    function: {
-      name: 'brainstrike.search',
-      arguments: argsText,
-    },
   };
 }
 
 describe('local runtime content parts', () => {
   it('creates assistant-ui tool call parts from local LLM tool calls', () => {
     expect(createToolCallPart(toolCall('call-1', '{"query":"coverage"}'))).toEqual({
-      type: 'tool-call',
-      toolCallId: 'call-1',
-      toolName: 'brainstrike.search',
       args: {
         query: 'coverage',
       },
       argsText: '{"query":"coverage"}',
+      toolCallId: 'call-1',
+      toolName: 'brainstrike.search',
+      type: 'tool-call',
     });
   });
 
   it('preserves malformed arguments as argsText while exposing empty object args', () => {
     expect(createToolCallPart(toolCall('call-bad-json', '{bad json'))).toEqual({
-      type: 'tool-call',
-      toolCallId: 'call-bad-json',
-      toolName: 'brainstrike.search',
       args: {},
       argsText: '{bad json',
+      toolCallId: 'call-bad-json',
+      toolName: 'brainstrike.search',
+      type: 'tool-call',
     });
   });
 
@@ -49,15 +49,15 @@ describe('local runtime content parts', () => {
     const result: LocalLlmGenerationResult = {
       finishReason: 'tool_calls',
       text: '',
-      usage: {
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
       toolCalls: [
         toolCall('call-1', '{"query":"first"}'),
         toolCall('call-2', '{"query":"second"}'),
       ],
+      usage: {
+        completionTokens: 1,
+        promptTokens: 1,
+        totalTokens: 2,
+      },
     };
     const existing: AssistantToolCallContentPart[] = [
       createToolCallPart(toolCall('call-1', '{"query":"old"}')),
@@ -72,14 +72,12 @@ describe('local runtime content parts', () => {
 
   it('orders reasoning, tool calls, text, and run events without emitting blank text parts', () => {
     const toolPart = createToolCallPart(toolCall('call-1', '{}'), {
+      isError: false,
       result: {
         matches: 2,
       },
-      isError: false,
     });
     const runEventPart: AssistantDataContentPart = {
-      type: 'data',
-      name: 'brainstrike.run-event',
       data: {
         id: 'run-event-1',
         kind: 'run.started',
@@ -87,19 +85,21 @@ describe('local runtime content parts', () => {
         status: 'running',
         timestamp: '2026-06-10T00:00:00.000Z',
       },
+      name: 'brainstrike.run-event',
+      type: 'data',
     };
 
     expect(
       buildAssistantContentParts('  Think first.  ', 'Final answer.', [toolPart], [runEventPart])
     ).toEqual([
       {
-        type: 'reasoning',
         text: 'Think first.',
+        type: 'reasoning',
       },
       toolPart,
       {
-        type: 'text',
         text: 'Final answer.',
+        type: 'text',
       },
       runEventPart,
     ]);
@@ -110,8 +110,8 @@ describe('local runtime content parts', () => {
     const pendingUpdate = {
       content: [
         {
-          type: 'text',
           text: 'partial',
+          type: 'text',
         },
       ],
     } satisfies ChatModelRunResult;

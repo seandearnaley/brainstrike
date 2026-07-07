@@ -6,7 +6,7 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 
 interface SqlClient {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 interface EmbeddingSetRow {
@@ -107,9 +107,9 @@ function groupEmbeddingSets(
 
 function toNormalizedRow(row: EmbeddingSetRow, counts: Map<string, number>): NormalizedRow {
   const canonical = canonicalizeEmbeddingProviderModelKey(row.modelKey) ?? {
-    provider: 'local' as EmbeddingProviderType,
-    modelId: row.modelId || row.modelKey,
     composite: formatEmbeddingProviderModelKey('local', row.modelId || row.modelKey),
+    modelId: row.modelId || row.modelKey,
+    provider: 'local' as EmbeddingProviderType,
   };
   return {
     ...row,

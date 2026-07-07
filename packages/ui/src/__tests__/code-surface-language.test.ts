@@ -38,11 +38,11 @@ describe('resolveCodeSurfaceLanguage', () => {
     ['src/native.h', undefined, 'C'],
     ['src/main.dart', undefined, 'Dart'],
   ])('resolves %s to %s', (path, language, expectedLabel) => {
-    expect(resolveCodeSurfaceLanguage({ path, language })?.label).toBe(expectedLabel);
+    expect(resolveCodeSurfaceLanguage({ language, path })?.label).toBe(expectedLabel);
   });
 
   it('prefers an explicit language hint over the filename extension', () => {
-    expect(resolveCodeSurfaceLanguage({ path: 'notes.txt', language: 'markdown' })?.label).toBe(
+    expect(resolveCodeSurfaceLanguage({ language: 'markdown', path: 'notes.txt' })?.label).toBe(
       'Markdown'
     );
   });

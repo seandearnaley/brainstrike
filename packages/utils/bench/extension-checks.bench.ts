@@ -29,12 +29,12 @@ function runExtensionChecks(
 }
 
 const extensionInputs = {
-  simple: 'file.txt',
-  long: '/home/user/projects/brainstrike/packages/utils/src/__tests__/file-utils.test.ts',
   hidden: '.gitignore',
   hiddenWithExt: '/path/.env.local',
-  noExt: 'Makefile',
+  long: '/home/user/projects/brainstrike/packages/utils/src/__tests__/file-utils.test.ts',
   multiDot: 'archive.tar.gz',
+  noExt: 'Makefile',
+  simple: 'file.txt',
   windows: 'C:\\Users\\name\\Documents\\report.pdf',
 };
 

@@ -114,10 +114,10 @@ export class StreamingEmbeddingWorkerClient {
     });
 
     return {
-      type: 'result',
       id: request.id,
-      vectors,
       metadata,
+      type: 'result',
+      vectors,
     };
   }
 
@@ -146,13 +146,13 @@ export class StreamingEmbeddingWorkerClient {
           this.handleStreamEvent(message, request, options, cleanup, resolve, reject);
         });
         this.activeStream = {
-          requestId: request.id,
           cleanup,
           reject,
+          requestId: request.id,
         };
         this.postMessage({
-          type: 'stream-embed',
           request,
+          type: 'stream-embed',
         });
       });
 
@@ -227,9 +227,9 @@ export class StreamingEmbeddingWorkerClient {
     void Promise.resolve(options.onBatch?.(payload))
       .then(() => {
         this.postMessage({
-          type: 'stream-ack',
-          id: request.id,
           batchIndex: payload.batchIndex,
+          id: request.id,
+          type: 'stream-ack',
         });
       })
       .catch((error: unknown) => {

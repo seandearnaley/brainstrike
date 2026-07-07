@@ -5,15 +5,15 @@ import RootLayout from '../layout';
 
 // Mock the UI package
 vi.mock('@brainstrike/ui', () => ({
-  RouterProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="router-provider">{children}</div>
-  ),
   appleTouchIcon: '/test-apple-touch-icon.png',
   icon16: '/test-icon-16.png',
   icon32: '/test-icon-32.png',
   icon48: '/test-icon-48.png',
   icon192: '/test-icon-192.png',
   icon512: '/test-icon-512.png',
+  RouterProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="router-provider">{children}</div>
+  ),
 }));
 
 describe('RootLayout', () => {

@@ -64,14 +64,14 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
+        fileSizes: {},
         loadingFiles: new Set<string>(),
         onSelectionChange: vi.fn(),
-        fileSizes: {},
-        decodeFileSelection,
-        tokenCounting,
         performUndoableAction: vi.fn(),
+        selectedFiles,
+        tokenCounting,
       })
     );
 
@@ -108,14 +108,14 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
+        fileSizes: {},
         loadingFiles: new Set<string>(),
         onSelectionChange: vi.fn(),
-        fileSizes: {},
-        decodeFileSelection,
-        tokenCounting,
         performUndoableAction: vi.fn(),
+        selectedFiles,
+        tokenCounting,
       })
     );
 
@@ -148,14 +148,14 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
+        fileSizes: {},
         loadingFiles: new Set<string>(),
         onSelectionChange: vi.fn(),
-        fileSizes: {},
-        decodeFileSelection,
-        tokenCounting,
         performUndoableAction: vi.fn(),
+        selectedFiles,
+        tokenCounting,
       })
     );
 
@@ -186,14 +186,14 @@ describe('usePreviewPanelState path sorting', () => {
     const { result, rerender } = renderHook(
       ({ selectedFiles }: { selectedFiles: Set<string> }) =>
         usePreviewPanelState({
-          selectedFiles,
+          decodeFileSelection,
           fileContents: {},
+          fileSizes: {},
           loadingFiles: new Set<string>(),
           onSelectionChange: vi.fn(),
-          fileSizes: {},
-          decodeFileSelection,
-          tokenCounting,
           performUndoableAction: vi.fn(),
+          selectedFiles,
+          tokenCounting,
         }),
       {
         initialProps: {
@@ -249,26 +249,26 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
-        loadingFiles: new Set<string>(),
-        onSelectionChange: vi.fn(),
         fileSizes: {
           'folder-a::src/file-a.ts': 512,
           'folder-a::src/file-b.ts': 1536,
         },
-        decodeFileSelection,
-        tokenCounting,
+        loadingFiles: new Set<string>(),
+        onSelectionChange: vi.fn(),
         performUndoableAction: vi.fn(),
+        selectedFiles,
+        tokenCounting,
       })
     );
 
     expect(result.current.flatListItems).toMatchObject([
-      { type: 'folder-header', folderId: 'folder-a', fileCount: 2, totalTokens: 2000 },
-      { type: 'file', path: 'src/file-a.ts', size: 512, tokens: 1100 },
-      { type: 'file', path: 'src/file-b.ts', size: 1536, tokens: 900 },
-      { type: 'folder-header', folderId: 'folder-b', fileCount: 1, totalTokens: 0 },
-      { type: 'file', path: 'README.md', size: 4096 },
+      { fileCount: 2, folderId: 'folder-a', totalTokens: 2000, type: 'folder-header' },
+      { path: 'src/file-a.ts', size: 512, tokens: 1100, type: 'file' },
+      { path: 'src/file-b.ts', size: 1536, tokens: 900, type: 'file' },
+      { fileCount: 1, folderId: 'folder-b', totalTokens: 0, type: 'folder-header' },
+      { path: 'README.md', size: 4096, type: 'file' },
     ]);
     expect(result.current.formatFileSize()).toBe('Unknown');
     expect(result.current.formatFileSize(1536)).toBe('1.5 KB');
@@ -309,14 +309,14 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
+        fileSizes: {},
         loadingFiles: new Set<string>(),
         onSelectionChange,
-        fileSizes: {},
-        decodeFileSelection,
-        tokenCounting,
         performUndoableAction,
+        selectedFiles,
+        tokenCounting,
       })
     );
 
@@ -379,14 +379,14 @@ describe('usePreviewPanelState path sorting', () => {
 
     const { result } = renderHook(() =>
       usePreviewPanelState({
-        selectedFiles,
+        decodeFileSelection,
         fileContents: {},
+        fileSizes: {},
         loadingFiles: new Set<string>(),
         onSelectionChange,
-        fileSizes: {},
-        decodeFileSelection,
-        tokenCounting,
         performUndoableAction,
+        selectedFiles,
+        tokenCounting,
       })
     );
 

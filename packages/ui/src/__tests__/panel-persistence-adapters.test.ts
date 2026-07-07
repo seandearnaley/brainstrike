@@ -8,10 +8,10 @@ import type { PanelPersistenceState } from '../types/panel';
 
 describe('panel-persistence-adapters', () => {
   const testState: PanelPersistenceState = {
-    sizes: [25, 50, 25],
     showConsole: true,
     showLeftPanel: true,
     showRightPanel: true,
+    sizes: [25, 50, 25],
   };
 
   describe('LocalStoragePanelPersistenceAdapter', () => {

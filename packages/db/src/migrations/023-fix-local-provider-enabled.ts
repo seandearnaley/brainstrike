@@ -11,14 +11,14 @@ import type { Migration } from './migration-runner';
  * This migration fixes the issue by enabling the 'local' provider.
  */
 export const migration023FixLocalProviderEnabled: Migration = {
-  version: 23,
+  down: `
+    -- Revert to disabled state (though this is not the intended final state)
+    UPDATE providers SET is_enabled = false WHERE id = 'local';
+  `,
   name: 'fix_local_provider_enabled',
   up: `
     -- Enable the 'local' provider (was supposed to inherit is_enabled from 'transformers')
     UPDATE providers SET is_enabled = true, sort_order = 4, updated_at = NOW() WHERE id = 'local';
   `,
-  down: `
-    -- Revert to disabled state (though this is not the intended final state)
-    UPDATE providers SET is_enabled = false WHERE id = 'local';
-  `,
+  version: 23,
 };

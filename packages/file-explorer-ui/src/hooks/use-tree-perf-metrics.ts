@@ -62,10 +62,10 @@ export function useTreePerfMetrics() {
 
   // Track aggregates without causing re-renders
   const aggregatesRef = useRef({
-    totalRenders: 0,
+    budgetExceededCount: 0,
     flattenTimes: [] as number[],
     renderTimes: [] as number[],
-    budgetExceededCount: 0,
+    totalRenders: 0,
   });
 
   /**
@@ -114,12 +114,12 @@ export function useTreePerfMetrics() {
       }
 
       recordMetric({
-        name,
-        durationMs,
-        timestamp: Date.now(),
-        exceededBudget,
         budgetKey: 'flattenTree',
+        durationMs,
+        exceededBudget,
         metadata: { nodeCount },
+        name,
+        timestamp: Date.now(),
       });
 
       return result;
@@ -151,12 +151,12 @@ export function useTreePerfMetrics() {
       }
 
       recordMetric({
-        name,
-        durationMs,
-        timestamp: Date.now(),
-        exceededBudget,
         budgetKey: 'treeSnapshot',
+        durationMs,
+        exceededBudget,
         metadata: { rowCount },
+        name,
+        timestamp: Date.now(),
       });
     },
     [enabled, recordMetric]
@@ -172,13 +172,13 @@ export function useTreePerfMetrics() {
     const max = (arr: number[]) => (arr.length ? Math.max(...arr) : 0);
 
     return {
-      totalRenders,
       avgFlattenTime: avg(flattenTimes),
-      maxFlattenTime: max(flattenTimes),
       avgRenderTime: avg(renderTimes),
-      maxRenderTime: max(renderTimes),
       budgetExceededCount,
       lastMetrics: metrics.slice(-10),
+      maxFlattenTime: max(flattenTimes),
+      maxRenderTime: max(renderTimes),
+      totalRenders,
     };
   }, [metrics]);
 
@@ -188,25 +188,25 @@ export function useTreePerfMetrics() {
   const clearMetrics = useCallback(() => {
     setMetrics([]);
     aggregatesRef.current = {
-      totalRenders: 0,
+      budgetExceededCount: 0,
       flattenTimes: [],
       renderTimes: [],
-      budgetExceededCount: 0,
+      totalRenders: 0,
     };
   }, []);
 
   return {
+    /** Clear all metrics */
+    clearMetrics,
     /** Whether metrics collection is enabled */
     enabled,
-    /** All collected metrics */
-    metrics,
+    /** Get aggregated summary */
+    getSummary,
     /** Measure a flatten operation */
     measureFlatten,
     /** Measure a render cycle */
     measureRender,
-    /** Get aggregated summary */
-    getSummary,
-    /** Clear all metrics */
-    clearMetrics,
+    /** All collected metrics */
+    metrics,
   };
 }

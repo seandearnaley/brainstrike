@@ -18,12 +18,16 @@ let requestLoadHandler:
   | null = null;
 
 const mockWorkerPort = {
-  init: vi.fn(),
-  expandAll: vi.fn().mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 }),
-  loadPaths: vi.fn().mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 }),
   abort: vi.fn(),
-  terminate: vi.fn(),
-  updateTree: vi.fn(),
+  expandAll: vi.fn().mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] }),
+  init: vi.fn(),
+  loadPaths: vi.fn().mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] }),
+  onChildrenLoaded: vi.fn(() => () => {}),
+  onError: vi.fn(() => () => {}),
+  onExpandedPathsDelta: vi.fn(() => () => {}),
+  onLog: vi.fn(() => () => {}),
+  onNodeLoadStateChanged: vi.fn(() => () => {}),
+  onProgress: vi.fn(() => () => {}),
   onRequestLoad: vi.fn(
     (handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>) => {
       requestLoadHandler = handler;
@@ -35,26 +39,22 @@ const mockWorkerPort = {
     }
   ),
   onTreeSnapshot: vi.fn(() => () => {}),
-  onChildrenLoaded: vi.fn(() => () => {}),
-  onNodeLoadStateChanged: vi.fn(() => () => {}),
-  onExpandedPathsDelta: vi.fn(() => () => {}),
-  onProgress: vi.fn(() => () => {}),
-  onError: vi.fn(() => () => {}),
-  onLog: vi.fn(() => () => {}),
+  terminate: vi.fn(),
+  updateTree: vi.fn(),
 };
 
 // Mock the file-tree-worker to avoid Worker instantiation in tests
 vi.mock('@brainstrike/file-tree-worker', () => ({
-  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
   createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
+  resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
 }));
 
 // Mock global Worker for jsdom environment
 vi.stubGlobal(
   'Worker',
   vi.fn().mockImplementation(() => ({
-    postMessage: vi.fn(),
     addEventListener: vi.fn(),
+    postMessage: vi.fn(),
     removeEventListener: vi.fn(),
     terminate: vi.fn(),
   }))
@@ -63,57 +63,57 @@ vi.stubGlobal(
 // Helper to create mock file system with nested structure
 const createNestedMockFileSystem = () => ({
   parent: {
-    name: 'parent',
-    type: 'directory' as const,
     children: {
       child: {
-        name: 'child',
-        type: 'directory' as const,
         children: {
           'nested-file.txt': {
+            content: 'nested content',
             name: 'nested-file.txt',
             type: 'file' as const,
-            content: 'nested content',
           },
         },
+        name: 'child',
+        type: 'directory' as const,
       },
     },
+    name: 'parent',
+    type: 'directory' as const,
   },
 });
 
 const createExpandAllMockFileSystem = () => ({
   alpha: {
-    name: 'alpha',
-    type: 'directory' as const,
     children: {
       'alpha.test.ts': {
+        content: 'alpha test',
         name: 'alpha.test.ts',
         type: 'file' as const,
-        content: 'alpha test',
       },
     },
+    name: 'alpha',
+    type: 'directory' as const,
   },
   beta: {
-    name: 'beta',
-    type: 'directory' as const,
     children: {
       nested: {
-        name: 'nested',
-        type: 'directory' as const,
         children: {
           'nested.spec.ts': {
+            content: 'nested spec',
             name: 'nested.spec.ts',
             type: 'file' as const,
-            content: 'nested spec',
           },
         },
+        name: 'nested',
+        type: 'directory' as const,
       },
     },
+    name: 'beta',
+    type: 'directory' as const,
   },
   gamma: {
+    children: {},
     name: 'gamma',
     type: 'directory' as const,
-    children: {},
   },
 });
 
@@ -124,13 +124,13 @@ function createWorkerDirectoryNode(
   children: WorkerFileNode[]
 ): WorkerFileNode {
   return {
+    children,
+    depth,
+    loadState: 'loaded',
     name,
     path,
-    type: 'directory',
-    depth,
     rootFolderId: 'mock-root',
-    loadState: 'loaded',
-    children,
+    type: 'directory',
   };
 }
 
@@ -184,36 +184,6 @@ async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
   );
 
   return {
-    patches: [
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/alpha',
-          children: getChildren(rootResults, 'mock-root/alpha'),
-          loadState: 'loaded',
-        },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: { path: 'mock-root/beta', children: betaChildren, loadState: 'loaded' },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/gamma',
-          children: getChildren(rootResults, 'mock-root/gamma'),
-          loadState: 'loaded',
-        },
-      },
-      {
-        type: 'childrenLoaded',
-        payload: {
-          path: 'mock-root/beta/nested',
-          children: getChildren(nestedResults, 'mock-root/beta/nested'),
-          loadState: 'loaded',
-        },
-      },
-    ],
     expandedPaths: [
       'mock-root/alpha',
       'mock-root/beta',
@@ -221,6 +191,36 @@ async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
       'mock-root/beta/nested',
     ],
     loadedCount: 4,
+    patches: [
+      {
+        payload: {
+          children: getChildren(rootResults, 'mock-root/alpha'),
+          loadState: 'loaded',
+          path: 'mock-root/alpha',
+        },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: { children: betaChildren, loadState: 'loaded', path: 'mock-root/beta' },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: {
+          children: getChildren(rootResults, 'mock-root/gamma'),
+          loadState: 'loaded',
+          path: 'mock-root/gamma',
+        },
+        type: 'childrenLoaded',
+      },
+      {
+        payload: {
+          children: getChildren(nestedResults, 'mock-root/beta/nested'),
+          loadState: 'loaded',
+          path: 'mock-root/beta/nested',
+        },
+        type: 'childrenLoaded',
+      },
+    ],
   };
 }
 
@@ -231,8 +231,8 @@ describe('useFileTree (lazy loading version)', () => {
     mockAdapter = new MockFileSystemAdapter();
     vi.clearAllMocks();
     requestLoadHandler = null;
-    mockWorkerPort.loadPaths.mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 });
-    mockWorkerPort.expandAll.mockResolvedValue({ patches: [], expandedPaths: [], loadedCount: 0 });
+    mockWorkerPort.loadPaths.mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] });
+    mockWorkerPort.expandAll.mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] });
     __resetInFlightRootLoads();
     resetLogger();
     setLogLevel(LogLevel.DEBUG);
@@ -245,8 +245,8 @@ describe('useFileTree (lazy loading version)', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(result.current.loadingProgress).toEqual({
-      loadingCount: 0,
       isInitialLoading: false,
+      loadingCount: 0,
     });
     expect(result.current.cancellable).toBe(false);
     expect(result.current.isCancelling).toBe(false);
@@ -550,8 +550,8 @@ describe('useFileTree (lazy loading version)', () => {
       const initialProps: HookProps = { handle: null };
 
       const { result, rerender } = renderHook(({ handle }: HookProps) => useFileTree(handle), {
-        wrapper: TestWrapper,
         initialProps,
+        wrapper: TestWrapper,
       });
 
       await act(async () => {
@@ -582,8 +582,8 @@ describe('useFileTree (lazy loading version)', () => {
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
-        wrapper: TestWrapper,
         initialProps: { handle: initialHandle },
+        wrapper: TestWrapper,
       });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -849,8 +849,8 @@ describe('useFileTree (lazy loading version)', () => {
           loadedCount: 1,
           patches: [
             {
+              payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
               type: 'childrenLoaded',
-              payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
             },
           ],
         });
@@ -1082,12 +1082,12 @@ describe('useFileTree (lazy loading version)', () => {
           loadedCount: 1,
           patches: [
             {
-              type: 'childrenLoaded',
               payload: {
                 children: [],
                 loadState: 'loaded',
                 path: childPath,
               },
+              type: 'childrenLoaded',
             },
           ],
         });
@@ -1284,20 +1284,20 @@ describe('useFileTree (lazy loading version)', () => {
 
       mockAdapter.setMockFileSystem({
         parent: {
-          name: 'parent',
-          type: 'directory' as const,
           children: {
             child: {
+              children: {},
               name: 'child',
               type: 'directory' as const,
-              children: {},
             },
             'fresh-file.md': {
+              content: 'new content',
               name: 'fresh-file.md',
               type: 'file' as const,
-              content: 'new content',
             },
           },
+          name: 'parent',
+          type: 'directory' as const,
         },
       });
 
@@ -1362,7 +1362,6 @@ describe('useFileTree (lazy loading version)', () => {
         loadedCount: 1,
         patches: [
           {
-            type: 'childrenLoaded',
             payload: {
               children: [
                 {
@@ -1377,6 +1376,7 @@ describe('useFileTree (lazy loading version)', () => {
               loadState: 'loaded',
               path: parentDir.path,
             },
+            type: 'childrenLoaded',
           },
         ],
       });
@@ -1403,7 +1403,6 @@ describe('useFileTree (lazy loading version)', () => {
         loadedCount: 1,
         patches: [
           {
-            type: 'childrenLoaded',
             payload: {
               children: [
                 {
@@ -1418,6 +1417,7 @@ describe('useFileTree (lazy loading version)', () => {
               loadState: 'loaded',
               path: 'mock-root/parent',
             },
+            type: 'childrenLoaded',
           },
         ],
       });
@@ -1566,22 +1566,22 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/beta', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/gamma', children: [], loadState: 'loaded' },
-          },
-        ],
         expandedPaths: ['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'],
         loadedCount: 3,
+        patches: [
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/beta' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/gamma' },
+            type: 'childrenLoaded',
+          },
+        ],
       });
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
@@ -1657,30 +1657,30 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: {
-              path: 'mock-root/alpha',
-              children: [],
-              loadState: 'loaded',
-            },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: {
-              path: 'mock-root/beta',
-              children: [],
-              loadState: 'loaded',
-            },
-          },
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/gamma', children: [], loadState: 'loaded' },
-          },
-        ],
         expandedPaths: ['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma'],
         loadedCount: 3,
+        patches: [
+          {
+            payload: {
+              children: [],
+              loadState: 'loaded',
+              path: 'mock-root/alpha',
+            },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: {
+              children: [],
+              loadState: 'loaded',
+              path: 'mock-root/beta',
+            },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/gamma' },
+            type: 'childrenLoaded',
+          },
+        ],
       });
       const applyBulkSpy = vi.spyOn(normalizedFileTree, 'applyNormalizedDirectoryChildrenUpdates');
 
@@ -1717,22 +1717,22 @@ describe('useFileTree (lazy loading version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
       mockWorkerPort.expandAll.mockResolvedValueOnce({
-        patches: [
-          {
-            type: 'childrenLoaded',
-            payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
-          },
-          {
-            type: 'nodeLoadStateChanged',
-            payload: {
-              path: 'mock-root/beta',
-              loadState: 'error',
-              loadError: 'Permission denied',
-            },
-          },
-        ],
         expandedPaths: ['mock-root/alpha'],
         loadedCount: 1,
+        patches: [
+          {
+            payload: { children: [], loadState: 'loaded', path: 'mock-root/alpha' },
+            type: 'childrenLoaded',
+          },
+          {
+            payload: {
+              loadError: 'Permission denied',
+              loadState: 'error',
+              path: 'mock-root/beta',
+            },
+            type: 'nodeLoadStateChanged',
+          },
+        ],
       });
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>

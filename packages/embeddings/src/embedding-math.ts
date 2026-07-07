@@ -110,18 +110,18 @@ export function calculateCosineSimilarity(
 
   if (norm1 === 0 || norm2 === 0) {
     return {
-      similarity: 0,
       distance: 1,
       method: 'cosine',
+      similarity: 0,
     };
   }
 
   const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
 
   return {
-    similarity,
     distance: 1 - similarity,
     method: 'cosine',
+    similarity,
   };
 }
 
@@ -180,9 +180,9 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
   const similarity = 1 / (1 + distance);
 
   return {
-    similarity,
     distance,
     method: 'l2',
+    similarity,
   };
 }
 
@@ -232,9 +232,9 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
   }
 
   return {
-    similarity: dotProduct,
     distance: -dotProduct,
     method: 'dot_product',
+    similarity: dotProduct,
   };
 }
 

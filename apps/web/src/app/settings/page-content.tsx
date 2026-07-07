@@ -54,14 +54,14 @@ function getNativeToolsAsDisplayMetadata(
 ): ToolDisplayMetadata[] {
   return Object.entries(NATIVE_TOOL_DEFAULTS as Record<string, NativeToolDefaultMetadata>).map(
     ([id, metadata]: [string, NativeToolDefaultMetadata]) => ({
-      id,
-      source: 'native' as const,
       category: metadata.category,
-      loadingTier: metadata.loadingTier,
       description: getToolDescription(id),
       enabled: isToolEnabled(id),
       estimatedTokens: metadata.estimatedTokens,
+      id,
+      loadingTier: metadata.loadingTier,
       requiresApproval: metadata.requiresApproval,
+      source: 'native' as const,
     })
   );
 }
@@ -117,10 +117,28 @@ export default function SettingsPageContent() {
   // Tool operations for native tools (web has no MCP support)
   const toolOperations = useMemo(
     () => ({
-      getTools: async (): Promise<ToolDisplayMetadata[]> => {
-        // Return native tools - web app doesn't have MCP
-        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
-        return getNativeToolsAsDisplayMetadata(isToolEnabled);
+      disableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
+        }
+      },
+      enableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
+        }
+      },
+      executeToolTest: async (toolId: string, _input: unknown): Promise<ToolExecutionResult> => {
+        // Tool execution for playground testing
+        // Web app native tools require service worker or API integration
+        const startTime = performance.now();
+
+        return {
+          durationMs: Math.round(performance.now() - startTime),
+          error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
+          success: false as const,
+        };
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
@@ -129,45 +147,27 @@ export default function SettingsPageContent() {
         const nativeEnabled = nativeTools.filter((t) => t.enabled).length;
 
         return {
-          total: nativeCount,
-          enabled: nativeEnabled,
-          disabled: nativeCount - nativeEnabled,
-          bySource: { native: nativeCount, mcp: 0 },
           byCategory: {
-            retrieval: nativeTools.filter((t) => t.category === 'retrieval').length,
             action: nativeTools.filter((t) => t.category === 'action').length,
             analysis: nativeTools.filter((t) => t.category === 'analysis').length,
             configuration: nativeTools.filter((t) => t.category === 'configuration').length,
+            retrieval: nativeTools.filter((t) => t.category === 'retrieval').length,
             validation: nativeTools.filter((t) => t.category === 'validation').length,
           },
+          bySource: { mcp: 0, native: nativeCount },
+          disabled: nativeCount - nativeEnabled,
+          enabled: nativeEnabled,
           mcpServers: 0,
+          total: nativeCount,
         };
       },
-      enableTools: async (ids: string[]) => {
-        const nativeToolIds = ids.filter((id) => isNativeTool(id));
-        if (nativeToolIds.length > 0) {
-          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
-        }
-      },
-      disableTools: async (ids: string[]) => {
-        const nativeToolIds = ids.filter((id) => isNativeTool(id));
-        if (nativeToolIds.length > 0) {
-          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
-        }
+      getTools: async (): Promise<ToolDisplayMetadata[]> => {
+        // Return native tools - web app doesn't have MCP
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        return getNativeToolsAsDisplayMetadata(isToolEnabled);
       },
       resetTools: async () => {
         useNativeToolPreferencesStore.getState().resetTools();
-      },
-      executeToolTest: async (toolId: string, _input: unknown): Promise<ToolExecutionResult> => {
-        // Tool execution for playground testing
-        // Web app native tools require service worker or API integration
-        const startTime = performance.now();
-
-        return {
-          success: false as const,
-          error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
-          durationMs: Math.round(performance.now() - startTime),
-        };
       },
     }),
     []
@@ -183,37 +183,37 @@ export default function SettingsPageContent() {
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
       {
-        id: 'models',
-        title: 'Models & Providers',
-        description: 'Manage AI providers and enable/disable specific models.',
-        keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
-        icon: Layers,
         content: <ModelSelectionCategory />,
+        description: 'Manage AI providers and enable/disable specific models.',
+        icon: Layers,
+        id: 'models',
+        keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
+        title: 'Models & Providers',
       },
       {
-        id: 'logging',
-        title: 'Logging & Diagnostics',
-        description: 'Control browser log verbosity and redaction for debugging.',
-        keywords: ['logging', 'debugging', 'console', 'diagnostics'],
-        icon: FileCog,
         content: <LoggingSettingsSection logSource={logSource} runtime="browser" />,
+        description: 'Control browser log verbosity and redaction for debugging.',
+        icon: FileCog,
+        id: 'logging',
+        keywords: ['logging', 'debugging', 'console', 'diagnostics'],
+        title: 'Logging & Diagnostics',
       },
       createToolsSettingsCategory({
-        operations: toolOperations,
         mcpAvailable: false,
+        operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({
-        isWebPlatform: true,
         hasStoredFolders: storedFolders.length > 0,
-        onClearStoredFolders: clearStoredHandles,
         inlineFixtureSetting: {
           available: true,
-          loading: false,
           checked: devInlineFixtureEnabled,
+          loading: false,
           onChange: setDevInlineFixtureEnabled,
         },
+        isWebPlatform: true,
+        onClearStoredFolders: clearStoredHandles,
       }),
     ];
   }, [

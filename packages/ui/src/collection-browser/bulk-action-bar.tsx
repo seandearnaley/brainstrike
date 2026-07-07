@@ -239,31 +239,31 @@ export function BulkActionBar({
  */
 export const DEFAULT_BULK_ACTIONS: BulkAction[] = [
   {
+    applicableTypes: ['file', 'chunk'],
+    icon: <Sparkles className="h-4 w-4" />,
     id: 'embed',
     label: 'Embed',
-    icon: <Sparkles className="h-4 w-4" />,
     onAction: () => {
       // Placeholder - will be overridden by consumer
     },
-    applicableTypes: ['file', 'chunk'],
   },
   {
+    icon: <FileText className="h-4 w-4" />,
     id: 'export',
     label: 'Export',
-    icon: <FileText className="h-4 w-4" />,
     onAction: () => {
       // Placeholder - will be overridden by consumer
     },
   },
   {
+    applicableTypes: ['file', 'chunk'],
+    destructive: true,
+    icon: <Trash2 className="h-4 w-4" />,
     id: 'delete',
     label: 'Delete',
-    icon: <Trash2 className="h-4 w-4" />,
     onAction: () => {
       // Placeholder - will be overridden by consumer
     },
-    destructive: true,
-    applicableTypes: ['file', 'chunk'],
   },
 ];
 

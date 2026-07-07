@@ -128,7 +128,7 @@ describe('useFileTreeWorker', () => {
 
     const results = await getRequestLoadHandler()('req-1', ['/root/dir']);
 
-    expect(results).toEqual([{ path: '/root/dir', error: 'No file system adapter' }]);
+    expect(results).toEqual([{ error: 'No file system adapter', path: '/root/dir' }]);
   });
 
   it('returns request errors when the root handle has no canonical path', async () => {
@@ -143,8 +143,8 @@ describe('useFileTreeWorker', () => {
 
     expect(results).toEqual([
       {
-        path: '/root/dir',
         error: 'Root directory handle is missing its canonical path',
+        path: '/root/dir',
       },
     ]);
   });
@@ -181,9 +181,8 @@ describe('useFileTreeWorker', () => {
     ]);
 
     expect(results).toEqual([
-      { path: '/root/missing', error: 'Handle not found' },
+      { error: 'Handle not found', path: '/root/missing' },
       {
-        path: '/root/ok',
         children: [
           expect.objectContaining({
             name: 'child.txt',
@@ -191,8 +190,9 @@ describe('useFileTreeWorker', () => {
             type: 'file',
           }),
         ],
+        path: '/root/ok',
       },
-      { path: '/root/error', error: 'disk unavailable' },
+      { error: 'disk unavailable', path: '/root/error' },
     ]);
     expect(adapter.readDirectory).toHaveBeenCalledTimes(2);
   });
@@ -218,13 +218,13 @@ describe('useFileTreeWorker', () => {
 
     expect(results).toEqual([
       {
-        path: '/root/dir',
         children: [
           expect.objectContaining({
             path: '/root/dir/child.txt',
             rootFolderId: 'root-uuid-1234',
           }),
         ],
+        path: '/root/dir',
       },
     ]);
   });
@@ -250,13 +250,13 @@ describe('useFileTreeWorker', () => {
 
     expect(results).toEqual([
       {
-        path: '/root/dir',
         children: [
           expect.objectContaining({
             path: '/root/dir/child.txt',
             rootFolderId: '/root',
           }),
         ],
+        path: '/root/dir',
       },
     ]);
   });
@@ -280,7 +280,7 @@ describe('useFileTreeWorker', () => {
 
     const results = await getRequestLoadHandler()('req-4', ['/root/dir']);
 
-    expect(results).toEqual([{ path: '/root/dir', error: 'Operation aborted' }]);
+    expect(results).toEqual([{ error: 'Operation aborted', path: '/root/dir' }]);
   });
 
   it('forwards worker callbacks through current hook callbacks and cleans up listeners', () => {

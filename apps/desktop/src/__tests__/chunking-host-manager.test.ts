@@ -55,7 +55,7 @@ vi.mock('../renderer-host-lifecycle', () => ({
 import { ChunkingHostManager } from '../chunking-host-manager';
 
 type TestableChunkingHostManager = ChunkingHostManager & {
-  acceptResponseReport(
+  acceptResponseReport: (
     senderId: number,
     report: {
       channel: string;
@@ -64,7 +64,7 @@ type TestableChunkingHostManager = ChunkingHostManager & {
       runtimeId: string;
       type: string;
     }
-  ): void;
+  ) => void;
   pendingRequests: Map<string, unknown>;
 };
 

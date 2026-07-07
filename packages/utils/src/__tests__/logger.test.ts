@@ -123,8 +123,8 @@ describe('logger', () => {
 
     it('adds global bindings when configured', () => {
       configureLogger({
-        prefix: 'Brainstrike',
         baseBindings: { environment: 'test' },
+        prefix: 'Brainstrike',
       });
 
       const [record] = collectLogs(() => {
@@ -136,7 +136,7 @@ describe('logger', () => {
     });
 
     it('uses custom scope keys for scoped loggers', () => {
-      configureLogger({ scopeKey: 'component', level: LogLevel.DEBUG });
+      configureLogger({ level: LogLevel.DEBUG, scopeKey: 'component' });
       const scopedLogger = createLogger('Importer');
 
       const [record] = collectLogs(() => {
@@ -477,8 +477,8 @@ describe('logger', () => {
         },
         'scope',
         {
-          runtime: 'electron-renderer',
           application: 'brainstrike-desktop',
+          runtime: 'electron-renderer',
           version: '0.1.0',
         }
       );
@@ -502,10 +502,10 @@ describe('logger', () => {
       );
 
       expect(formattedMessage).toEqual(
-        expect.stringContaining(
-          '[DbProvider] Failed to initialize database {"error":{"name":"Error","message":"boom"'
-        )
+        expect.stringContaining('[DbProvider] Failed to initialize database {"error":{')
       );
+      expect(formattedMessage).toEqual(expect.stringContaining('"message":"boom"'));
+      expect(formattedMessage).toEqual(expect.stringContaining('"name":"Error"'));
     });
 
     it('respects browser console thresholds without affecting retained log records', () => {
@@ -513,9 +513,6 @@ describe('logger', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const browserWrite = __loggerTesting.createBrowserWrite({
-        enableInProduction: true,
-        includeTimestamp: false,
-        scopeKey: 'scope',
         baseBindings: { runtime: 'electron-renderer' },
         console: {
           enabled: true,
@@ -523,6 +520,9 @@ describe('logger', () => {
           options: {},
         },
         customTransports: [],
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
       }) as BrowserWriteMethods;
 
       browserWrite.info?.({
@@ -548,15 +548,15 @@ describe('logger', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const browserWrite = __loggerTesting.createBrowserWrite({
-        enableInProduction: true,
-        includeTimestamp: false,
-        scopeKey: 'scope',
         baseBindings: { runtime: 'electron-renderer' },
         console: {
           enabled: false,
           options: {},
         },
         customTransports: [],
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
       }) as BrowserWriteMethods;
 
       browserWrite.error?.({

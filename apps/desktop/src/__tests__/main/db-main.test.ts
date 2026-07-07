@@ -6,11 +6,11 @@ const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'p
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
     configurable: true,
-    writable: true,
     value: {
       on: vi.fn(),
       postMessage: vi.fn(),
     },
+    writable: true,
   });
 }
 
@@ -40,28 +40,28 @@ const lstatSyncMock = vi.fn(() => ({
   isFile: () => false,
 }));
 vi.mock('node:fs', () => ({
-  existsSync: existsSyncMock,
-  mkdirSync: mkdirSyncMock,
-  openSync: openSyncMock,
-  writeFileSync: writeFileSyncMock,
   closeSync: closeSyncMock,
-  unlinkSync: unlinkSyncMock,
-  readFileSync: readFileSyncMock,
-  readdirSync: readdirSyncMock,
-  lstatSync: lstatSyncMock,
   cpSync: vi.fn(),
-  rmSync: vi.fn(),
   default: {
+    closeSync: closeSyncMock,
     existsSync: existsSyncMock,
+    lstatSync: lstatSyncMock,
     mkdirSync: mkdirSyncMock,
     openSync: openSyncMock,
-    writeFileSync: writeFileSyncMock,
-    closeSync: closeSyncMock,
-    unlinkSync: unlinkSyncMock,
-    readFileSync: readFileSyncMock,
     readdirSync: readdirSyncMock,
-    lstatSync: lstatSyncMock,
+    readFileSync: readFileSyncMock,
+    unlinkSync: unlinkSyncMock,
+    writeFileSync: writeFileSyncMock,
   },
+  existsSync: existsSyncMock,
+  lstatSync: lstatSyncMock,
+  mkdirSync: mkdirSyncMock,
+  openSync: openSyncMock,
+  readdirSync: readdirSyncMock,
+  readFileSync: readFileSyncMock,
+  rmSync: vi.fn(),
+  unlinkSync: unlinkSyncMock,
+  writeFileSync: writeFileSyncMock,
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -92,10 +92,10 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createLogger: () => ({
+      debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
     }),
   };
 });

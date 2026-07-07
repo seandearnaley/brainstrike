@@ -13,16 +13,16 @@ const ROOT_ID = '/abs/workspace';
 function runtimeWithRoot(): RuntimeData {
   return {
     provider: 'anthropic',
-    workspaceRoots: [{ rootId: ROOT_ID, displayName: 'workspace', path: ROOT_ID }],
+    workspaceRoots: [{ displayName: 'workspace', path: ROOT_ID, rootId: ROOT_ID }],
   } as RuntimeData;
 }
 
 function userMessage(text: string): AgentMessage {
-  return { id: 'u1', role: 'user', parts: [{ type: 'text', text }] };
+  return { id: 'u1', parts: [{ text, type: 'text' }], role: 'user' };
 }
 
 function directive(rootId: string, path: string, label: string): string {
-  return serializeFileMentionDirective({ label, id: encodeFileMentionId(rootId, path) });
+  return serializeFileMentionDirective({ id: encodeFileMentionId(rootId, path), label });
 }
 
 describe('buildReferencedFilesContextMessage', () => {
@@ -30,9 +30,9 @@ describe('buildReferencedFilesContextMessage', () => {
 
   beforeEach(() => {
     reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      content: `// content of ${args.requestedPath}`,
       path: args.requestedPath,
       size: 10,
-      content: `// content of ${args.requestedPath}`,
     }));
   });
 
@@ -50,7 +50,7 @@ describe('buildReferencedFilesContextMessage', () => {
     const text = `Review ${directive(ROOT_ID, 'src/app.ts', 'app.ts')} please.`;
     const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
 
-    expect(reader).toHaveBeenCalledWith({ rootPath: ROOT_ID, requestedPath: 'src/app.ts' });
+    expect(reader).toHaveBeenCalledWith({ requestedPath: 'src/app.ts', rootPath: ROOT_ID });
     expect(result).not.toBeNull();
     expect(result?.role).toBe('system');
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
@@ -62,8 +62,8 @@ describe('buildReferencedFilesContextMessage', () => {
     const runtime = {
       provider: 'anthropic',
       workspaceRoots: [
-        { rootId: '/abs/alpha', displayName: 'alpha', path: '/abs/alpha' },
-        { rootId: '/abs/beta', displayName: 'beta', path: '/abs/beta' },
+        { displayName: 'alpha', path: '/abs/alpha', rootId: '/abs/alpha' },
+        { displayName: 'beta', path: '/abs/beta', rootId: '/abs/beta' },
       ],
     } as RuntimeData;
     const text = `${directive('/abs/alpha', 'src/index.ts', 'index.ts')} and ${directive(
@@ -117,9 +117,9 @@ describe('buildReferencedFilesContextMessage', () => {
     // and tell the model how many it skipped (never silently drop them).
     const bigBody = 'x'.repeat(8000);
     reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      content: bigBody,
       path: args.requestedPath,
       size: bigBody.length,
-      content: bigBody,
     }));
     const mentions = Array.from({ length: 20 }, (_unused, index) =>
       directive(ROOT_ID, `big-${index}.ts`, `big-${index}.ts`)
@@ -144,9 +144,9 @@ describe('buildReferencedFilesContextMessage', () => {
     // must be longer than the longest backtick run in the body.
     const fenced = ['# Heading', '```ts', 'const a = 1;', '```', 'after'].join('\n');
     reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      content: fenced,
       path: args.requestedPath,
       size: fenced.length,
-      content: fenced,
     }));
 
     const result = await buildReferencedFilesContextMessage(
@@ -171,9 +171,9 @@ describe('injectReferencedFilesContext', () => {
 
   beforeEach(() => {
     reader = vi.fn(async (args: { rootPath: string; requestedPath: string }) => ({
+      content: `// content of ${args.requestedPath}`,
       path: args.requestedPath,
       size: 10,
-      content: `// content of ${args.requestedPath}`,
     }));
   });
 
@@ -191,13 +191,13 @@ describe('injectReferencedFilesContext', () => {
   it('reads directives from the LAST user message only (the current turn)', async () => {
     const messages: AgentMessage[] = [
       userMessage(`old ${directive(ROOT_ID, 'old.ts', 'old.ts')}`),
-      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'ok' }] },
+      { id: 'a1', parts: [{ text: 'ok', type: 'text' }], role: 'assistant' },
       userMessage(`new ${directive(ROOT_ID, 'new.ts', 'new.ts')}`),
     ];
     const next = await injectReferencedFilesContext(messages, runtimeWithRoot(), reader);
 
     expect(reader).toHaveBeenCalledTimes(1);
-    expect(reader).toHaveBeenCalledWith({ rootPath: ROOT_ID, requestedPath: 'new.ts' });
+    expect(reader).toHaveBeenCalledWith({ requestedPath: 'new.ts', rootPath: ROOT_ID });
     expect(next).toHaveLength(4);
     expect(next[0]?.role).toBe('system');
   });
@@ -211,7 +211,7 @@ describe('injectReferencedFilesContext', () => {
 
   it('returns the messages unchanged when there is no user message', async () => {
     const messages: AgentMessage[] = [
-      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'hi' }] },
+      { id: 'a1', parts: [{ text: 'hi', type: 'text' }], role: 'assistant' },
     ];
     const next = await injectReferencedFilesContext(messages, runtimeWithRoot(), reader);
     expect(next).toBe(messages);

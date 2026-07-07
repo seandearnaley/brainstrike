@@ -31,8 +31,8 @@ describe('Repository Factory', () => {
 
     it('should correctly identify Electron database API', () => {
       const mockElectronDb: ElectronDbAPI = {
-        query: vi.fn(),
         exec: vi.fn(),
+        query: vi.fn(),
       };
       expect(isPGlite(mockElectronDb)).toBe(false);
     });
@@ -86,8 +86,8 @@ describe('Repository Factory', () => {
 
     it('should create ElectronFileRecordRepository for Electron database', () => {
       const mockElectronDb: ElectronDbAPI = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
         exec: vi.fn().mockResolvedValue(undefined),
+        query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
       const repository = createFileRecordRepository(mockElectronDb);
@@ -98,8 +98,8 @@ describe('Repository Factory', () => {
     it('should return repositories that implement the same interface', async () => {
       const pgliteDb = new PGlite('memory://');
       const mockElectronDb: ElectronDbAPI = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
         exec: vi.fn().mockResolvedValue(undefined),
+        query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
       const pgliteRepo = createFileRecordRepository(pgliteDb);
@@ -125,8 +125,8 @@ describe('Repository Factory', () => {
       const fakePGlite = {
         exec: vi.fn(),
         listen: vi.fn(),
-        unlisten: vi.fn(),
         query: vi.fn().mockResolvedValue({ rows: [] }),
+        unlisten: vi.fn(),
       };
 
       // Should be treated as PGlite due to type guard
@@ -151,8 +151,8 @@ describe('Repository Factory', () => {
       `);
 
       const mockElectronDb: ElectronDbAPI = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
         exec: vi.fn().mockResolvedValue(undefined),
+        query: vi.fn().mockResolvedValue({ rows: [] }),
       };
 
       const pgliteRepo = createFileRecordRepository(pgliteDb);
@@ -174,8 +174,8 @@ describe('Repository Factory', () => {
     it('should accept union types correctly', () => {
       const pgliteDb = new PGlite('memory://');
       const electronDb: ElectronDbAPI = {
-        query: vi.fn(),
         exec: vi.fn(),
+        query: vi.fn(),
       };
 
       // Test that TypeScript accepts both types

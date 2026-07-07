@@ -57,12 +57,12 @@ async function startMockOllama(): Promise<MockOllamaServer> {
         JSON.stringify({
           models: [
             {
-              name: 'qwen3:latest',
+              details: { families: ['qwen3'] },
+              digest: 'sha256:abc',
               model: 'qwen3:latest',
               modified_at: '2026-04-17T00:00:00Z',
+              name: 'qwen3:latest',
               size: 1,
-              digest: 'sha256:abc',
-              details: { families: ['qwen3'] },
             },
           ],
         })
@@ -140,7 +140,7 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
     // Available once the bridge completes. Scope to Ollama's card so an
     // Unavailable LM Studio card (no mock) doesn't satisfy the expectation.
     const ollamaCard = window
-      .getByRole('heading', { name: 'Ollama', exact: true })
+      .getByRole('heading', { exact: true, name: 'Ollama' })
       .locator('..')
       .locator('..');
     await expect(ollamaCard).toContainText(/Available/i, { timeout: 15_000 });

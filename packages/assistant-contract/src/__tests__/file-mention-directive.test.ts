@@ -11,18 +11,18 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
   it('round-trips a (rootId, path) pair through the `rootId::path` id', () => {
     const id = encodeFileMentionId('root-123', 'src/app.ts');
     expect(id).toBe('root-123::src/app.ts');
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-123', path: 'src/app.ts' });
+    expect(decodeFileMentionId(id)).toEqual({ path: 'src/app.ts', rootId: 'root-123' });
   });
 
   it('preserves a path that itself contains a single colon', () => {
     const id = encodeFileMentionId('root-1', 'a/b:c.ts');
     // Split on the FIRST `::` only, so a lone `:` inside the path survives.
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path: 'a/b:c.ts' });
+    expect(decodeFileMentionId(id)).toEqual({ path: 'a/b:c.ts', rootId: 'root-1' });
   });
 
   it('preserves a path that contains `::` after the first separator', () => {
     const id = encodeFileMentionId('root-1', 'a::b.ts');
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path: 'a::b.ts' });
+    expect(decodeFileMentionId(id)).toEqual({ path: 'a::b.ts', rootId: 'root-1' });
   });
 
   it('returns null for an id without the `::` separator', () => {
@@ -61,7 +61,7 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     const id = encodeFileMentionId('root-1', path);
     expect(id).not.toContain('{');
     expect(id.slice('root-1::'.length)).not.toContain('}');
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+    expect(decodeFileMentionId(id)).toEqual({ path, rootId: 'root-1' });
   });
 
   it('does not mis-decode a path that literally contains `%7D` (the encoded form of `}`)', () => {
@@ -69,14 +69,14 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     const id = encodeFileMentionId('root-1', path);
     // Literal `%` is escaped to `%25` first, so decode reverses to the literal text.
     expect(id).toBe('root-1::/.brainstrike-file-path-v1/a%257Db.ts');
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+    expect(decodeFileMentionId(id)).toEqual({ path, rootId: 'root-1' });
   });
 
   it('preserves legacy unmarked percent sequences as raw path text', () => {
     const legacyDirective = ':file[a%7Db.ts]{name=root-1::src/a%7Db.ts}';
 
     expect(parseFileMentionDirectives(legacyDirective)).toEqual([
-      { label: 'a%7Db.ts', id: 'root-1::src/a%7Db.ts', rootId: 'root-1', path: 'src/a%7Db.ts' },
+      { id: 'root-1::src/a%7Db.ts', label: 'a%7Db.ts', path: 'src/a%7Db.ts', rootId: 'root-1' },
     ]);
   });
 
@@ -87,8 +87,8 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
     expect(
       parseFileMentionDirectives(`${preMarkerBraceDirective} ${preMarkerPercentDirective}`)
     ).toEqual([
-      { label: 'a}b.ts', id: 'root-1::src/a%7Db.ts', rootId: 'root-1', path: 'src/a}b.ts' },
-      { label: 'a%b.ts', id: 'root-1::src/a%25b.ts', rootId: 'root-1', path: 'src/a%b.ts' },
+      { id: 'root-1::src/a%7Db.ts', label: 'a}b.ts', path: 'src/a}b.ts', rootId: 'root-1' },
+      { id: 'root-1::src/a%25b.ts', label: 'a%b.ts', path: 'src/a%b.ts', rootId: 'root-1' },
     ]);
   });
 
@@ -97,10 +97,10 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
 
     expect(parseFileMentionDirectives(ambiguousDirective)).toEqual([
       {
-        label: 'b.ts',
         id: 'root-1::src/a%7Ddir/b.ts',
-        rootId: 'root-1',
+        label: 'b.ts',
         path: 'src/a%7Ddir/b.ts',
+        rootId: 'root-1',
       },
     ]);
   });
@@ -108,7 +108,7 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
   it('preserves `::` in a path alongside an encoded brace', () => {
     const path = 'a}::b.ts';
     const id = encodeFileMentionId('root-1', path);
-    expect(decodeFileMentionId(id)).toEqual({ rootId: 'root-1', path });
+    expect(decodeFileMentionId(id)).toEqual({ path, rootId: 'root-1' });
   });
 
   it('leaves a path without special characters unchanged (no over-encoding)', () => {
@@ -121,8 +121,8 @@ describe('encodeFileMentionId / decodeFileMentionId', () => {
 describe('serializeFileMentionDirective', () => {
   it('serializes to the assistant-ui `:file[label]{name=id}` format', () => {
     const directive = serializeFileMentionDirective({
-      label: 'app.ts',
       id: 'root-1::src/app.ts',
+      label: 'app.ts',
     });
     expect(directive).toBe(':file[app.ts]{name=root-1::src/app.ts}');
   });
@@ -136,36 +136,36 @@ describe('parseFileMentionDirectives', () => {
   it('extracts a single file directive with its decoded root + path', () => {
     const text = 'Please review :file[app.ts]{name=root-1::src/app.ts} for bugs.';
     expect(parseFileMentionDirectives(text)).toEqual([
-      { label: 'app.ts', id: 'root-1::src/app.ts', rootId: 'root-1', path: 'src/app.ts' },
+      { id: 'root-1::src/app.ts', label: 'app.ts', path: 'src/app.ts', rootId: 'root-1' },
     ]);
   });
 
   it('extracts multiple distinct directives in document order', () => {
     const text = 'Compare :file[a.ts]{name=r1::a.ts} and :file[b.ts]{name=r2::pkg/b.ts} carefully.';
     expect(parseFileMentionDirectives(text)).toEqual([
-      { label: 'a.ts', id: 'r1::a.ts', rootId: 'r1', path: 'a.ts' },
-      { label: 'b.ts', id: 'r2::pkg/b.ts', rootId: 'r2', path: 'pkg/b.ts' },
+      { id: 'r1::a.ts', label: 'a.ts', path: 'a.ts', rootId: 'r1' },
+      { id: 'r2::pkg/b.ts', label: 'b.ts', path: 'pkg/b.ts', rootId: 'r2' },
     ]);
   });
 
   it('dedupes repeated references to the same id (first occurrence wins)', () => {
     const text = ':file[a.ts]{name=r1::a.ts} ... :file[a.ts]{name=r1::a.ts}';
     expect(parseFileMentionDirectives(text)).toEqual([
-      { label: 'a.ts', id: 'r1::a.ts', rootId: 'r1', path: 'a.ts' },
+      { id: 'r1::a.ts', label: 'a.ts', path: 'a.ts', rootId: 'r1' },
     ]);
   });
 
   it('ignores non-file directives (e.g. a slash/command directive type)', () => {
     const text = 'A :command[thing]{name=x} and a :file[a.ts]{name=r1::a.ts}.';
     expect(parseFileMentionDirectives(text)).toEqual([
-      { label: 'a.ts', id: 'r1::a.ts', rootId: 'r1', path: 'a.ts' },
+      { id: 'r1::a.ts', label: 'a.ts', path: 'a.ts', rootId: 'r1' },
     ]);
   });
 
   it('skips a malformed file directive whose id is not a valid `rootId::path`', () => {
     const text = ':file[a.ts]{name=missing-separator} :file[b.ts]{name=r1::b.ts}';
     expect(parseFileMentionDirectives(text)).toEqual([
-      { label: 'b.ts', id: 'r1::b.ts', rootId: 'r1', path: 'b.ts' },
+      { id: 'r1::b.ts', label: 'b.ts', path: 'b.ts', rootId: 'r1' },
     ]);
   });
 
@@ -174,9 +174,9 @@ describe('parseFileMentionDirectives', () => {
   });
 
   it('round-trips serialize -> parse', () => {
-    const directive = serializeFileMentionDirective({ label: 'x.ts', id: 'r::dir/x.ts' });
+    const directive = serializeFileMentionDirective({ id: 'r::dir/x.ts', label: 'x.ts' });
     expect(parseFileMentionDirectives(`see ${directive}`)).toEqual([
-      { label: 'x.ts', id: 'r::dir/x.ts', rootId: 'r', path: 'dir/x.ts' },
+      { id: 'r::dir/x.ts', label: 'x.ts', path: 'dir/x.ts', rootId: 'r' },
     ]);
   });
 
@@ -184,15 +184,15 @@ describe('parseFileMentionDirectives', () => {
     // The real bug: a raw `}` in the id ends `{name=…}` early, truncating the path.
     const path = 'dir/a}b.ts';
     const directive = serializeFileMentionDirective({
-      label: 'a}b.ts',
       id: encodeFileMentionId('root-1', path),
+      label: 'a}b.ts',
     });
     expect(parseFileMentionDirectives(`open ${directive} now`)).toEqual([
       {
-        label: 'a}b.ts',
         id: 'root-1::/.brainstrike-file-path-v1/dir/a%7Db.ts',
-        rootId: 'root-1',
+        label: 'a}b.ts',
         path,
+        rootId: 'root-1',
       },
     ]);
   });

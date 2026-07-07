@@ -13,29 +13,29 @@ interface MockWorkerSelf {
 const createMockSelf = (): MockWorkerSelf => {
   const listeners = new Map<string, WorkerListener[]>();
   return {
-    postMessage: vi.fn(),
     addEventListener: vi.fn((type: string, listener: WorkerListener) => {
       const entries = listeners.get(type) ?? [];
       entries.push(listener);
       listeners.set(type, entries);
     }),
-    onmessage: null,
     listeners,
+    onmessage: null,
+    postMessage: vi.fn(),
   };
 };
 
 const createEngineMock = () => ({
-  setTree: vi.fn(),
-  getTree: vi.fn(() => [{ path: '/root', type: 'directory' }]),
-  handleLoadResult: vi.fn(),
-  handleLoadError: vi.fn(),
+  abort: vi.fn(),
   applyDirectoryChildrenUpdate: vi.fn(),
+  collapseAll: vi.fn(),
   expandAll: vi.fn(async () => {}),
+  flattenTree: vi.fn(),
+  getTree: vi.fn(() => [{ path: '/root', type: 'directory' }]),
+  handleLoadError: vi.fn(),
+  handleLoadResult: vi.fn(),
   loadPaths: vi.fn(async () => {}),
   loadSubtree: vi.fn(async () => {}),
-  collapseAll: vi.fn(),
-  abort: vi.fn(),
-  flattenTree: vi.fn(),
+  setTree: vi.fn(),
 });
 
 const bootstrapWorkerModule = async () => {
@@ -54,17 +54,17 @@ const bootstrapWorkerModule = async () => {
 
   Object.defineProperty(globalThis, 'self', {
     configurable: true,
-    writable: true,
     value: selfMock,
+    writable: true,
   });
 
   await import('./file-tree.worker');
 
   return {
-    selfMock,
-    engine,
-    collectExpandedPaths,
     BFSEngine,
+    collectExpandedPaths,
+    engine,
+    selfMock,
   };
 };
 
@@ -101,8 +101,8 @@ describe('file-tree.worker', () => {
 
     await onMessage({
       data: {
+        payload: { folderId: 'folder-1', rootNodes: [{ path: '/root', type: 'directory' }] },
         type: 'init',
-        payload: { rootNodes: [{ path: '/root', type: 'directory' }], folderId: 'folder-1' },
       },
     } as MessageEvent<MainToWorkerMessage>);
 
@@ -110,19 +110,19 @@ describe('file-tree.worker', () => {
     expect(collectExpandedPaths).toHaveBeenCalled();
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'treeSnapshot',
         payload: expect.objectContaining({ expandedPaths: ['/root'] }),
+        type: 'treeSnapshot',
       })
     );
 
     await onMessage({
       data: {
-        type: 'loadResult',
         payload: {
-          requestId: 'request-1',
-          path: '/root',
           children: [{ path: '/root/a', type: 'directory' }],
+          path: '/root',
+          requestId: 'request-1',
         },
+        type: 'loadResult',
       },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.handleLoadResult).toHaveBeenCalledWith(
@@ -133,24 +133,24 @@ describe('file-tree.worker', () => {
 
     await onMessage({
       data: {
+        payload: { error: 'permission denied', path: '/root', requestId: 'request-2' },
         type: 'loadError',
-        payload: { requestId: 'request-2', path: '/root', error: 'permission denied' },
       },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.handleLoadError).toHaveBeenCalledWith('/root', 'permission denied', 'request-2');
 
     await onMessage({
-      data: { type: 'expandAll', operationId: 1, payload: { folderId: 'folder-1' } },
+      data: { operationId: 1, payload: { folderId: 'folder-1' }, type: 'expandAll' },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.expandAll).toHaveBeenCalledWith(1);
 
     await onMessage({
-      data: { type: 'loadPaths', operationId: 2, payload: { paths: ['/root/a'] } },
+      data: { operationId: 2, payload: { paths: ['/root/a'] }, type: 'loadPaths' },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.loadPaths).toHaveBeenCalledWith(['/root/a'], 2);
 
     await onMessage({
-      data: { type: 'loadSubtree', operationId: 3, payload: { startPath: '/root/a' } },
+      data: { operationId: 3, payload: { startPath: '/root/a' }, type: 'loadSubtree' },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.loadSubtree).toHaveBeenCalledWith('/root/a', 3);
 
@@ -166,12 +166,12 @@ describe('file-tree.worker', () => {
 
     await onMessage({
       data: {
-        type: 'updateTree',
         payload: {
-          path: '/root',
           children: [{ path: '/root/new', type: 'directory' }],
           loadState: 'loaded',
+          path: '/root',
         },
+        type: 'updateTree',
       },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.applyDirectoryChildrenUpdate).toHaveBeenCalledWith(
@@ -181,11 +181,11 @@ describe('file-tree.worker', () => {
     );
 
     await onMessage({
-      data: { type: 'toggleExpand', payload: { path: '/root' } },
+      data: { payload: { path: '/root' }, type: 'toggleExpand' },
     } as MessageEvent<MainToWorkerMessage>);
 
     await onMessage({
-      data: { type: 'flattenTree', payload: { expandedPaths: ['/root'] } },
+      data: { payload: { expandedPaths: ['/root'] }, type: 'flattenTree' },
     } as MessageEvent<MainToWorkerMessage>);
     expect(engine.flattenTree).toHaveBeenCalledWith(['/root']);
 
@@ -194,8 +194,8 @@ describe('file-tree.worker', () => {
     } as MessageEvent<MainToWorkerMessage>);
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
         payload: expect.objectContaining({ message: 'Unknown message type: unknown-type' }),
+        type: 'error',
       })
     );
     expect(console.log).not.toHaveBeenCalled();
@@ -213,13 +213,13 @@ describe('file-tree.worker', () => {
     engine.expandAll.mockRejectedValueOnce(new Error('expand failed'));
 
     await onMessage({
-      data: { type: 'expandAll', operationId: 1, payload: { folderId: 'folder-1' } },
+      data: { operationId: 1, payload: { folderId: 'folder-1' }, type: 'expandAll' },
     } as MessageEvent<MainToWorkerMessage>);
 
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
         payload: { message: 'expand failed' },
+        type: 'error',
       })
     );
   });
@@ -234,11 +234,11 @@ describe('file-tree.worker', () => {
     }
 
     onError({
-      type: 'error',
-      message: 'boom',
+      colno: 4,
       filename: 'worker.js',
       lineno: 10,
-      colno: 4,
+      message: 'boom',
+      type: 'error',
     } as ErrorEvent);
 
     onUnhandledRejection({
@@ -247,14 +247,14 @@ describe('file-tree.worker', () => {
 
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
         payload: { message: 'global error: boom' },
+        type: 'error',
       })
     );
     expect(selfMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error',
         payload: { message: 'unhandledrejection: rejected promise' },
+        type: 'error',
       })
     );
   });

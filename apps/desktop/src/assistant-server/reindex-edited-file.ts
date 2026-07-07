@@ -23,7 +23,7 @@ const logger = createLogger('ReindexEditedFile');
  * Structural so it stays trivially mockable in tests.
  */
 export interface ReindexDatabaseHandle {
-  query<T = unknown>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
   transaction?: <TResult>(fn: (tx: unknown) => Promise<TResult>) => Promise<TResult>;
 }
 
@@ -140,8 +140,8 @@ export async function reindexEditedFile(
     // The edited file is not part of the indexed set; nothing to re-index.
     logger.debug('Edited file is not indexed; skipping re-index', {
       embeddingSetId,
-      rootId: args.rootId,
       relativePath: args.relativePath,
+      rootId: args.rootId,
     });
     return false;
   }
@@ -150,20 +150,20 @@ export async function reindexEditedFile(
   const replace: ManagedCacheBatchMutation = {
     mode: 'replace',
     record: {
-      id: fileRecordId,
-      name: args.name,
-      path: args.relativePath,
-      size: args.size,
-      mtimeMs: args.mtimeMs,
-      updatedAt: now,
-      processedAt: now,
       content: args.content,
       contentHash: await generateContentHash(args.content),
+      id: fileRecordId,
+      mtimeMs: args.mtimeMs,
+      name: args.name,
+      path: args.relativePath,
+      processedAt: now,
+      size: args.size,
       tokenCount: estimateTokenCount(args.content),
+      updatedAt: now,
     },
   };
 
-  await applyManagedCacheReplace(db, { embeddingSetId, changes: [replace] });
+  await applyManagedCacheReplace(db, { changes: [replace], embeddingSetId });
   logger.debug('Re-indexed edited file (chunks cleared, re-chunk pending)', {
     embeddingSetId,
     fileRecordId,

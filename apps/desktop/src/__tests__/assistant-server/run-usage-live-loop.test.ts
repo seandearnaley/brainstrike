@@ -50,18 +50,18 @@ function createUsageHostClient(usage: {
   completionTokens: number;
 }): LocalLlmHostClient {
   return {
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       _request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
     ): Promise<LocalLlmGenerationResult> => {
       options.onProgress?.({ kind: 'text', text: 'Hi.' });
       return Promise.resolve({
-        text: 'Hi.',
         finishReason: 'stop',
+        text: 'Hi.',
         usage: { ...usage, totalTokens: usage.promptTokens + usage.completionTokens },
       });
     },
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -75,17 +75,17 @@ async function runTurnAndCaptureUsage(args: {
   completionTokens: number;
 }): Promise<{ inputTokens: number; outputTokens: number }> {
   const hostClient = createUsageHostClient({
-    promptTokens: args.promptTokens,
     completionTokens: args.completionTokens,
+    promptTokens: args.promptTokens,
   });
 
   const iterator = await streamMastraAgent(
-    [{ id: 'u-usage', role: 'user', parts: [{ type: 'text', text: 'say hi' }] }],
+    [{ id: 'u-usage', parts: [{ text: 'say hi', type: 'text' }], role: 'user' }],
     {
       runtime: {
-        provider: 'local',
-        model: 'onnx-community/gemma-4-E2B-it-ONNX',
         localLlmHostClient: hostClient,
+        model: 'onnx-community/gemma-4-E2B-it-ONNX',
+        provider: 'local',
         providerOptions: { local: { thinking: { enabled: false } } },
       } as RuntimeData,
     }
@@ -122,40 +122,40 @@ describe('durable run usage live Mastra loop (real agent → real repo → real 
       const resourceId = 'workspace-usage-live';
 
       // Turn 1 — model A (openai/gpt-5.2). REAL loop emits usage {8, 4}.
-      const usageA = await runTurnAndCaptureUsage({ promptTokens: 8, completionTokens: 4 });
+      const usageA = await runTurnAndCaptureUsage({ completionTokens: 4, promptTokens: 8 });
       expect(usageA).toEqual({ inputTokens: 8, outputTokens: 4 });
       await repository.recordRunUsage({
-        threadId,
-        runId: 'run-live-a',
-        resourceId,
-        model: 'gpt-5.2',
-        provider: 'openai',
         inputTokens: usageA.inputTokens,
+        model: 'gpt-5.2',
         outputTokens: usageA.outputTokens,
+        provider: 'openai',
+        resourceId,
+        runId: 'run-live-a',
+        threadId,
       });
 
       // Turn 2 — same model A again {10, 6}.
-      const usageA2 = await runTurnAndCaptureUsage({ promptTokens: 10, completionTokens: 6 });
+      const usageA2 = await runTurnAndCaptureUsage({ completionTokens: 6, promptTokens: 10 });
       await repository.recordRunUsage({
-        threadId,
-        runId: 'run-live-a2',
-        resourceId,
-        model: 'gpt-5.2',
-        provider: 'openai',
         inputTokens: usageA2.inputTokens,
+        model: 'gpt-5.2',
         outputTokens: usageA2.outputTokens,
+        provider: 'openai',
+        resourceId,
+        runId: 'run-live-a2',
+        threadId,
       });
 
       // Turn 3 — a DIFFERENT model B (anthropic) {20, 9} — same thread, mid-conversation switch.
-      const usageB = await runTurnAndCaptureUsage({ promptTokens: 20, completionTokens: 9 });
+      const usageB = await runTurnAndCaptureUsage({ completionTokens: 9, promptTokens: 20 });
       await repository.recordRunUsage({
-        threadId,
-        runId: 'run-live-b',
-        resourceId,
-        model: 'claude-opus-4-8',
-        provider: 'anthropic',
         inputTokens: usageB.inputTokens,
+        model: 'claude-opus-4-8',
         outputTokens: usageB.outputTokens,
+        provider: 'anthropic',
+        resourceId,
+        runId: 'run-live-b',
+        threadId,
       });
 
       // The durable rows landed and the cumulative aggregate sums them.
@@ -169,16 +169,16 @@ describe('durable run usage live Mastra loop (real agent → real repo → real 
         (cumulative?.perModel ?? []).map((entry) => [`${entry.provider}:${entry.model}`, entry])
       );
       expect(byModel.get('openai:gpt-5.2')).toEqual({
-        provider: 'openai',
-        model: 'gpt-5.2',
         inputTokens: 18,
+        model: 'gpt-5.2',
         outputTokens: 10,
+        provider: 'openai',
       });
       expect(byModel.get('anthropic:claude-opus-4-8')).toEqual({
-        provider: 'anthropic',
-        model: 'claude-opus-4-8',
         inputTokens: 20,
+        model: 'claude-opus-4-8',
         outputTokens: 9,
+        provider: 'anthropic',
       });
     } finally {
       await wasmLoader.closeCached(dataDir);

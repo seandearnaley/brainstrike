@@ -50,6 +50,7 @@ const mockInvoke = vi.fn();
 const mockSend = vi.fn();
 
 const mockElectron = {
+  clipboard: { readText: vi.fn(() => ''), writeText: vi.fn() },
   contextBridge: { exposeInMainWorld: mockExposeInMainWorld },
   ipcRenderer: {
     invoke: mockInvoke,
@@ -57,7 +58,6 @@ const mockElectron = {
     removeListener: mockRemoveListener,
     send: mockSend,
   },
-  clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
 };
 
 const originalLoad = Module._load;
@@ -289,9 +289,9 @@ describe('preload power bridge', () => {
     expect(mockSend).toHaveBeenCalledWith(
       'logging:ingest-buffered-record',
       expect.objectContaining({
-        level: 'error',
         args: ['[preload] db live-query subscriber threw:', subscriberError],
         bindings: { runtime: 'electron-renderer' },
+        level: 'error',
         message: 'DB live-query subscriber threw',
         scope: 'Preload',
       })
@@ -302,7 +302,7 @@ describe('preload power bridge', () => {
   });
 
   it('exposes the embeddingHost lifecycle bridge', async () => {
-    mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
+    mockInvoke.mockResolvedValue({ active: false, lastError: null, state: 'running' });
     const embeddingHostApi = getEmbeddingHostApi();
     expect(embeddingHostApi).toBeDefined();
 
@@ -357,14 +357,14 @@ describe('preload power bridge', () => {
     const statusCallback = vi.fn();
     const commandCallback = vi.fn();
 
-    embeddingHostApi?.reportStatus({ state: 'running', active: true, lastError: null });
+    embeddingHostApi?.reportStatus({ active: true, lastError: null, state: 'running' });
     const cleanupStatus = embeddingHostApi?.onStatus(statusCallback);
     const cleanupCommand = embeddingHostApi?.onCommand(commandCallback);
 
     expect(mockSend).toHaveBeenCalledWith(EMBEDDING_HOST_REPORT_STATUS_CHANNEL, {
-      state: 'running',
       active: true,
       lastError: null,
+      state: 'running',
     });
     expect(mockOn).toHaveBeenCalledWith(EMBEDDING_HOST_STATUS_EVENT, expect.any(Function));
     expect(mockOn).toHaveBeenCalledWith(EMBEDDING_HOST_COMMAND_EVENT, expect.any(Function));
@@ -376,13 +376,13 @@ describe('preload power bridge', () => {
       ([channel]: [string]) => channel === EMBEDDING_HOST_COMMAND_EVENT
     )?.[1] as (event: unknown, command: unknown) => void;
 
-    statusListener(null, { state: 'running', active: false, lastError: null });
+    statusListener(null, { active: false, lastError: null, state: 'running' });
     commandListener(null, { type: 'reset' });
 
     expect(statusCallback).toHaveBeenCalledWith({
-      state: 'running',
       active: false,
       lastError: null,
+      state: 'running',
     });
     expect(commandCallback).toHaveBeenCalledWith({ type: 'reset' });
 
@@ -400,7 +400,7 @@ describe('preload power bridge', () => {
   });
 
   it('exposes the chunkingHost lifecycle and request bridge', async () => {
-    mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
+    mockInvoke.mockResolvedValue({ active: false, lastError: null, state: 'running' });
     const chunkingHostApi = getChunkingHostApi();
     expect(chunkingHostApi).toBeDefined();
 
@@ -435,21 +435,21 @@ describe('preload power bridge', () => {
     const progressCallback = vi.fn();
     const requestCallback = vi.fn();
 
-    chunkingHostApi?.reportStatus({ state: 'running', active: true, lastError: null });
-    chunkingHostApi?.reportResponse({ type: 'result', requestId: 'file-1', result: { ok: true } });
+    chunkingHostApi?.reportStatus({ active: true, lastError: null, state: 'running' });
+    chunkingHostApi?.reportResponse({ requestId: 'file-1', result: { ok: true }, type: 'result' });
     const cleanupStatus = chunkingHostApi?.onStatus(statusCallback);
     const cleanupProgress = chunkingHostApi?.onProgress(progressCallback);
     const cleanupRequest = chunkingHostApi?.onRequest(requestCallback);
 
     expect(mockSend).toHaveBeenCalledWith(CHUNKING_HOST_REPORT_STATUS_CHANNEL, {
-      state: 'running',
       active: true,
       lastError: null,
+      state: 'running',
     });
     expect(mockSend).toHaveBeenCalledWith(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, {
-      type: 'result',
       requestId: 'file-1',
       result: { ok: true },
+      type: 'result',
     });
     expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_STATUS_EVENT, expect.any(Function));
     expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_PROGRESS_EVENT, expect.any(Function));
@@ -465,24 +465,24 @@ describe('preload power bridge', () => {
       ([channel]: [string]) => channel === CHUNKING_HOST_REQUEST_EVENT
     )?.[1] as (event: unknown, request: unknown) => void;
 
-    statusListener(null, { state: 'running', active: false, lastError: null });
-    progressListener(null, { type: 'progress', requestId: 'batch-1', fileRecordId: 'file-1' });
-    requestListener(null, { kind: 'chunk-file', requestId: 'file-1', fileRecordId: 'file-1' });
+    statusListener(null, { active: false, lastError: null, state: 'running' });
+    progressListener(null, { fileRecordId: 'file-1', requestId: 'batch-1', type: 'progress' });
+    requestListener(null, { fileRecordId: 'file-1', kind: 'chunk-file', requestId: 'file-1' });
 
     expect(statusCallback).toHaveBeenCalledWith({
-      state: 'running',
       active: false,
       lastError: null,
+      state: 'running',
     });
     expect(progressCallback).toHaveBeenCalledWith({
-      type: 'progress',
-      requestId: 'batch-1',
       fileRecordId: 'file-1',
+      requestId: 'batch-1',
+      type: 'progress',
     });
     expect(requestCallback).toHaveBeenCalledWith({
+      fileRecordId: 'file-1',
       kind: 'chunk-file',
       requestId: 'file-1',
-      fileRecordId: 'file-1',
     });
 
     cleanupStatus?.();
@@ -505,7 +505,7 @@ describe('preload power bridge', () => {
 
   it('exposes the llmHost lifecycle and request bridge', async () => {
     mockInvoke.mockClear();
-    mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
+    mockInvoke.mockResolvedValue({ active: false, lastError: null, state: 'running' });
     const llmHostApi = getLlmHostApi();
     expect(llmHostApi).toBeDefined();
 
@@ -519,10 +519,10 @@ describe('preload power bridge', () => {
       requestId: 'warmup-1',
     });
     await llmHostApi?.generate({
-      requestId: 'generate-1',
+      messages: [{ content: 'hello', role: 'user' }],
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-      messages: [{ role: 'user', content: 'hello' }],
       options: { temperature: 0 },
+      requestId: 'generate-1',
     });
 
     expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_ENSURE_STARTED_CHANNEL);
@@ -531,15 +531,15 @@ describe('preload power bridge', () => {
     expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_GET_STATUS_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_CANCEL_CHANNEL, 'cancel-1');
     expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_WARMUP_CHANNEL, {
+      clientRequestId: 'warmup-1',
       kind: 'warmup',
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
-      clientRequestId: 'warmup-1',
     });
     expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_GENERATE_CHANNEL, {
-      kind: 'generate',
-      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       clientRequestId: 'generate-1',
-      messages: [{ role: 'user', content: 'hello' }],
+      kind: 'generate',
+      messages: [{ content: 'hello', role: 'user' }],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       options: { temperature: 0 },
     });
   });
@@ -554,20 +554,20 @@ describe('preload power bridge', () => {
     const progressCallback = vi.fn();
     const requestCallback = vi.fn();
 
-    const status = { state: 'running', active: true, lastError: null };
+    const status = { active: true, lastError: null, state: 'running' };
     const progress = {
-      type: 'progress',
       channel: 'llm-progress',
+      payload: { kind: 'text', text: 'hi' },
       requestId: 'generate-1',
       runtimeId: 'runtime-1',
-      payload: { kind: 'text', text: 'hi' },
+      type: 'progress',
     };
     const response = {
-      type: 'result',
       channel: 'llm-result',
+      payload: { result: null },
       requestId: 'generate-1',
       runtimeId: 'runtime-1',
-      payload: { result: null },
+      type: 'result',
     };
 
     llmHostApi?.reportStatus(status);
@@ -594,16 +594,16 @@ describe('preload power bridge', () => {
       ([channel]: [string]) => channel === LLM_HOST_REQUEST_EVENT
     )?.[1] as (event: unknown, payload: unknown) => void;
 
-    statusListener(null, { state: 'idle', active: false, lastError: null });
+    statusListener(null, { active: false, lastError: null, state: 'idle' });
     progressListener(null, progress);
-    requestListener(null, { type: 'request', channel: 'llm', payload: { kind: 'warmup' } });
+    requestListener(null, { channel: 'llm', payload: { kind: 'warmup' }, type: 'request' });
 
-    expect(statusCallback).toHaveBeenCalledWith({ state: 'idle', active: false, lastError: null });
+    expect(statusCallback).toHaveBeenCalledWith({ active: false, lastError: null, state: 'idle' });
     expect(progressCallback).toHaveBeenCalledWith(progress);
     expect(requestCallback).toHaveBeenCalledWith({
-      type: 'request',
       channel: 'llm',
       payload: { kind: 'warmup' },
+      type: 'request',
     });
 
     cleanupStatus?.();
@@ -621,21 +621,21 @@ describe('preload power bridge', () => {
     expect(loggingApi).toBeDefined();
 
     loggingApi?.ingestBufferedRecord({
-      level: 'info',
-      timestamp: 123,
       args: ['forwarded'],
       bindings: { runtime: 'electron-renderer' },
+      level: 'info',
       message: 'forwarded',
       scope: 'EmbeddingHostRuntime',
+      timestamp: 123,
     });
 
     expect(mockSend).toHaveBeenCalledWith('logging:ingest-buffered-record', {
-      level: 'info',
-      timestamp: 123,
       args: ['forwarded'],
       bindings: { runtime: 'electron-renderer' },
+      level: 'info',
       message: 'forwarded',
       scope: 'EmbeddingHostRuntime',
+      timestamp: 123,
     });
   });
 

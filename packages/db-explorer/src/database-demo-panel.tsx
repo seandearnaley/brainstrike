@@ -83,19 +83,19 @@ interface DatabaseDemoPanelProps {
 
 function collectionCacheSnapshotFromEmbeddingSet(set: EmbeddingSet): CachedCollection {
   return {
-    id: set.id,
-    modelKey: set.modelKey,
-    modelId: set.modelId,
+    category: set.category ?? null,
+    chunkCount: 0,
+    createdAt: set.createdAt,
+    description: set.description ?? null,
     dimensions: set.dimensions,
     distance: set.distance,
-    createdAt: set.createdAt,
-    name: set.name ?? null,
-    description: set.description ?? null,
-    tags: set.tags ?? null,
-    category: set.category ?? null,
-    fileCount: 0,
-    chunkCount: 0,
     embeddingCount: 0,
+    fileCount: 0,
+    id: set.id,
+    modelId: set.modelId,
+    modelKey: set.modelKey,
+    name: set.name ?? null,
+    tags: set.tags ?? null,
   };
 }
 
@@ -179,10 +179,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
-    toast,
     onError: (error) => {
       logger.error('Database operation error', { error });
     },
+    toast,
   });
 
   const [clearing, setClearing] = useState(false);
@@ -226,8 +226,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   useEnsureModelRegistry({ db: dbContext });
   const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
     useLocalRuntimeEmbeddingModelCatalog({
-      verifyEmbeddingDimensions: true,
       maxVerificationModels: 8,
+      verifyEmbeddingDimensions: true,
     });
 
   const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
@@ -251,15 +251,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   const data = useDatabaseDemoData({
-    repository,
-    chunkRepository,
-    toast,
-    database: dbContext,
     activeCollectionId,
-    isImporting: isImportActive,
+    chunkRepository,
+    database: dbContext,
     isEmbeddingActive,
+    isImporting: isImportActive,
     recordPage,
     recordPageSize,
+    repository,
+    toast,
   });
   const {
     collectionCounts,
@@ -313,13 +313,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const importFlowSettings = useMemo(
     () => ({
-      enableChunking: importSettings.enableChunking,
       chunkingStrategy: importSettings.chunkingStrategy,
       chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-      chunkSize: importSettings.chunkSize,
       chunkOverlap: importSettings.chunkOverlap,
-      tokenTrueSizing: importSettings.tokenTrueSizing,
+      chunkSize: importSettings.chunkSize,
       chunkTokenLimit: importSettings.chunkTokenLimit,
+      enableChunking: importSettings.enableChunking,
+      tokenTrueSizing: importSettings.tokenTrueSizing,
     }),
     [
       importSettings.enableChunking,
@@ -352,12 +352,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
 
   const importFlow = useImportFlow({
-    importSettings: importFlowSettings,
-    toast,
-    onImportComplete: handleImportComplete,
-    onChunkRepositoryChange: setChunkRepository,
     embeddingQueue,
+    importSettings: importFlowSettings,
+    onChunkRepositoryChange: setChunkRepository,
+    onImportComplete: handleImportComplete,
     resolveActiveCollectionId,
+    toast,
   });
 
   // Sync import state to Zustand store to pause live queries during bulk operations
@@ -391,6 +391,27 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       getImportSnapshot: () => ({
         activeCollectionId,
         isImporting: importFlow.isImporting,
+        progress: importFlow.progress
+          ? {
+              chunkingProgress: importFlow.progress.chunkingProgress
+                ? {
+                    chunksCreated: importFlow.progress.chunkingProgress.chunksCreated,
+                    currentFile: importFlow.progress.chunkingProgress.currentFile ?? '',
+                    filesProcessed: importFlow.progress.chunkingProgress.filesProcessed,
+                    strategyUsed: importFlow.progress.chunkingProgress.strategyUsed ?? '',
+                    totalFiles: importFlow.progress.chunkingProgress.totalFiles,
+                  }
+                : null,
+              completed: importFlow.progress.completed,
+              current: importFlow.progress.current ?? '',
+              errors: importFlow.progress.errors.map((entry) => ({
+                error: entry.error,
+                file: entry.file,
+              })),
+              phase: importFlow.progress.phase,
+              total: importFlow.progress.total,
+            }
+          : null,
         recordCount: records.length,
         recordPagination: {
           currentPage: recordPagination.currentPage,
@@ -398,27 +419,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           totalRecords: recordPagination.totalRecords,
         },
         selectedFileCount: importFlow.selectedFileCount,
-        progress: importFlow.progress
-          ? {
-              phase: importFlow.progress.phase,
-              total: importFlow.progress.total,
-              completed: importFlow.progress.completed,
-              current: importFlow.progress.current ?? '',
-              errors: importFlow.progress.errors.map((entry) => ({
-                file: entry.file,
-                error: entry.error,
-              })),
-              chunkingProgress: importFlow.progress.chunkingProgress
-                ? {
-                    filesProcessed: importFlow.progress.chunkingProgress.filesProcessed,
-                    totalFiles: importFlow.progress.chunkingProgress.totalFiles,
-                    chunksCreated: importFlow.progress.chunkingProgress.chunksCreated,
-                    currentFile: importFlow.progress.chunkingProgress.currentFile ?? '',
-                    strategyUsed: importFlow.progress.chunkingProgress.strategyUsed ?? '',
-                  }
-                : null,
-            }
-          : null,
       }),
     };
 
@@ -439,8 +439,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
       toast({
-        title: 'Clear Function Not Available',
         description: 'Database clear functionality is not ready.',
+        title: 'Clear Function Not Available',
         variant: 'destructive',
       });
       return;
@@ -451,33 +451,33 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     await errorBoundary.executeMultipleOperations(
       [
         {
-          operation: async () => clearAllData(),
-          name: 'Clear Database',
           critical: true,
+          name: 'Clear Database',
+          operation: async () => clearAllData(),
         },
         {
+          critical: false,
+          name: 'Reload File Records',
           operation: async () => {
             await loadRecords();
-            return { deletedFiles: 0, deletedChunks: 0 };
+            return { deletedChunks: 0, deletedFiles: 0 };
           },
-          name: 'Reload File Records',
-          critical: false,
         },
         {
+          critical: false,
+          name: 'Reload Chunks',
           operation: async () => {
             await loadChunks();
-            return { deletedFiles: 0, deletedChunks: 0 };
+            return { deletedChunks: 0, deletedFiles: 0 };
           },
-          name: 'Reload Chunks',
-          critical: false,
         },
       ],
       setClearing,
       {
-        successTitle: 'Database Cleared',
-        successMessage: 'Database has been cleared and data reloaded successfully',
-        partialSuccessTitle: 'Database Cleared',
         partialSuccessMessage: 'Database was cleared but some data reload operations failed',
+        partialSuccessTitle: 'Database Cleared',
+        successMessage: 'Database has been cleared and data reloaded successfully',
+        successTitle: 'Database Cleared',
       }
     );
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
@@ -631,14 +631,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                       <SettingsPanel
                         className="mt-0 border-none bg-transparent"
                         clearDatabaseProps={{
-                          clearAllData,
-                          recordsCount: activeCollectionCounts.records,
                           chunksCount: activeCollectionCounts.chunks,
-                          countsPending: activeCollectionCountsPending,
+                          clearAllData,
                           clearing,
-                          showClearDialog,
-                          setShowClearDialog,
+                          countsPending: activeCollectionCountsPending,
                           onClear: handleClearDatabase,
+                          recordsCount: activeCollectionCounts.records,
+                          setShowClearDialog,
+                          showClearDialog,
                         }}
                         importSettings={importSettings}
                       />
@@ -791,15 +791,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {collectionDialogs.renameDialogOpen && collectionDialogs.selectedCollection && (
         <RenameEmbeddingSetDialog
           embeddingSet={{
-            id: collectionDialogs.selectedCollection.id,
-            modelKey: collectionDialogs.selectedCollection.modelKey,
-            modelId: collectionDialogs.selectedCollection.modelId,
+            chunkCount: collectionDialogs.selectedCollection.chunkCount,
+            createdAt: collectionDialogs.selectedCollection.createdAt,
             dimensions: collectionDialogs.selectedCollection.dimensions,
             distance: collectionDialogs.selectedCollection.distance,
-            createdAt: collectionDialogs.selectedCollection.createdAt,
-            fileCount: collectionDialogs.selectedCollection.fileCount,
-            chunkCount: collectionDialogs.selectedCollection.chunkCount,
             embeddingCount: collectionDialogs.selectedCollection.embeddingCount,
+            fileCount: collectionDialogs.selectedCollection.fileCount,
+            id: collectionDialogs.selectedCollection.id,
+            modelId: collectionDialogs.selectedCollection.modelId,
+            modelKey: collectionDialogs.selectedCollection.modelKey,
             ...(collectionDialogs.selectedCollection.name && {
               name: collectionDialogs.selectedCollection.name,
             }),
@@ -831,12 +831,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <DeleteEmbeddingSetDialog
           db={dbContext as never}
           embeddingSet={{
-            id: collectionDialogs.selectedCollection.id,
-            modelKey: collectionDialogs.selectedCollection.modelKey,
-            modelId: collectionDialogs.selectedCollection.modelId,
+            createdAt: collectionDialogs.selectedCollection.createdAt,
             dimensions: collectionDialogs.selectedCollection.dimensions,
             distance: collectionDialogs.selectedCollection.distance,
-            createdAt: collectionDialogs.selectedCollection.createdAt,
+            id: collectionDialogs.selectedCollection.id,
+            modelId: collectionDialogs.selectedCollection.modelId,
+            modelKey: collectionDialogs.selectedCollection.modelKey,
             ...(collectionDialogs.selectedCollection.name && {
               name: collectionDialogs.selectedCollection.name,
             }),

@@ -28,16 +28,16 @@ describe('Toaster', () => {
     (useToastModule.useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       toasts: [
         {
-          id: '1',
-          title: 'First Toast',
           description: 'First description',
+          id: '1',
           open: true,
+          title: 'First Toast',
         },
         {
-          id: '2',
-          title: 'Second Toast',
           description: 'Second description',
+          id: '2',
           open: true,
+          title: 'Second Toast',
           variant: 'destructive',
         },
       ],
@@ -64,11 +64,11 @@ describe('Toaster', () => {
     (useToastModule.useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       toasts: [
         {
-          id: '1',
-          title: 'Toast with Action',
-          description: 'Description',
           action: mockAction,
+          description: 'Description',
+          id: '1',
           open: true,
+          title: 'Toast with Action',
         },
       ],
     });
@@ -83,9 +83,9 @@ describe('Toaster', () => {
       toasts: [
         {
           id: '1',
+          open: true,
           title: 'Destructive Toast',
           variant: 'destructive',
-          open: true,
         },
       ],
     });
@@ -102,10 +102,10 @@ describe('Toaster', () => {
     (useToastModule.useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       toasts: [
         {
-          id: '1',
-          title: 'Custom Toast',
           className: 'custom-class',
+          id: '1',
           open: true,
+          title: 'Custom Toast',
         },
       ],
     });
@@ -121,9 +121,9 @@ describe('Toaster', () => {
     (useToastModule.useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       toasts: [
         {
+          className: 'test-toast',
           id: '1',
           open: true,
-          className: 'test-toast',
         },
       ],
     });

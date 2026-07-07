@@ -11,10 +11,10 @@ import {
 } from '../mcp/tool-persistence';
 
 const createPreferences = (): ToolPreferences => ({
-  enabledTools: ['search', 'files'],
   disabledTools: ['shell'],
-  version: 2,
+  enabledTools: ['search', 'files'],
   lastUpdated: 123,
+  version: 2,
 });
 
 describe('tool-persistence', () => {
@@ -26,7 +26,7 @@ describe('tool-persistence', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await rm(userDataDir, { recursive: true, force: true });
+    await rm(userDataDir, { force: true, recursive: true });
   });
 
   it('returns undefined when preference file does not exist', async () => {
@@ -61,10 +61,10 @@ describe('tool-persistence', () => {
     await writeFile(
       prefsPath,
       JSON.stringify({
-        enabledTools: ['search'],
         disabledTools: ['shell'],
-        version: '2',
+        enabledTools: ['search'],
         lastUpdated: 'not-a-number',
+        version: '2',
       }),
       'utf-8'
     );
@@ -103,10 +103,10 @@ describe('tool-persistence', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_001);
 
     expect(createDefaultToolPreferences()).toEqual({
-      enabledTools: [],
       disabledTools: [],
-      version: 1,
+      enabledTools: [],
       lastUpdated: 1_700_000_000_001,
+      version: 1,
     });
 
     nowSpy.mockRestore();

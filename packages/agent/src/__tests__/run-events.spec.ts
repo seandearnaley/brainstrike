@@ -4,31 +4,31 @@ import { emitAssistantRunEventSafely, sanitizeAssistantRunEventMetadata } from '
 describe('run event metadata sanitization', () => {
   it('strips unsafe keys after canonical key normalization', () => {
     const sanitized = sanitizeAssistantRunEventMetadata({
-      model: 'gpt-5.2',
-      promptTokens: 128,
-      apiKey: 'secret',
-      'api-key': 'secret',
       accessToken: 'secret',
+      'api-key': 'secret',
+      apiKey: 'secret',
       bearerCredential: 'secret',
+      completionTokens: 64,
+      memoryHitCount: 3,
+      model: 'gpt-5.2',
       nested: {
+        count: 2,
+        output: 'tool output',
         refreshToken: 'secret',
         userSessionId: 'secret',
-        output: 'tool output',
-        count: 2,
       },
-      memoryHitCount: 3,
-      completionTokens: 64,
+      promptTokens: 128,
       values: [{ prompt: 'raw prompt' }, 'safe'],
     });
 
     expect(sanitized).toEqual({
-      model: 'gpt-5.2',
-      promptTokens: 128,
-      memoryHitCount: 3,
       completionTokens: 64,
+      memoryHitCount: 3,
+      model: 'gpt-5.2',
       nested: {
         count: 2,
       },
+      promptTokens: 128,
       values: [{}, 'safe'],
     });
   });

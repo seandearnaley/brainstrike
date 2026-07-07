@@ -34,8 +34,8 @@ export function formatRelativeTimeFromNow(input: string | null): string {
 
   try {
     return new Date(parsed).toLocaleDateString(undefined, {
-      month: 'short',
       day: 'numeric',
+      month: 'short',
     });
   } catch {
     return new Date(parsed).toISOString().split('T')[0] ?? 'unknown';

@@ -28,8 +28,8 @@ const buildEstimatedStructure = (lines: number, seedKey: string): LineData[] => 
     const isEmpty = value % 11 === 0;
     return {
       indent: isEmpty ? 0 : value % 5,
-      width: isEmpty ? 0 : 10 + (value % 61),
       isEmpty,
+      width: isEmpty ? 0 : 10 + (value % 61),
     };
   });
 };
@@ -72,19 +72,19 @@ export function buildTapestryFileBase(args: {
   const { fileName } = splitFilePath(item.path);
 
   return {
-    id: item.compositeKey,
     compositeKey: item.compositeKey,
+    id: item.compositeKey,
     rootFolderId: item.rootFolderId,
     ...(item.rootDisplayName === undefined ? {} : { rootDisplayName: item.rootDisplayName }),
-    path: item.path,
-    name: fileName || item.path,
     language: item.type.toLowerCase(),
+    name: fileName || item.path,
+    path: item.path,
     type: item.type,
     ...(item.size === undefined ? {} : { size: item.size }),
     ...(item.tokens === undefined ? {} : { tokens: item.tokens }),
-    totalLines: normalizedEstimatedLines,
-    structure,
     content: contentLines,
     contentStatus,
+    structure,
+    totalLines: normalizedEstimatedLines,
   };
 }

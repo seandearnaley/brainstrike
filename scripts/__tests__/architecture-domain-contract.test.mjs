@@ -32,7 +32,10 @@ const makeWorkspace = async ({ packageNames, contract, writePlanningArtifacts = 
     for (const phase of contract.stack ?? []) {
       if (typeof phase.planningArtifact === 'string') {
         await mkdir(path.dirname(path.join(root, phase.planningArtifact)), { recursive: true });
-        await writeFile(path.join(root, phase.planningArtifact), '<!doctype html><title>Plan</title>\n');
+        await writeFile(
+          path.join(root, phase.planningArtifact),
+          '<!doctype html><title>Plan</title>\n'
+        );
       }
     }
   }
@@ -42,39 +45,39 @@ const makeWorkspace = async ({ packageNames, contract, writePlanningArtifacts = 
 
 test('validates a contract that classifies every workspace package exactly once', async () => {
   const root = await makeWorkspace({
-    packageNames: ['@brainstrike/web', '@brainstrike/types', '@brainstrike/utils'],
     contract: {
-      version: 1,
-      stack: [
-        {
-          id: 'phase-0',
-          branch: 'codex/domain-reset-phase-0-contract',
-          title: 'Domain contract',
-          dependsOn: null,
-          planningArtifact: 'docs/architecture-reset/phase-0-domain-contract-plan-2026-05-19.html',
-        },
-      ],
       domains: [
         {
           id: 'applications',
-          title: 'Applications',
+          mayDependOn: ['workspace-core'],
           owner: 'platform',
           packages: ['@brainstrike/web'],
-          mayDependOn: ['workspace-core'],
+          title: 'Applications',
         },
         {
           id: 'workspace-core',
-          title: 'Workspace core',
+          mayDependOn: [],
           owner: 'workspace',
           packages: ['@brainstrike/types', '@brainstrike/utils'],
-          mayDependOn: [],
+          title: 'Workspace core',
         },
       ],
+      stack: [
+        {
+          branch: 'codex/domain-reset-phase-0-contract',
+          dependsOn: null,
+          id: 'phase-0',
+          planningArtifact: 'docs/architecture-reset/phase-0-domain-contract-plan-2026-05-19.html',
+          title: 'Domain contract',
+        },
+      ],
+      version: 1,
     },
+    packageNames: ['@brainstrike/web', '@brainstrike/types', '@brainstrike/utils'],
   });
 
   const contract = await loadArchitectureDomainContract({ root });
-  const result = await validateArchitectureDomainContract({ root, contract });
+  const result = await validateArchitectureDomainContract({ contract, root });
 
   assert.deepEqual(result.errors, []);
   assert.equal(result.summary.workspaceCount, 3);
@@ -84,24 +87,24 @@ test('validates a contract that classifies every workspace package exactly once'
 
 test('rejects unclassified workspace packages', async () => {
   const root = await makeWorkspace({
-    packageNames: ['@brainstrike/web', '@brainstrike/types'],
     contract: {
-      version: 1,
-      stack: [],
       domains: [
         {
           id: 'applications',
-          title: 'Applications',
+          mayDependOn: [],
           owner: 'platform',
           packages: ['@brainstrike/web'],
-          mayDependOn: [],
+          title: 'Applications',
         },
       ],
+      stack: [],
+      version: 1,
     },
+    packageNames: ['@brainstrike/web', '@brainstrike/types'],
   });
 
   const contract = await loadArchitectureDomainContract({ root });
-  const result = await validateArchitectureDomainContract({ root, contract });
+  const result = await validateArchitectureDomainContract({ contract, root });
 
   assert.deepEqual(result.errors, [
     'Workspace package @brainstrike/types is not classified in architecture/domain-map.json',
@@ -110,31 +113,31 @@ test('rejects unclassified workspace packages', async () => {
 
 test('rejects duplicate package classification and unknown dependency domains', async () => {
   const root = await makeWorkspace({
-    packageNames: ['@brainstrike/web', '@brainstrike/types'],
     contract: {
-      version: 1,
-      stack: [],
       domains: [
         {
           id: 'applications',
-          title: 'Applications',
+          mayDependOn: ['missing-domain'],
           owner: 'platform',
           packages: ['@brainstrike/web', '@brainstrike/types'],
-          mayDependOn: ['missing-domain'],
+          title: 'Applications',
         },
         {
           id: 'shared',
-          title: 'Shared',
+          mayDependOn: [],
           owner: 'platform',
           packages: ['@brainstrike/types'],
-          mayDependOn: [],
+          title: 'Shared',
         },
       ],
+      stack: [],
+      version: 1,
     },
+    packageNames: ['@brainstrike/web', '@brainstrike/types'],
   });
 
   const contract = await loadArchitectureDomainContract({ root });
-  const result = await validateArchitectureDomainContract({ root, contract });
+  const result = await validateArchitectureDomainContract({ contract, root });
 
   assert.deepEqual(result.errors, [
     'Domain applications mayDependOn unknown domain missing-domain',
@@ -144,33 +147,33 @@ test('rejects duplicate package classification and unknown dependency domains', 
 
 test('rejects non-linear stack dependencies and missing HTML planning artifacts', async () => {
   const root = await makeWorkspace({
-    packageNames: ['@brainstrike/web'],
-    writePlanningArtifacts: false,
     contract: {
-      version: 1,
-      stack: [
-        {
-          id: 'phase-0',
-          branch: 'codex/domain-reset-phase-0-contract',
-          title: 'Domain contract',
-          dependsOn: 'phase-9',
-          planningArtifact: 'docs/architecture-reset/missing.html',
-        },
-      ],
       domains: [
         {
           id: 'applications',
-          title: 'Applications',
+          mayDependOn: [],
           owner: 'platform',
           packages: ['@brainstrike/web'],
-          mayDependOn: [],
+          title: 'Applications',
         },
       ],
+      stack: [
+        {
+          branch: 'codex/domain-reset-phase-0-contract',
+          dependsOn: 'phase-9',
+          id: 'phase-0',
+          planningArtifact: 'docs/architecture-reset/missing.html',
+          title: 'Domain contract',
+        },
+      ],
+      version: 1,
     },
+    packageNames: ['@brainstrike/web'],
+    writePlanningArtifacts: false,
   });
 
   const contract = await loadArchitectureDomainContract({ root });
-  const result = await validateArchitectureDomainContract({ root, contract });
+  const result = await validateArchitectureDomainContract({ contract, root });
 
   assert.deepEqual(result.errors, [
     'Stack phase phase-0 dependsOn phase-9, but the previous phase is null',

@@ -68,7 +68,7 @@ export interface ManagedCacheInvalidationResult {
 }
 
 interface QueryLike {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 const POSTGRES_PARAMETER_LIMIT = 65_535;
@@ -150,16 +150,16 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
   const mtimeMs = isFiniteNonNegativeNumber(mtimeMsCandidate) ? Math.floor(mtimeMsCandidate) : null;
 
   const parsedBase: ManagedCacheRecordBase = {
+    content: candidate['content'],
+    contentHash: candidate['contentHash'],
     id: candidate['id'],
     mtimeMs,
     name: candidate['name'],
     path: candidate['path'],
-    size: candidate['size'],
-    updatedAt: candidate['updatedAt'],
     processedAt: candidate['processedAt'],
-    content: candidate['content'],
-    contentHash: candidate['contentHash'],
+    size: candidate['size'],
     tokenCount: candidate['tokenCount'],
+    updatedAt: candidate['updatedAt'],
   };
   return parsedBase;
 }
@@ -245,8 +245,8 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
   }
 
   return {
-    embeddingSetId: candidate['embeddingSetId'],
     changes,
+    embeddingSetId: candidate['embeddingSetId'],
     ...(rawRootId === undefined ? {} : { rootId: rawRootId as string | null }),
   };
 }

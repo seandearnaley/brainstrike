@@ -5,10 +5,10 @@ import type { TokenCountingState } from '../indexing/use-token-counting';
 import { PreviewPanelFooter, type TokenUsageMetrics } from '../preview/preview-panel-footer';
 
 const tokenCounting: TokenCountingState = {
-  mode: 'accurate',
-  loading: false,
-  reason: null,
   countTokens: async () => 0,
+  loading: false,
+  mode: 'accurate',
+  reason: null,
 };
 
 function createTokenUsage(overrides: Partial<TokenUsageMetrics> = {}): TokenUsageMetrics {
@@ -32,13 +32,7 @@ function createTokenUsage(overrides: Partial<TokenUsageMetrics> = {}): TokenUsag
 
 function createProps(overrides: Partial<Parameters<typeof PreviewPanelFooter>[0]> = {}) {
   return {
-    totalFiles: 12,
-    tokenCounting,
-    tokenUsage: createTokenUsage(),
     includeProjectTree: true,
-    projectTreeUsesViewFilters: true,
-    useTapestryRanges: false,
-    selectedFilesCount: 4,
     onCopyContext: vi.fn(),
     onDownloadContext: vi.fn(),
     onFolderSummaryThresholdChange: vi.fn(),
@@ -47,6 +41,12 @@ function createProps(overrides: Partial<Parameters<typeof PreviewPanelFooter>[0]
     onProjectTreeUsesViewFiltersChange: vi.fn(),
     onTokenBudgetChange: vi.fn(),
     onUseTapestryRangesChange: vi.fn(),
+    projectTreeUsesViewFilters: true,
+    selectedFilesCount: 4,
+    tokenCounting,
+    tokenUsage: createTokenUsage(),
+    totalFiles: 12,
+    useTapestryRanges: false,
     ...overrides,
   } satisfies Parameters<typeof PreviewPanelFooter>[0];
 }
@@ -102,7 +102,7 @@ describe('PreviewPanelFooter', () => {
   it('renders expanded budget composition and usage trend history', () => {
     const props = createProps({
       footerMode: 'expanded',
-      tokenUsage: createTokenUsage({ usedTokens: 600, selectedTokens: 350 }),
+      tokenUsage: createTokenUsage({ selectedTokens: 350, usedTokens: 600 }),
       useTapestryRanges: true,
     });
     const { rerender } = render(<PreviewPanelFooter {...props} />);
@@ -111,9 +111,9 @@ describe('PreviewPanelFooter', () => {
       <PreviewPanelFooter
         {...props}
         tokenUsage={createTokenUsage({
-          usedTokens: 700,
-          selectedTokens: 450,
           includedTreeTokens: 200,
+          selectedTokens: 450,
+          usedTokens: 700,
         })}
       />
     );

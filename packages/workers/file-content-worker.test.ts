@@ -26,11 +26,11 @@ function createRequest(path: string) {
     platform: 'web';
     _internal: FileSystemFileHandle | FileSystemDirectoryHandle;
   } = {
-    path: node.path,
-    name: node.name,
-    kind: 'file',
-    platform: 'web',
     _internal: node.handle,
+    kind: 'file',
+    name: node.name,
+    path: node.path,
+    platform: 'web',
   };
 
   if (typeof node.size === 'number') {
@@ -39,8 +39,8 @@ function createRequest(path: string) {
 
   return {
     compositeKey: `root|@|${path}`,
-    path,
     handle,
+    path,
   };
 }
 
@@ -70,11 +70,11 @@ describe('file-content-worker', () => {
     const readFile = vi.fn(async () => 'from-handle');
     const readFileByPath = vi.fn(async () => 'from-path');
     const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
       readFile,
       readFileByPath,
       requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      exists: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });
@@ -171,8 +171,8 @@ describe('file-content-worker', () => {
       MockFileSystemAdapter.setMockFileContent(p, p.slice(1));
     }
     const worker = createFileContentWorker({
-      fileSystemAdapter: adapter,
       concurrency: 2,
+      fileSystemAdapter: adapter,
     });
     const requests = Object.keys(delays).map((p) => createRequest(p));
     const progress: number[] = [];
@@ -203,7 +203,7 @@ describe('file-content-worker', () => {
     const adapter = new AbortableAdapter();
     MockFileSystemAdapter.setMockFileContent('/1.txt', '1');
     MockFileSystemAdapter.setMockFileContent('/2.txt', '2');
-    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 1 });
+    const worker = createFileContentWorker({ concurrency: 1, fileSystemAdapter: adapter });
     const controller = new AbortController();
 
     vi.useFakeTimers();
@@ -365,7 +365,7 @@ describe('file-content-worker', () => {
 
   it('completes all requests even with mixed successes and failures', async () => {
     const adapter = new MockFileSystemAdapter();
-    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 1 });
+    const worker = createFileContentWorker({ concurrency: 1, fileSystemAdapter: adapter });
     const req1 = createRequest('/file1.txt');
     const req2 = createRequest('/file2.txt');
     const req3 = createRequest('/file3.txt');
@@ -418,7 +418,7 @@ describe('file-content-worker', () => {
     }
 
     const adapter = new ConcurrencyTracker();
-    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 3 });
+    const worker = createFileContentWorker({ concurrency: 3, fileSystemAdapter: adapter });
     const requests = ['/1.txt', '/2.txt', '/3.txt', '/4.txt', '/5.txt'].map(createRequest);
     requests.forEach((req) => {
       MockFileSystemAdapter.setMockFileContent(req.path, `content-${req.path}`);

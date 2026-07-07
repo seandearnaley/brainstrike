@@ -106,10 +106,10 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
           'panel-layout-store.v1',
           JSON.stringify({
             state: {
-              sizes: [-10, 20, 'NaN'],
+              showConsole: false,
               showLeftPanel: true,
               showRightPanel: false,
-              showConsole: false,
+              sizes: [-10, 20, 'NaN'],
             },
             version: 2,
           })

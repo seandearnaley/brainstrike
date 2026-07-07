@@ -55,10 +55,10 @@ function toCollectionOption(collection: {
   name?: string | null;
 }): CollectionOption {
   return {
-    id: collection.id,
-    name: collection.name?.trim() || collection.modelId,
-    modelKey: collection.modelKey,
     createdAt: collection.createdAt,
+    id: collection.id,
+    modelKey: collection.modelKey,
+    name: collection.name?.trim() || collection.modelId,
   };
 }
 
@@ -71,81 +71,81 @@ function getStatusBadge(
   switch (status.state) {
     case 'blocked':
       return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
         label:
           status.blockedReason === 'missing-provider-key' ? 'Waiting for OpenAI key' : 'Blocked',
-        icon: AlertTriangle,
         variant: 'destructive' as const,
-        iconClassName: 'size-3.5',
       };
     case 'scanning':
       return {
-        label: 'Scanning root',
         icon: Loader2,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Scanning root',
+        variant: 'outline' as const,
       };
     case 'waiting':
       return {
-        label: 'Waiting for restore',
         icon: RefreshCw,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Waiting for restore',
+        variant: 'outline' as const,
       };
     case 'recovering':
       return {
-        label: 'Recovering in-flight backfill',
         icon: RefreshCw,
-        variant: 'secondary' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Recovering in-flight backfill',
+        variant: 'secondary' as const,
       };
     case 'paused':
       return {
-        label: 'Paused',
         icon: AlertTriangle,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5',
+        label: 'Paused',
+        variant: 'outline' as const,
       };
     case 'importing':
       return {
-        label: 'Importing cache files',
         icon: RefreshCw,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Importing cache files',
+        variant: 'outline' as const,
       };
     case 'chunking':
       return {
-        label: 'Chunking cache files',
         icon: RefreshCw,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Chunking cache files',
+        variant: 'outline' as const,
       };
     case 'embedding':
       return {
-        label: 'Embedding queued chunks',
         icon: RefreshCw,
-        variant: 'secondary' as const,
         iconClassName: 'size-3.5 animate-spin',
+        label: 'Embedding queued chunks',
+        variant: 'secondary' as const,
       };
     case 'error':
       return {
-        label: 'Blocked',
         icon: AlertTriangle,
-        variant: 'destructive' as const,
         iconClassName: 'size-3.5',
+        label: 'Blocked',
+        variant: 'destructive' as const,
       };
     case 'idle':
       return {
-        label: 'Ready',
         icon: CheckCircle2,
-        variant: 'secondary' as const,
         iconClassName: 'size-3.5',
+        label: 'Ready',
+        variant: 'secondary' as const,
       };
     default:
       return {
-        label: 'Disabled',
         icon: AlertTriangle,
-        variant: 'outline' as const,
         iconClassName: 'size-3.5',
+        label: 'Disabled',
+        variant: 'outline' as const,
       };
   }
 }
@@ -169,19 +169,19 @@ export function SearchIndexingSettingsSection() {
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
-    state: state.state,
+    activeRootPath: state.activeRootPath,
     backfillRequestId: state.backfillRequestId,
     blockedReason: state.blockedReason,
-    managedCollectionName: state.managedCollectionName,
-    currentFilePath: state.currentFilePath,
-    lastError: state.lastError,
-    pauseReasons: state.pauseReasons,
-    activeRootPath: state.activeRootPath,
-    scanSummary: state.scanSummary,
-    importProgress: state.importProgress,
     chunkingProgress: state.chunkingProgress,
+    currentFilePath: state.currentFilePath,
     embeddingProgress: state.embeddingProgress,
+    importProgress: state.importProgress,
+    lastError: state.lastError,
+    managedCollectionName: state.managedCollectionName,
+    pauseReasons: state.pauseReasons,
     queueProgress: state.queueProgress,
+    scanSummary: state.scanSummary,
+    state: state.state,
   }));
 
   const [collections, setCollections] = useState<CollectionOption[]>([]);

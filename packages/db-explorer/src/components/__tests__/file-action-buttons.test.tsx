@@ -9,10 +9,10 @@ describe('FileActionButtons', () => {
     fileId: 'file-1',
     fileName: 'test.ts',
     filePath: '/test/path/test.ts',
-    searchableInActive: false,
-    searchableChunksCount: 0,
-    totalChunksCount: 0,
     otherCollectionsCount: 0,
+    searchableChunksCount: 0,
+    searchableInActive: false,
+    totalChunksCount: 0,
     ...overrides,
   });
 
@@ -102,8 +102,8 @@ describe('FileActionButtons', () => {
   describe('Re-index button', () => {
     it('shows "Re-index" button for searchable files', () => {
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
       });
 
       render(<FileActionButtons status={status} />);
@@ -124,8 +124,8 @@ describe('FileActionButtons', () => {
 
     it('button is disabled when no handler provided', () => {
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
       });
 
       render(<FileActionButtons status={status} />);
@@ -136,8 +136,8 @@ describe('FileActionButtons', () => {
 
     it('button is enabled when handler provided', () => {
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
       });
       const onReindex = vi.fn();
 
@@ -151,8 +151,8 @@ describe('FileActionButtons', () => {
       const user = userEvent.setup();
       const status = createStatus({
         fileId: 'test-file-id',
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
       });
       const onReindex = vi.fn();
 
@@ -168,8 +168,8 @@ describe('FileActionButtons', () => {
     it('shows "coming soon" tooltip when disabled', async () => {
       const user = userEvent.setup();
       const status = createStatus({
-        searchableInActive: true,
         searchableChunksCount: 5,
+        searchableInActive: true,
       });
 
       render(<FileActionButtons status={status} />);

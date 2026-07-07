@@ -5,12 +5,12 @@ import { RestoreAccessModal } from '../restore-access-modal';
 
 describe('RestoreAccessModal', () => {
   const defaultProps = {
-    isOpen: true,
     folderNames: ['test-folder'],
-    variant: 'pending' as const,
-    onRestore: vi.fn(),
-    onDismiss: vi.fn(),
+    isOpen: true,
     onChooseDifferentFolder: vi.fn(),
+    onDismiss: vi.fn(),
+    onRestore: vi.fn(),
+    variant: 'pending' as const,
   };
 
   it('renders the modal when open', () => {

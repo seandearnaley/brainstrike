@@ -174,17 +174,17 @@ describe('EmbeddingSetsRepository', () => {
 
     expect(spaces).toEqual([
       expect.objectContaining({
-        id: embeddingSet.id,
-        modelKey: embeddingSet.modelKey,
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
+        id: embeddingSet.id,
+        modelId: 'text-embedding-3-small',
+        modelKey: embeddingSet.modelKey,
         stats: expect.objectContaining({
+          averageTokensPerChunk: 25 / 3,
           embeddedChunks: 2,
           fileCount: 2,
           tokenizedChunkCount: 3,
           totalChunks: 4,
           totalTokens: 25,
-          averageTokensPerChunk: 25 / 3,
         }),
       }),
     ]);
@@ -203,10 +203,10 @@ describe('EmbeddingSetsRepository', () => {
 
     expect(spaces).toEqual([
       expect.objectContaining({
-        id: embeddingSet.id,
-        modelKey: embeddingSet.modelKey,
-        modelId: 'text-embedding-3-small',
         dimensions: 1536,
+        id: embeddingSet.id,
+        modelId: 'text-embedding-3-small',
+        modelKey: embeddingSet.modelKey,
       }),
     ]);
     expect(spaces[0]?.stats).toBeUndefined();
@@ -264,12 +264,12 @@ describe('EmbeddingSetsRepository', () => {
 
     expect(second.id).toBe(first.id);
     expect(first).toMatchObject({
-      name: 'Workspace Index',
       description: 'System-managed workspace index for assistant retrieval.',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
       dimensions: 384,
       distance: 'cosine',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      name: 'Workspace Index',
       systemRole: 'workspace-index',
     });
 
@@ -467,10 +467,10 @@ describe('EmbeddingSetsRepository', () => {
 
     it('creates set with custom metadata', async () => {
       const metadata = {
-        name: 'Code Embeddings',
-        description: 'For code search and analysis',
-        tags: 'code,programming',
         category: 'development',
+        description: 'For code search and analysis',
+        name: 'Code Embeddings',
+        tags: 'code,programming',
       };
       const set = await repo.getOrCreateSet(
         'transformers::jinaai/jina-embeddings-v2-base-code',
@@ -495,10 +495,10 @@ describe('EmbeddingSetsRepository', () => {
       expect(set.name).toBe('Xenova/bge-base-en-v1.5 (768D)');
 
       const updated = await repo.updateMetadata(set.id, {
-        name: 'General Purpose Embeddings',
-        description: 'Multi-lingual general purpose model',
-        tags: 'multilingual,general',
         category: 'general-text',
+        description: 'Multi-lingual general purpose model',
+        name: 'General Purpose Embeddings',
+        tags: 'multilingual,general',
       });
 
       expect(updated).not.toBeNull();
@@ -515,8 +515,8 @@ describe('EmbeddingSetsRepository', () => {
         384,
         'cosine',
         {
-          name: 'Original Name',
           description: 'Original Description',
+          name: 'Original Name',
         }
       );
 
@@ -535,10 +535,10 @@ describe('EmbeddingSetsRepository', () => {
         512,
         'l2',
         {
-          name: 'Test Embeddings',
-          description: 'Test description',
-          tags: 'test,example',
           category: 'testing',
+          description: 'Test description',
+          name: 'Test Embeddings',
+          tags: 'test,example',
         }
       );
 
@@ -561,8 +561,8 @@ describe('EmbeddingSetsRepository', () => {
 
       expect(fetched).toMatchObject({
         id: 'legacy-set',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
         modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
       });
 
       const repaired = await db.query<{ model_id: string; model_key: string }>(
@@ -570,8 +570,8 @@ describe('EmbeddingSetsRepository', () => {
         ['legacy-set']
       );
       expect(repaired.rows[0]).toEqual({
-        model_key: 'local::Xenova/all-MiniLM-L6-v2',
         model_id: 'Xenova/all-MiniLM-L6-v2',
+        model_key: 'local::Xenova/all-MiniLM-L6-v2',
       });
     });
   });

@@ -17,10 +17,10 @@ function makeFile(
   overrides: Partial<QuickOpenFileItem> & Pick<QuickOpenFileItem, 'id'>
 ): QuickOpenFileItem {
   return {
+    compositeKey: 'root-a|@|src/index.ts',
     name: 'index.ts',
     path: 'src/index.ts',
     rootLabel: 'Alpha',
-    compositeKey: 'root-a|@|src/index.ts',
     ...overrides,
   };
 }
@@ -78,8 +78,8 @@ describe('QuickOpenPalette', () => {
     // compositeKey, never Alpha's.
     const onSelect = vi.fn();
     const files: QuickOpenFileItem[] = [
-      makeFile({ id: 'a', rootLabel: 'Alpha', compositeKey: 'root-a|@|src/index.ts' }),
-      makeFile({ id: 'b', rootLabel: 'Beta', compositeKey: 'root-b|@|src/index.ts' }),
+      makeFile({ compositeKey: 'root-a|@|src/index.ts', id: 'a', rootLabel: 'Alpha' }),
+      makeFile({ compositeKey: 'root-b|@|src/index.ts', id: 'b', rootLabel: 'Beta' }),
     ];
     render(
       <QuickOpenPalette

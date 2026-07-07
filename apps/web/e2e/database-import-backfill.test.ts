@@ -97,9 +97,9 @@ function parseCollectionSummaryCounts(summaryText: string): CollectionSummaryCou
   }
 
   return {
+    embeddedChunks: Number(match[3]),
     fileCount: Number(match[1]),
     totalChunks: Number(match[2]),
-    embeddedChunks: Number(match[3]),
   };
 }
 
@@ -167,7 +167,7 @@ async function ensureDatabasePanelVisible(page: Page): Promise<void> {
 async function openImportSettings(page: Page): Promise<void> {
   const settingsButton = page
     .getByTestId('database-demo-panel')
-    .getByRole('button', { name: 'Import Settings', exact: true });
+    .getByRole('button', { exact: true, name: 'Import Settings' });
   await expect(settingsButton).toBeVisible({ timeout: 15_000 });
   await settingsButton.click();
   await expect(page.getByText('Chunking Studio')).toBeVisible({ timeout: 15_000 });
@@ -217,7 +217,7 @@ async function readImportSettingsState(page: Page): Promise<{
     ) {
       throw new Error('Import settings state is missing canonical chunking fields');
     }
-    return { enableChunking, chunkingPreset, chunkingStrategy };
+    return { chunkingPreset, chunkingStrategy, enableChunking };
   });
 }
 
@@ -278,9 +278,9 @@ async function clearPersistedExplorerIncludeFilters(page: Page): Promise<void> {
       ...parsed,
       state: {
         ...parsed.state,
+        folderStates: normalizedFolderStates,
         includeFilters: [],
         viewFilterPresetId: null,
-        folderStates: normalizedFolderStates,
       },
     };
 
@@ -438,9 +438,9 @@ async function readHeapSnapshot(page: Page, label: string): Promise<HeapSnapshot
 
     return {
       label: snapshotLabel,
-      usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
-      totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
       limitMB: Math.round((memory.jsHeapSizeLimit / 1024 / 1024) * 10) / 10,
+      totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
+      usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
     };
   }, label);
 }
@@ -492,9 +492,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
         timeout: 15_000,
       })
       .toEqual({
-        enableChunking: true,
         chunkingPreset: 'balanced',
         chunkingStrategy: 'auto',
+        enableChunking: true,
       });
     await page.keyboard.press('Escape');
     await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
@@ -569,9 +569,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
         timeout: 15_000,
       })
       .toEqual({
-        enableChunking: true,
         chunkingPreset: 'balanced',
         chunkingStrategy: 'auto',
+        enableChunking: true,
       });
     await page.keyboard.press('Escape');
     await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
@@ -615,12 +615,12 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
 
       console.log(
         JSON.stringify({
-          type: 'web-import-memory-diagnostic',
-          collectionName,
           baseline,
+          collectionName,
+          importedCounts,
           retained,
           retainedGrowthMB,
-          importedCounts,
+          type: 'web-import-memory-diagnostic',
         })
       );
 
@@ -664,9 +664,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
         timeout: 15_000,
       })
       .toEqual({
-        enableChunking: true,
         chunkingPreset: 'codebase',
         chunkingStrategy: 'auto',
+        enableChunking: true,
       });
 
     await page.reload();
@@ -713,9 +713,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
         timeout: 15_000,
       })
       .toEqual({
-        enableChunking: true,
         chunkingPreset: 'docs',
         chunkingStrategy: 'semantic-markdown',
+        enableChunking: true,
       });
 
     await page.keyboard.press('Escape');

@@ -8,8 +8,8 @@ const mockToast = vi.fn().mockReturnValue({ id: 'test-toast-id' });
 
 vi.mock('../use-toast', () => ({
   useToast: () => ({
-    toast: mockToast,
     dismiss: mockDismiss,
+    toast: mockToast,
   }),
 }));
 
@@ -55,8 +55,8 @@ describe('useUndoableAction', () => {
 
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Test Action',
         duration: 5000,
+        title: 'Test Action',
       })
     );
   });
@@ -70,8 +70,8 @@ describe('useUndoableAction', () => {
         { id: '123' },
         {
           actionName: 'Test Action',
-          itemDescription: 'Test item',
           duration: 10_000,
+          itemDescription: 'Test item',
           onUndo: vi.fn(),
         }
       );
@@ -156,8 +156,8 @@ describe('useUndoableAction', () => {
         { id: '123' },
         {
           actionName: 'Test Action',
-          itemDescription: 'Test item',
           duration: 3000,
+          itemDescription: 'Test item',
           onUndo: vi.fn(),
         }
       );
@@ -181,9 +181,9 @@ describe('useUndoableAction', () => {
         { id: '123' },
         {
           actionName: 'Test Action',
+          getStateSnapshot,
           itemDescription: 'Test item',
           onUndo: vi.fn(),
-          getStateSnapshot,
         }
       );
     });
@@ -347,9 +347,9 @@ describe('useUndoableAction', () => {
         { id: 'item-42' },
         {
           actionName: 'Removed item',
+          getStateSnapshot,
           itemDescription: 'item-42',
           onUndo,
-          getStateSnapshot,
         }
       );
     });
@@ -422,9 +422,9 @@ describe('useUndoableAction', () => {
         { id: '1' },
         {
           actionName: 'First',
+          duration: 3000,
           itemDescription: 'First item',
           onUndo: onUndo1,
-          duration: 3000,
         }
       );
     });
@@ -436,9 +436,9 @@ describe('useUndoableAction', () => {
         { id: '2' },
         {
           actionName: 'Second',
+          duration: 3000,
           itemDescription: 'Second item',
           onUndo: onUndo2,
-          duration: 3000,
         }
       );
     });
@@ -462,9 +462,9 @@ describe('useUndoableAction', () => {
     act(() => {
       result.current.performUndoableAction('fallback-key', 'item', {
         actionName: 'Fallback Test',
+        duration: 2000,
         itemDescription: 'desc',
         onUndo: vi.fn(),
-        duration: 2000,
       });
     });
 

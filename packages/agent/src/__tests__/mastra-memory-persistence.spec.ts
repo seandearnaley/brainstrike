@@ -59,13 +59,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   const actual = await importActual<typeof import('../providers/provider-factory')>();
   return {
     ...actual,
-    getDefaultModel: () => 'fake-model',
     createProvider: () => {
       if (!modelHolder.current) {
         throw new Error('test fake model was not configured');
       }
       return modelHolder.current;
     },
+    getDefaultModel: () => 'fake-model',
   };
 });
 
@@ -117,10 +117,6 @@ function createScriptedToolCallModel(args: {
     });
 
   return {
-    specificationVersion: 'v2',
-    provider: 'fake',
-    modelId: 'fake-model',
-    supportedUrls: {},
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
       const promptHasToolResult =
@@ -131,10 +127,10 @@ function createScriptedToolCallModel(args: {
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
-            { type: 'text-start', id },
-            { type: 'text-delta', id, delta: args.finalText },
-            { type: 'text-end', id },
-            { type: 'finish', finishReason: 'stop', usage: USAGE },
+            { id, type: 'text-start' },
+            { delta: args.finalText, id, type: 'text-delta' },
+            { id, type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
           ]),
         });
       }
@@ -143,15 +139,19 @@ function createScriptedToolCallModel(args: {
         stream: enqueue([
           { type: 'stream-start', warnings: [] },
           {
-            type: 'tool-call',
+            input: args.input,
             toolCallId: args.toolCallId,
             toolName: args.toolName,
-            input: args.input,
+            type: 'tool-call',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
         ]),
       });
     },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
   };
 }
 
@@ -163,14 +163,10 @@ function createFakeObservationModel(delayMs = 0): LanguageModelV2 {
   const text = 'Observed: the user asked about Paris weather.';
   const wait = () => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   return {
-    specificationVersion: 'v2',
-    provider: 'fake',
-    modelId: 'fake-om-model',
-    supportedUrls: {},
     doGenerate: async () => {
       await wait();
       return {
-        content: [{ type: 'text' as const, text }],
+        content: [{ text, type: 'text' as const }],
         finishReason: 'stop' as const,
         usage: USAGE,
         warnings: [],
@@ -182,15 +178,19 @@ function createFakeObservationModel(delayMs = 0): LanguageModelV2 {
         stream: new ReadableStream<LanguageModelV2StreamPart>({
           start(controller) {
             controller.enqueue({ type: 'stream-start', warnings: [] });
-            controller.enqueue({ type: 'text-start', id: 'om' });
-            controller.enqueue({ type: 'text-delta', id: 'om', delta: text });
-            controller.enqueue({ type: 'text-end', id: 'om' });
-            controller.enqueue({ type: 'finish', finishReason: 'stop', usage: USAGE });
+            controller.enqueue({ id: 'om', type: 'text-start' });
+            controller.enqueue({ delta: text, id: 'om', type: 'text-delta' });
+            controller.enqueue({ id: 'om', type: 'text-end' });
+            controller.enqueue({ finishReason: 'stop', type: 'finish', usage: USAGE });
             controller.close();
           },
         }),
       };
     },
+    modelId: 'fake-om-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
   };
 }
 
@@ -236,33 +236,33 @@ async function runTurnWithMemory(args: {
   const { memory } = await createPgliteMastraMemory(memoryFactoryOptions);
 
   const weatherTool = createTool({
-    id: 'get_weather',
     description: 'Get the current weather for a city.',
-    inputSchema: z.object({ city: z.string() }),
-    outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
     execute: (inputData: { city: string }) =>
       Promise.resolve({ city: inputData.city, temperatureC: 21 }),
+    id: 'get_weather',
+    inputSchema: z.object({ city: z.string() }),
+    outputSchema: z.object({ city: z.string(), temperatureC: z.number() }),
   });
 
   modelHolder.current = createScriptedToolCallModel({
-    toolName: 'get_weather',
-    toolCallId: 'call-memory-1',
-    input: JSON.stringify({ city: 'Paris' }),
     finalText: 'It is 21C in Paris.',
+    input: JSON.stringify({ city: 'Paris' }),
+    toolCallId: 'call-memory-1',
+    toolName: 'get_weather',
   });
 
   const iterator = await streamMastraAgent(
-    [{ id: 'u-mem-1', role: 'user', parts: [{ type: 'text', text: 'weather in Paris?' }] }],
+    [{ id: 'u-mem-1', parts: [{ text: 'weather in Paris?', type: 'text' }], role: 'user' }],
     {
       memory,
       runtime: {
-        provider: 'openai',
         apiKey: 'test-key',
+        provider: 'openai',
         ...(args.signal ? { signal: args.signal } : {}),
         memory: {
-          threadId: args.threadId,
-          resourceId: 'resource-memory-test',
           memorySettings: args.memorySettings,
+          resourceId: 'resource-memory-test',
+          threadId: args.threadId,
         },
       },
       tools: { get_weather: weatherTool },
@@ -339,9 +339,9 @@ describe('mastra memory persistence through the live stream path', () => {
         (part) => part.type === 'tool-invocation'
       )?.toolInvocation;
       expect(invocation).toMatchObject({
+        state: 'result',
         toolCallId: 'call-memory-1',
         toolName: 'get_weather',
-        state: 'result',
       });
       expect(invocation?.result).toMatchObject({ city: 'Paris', temperatureC: 21 });
     },
@@ -356,15 +356,15 @@ describe('mastra memory persistence through the live stream path', () => {
     // prompting — no JSON mode, no API key.
     const hostRequests: LocalLlmHostGenerateRequest[] = [];
     const hostClient: LocalLlmHostClient = {
-      warmup: () => Promise.resolve(),
       generate: (request) => {
         hostRequests.push(request);
         return Promise.resolve({
-          text: 'Observed: the user asked about Paris weather.',
           finishReason: 'stop' as const,
-          usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+          text: 'Observed: the user asked about Paris weather.',
+          usage: { completionTokens: 5, promptTokens: 5, totalTokens: 10 },
         });
       },
+      warmup: () => Promise.resolve(),
     };
 
     const threadId = 'thread-local-om-proxy';
@@ -416,9 +416,9 @@ describe('mastra memory persistence through the live stream path', () => {
       // request-close abort fires — the exact production race.
       memorySettings: OM_TINY_THRESHOLD_SETTINGS,
       observationDelayMs: 400,
-      threadId,
-      signal: abortController.signal,
       onStreamConsumed: () => abortController.abort(),
+      signal: abortController.signal,
+      threadId,
     });
 
     expect(finalText).toContain('21C in Paris');

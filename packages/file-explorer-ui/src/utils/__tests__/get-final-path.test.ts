@@ -10,22 +10,22 @@ import { getFinalPath } from '../get-final-path';
 
 describe('getFinalPath', () => {
   const createMockDirectoryHandle = (platform: 'web' | 'electron'): DirectoryHandle => ({
-    path: '/root',
-    name: 'root',
-    kind: 'directory',
-    platform,
     _internal: undefined,
+    kind: 'directory',
+    name: 'root',
+    path: '/root',
+    platform,
   });
 
   const createMockFileEntry = (path: string): IFileNode =>
     ({
+      depth: 0,
+      handle: {} as FileSystemFileHandle,
       name: 'test.txt',
       path,
-      type: 'file',
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: '',
-      handle: {} as FileSystemFileHandle,
+      selectionState: 'unchecked',
+      type: 'file',
     }) as IFileNode;
 
   it('should return relativePath for web platform', () => {

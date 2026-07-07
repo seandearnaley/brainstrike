@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
-  mockLoggerWarn: vi.fn(),
   mockLoggerInfo: vi.fn(),
+  mockLoggerWarn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -10,10 +10,10 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createLogger: vi.fn(() => ({
-      warn: mockLoggerWarn,
+      debug: vi.fn(),
       error: vi.fn(),
       info: mockLoggerInfo,
-      debug: vi.fn(),
+      warn: mockLoggerWarn,
     })),
   };
 });
@@ -26,6 +26,7 @@ function createMockDb() {
   const mockRows: Map<string, Record<string, unknown>> = new Map();
 
   return {
+    _mockRows: mockRows,
     query: vi.fn(
       async <T>(sql: string, params?: unknown[]): Promise<{ rows: T[]; affectedRows?: number }> => {
         const sqlLower = sql.toLowerCase();
@@ -37,20 +38,20 @@ function createMockDb() {
           const key = `${folderId}::${filePath}`;
 
           mockRows.set(key, {
-            id: mockRows.size + 1,
-            folder_id: folderId,
-            file_path: filePath,
             content_hash: params?.[2],
+            counting_mode: params?.[6],
+            created_at: new Date().toISOString(),
+            file_path: filePath,
             file_size: String(params?.[3]),
+            folder_id: folderId,
+            id: mockRows.size + 1,
+            model_encoding: params?.[7],
             mtime_ms: params?.[4] ? String(params?.[4]) : null,
             token_count: params?.[5],
-            counting_mode: params?.[6],
-            model_encoding: params?.[7],
-            created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
 
-          return { rows: [] as T[], affectedRows: 1 };
+          return { affectedRows: 1, rows: [] as T[] };
         }
 
         // Handle SELECT batch with IN (check this first - most specific)
@@ -137,10 +138,10 @@ function createMockDb() {
           return {
             rows: [
               {
-                entry_count: String(entryCount),
-                total_tokens: String(totalTokens),
                 accurate_count: String(accurateCount),
+                entry_count: String(entryCount),
                 heuristic_count: String(heuristicCount),
+                total_tokens: String(totalTokens),
               },
             ] as T[],
           };
@@ -168,7 +169,7 @@ function createMockDb() {
           const key = `${folderId}::${filePath}`;
           const existed = mockRows.has(key);
           mockRows.delete(key);
-          return { rows: [] as T[], affectedRows: existed ? 1 : 0 };
+          return { affectedRows: existed ? 1 : 0, rows: [] as T[] };
         }
 
         // Handle DELETE folder
@@ -185,14 +186,14 @@ function createMockDb() {
               deleted++;
             }
           }
-          return { rows: [] as T[], affectedRows: deleted };
+          return { affectedRows: deleted, rows: [] as T[] };
         }
 
         // Handle DELETE all
         if (sqlLower.includes('delete from file_token_cache') && !params?.length) {
           const count = mockRows.size;
           mockRows.clear();
-          return { rows: [] as T[], affectedRows: count };
+          return { affectedRows: count, rows: [] as T[] };
         }
 
         // Handle BEGIN/COMMIT/ROLLBACK
@@ -212,7 +213,6 @@ function createMockDb() {
         return { rows: [] as T[] };
       }
     ),
-    _mockRows: mockRows,
   };
 }
 
@@ -229,14 +229,14 @@ describe('TokenCacheStore', () => {
   });
 
   const createEntry = (overrides: Partial<TokenCacheEntry> = {}): TokenCacheEntry => ({
-    folderId: 'folder-1',
-    filePath: 'src/index.ts',
     contentHash: 'abc123def456',
+    countingMode: 'accurate',
+    filePath: 'src/index.ts',
     fileSize: 1000,
+    folderId: 'folder-1',
+    modelEncoding: 'o200k_base',
     mtimeMs: 1_700_000_000_000,
     tokenCount: 250,
-    countingMode: 'accurate',
-    modelEncoding: 'o200k_base',
     ...overrides,
   });
 
@@ -247,13 +247,13 @@ describe('TokenCacheStore', () => {
 
       const result = await store.get('folder-1', 'src/index.ts');
       expect(result).toMatchObject({
-        folderId: 'folder-1',
-        filePath: 'src/index.ts',
         contentHash: 'abc123def456',
-        fileSize: 1000,
-        tokenCount: 250,
         countingMode: 'accurate',
+        filePath: 'src/index.ts',
+        fileSize: 1000,
+        folderId: 'folder-1',
         modelEncoding: 'o200k_base',
+        tokenCount: 250,
       });
     });
 
@@ -332,40 +332,40 @@ describe('TokenCacheStore', () => {
     it('rejects unsafe paths before read/delete queries execute', async () => {
       const guardedOperations = [
         {
+          message: 'Token cache file path must not be empty',
           run: () => store.get('folder-1', ''),
-          message: 'Token cache file path must not be empty',
         },
         {
+          message: 'Token cache file path must not be empty',
           run: () => store.get('folder-1', '   '),
-          message: 'Token cache file path must not be empty',
         },
         {
-          run: () => store.get('folder-1', 'src/foo\tbar.ts'),
           message: 'Token cache file path must not contain control characters',
+          run: () => store.get('folder-1', 'src/foo\tbar.ts'),
         },
         {
+          message: 'Token cache file path must not contain relative traversal segments',
           run: () => store.get('folder-1', '../escape.ts'),
-          message: 'Token cache file path must not contain relative traversal segments',
         },
         {
+          message: 'Token cache file path must not contain empty segments',
           run: () => store.get('folder-1', 'src//double.ts'),
-          message: 'Token cache file path must not contain empty segments',
         },
         {
+          message: 'Token cache file path must not contain empty segments',
           run: () => store.get('folder-1', 'src/folder/'),
-          message: 'Token cache file path must not contain empty segments',
         },
         {
+          message: 'Token cache file path must be relative',
           run: () => store.getBatch('folder-1', ['safe.ts', '/absolute.ts']),
-          message: 'Token cache file path must be relative',
         },
         {
-          run: () => store.getTotalTokens('folder-1', ['safe.ts', './dot.ts']),
           message: 'Token cache file path must not contain relative traversal segments',
+          run: () => store.getTotalTokens('folder-1', ['safe.ts', './dot.ts']),
         },
         {
-          run: () => store.delete('folder-1', 'C:\\windows\\abs.ts'),
           message: 'Token cache file path must be relative',
+          run: () => store.delete('folder-1', 'C:\\windows\\abs.ts'),
         },
       ];
 
@@ -408,9 +408,9 @@ describe('TokenCacheStore', () => {
 
   describe('getAllForFolder', () => {
     it('retrieves all entries for a folder', async () => {
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file1.ts' }));
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file2.ts' }));
-      await store.set(createEntry({ folderId: 'folder-2', filePath: 'file3.ts' }));
+      await store.set(createEntry({ filePath: 'file1.ts', folderId: 'folder-1' }));
+      await store.set(createEntry({ filePath: 'file2.ts', folderId: 'folder-1' }));
+      await store.set(createEntry({ filePath: 'file3.ts', folderId: 'folder-2' }));
 
       const result = await store.getAllForFolder('folder-1');
       expect(result.length).toBe(2);
@@ -587,9 +587,9 @@ describe('TokenCacheStore', () => {
 
   describe('clearFolder', () => {
     it('clears all entries for a folder', async () => {
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file1.ts' }));
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file2.ts' }));
-      await store.set(createEntry({ folderId: 'folder-2', filePath: 'file3.ts' }));
+      await store.set(createEntry({ filePath: 'file1.ts', folderId: 'folder-1' }));
+      await store.set(createEntry({ filePath: 'file2.ts', folderId: 'folder-1' }));
+      await store.set(createEntry({ filePath: 'file3.ts', folderId: 'folder-2' }));
 
       const cleared = await store.clearFolder('folder-1');
       expect(cleared).toBe(2);
@@ -604,8 +604,8 @@ describe('TokenCacheStore', () => {
 
   describe('clearAll', () => {
     it('clears all entries', async () => {
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file1.ts' }));
-      await store.set(createEntry({ folderId: 'folder-2', filePath: 'file2.ts' }));
+      await store.set(createEntry({ filePath: 'file1.ts', folderId: 'folder-1' }));
+      await store.set(createEntry({ filePath: 'file2.ts', folderId: 'folder-2' }));
 
       const cleared = await store.clearAll();
       expect(cleared).toBe(2);
@@ -641,10 +641,10 @@ describe('TokenCacheStore', () => {
   describe('getStats', () => {
     it('returns overall stats', async () => {
       await store.set(
-        createEntry({ filePath: 'file1.ts', tokenCount: 100, countingMode: 'accurate' })
+        createEntry({ countingMode: 'accurate', filePath: 'file1.ts', tokenCount: 100 })
       );
       await store.set(
-        createEntry({ filePath: 'file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+        createEntry({ countingMode: 'heuristic', filePath: 'file2.ts', tokenCount: 200 })
       );
 
       const stats = await store.getStats();
@@ -655,8 +655,8 @@ describe('TokenCacheStore', () => {
     });
 
     it('returns folder-specific stats', async () => {
-      await store.set(createEntry({ folderId: 'folder-1', filePath: 'file1.ts', tokenCount: 100 }));
-      await store.set(createEntry({ folderId: 'folder-2', filePath: 'file2.ts', tokenCount: 200 }));
+      await store.set(createEntry({ filePath: 'file1.ts', folderId: 'folder-1', tokenCount: 100 }));
+      await store.set(createEntry({ filePath: 'file2.ts', folderId: 'folder-2', tokenCount: 200 }));
 
       const stats = await store.getStats('folder-1');
       expect(stats.entryCount).toBe(1);

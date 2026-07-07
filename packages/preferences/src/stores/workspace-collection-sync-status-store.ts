@@ -89,32 +89,32 @@ export type WorkspaceCollectionSyncStatusStore = WorkspaceCollectionSyncStatusDa
   WorkspaceCollectionSyncStatusActions;
 
 const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
-  state: 'disabled',
-  managedCollectionId: null,
-  managedCollectionName: null,
+  activeRootPath: null,
   backfillRequestId: null,
   blockedReason: null,
-  currentFilePath: null,
-  scanSummary: null,
-  importProgress: null,
   chunkingProgress: null,
+  currentFilePath: null,
   embeddingProgress: null,
-  queueProgress: null,
-  queuedFiles: 0,
-  processedFiles: 0,
+  importProgress: null,
   lastError: null,
-  activeRootPath: null,
+  managedCollectionId: null,
+  managedCollectionName: null,
   pauseReasons: [],
+  processedFiles: 0,
+  queuedFiles: 0,
+  queueProgress: null,
+  scanSummary: null,
+  state: 'disabled',
 };
 
 export const useWorkspaceCollectionSyncStatusStore = create<WorkspaceCollectionSyncStatusStore>()(
   (set) => ({
     ...DEFAULT_STATE,
-    setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => set(() => patch),
     reset: () =>
       set({
         ...DEFAULT_STATE,
       }),
+    setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => set(() => patch),
   })
 );
 

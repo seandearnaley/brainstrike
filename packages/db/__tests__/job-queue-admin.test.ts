@@ -14,13 +14,13 @@ describe('JobQueue admin helpers', () => {
 
   it('clear deletes jobs by queue and state', async () => {
     const jq = new JobQueue(db);
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
-    await jq.enqueue({ queue: 'other', jobType: 'embed_chunk', payload: {} });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'other' });
 
     // move one to failed
-    const c = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
-    await jq.fail({ id: c?.id, leaseToken: c?.lease_token as string, error: 'boom' });
+    const c = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
+    await jq.fail({ error: 'boom', id: c?.id, leaseToken: c?.lease_token as string });
 
     const deletedQueued = await jq.clear('embeddings', ['queued']);
     expect(deletedQueued).toBe(2);
@@ -36,9 +36,9 @@ describe('JobQueue admin helpers', () => {
 
   it('requeueFailed moves failed jobs back to queued', async () => {
     const jq = new JobQueue(db);
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {}, maxAttempts: 1 });
-    const c = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
-    await jq.fail({ id: c?.id, leaseToken: c?.lease_token as string, error: 'boom' });
+    await jq.enqueue({ jobType: 'embed_chunk', maxAttempts: 1, payload: {}, queue: 'embeddings' });
+    const c = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
+    await jq.fail({ error: 'boom', id: c?.id, leaseToken: c?.lease_token as string });
 
     const moved = await jq.requeueFailed('embeddings', 10);
     expect(moved).toBe(1);
@@ -51,22 +51,22 @@ describe('JobQueue admin helpers', () => {
   it('requeueFailed resets exhausted attempts so jobs are claimable', async () => {
     const jq = new JobQueue(db);
     await jq.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
-      payload: { embeddingSetId: 'set-1' },
       maxAttempts: 1,
+      payload: { embeddingSetId: 'set-1' },
+      queue: 'embeddings',
     });
-    const firstClaim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const firstClaim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     await jq.fail({
+      error: 'boom',
       id: firstClaim?.id,
       leaseToken: firstClaim?.lease_token as string,
-      error: 'boom',
     });
 
     const moved = await jq.requeueFailed('embeddings', 10, { embeddingSetId: 'set-1' });
     expect(moved).toBe(1);
 
-    const retriedClaim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const retriedClaim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(retriedClaim?.id).toBe(firstClaim?.id);
     expect(retriedClaim?.attempts).toBe(1);
   });
@@ -74,12 +74,12 @@ describe('JobQueue admin helpers', () => {
   it('repairs queued jobs that exhausted attempts before a retry reset existed', async () => {
     const jq = new JobQueue(db);
     const job = await jq.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
-      payload: { embeddingSetId: 'set-1' },
       maxAttempts: 1,
+      payload: { embeddingSetId: 'set-1' },
+      queue: 'embeddings',
     });
-    const firstClaim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const firstClaim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(firstClaim?.id).toBe(job.id);
     await db.query(
       `UPDATE job_queue
@@ -90,7 +90,7 @@ describe('JobQueue admin helpers', () => {
       [job.id]
     );
 
-    const blockedClaim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const blockedClaim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(blockedClaim).toBeNull();
 
     const repaired = await jq.repairUnclaimableQueued('embeddings', 10, {
@@ -98,7 +98,7 @@ describe('JobQueue admin helpers', () => {
     });
     expect(repaired).toBe(1);
 
-    const repairedClaim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const repairedClaim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(repairedClaim?.id).toBe(job.id);
   });
 });

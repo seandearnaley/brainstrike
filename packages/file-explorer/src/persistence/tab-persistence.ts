@@ -28,8 +28,8 @@ interface FileSystemPermissionDescriptor {
 }
 
 interface FileSystemHandlePermissions {
-  queryPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
-  requestPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
+  queryPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PermissionState>;
+  requestPermission?: (descriptor?: FileSystemPermissionDescriptor) => Promise<PermissionState>;
 }
 
 /** FileSystemFileHandle with queryPermission method */
@@ -107,8 +107,8 @@ export interface TabRestoreResult {
 
 /** Interface for the file handle cache (matches WebHandleCache) */
 export interface FileHandleCache {
-  getFileHandle(folderId: string, relativePath: string): Promise<FileSystemFileHandle | null>;
-  removeFileHandle(folderId: string, relativePath: string): Promise<void>;
+  getFileHandle: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
+  removeFileHandle: (folderId: string, relativePath: string) => Promise<void>;
 }
 
 /**
@@ -191,26 +191,26 @@ export async function restoreTabFileHandle(
       error: err instanceof Error ? err.message : String(err),
     });
     return {
-      tabId,
       compositeKey,
-      path: '',
-      folderId: '',
-      status: 'not-found',
-      handle: null,
       error: 'Invalid composite key',
+      folderId: '',
+      handle: null,
+      path: '',
+      status: 'not-found',
+      tabId,
     };
   }
 
   if (!(folderId && path)) {
     logger.warn('restoreTabFileHandle: invalid compositeKey', { compositeKey });
     return {
-      tabId,
       compositeKey,
-      path: path || '',
-      folderId: folderId || '',
-      status: 'not-found',
-      handle: null,
       error: 'Invalid composite key',
+      folderId: folderId || '',
+      handle: null,
+      path: path || '',
+      status: 'not-found',
+      tabId,
     };
   }
 
@@ -221,12 +221,12 @@ export async function restoreTabFileHandle(
     if (!handle) {
       logger.debug('restoreTabFileHandle: handle not found', { folderId, path });
       return {
-        tabId,
         compositeKey,
-        path,
         folderId,
-        status: 'not-found',
         handle: null,
+        path,
+        status: 'not-found',
+        tabId,
       };
     }
 
@@ -235,13 +235,13 @@ export async function restoreTabFileHandle(
       logger.warn('restoreTabFileHandle: invalid handle shape', { folderId, path });
       await handleCache.removeFileHandle(folderId, path);
       return {
-        tabId,
         compositeKey,
-        path,
-        folderId,
-        status: 'not-found',
-        handle: null,
         error: 'Corrupted handle in cache',
+        folderId,
+        handle: null,
+        path,
+        status: 'not-found',
+        tabId,
       };
     }
 
@@ -254,64 +254,64 @@ export async function restoreTabFileHandle(
       if (isAccessible) {
         logger.debug('restoreTabFileHandle: restored successfully', { folderId, path });
         return {
-          tabId,
           compositeKey,
-          path,
           folderId,
-          status: 'restored',
           handle,
+          path,
+          status: 'restored',
+          tabId,
         };
       }
       // File was deleted or moved
       logger.info('restoreTabFileHandle: file no longer accessible', { folderId, path });
       await handleCache.removeFileHandle(folderId, path);
       return {
-        tabId,
         compositeKey,
-        path,
-        folderId,
-        status: 'not-found',
-        handle: null,
         error: 'File no longer exists',
+        folderId,
+        handle: null,
+        path,
+        status: 'not-found',
+        tabId,
       };
     }
 
     if (permissionState === 'denied') {
       // Permission explicitly denied - still return the handle so UI can offer retry
       return {
-        tabId,
         compositeKey,
-        path,
-        folderId,
-        status: 'needs-permission',
-        handle,
         error: 'Permission denied',
+        folderId,
+        handle,
+        path,
+        status: 'needs-permission',
+        tabId,
       };
     }
 
     // Permission is 'prompt' or 'unknown' - return handle for UI to request permission
     return {
-      tabId,
       compositeKey,
-      path,
       folderId,
-      status: 'needs-permission',
       handle,
+      path,
+      status: 'needs-permission',
+      tabId,
     };
   } catch (err) {
     logger.warn('restoreTabFileHandle: error during restoration', {
+      error: err instanceof Error ? err.message : String(err),
       folderId,
       path,
-      error: err instanceof Error ? err.message : String(err),
     });
     return {
-      tabId,
       compositeKey,
-      path,
-      folderId,
-      status: 'not-found',
-      handle: null,
       error: err instanceof Error ? err.message : 'Unknown error',
+      folderId,
+      handle: null,
+      path,
+      status: 'not-found',
+      tabId,
     };
   }
 }
@@ -328,9 +328,9 @@ export async function restoreAllTabFileHandles(
   handleCache: FileHandleCache
 ): Promise<TabRestoreResult> {
   const result: TabRestoreResult = {
-    restored: [],
     needsPermission: [],
     notFound: [],
+    restored: [],
   };
 
   // Process tabs in parallel for better performance
@@ -365,9 +365,9 @@ export async function restoreAllTabFileHandles(
   }
 
   logger.info('restoreAllTabFileHandles: completed', {
-    restored: result.restored.length,
     needsPermission: result.needsPermission.length,
     notFound: result.notFound.length,
+    restored: result.restored.length,
   });
 
   return result;

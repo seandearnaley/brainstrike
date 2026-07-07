@@ -100,7 +100,7 @@ export async function getModelConfigFromDb(
 
   const cached = dbModelConfigCache.get(modelId);
   if (cached !== undefined) {
-    modelConfigLogger.debug('getModelConfigFromDb: cache hit', { modelId, found: !!cached });
+    modelConfigLogger.debug('getModelConfigFromDb: cache hit', { found: !!cached, modelId });
     return cached;
   }
 
@@ -126,13 +126,13 @@ export async function getModelConfigFromDb(
     const parameters = parseParameters(row.parameters);
 
     const modelConfig: ModelConfig = {
+      description: row.description ?? '',
+      dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
       id: row.id,
       name: row.name,
-      dimensions: capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-      quantized: false,
-      description: row.description ?? '',
-      tags: [row.provider_id, capabilities.type ?? 'embedding'].filter(Boolean),
       origin: row.provider_id,
+      quantized: false,
+      tags: [row.provider_id, capabilities.type ?? 'embedding'].filter(Boolean),
       ...(parameters.size === undefined ? {} : { size: parameters.size }),
       ...(parameters.contextWindow === undefined
         ? {}
@@ -143,8 +143,8 @@ export async function getModelConfigFromDb(
     return modelConfig;
   } catch (error) {
     modelConfigLogger.error('getModelConfigFromDb: QUERY FAILED', {
-      modelId,
       error: error instanceof Error ? error.message : String(error),
+      modelId,
       stack: error instanceof Error ? error.stack : undefined,
     });
     return null;

@@ -27,11 +27,11 @@ export function setupSecurity() {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [csp],
+          'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
+          'Referrer-Policy': ['strict-origin-when-cross-origin'],
           'X-Content-Type-Options': ['nosniff'],
           'X-Frame-Options': ['DENY'],
           'X-XSS-Protection': ['0'],
-          'Referrer-Policy': ['strict-origin-when-cross-origin'],
-          'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
         },
       });
     }

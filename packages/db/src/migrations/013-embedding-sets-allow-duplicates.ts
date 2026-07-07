@@ -1,7 +1,16 @@
 import type { Migration } from './migration-runner';
 
 export const migration013EmbeddingSetsAllowDuplicates: Migration = {
-  version: 13,
+  down: `
+    DROP INDEX IF EXISTS idx_embedding_sets_model_key_created_at;
+
+    ALTER TABLE embedding_sets
+      ADD CONSTRAINT embedding_sets_model_key_dimensions_distance_key
+        UNIQUE (model_key, dimensions, distance);
+
+    ALTER TABLE embedding_sets
+      DROP COLUMN IF EXISTS allow_duplicates;
+  `,
   name: 'embedding_sets_allow_duplicates',
   up: `
     -- Add allow_duplicates column to embedding_sets
@@ -14,14 +23,5 @@ export const migration013EmbeddingSetsAllowDuplicates: Migration = {
     CREATE INDEX IF NOT EXISTS idx_embedding_sets_model_key_created_at
       ON embedding_sets (model_key, created_at DESC);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_embedding_sets_model_key_created_at;
-
-    ALTER TABLE embedding_sets
-      ADD CONSTRAINT embedding_sets_model_key_dimensions_distance_key
-        UNIQUE (model_key, dimensions, distance);
-
-    ALTER TABLE embedding_sets
-      DROP COLUMN IF EXISTS allow_duplicates;
-  `,
+  version: 13,
 };

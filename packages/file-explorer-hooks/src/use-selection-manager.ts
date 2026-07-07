@@ -53,8 +53,8 @@ export const useSelectionManager = ({
   );
 
   return {
-    selectedFilePaths,
     handleSelectionChange,
+    selectedFilePaths,
     wouldExceedSelectionLimit,
   };
 };

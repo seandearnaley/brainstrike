@@ -44,12 +44,12 @@ export function filterTreeIterative(
 
   function pushChildren(node: IFileNode, parent: IFileNode[]): void {
     const childResults: IFileNode[] = [];
-    stack.push({ node, state: 'exit', parentChildren: parent, tempChildren: childResults });
+    stack.push({ node, parentChildren: parent, state: 'exit', tempChildren: childResults });
     const children = node.children ?? [];
     for (let i = children.length - 1; i >= 0; i -= 1) {
       const child = children[i];
       if (child) {
-        stack.push({ node: child, state: 'enter', parentChildren: childResults });
+        stack.push({ node: child, parentChildren: childResults, state: 'enter' });
       }
     }
   }
@@ -77,7 +77,7 @@ export function filterTreeIterative(
   for (let i = nodes.length - 1; i >= 0; i -= 1) {
     const item = nodes[i];
     if (item) {
-      stack.push({ node: item, state: 'enter', parentChildren: result });
+      stack.push({ node: item, parentChildren: result, state: 'enter' });
     }
   }
 

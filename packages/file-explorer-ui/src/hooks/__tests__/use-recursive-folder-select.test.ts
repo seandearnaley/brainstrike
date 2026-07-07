@@ -19,11 +19,11 @@ const showToastMock = vi.fn();
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(async () => undefined),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(async () => undefined),
     },
   }),
   useToastManager: () => ({ showToast: showToastMock }),
@@ -49,39 +49,39 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
     ...actual,
     createLogger: () => ({
       debug: vi.fn(),
+      error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn(),
     }),
   };
 });
 
 function createDirectory(overrides: Partial<IFileNode> = {}): IFileNode {
   return {
+    children: [],
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    isVisible: true,
+    loadState: 'unloaded',
     name: 'dir',
     path: '/root/dir',
-    type: 'directory',
-    handle: {} as FileSystemDirectoryHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    loadState: 'unloaded',
-    children: [],
-    isVisible: true,
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
 
 function createFile(overrides: Partial<IFileNode> = {}): IFileNode {
   return {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
     name: 'file.txt',
     path: '/root/file.txt',
-    type: 'file',
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    isVisible: true,
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
@@ -103,10 +103,10 @@ function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSyste
   const readDirectory = vi.fn(async (handle: DirectoryHandle) => directoryMap[handle.path] ?? []);
 
   return {
-    requestDirectoryAccess: vi.fn(),
+    exists: vi.fn(),
     readDirectory,
     readFile: vi.fn(),
-    exists: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 }
 
@@ -140,20 +140,20 @@ describe('useRecursiveFolderSelect', () => {
     );
 
     expect(selectionResult).toEqual({
-      success: false,
-      filePaths: [],
       error: 'Node is not a directory',
+      filePaths: [],
+      success: false,
     });
   });
 
   it('selects descendant files from a fully loaded folder without adapter reads', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'loaded',
       children: [
-        createFile({ name: 'a.ts', path: '/root/src/a.ts', depth: 1 }),
-        createFile({ name: 'b.ts', path: '/root/src/b.ts', depth: 1 }),
+        createFile({ depth: 1, name: 'a.ts', path: '/root/src/a.ts' }),
+        createFile({ depth: 1, name: 'b.ts', path: '/root/src/b.ts' }),
       ],
+      loadState: 'loaded',
+      path: '/root/src',
     });
     const fileSystemAdapter = createMockAdapter({});
 
@@ -179,11 +179,11 @@ describe('useRecursiveFolderSelect', () => {
 
   it('passes large explicit folder-selection results through the optimized chunked action', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'loaded',
       children: Array.from({ length: 120 }, (_, index) =>
-        createFile({ name: `file-${index}.ts`, path: `/root/src/file-${index}.ts`, depth: 1 })
+        createFile({ depth: 1, name: `file-${index}.ts`, path: `/root/src/file-${index}.ts` })
       ),
+      loadState: 'loaded',
+      path: '/root/src',
     });
     const addMultipleSelectedFilesChunked = vi.fn(async () => ({
       addedCount: 100,
@@ -223,9 +223,9 @@ describe('useRecursiveFolderSelect', () => {
 
   it('clamps the remaining budget to zero before adapter work', async () => {
     const root = createDirectory({
-      path: '/root/src',
+      children: [createFile({ depth: 1, name: 'a.ts', path: '/root/src/a.ts' })],
       loadState: 'loaded',
-      children: [createFile({ name: 'a.ts', path: '/root/src/a.ts', depth: 1 })],
+      path: '/root/src',
     });
 
     const { result } = renderHook(() =>
@@ -239,29 +239,29 @@ describe('useRecursiveFolderSelect', () => {
       result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 1, 2)
     );
 
-    expect(selectionResult).toEqual({ success: true, filePaths: [] });
+    expect(selectionResult).toEqual({ filePaths: [], success: true });
     expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
   });
 
   it('reads unloaded descendants from the adapter without materializing the subtree first', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     const fileSystemAdapter = createMockAdapter({
       '/root/src': [
         createDirectory({
-          name: 'nested',
-          path: '/root/src/nested',
+          children: [],
           depth: 1,
           loadState: 'unloaded',
-          children: [],
+          name: 'nested',
+          path: '/root/src/nested',
         }),
-        createFile({ name: 'main.ts', path: '/root/src/main.ts', depth: 1 }),
+        createFile({ depth: 1, name: 'main.ts', path: '/root/src/main.ts' }),
       ],
       '/root/src/nested': [
-        createFile({ name: 'deep.ts', path: '/root/src/nested/deep.ts', depth: 2 }),
+        createFile({ depth: 2, name: 'deep.ts', path: '/root/src/nested/deep.ts' }),
       ],
     });
 
@@ -284,9 +284,9 @@ describe('useRecursiveFolderSelect', () => {
 
   it('commits full-result recursive folder selection through query mode even for small subtrees', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     const setQuerySelection = vi.fn();
     mockStoreState = {
@@ -294,17 +294,17 @@ describe('useRecursiveFolderSelect', () => {
     };
     const fileSystemAdapter = createMockAdapter({
       '/root/src': [
-        createFile({ name: 'main.ts', path: '/root/src/main.ts', depth: 1 }),
+        createFile({ depth: 1, name: 'main.ts', path: '/root/src/main.ts' }),
         createDirectory({
-          name: 'nested',
-          path: '/root/src/nested',
+          children: [],
           depth: 1,
           loadState: 'unloaded',
-          children: [],
+          name: 'nested',
+          path: '/root/src/nested',
         }),
       ],
       '/root/src/nested': [
-        createFile({ name: 'deep.ts', path: '/root/src/nested/deep.ts', depth: 2 }),
+        createFile({ depth: 2, name: 'deep.ts', path: '/root/src/nested/deep.ts' }),
       ],
     });
 
@@ -324,17 +324,17 @@ describe('useRecursiveFolderSelect', () => {
     expect(selectionResult.filePaths).toEqual(['/root/src/main.ts', '/root/src/nested/deep.ts']);
     expect(setQuerySelection).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'recursive-folder',
-        folderId: 'folder-id',
-        rootPath: '/root/src',
         coveredDirectoryPaths: ['/root', '/root/src', '/root/src/nested'],
-        includeFilters: [],
-        excludeFilters: [],
-        includedPaths: [],
         excludedPaths: [],
+        excludeFilters: [],
+        folderId: 'folder-id',
+        includedPaths: [],
+        includeFilters: [],
+        kind: 'recursive-folder',
         manifestSnapshotId: null,
-        useRegex: false,
+        rootPath: '/root/src',
         totalSelectedCount: 2,
+        useRegex: false,
       }),
       expect.objectContaining({
         filePaths: ['/root/src/main.ts', '/root/src/nested/deep.ts'],
@@ -348,9 +348,9 @@ describe('useRecursiveFolderSelect', () => {
 
   it('commits a partially restored folder selection through query mode when the current selection is entirely inside that folder', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     const setQuerySelection = vi.fn();
     mockStoreState = {
@@ -358,17 +358,17 @@ describe('useRecursiveFolderSelect', () => {
     };
     const fileSystemAdapter = createMockAdapter({
       '/root/src': [
-        createFile({ name: 'main.ts', path: '/root/src/main.ts', depth: 1 }),
+        createFile({ depth: 1, name: 'main.ts', path: '/root/src/main.ts' }),
         createDirectory({
-          name: 'nested',
-          path: '/root/src/nested',
+          children: [],
           depth: 1,
           loadState: 'unloaded',
-          children: [],
+          name: 'nested',
+          path: '/root/src/nested',
         }),
       ],
       '/root/src/nested': [
-        createFile({ name: 'deep.ts', path: '/root/src/nested/deep.ts', depth: 2 }),
+        createFile({ depth: 2, name: 'deep.ts', path: '/root/src/nested/deep.ts' }),
       ],
     });
 
@@ -387,8 +387,8 @@ describe('useRecursiveFolderSelect', () => {
     expect(selectionResult.success).toBe(true);
     expect(setQuerySelection).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'recursive-folder',
         folderId: 'folder-id',
+        kind: 'recursive-folder',
         rootPath: '/root/src',
         totalSelectedCount: 2,
       }),
@@ -403,14 +403,14 @@ describe('useRecursiveFolderSelect', () => {
 
   it('applies filterTreeFn to adapter-loaded nodes', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     const fileSystemAdapter = createMockAdapter({
       '/root/src': [
-        createFile({ name: 'keep.ts', path: '/root/src/keep.ts', depth: 1 }),
-        createFile({ name: 'skip.md', path: '/root/src/skip.md', depth: 1 }),
+        createFile({ depth: 1, name: 'keep.ts', path: '/root/src/keep.ts' }),
+        createFile({ depth: 1, name: 'skip.md', path: '/root/src/skip.md' }),
       ],
     });
 
@@ -436,23 +436,23 @@ describe('useRecursiveFolderSelect', () => {
 
   it('blocks concurrent recursive folder selection operations', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     let resolveRead: (() => void) | null = null;
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(
         () =>
           new Promise<IFileNode[]>((resolve) => {
             resolveRead = () => {
-              resolve([createFile({ name: 'done.ts', path: '/root/src/done.ts', depth: 1 })]);
+              resolve([createFile({ depth: 1, name: 'done.ts', path: '/root/src/done.ts' })]);
             };
           })
       ),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() =>
@@ -478,9 +478,9 @@ describe('useRecursiveFolderSelect', () => {
     );
 
     expect(secondResult).toEqual({
-      success: false,
-      filePaths: [],
       error: 'Operation already in progress',
+      filePaths: [],
+      success: false,
     });
 
     act(() => {
@@ -490,23 +490,23 @@ describe('useRecursiveFolderSelect', () => {
 
   it('cancels in-flight recursive folder selection', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     let resolveRead: (() => void) | null = null;
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(
         () =>
           new Promise<IFileNode[]>((resolve) => {
             resolveRead = () => {
-              resolve([createFile({ name: 'done.ts', path: '/root/src/done.ts', depth: 1 })]);
+              resolve([createFile({ depth: 1, name: 'done.ts', path: '/root/src/done.ts' })]);
             };
           })
       ),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
     const cancelLoadOperations = vi.fn();
 
@@ -556,19 +556,19 @@ describe('useRecursiveFolderSelect', () => {
     // (the focused root's), so a foreign target must use explicit selection
     // (the store mutators route foreign keys into that root's folderState).
     const root = createDirectory({
-      path: '/project-b/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/project-b/src',
       rootFolderId: 'root-b',
     });
     const setQuerySelection = vi.fn();
     mockStoreState = {
-      setQuerySelection,
       currentFolderId: 'root-a',
+      setQuerySelection,
     };
     const fileSystemAdapter = createMockAdapter({
       '/project-b/src': [
-        createFile({ name: 'b.ts', path: '/project-b/src/b.ts', depth: 1, rootFolderId: 'root-b' }),
+        createFile({ depth: 1, name: 'b.ts', path: '/project-b/src/b.ts', rootFolderId: 'root-b' }),
       ],
     });
 
@@ -592,19 +592,19 @@ describe('useRecursiveFolderSelect', () => {
 
   it('still commits through query mode when the target IS the focused root', async () => {
     const root = createDirectory({
-      path: '/project-b/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/project-b/src',
       rootFolderId: 'root-b',
     });
     const setQuerySelection = vi.fn();
     mockStoreState = {
-      setQuerySelection,
       currentFolderId: 'root-b',
+      setQuerySelection,
     };
     const fileSystemAdapter = createMockAdapter({
       '/project-b/src': [
-        createFile({ name: 'b.ts', path: '/project-b/src/b.ts', depth: 1, rootFolderId: 'root-b' }),
+        createFile({ depth: 1, name: 'b.ts', path: '/project-b/src/b.ts', rootFolderId: 'root-b' }),
       ],
     });
 
@@ -630,16 +630,16 @@ describe('useRecursiveFolderSelect', () => {
     // a folder of .html files scan to ZERO matches — the checkbox click must
     // never be a silent no-op.
     const root = createDirectory({
-      path: '/root/html-only',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/html-only',
     });
     const fileSystemAdapter = createMockAdapter({
       '/root/html-only': [createFile({ name: 'index.html', path: '/root/html-only/index.html' })],
     });
 
     // includeFilters come from the store selector mock — set BEFORE render.
-    mockStoreState = { includeFilters: ['**/*.ts'], excludeFilters: [] };
+    mockStoreState = { excludeFilters: [], includeFilters: ['**/*.ts'] };
 
     const { result } = renderHook(() =>
       useRecursiveFolderSelect({
@@ -665,18 +665,18 @@ describe('useRecursiveFolderSelect', () => {
     // "Switch to all files" via filter toggles must reach the scans — they
     // previously read the RAW filter lists and kept filtering.
     const root = createDirectory({
-      path: '/root/html-only',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/html-only',
     });
     const fileSystemAdapter = createMockAdapter({
       '/root/html-only': [createFile({ name: 'index.html', path: '/root/html-only/index.html' })],
     });
     mockStoreState = {
-      includeFilters: ['**/*.ts'],
-      excludeFilters: [],
-      disabledIncludeFilters: new Set(['**/*.ts']),
       currentFolderId: 'folder-id',
+      disabledIncludeFilters: new Set(['**/*.ts']),
+      excludeFilters: [],
+      includeFilters: ['**/*.ts'],
     };
 
     const { result } = renderHook(() =>
@@ -697,7 +697,7 @@ describe('useRecursiveFolderSelect', () => {
   });
 
   it('shows a toast when the selection limit blocks the folder selection', async () => {
-    const root = createDirectory({ path: '/root/src', loadState: 'unloaded', children: [] });
+    const root = createDirectory({ children: [], loadState: 'unloaded', path: '/root/src' });
     const fileSystemAdapter = createMockAdapter({});
 
     const { result } = renderHook(() =>
@@ -721,17 +721,17 @@ describe('useRecursiveFolderSelect', () => {
 
   it('surfaces adapter errors through onError', async () => {
     const root = createDirectory({
-      path: '/root/src',
-      loadState: 'unloaded',
       children: [],
+      loadState: 'unloaded',
+      path: '/root/src',
     });
     const fileSystemAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(async () => {
         throw new Error('Load failed');
       }),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() =>

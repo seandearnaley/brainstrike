@@ -105,7 +105,7 @@ export function buildGroupedPageSections(input: GroupedPageSectionsInput): Group
     itemCount = nextIndex;
 
     if (showHeader || items.length > 0) {
-      sections.push({ group, isCollapsed, showHeader, items });
+      sections.push({ group, isCollapsed, items, showHeader });
     }
 
     if (itemCount >= input.endIndex) {

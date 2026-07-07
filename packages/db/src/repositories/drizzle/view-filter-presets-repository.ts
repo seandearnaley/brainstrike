@@ -78,17 +78,17 @@ export class DrizzleViewFilterPresetsRepository {
     const [insertedRow] = await this.db
       .insert(viewFilterPresets)
       .values({
-        id,
-        name: input.name,
-        description: input.description ?? null,
-        icon: input.icon ?? 'file',
-        includes: input.includes,
-        excludes: input.excludes,
-        useRegex: input.useRegex ?? false,
-        isDefault: false,
-        sortOrder: nextSortOrder,
         createdAt: now,
+        description: input.description ?? null,
+        excludes: input.excludes,
+        icon: input.icon ?? 'file',
+        id,
+        includes: input.includes,
+        isDefault: false,
+        name: input.name,
+        sortOrder: nextSortOrder,
         updatedAt: now,
+        useRegex: input.useRegex ?? false,
       })
       .returning();
 
@@ -185,17 +185,17 @@ export class DrizzleViewFilterPresetsRepository {
    */
   private fromRow(row: typeof viewFilterPresets.$inferSelect): ViewFilterPreset {
     return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      icon: row.icon as ViewFilterPreset['icon'],
-      includes: row.includes ?? [],
-      excludes: row.excludes ?? [],
-      useRegex: row.useRegex,
-      isDefault: row.isDefault,
-      sortOrder: row.sortOrder,
       createdAt: row.createdAt,
+      description: row.description,
+      excludes: row.excludes ?? [],
+      icon: row.icon as ViewFilterPreset['icon'],
+      id: row.id,
+      includes: row.includes ?? [],
+      isDefault: row.isDefault,
+      name: row.name,
+      sortOrder: row.sortOrder,
       updatedAt: row.updatedAt,
+      useRegex: row.useRegex,
     };
   }
 }

@@ -8,11 +8,11 @@ vi.mock('@brainstrike/utils/env-utils', () => ({
 // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
 vi.mock('../hooks/use-panel-persistence', () => ({
   usePanelPersistence: vi.fn(() => ({
-    sizes: [25, 20, 20],
+    saveLayout: vi.fn(),
     showConsole: false,
     showLeftPanel: true,
     showRightPanel: false,
-    saveLayout: vi.fn(),
+    sizes: [25, 20, 20],
     toggleConsole: vi.fn(),
     toggleLeftPanel: vi.fn(),
     toggleRightPanel: vi.fn(),

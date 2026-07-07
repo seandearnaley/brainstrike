@@ -59,8 +59,8 @@ export function installPerformanceMeasureGuard(): void {
   try {
     Object.defineProperty(perf, 'measure', {
       configurable: true,
-      writable: true,
       value: guardedMeasure,
+      writable: true,
     });
     performanceMeasureGuardInstalled = true;
   } catch {

@@ -12,28 +12,28 @@ function createDirectory(
   children: IFileNode[] = []
 ): IFileNode {
   return {
+    children,
+    depth: path.split('/').length - 2,
+    handle: {} as FileSystemDirectoryHandle,
+    loadState,
     name: path.split('/').pop() || path,
     path,
-    type: 'directory',
-    handle: {} as FileSystemDirectoryHandle,
-    depth: path.split('/').length - 2,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    loadState,
-    children,
+    selectionState: 'unchecked',
+    type: 'directory',
   };
 }
 
 function createFile(path: string): IFileNode {
   return {
+    depth: path.split('/').length - 2,
+    handle: {} as FileSystemFileHandle,
+    loadState: 'loaded',
     name: path.split('/').pop() || path,
     path,
-    type: 'file',
-    handle: {} as FileSystemFileHandle,
-    depth: path.split('/').length - 2,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    loadState: 'loaded',
+    selectionState: 'unchecked',
+    type: 'file',
   };
 }
 

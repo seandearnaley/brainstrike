@@ -26,10 +26,10 @@ describe('Folder State Actions', () => {
   const getInitialState = (): Partial<FileExplorerState> => ({
     ...DEFAULT_STATE,
     currentFolderId: null,
-    selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     folderStates: {},
     lastActiveTab: 'files' as const,
+    selectedFilePaths: new Set<string>(),
   });
 
   beforeEach(() => {
@@ -37,24 +37,24 @@ describe('Folder State Actions', () => {
       () =>
         ({
           ...getInitialState(),
+          addSelectedFile: vi.fn(),
+          clearSelectedFiles: vi.fn(),
+          collapseAllDirectories: vi.fn(),
+          expandAllDirectories: vi.fn(),
+          hydrateFolderState: vi.fn(),
+          removeSelectedFile: vi.fn(),
           // These will be overwritten by the real actions, but TypeScript needs them
           setCurrentFolderId: vi.fn(),
-          hydrateFolderState: vi.fn(),
-          setMaxSelectionCount: vi.fn(),
-          setLastActiveTab: vi.fn(),
-          setFilters: vi.fn(),
-          setUseRegex: vi.fn(),
-          setIncludeProjectTree: vi.fn(),
-          setFolderSummaryThreshold: vi.fn(),
-          setSelectedFiles: vi.fn(),
-          addSelectedFile: vi.fn(),
-          removeSelectedFile: vi.fn(),
-          toggleSelectedFile: vi.fn(),
-          clearSelectedFiles: vi.fn(),
           setExpandedPaths: vi.fn(),
+          setFilters: vi.fn(),
+          setFolderSummaryThreshold: vi.fn(),
+          setIncludeProjectTree: vi.fn(),
+          setLastActiveTab: vi.fn(),
+          setMaxSelectionCount: vi.fn(),
+          setSelectedFiles: vi.fn(),
+          setUseRegex: vi.fn(),
           toggleDirectoryExpansion: vi.fn(),
-          expandAllDirectories: vi.fn(),
-          collapseAllDirectories: vi.fn(),
+          toggleSelectedFile: vi.fn(),
         }) as FileExplorerState
     );
 
@@ -68,8 +68,8 @@ describe('Folder State Actions', () => {
     }));
 
     store = {
-      setState: zustandStore.setState,
       getState: zustandStore.getState,
+      setState: zustandStore.setState,
       ...folderActions,
       ...settingsActions,
     };
@@ -93,8 +93,8 @@ describe('Folder State Actions', () => {
   it('should create default folder state when switching to a new id', () => {
     store.setState((state: FileExplorerState) => ({
       ...state,
-      selectedFilePaths: new Set(['file1']),
       expandedDirectoryPaths: new Set(['dir1']),
+      selectedFilePaths: new Set(['file1']),
     }));
 
     store.setCurrentFolderId('newId');
@@ -129,16 +129,16 @@ describe('Folder State Actions', () => {
     const expandedPaths = new Set(['dir1']);
 
     const initialFolderState: FolderState = {
-      selectedFilePaths: selectedPaths,
-      expandedDirectoryPaths: expandedPaths,
-      includeFilters: customFilters,
       excludeFilters: customExcludeFilters,
-      useRegex: true,
-      includeProjectTree: false,
+      expandedDirectoryPaths: expandedPaths,
       folderSummaryThreshold: 10,
-      maxSelectionCount: 50,
-      lastActiveTab: 'settings',
+      includeFilters: customFilters,
+      includeProjectTree: false,
       lastAccessed: Date.now(),
+      lastActiveTab: 'settings',
+      maxSelectionCount: 50,
+      selectedFilePaths: selectedPaths,
+      useRegex: true,
       viewFilterPresetId: null,
     };
 
@@ -173,8 +173,8 @@ describe('Folder State Actions', () => {
     const initialExpandedPaths = new Set(['initialDir']);
     store.setState((state: FileExplorerState) => ({
       ...state,
-      selectedFilePaths: initialSelectedPaths,
       expandedDirectoryPaths: initialExpandedPaths,
+      selectedFilePaths: initialSelectedPaths,
     }));
 
     const stateBeforeHydrate = store.getState();
@@ -195,23 +195,23 @@ describe('Folder State Actions', () => {
     for (let i = 0; i < numFolders; i++) {
       const id = `folder${i}`;
       folderStates[id] = {
-        lastAccessed: now - (numFolders - i) * 1000,
-        selectedFilePaths: new Set([`${id}-file`]),
-        expandedDirectoryPaths: new Set([`${id}-dir`]),
-        includeFilters: [],
         excludeFilters: [],
-        useRegex: false,
-        includeProjectTree: true,
+        expandedDirectoryPaths: new Set([`${id}-dir`]),
         folderSummaryThreshold: 5,
-        maxSelectionCount: 100,
+        includeFilters: [],
+        includeProjectTree: true,
+        lastAccessed: now - (numFolders - i) * 1000,
         lastActiveTab: 'files',
+        maxSelectionCount: 100,
+        selectedFilePaths: new Set([`${id}-file`]),
+        useRegex: false,
       };
     }
 
     store.setState((state: FileExplorerState) => ({
       ...state,
-      folderStates,
       folderAccessOrder: Object.keys(folderStates),
+      folderStates,
     }));
 
     expect(Object.keys(store.getState().folderStates).length).toBe(numFolders);
@@ -286,8 +286,8 @@ describe('Folder State Actions', () => {
     store.setCurrentFolderId(ROOT_A);
     store.setState((state: FileExplorerState) => ({
       ...state,
-      selectedFilePaths: new Set([`${ROOT_A}|@|${RELATIVE_PATH}`]),
       expandedDirectoryPaths: new Set(['src']),
+      selectedFilePaths: new Set([`${ROOT_A}|@|${RELATIVE_PATH}`]),
     }));
 
     // Switch to root B — A's selection must NOT leak into B.
@@ -321,9 +321,9 @@ describe('Folder State Actions', () => {
     store.setState((state: FileExplorerState) => ({
       ...state,
       currentFolderId: folderToSave,
-      selectedFilePaths: selectedPaths,
       expandedDirectoryPaths: expandedPaths,
       includeFilters: ['*.*'], // Give some non-default values to save
+      selectedFilePaths: selectedPaths,
       useRegex: true,
     }));
 
@@ -376,8 +376,8 @@ describe('Folder State Actions', () => {
     const selectedFiles = new Set(['file1', 'file2', 'file3', 'file4', 'file5']);
     store.setState((state: FileExplorerState) => ({
       ...state,
-      selectedFilePaths: selectedFiles,
       maxSelectionCount: 10, // Initial max count
+      selectedFilePaths: selectedFiles,
     }));
 
     // Act - reduce max selection count using the action

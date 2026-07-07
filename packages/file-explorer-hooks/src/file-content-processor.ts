@@ -12,13 +12,13 @@ import {
 } from '@brainstrike/workers/file-content-worker';
 
 export interface FileContentProcessor {
-  processFiles(
+  processFiles: (
     requests: FileContentRequest[],
     onProgress?: (event: { key: string; loaded: number; total: number }) => void,
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>>;
+  ) => Promise<Record<string, string>>;
 }
 
 export interface FileContentRequest {
@@ -74,8 +74,8 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
 
   constructor(fileSystemAdapter: FileSystemAdapter, concurrency = 3) {
     this.worker = createFileContentWorker({
-      fileSystemAdapter,
       concurrency,
+      fileSystemAdapter,
     });
   }
 
@@ -102,12 +102,12 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: getCanonicalFileHandlePath(fileNode),
-      name: fileNode.name,
+      _internal: fileNode.handle,
       kind: 'file',
+      name: fileNode.name,
+      path: getCanonicalFileHandlePath(fileNode),
       platform,
       rootFolderId: fileNode.rootFolderId,
-      _internal: fileNode.handle,
     };
 
     const knownFileSize = getKnownFileSize(fileNode.size);
@@ -171,12 +171,12 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
     const fileHandle: FileHandle = {
-      path: getCanonicalFileHandlePath(fileNode),
-      name: fileNode.name,
+      _internal: fileNode.handle,
       kind: 'file',
+      name: fileNode.name,
+      path: getCanonicalFileHandlePath(fileNode),
       platform,
       rootFolderId: fileNode.rootFolderId,
-      _internal: fileNode.handle,
     };
 
     if (knownFileSize !== null) {

@@ -21,25 +21,25 @@ vi.mock('../preview/preview-panel', () => ({
 // Mock useFileExplorer — minimal shape used by the host
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
-    fileTree: [],
+    canLoadWithoutTree: false,
     fileContents: {},
-    loadingFiles: new Set<string>(),
+    fileTree: [],
     loadFileContent: vi.fn(),
+    loadingFiles: new Set<string>(),
     loadMultipleFileContents: vi.fn(),
     rootDirectoryHandle: null,
-    canLoadWithoutTree: false,
   })),
 }));
 
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(() => ({
+    effectiveSelection: new Set<string>(),
+    handleSelectionChange: vi.fn(),
+    isRulesMode: false,
     selectedFilePaths: new Set<string>(),
     selectedFilesList: [],
     setSelectedFilesFromList: vi.fn(),
-    handleSelectionChange: vi.fn(),
     wouldExceedSelectionLimit: vi.fn(() => false),
-    effectiveSelection: new Set<string>(),
-    isRulesMode: false,
   })),
 }));
 
@@ -48,12 +48,12 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   return {
     ...original,
     useTabFileRestoration: vi.fn(() => ({
-      tabStatuses: new Map<string, TabFileStatus>(),
-      requestTabPermission: vi.fn().mockResolvedValue(true),
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      needsUserAction: () => false,
       getStatusMessage: () => null,
       isRestoring: false,
+      needsUserAction: () => false,
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      tabStatuses: new Map<string, TabFileStatus>(),
     })),
   };
 });
@@ -76,21 +76,21 @@ describe('WorkspaceTabHost', () => {
       registerOpenFileInTab: vi.fn(),
     });
     vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
-      performUndoableAction: vi.fn(),
       clearUndoTimeout: vi.fn(),
+      performUndoableAction: vi.fn(),
     });
 
     const tabModule = await import('../hooks/use-tab-manager');
     const empty: UseTabManagerReturn = {
-      tabs: [],
       activeTabId: null,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
-      updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
       clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
+      tabs: [],
+      updateTabContent: vi.fn(),
     };
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue(empty);
   });
@@ -132,23 +132,23 @@ describe('WorkspaceTabHost', () => {
     const setActiveTab = vi.fn();
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: null,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab,
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/index.ts',
-          path: 'src/index.ts',
           compositeKey: 'folderA|@|src/index.ts',
           content: 'export const x = 1;\n',
+          id: 'folderA|@|src/index.ts',
           isLoading: false,
+          path: 'src/index.ts',
         },
       ],
-      activeTabId: null,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab,
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     render(
@@ -188,42 +188,42 @@ describe('WorkspaceTabHost', () => {
         })
     );
     vi.mocked(useTabFileRestoration).mockReturnValue({
+      getStatusMessage: () => null,
+      isRestoring: false,
+      needsUserAction: () => false,
+      requestTabPermission,
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
       tabStatuses: new Map<string, TabFileStatus>([
         ['folderA|@|src/a.ts', { compositeKey: 'folderA|@|src/a.ts', status: 'needs-permission' }],
       ]),
-      requestTabPermission,
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      needsUserAction: () => false,
-      getStatusMessage: () => null,
-      isRestoring: false,
     });
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: null,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab,
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/a.ts',
-          path: 'src/a.ts',
           compositeKey: 'folderA|@|src/a.ts',
           content: null,
+          id: 'folderA|@|src/a.ts',
           isLoading: false,
+          path: 'src/a.ts',
         },
         {
-          id: 'folderA|@|src/b.ts',
-          path: 'src/b.ts',
           compositeKey: 'folderA|@|src/b.ts',
           content: null,
+          id: 'folderA|@|src/b.ts',
           isLoading: false,
+          path: 'src/b.ts',
         },
       ],
-      activeTabId: null,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab,
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     render(
@@ -253,35 +253,35 @@ describe('WorkspaceTabHost', () => {
     vi.mocked(useTabFileRestoration).mockImplementation((_tabs, onCloseTab) => {
       closeRestoredTab = onCloseTab;
       return {
-        tabStatuses: new Map<string, TabFileStatus>(),
-        requestTabPermission: vi.fn().mockResolvedValue(true),
-        restoreTabs: vi.fn().mockResolvedValue(undefined),
-        needsUserAction: () => false,
         getStatusMessage: () => null,
         isRestoring: false,
+        needsUserAction: () => false,
+        requestTabPermission: vi.fn().mockResolvedValue(true),
+        restoreTabs: vi.fn().mockResolvedValue(undefined),
+        tabStatuses: new Map<string, TabFileStatus>(),
       };
     });
 
     const closeTab = vi.fn(() => null);
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: 'folderA|@|src/a.ts',
+      clearTabs: vi.fn(),
+      closeTab,
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/a.ts',
-          path: 'src/a.ts',
           compositeKey: 'folderA|@|src/a.ts',
           content: null,
+          id: 'folderA|@|src/a.ts',
           isLoading: false,
+          path: 'src/a.ts',
         },
       ],
-      activeTabId: 'folderA|@|src/a.ts',
-      openTab: vi.fn(),
-      closeTab,
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     render(
@@ -297,8 +297,8 @@ describe('WorkspaceTabHost', () => {
 
     expect(closeTab).toHaveBeenCalledWith('folderA|@|src/a.ts');
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      kind: 'app',
       appId: 'context-explorer',
+      kind: 'app',
     });
   });
 
@@ -309,34 +309,34 @@ describe('WorkspaceTabHost', () => {
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: 'folderA|@|src/index.ts',
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/index.ts',
-          path: 'src/index.ts',
           compositeKey: 'folderA|@|src/index.ts',
           content: null,
+          id: 'folderA|@|src/index.ts',
           isLoading: false,
+          path: 'src/index.ts',
         },
       ],
-      activeTabId: 'folderA|@|src/index.ts',
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
-      fileTree: [],
+      canLoadWithoutTree: false,
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
-      loadingFiles: new Set<string>(),
+      fileTree: [],
       loadFileContent: vi.fn(),
+      loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn(),
       rootDirectoryHandle: null,
-      canLoadWithoutTree: false,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(
@@ -355,8 +355,8 @@ describe('WorkspaceTabHost', () => {
     expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        kind: 'app',
         appId: 'context-explorer',
+        kind: 'app',
       });
     });
   });
@@ -366,34 +366,34 @@ describe('WorkspaceTabHost', () => {
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: 'folderA|@|src/index.ts',
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/index.ts',
-          path: 'src/index.ts',
           compositeKey: 'folderA|@|src/index.ts',
           content: null,
+          id: 'folderA|@|src/index.ts',
           isLoading: false,
+          path: 'src/index.ts',
         },
       ],
-      activeTabId: 'folderA|@|src/index.ts',
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
-      fileTree: [],
+      canLoadWithoutTree: false,
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
-      loadingFiles: new Set<string>(),
+      fileTree: [],
       loadFileContent: vi.fn(),
+      loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn(),
       rootDirectoryHandle: null,
-      canLoadWithoutTree: false,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(
@@ -413,33 +413,33 @@ describe('WorkspaceTabHost', () => {
   it('shows "Restoring..." for a persisted tab while restoration is pending — not "File not found"', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: 'folderA|@|src/index.ts',
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: 'folderA|@|src/index.ts',
-          path: 'src/index.ts',
           compositeKey: 'folderA|@|src/index.ts',
           content: null,
+          id: 'folderA|@|src/index.ts',
           isLoading: false,
+          path: 'src/index.ts',
         },
       ],
-      activeTabId: 'folderA|@|src/index.ts',
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     // Restoration still in progress (no status emitted yet, isRestoring true)
     vi.mocked(useTabFileRestoration).mockReturnValue({
-      tabStatuses: new Map(),
-      requestTabPermission: vi.fn().mockResolvedValue(true),
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      needsUserAction: () => false,
       getStatusMessage: () => 'Restoring...',
       isRestoring: true,
+      needsUserAction: () => false,
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      tabStatuses: new Map(),
     });
 
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');
@@ -517,8 +517,8 @@ describe('WorkspaceTabHost', () => {
     });
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        kind: 'app',
         appId: 'context-explorer',
+        kind: 'app',
       });
     });
 
@@ -551,8 +551,8 @@ describe('WorkspaceTabHost', () => {
     // Workspace selection routes back to Context Explorer when the active tab vanishes.
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        kind: 'app',
         appId: 'context-explorer',
+        kind: 'app',
       });
     });
 
@@ -586,27 +586,27 @@ describe('WorkspaceTabHost', () => {
     const openTab = vi.fn();
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
-      tabs: [],
       activeTabId: null,
-      openTab,
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
-      updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
       clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab,
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
+      tabs: [],
+      updateTabContent: vi.fn(),
     });
 
     const loadFileContent = vi.fn();
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
-      fileTree: [],
+      canLoadWithoutTree: false,
       fileContents: {},
-      loadingFiles: new Set<string>(),
+      fileTree: [],
       loadFileContent,
+      loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn(),
       rootDirectoryHandle: null,
-      canLoadWithoutTree: false,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(
@@ -653,6 +653,11 @@ describe('WorkspaceTabHost', () => {
     const compositeKey = 'folderA|@|src/locked.ts';
     useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
     vi.mocked(useTabFileRestoration).mockReturnValue({
+      getStatusMessage: () => 'Permission was denied',
+      isRestoring: false,
+      needsUserAction: () => true,
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
       tabStatuses: new Map<string, TabFileStatus>([
         [
           compositeKey,
@@ -663,44 +668,39 @@ describe('WorkspaceTabHost', () => {
           },
         ],
       ]),
-      requestTabPermission: vi.fn().mockResolvedValue(true),
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      needsUserAction: () => true,
-      getStatusMessage: () => 'Permission was denied',
-      isRestoring: false,
     });
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: compositeKey,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: compositeKey,
-          path: 'src/locked.ts',
           compositeKey,
           content: null,
+          id: compositeKey,
           isLoading: false,
+          path: 'src/locked.ts',
         },
       ],
-      activeTabId: compositeKey,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     const loadFileContent = vi.fn();
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
-      fileTree: [{ path: 'src/locked.ts' }],
+      canLoadWithoutTree: false,
       fileContents: {},
-      loadingFiles: new Set<string>(),
+      fileTree: [{ path: 'src/locked.ts' }],
       loadFileContent,
+      loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn(),
       rootDirectoryHandle: null,
-      canLoadWithoutTree: false,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(
@@ -718,6 +718,11 @@ describe('WorkspaceTabHost', () => {
     const compositeKey = 'folderA|@|src/missing.ts';
     useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
     vi.mocked(useTabFileRestoration).mockReturnValue({
+      getStatusMessage: () => 'File disappeared',
+      isRestoring: false,
+      needsUserAction: () => false,
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
       tabStatuses: new Map<string, TabFileStatus>([
         [
           compositeKey,
@@ -728,32 +733,27 @@ describe('WorkspaceTabHost', () => {
           },
         ],
       ]),
-      requestTabPermission: vi.fn().mockResolvedValue(true),
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      needsUserAction: () => false,
-      getStatusMessage: () => 'File disappeared',
-      isRestoring: false,
     });
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: compositeKey,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: compositeKey,
-          path: 'src/missing.ts',
           compositeKey,
           content: null,
+          id: compositeKey,
           isLoading: false,
+          path: 'src/missing.ts',
         },
       ],
-      activeTabId: compositeKey,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     render(
@@ -773,35 +773,35 @@ describe('WorkspaceTabHost', () => {
 
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: compositeKey,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
       tabs: [
         {
-          id: compositeKey,
-          path: 'src/locked.ts',
           compositeKey,
           content: null,
+          id: compositeKey,
           isLoading: false,
+          path: 'src/locked.ts',
         },
       ],
-      activeTabId: compositeKey,
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
       updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
     });
 
     const inaccessibleContent = `${INACCESSIBLE_CONTENT_PREFIX} permission required`;
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
-      fileTree: [],
+      canLoadWithoutTree: false,
       fileContents: { [compositeKey]: inaccessibleContent },
-      loadingFiles: new Set<string>(),
+      fileTree: [],
       loadFileContent: vi.fn(),
+      loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn(),
       rootDirectoryHandle: null,
-      canLoadWithoutTree: false,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(
@@ -816,9 +816,9 @@ describe('WorkspaceTabHost', () => {
 
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {
     const customApp: WorkspaceApp = {
+      icon: LayoutGrid,
       id: 'demo-app',
       label: 'Demo App',
-      icon: LayoutGrid,
       render: () => <div data-testid="demo-app-body">Demo body</div>,
     };
 

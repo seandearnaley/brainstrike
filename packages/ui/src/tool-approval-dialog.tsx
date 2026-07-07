@@ -305,7 +305,7 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
 
       return new Promise((resolve) => {
         if (pendingRef.current) {
-          queueRef.current.push({ tool, resolve });
+          queueRef.current.push({ resolve, tool });
           return;
         }
 
@@ -324,11 +324,11 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
   }, [resolvePending]);
 
   return {
-    requestApproval,
-    pendingTool,
-    isPending: pendingTool !== null,
-    resolvePending,
     clearPending,
+    isPending: pendingTool !== null,
+    pendingTool,
+    requestApproval,
+    resolvePending,
   };
 }
 

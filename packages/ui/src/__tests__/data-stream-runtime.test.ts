@@ -23,11 +23,11 @@ vi.mock('@brainstrike/utils/string-utils', async (importOriginal) => {
 
 function message(id: string, role: ThreadMessage['role']): ThreadMessage {
   return {
-    id,
-    role,
-    content: [{ type: 'text', text: id }],
+    content: [{ text: id, type: 'text' }],
     createdAt: new Date(0),
+    id,
     metadata: { custom: {} },
+    role,
   } as ThreadMessage;
 }
 
@@ -104,7 +104,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([system, currentUser]);
   });
@@ -118,7 +118,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([currentUser, activeAssistant]);
   });
@@ -143,7 +143,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([currentUser, firstToolCall, firstToolResult, secondToolCall, secondToolResult]);
   });
@@ -158,7 +158,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toEqual([system, currentUser]);
   });
@@ -170,7 +170,7 @@ describe('selectTransportMessagesForMastraMemory', () => {
 
     expect(
       selectTransportMessagesForMastraMemory(messages, {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toBe(messages);
   });
@@ -184,17 +184,17 @@ describe('extractTransportBodyData', () => {
   it('returns only the app-specific data payload', () => {
     expect(
       extractTransportBodyData({
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
       })
     ).toStrictEqual({
-      data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+      data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
     });
   });
 
   it('rejects body values outside the app-specific data payload', () => {
     expect(() =>
       extractTransportBodyData({
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
         messages: [],
         system: 'override',
       })
@@ -249,7 +249,7 @@ describe('assistant-stream integration', () => {
     const adapter = new BrainstrikeDataStreamRuntimeAdapter({
       api: 'http://assistant.test/api/assistant',
       body: {
-        data: { memory: { threadId: 'thread-1', resourceId: 'workspace-1' } },
+        data: { memory: { resourceId: 'workspace-1', threadId: 'thread-1' } },
         messages: [],
       },
       onError,
@@ -391,8 +391,8 @@ describe('assistant-stream integration', () => {
     expect(requestBody).toMatchObject({
       messages: [
         {
-          role: 'user',
           content: [{ text: 'hello' }],
+          role: 'user',
         },
       ],
     });
@@ -416,25 +416,25 @@ describe('assistant-stream integration', () => {
     });
     const userFileMessage = {
       ...message('file-user', 'user'),
-      content: [{ type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain' }],
+      content: [{ data: 'data:text/plain;base64,SGVsbG8=', mimeType: 'text/plain', type: 'file' }],
     } as unknown as ThreadMessage;
     const assistantToolCallMessage = {
       ...message('assistant-tool-call', 'assistant'),
       content: [
         {
-          type: 'tool-call',
-          toolCallId: 'call-1',
-          toolName: 'lookup',
           args: { query: 'weather' },
           result: { tempC: 18 },
+          toolCallId: 'call-1',
+          toolName: 'lookup',
+          type: 'tool-call',
         },
         {
-          type: 'tool-call',
+          args: { query: 'broken' },
+          isError: true,
+          result: { message: 'failed' },
           toolCallId: 'call-2',
           toolName: 'lookup',
-          args: { query: 'broken' },
-          result: { message: 'failed' },
-          isError: true,
+          type: 'tool-call',
         },
       ],
     } as unknown as ThreadMessage;
@@ -449,48 +449,48 @@ describe('assistant-stream integration', () => {
 
     expect(requestBody?.['messages']).toEqual([
       {
-        role: 'system',
         content: [{ text: 'system prompt' }],
+        role: 'system',
       },
       {
+        content: [
+          { data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain', type: 'file' },
+        ],
         role: 'user',
-        content: [
-          { type: 'file', data: 'data:text/plain;base64,SGVsbG8=', mediaType: 'text/plain' },
-        ],
       },
       {
-        role: 'assistant',
         content: [
           {
-            type: 'tool-call',
-            toolCallId: 'call-1',
-            toolName: 'lookup',
             input: { query: 'weather' },
-          },
-          {
-            type: 'tool-call',
-            toolCallId: 'call-2',
-            toolName: 'lookup',
-            input: { query: 'broken' },
-          },
-        ],
-      },
-      {
-        role: 'tool',
-        content: [
-          {
-            type: 'tool-result',
             toolCallId: 'call-1',
             toolName: 'lookup',
-            output: { type: 'json', value: { tempC: 18 } },
+            type: 'tool-call',
           },
           {
-            type: 'tool-result',
+            input: { query: 'broken' },
             toolCallId: 'call-2',
             toolName: 'lookup',
-            output: { type: 'error-json', value: { message: 'failed' } },
+            type: 'tool-call',
           },
         ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'json', value: { tempC: 18 } },
+            toolCallId: 'call-1',
+            toolName: 'lookup',
+            type: 'tool-result',
+          },
+          {
+            output: { type: 'error-json', value: { message: 'failed' } },
+            toolCallId: 'call-2',
+            toolName: 'lookup',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
       },
     ]);
   });
@@ -601,19 +601,19 @@ describe('assistant-stream integration', () => {
         context: {
           callSettings: {},
           config: providerConfig,
-          tools: {},
           system: 'System prompt',
+          tools: {},
         },
         messages: [oldUser, currentUser],
         runConfig,
         unstable_assistantMessageId: 'assistant-message',
-        unstable_parentId: null,
-        unstable_threadId: 'thread-id',
         unstable_getMessage: () =>
           ({
             ...finishMessage,
             metadata: { ...finishMessage.metadata, unstable_state: { mode: 'debug' } },
           }) as unknown as ThreadMessage,
+        unstable_parentId: null,
+        unstable_threadId: 'thread-id',
       })
     )) {
       // Consume the response so finish hooks run.
@@ -629,13 +629,6 @@ describe('assistant-stream integration', () => {
       })
     );
     expect(requestBody).toMatchObject({
-      system: 'System prompt',
-      threadId: 'thread-id',
-      parentId: null,
-      runConfig: { maxTokens: 128 },
-      unstable_assistantMessageId: 'assistant-message',
-      state: { mode: 'debug' },
-      temperature: 0.2,
       data: {
         memory: { resourceId: 'workspace', threadId: 'thread' },
         transportCompaction: {
@@ -644,6 +637,13 @@ describe('assistant-stream integration', () => {
           strategy: 'mastra-memory-current-turn',
         },
       },
+      parentId: null,
+      runConfig: { maxTokens: 128 },
+      state: { mode: 'debug' },
+      system: 'System prompt',
+      temperature: 0.2,
+      threadId: 'thread-id',
+      unstable_assistantMessageId: 'assistant-message',
     });
     expect(
       (requestBody?.['messages'] as unknown[]).map((item) => (item as { role: string }).role)
@@ -784,13 +784,13 @@ describe('assistant-stream integration', () => {
       async () =>
         new Response(
           new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelCalled = true;
+            },
             pull(controller) {
               controller.enqueue(encoder.encode('x'.repeat(3000)));
               controller.enqueue(encoder.encode('y'.repeat(5000)));
               controller.enqueue(encoder.encode('tail-that-should-not-be-read'));
-            },
-            cancel() {
-              cancelCalled = true;
             },
           }),
           { status: 500 }
@@ -841,12 +841,12 @@ describe('assistant-stream integration', () => {
       async () =>
         new Response(
           new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelCalled = true;
+            },
             pull(controller) {
               controller.enqueue(encoder.encode('x'.repeat(4000)));
               controller.enqueue(encoder.encode('y'));
-            },
-            cancel() {
-              cancelCalled = true;
             },
           }),
           { status: 500 }
@@ -1079,18 +1079,18 @@ describe('assistant-stream integration', () => {
       throw new Error('Expected an accumulated assistant message.');
     }
 
-    expect(lastMessage.status).toMatchObject({ type: 'complete', reason: 'stop' });
+    expect(lastMessage.status).toMatchObject({ reason: 'stop', type: 'complete' });
     expect(lastMessage.content).toMatchObject([
       {
-        type: 'tool-call',
+        args: { city: 'SF' },
+        isError: false,
+        result: { tempC: 18 },
         state: 'result',
         toolCallId: 'call-1',
         toolName: 'lookup',
-        args: { city: 'SF' },
-        result: { tempC: 18 },
-        isError: false,
+        type: 'tool-call',
       },
-      { type: 'text', text: 'Done' },
+      { text: 'Done', type: 'text' },
     ]);
   });
 });

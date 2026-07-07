@@ -86,9 +86,9 @@ test.describe('Embedding Host Renderer - backfill search', () => {
         timeout: 90_000,
       })
       .toMatchObject({
+        embeddedChunks: expect.any(Number),
         fileCount: chunkedFixture.fileCount,
         totalChunks: expect.any(Number),
-        embeddedChunks: expect.any(Number),
       });
 
     const countsAfterBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
@@ -159,9 +159,9 @@ test.describe('Embedding Host Renderer - backfill search', () => {
         timeout: 120_000,
       })
       .toMatchObject({
+        embeddedChunks: chunkedFixture.totalChunks,
         fileCount: chunkedFixture.fileCount,
         totalChunks: chunkedFixture.totalChunks,
-        embeddedChunks: chunkedFixture.totalChunks,
       });
 
     // ── 5. Verify at DB level: embeddings stored with correct dimensions ──
@@ -206,8 +206,8 @@ test.describe('Embedding Host Renderer - backfill search', () => {
       }>;
 
       return {
-        embeddedCount: rows.filter((r) => r.has_embedding).length,
         dimensions: rows.map((r) => Number(r.dims ?? 0)).filter((d) => d > 0),
+        embeddedCount: rows.filter((r) => r.has_embedding).length,
         embeddingSetIds: rows.map((r) => r.embedding_set_id).filter((s): s is string => s !== null),
         sampleContentPrefixes: rows.map((r) => (r.content ?? '').slice(0, 60)),
       };
@@ -279,11 +279,11 @@ test.describe('Embedding Host Renderer - backfill search', () => {
       }>;
 
       return {
-        totalChunks: Number(tsRow.totalChunks ?? 0),
-        withTsvector: Number(tsRow.withTsvector ?? 0),
-        withContent: Number(tsRow.withContent ?? 0),
         ftsMatchCount: ftsRows.length,
         ftsTopContent: ftsRows.length > 0 ? String(ftsRows[0]!.content).slice(0, 80) : '',
+        totalChunks: Number(tsRow.totalChunks ?? 0),
+        withContent: Number(tsRow.withContent ?? 0),
+        withTsvector: Number(tsRow.withTsvector ?? 0),
       };
     }, embeddingSetId);
 
@@ -347,11 +347,11 @@ test.describe('Embedding Host Renderer - backfill search', () => {
 
         return {
           matchCount: rows.length,
-          topSimilarity: rows.length > 0 ? Number(rows[0]!.similarity) : 0,
           topContent: rows.length > 0 ? String(rows[0]!.content ?? '').slice(0, 80) : '',
+          topSimilarity: rows.length > 0 ? Number(rows[0]!.similarity) : 0,
         };
       },
-      { embeddingSetId, dimension: embeddingDimension }
+      { dimension: embeddingDimension, embeddingSetId }
     );
 
     expect(directSqlSearchResult.matchCount).toBeGreaterThan(0);
@@ -523,7 +523,7 @@ test.describe('Embedding Host Renderer - backfill search', () => {
           );
         }
       },
-      { id: embeddingSetId, fileCount: LAZY_FILE_COUNT }
+      { fileCount: LAZY_FILE_COUNT, id: embeddingSetId }
     );
 
     // Configure WASM and reload
@@ -576,9 +576,9 @@ test.describe('Embedding Host Renderer - backfill search', () => {
         { timeout: 60_000 }
       )
       .toMatchObject({
+        error: null,
         hasSearched: true,
         isSearching: false,
-        error: null,
       });
 
     // THE CRITICAL ASSERTIONS:

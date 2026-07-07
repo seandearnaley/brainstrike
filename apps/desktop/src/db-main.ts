@@ -249,7 +249,7 @@ const getPGlite = async () => {
   const vector = await loadPgVectorExtension();
   const live = await loadPgLiveExtension();
   const pgTrgm = await loadPgTrgmExtension();
-  return { PGlite, migrate, vector, live, pgTrgm };
+  return { live, migrate, PGlite, pgTrgm, vector };
 };
 
 // Database instance for main process
@@ -278,16 +278,16 @@ interface DatabaseMutableState {
 }
 
 const mutableState: DatabaseMutableState = {
-  initializationAttemptCount: 0,
-  lastInitializationStartedAt: null,
-  lastInitializationSucceededAt: null,
-  lastInitializationFailure: null,
-  runtimeCorruptionRecoveryCount: 0,
-  lastRuntimeCorruptionAt: null,
-  lastRuntimeCorruptionContext: null,
   cachedDatabaseProfile: null,
   cachedGitProfileContext: undefined,
   dbProcessLockPath: null,
+  initializationAttemptCount: 0,
+  lastInitializationFailure: null,
+  lastInitializationStartedAt: null,
+  lastInitializationSucceededAt: null,
+  lastRuntimeCorruptionAt: null,
+  lastRuntimeCorruptionContext: null,
+  runtimeCorruptionRecoveryCount: 0,
 };
 
 function isUtilityProcessRuntime(): boolean {
@@ -378,7 +378,7 @@ async function createVectorDatabase(
     // runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` and fails loudly if the module
     // isn't loaded here. The vector check predates the migration-based approach.
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
-    extensions: { vector: vector as any, live: live as any, pg_trgm: pgTrgm as any },
+    extensions: { live: live as any, pg_trgm: pgTrgm as any, vector: vector as any },
   });
 
   try {
@@ -597,9 +597,7 @@ function createResetBackup(appDataDir: string): string | null {
   const backupDir = path.join(backupRootDir, `${profileName}-${backupSuffix}`);
 
   cpSync(appDataDir, backupDir, {
-    recursive: true,
     errorOnExist: true,
-    force: false,
     // Exclude engine-upgrade moved-aside backups (`pgdata.pre-pg*.bak`): they
     // live inside appDataDir, can't be opened by the bundled engine, and would
     // otherwise be deep-copied into every reset snapshot taken during their
@@ -613,6 +611,8 @@ function createResetBackup(appDataDir: string): string | null {
     // the profile, and the old dir is unopenable anyway; the retention guarantee is
     // "kept across normal boots", not "kept across an explicit reset".
     filter: (source) => !isEngineUpgradeBackupName(path.basename(source)),
+    force: false,
+    recursive: true,
   });
   pruneProfileResetBackups(backupRootDir, profileName);
 
@@ -628,13 +628,13 @@ function pruneProfileResetBackups(backupRootDir: string, profileName: string): v
       .sort((left, right) => defaultCollator.compare(right, left));
     const staleBackupNames = backupNames.slice(PROFILE_BACKUPS_RETENTION_COUNT);
     for (const staleBackupName of staleBackupNames) {
-      rmSync(path.join(backupRootDir, staleBackupName), { recursive: true, force: true });
+      rmSync(path.join(backupRootDir, staleBackupName), { force: true, recursive: true });
     }
   } catch (error) {
     logger.warn('Failed to prune database reset backups', {
       backupRootDir,
-      profileName,
       error: getErrorDetails(error),
+      profileName,
     });
   }
 }
@@ -971,8 +971,8 @@ function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): 
   const details = getErrorDetails(error);
   mutableState.lastInitializationFailure = {
     ...details,
-    stage,
     category: classifyInitializationFailure(stage, error),
+    stage,
     timestamp: new Date().toISOString(),
   };
 }
@@ -1003,23 +1003,23 @@ function formatOpenDatabaseFailureMessage(
 
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
-    nodeEnv: process.env['NODE_ENV'] ?? null,
-    databaseProfile: getDatabaseProfile(),
-    dataDir: getDatabasePath(),
     appDataDir: getAppDataPath(),
-    initializationAttemptCount: mutableState.initializationAttemptCount,
-    initializationInFlight: dbInitializationPromise !== null,
-    hasDatabaseHandle: Boolean(db),
     databaseLockHeld: mutableState.dbProcessLockPath !== null,
     databaseLockPath: mutableState.dbProcessLockPath,
-    lastInitializationStartedAt: mutableState.lastInitializationStartedAt,
-    lastInitializationSucceededAt: mutableState.lastInitializationSucceededAt,
+    databaseProfile: getDatabaseProfile(),
+    dataDir: getDatabasePath(),
+    hasDatabaseHandle: Boolean(db),
+    initializationAttemptCount: mutableState.initializationAttemptCount,
+    initializationInFlight: dbInitializationPromise !== null,
     lastInitializationFailure: mutableState.lastInitializationFailure
       ? { ...mutableState.lastInitializationFailure }
       : null,
-    runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
+    lastInitializationStartedAt: mutableState.lastInitializationStartedAt,
+    lastInitializationSucceededAt: mutableState.lastInitializationSucceededAt,
     lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
     lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
+    nodeEnv: process.env['NODE_ENV'] ?? null,
+    runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
   };
 }
 
@@ -1188,36 +1188,36 @@ function setIncompatibleDataDirAside(
   foundMajor: string | null
 ): boolean {
   try {
-    rmSync(backupDir, { recursive: true, force: true });
+    rmSync(backupDir, { force: true, recursive: true });
     renameSync(dataDir, backupDir);
     stampEngineUpgradeBackupMtime(backupDir);
     logger.warn('Incompatible Postgres data directory moved aside for engine upgrade', {
-      dataDir,
       backupDir,
+      dataDir,
       expectedMajor: BUNDLED_PG_MAJOR,
       foundMajor,
     });
     return true;
   } catch (renameErr) {
     logger.error('Failed to rename incompatible data dir aside; attempting copy-aside', {
-      dataDir,
       backupDir,
+      dataDir,
+      error: getErrorDetails(renameErr),
       expectedMajor: BUNDLED_PG_MAJOR,
       foundMajor,
-      error: getErrorDetails(renameErr),
     });
   }
 
   try {
-    rmSync(backupDir, { recursive: true, force: true }); // clear any partial from the failed rename
+    rmSync(backupDir, { force: true, recursive: true }); // clear any partial from the failed rename
     cpSync(dataDir, backupDir, { recursive: true });
     stampEngineUpgradeBackupMtime(backupDir);
-    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(dataDir, { force: true, recursive: true });
     logger.warn(
       'Incompatible Postgres data directory copied aside for engine upgrade (rename fallback)',
       {
-        dataDir,
         backupDir,
+        dataDir,
         expectedMajor: BUNDLED_PG_MAJOR,
         foundMajor,
       }
@@ -1227,18 +1227,18 @@ function setIncompatibleDataDirAside(
     logger.error(
       'Copy-aside also failed; wiping incompatible data dir (its data is unrecoverable)',
       {
-        dataDir,
         backupDir,
+        dataDir,
+        error: getErrorDetails(copyErr),
         expectedMajor: BUNDLED_PG_MAJOR,
         foundMajor,
-        error: getErrorDetails(copyErr),
       }
     );
     // Drop the partial/unstamped backup the failed cpSync may have left behind, so
     // it doesn't linger for the whole retention window (its dir mtime ≈ now). The
     // copy-aside guarantee has already failed here, so there's nothing to preserve.
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(backupDir, { force: true, recursive: true });
+    rmSync(dataDir, { force: true, recursive: true });
     return false;
   }
 }
@@ -1282,8 +1282,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     } catch (err) {
       recordInitializationFailure('load-extensions', err);
       logger.error('Failed to load required PGlite modules', {
-        dataDir,
         appDataDir,
+        dataDir,
         failure: mutableState.lastInitializationFailure,
       });
       throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
@@ -1337,8 +1337,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
       const msg = getErrorDetails(err).message;
       logger.error('Failed to initialize database with pgvector', {
-        dataDir,
         appDataDir,
+        dataDir,
         failure: mutableState.lastInitializationFailure,
       });
       throw new Error(
@@ -1361,8 +1361,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
       const msg = getErrorDetails(err).message;
       logger.error('Database migrations failed', {
-        dataDir,
         appDataDir,
+        dataDir,
         failure: mutableState.lastInitializationFailure,
       });
       throw new Error(`Database migrations failed with pgvector: ${msg}`);
@@ -1493,7 +1493,7 @@ async function resetLocalDatabaseInternal(): Promise<void> {
 
   // Delete the active profile directory for a complete profile-scoped reset.
   try {
-    rmSync(appDataDir, { recursive: true, force: true });
+    rmSync(appDataDir, { force: true, recursive: true });
     logger.info(`Removed app data directory: ${appDataDir}`);
   } catch (err) {
     logger.error('Failed to remove app data directory:', err);

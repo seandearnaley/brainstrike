@@ -124,8 +124,8 @@ export interface StreamingImportInput {
 
 const DEFAULT_OPTIONS: Required<StreamingImportOptions> = {
   concurrency: 1, // Sequential by default for minimum memory
-  prefetchAhead: 0, // No prefetch by default
   continueOnError: true, // Isolate errors to individual files
+  prefetchAhead: 0, // No prefetch by default
   progressThrottleMs: 100, // 100ms throttle for progress updates
 };
 
@@ -168,25 +168,25 @@ class ProgressTracker {
     if (shouldEmit) {
       this.lastEmitTime = now;
       this.onProgress?.({
-        total: this.total,
         completed: this.completed,
-        inProgress: this.inProgress,
         failed: this.failed,
+        inProgress: this.inProgress,
+        total: this.total,
         ...(currentFile === undefined ? {} : { currentFile }),
-        percentage: this.total > 0 ? (this.completed / this.total) * 100 : 0,
         elapsedMs: now - this.startTime,
+        percentage: this.total > 0 ? (this.completed / this.total) * 100 : 0,
       });
     }
   }
 
   emitFinal(): void {
     this.onProgress?.({
-      total: this.total,
       completed: this.completed,
-      inProgress: 0,
-      failed: this.failed,
-      percentage: this.total > 0 ? (this.completed / this.total) * 100 : 100,
       elapsedMs: Date.now() - this.startTime,
+      failed: this.failed,
+      inProgress: 0,
+      percentage: this.total > 0 ? (this.completed / this.total) * 100 : 100,
+      total: this.total,
     });
   }
 
@@ -376,10 +376,10 @@ async function processOneFile(
     releaseContent(contentReader, compositeKey);
 
     return {
-      path,
       compositeKey,
-      imported: result.success,
       existed: result.existed ?? false,
+      imported: result.success,
+      path,
       ...(result.fileId === undefined ? {} : { fileId: result.fileId }),
       chunksCreated: result.chunksCreated,
       jobsEnqueued: result.jobsEnqueued,
@@ -410,14 +410,14 @@ function buildFileError(
   startTime: number
 ): StreamingFileResult {
   return {
-    path,
-    compositeKey,
-    imported: false,
-    existed: false,
     chunksCreated: 0,
-    jobsEnqueued: 0,
-    error,
+    compositeKey,
     durationMs: Date.now() - startTime,
+    error,
+    existed: false,
+    imported: false,
+    jobsEnqueued: 0,
+    path,
   };
 }
 
@@ -439,13 +439,13 @@ function extractPathFromCompositeKey(compositeKey: string): string {
  */
 function buildResult(results: StreamingFileResult[], startTime: number): StreamingImportResult {
   return {
-    files: results,
-    totalFiles: results.length,
-    successCount: results.filter((r) => r.imported).length,
-    errorCount: results.filter((r) => r.error).length,
-    totalChunks: results.reduce((sum, r) => sum + r.chunksCreated, 0),
-    totalJobsEnqueued: results.reduce((sum, r) => sum + r.jobsEnqueued, 0),
     durationMs: Date.now() - startTime,
+    errorCount: results.filter((r) => r.error).length,
+    files: results,
+    successCount: results.filter((r) => r.imported).length,
+    totalChunks: results.reduce((sum, r) => sum + r.chunksCreated, 0),
+    totalFiles: results.length,
+    totalJobsEnqueued: results.reduce((sum, r) => sum + r.jobsEnqueued, 0),
   };
 }
 
@@ -454,12 +454,12 @@ function buildResult(results: StreamingFileResult[], startTime: number): Streami
  */
 function buildEmptyResult(totalFiles: number, startTime: number): StreamingImportResult {
   return {
-    files: [],
-    totalFiles,
-    successCount: 0,
-    errorCount: 0,
-    totalChunks: 0,
-    totalJobsEnqueued: 0,
     durationMs: Date.now() - startTime,
+    errorCount: 0,
+    files: [],
+    successCount: 0,
+    totalChunks: 0,
+    totalFiles,
+    totalJobsEnqueued: 0,
   };
 }

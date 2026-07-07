@@ -32,15 +32,15 @@ function makeAdapter(supportsWatch = true): FileSystemAdapter & {
   const watchCalls: WatchCall[] = [];
 
   const baseAdapter = {
-    watchCalls,
-    requestDirectoryAccess: vi.fn(),
-    readDirectory: vi.fn(),
-    readFile: vi.fn(),
     exists: vi.fn(),
     isFileSystemAccessSupported: vi.fn(),
-    restoreLastFolder: vi.fn(),
+    readDirectory: vi.fn(),
+    readFile: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
     requestPermission: vi.fn(),
     resolveFileForIndexing: vi.fn(),
+    restoreLastFolder: vi.fn(),
+    watchCalls,
   } as unknown as FileSystemAdapter & { watchCalls: WatchCall[] };
 
   if (supportsWatch) {
@@ -52,7 +52,7 @@ function makeAdapter(supportsWatch = true): FileSystemAdapter & {
       callback: WatchCallback
     ): (() => void) => {
       const disposer = vi.fn<() => void>();
-      watchCalls.push({ handle, callback, disposer });
+      watchCalls.push({ callback, disposer, handle });
       return disposer;
     };
   }
@@ -79,11 +79,11 @@ describe('useFileSystemWatcher', () => {
     renderHook(() =>
       useFileSystemWatcher({
         adapter,
-        roots: [
-          { rootId: 'root-a', handle: handleA },
-          { rootId: 'root-b', handle: handleB },
-        ],
         onChanges,
+        roots: [
+          { handle: handleA, rootId: 'root-a' },
+          { handle: handleB, rootId: 'root-b' },
+        ],
       })
     );
 
@@ -99,8 +99,8 @@ describe('useFileSystemWatcher', () => {
 
     const { rerender } = renderHook(
       ({ roots }: { roots: { rootId: string; handle: DirectoryHandle }[] }) =>
-        useFileSystemWatcher({ adapter, roots, onChanges }),
-      { initialProps: { roots: [{ rootId: 'root-a', handle: handleA }] } }
+        useFileSystemWatcher({ adapter, onChanges, roots }),
+      { initialProps: { roots: [{ handle: handleA, rootId: 'root-a' }] } }
     );
 
     expect(adapter.watchCalls).toHaveLength(1);
@@ -108,8 +108,8 @@ describe('useFileSystemWatcher', () => {
 
     rerender({
       roots: [
-        { rootId: 'root-a', handle: handleA },
-        { rootId: 'root-b', handle: handleB },
+        { handle: handleA, rootId: 'root-a' },
+        { handle: handleB, rootId: 'root-b' },
       ],
     });
 
@@ -127,12 +127,12 @@ describe('useFileSystemWatcher', () => {
 
     const { rerender } = renderHook(
       ({ roots }: { roots: { rootId: string; handle: DirectoryHandle }[] }) =>
-        useFileSystemWatcher({ adapter, roots, onChanges }),
+        useFileSystemWatcher({ adapter, onChanges, roots }),
       {
         initialProps: {
           roots: [
-            { rootId: 'root-a', handle: handleA },
-            { rootId: 'root-b', handle: handleB },
+            { handle: handleA, rootId: 'root-a' },
+            { handle: handleB, rootId: 'root-b' },
           ],
         },
       }
@@ -143,7 +143,7 @@ describe('useFileSystemWatcher', () => {
     const disposerB = adapter.watchCalls.find((c) => c.handle === handleB)!.disposer;
 
     // Remove root-b
-    rerender({ roots: [{ rootId: 'root-a', handle: handleA }] });
+    rerender({ roots: [{ handle: handleA, rootId: 'root-a' }] });
 
     expect(disposerB).toHaveBeenCalledOnce();
     expect(disposerA).not.toHaveBeenCalled();
@@ -160,13 +160,13 @@ describe('useFileSystemWatcher', () => {
 
     const { rerender } = renderHook(
       ({ roots }: { roots: { rootId: string; handle: DirectoryHandle }[] }) =>
-        useFileSystemWatcher({ adapter, roots, onChanges }),
+        useFileSystemWatcher({ adapter, onChanges, roots }),
       {
         initialProps: {
           roots: [
-            { rootId: 'root-a', handle: handleA },
-            { rootId: 'root-b', handle: handleB },
-            { rootId: 'root-c', handle: handleC },
+            { handle: handleA, rootId: 'root-a' },
+            { handle: handleB, rootId: 'root-b' },
+            { handle: handleC, rootId: 'root-c' },
           ],
         },
       }
@@ -180,8 +180,8 @@ describe('useFileSystemWatcher', () => {
     // Disconnect root-b: the handles array shrinks from 3 → 2.
     rerender({
       roots: [
-        { rootId: 'root-a', handle: handleA },
-        { rootId: 'root-c', handle: handleC },
+        { handle: handleA, rootId: 'root-a' },
+        { handle: handleC, rootId: 'root-c' },
       ],
     });
 
@@ -200,11 +200,11 @@ describe('useFileSystemWatcher', () => {
     const { unmount } = renderHook(() =>
       useFileSystemWatcher({
         adapter,
-        roots: [
-          { rootId: 'root-a', handle: handleA },
-          { rootId: 'root-b', handle: handleB },
-        ],
         onChanges,
+        roots: [
+          { handle: handleA, rootId: 'root-a' },
+          { handle: handleB, rootId: 'root-b' },
+        ],
       })
     );
 
@@ -227,8 +227,8 @@ describe('useFileSystemWatcher', () => {
     renderHook(() =>
       useFileSystemWatcher({
         adapter,
-        roots: [{ rootId: 'root-a', handle: handleA }],
         onChanges,
+        roots: [{ handle: handleA, rootId: 'root-a' }],
       })
     );
 
@@ -257,8 +257,8 @@ describe('useFileSystemWatcher', () => {
       renderHook(() =>
         useFileSystemWatcher({
           adapter,
-          roots: [{ rootId: 'root-a', handle: handleA }],
           onChanges,
+          roots: [{ handle: handleA, rootId: 'root-a' }],
         })
       )
     ).not.toThrow();
@@ -270,7 +270,7 @@ describe('useFileSystemWatcher', () => {
     const adapter = makeAdapter();
 
     expect(() =>
-      renderHook(() => useFileSystemWatcher({ adapter, roots: [], onChanges }))
+      renderHook(() => useFileSystemWatcher({ adapter, onChanges, roots: [] }))
     ).not.toThrow();
 
     expect(adapter.watchCalls).toHaveLength(0);
@@ -286,9 +286,9 @@ describe('useFileSystemWatcher', () => {
     const onChangesV1 = vi.fn<OnChanges>();
     const onChangesV2 = vi.fn<OnChanges>();
 
-    const roots = [{ rootId: 'root-a', handle: handleA }];
+    const roots = [{ handle: handleA, rootId: 'root-a' }];
     const { rerender } = renderHook(
-      ({ cb }: { cb: OnChanges }) => useFileSystemWatcher({ adapter, roots, onChanges: cb }),
+      ({ cb }: { cb: OnChanges }) => useFileSystemWatcher({ adapter, onChanges: cb, roots }),
       { initialProps: { cb: onChangesV1 } }
     );
 

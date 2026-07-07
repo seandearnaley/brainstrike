@@ -5,22 +5,22 @@ import { JobQueue, type JobRow } from '../src/queue/job-queue';
 function createJobRow(): JobRow {
   const now = new Date(0).toISOString();
   return {
-    id: 'job-1',
-    queue: 'embeddings',
-    job_type: 'embed_chunk',
-    payload: { chunkId: 'chunk-1' },
-    state: 'succeeded',
-    run_at: now,
     attempts: 0,
-    max_attempts: 5,
     backoff_ms: 0,
-    lease_token: 'lease-1',
-    leased_until: null,
-    worker_id: 'worker-1',
+    created_at: now,
     dedupe_key: null,
     error: null,
-    created_at: now,
+    id: 'job-1',
+    job_type: 'embed_chunk',
+    lease_token: 'lease-1',
+    leased_until: null,
+    max_attempts: 5,
+    payload: { chunkId: 'chunk-1' },
+    queue: 'embeddings',
+    run_at: now,
+    state: 'succeeded',
     updated_at: now,
+    worker_id: 'worker-1',
   };
 }
 

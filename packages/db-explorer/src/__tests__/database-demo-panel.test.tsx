@@ -42,42 +42,42 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 const { ensureStartedMock } = vi.hoisted(() => ({
   ensureStartedMock: vi.fn(async () => ({
-    transportKind: 'local-worker' as const,
-    chunkFile: vi.fn(),
     chunkBatch: vi.fn(),
+    chunkFile: vi.fn(),
     isReady: vi.fn(() => true),
     terminate: vi.fn(),
+    transportKind: 'local-worker' as const,
   })),
 }));
 
 // Mock all external dependencies at the top level
 const mockRepository = {
-  findAll: vi.fn(),
-  findAllWithContent: vi.fn(),
   count: vi.fn(),
   create: vi.fn(),
+  delete: vi.fn(),
+  findAll: vi.fn(),
+  findAllWithContent: vi.fn(),
   findById: vi.fn(),
   update: vi.fn(),
-  delete: vi.fn(),
 };
 
 const mockChunkRepository = {
-  findAll: vi.fn(),
   create: vi.fn(),
-  findById: vi.fn(),
-  update: vi.fn(),
   delete: vi.fn(),
+  findAll: vi.fn(),
   findByFileRecordId: vi.fn(),
+  findById: vi.fn(),
   searchSimilar: vi.fn(),
+  update: vi.fn(),
 };
 
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
   generateQueryEmbedding: vi.fn(),
-  search: vi.fn(),
   getStatus: vi.fn().mockReturnValue('ready'),
   initializeWithModel: vi.fn(),
+  search: vi.fn(),
 };
 
 const mockToast = vi.fn();
@@ -91,14 +91,14 @@ vi.mock('@brainstrike/embeddings', async () => {
     await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
   const mockModels = {
     'all-MiniLM-L6-v2': {
-      name: 'all-MiniLM-L6-v2',
       dimensions: 384,
       maxTokens: 512,
+      name: 'all-MiniLM-L6-v2',
     },
     'bge-m3': {
-      name: 'BGE-M3',
       dimensions: 1024,
       maxTokens: 8192,
+      name: 'BGE-M3',
     },
   };
 
@@ -107,8 +107,8 @@ vi.mock('@brainstrike/embeddings', async () => {
     SimpleEmbeddingService: Object.assign(
       vi.fn().mockImplementation(() => mockEmbeddingService),
       {
-        listModels: vi.fn().mockReturnValue(mockModels),
         getDefaultModelKey: vi.fn().mockReturnValue('all-MiniLM-L6-v2'),
+        listModels: vi.fn().mockReturnValue(mockModels),
       }
     ),
   };
@@ -116,38 +116,38 @@ vi.mock('@brainstrike/embeddings', async () => {
 
 // Create stable mock results outside the mock function to prevent infinite loops
 const mockRecordLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockChunkLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockCollectionCountLiveQueryResult = {
+  error: null,
+  loading: false,
+  refresh: vi.fn().mockResolvedValue(undefined),
   rows: [
     {
-      embeddingsetid: TEST_COLLECTION_ID,
-      recordsCount: 1,
       chunksCount: 1,
       embeddingsCount: 1,
+      embeddingsetid: TEST_COLLECTION_ID,
+      recordsCount: 1,
     },
   ] as unknown[],
-  loading: false,
-  error: null,
-  refresh: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockCollectionLiveQueryResult = {
-  rows: [] as unknown[],
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn().mockResolvedValue(undefined),
+  rows: [] as unknown[],
 };
 
 const mockDatabase = {
@@ -158,14 +158,6 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
   return {
     ...actual,
-    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    useFileRecordRepository: () => mockRepository,
-    usePGliteDatabase: () => mockDatabase,
-    useFileChunkRepository: () => mockChunkRepository,
-    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
-    useDbProviderError: () => null,
-    useFactoryReset: () => null,
-    useVectorEnabled: () => true,
     MigrationRunner: class MockMigrationRunner {
       async initialize() {
         return Promise.resolve();
@@ -174,7 +166,14 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
         return Promise.resolve();
       }
     },
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     migrations: [],
+    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedChunks: 0, deletedFiles: 0 })),
+    useDbProviderError: () => null,
+    useFactoryReset: () => null,
+    useFileChunkRepository: () => mockChunkRepository,
+    useFileRecordRepository: () => mockRepository,
+    usePGliteDatabase: () => mockDatabase,
     usePGliteLiveQuery: (options: { query: string }) => {
       // Return stable object references based on query type. The active-collection
       // counts query is a live aggregate over file_records/file_chunks, so match it
@@ -193,6 +192,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
       }
       return mockRecordLiveQueryResult;
     },
+    useVectorEnabled: () => true,
   };
 });
 
@@ -200,11 +200,6 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual('@brainstrike/ui');
   return {
     ...actual,
-    useToast: () => ({
-      toast: mockToast,
-    }),
-    useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
-    ModelPicker: () => <div data-testid="mock-model-picker" />,
     CollectionPicker: ({
       collections,
       selectedId,
@@ -235,6 +230,11 @@ vi.mock('@brainstrike/ui', async () => {
         ))}
       </div>
     ),
+    ModelPicker: () => <div data-testid="mock-model-picker" />,
+    useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+    useToast: () => ({
+      toast: mockToast,
+    }),
   };
 });
 
@@ -243,6 +243,33 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/vector-management')>();
   return {
     ...actual,
+    CreateEmbeddingSetDialog: ({
+      onSetCreated,
+    }: {
+      onSetCreated: (newSetId: string, newSet: EmbeddingSet) => void;
+    }) => (
+      <button
+        data-testid="mock-create-embedding-set-dialog"
+        onClick={() =>
+          onSetCreated('created-set-id', {
+            category: 'local',
+            createdAt: '2026-05-03T01:00:00.000Z',
+            description: 'Created from the dialog',
+            dimensions: 768,
+            distance: 'cosine',
+            id: 'created-set-id',
+            modelId: 'created-model',
+            modelKey: 'local:created-model',
+            name: 'Created Collection',
+            tags: 'new,dialog',
+          })
+        }
+        type="button"
+      >
+        Finish creating collection
+      </button>
+    ),
+    EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
     useEmbeddingControls: () => ({
       dropdownProps: {
         backfilling: false,
@@ -256,47 +283,20 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
         onClearQueue: vi.fn(),
         onRetryFailed: vi.fn(),
         onWipeQueue: vi.fn(),
-        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
         startingWorker: false,
         willAutoStartWorker: false,
       },
+      hasDb: true,
       statusBarProps: {
         latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
-        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
         telemetryTrend: [],
         throughput: 0,
         vectorEnabled: true,
         workerStatus: 'disabled' as const,
       },
-      hasDb: true,
     }),
-    EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
-    CreateEmbeddingSetDialog: ({
-      onSetCreated,
-    }: {
-      onSetCreated: (newSetId: string, newSet: EmbeddingSet) => void;
-    }) => (
-      <button
-        data-testid="mock-create-embedding-set-dialog"
-        onClick={() =>
-          onSetCreated('created-set-id', {
-            id: 'created-set-id',
-            modelKey: 'local:created-model',
-            modelId: 'created-model',
-            dimensions: 768,
-            distance: 'cosine',
-            createdAt: '2026-05-03T01:00:00.000Z',
-            name: 'Created Collection',
-            description: 'Created from the dialog',
-            tags: 'new,dialog',
-            category: 'local',
-          })
-        }
-        type="button"
-      >
-        Finish creating collection
-      </button>
-    ),
   };
 });
 
@@ -304,8 +304,8 @@ const { mockEnsureModelRegistry, mockUseLocalRuntimeEmbeddingModelCatalog } = vi
   const ensureModelRegistry = vi.fn();
   const useLocalRuntimeEmbeddingModelCatalog = vi.fn(() => ({
     catalog: null,
-    isLoading: false,
     error: null,
+    isLoading: false,
     refresh: vi.fn().mockResolvedValue(undefined),
   }));
   return {
@@ -345,21 +345,21 @@ vi.mock('file-saver', () => ({
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   useChunkingWorkerContext: vi.fn().mockReturnValue({
-    port: null,
-    isReady: false,
-    isProcessing: false,
-    error: null,
     ensureStarted: ensureStartedMock,
+    error: null,
+    isProcessing: false,
+    isReady: false,
+    port: null,
     reinitialize: vi.fn(),
   }),
 }));
 
 vi.mock('./enhanced-file-import-service', () => ({
   useEnhancedFileImportService: vi.fn().mockReturnValue({
+    chunkRepository: mockChunkRepository,
+    importFiles: mockImportFiles,
     isImporting: false,
     progress: null,
-    importFiles: mockImportFiles,
-    chunkRepository: mockChunkRepository,
   }),
 }));
 
@@ -375,8 +375,8 @@ vi.mock('./file-import-service', () => ({
 // Mock the file explorer hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    fileSystemAdapter: null,
     databaseAdapter: null,
+    fileSystemAdapter: null,
   }),
 }));
 
@@ -464,11 +464,11 @@ describe('DatabaseDemoPanel', () => {
       addBulk: vi.fn(),
       cancel: vi.fn(),
       drain: vi.fn(),
+      isPaused: false,
+      isProcessing: false,
       onProgress: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
-      isPaused: false,
-      isProcessing: false,
     } as unknown as QueueAdapter;
 
     const view = renderWithProviders(<DatabaseDemoPanel embeddingQueue={mockQueue} />);
@@ -687,9 +687,9 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when the active collection is managed by background indexing', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
+        hasHydrated: true,
         managedCollectionId: TEST_COLLECTION_ID,
         mode: 'root-folder-cache',
-        hasHydrated: true,
       });
 
       renderWithProviders(<DatabaseDemoPanel />);
@@ -705,26 +705,26 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when the loaded active collection is the managed collection', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
+        hasHydrated: true,
         managedCollectionId: TEST_COLLECTION_ID,
         mode: 'root-folder-cache',
-        hasHydrated: true,
       });
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-          modelId: 'Xenova/all-MiniLM-L6-v2',
+          category: null,
+          chunkCount: 0,
+          createdAt: '2026-06-07T00:00:00Z',
+          description: null,
           dimensions: 384,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Managed Import Guard',
-          description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
           embeddingCount: 0,
+          fileCount: 0,
+          id: TEST_COLLECTION_ID,
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          name: 'Managed Import Guard',
           systemRole: null,
+          tags: null,
         },
       ]);
 
@@ -741,38 +741,38 @@ describe('DatabaseDemoPanel', () => {
     it('disables manual import when the active collection has the workspace index system role', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: 1,
+          createdAt: '2026-06-07T00:00:00Z',
+          description: 'System-managed workspace index for assistant retrieval.',
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Workspace Index',
-          description: 'System-managed workspace index for assistant retrieval.',
-          tags: null,
-          category: null,
-          fileCount: 1,
-          chunkCount: 1,
           embeddingCount: 1,
+          fileCount: 1,
+          id: TEST_COLLECTION_ID,
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
           systemRole: 'workspace-index',
+          tags: null,
         },
       ]);
       mockCollectionLiveQueryResult.rows = [
         {
-          id: TEST_COLLECTION_ID,
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: '1',
+          createdAt: '2026-06-07T00:00:00Z',
+          description: 'System-managed workspace index for assistant retrieval.',
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2026-06-07T00:00:00Z',
-          name: 'Workspace Index',
-          description: 'System-managed workspace index for assistant retrieval.',
-          tags: null,
-          category: null,
-          fileCount: '1',
-          chunkCount: '1',
           embeddingCount: '1',
+          fileCount: '1',
+          id: TEST_COLLECTION_ID,
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
           systemRole: 'workspace-index',
+          tags: null,
         },
       ];
 
@@ -832,14 +832,14 @@ describe('DatabaseDemoPanel', () => {
     it('loads file records and provides them to collection browser', async () => {
       const mockRecords = [
         {
+          content: 'test content',
+          createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
           id: '1',
           name: 'test.txt',
           path: '/test.txt',
-          size: 100,
-          content: 'test content',
-          createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          embeddingSetId: TEST_COLLECTION_ID,
+          size: 100,
         },
       ];
 
@@ -993,19 +993,19 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(upsertCachedCollection).toHaveBeenCalledWith({
-          id: 'created-set-id',
-          modelKey: 'local:created-model',
-          modelId: 'created-model',
+          category: 'local',
+          chunkCount: 0,
+          createdAt: '2026-05-03T01:00:00.000Z',
+          description: 'Created from the dialog',
           dimensions: 768,
           distance: 'cosine',
-          createdAt: '2026-05-03T01:00:00.000Z',
-          name: 'Created Collection',
-          description: 'Created from the dialog',
-          tags: 'new,dialog',
-          category: 'local',
-          fileCount: 0,
-          chunkCount: 0,
           embeddingCount: 0,
+          fileCount: 0,
+          id: 'created-set-id',
+          modelId: 'created-model',
+          modelKey: 'local:created-model',
+          name: 'Created Collection',
+          tags: 'new,dialog',
         });
         expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBe('created-set-id');
       });

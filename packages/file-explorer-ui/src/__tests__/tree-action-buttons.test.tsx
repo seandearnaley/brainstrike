@@ -39,9 +39,9 @@ describe('TreeActionButtons', () => {
 
   describe('inline scanning indicator', () => {
     const scanning = (overrides = {}) => ({
-      isScanning: true,
       cancellable: true,
       isCancelling: false,
+      isScanning: true,
       onCancel: vi.fn(),
       ...overrides,
     });

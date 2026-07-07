@@ -21,10 +21,10 @@ export function FileContentProvider({ fileTree, children }: FileContentProviderP
 
   const contextValue = useMemo(
     () => ({
-      fileContents: fileContentState.fileContents,
-      isLoading: fileContentState.isLoading,
       error: fileContentState.error,
+      fileContents: fileContentState.fileContents,
       handleFileContentLoading: fileContentState.handleFileContentLoading,
+      isLoading: fileContentState.isLoading,
     }),
     [
       fileContentState.fileContents,

@@ -12,23 +12,23 @@ describe('useQuickFilter', () => {
   const dummyHandle = {} as FileSystemFileHandle;
   const dummyDirHandle = {} as FileSystemDirectoryHandle;
   const fileNode = (name: string, path: string): IFileNode => ({
-    type: 'file',
+    depth: 0,
+    handle: dummyHandle,
     name,
     path,
-    handle: dummyHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
   });
   const dirNode = (name: string, path: string, children: IFileNode[]): IFileNode => ({
-    type: 'directory',
+    children,
+    depth: 0,
+    handle: dummyDirHandle,
     name,
     path,
-    handle: dummyDirHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    children,
+    selectionState: 'unchecked',
+    type: 'directory',
   });
   const mockTree: IFileNode[] = [
     dirNode('src', 'src', [fileNode('foo.txt', 'src/foo.txt'), fileNode('bar.txt', 'src/bar.txt')]),

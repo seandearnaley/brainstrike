@@ -88,8 +88,8 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
     // Use a large fixture to keep the backfill running for the full sample window
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
       chunksPerFile: CRASH_REPRO_LARGE_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-growth-rate-fixture-loaded');
@@ -150,9 +150,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
       samples.push({
         elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-        visibleHeapMB: snapshot.visibleHeap.usedMB,
-        mainRssMB: snapshot.process.mainProcess.rssMB,
         mainHeapMB: snapshot.process.mainProcess.heapUsedMB,
+        mainRssMB: snapshot.process.mainProcess.rssMB,
+        visibleHeapMB: snapshot.visibleHeap.usedMB,
       });
     }
 
@@ -169,19 +169,19 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-memory-growth-rate',
-        fixture,
         baseline: {
-          visibleHeapMB: baseline.visibleHeap.usedMB,
-          mainRssMB: baseline.process.mainProcess.rssMB,
           mainHeapMB: baseline.process.mainProcess.heapUsedMB,
+          mainRssMB: baseline.process.mainProcess.rssMB,
+          visibleHeapMB: baseline.visibleHeap.usedMB,
         },
-        samples,
         elapsedMinutes: Math.round(elapsedMinutes * 10) / 10,
-        visibleHeapGrowthMB: visibleHeapGrowth,
-        visibleHeapRateMBPerMin: Math.round(visibleHeapRate * 10) / 10,
+        fixture,
         mainRssGrowthMB: mainRssGrowth,
         mainRssRateMBPerMin: Math.round(mainRssRate * 10) / 10,
+        samples,
+        type: 'crash-repro-memory-growth-rate',
+        visibleHeapGrowthMB: visibleHeapGrowth,
+        visibleHeapRateMBPerMin: Math.round(visibleHeapRate * 10) / 10,
       })
     );
 
@@ -235,9 +235,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
   }> {
     const restoreEnv = withTemporaryProcessEnv({
       BRAINSTRIKE_E2E_ALLOW_GPU: '1',
-      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: options.reclaimEnabled ? 'true' : 'false',
       BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS:
         options.minimumIntervalMs === undefined ? undefined : String(options.minimumIntervalMs),
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: options.reclaimEnabled ? 'true' : 'false',
       BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD: String(options.itemThreshold),
       BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: options.reclaimMode,
     });
@@ -259,9 +259,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
       await ensureEmbeddingHostWarmed(activeWindow);
 
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: 180,
-        chunksPerFile: options.chunksPerFile,
         chunkContentBytes: 1024,
+        chunksPerFile: options.chunksPerFile,
+        fileCount: 180,
         persistActiveSet: false,
       });
       await reloadRendererInTest(activeWindow, `${options.label}-memory-measurement-fixture`);
@@ -309,8 +309,8 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
         if (options.reclaimEnabled) {
           const observedMaintenanceCycles = detectObservedMaintenanceCycles({
-            initialRuntimeId: initialStatus.runtimeId,
             finalRuntimeId: status.runtimeId,
+            initialRuntimeId: initialStatus.runtimeId,
             logsSinceBaseline: mainLogs.slice(baselineMainLogs.length),
           });
           const reclaimedAndResumed =
@@ -404,8 +404,8 @@ test.describe('Embedding Host Renderer - crash b', () => {
         getMainBufferedLogs(activeWindow),
       ]);
       const observedMaintenanceCycles = detectObservedMaintenanceCycles({
-        initialRuntimeId: initialStatus.runtimeId,
         finalRuntimeId: statusAfterSampling.runtimeId,
+        initialRuntimeId: initialStatus.runtimeId,
         logsSinceBaseline: mainLogsAfterSampling.slice(baselineMainLogs.length),
       });
 
@@ -420,7 +420,6 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
       console.log(
         JSON.stringify({
-          type: 'GPU_RECLAIM_MEASUREMENT',
           cycleCount: observedMaintenanceCycles,
           gpuGrowthMB: Math.round(gpuGrowthMB),
           gpuGrowthPerItemKB: Math.round(gpuGrowthPerItemKB * 10) / 10,
@@ -429,9 +428,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
           hostMinWorkingSetMB: Math.round(hostScore.min * 10) / 10,
           hostWorkingSetGrowthMB: Math.round(hostWorkingSetGrowthMB * 10) / 10,
           hostWorkingSetGrowthPerItemKB: Math.round(hostWorkingSetGrowthPerItemKB * 10) / 10,
-          itemThreshold: options.itemThreshold,
           itemsProcessed,
           itemsProcessedBeforeSampling: queueStatsBeforeSampling.succeeded,
+          itemThreshold: options.itemThreshold,
           label: options.label,
           maxGpuKB: score.maxGpuKB,
           maxTotalKB: score.maxTotalKB,
@@ -446,11 +445,14 @@ test.describe('Embedding Host Renderer - crash b', () => {
           runtimeIdAfterSampling: statusAfterSampling.runtimeId,
           runtimeIdBeforeBackfill: initialStatus.runtimeId,
           totalGrowthMB: Math.round(totalGrowthMB),
+          type: 'GPU_RECLAIM_MEASUREMENT',
         })
       );
 
       return {
         cycleCount: observedMaintenanceCycles,
+        gpuGrowthMB,
+        gpuGrowthPerItemKB,
         hostScore: {
           maxWorkingSetMB: hostScore.max,
           medianWorkingSetMB: hostScore.median,
@@ -458,10 +460,8 @@ test.describe('Embedding Host Renderer - crash b', () => {
         },
         hostWorkingSetGrowthMB,
         hostWorkingSetGrowthPerItemKB,
-        label: options.label,
         itemsProcessed,
-        gpuGrowthMB,
-        gpuGrowthPerItemKB,
+        label: options.label,
         runtimeIdAfterSampling: statusAfterSampling.runtimeId,
         runtimeIdBeforeBackfill: initialStatus.runtimeId,
         score: {
@@ -490,36 +490,36 @@ test.describe('Embedding Host Renderer - crash b', () => {
     test.setTimeout(420_000);
 
     const withoutReclaim = await runGpuReclaimMeasurementScenario({
+      chunksPerFile: 12,
+      electronHarness,
+      itemThreshold: 500,
       label: 'gpu-reclaim-disabled',
       reclaimEnabled: false,
-      itemThreshold: 500,
-      chunksPerFile: 12,
       targetSucceededItems: 650,
-      electronHarness,
     });
 
     const withReclaim = await runGpuReclaimMeasurementScenario({
+      chunksPerFile: 12,
+      electronHarness,
+      itemThreshold: 500,
       label: 'gpu-reclaim-reset',
       reclaimEnabled: true,
-      itemThreshold: 500,
-      chunksPerFile: 12,
-      targetSucceededItems: 650,
       reclaimMode: 'reset',
-      electronHarness,
+      targetSucceededItems: 650,
     });
 
     console.log(
       JSON.stringify({
-        type: 'GPU_RECLAIM_COMPARISON',
-        improvementPerItemKB: withoutReclaim.gpuGrowthPerItemKB - withReclaim.gpuGrowthPerItemKB,
         hostImprovementPerItemKB:
           withoutReclaim.hostWorkingSetGrowthPerItemKB - withReclaim.hostWorkingSetGrowthPerItemKB,
         hostMinWorkingSetReductionMB:
           withoutReclaim.hostScore.minWorkingSetMB - withReclaim.hostScore.minWorkingSetMB,
+        improvementPerItemKB: withoutReclaim.gpuGrowthPerItemKB - withReclaim.gpuGrowthPerItemKB,
         improvementRatio:
           withoutReclaim.gpuGrowthPerItemKB > 0
             ? withReclaim.gpuGrowthPerItemKB / withoutReclaim.gpuGrowthPerItemKB
             : null,
+        type: 'GPU_RECLAIM_COMPARISON',
         withoutReclaim,
         withReclaim,
       })
@@ -539,13 +539,13 @@ test.describe('Embedding Host Renderer - crash b', () => {
     test.setTimeout(420_000);
 
     const result = await runGpuReclaimMeasurementScenario({
+      chunksPerFile: 12,
+      electronHarness,
+      itemThreshold: 500,
       label: 'gpu-reclaim-reset-correctness',
       reclaimEnabled: true,
       reclaimMode: 'reset',
-      itemThreshold: 500,
-      chunksPerFile: 12,
       targetSucceededItems: 650,
-      electronHarness,
     });
 
     expect(result.itemsProcessed).toBeGreaterThanOrEqual(650);
@@ -560,9 +560,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
     const restoreEnv = withTemporaryProcessEnv({
       BRAINSTRIKE_E2E_ALLOW_GPU: '1',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD: undefined,
-      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS: undefined,
       BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: undefined,
     });
 
@@ -583,9 +583,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
       await ensureEmbeddingHostWarmed(activeWindow);
 
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: 623,
-        chunksPerFile: 20,
         chunkContentBytes: 1024,
+        chunksPerFile: 20,
+        fileCount: 623,
         persistActiveSet: false,
       });
       await reloadRendererInTest(activeWindow, 'gpu-reclaim-visible-reload-12k-fixture');
@@ -755,25 +755,25 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
       console.log(
         JSON.stringify({
-          type: 'desktop-default-visible-reload-12k',
+          baselineVisibleWorkingSetFromHealthMB:
+            Math.round(baselineVisibleWorkingSetFromHealthMB * 10) / 10,
           embeddingHostProcessIds: [...embeddingHostProcessIds],
           embeddingRuntimeIds: [...runtimeIds],
+          finalBackfillState,
           fixture: {
             fileCount: fixture.fileCount,
             totalChunks: fixture.totalChunks,
           },
           lastQueueStats,
-          finalBackfillState,
-          baselineVisibleWorkingSetFromHealthMB:
-            Math.round(baselineVisibleWorkingSetFromHealthMB * 10) / 10,
           mainProcessHealthSamples,
-          peakVisibleWorkingSetMB: Math.round(peakVisibleWorkingSetMB * 10) / 10,
           peakVisibleWorkingSetFromHealthMB:
             Math.round(peakVisibleWorkingSetFromHealthMB * 10) / 10,
+          peakVisibleWorkingSetMB: Math.round(peakVisibleWorkingSetMB * 10) / 10,
           processSnapshotVisibleWorkingSetSamplesMB: visibleWorkingSetSamplesMB,
-          visibleWorkingSetMeasurementSource,
+          type: 'desktop-default-visible-reload-12k',
           visibleWorkingSetGrowthFromHealthMB:
             Math.round(visibleWorkingSetGrowthFromHealthMB * 10) / 10,
+          visibleWorkingSetMeasurementSource,
         })
       );
 
@@ -816,9 +816,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: 80,
-      chunksPerFile: 8,
       chunkContentBytes: 1024,
+      chunksPerFile: 8,
+      fileCount: 80,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'unexpected-embedding-host-stop-fixture');
@@ -870,13 +870,13 @@ test.describe('Embedding Host Renderer - crash b', () => {
     test.setTimeout(1_200_000);
 
     const baseline = await runGpuReclaimMeasurementScenario({
-      label: 'gpu-reclaim-benchmark-disabled',
-      reclaimEnabled: false,
-      itemThreshold: 80,
       chunksPerFile: 12,
-      minimumIntervalMs: 1000,
-      targetSucceededItems: 650,
       electronHarness,
+      itemThreshold: 80,
+      label: 'gpu-reclaim-benchmark-disabled',
+      minimumIntervalMs: 1000,
+      reclaimEnabled: false,
+      targetSucceededItems: 650,
     });
 
     const thresholdResults = [] as Array<{
@@ -891,34 +891,34 @@ test.describe('Embedding Host Renderer - crash b', () => {
     for (const reclaimMode of ['reset'] as const) {
       for (const itemThreshold of [40, 80, 160, 320, 500]) {
         const result = await runGpuReclaimMeasurementScenario({
+          chunksPerFile: 12,
+          electronHarness,
+          itemThreshold,
           label: `gpu-reclaim-${reclaimMode}-threshold-${itemThreshold}`,
+          minimumIntervalMs: 1000,
           reclaimEnabled: true,
           reclaimMode,
-          itemThreshold,
-          chunksPerFile: 12,
-          minimumIntervalMs: 1000,
           targetSucceededItems: 650,
-          electronHarness,
         });
         thresholdResults.push({
-          itemThreshold,
-          reclaimMode,
-          itemsProcessed: result.itemsProcessed,
           gpuGrowthPerItemKB: result.gpuGrowthPerItemKB,
           improvementPerItemKB: baseline.gpuGrowthPerItemKB - result.gpuGrowthPerItemKB,
           improvementRatio:
             baseline.gpuGrowthPerItemKB > 0
               ? result.gpuGrowthPerItemKB / baseline.gpuGrowthPerItemKB
               : Number.NaN,
+          itemsProcessed: result.itemsProcessed,
+          itemThreshold,
+          reclaimMode,
         });
       }
     }
 
     console.log(
       JSON.stringify({
-        type: 'GPU_RECLAIM_THRESHOLD_BENCHMARK',
         baseline,
         thresholdResults,
+        type: 'GPU_RECLAIM_THRESHOLD_BENCHMARK',
       })
     );
 
@@ -968,9 +968,9 @@ test.describe('Embedding Host Renderer - crash b', () => {
     // contain actual code/text. Empty content underestimates GPU buffer
     // allocations because tokenizer and inference inputs are smaller.
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: DIAG_FILE_COUNT,
-      chunksPerFile: DIAG_CHUNKS_PER_FILE,
       chunkContentBytes: 1024,
+      chunksPerFile: DIAG_CHUNKS_PER_FILE,
+      fileCount: DIAG_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-memory-diagnostic-fixture');
@@ -994,7 +994,7 @@ test.describe('Embedding Host Renderer - crash b', () => {
     }
 
     const baseline = await getAppMetricsSummary();
-    console.log(JSON.stringify({ type: 'MEMORY_DIAGNOSTIC_BASELINE', processes: baseline }));
+    console.log(JSON.stringify({ processes: baseline, type: 'MEMORY_DIAGNOSTIC_BASELINE' }));
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
     const outcome = await waitForBackfillQueueMovementOrFatalError(
@@ -1015,19 +1015,19 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
       console.log(
         JSON.stringify({
-          type: 'MEMORY_DIAGNOSTIC_SAMPLE',
-          sample: index + 1,
           elapsedSec,
           processes: metrics.map((m) => ({
-            type: m.type,
-            pid: m.pid,
             memoryMB: Math.round((m.memoryKB / 1024) * 10) / 10,
+            pid: m.pid,
+            type: m.type,
           })),
+          queueQueued: queueStats.queued,
+          queueRunning: queueStats.running,
+          queueSucceeded: queueStats.succeeded,
+          sample: index + 1,
           totalMemoryMB:
             Math.round((metrics.reduce((sum, m) => sum + m.memoryKB, 0) / 1024) * 10) / 10,
-          queueSucceeded: queueStats.succeeded,
-          queueRunning: queueStats.running,
-          queueQueued: queueStats.queued,
+          type: 'MEMORY_DIAGNOSTIC_SAMPLE',
         })
       );
     }
@@ -1057,11 +1057,11 @@ test.describe('Embedding Host Renderer - crash b', () => {
 
     console.log(
       JSON.stringify({
-        type: 'MEMORY_DIAGNOSTIC_GROWTH',
-        itemsProcessed,
         gpuGrowthMB: Math.round(gpuGrowthMB),
         gpuGrowthPerItemKB: Math.round(gpuGrowthPerItemKB * 10) / 10,
+        itemsProcessed,
         totalGrowthMB: Math.round(totalGrowthMB),
+        type: 'MEMORY_DIAGNOSTIC_GROWTH',
       })
     );
 

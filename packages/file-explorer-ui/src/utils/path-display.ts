@@ -154,7 +154,7 @@ export function splitFilePath(filePath: string): SplitFilePathResult {
   const lastSlashIndex = normalized.lastIndexOf('/');
 
   if (lastSlashIndex === -1) {
-    return { fileName: normalized, dirPath: '' };
+    return { dirPath: '', fileName: normalized };
   }
 
   const dirPath = normalized.slice(0, lastSlashIndex);
@@ -174,10 +174,10 @@ function normalizeDirPathDisplayOptions(args: {
 }): DirPathDisplayOptions {
   const requestedMaxChars = args.maxDisplayChars ?? 48;
   return {
-    maxDisplayChars: Math.max(MIN_DISPLAY_CHARS, requestedMaxChars),
     headSegments: args.headSegments ?? 1,
-    tailSegments: args.tailSegments ?? 2,
+    maxDisplayChars: Math.max(MIN_DISPLAY_CHARS, requestedMaxChars),
     maxSegmentChars: args.maxSegmentChars ?? 24,
+    tailSegments: args.tailSegments ?? 2,
   };
 }
 
@@ -305,7 +305,7 @@ export function formatDirPathForDisplay(args: {
     return trimmedToFolderRoot ? '.' : '';
   }
 
-  return buildShortenedDirPath({ segments, options });
+  return buildShortenedDirPath({ options, segments });
 }
 
 function getRootFolderPathLabel(rootFolderId: string): string {
@@ -369,9 +369,9 @@ function getDirectoryGroupLabelFromIdentity(args: {
 
   if (rootLabel) {
     return joinRootFolderPath({
-      rootLabel,
-      displayDirPath: args.identity.relativeDirPath,
       allowExistingRootPrefix: args.identity.allowExistingRootPrefix,
+      displayDirPath: args.identity.relativeDirPath,
+      rootLabel,
     });
   }
 
@@ -413,8 +413,8 @@ function parseEncodedDirectoryGroupIdentity(groupKey: string): DirectoryGroupIde
   try {
     return {
       allowExistingRootPrefix: allowExistingRootPrefix === '1',
-      rootFolderId: decodeURIComponent(rootFolderId),
       relativeDirPath: decodeURIComponent(relativeDirPath),
+      rootFolderId: decodeURIComponent(rootFolderId),
       ...(isV2 && rootDisplayName !== undefined
         ? { rootDisplayName: decodeURIComponent(rootDisplayName) }
         : {}),
@@ -433,16 +433,16 @@ function parseDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity {
   try {
     const parsed = JSON.parse(groupKey) as Partial<DirectoryGroupIdentity>;
     return {
+      allowExistingRootPrefix: parsed.allowExistingRootPrefix === true,
       relativeDirPath:
         typeof parsed.relativeDirPath === 'string' ? parsed.relativeDirPath : groupKey,
       rootFolderId: typeof parsed.rootFolderId === 'string' ? parsed.rootFolderId : '',
-      allowExistingRootPrefix: parsed.allowExistingRootPrefix === true,
     };
   } catch {
     return {
+      allowExistingRootPrefix: false,
       relativeDirPath: groupKey,
       rootFolderId: '',
-      allowExistingRootPrefix: false,
     };
   }
 }
@@ -471,9 +471,9 @@ export function formatFilePathSubtitle(args: {
   }
 
   return joinRootFolderPath({
-    rootLabel,
-    displayDirPath,
     allowExistingRootPrefix: !isProbablyAbsolutePath(normalizedFilePath),
+    displayDirPath,
+    rootLabel,
   });
 }
 
@@ -495,10 +495,10 @@ export function getDirectoryGroupKey(args: {
 
   if (!normalizedDirPath) {
     return serializeDirectoryGroupIdentity({
-      rootFolderId: normalizedRootFolderId,
-      relativeDirPath: '',
       allowExistingRootPrefix,
+      relativeDirPath: '',
       rootDisplayName: args.rootDisplayName,
+      rootFolderId: normalizedRootFolderId,
     });
   }
 
@@ -509,18 +509,18 @@ export function getDirectoryGroupKey(args: {
 
   if (segments.length === 0) {
     return serializeDirectoryGroupIdentity({
-      rootFolderId: normalizedRootFolderId,
-      relativeDirPath: trimmedToFolderRoot ? '' : normalizedDirPath,
       allowExistingRootPrefix,
+      relativeDirPath: trimmedToFolderRoot ? '' : normalizedDirPath,
       rootDisplayName: args.rootDisplayName,
+      rootFolderId: normalizedRootFolderId,
     });
   }
 
   return serializeDirectoryGroupIdentity({
-    rootFolderId: normalizedRootFolderId,
-    relativeDirPath: trimmedToFolderRoot ? segments.join('/') : normalizedDirPath,
     allowExistingRootPrefix,
+    relativeDirPath: trimmedToFolderRoot ? segments.join('/') : normalizedDirPath,
     rootDisplayName: args.rootDisplayName,
+    rootFolderId: normalizedRootFolderId,
   });
 }
 

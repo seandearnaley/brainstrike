@@ -30,12 +30,12 @@ function tryInitializeWorker(
     if (shouldLog && useWorker) {
       logger.debug('Web Worker enabled for background state persistence');
     }
-    return { workerStorage, useWorker };
+    return { useWorker, workerStorage };
   } catch (error) {
     if (shouldLog) {
       logger.warn('Failed to initialize Web Worker, falling back to immediate approach:', error);
     }
-    return { workerStorage: null, useWorker: false };
+    return { useWorker: false, workerStorage: null };
   }
 }
 
@@ -70,7 +70,7 @@ export function initWorker(
   if (typeof window !== 'undefined' && !isTest) {
     const { workerStorage, useWorker } = tryInitializeWorker(storageAdapter, shouldLog);
     setupCleanupHandlers(workerStorage);
-    return { workerStorage, useWorker };
+    return { useWorker, workerStorage };
   }
 
   if (shouldLog) {
@@ -78,5 +78,5 @@ export function initWorker(
     logger.debug(`Web Worker disabled due to ${reason}, using immediate persistence`);
   }
 
-  return { workerStorage: null, useWorker: false };
+  return { useWorker: false, workerStorage: null };
 }

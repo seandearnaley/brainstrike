@@ -24,8 +24,8 @@ vi.mock('@brainstrike/ui', () => ({
 
 describe('McpConfigAlert', () => {
   const defaultProps = {
-    onSelectConfig: vi.fn().mockResolvedValue(undefined),
     onResetConfig: vi.fn().mockResolvedValue(undefined),
+    onSelectConfig: vi.fn().mockResolvedValue(undefined),
   };
 
   it('renders nothing when configInfo is null (loading state)', () => {
@@ -35,8 +35,8 @@ describe('McpConfigAlert', () => {
 
   it('renders nothing when config exists', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: true,
+      path: '/path/to/mcp.config.json',
     };
     const { container } = render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
     expect(container.firstChild).toBeNull();
@@ -44,8 +44,8 @@ describe('McpConfigAlert', () => {
 
   it('renders warning when config is missing', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
 
@@ -54,8 +54,8 @@ describe('McpConfigAlert', () => {
 
   it('renders path inline with message', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
     expect(screen.getByText(/MCP config not found/)).toBeInTheDocument();
@@ -63,8 +63,8 @@ describe('McpConfigAlert', () => {
 
   it('displays the expected path', () => {
     const configInfo: McpConfigInfo = {
-      path: '/custom/path/mcp.config.json',
       exists: false,
+      path: '/custom/path/mcp.config.json',
     };
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
 
@@ -75,8 +75,8 @@ describe('McpConfigAlert', () => {
     const user = userEvent.setup();
     const onSelectConfig = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(
@@ -95,8 +95,8 @@ describe('McpConfigAlert', () => {
     const user = userEvent.setup();
     const onResetConfig = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(
@@ -113,8 +113,8 @@ describe('McpConfigAlert', () => {
 
   it('shows Create Sample Config button when onCreateSample is provided', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(
@@ -130,8 +130,8 @@ describe('McpConfigAlert', () => {
 
   it('hides Create Sample Config button when onCreateSample is not provided', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
@@ -143,8 +143,8 @@ describe('McpConfigAlert', () => {
     const user = userEvent.setup();
     const onCreateSample = vi.fn().mockResolvedValue(undefined);
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(
@@ -159,8 +159,8 @@ describe('McpConfigAlert', () => {
     const user = userEvent.setup();
     const onDismiss = vi.fn();
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} onDismiss={onDismiss} />);
@@ -172,8 +172,8 @@ describe('McpConfigAlert', () => {
 
   it('does not show dismiss button when onDismiss is not provided', () => {
     const configInfo: McpConfigInfo = {
-      path: '/path/to/mcp.config.json',
       exists: false,
+      path: '/path/to/mcp.config.json',
     };
 
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);

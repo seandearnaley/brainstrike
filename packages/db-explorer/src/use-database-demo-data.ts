@@ -156,9 +156,9 @@ export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
 }
 
 const DEFAULT_DB_INFO: DatabaseInfo = {
+  connected: false,
   location: 'Unknown',
   testResult: 'Database connection not tested',
-  connected: false,
 };
 
 const EXPORT_LOAD_BATCH_SIZE = 50;
@@ -439,10 +439,10 @@ export function useDatabaseDemoData({
     ),
     query: FILE_RECORDS_PAGE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
-    mode: 'incremental',
-    key: 'id',
-    enabled: liveQueryEnabled,
     clearOnDisable: true,
+    enabled: liveQueryEnabled,
+    key: 'id',
+    mode: 'incremental',
   });
   const {
     rows: totalRecordRows,
@@ -494,7 +494,7 @@ export function useDatabaseDemoData({
         collectionCountsRowBelongsToCollection(firstRow, activeCollectionId)
       )
     ) {
-      return { records: 0, chunks: 0, embeddings: 0 };
+      return { chunks: 0, embeddings: 0, records: 0 };
     }
     return mapCollectionCountsRow(firstRow);
   }, [activeCollectionId, collectionCountRows]);
@@ -582,13 +582,13 @@ export function useDatabaseDemoData({
   }, [activeCollectionId, cacheVersion]);
   const cachedCollectionCounts = useMemo<DatabaseCollectionCounts>(() => {
     if (!activeCollectionId) {
-      return { records: 0, chunks: 0, embeddings: 0 };
+      return { chunks: 0, embeddings: 0, records: 0 };
     }
     return (
       cachedCollectionCountsRef.current.get(activeCollectionId) ?? {
-        records: 0,
         chunks: 0,
         embeddings: 0,
+        records: 0,
       }
     );
   }, [activeCollectionId, cacheVersion]);
@@ -691,9 +691,9 @@ export function useDatabaseDemoData({
     const runFallback = async () => {
       try {
         await fetchSnapshot({
+          includeCollectionCounts: needsCollectionCounts,
           includeRecords: needsRecords,
           includeTotalRecords: needsTotalRecords,
-          includeCollectionCounts: needsCollectionCounts,
         });
       } catch (error) {
         if (cancelled) {
@@ -781,9 +781,9 @@ export function useDatabaseDemoData({
           normalizedRecordPageSize,
           cachedRecordTotalsRef.current.get(activeCollectionId) ?? 0,
           cachedCollectionCountsRef.current.get(activeCollectionId) ?? {
-            records: 0,
             chunks: 0,
             embeddings: 0,
+            records: 0,
           },
           cachedRecordsForCollection,
           cachedChunksForCollection
@@ -815,20 +815,20 @@ export function useDatabaseDemoData({
           await Promise.all([refreshRecordsQuery(), refreshTotalRecordsQuery()]);
         } else {
           await fetchSnapshot({
+            includeCollectionCounts: true,
             includeRecords: true,
             includeTotalRecords: true,
-            includeCollectionCounts: true,
           });
         }
       } catch (error) {
         logger.error('Failed to refresh database records', { error });
         const message = extractErrorMessage(error);
         toast({
-          title: 'Error',
           description:
             message && isMissingRelation(message, 'file_records')
               ? 'File storage is missing or needs migration. Run Factory Reset to rebuild the database.'
               : 'Failed to refresh file list',
+          title: 'Error',
           variant: 'destructive',
         });
       }
@@ -865,8 +865,8 @@ export function useDatabaseDemoData({
       } catch (error) {
         logger.error('Failed to refresh database chunks', { error });
         toast({
-          title: 'Error',
           description: 'Failed to refresh loaded chunk summaries',
+          title: 'Error',
           variant: 'destructive',
         });
       }
@@ -942,8 +942,8 @@ export function useDatabaseDemoData({
     );
 
     return {
-      records: settledRecords,
       chunks: chunkGroups.flat(),
+      records: settledRecords,
     };
   }, [_chunkRepository, activeCollectionId, database, repository]);
 
@@ -959,9 +959,9 @@ export function useDatabaseDemoData({
         return;
       }
       await fetchSnapshot({
+        includeCollectionCounts: true,
         includeRecords: true,
         includeTotalRecords: true,
-        includeCollectionCounts: true,
       });
     });
   }, [
@@ -1022,26 +1022,26 @@ export function useDatabaseDemoData({
 
     logger.info('Large database page state resolved', {
       activeCollectionId,
+      cachedChunkCount: cachedChunks.length,
+      chunkPageCacheEntryCount: cachedLoadedChunksRef.current.size,
+      collectionChunkCount: resolvedCollectionCounts.chunks,
+      collectionCountCacheEntryCount: cachedCollectionCountsRef.current.size,
+      collectionEmbeddingCount: resolvedCollectionCounts.embeddings,
+      collectionRecordCount: resolvedCollectionCounts.records,
       dataSource: liveQueryEnabled ? 'live-query' : 'snapshot-cache',
+      fallbackLoading,
+      isEmbeddingActive,
+      isImporting,
+      loadedChunkCount: totalLoadedChunks,
+      loadedChunkGroupCount: loadedChunkGroups,
+      loadedRecordPageCount: loadedRecordPagesRef.current.size,
+      manualRefreshing,
       page: normalizedRecordPage,
       pageSize: normalizedRecordPageSize,
-      resolvedRecordCount: resolvedRecords.length,
-      cachedChunkCount: cachedChunks.length,
-      resolvedTotalRecords,
-      collectionRecordCount: resolvedCollectionCounts.records,
-      collectionChunkCount: resolvedCollectionCounts.chunks,
-      collectionEmbeddingCount: resolvedCollectionCounts.embeddings,
-      loadedRecordPageCount: loadedRecordPagesRef.current.size,
-      loadedChunkGroupCount: loadedChunkGroups,
-      loadedChunkCount: totalLoadedChunks,
       recordCachePageCount: cachedRecordsRef.current.size,
+      resolvedRecordCount: resolvedRecords.length,
+      resolvedTotalRecords,
       totalCacheEntryCount: cachedRecordTotalsRef.current.size,
-      collectionCountCacheEntryCount: cachedCollectionCountsRef.current.size,
-      chunkPageCacheEntryCount: cachedLoadedChunksRef.current.size,
-      fallbackLoading,
-      manualRefreshing,
-      isImporting,
-      isEmbeddingActive,
     });
   }, [
     activeCollectionId,
@@ -1097,8 +1097,8 @@ export function useDatabaseDemoData({
     }
     recordErrorRef.current = message;
     toast({
-      title: 'Error',
       description: message,
+      title: 'Error',
       variant: 'destructive',
     });
   }, [recordsError, toast]);
@@ -1114,8 +1114,8 @@ export function useDatabaseDemoData({
     }
     fallbackErrorRef.current = message;
     toast({
-      title: 'Error',
       description: message,
+      title: 'Error',
       variant: 'destructive',
     });
   }, [fallbackError, toast]);
@@ -1124,9 +1124,9 @@ export function useDatabaseDemoData({
     const location = resolveStorageLocation(repository);
     if (!repository) {
       setDbInfo({
+        connected: false,
         location,
         testResult: 'Repository not available',
-        connected: false,
       });
       return;
     }
@@ -1134,15 +1134,15 @@ export function useDatabaseDemoData({
     try {
       const count = await repository.count();
       setDbInfo({
+        connected: true,
         location,
         testResult: `Successfully connected - ${count} file records found`,
-        connected: true,
       });
     } catch (error) {
       setDbInfo({
+        connected: false,
         location,
         testResult: `Database connection failed: ${error}`,
-        connected: false,
       });
     }
   }, [repository]);
@@ -1167,9 +1167,9 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.ping?.();
           if (res?.success) {
             setDbInfo({
+              connected: true,
               location: 'Main Process',
               testResult: 'connected',
-              connected: true,
             });
           }
         } catch (error) {
@@ -1185,9 +1185,9 @@ export function useDatabaseDemoData({
           const res = await w.electronAPI?.db?.test?.();
           if (res?.success) {
             setDbInfo({
+              connected: true,
               location: 'Main Process',
               testResult: 'Connected (IPC)',
-              connected: true,
             });
           }
         } catch (error) {
@@ -1245,9 +1245,9 @@ export function useDatabaseDemoData({
             prev?.connected
               ? prev
               : {
+                  connected: prev?.connected ?? true,
                   location: firstRow.location,
                   testResult: prev?.testResult ?? 'connected',
-                  connected: prev?.connected ?? true,
                 }
           );
         }
@@ -1276,26 +1276,26 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
+    chunks: cachedChunks,
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
-    records: resolvedRecords,
-    chunks: cachedChunks,
-    refreshing,
     dbInfo,
+    loadChunkDetail,
+    loadChunks,
+    loadCollectionExportData,
+    loadFileChunkSummaries,
+    loadRecords,
     recordPagination: {
       currentPage: normalizedRecordPage,
       pageSize: normalizedRecordPageSize,
-      totalRecords: resolvedTotalRecords,
       totalPages: Math.max(
         1,
         Math.ceil(resolvedTotalRecords / Math.max(1, normalizedRecordPageSize))
       ),
+      totalRecords: resolvedTotalRecords,
     },
+    records: resolvedRecords,
+    refreshing,
     setDbInfo,
-    loadChunkDetail,
-    loadFileChunkSummaries,
-    loadCollectionExportData,
-    loadRecords,
-    loadChunks,
   };
 }

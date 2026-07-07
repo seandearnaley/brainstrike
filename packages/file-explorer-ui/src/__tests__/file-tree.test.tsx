@@ -18,37 +18,37 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 describe('FileTree', () => {
   const mockFileTree = [
     createDirectoryNode({
-      name: 'src',
-      path: 'src',
       children: [
         createDirectoryNode({
-          name: 'components',
-          path: 'src/components',
           children: [
             createDirectoryNode({
-              name: 'ui',
-              path: 'src/components/ui',
               children: [
                 createFileNode({
                   name: 'Button.tsx',
                   path: 'src/components/ui/Button.tsx',
                 }),
               ],
+              name: 'ui',
+              path: 'src/components/ui',
             }),
             createFileNode({
               name: 'App.tsx',
               path: 'src/components/App.tsx',
             }),
           ],
+          name: 'components',
+          path: 'src/components',
         }),
       ],
+      name: 'src',
+      path: 'src',
     }),
   ];
 
   const defaultProps = {
     fileTree: mockFileTree,
-    loadingFiles: new Set<string>(),
     folderId: 'test-folder-id',
+    loadingFiles: new Set<string>(),
   };
 
   beforeEach(() => {
@@ -130,9 +130,9 @@ describe('FileTree', () => {
         <FileTree
           fileTree={[
             createDirectoryNode({
+              children: [createFileNode({ name: 'index.ts', path: 'src/index.ts' })],
               name: 'src',
               path: 'src',
-              children: [createFileNode({ name: 'index.ts', path: 'src/index.ts' })],
             }),
           ]}
           folderId="test-folder"

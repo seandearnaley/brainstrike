@@ -18,18 +18,18 @@ let mockSnapshot: CollectionEmbeddingCoverageSnapshot;
 
 vi.mock('../../hooks/use-collection-embedding-coverage', () => ({
   useCollectionEmbeddingCoverage: () => ({
-    snapshot: mockSnapshot,
     error: null,
     loading: false,
+    snapshot: mockSnapshot,
   }),
 }));
 
 const STALE_SNAPSHOT: CollectionEmbeddingCoverageSnapshot = {
-  status: 'needs_reindex',
-  pendingReindexFileCount: 17,
   chunksMissingSourceRange: 0,
-  totalFiles: 17,
+  pendingReindexFileCount: 17,
+  status: 'needs_reindex',
   totalChunks: 0,
+  totalFiles: 17,
 };
 
 function setBackgroundIndexing(
@@ -88,8 +88,8 @@ describe('CollectionEmbeddingCoverageBanner (store-driven DOM)', () => {
     act(() => {
       useVectorStatusUIStore.getState().setActiveBackfill({
         embeddingSetId: 'col-1',
-        requestId: 'recovered:stale',
         progress: null,
+        requestId: 'recovered:stale',
       });
       useWorkspaceCollectionSyncStatusStore
         .getState()

@@ -50,7 +50,7 @@ export function resolveCumulativeUsageDisplay(
     );
     if (!entryCost.available) {
       // Any unpriced model makes the whole-thread cost honestly unavailable.
-      return { totalTokens, cost: { available: false, reason: 'unpriced_model' } };
+      return { cost: { available: false, reason: 'unpriced_model' }, totalTokens };
     }
     summedUsd += entryCost.usdAmount;
   }
@@ -59,11 +59,11 @@ export function resolveCumulativeUsageDisplay(
     // A non-null usage with no per-model rows should not happen (the repo
     // returns null for an empty thread), but treat it as unpriced rather than
     // fabricating a $0.
-    return { totalTokens, cost: { available: false, reason: 'unpriced_model' } };
+    return { cost: { available: false, reason: 'unpriced_model' }, totalTokens };
   }
 
   return {
+    cost: { available: true, provenance: 'exact-pricing', usdAmount: summedUsd },
     totalTokens,
-    cost: { available: true, usdAmount: summedUsd, provenance: 'exact-pricing' },
   };
 }

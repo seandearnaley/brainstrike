@@ -28,8 +28,8 @@ vi.mock('../use-queue-health-metrics', () => ({
 const createMetrics = (overrides: Partial<QueueHealthMetrics> = {}): QueueHealthMetrics => ({
   durableQueue: null,
   ephemeralQueue: null,
-  workerHealth: null,
   lastUpdated: Date.now(),
+  workerHealth: null,
   ...overrides,
 });
 
@@ -145,11 +145,11 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows connected status with stats', () => {
       const metrics = createMetrics({
         durableQueue: {
+          failed: 1,
+          nextRunnableAt: null,
           queued: 5,
           running: 2,
-          failed: 1,
           succeeded: 100,
-          nextRunnableAt: null,
         },
       });
       renderPanel(metrics);
@@ -165,11 +165,11 @@ describe('QueueDiagnosticsPanel', () => {
     it('displays metric labels', () => {
       const metrics = createMetrics({
         durableQueue: {
+          failed: 0,
+          nextRunnableAt: null,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 0,
-          nextRunnableAt: null,
         },
       });
       renderPanel(metrics);
@@ -196,12 +196,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 3,
           completed: 50,
           failed: 2,
-          totalEnqueued: 55,
           lastError: null,
-          throughputPerMinute: 10.5,
           latencyAvgMs: 150,
           latencyP50Ms: 120,
           latencyP95Ms: 300,
+          throughputPerMinute: 10.5,
+          totalEnqueued: 55,
           windowErrorCount: 0,
         },
       });
@@ -220,12 +220,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 5.5, // < 10, so displays with 1 decimal
           latencyAvgMs: 200,
           latencyP50Ms: 150,
           latencyP95Ms: 400,
+          throughputPerMinute: 5.5, // < 10, so displays with 1 decimal
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -247,12 +247,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 10,
           latencyAvgMs: 200,
           latencyP50Ms: 150,
           latencyP95Ms: 400,
+          throughputPerMinute: 10,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -268,12 +268,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 1,
-          totalEnqueued: 1,
           lastError: 'Worker crashed unexpectedly',
-          throughputPerMinute: 0,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 0,
+          totalEnqueued: 1,
           windowErrorCount: 1,
         },
       });
@@ -294,9 +294,9 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows worker status when available', () => {
       const metrics = createMetrics({
         workerHealth: {
-          state: 'ready',
-          isReady: true,
           error: null,
+          isReady: true,
+          state: 'ready',
         },
       });
       renderPanel(metrics);
@@ -310,22 +310,22 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows success indicator when no errors and no active tasks', () => {
       const metrics = createMetrics({
         durableQueue: {
+          failed: 0,
+          nextRunnableAt: null,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 10,
-          nextRunnableAt: null,
         },
         ephemeralQueue: {
           active: 0,
           completed: 10,
           failed: 0,
-          totalEnqueued: 10,
           lastError: null,
-          throughputPerMinute: 0,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 0,
+          totalEnqueued: 10,
           windowErrorCount: 0,
         },
       });
@@ -339,11 +339,11 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows warning indicator when there are failed tasks', () => {
       const metrics = createMetrics({
         durableQueue: {
+          failed: 5,
+          nextRunnableAt: null,
           queued: 0,
           running: 0,
-          failed: 5,
           succeeded: 10,
-          nextRunnableAt: null,
         },
       });
       renderPanel(metrics);
@@ -356,22 +356,22 @@ describe('QueueDiagnosticsPanel', () => {
     it('shows active indicator when tasks are running', () => {
       const metrics = createMetrics({
         durableQueue: {
+          failed: 0,
+          nextRunnableAt: null,
           queued: 2,
           running: 3,
-          failed: 0,
           succeeded: 10,
-          nextRunnableAt: null,
         },
         ephemeralQueue: {
           active: 1,
           completed: 0,
           failed: 0,
-          totalEnqueued: 1,
           lastError: null,
-          throughputPerMinute: 5,
           latencyAvgMs: 100,
           latencyP50Ms: 80,
           latencyP95Ms: 200,
+          throughputPerMinute: 5,
+          totalEnqueued: 1,
           windowErrorCount: 0,
         },
       });
@@ -390,12 +390,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 0,
           latencyAvgMs: 500,
           latencyP50Ms: 450,
           latencyP95Ms: 800,
+          throughputPerMinute: 0,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -412,12 +412,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 0,
           latencyAvgMs: 2500,
           latencyP50Ms: 1500,
           latencyP95Ms: 5000,
+          throughputPerMinute: 0,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -434,12 +434,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 0,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 0,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -458,12 +458,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 2.5,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 2.5,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -478,12 +478,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 45.7,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 45.7,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });
@@ -498,12 +498,12 @@ describe('QueueDiagnosticsPanel', () => {
           active: 0,
           completed: 0,
           failed: 0,
-          totalEnqueued: 0,
           lastError: null,
-          throughputPerMinute: 0,
           latencyAvgMs: null,
           latencyP50Ms: null,
           latencyP95Ms: null,
+          throughputPerMinute: 0,
+          totalEnqueued: 0,
           windowErrorCount: 0,
         },
       });

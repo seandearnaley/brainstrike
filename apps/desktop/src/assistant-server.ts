@@ -165,8 +165,8 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
   const host = options.host ?? '127.0.0.1';
   if (options.listen === false) {
     return Promise.resolve({
-      url: `http://${host}:${port}`,
       stop: async () => {},
+      url: `http://${host}:${port}`,
     });
   }
   return new Promise<{ url: string; stop: () => Promise<void> }>((resolve) => {
@@ -175,8 +175,8 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
       const actualPort = typeof addr === 'object' && addr ? addr.port : port;
       const url = `http://${host}:${actualPort}`;
       resolve({
-        url,
         stop: async () => await new Promise<void>((r) => server.close(() => r())),
+        url,
       });
     });
   });
@@ -233,12 +233,12 @@ async function handleAssistantPost(
   const runId = runtimeData.memory?.runId;
   try {
     await streamAssistantPostResponse({
-      res,
-      messages,
-      runtimeData,
       apiKey,
-      signal,
+      messages,
+      res,
       runId,
+      runtimeData,
+      signal,
       toolApprovalAction,
       toolDependencies: {
         embeddingHostManager: options.embeddingHostManager,
@@ -246,7 +246,7 @@ async function handleAssistantPost(
       },
     });
   } catch (error) {
-    await handleAssistantPostStreamError({ res, runId, signal, error });
+    await handleAssistantPostStreamError({ error, res, runId, signal });
   } finally {
     cleanup();
   }
@@ -360,8 +360,8 @@ async function* observeDesktopAssistantRunEvents(
     if (persistenceError) {
       if (persistenceErrorCount > 1) {
         logger.error('Multiple assistant run events failed to persist', {
-          firstError: persistenceError,
           failureCount: persistenceErrorCount,
+          firstError: persistenceError,
           runId,
           suppressedFailureCount: persistenceErrorCount - 1,
         });
@@ -382,7 +382,7 @@ async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
-      yield { type: 'run-event', event };
+      yield { event, type: 'run-event' };
     }
   };
   let sourceError: unknown;
@@ -402,7 +402,7 @@ async function* observeDesktopAssistantRunEvents(
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       persistEvent(event);
-      yield { type: 'run-event', event };
+      yield { event, type: 'run-event' };
     }
     yield* drainQueuedEvents();
   } catch (error) {
@@ -604,9 +604,9 @@ async function prepareAssistantPostRequest(
   );
 
   logger.info('Assistant request received', {
+    hasApiKey: Boolean(apiKey) || providerAllowsMissingAuth,
     messageCount: messages.length,
     provider,
-    hasApiKey: Boolean(apiKey) || providerAllowsMissingAuth,
   });
 
   if (!(apiKey || providerAllowsMissingAuth)) {
@@ -625,9 +625,9 @@ async function prepareAssistantPostRequest(
   }
 
   return {
+    apiKey: apiKey ?? '',
     messages,
     runtimeData,
-    apiKey: apiKey ?? '',
     ...(toolApprovalAction ? { toolApprovalAction } : {}),
   };
 }
@@ -638,7 +638,7 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
     const enabled = providers.length > 0;
     const payload = enabled
       ? { enabled, providers }
-      : { enabled, reason: 'no_providers_configured', providers: [] as string[] };
+      : { enabled, providers: [] as string[], reason: 'no_providers_configured' };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.statusCode = 200;
@@ -768,7 +768,7 @@ function parseModelTarget(
     throw new Error(disallowedProviderMessage(provider));
   }
 
-  return { provider, model };
+  return { model, provider };
 }
 
 function parseObservationalMemoryModelTarget(
@@ -776,10 +776,10 @@ function parseObservationalMemoryModelTarget(
 ): DesktopMemoryModelTargetDescriptor {
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS,
-    formatLabel: 'Observational memory model target',
-    unsupportedProviderLabel: 'observational memory',
     disallowedProviderMessage: (provider) =>
       `Desktop observational memory requires a hosted model provider or the built-in local model; received "${provider}" in "${modelTarget}".`,
+    formatLabel: 'Observational memory model target',
+    unsupportedProviderLabel: 'observational memory',
   });
 }
 
@@ -788,10 +788,10 @@ function parseSemanticRecallEmbeddingModelTarget(
 ): DesktopMemoryModelTargetDescriptor {
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
-    formatLabel: 'Semantic recall embedding model target',
-    unsupportedProviderLabel: 'semantic recall embedding',
     disallowedProviderMessage: (provider) =>
       `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders or the built-in local embedder; received "${provider}" in "${modelTarget}".`,
+    formatLabel: 'Semantic recall embedding model target',
+    unsupportedProviderLabel: 'semantic recall embedding',
   });
 }
 
@@ -813,7 +813,6 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
     logger.info('Retrieved stored API key for provider', { provider });
     return storedKey;
   }
-
   return;
 }
 
@@ -849,11 +848,11 @@ function registerRequestAbort(req: http.IncomingMessage): {
   req.on('aborted', onAbort);
 
   return {
-    signal: abortController.signal,
     cleanup: () => {
       req.removeListener('close', onAbort);
       req.removeListener('aborted', onAbort);
     },
+    signal: abortController.signal,
   };
 }
 
@@ -1098,12 +1097,12 @@ async function initializeAgentStream(
     const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
     const runtime: RuntimeData = {
       ...runtimeWithoutMcpConfig,
-      mcpEnabled: true,
       // The execute-risk shell tool is registered like every other native tool;
       // the permission gate (enforce-on-by-default → execute:ask) suspends the
       // run for per-call approval before it executes, so it is no longer gated at
       // registration time.
       mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
+      mcpEnabled: true,
       signal, // ← AbortSignal passed here, used by stream iterator
       ...(mcpConfig ? { mcpConfig } : {}),
       ...(apiKey ? { apiKey } : {}),
@@ -1135,11 +1134,11 @@ async function initializeAgentStream(
     if (toolApprovalAction && !memoryResult?.storage) {
       return {
         ok: false,
-        status: 400,
         payload: {
           error: 'tool_approval_memory_required',
           message: 'Tool approval resume requires Mastra memory context with workflow storage.',
         },
+        status: 400,
       };
     }
     // @file context-insert: resolve any `:file[…]{name=…}` directives in the
@@ -1168,11 +1167,11 @@ async function initializeAgentStream(
     logger.error('Failed to initialize assistant stream', { error });
     return {
       ok: false,
-      status: 502,
       payload: {
         error: 'agent_stream_init_failed',
         message: 'Assistant stream initialization failed.',
       },
+      status: 502,
     };
   }
 }

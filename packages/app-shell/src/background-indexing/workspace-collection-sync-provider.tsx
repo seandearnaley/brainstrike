@@ -175,16 +175,16 @@ function createClearedProgressPatch(): Pick<
   return {
     backfillRequestId: null,
     blockedReason: null,
-    currentFilePath: null,
-    scanSummary: null,
-    importProgress: null,
     chunkingProgress: null,
+    currentFilePath: null,
     embeddingProgress: null,
-    queueProgress: null,
-    queuedFiles: 0,
-    processedFiles: 0,
+    importProgress: null,
     lastError: null,
     pauseReasons: [],
+    processedFiles: 0,
+    queuedFiles: 0,
+    queueProgress: null,
+    scanSummary: null,
   };
 }
 
@@ -337,13 +337,13 @@ function createCoverageStatusPatch(args: {
   state: 'error' | 'idle' | 'waiting';
 }): WorkspaceCollectionSyncStatusPatch {
   return {
-    state: args.state,
-    managedCollectionId: args.collectionId,
     activeRootPath: args.activeRootPath,
     currentFilePath: null,
-    queuedFiles: 0,
     lastError: args.lastError,
+    managedCollectionId: args.collectionId,
     pauseReasons: [],
+    queuedFiles: 0,
+    state: args.state,
   };
 }
 
@@ -428,8 +428,8 @@ async function runWorkspaceCoverageAudit(args: {
       return { kind: 'complete' };
     }
     return {
-      kind: 'incomplete',
       indexedCounts,
+      kind: 'incomplete',
       message: buildCoverageAuditMessage({ indexedCounts, missingTargets }),
       missingTargets,
     };
@@ -595,15 +595,15 @@ function mergeTriggerSyncScopes(
   const rootsById = new Map<string, { changes: FileSystemChange[]; rootId: string }>();
   for (const root of current.roots) {
     rootsById.set(root.rootId, {
-      rootId: root.rootId,
       changes: [...root.changes],
+      rootId: root.rootId,
     });
   }
   for (const root of incoming.roots) {
     const existing = rootsById.get(root.rootId);
     rootsById.set(root.rootId, {
-      rootId: root.rootId,
       changes: [...(existing?.changes ?? []), ...root.changes],
+      rootId: root.rootId,
     });
   }
   return {
@@ -743,10 +743,10 @@ function createBackgroundRepositoryDb(db: DbHandle): {
     insertChunksAndEnqueueEmbeddingJobs?: DbHandle['insertChunksAndEnqueueEmbeddingJobs'];
     query: DbHandle['query'];
   } = {
-    query: db.query,
     exec: async (sql: string) => {
       await db.exec?.(sql);
     },
+    query: db.query,
   };
   if (db.insertChunksAndEnqueueEmbeddingJobs) {
     handle.insertChunksAndEnqueueEmbeddingJobs = db.insertChunksAndEnqueueEmbeddingJobs.bind(db);
@@ -820,8 +820,8 @@ function parseRefreshSyncScope(event: Event): TriggerSyncScope {
   return {
     mode: 'paths',
     roots: event.detail.roots.map((root) => ({
-      rootId: root.rootId,
       changes: root.changes,
+      rootId: root.rootId,
     })),
   };
 }
@@ -839,7 +839,7 @@ function buildPathSyncTargets(args: {
     }
     targetByRootId.set(rootId, {
       handle,
-      scope: { mode: 'paths', changes: [] },
+      scope: { changes: [], mode: 'paths' },
     });
   }
   for (const root of args.scope.roots) {
@@ -851,8 +851,8 @@ function buildPathSyncTargets(args: {
     targetByRootId.set(root.rootId, {
       handle: target.handle,
       scope: {
-        mode: 'paths',
         changes: [...existingChanges, ...root.changes],
+        mode: 'paths',
       },
     });
   }
@@ -1237,10 +1237,10 @@ export function WorkspaceCollectionSyncProvider({
       logger.error(`Workspace collection sync ${operation} failed`, { error });
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
-          state: 'blocked',
+          activeRootPath: rootDirectoryHandle?.path ?? null,
           managedCollectionId,
           managedCollectionName: null,
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          state: 'blocked',
           ...createClearedProgressPatch(),
           blockedReason: error.blockedReason,
           lastError: error.message,
@@ -1248,15 +1248,15 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
       setSyncStatus({
-        state: 'error',
+        activeRootPath: rootDirectoryHandle?.path ?? null,
         blockedReason: null,
+        currentFilePath: null,
+        lastError: error instanceof Error ? error.message : String(error),
         managedCollectionId,
         managedCollectionName: null,
-        activeRootPath: rootDirectoryHandle?.path ?? null,
-        currentFilePath: null,
-        queuedFiles: 0,
         processedFiles: 0,
-        lastError: error instanceof Error ? error.message : String(error),
+        queuedFiles: 0,
+        state: 'error',
       });
     },
     [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
@@ -1455,17 +1455,6 @@ export function WorkspaceCollectionSyncProvider({
         }
         await applyManagedCacheBatchLocally(backgroundDb, args);
       },
-      invalidateManagedCacheEntriesByIdentity: async (args) => {
-        const electronInvalidateManagedCacheEntries =
-          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
-        if (electronInvalidateManagedCacheEntries) {
-          return await electronInvalidateManagedCacheEntries(
-            args,
-            BACKGROUND_DATABASE_WORK_OPTIONS
-          );
-        }
-        return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
-      },
       cancelBackfill: async (embeddingSetId) => {
         recordSyncDependencyStage('cancelBackfill:start', { embeddingSetId });
         try {
@@ -1486,8 +1475,8 @@ export function WorkspaceCollectionSyncProvider({
         await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
-      fileSystemAdapter,
       fileRecordRepository: backgroundRepositories.fileRecordRepository,
+      fileSystemAdapter,
       getBackfillsInFlight: async () => {
         recordSyncDependencyStage('getBackfillsInFlight:start');
         try {
@@ -1502,6 +1491,17 @@ export function WorkspaceCollectionSyncProvider({
           });
           throw error;
         }
+      },
+      invalidateManagedCacheEntriesByIdentity: async (args) => {
+        const electronInvalidateManagedCacheEntries =
+          window.electronAPI?.db?.invalidateManagedCacheEntriesByIdentity;
+        if (electronInvalidateManagedCacheEntries) {
+          return await electronInvalidateManagedCacheEntries(
+            args,
+            BACKGROUND_DATABASE_WORK_OPTIONS
+          );
+        }
+        return await invalidateManagedCacheEntriesByIdentityLocally(backgroundDb, args);
       },
       log: logger,
       onDebugStage: (stage, details) => {
@@ -1581,33 +1581,33 @@ export function WorkspaceCollectionSyncProvider({
         const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
         if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
           setSyncStatus({
-            state: 'paused',
-            managedCollectionId: collection.id,
-            managedCollectionName: collection.name ?? null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
-            queuedFiles: 0,
-            processedFiles: 0,
             lastError: null,
+            managedCollectionId: collection.id,
+            managedCollectionName: collection.name ?? null,
             pauseReasons: [
               ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
               ...getBackgroundWorkPauseReasonLabels(
                 latestBackgroundWorkSnapshot.automaticPauseReasons
               ),
             ],
+            processedFiles: 0,
+            queuedFiles: 0,
+            state: 'paused',
           });
           return;
         }
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId: collection.id,
-          managedCollectionName: collection.name ?? null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId: collection.id,
+          managedCollectionName: collection.name ?? null,
           pauseReasons: [],
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
       })
       .catch((error) => {
@@ -1636,14 +1636,14 @@ export function WorkspaceCollectionSyncProvider({
       if (!service) {
         if (enabled) {
           setSyncStatus({
-            state: 'waiting',
-            managedCollectionId,
-            managedCollectionName: null,
             activeRootPath: rootDirectoryHandle?.path ?? null,
             currentFilePath: null,
-            queuedFiles: 0,
-            processedFiles: 0,
             lastError: null,
+            managedCollectionId,
+            managedCollectionName: null,
+            processedFiles: 0,
+            queuedFiles: 0,
+            state: 'waiting',
           });
         } else {
           resetSyncStatus();
@@ -1670,18 +1670,18 @@ export function WorkspaceCollectionSyncProvider({
           reportAsyncError('cancel', error);
         });
         setSyncStatus({
-          state: 'paused',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle?.path ?? null,
           currentFilePath: null,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
           pauseReasons: [
             ...(latestBackgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
             ...getBackgroundWorkPauseReasonLabels(
               latestBackgroundWorkSnapshot.automaticPauseReasons
             ),
           ],
+          state: 'paused',
         });
         return;
       }
@@ -1716,14 +1716,14 @@ export function WorkspaceCollectionSyncProvider({
         pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
         return;
       }
@@ -1738,14 +1738,14 @@ export function WorkspaceCollectionSyncProvider({
         pendingSyncScopeRef.current = null;
         void service.cancel();
         setSyncStatus({
-          state: 'waiting',
-          managedCollectionId,
-          managedCollectionName: null,
           activeRootPath: rootDirectoryHandle.path,
           currentFilePath: null,
-          queuedFiles: 0,
-          processedFiles: 0,
           lastError: null,
+          managedCollectionId,
+          managedCollectionName: null,
+          processedFiles: 0,
+          queuedFiles: 0,
+          state: 'waiting',
         });
         return;
       }
@@ -1884,7 +1884,7 @@ export function WorkspaceCollectionSyncProvider({
               rootDirectoryHandle: target.handle,
               scope:
                 target.scope.mode === 'paths'
-                  ? { mode: 'paths', changes: target.scope.changes ?? [] }
+                  ? { changes: target.scope.changes ?? [], mode: 'paths' }
                   : { mode: 'full' },
             })
             .catch((error) => {
@@ -2321,10 +2321,10 @@ export function WorkspaceCollectionSyncProvider({
       backgroundEffectiveHasHydrated: hasHydrated,
       backgroundPersistHasHydrated: readBackgroundIndexingPreferencesPersistHydrated(),
       backgroundPreferences: useBackgroundIndexingPreferencesStore.getState(),
+      chunkedRecordsByRoot,
       chunkingHostStatus,
       chunkStatsByRoot,
       chunkStatsByRootAndSet,
-      chunkedRecordsByRoot,
       databaseScheduler,
       embeddingHostStatus: {
         ...((embeddingHostStatus && typeof embeddingHostStatus === 'object'
@@ -2361,8 +2361,8 @@ export function WorkspaceCollectionSyncProvider({
         })),
         serviceAvailable: Boolean(service),
       },
-      syncTargets,
       syncStatus: useWorkspaceCollectionSyncStatusStore.getState(),
+      syncTargets,
     };
   }, [
     backgroundDb,
@@ -2600,9 +2600,9 @@ export function WorkspaceCollectionSyncProvider({
         applyManagedCacheBatch,
         chunkingHost,
         db: backgroundDb,
-        embeddingHost,
         electronRunTransaction,
         electronTransactionOptions: BACKGROUND_DATABASE_WORK_OPTIONS,
+        embeddingHost,
         request,
       });
     },

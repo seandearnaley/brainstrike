@@ -42,9 +42,9 @@ describe('context-explorer-layout-store', () => {
     store.getState().toggleConsole();
 
     expect(store.getState()).toMatchObject({
+      showConsole: true,
       showLeftPanel: true,
       showRightPanel: false,
-      showConsole: true,
     });
 
     store.getState().setState({ showConsole: false, sizes: [30, 30, 40] });
@@ -109,10 +109,10 @@ describe('context-explorer-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [30, 15, 10],
+          showConsole: true,
           showLeftPanel: true,
           showRightPanel: false,
-          showConsole: true,
+          sizes: [30, 15, 10],
         },
         version: 1,
       })
@@ -133,8 +133,8 @@ describe('context-explorer-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [30, 15, 10],
           showConsole: true,
+          sizes: [30, 15, 10],
         },
         version: 1,
       })
@@ -155,10 +155,10 @@ describe('context-explorer-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [30, 25, 15],
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
-          showConsole: true,
+          sizes: [30, 25, 15],
         },
         version: 7,
       })
@@ -179,10 +179,10 @@ describe('context-explorer-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [4.488, 5.386, 0],
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
-          showConsole: true,
+          sizes: [4.488, 5.386, 0],
         },
         version: 2,
       })
@@ -220,10 +220,10 @@ describe('context-explorer-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes,
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
-          showConsole: true,
+          sizes,
         },
         version: 2,
       })

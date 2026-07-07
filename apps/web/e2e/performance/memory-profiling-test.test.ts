@@ -9,43 +9,6 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     await page.evaluate(() => {
       // Memory profiler directly in browser
       window.__memoryProfiler = {
-        snapshots: [],
-        tracking: false,
-
-        start: () => {
-          if (window.__memoryProfiler) {
-            window.__memoryProfiler.tracking = true;
-            window.__memoryProfiler.snapshots = [];
-            window.__memoryProfiler.takeSnapshot('initial');
-          }
-        },
-
-        takeSnapshot: (label: string) => {
-          const memory = performance.memory;
-          if (!(memory && window.__memoryProfiler)) {
-            return;
-          }
-
-          const snapshot: MemorySnapshot = {
-            label,
-            timestamp: Date.now(),
-            usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
-            totalMB: Math.round(memory.totalJSHeapSize / 1024 / 1024),
-            domNodes: document.querySelectorAll('*').length,
-            // Try to track potential memory sources
-            reactComponents: document.querySelectorAll(
-              '[data-reactroot], [data-react-], [class*="react-"]'
-            ).length,
-            canvasElements: document.querySelectorAll('canvas').length,
-            imgElements: document.querySelectorAll('img').length,
-            svgElements: document.querySelectorAll('svg').length,
-            iframes: document.querySelectorAll('iframe').length,
-          };
-
-          window.__memoryProfiler.snapshots.push(snapshot);
-          console.log(`📊 Memory snapshot [${label}]:`, snapshot);
-        },
-
         getAnalysis: () => {
           if (!window.__memoryProfiler) {
             return { error: 'Memory profiler not available' };
@@ -64,15 +27,51 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
           }
 
           return {
-            memoryGrowthMB: last.usedMB - first.usedMB,
-            domNodeGrowth: last.domNodes - first.domNodes,
-            reactComponentGrowth: last.reactComponents - first.reactComponents,
             canvasGrowth: last.canvasElements - first.canvasElements,
+            domNodeGrowth: last.domNodes - first.domNodes,
             imgGrowth: last.imgElements - first.imgElements,
-            svgGrowth: last.svgElements - first.svgElements,
+            memoryGrowthMB: last.usedMB - first.usedMB,
+            reactComponentGrowth: last.reactComponents - first.reactComponents,
             snapshots,
+            svgGrowth: last.svgElements - first.svgElements,
           };
         },
+        snapshots: [],
+
+        start: () => {
+          if (window.__memoryProfiler) {
+            window.__memoryProfiler.tracking = true;
+            window.__memoryProfiler.snapshots = [];
+            window.__memoryProfiler.takeSnapshot('initial');
+          }
+        },
+
+        takeSnapshot: (label: string) => {
+          const memory = performance.memory;
+          if (!(memory && window.__memoryProfiler)) {
+            return;
+          }
+
+          const snapshot: MemorySnapshot = {
+            canvasElements: document.querySelectorAll('canvas').length,
+            domNodes: document.querySelectorAll('*').length,
+            iframes: document.querySelectorAll('iframe').length,
+            imgElements: document.querySelectorAll('img').length,
+            label,
+            // Try to track potential memory sources
+            reactComponents: document.querySelectorAll(
+              '[data-reactroot], [data-react-], [class*="react-"]'
+            ).length,
+            svgElements: document.querySelectorAll('svg').length,
+            timestamp: Date.now(),
+            totalMB: Math.round(memory.totalJSHeapSize / 1024 / 1024),
+            usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
+          };
+
+          window.__memoryProfiler.snapshots.push(snapshot);
+          console.log(`📊 Memory snapshot [${label}]:`, snapshot);
+        },
+        tracking: false,
       };
     });
   }
@@ -189,13 +188,13 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
   // Helper function to find and log the biggest memory jump
   function logBiggestMemoryJump(analysis: MemoryAnalysis): void {
     let biggestJump = {
-      growth: 0,
-      from: '',
-      to: '',
       details: {
         domNodeChange: 0,
         reactComponentChange: 0,
       },
+      from: '',
+      growth: 0,
+      to: '',
     };
 
     for (let i = 1; i < analysis.snapshots.length; i++) {
@@ -208,13 +207,13 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
 
       if (growth > biggestJump.growth) {
         biggestJump = {
-          growth,
-          from: prev.label,
-          to: curr.label,
           details: {
             domNodeChange: curr.domNodes - prev.domNodes,
             reactComponentChange: curr.reactComponents - prev.reactComponents,
           },
+          from: prev.label,
+          growth,
+          to: curr.label,
         };
       }
     }

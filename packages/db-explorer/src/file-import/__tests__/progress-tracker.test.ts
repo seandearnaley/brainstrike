@@ -28,9 +28,9 @@ describe('ImportProgressTracker', () => {
 
       expect(listener).toHaveBeenCalledOnce();
       expect(listener).toHaveBeenCalledWith({
-        total: 10,
         completed: 0,
         errors: [],
+        total: 10,
       });
     });
   });
@@ -43,9 +43,9 @@ describe('ImportProgressTracker', () => {
       tracker.emitInitial();
 
       expect(listener).toHaveBeenCalledWith({
-        total: 5,
         completed: 0,
         errors: [],
+        total: 5,
       });
     });
 
@@ -61,12 +61,12 @@ describe('ImportProgressTracker', () => {
       const listener = vi.fn();
       const tracker = new ImportProgressTracker(10, listener);
 
-      tracker.addError({ file: 'test.txt', error: 'File not found' });
+      tracker.addError({ error: 'File not found', file: 'test.txt' });
 
       expect(listener).toHaveBeenCalledWith({
-        total: 10,
         completed: 0,
-        errors: [{ file: 'test.txt', error: 'File not found' }],
+        errors: [{ error: 'File not found', file: 'test.txt' }],
+        total: 10,
       });
     });
 
@@ -74,14 +74,14 @@ describe('ImportProgressTracker', () => {
       const listener = vi.fn();
       const tracker = new ImportProgressTracker(10, listener);
 
-      tracker.addError({ file: 'file1.txt', error: 'Error 1' });
-      tracker.addError({ file: 'file2.txt', error: 'Error 2' });
+      tracker.addError({ error: 'Error 1', file: 'file1.txt' });
+      tracker.addError({ error: 'Error 2', file: 'file2.txt' });
 
       const progress = tracker.snapshot();
       expect(progress.errors).toHaveLength(2);
       expect(progress.errors).toEqual([
-        { file: 'file1.txt', error: 'Error 1' },
-        { file: 'file2.txt', error: 'Error 2' },
+        { error: 'Error 1', file: 'file1.txt' },
+        { error: 'Error 2', file: 'file2.txt' },
       ]);
     });
 
@@ -90,10 +90,10 @@ describe('ImportProgressTracker', () => {
 
       expect(tracker.errorCount).toBe(0);
 
-      tracker.addError({ file: 'test.txt', error: 'Error' });
+      tracker.addError({ error: 'Error', file: 'test.txt' });
       expect(tracker.errorCount).toBe(1);
 
-      tracker.addError({ file: 'test2.txt', error: 'Error 2' });
+      tracker.addError({ error: 'Error 2', file: 'test2.txt' });
       expect(tracker.errorCount).toBe(2);
     });
   });
@@ -104,19 +104,19 @@ describe('ImportProgressTracker', () => {
       const tracker = new ImportProgressTracker(10, listener);
 
       tracker.addErrors([
-        { file: 'file1.txt', error: 'Error 1' },
-        { file: 'file2.txt', error: 'Error 2' },
-        { file: 'file3.txt', error: 'Error 3' },
+        { error: 'Error 1', file: 'file1.txt' },
+        { error: 'Error 2', file: 'file2.txt' },
+        { error: 'Error 3', file: 'file3.txt' },
       ]);
 
       expect(listener).toHaveBeenCalledWith({
-        total: 10,
         completed: 0,
         errors: [
-          { file: 'file1.txt', error: 'Error 1' },
-          { file: 'file2.txt', error: 'Error 2' },
-          { file: 'file3.txt', error: 'Error 3' },
+          { error: 'Error 1', file: 'file1.txt' },
+          { error: 'Error 2', file: 'file2.txt' },
+          { error: 'Error 3', file: 'file3.txt' },
         ],
+        total: 10,
       });
     });
 
@@ -132,10 +132,10 @@ describe('ImportProgressTracker', () => {
     it('accumulates with existing errors', () => {
       const tracker = new ImportProgressTracker(10);
 
-      tracker.addError({ file: 'existing.txt', error: 'Existing error' });
+      tracker.addError({ error: 'Existing error', file: 'existing.txt' });
       tracker.addErrors([
-        { file: 'new1.txt', error: 'New error 1' },
-        { file: 'new2.txt', error: 'New error 2' },
+        { error: 'New error 1', file: 'new1.txt' },
+        { error: 'New error 2', file: 'new2.txt' },
       ]);
 
       const progress = tracker.snapshot();
@@ -151,9 +151,9 @@ describe('ImportProgressTracker', () => {
       tracker.update(5);
 
       expect(listener).toHaveBeenCalledWith({
-        total: 10,
         completed: 5,
         errors: [],
+        total: 10,
       });
     });
 
@@ -164,10 +164,10 @@ describe('ImportProgressTracker', () => {
       tracker.update(3, 'processing-file.txt');
 
       expect(listener).toHaveBeenCalledWith({
-        total: 10,
         completed: 3,
         current: 'processing-file.txt',
         errors: [],
+        total: 10,
       });
     });
 
@@ -213,9 +213,9 @@ describe('ImportProgressTracker', () => {
       const progress = tracker.snapshot();
       expect(progress.current).toBeUndefined();
       expect(listener).toHaveBeenLastCalledWith({
-        total: 10,
         completed: 5,
         errors: [],
+        total: 10,
       });
     });
 
@@ -249,7 +249,7 @@ describe('ImportProgressTracker', () => {
       const tracker = new ImportProgressTracker(10);
 
       tracker.update(5);
-      tracker.addError({ file: 'test.txt', error: 'Error' });
+      tracker.addError({ error: 'Error', file: 'test.txt' });
 
       const snapshot1 = tracker.snapshot();
 
@@ -283,7 +283,7 @@ describe('ImportProgressTracker', () => {
     it('returns a copy of errors array', () => {
       const tracker = new ImportProgressTracker(10);
 
-      tracker.addError({ file: 'test.txt', error: 'Error' });
+      tracker.addError({ error: 'Error', file: 'test.txt' });
 
       const snapshot1 = tracker.snapshot();
       const snapshot2 = tracker.snapshot();
@@ -318,12 +318,12 @@ describe('ImportProgressTracker', () => {
     it('preserves errors', () => {
       const tracker = new ImportProgressTracker(10);
 
-      tracker.addError({ file: 'error.txt', error: 'Failed' });
+      tracker.addError({ error: 'Failed', file: 'error.txt' });
 
       const final = tracker.complete();
 
       expect(final.errors).toHaveLength(1);
-      expect(final.errors[0]).toEqual({ file: 'error.txt', error: 'Failed' });
+      expect(final.errors[0]).toEqual({ error: 'Failed', file: 'error.txt' });
     });
 
     it('returns snapshot with completed === total even if previously higher', () => {
@@ -344,12 +344,12 @@ describe('ImportProgressTracker', () => {
 
       expect(tracker.errorCount).toBe(0);
 
-      tracker.addError({ file: 'file1.txt', error: 'Error 1' });
+      tracker.addError({ error: 'Error 1', file: 'file1.txt' });
       expect(tracker.errorCount).toBe(1);
 
       tracker.addErrors([
-        { file: 'file2.txt', error: 'Error 2' },
-        { file: 'file3.txt', error: 'Error 3' },
+        { error: 'Error 2', file: 'file2.txt' },
+        { error: 'Error 3', file: 'file3.txt' },
       ]);
       expect(tracker.errorCount).toBe(3);
     });
@@ -361,7 +361,7 @@ describe('ImportProgressTracker', () => {
 
       expect(() => {
         tracker.update(5);
-        tracker.addError({ file: 'test.txt', error: 'Error' });
+        tracker.addError({ error: 'Error', file: 'test.txt' });
         tracker.clearCurrent();
       }).not.toThrow();
     });
@@ -376,7 +376,7 @@ describe('ImportProgressTracker', () => {
 
       tracker.update(1);
       tracker.update(2);
-      tracker.addError({ file: 'test.txt', error: 'Error' });
+      tracker.addError({ error: 'Error', file: 'test.txt' });
 
       expect(snapshots).toHaveLength(3);
       expect(snapshots[0]?.completed).toBe(1);
@@ -400,7 +400,7 @@ describe('ImportProgressTracker', () => {
       // Process files
       tracker.update(1, 'file1.txt');
       tracker.update(2, 'file2.txt');
-      tracker.addError({ file: 'file3.txt', error: 'Failed to read' }); // This also triggers notification
+      tracker.addError({ error: 'Failed to read', file: 'file3.txt' }); // This also triggers notification
       tracker.update(3, 'file4.txt');
       tracker.update(4, 'file5.txt');
 
@@ -418,9 +418,9 @@ describe('ImportProgressTracker', () => {
       const tracker = new ImportProgressTracker(3);
 
       tracker.addErrors([
-        { file: 'file1.txt', error: 'Error 1' },
-        { file: 'file2.txt', error: 'Error 2' },
-        { file: 'file3.txt', error: 'Error 3' },
+        { error: 'Error 1', file: 'file1.txt' },
+        { error: 'Error 2', file: 'file2.txt' },
+        { error: 'Error 3', file: 'file3.txt' },
       ]);
 
       const final = tracker.complete();

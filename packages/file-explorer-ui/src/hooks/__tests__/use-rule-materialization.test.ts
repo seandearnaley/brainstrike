@@ -11,10 +11,10 @@ function createValidRuleSet(folderId: string, patterns: string[]) {
     ...base,
     rules: [
       {
-        type: 'glob-include' as const,
+        createdAt: new Date().toISOString(),
         id: 'r1',
         patterns,
-        createdAt: new Date().toISOString(),
+        type: 'glob-include' as const,
       },
     ],
   };
@@ -32,11 +32,11 @@ vi.mock('../../shell/file-explorer-provider', () => {
 });
 
 const defaultSelectionModel = {
-  mode: 'explicit' as const,
   explicitPaths: new Set<string>(),
-  ruleSetJson: null,
-  materializedPaths: null,
   materializedAt: null,
+  materializedPaths: null,
+  mode: 'explicit' as const,
+  ruleSetJson: null,
 };
 
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
@@ -49,29 +49,29 @@ function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   const store = vi.fn((selector: (s: typeof state) => unknown) => selector(state));
   Object.assign(store, { getState: () => state });
   return {
-    store: store as unknown as ReturnType<typeof useFileExplorerStoreContext>,
     setMaterializedPaths,
+    store: store as unknown as ReturnType<typeof useFileExplorerStoreContext>,
   };
 }
 
 const sampleFileTree = [
   createDirectoryNode({
-    name: 'src',
-    path: '/src',
     children: [
       createFileNode({ name: 'index.ts', path: '/src/index.ts' }),
       createFileNode({ name: 'utils.ts', path: '/src/utils.ts' }),
       createDirectoryNode({
+        children: [createFileNode({ name: 'Button.tsx', path: '/src/components/Button.tsx' })],
         name: 'components',
         path: '/src/components',
-        children: [createFileNode({ name: 'Button.tsx', path: '/src/components/Button.tsx' })],
       }),
     ],
+    name: 'src',
+    path: '/src',
   }),
   createDirectoryNode({
+    children: [createFileNode({ name: 'fake.ts', path: '/src-generated/fake.ts' })],
     name: 'src-generated',
     path: '/src-generated',
-    children: [createFileNode({ name: 'fake.ts', path: '/src-generated/fake.ts' })],
   }),
   createFileNode({ name: 'README.md', path: '/README.md' }),
 ];
@@ -116,7 +116,7 @@ describe('useRuleMaterialization', () => {
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
-    renderHook(() => useRuleMaterialization({ fileTree: sampleFileTree, enabled: false }));
+    renderHook(() => useRuleMaterialization({ enabled: false, fileTree: sampleFileTree }));
 
     expect(setMaterializedPaths).not.toHaveBeenCalled();
   });
@@ -166,11 +166,11 @@ describe('useRuleMaterialization', () => {
       ...createValidRuleSet('root', []),
       rules: [
         {
-          type: 'root-include' as const,
-          id: 'r1',
-          roots: ['/src'],
-          maxDepth: 0,
           createdAt: new Date().toISOString(),
+          id: 'r1',
+          maxDepth: 0,
+          roots: ['/src'],
+          type: 'root-include' as const,
         },
       ],
     });
@@ -210,8 +210,8 @@ describe('useRuleMaterialization', () => {
     const { store } = createMockStore({
       selectionModel: {
         ...defaultSelectionModel,
-        mode: 'rules' as const,
         materializedPaths,
+        mode: 'rules' as const,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);

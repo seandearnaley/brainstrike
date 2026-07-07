@@ -23,18 +23,18 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
       expect(mockElectronAPI.fileSystem.requestDirectoryAccess).toHaveBeenCalledOnce();
       expect(result).toEqual({
-        path: '/mock/path',
-        name: 'mock-directory',
         kind: 'directory',
+        name: 'mock-directory',
+        path: '/mock/path',
         platform: 'electron',
       });
     });
 
     it('should save folder path when handle has path', async () => {
       const mockHandle = {
-        path: '/test/folder/path',
-        name: 'test-directory',
         kind: 'directory' as const,
+        name: 'test-directory',
+        path: '/test/folder/path',
         platform: 'electron' as const,
       };
 
@@ -47,9 +47,9 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
     it('should not save folder path when handle has no path', async () => {
       const mockHandle = {
-        path: '',
-        name: 'test-directory',
         kind: 'directory' as const,
+        name: 'test-directory',
+        path: '',
         platform: 'electron' as const,
       };
 
@@ -64,20 +64,20 @@ describe('ElectronRendererFileSystemAdapter', () => {
   describe('readDirectory', () => {
     it('should call electronAPI.fileSystem.readDirectory with handle', async () => {
       const mockHandle = {
-        path: '/test',
-        name: 'test',
         kind: 'directory' as const,
+        name: 'test',
+        path: '/test',
         platform: 'electron' as const,
       };
       const mockFiles = [
         {
+          depth: 0,
+          isVisible: true,
           name: 'file1.txt',
           path: '/test/file1.txt',
-          type: 'file',
-          depth: 0,
-          selectionState: 'unchecked',
           rootFolderId: 'test',
-          isVisible: true,
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ];
 
@@ -93,9 +93,9 @@ describe('ElectronRendererFileSystemAdapter', () => {
   describe('readFile', () => {
     it('should call electronAPI.fileSystem.readFile with handle', async () => {
       const mockHandle = {
-        path: '/test/file.txt',
-        name: 'file.txt',
         kind: 'file' as const,
+        name: 'file.txt',
+        path: '/test/file.txt',
         platform: 'electron' as const,
       };
       const mockContent = 'file content';
@@ -234,9 +234,9 @@ describe('ElectronRendererFileSystemAdapter', () => {
   describe('restoreLastFolder', () => {
     it('should call electronAPI.fileSystem.restoreLastFolder', async () => {
       const mockHandle = {
-        path: '/restored/folder/path',
-        name: 'restored-folder',
         kind: 'directory' as const,
+        name: 'restored-folder',
+        path: '/restored/folder/path',
         platform: 'electron' as const,
       };
 

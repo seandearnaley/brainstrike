@@ -57,8 +57,8 @@ function createVectorPreferencesStorage() {
   if (electronStorage) {
     return {
       getItem: (key: string) => electronStorage.getItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
       removeItem: (key: string) => electronStorage.removeItem(key),
+      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
     };
   }
 
@@ -74,8 +74,8 @@ function normalizePersistedVectorPreferences(
   const devicePrefConfigured = persistedState.devicePrefConfigured === true;
   const parsedDevicePref = persistedState.devicePref === 'wasm' ? 'wasm' : 'webgpu';
   return {
-    devicePrefConfigured,
     devicePref: devicePrefConfigured ? parsedDevicePref : 'webgpu',
+    devicePrefConfigured,
     reinitEveryN: persistedState.reinitEveryN ?? 200,
     verboseOrtLogs: persistedState.verboseOrtLogs ?? false,
   };
@@ -117,12 +117,11 @@ const storage = createJSONStorage(() => createVectorPreferencesStorage());
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
     (set) => ({
-      hasHydrated: false,
-      devicePrefConfigured: false,
       devicePref: 'webgpu',
-      reinitEveryN: 200,
-      verboseOrtLogs: false,
+      devicePrefConfigured: false,
+      hasHydrated: false,
       markHydrated: () => set({ hasHydrated: true }),
+      reinitEveryN: 200,
       setDetectedDevicePref: (v) => {
         if (v === 'wasm') {
           throw new Error(AUTOMATIC_WASM_DETECTION_ERROR);
@@ -132,22 +131,9 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       setDevicePref: (v) => set({ devicePref: v, devicePrefConfigured: true }),
       setReinitEveryN: (n) => set({ reinitEveryN: Math.max(1, Math.floor(n)) }),
       setVerboseOrtLogs: (v) => set({ verboseOrtLogs: !!v }),
+      verboseOrtLogs: false,
     }),
     {
-      name: STORE_NAME,
-      version: 3,
-      storage,
-      partialize: (s) => ({
-        devicePrefConfigured: s.devicePrefConfigured,
-        devicePref: s.devicePref,
-        reinitEveryN: s.reinitEveryN,
-        verboseOrtLogs: s.verboseOrtLogs,
-      }),
-      onRehydrateStorage: () => (_state, error) => {
-        if (error) {
-          return;
-        }
-      },
       migrate: (persistedState) => {
         if (!persistedState) {
           // Return explicit defaults so Zustand never sees undefined fields
@@ -166,6 +152,19 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         };
         return normalizePersistedVectorPreferences(state);
       },
+      name: STORE_NAME,
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+        }
+      },
+      partialize: (s) => ({
+        devicePref: s.devicePref,
+        devicePrefConfigured: s.devicePrefConfigured,
+        reinitEveryN: s.reinitEveryN,
+        verboseOrtLogs: s.verboseOrtLogs,
+      }),
+      storage,
+      version: 3,
     }
   )
 );

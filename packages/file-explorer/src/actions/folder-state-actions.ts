@@ -58,11 +58,11 @@ function buildRestoreState(
 ): Partial<FileExplorerState> {
   return {
     currentFolderId: folderId,
-    folderStates,
     folderAccessOrder: order,
+    folderStates,
+    querySelectionManifest: null,
     selectedFilePaths: new Set(folderState.selectedFilePaths),
     selectionModel: normalizeHydratedSelectionModel(state, folderState),
-    querySelectionManifest: null,
     // WORKSPACE-GLOBAL state is never hydrated from folder snapshots:
     // maxSelectionCount, includeFilters, excludeFilters, useRegex,
     // viewFilterPresetId, expandedDirectoryPaths, tokenBudget,
@@ -83,11 +83,11 @@ function buildNewFolderState(
 ): Partial<FileExplorerState> {
   return {
     currentFolderId: folderId,
-    folderStates,
     folderAccessOrder: order,
+    folderStates,
+    querySelectionManifest: null,
     selectedFilePaths: new Set<string>(),
     selectionModel: createNewFolderState().selectionModel,
-    querySelectionManifest: null,
     // expandedDirectoryPaths is WORKSPACE-GLOBAL — focusing a brand-new root
     // must not collapse every other section's expansions.
   };
@@ -100,12 +100,12 @@ function buildResetState(
 ): Partial<FileExplorerState> {
   return {
     currentFolderId: null,
-    folderStates,
+    expandedDirectoryPaths: new Set<string>(),
     folderAccessOrder: order,
+    folderStates,
+    querySelectionManifest: null,
     selectedFilePaths: new Set<string>(),
     selectionModel: createNewFolderState().selectionModel,
-    querySelectionManifest: null,
-    expandedDirectoryPaths: new Set<string>(),
   };
 }
 
@@ -157,6 +157,27 @@ export const createFolderStateActions = (
   set: SetState<FileExplorerState>,
   get: GetState<FileExplorerState>
 ): FolderStateActions => ({
+  hydrateFolderState: (folderId: string) => {
+    set((state) => {
+      const folderState = state.folderStates[folderId];
+      if (!folderState) {
+        return {};
+      }
+
+      const updatedFolderState = { ...folderState, lastAccessed: Date.now() };
+      const order = updateFolderAccessOrder(state.folderAccessOrder, folderId);
+
+      return {
+        folderAccessOrder: order,
+        folderStates: { ...state.folderStates, [folderId]: updatedFolderState },
+        querySelectionManifest: null,
+        selectedFilePaths: new Set(folderState.selectedFilePaths),
+        selectionModel: normalizeHydratedSelectionModel(state, folderState),
+        // WORKSPACE-GLOBAL state is never hydrated — see buildRestoreState.
+        // Only the selection is per-root.
+      };
+    });
+  },
   setCurrentFolderId: (folderId: string | null) => {
     const state = get();
     const currentFolderId = state.currentFolderId;
@@ -190,33 +211,11 @@ export const createFolderStateActions = (
             selectedFilePaths: selected,
             selectionModel: {
               ...base.selectionModel,
-              mode: 'explicit',
               explicitPaths: new Set(compositeKeys),
+              mode: 'explicit',
             },
           },
         },
-      };
-    });
-  },
-
-  hydrateFolderState: (folderId: string) => {
-    set((state) => {
-      const folderState = state.folderStates[folderId];
-      if (!folderState) {
-        return {};
-      }
-
-      const updatedFolderState = { ...folderState, lastAccessed: Date.now() };
-      const order = updateFolderAccessOrder(state.folderAccessOrder, folderId);
-
-      return {
-        folderStates: { ...state.folderStates, [folderId]: updatedFolderState },
-        folderAccessOrder: order,
-        selectedFilePaths: new Set(folderState.selectedFilePaths),
-        selectionModel: normalizeHydratedSelectionModel(state, folderState),
-        querySelectionManifest: null,
-        // WORKSPACE-GLOBAL state is never hydrated — see buildRestoreState.
-        // Only the selection is per-root.
       };
     });
   },

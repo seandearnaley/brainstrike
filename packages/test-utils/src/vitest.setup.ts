@@ -49,17 +49,17 @@ afterEach(() => {
 if (typeof window !== 'undefined') {
   // Mock window.matchMedia
   Object.defineProperty(window, 'matchMedia', {
-    writable: true,
     value: vi.fn().mockImplementation((query) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
       matches: false,
       media: query,
       onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
+      removeListener: vi.fn(),
     })),
+    writable: true,
   });
 
   // Mock IntersectionObserver
@@ -71,9 +71,9 @@ if (typeof window !== 'undefined') {
   }
 
   Object.defineProperty(window, 'IntersectionObserver', {
-    writable: true,
     configurable: true,
     value: MockIntersectionObserver,
+    writable: true,
   });
 
   // Mock ResizeObserver
@@ -84,9 +84,9 @@ if (typeof window !== 'undefined') {
   }
 
   Object.defineProperty(window, 'ResizeObserver', {
-    writable: true,
     configurable: true,
     value: MockResizeObserver,
+    writable: true,
   });
 }
 
@@ -117,11 +117,11 @@ if (!(Buffer.prototype as unknown as { arrayBuffer?: () => ArrayBuffer }).arrayB
   Object.defineProperty(Buffer.prototype, 'arrayBuffer', {
     configurable: true,
     enumerable: false,
-    writable: true,
     value(this: Buffer) {
       const { buffer, byteOffset, byteLength } = this;
       return buffer.slice(byteOffset, byteOffset + byteLength);
     },
+    writable: true,
   });
 }
 

@@ -58,6 +58,10 @@ function createTokenPreferencesStorage(): StateStorage {
         return null;
       }
     },
+    removeItem: (key) => {
+      removeStoredValue(readLocalStorage(), key);
+      memory.delete(key);
+    },
     setItem: (key, value) => {
       if (!shouldPersistValue(value)) {
         removeStoredValue(readLocalStorage(), key);
@@ -75,10 +79,6 @@ function createTokenPreferencesStorage(): StateStorage {
       }
       memory.set(key, value);
     },
-    removeItem: (key) => {
-      removeStoredValue(readLocalStorage(), key);
-      memory.delete(key);
-    },
   };
 }
 
@@ -91,9 +91,6 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
       setAccurateCounting: (enabled) => set({ accurateCounting: !!enabled }),
     }),
     {
-      name: STORE_NAME,
-      version: 1,
-      storage,
       migrate: (state) => {
         const snapshot = state as Partial<TokenPreferencesStore> | undefined;
         if (!snapshot) {
@@ -106,9 +103,12 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
             typeof snapshot.accurateCounting === 'boolean' ? snapshot.accurateCounting : true,
         } satisfies Partial<TokenPreferencesStore>;
       },
+      name: STORE_NAME,
       partialize: (store) => ({
         accurateCounting: store.accurateCounting,
       }),
+      storage,
+      version: 1,
     }
   )
 );

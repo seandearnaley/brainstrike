@@ -24,23 +24,23 @@ const noop = (): void => undefined;
 const makeFn = (): ((...args: unknown[]) => undefined) => () => undefined;
 
 export const app = {
+  exit: noop,
+  getAppPath: () => '/mock/app',
+  getLocale: () => 'en-US',
+  getName: () => 'Brainstrike',
+  getPath: () => '/mock/path',
+  getVersion: () => '0.0.0-test',
   isPackaged: false,
-  whenReady: () => Promise.resolve(),
   isReady: () => true,
+  off: makeFn(),
   on: makeFn(),
   once: makeFn(),
-  off: makeFn(),
-  removeListener: makeFn(),
-  getAppPath: () => '/mock/app',
-  getPath: () => '/mock/path',
-  getName: () => 'Brainstrike',
-  getVersion: () => '0.0.0-test',
-  getLocale: () => 'en-US',
-  setName: noop,
   quit: noop,
-  exit: noop,
+  removeListener: makeFn(),
   requestSingleInstanceLock: () => true,
+  setName: noop,
   setPath: noop,
+  whenReady: () => Promise.resolve(),
 };
 
 export const BrowserWindow = class {
@@ -57,16 +57,16 @@ export const ipcMain = {
   handleOnce: makeFn(),
   on: makeFn(),
   once: makeFn(),
-  removeHandler: makeFn(),
   removeAllListeners: makeFn(),
+  removeHandler: makeFn(),
 };
 
 export const ipcRenderer = {
   invoke: () => Promise.resolve(undefined),
   on: makeFn(),
   once: makeFn(),
-  send: makeFn(),
   removeListener: makeFn(),
+  send: makeFn(),
 };
 
 export const contextBridge = {
@@ -79,16 +79,16 @@ export const clipboard = {
 };
 
 export const safeStorage = {
-  isEncryptionAvailable: () => true,
-  encryptString: (text: string) => Buffer.from(text),
   decryptString: (buffer: Buffer) => Buffer.from(buffer).toString('utf-8'),
-  setUsePlainTextEncryption: noop,
+  encryptString: (text: string) => Buffer.from(text),
   getSelectedStorageBackend: () => 'basic_text',
+  isEncryptionAvailable: () => true,
+  setUsePlainTextEncryption: noop,
 };
 
 export const screen = {
-  getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
-  getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+  getAllDisplays: () => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }],
+  getPrimaryDisplay: () => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }),
 };
 
 export const session = {
@@ -98,14 +98,14 @@ export const session = {
 };
 
 export const Menu = {
-  setApplicationMenu: noop,
   buildFromTemplate: makeFn(),
+  setApplicationMenu: noop,
 };
 
 export const dialog = {
+  showMessageBox: () => Promise.resolve({ response: 0 }),
   showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
   showSaveDialog: () => Promise.resolve({ canceled: true, filePath: undefined }),
-  showMessageBox: () => Promise.resolve({ response: 0 }),
 };
 
 export const shell = {
@@ -114,19 +114,19 @@ export const shell = {
 };
 
 export const powerMonitor = {
-  on: makeFn(),
   addListener: makeFn(),
+  on: makeFn(),
 };
 
 export const powerSaveBlocker = {
+  isStarted: () => false,
   start: () => 0,
   stop: noop,
-  isStarted: () => false,
 };
 
 export const webContents = {
-  getAllWebContents: () => [],
   fromId: () => null,
+  getAllWebContents: () => [],
 };
 
 export const utilityProcess = {
@@ -136,20 +136,20 @@ export const utilityProcess = {
 const electron = {
   app,
   BrowserWindow,
+  clipboard,
+  contextBridge,
+  dialog,
   ipcMain,
   ipcRenderer,
-  contextBridge,
-  clipboard,
+  Menu,
+  powerMonitor,
+  powerSaveBlocker,
   safeStorage,
   screen,
   session,
-  Menu,
-  dialog,
   shell,
-  powerMonitor,
-  powerSaveBlocker,
-  webContents,
   utilityProcess,
+  webContents,
 };
 
 export default electron;

@@ -111,7 +111,7 @@ export function useSearchFunctionality(
     const providerInstance = providerResult.value;
     return {
       embedQuery: async (text: string) => {
-        const result = await providerInstance.embed({ text, modelId });
+        const result = await providerInstance.embed({ modelId, text });
         if (!result.ok) {
           const error = result.error;
           const msg =
@@ -134,11 +134,11 @@ export function useSearchFunctionality(
     await svc.initializeWithModel(modelConfig, undefined, devicePref);
 
     return {
+      dispose: () => svc.dispose(),
       embedQuery: async (text: string) => {
         const result = await svc.generateQueryEmbedding(text);
         return { embedding: Array.from(result.embedding) };
       },
-      dispose: () => svc.dispose(),
     };
   }
 
@@ -244,13 +244,13 @@ export function useSearchFunctionality(
     }
     switch (provider) {
       case 'openai':
-        return { runtime: 'hosted', provider: 'openai', modelId, dimensions };
+        return { dimensions, modelId, provider: 'openai', runtime: 'hosted' };
       case 'google':
-        return { runtime: 'hosted', provider: 'google', modelId, outputDimensionality: dimensions };
+        return { modelId, outputDimensionality: dimensions, provider: 'google', runtime: 'hosted' };
       case 'cohere':
-        return { runtime: 'hosted', provider: 'cohere', modelId, inputType: 'search_query' };
+        return { inputType: 'search_query', modelId, provider: 'cohere', runtime: 'hosted' };
       case 'voyage':
-        return { runtime: 'hosted', provider: 'voyage', modelId, inputType: 'query' };
+        return { inputType: 'query', modelId, provider: 'voyage', runtime: 'hosted' };
       default:
         throw new Error(`Unhandled hosted provider: ${provider}`);
     }
@@ -283,7 +283,7 @@ export function useSearchFunctionality(
       throw new Error('Active embedding set is missing a model.');
     }
     return resolveEmbeddingSetModelInfo(
-      { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+      { dimensions: Number(row.dimensions), modelKey: row.modelKey },
       modelConfigMap
     );
   }
@@ -303,10 +303,10 @@ export function useSearchFunctionality(
     const message = err instanceof Error ? err.message : String(err);
     const needsSet = /requires embeddingSetId|active embedding set/i.test(message);
     toast({
-      title: 'Search Failed',
       description: needsSet
         ? 'Select an active embedding set in Vector Status, then retry.'
         : message || 'Unknown error',
+      title: 'Search Failed',
       variant: 'destructive',
     });
   }
@@ -316,15 +316,15 @@ export function useSearchFunctionality(
       if (!repository) {
         return chunkResults.map((chunkResult) => ({
           chunk: chunkResult.chunk,
-          similarity: chunkResult.similarity,
           fileRecord: {
+            createdAt: chunkResult.chunk.createdAt,
             id: chunkResult.chunk.fileRecordId,
             name: 'Unknown file',
             path: '(unavailable)',
             size: 0,
-            createdAt: chunkResult.chunk.createdAt,
             updatedAt: chunkResult.chunk.updatedAt,
           } as FileRecord,
+          similarity: chunkResult.similarity,
         }));
       }
 
@@ -344,18 +344,18 @@ export function useSearchFunctionality(
         if (!fileRecord) {
           // Fallback: synthesize minimal record to avoid hiding valid matches
           fileRecord = {
+            createdAt: chunkResult.chunk.createdAt,
             id: chunkResult.chunk.fileRecordId,
             name: 'Unknown file',
             path: '(unavailable)',
             size: 0,
-            createdAt: chunkResult.chunk.createdAt,
             updatedAt: chunkResult.chunk.updatedAt,
           } as FileRecord;
         }
         return {
           chunk: chunkResult.chunk,
-          similarity: chunkResult.similarity,
           fileRecord,
+          similarity: chunkResult.similarity,
         };
       });
     },
@@ -402,7 +402,7 @@ export function useSearchFunctionality(
           const adjacencyBoost = seen.has(leftKey) || seen.has(rightKey) ? weights.adjacency : 0;
           const blended =
             weights.vector * r.similarity + fileBoost + weights.lexical * lex + adjacencyBoost;
-          return { value: r, score: blended };
+          return { score: blended, value: r };
         });
         return scored.sort((a, b) => b.score - a.score).map((s) => s.value);
       })();
@@ -421,14 +421,14 @@ export function useSearchFunctionality(
   }, [searchQuery, chunkRepository, db, searchThreshold, enrichChunkResults]);
 
   return {
-    searchQuery,
-    setSearchQuery,
-    searchResults,
-    searching,
-    searchThreshold,
-    setSearchThreshold,
     handleSearch,
     hasSearched,
+    searching,
+    searchQuery,
+    searchResults,
+    searchThreshold,
+    setSearchQuery,
+    setSearchThreshold,
   };
 }
 
@@ -499,10 +499,10 @@ function getDefaultSearchThreshold(): number {
 }
 
 const DEFAULT_RERANK_WEIGHTS = {
-  vector: 0.75,
+  adjacency: 0.05,
   fileBoost: 0.15,
   lexical: 0.1,
-  adjacency: 0.05,
+  vector: 0.75,
 };
 
 /**
@@ -541,7 +541,7 @@ function getReRankWeights(): {
   adjacency =
     readNumberEnv(['VITE_RERANK_ADJACENCY', 'RERANK_ADJACENCY']) ??
     DEFAULT_RERANK_WEIGHTS.adjacency;
-  return { vector, fileBoost, lexical, adjacency };
+  return { adjacency, fileBoost, lexical, vector };
 }
 
 type EnvMap = Record<string, string | undefined>;

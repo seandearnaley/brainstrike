@@ -9,9 +9,9 @@ describe('buildNodeFromPath', () => {
     const node = buildNodeFromPath('/root/a/b', '/root', 'root-folder', directoryHandle);
 
     expect(node).toMatchObject({
+      depth: 1,
       name: 'b',
       path: '/root/a/b',
-      depth: 1,
       rootFolderId: 'root-folder',
       type: 'directory',
     });

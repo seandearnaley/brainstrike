@@ -17,25 +17,25 @@ vi.mock('../use-toast', async (importOriginal) => {
 });
 
 const copyName = defineContextAction({
+  appliesTo: ['file-entry'] as const,
+  group: 'copy',
   id: 'file.copy-name',
   label: 'Copy Name',
-  group: 'copy',
-  appliesTo: ['file-entry'] as const,
   requiredCapabilities: ['clipboard'] as const,
   run: async (target, services) => {
     if (!services.clipboard) {
-      return { ok: false, error: 'Clipboard service unavailable' };
+      return { error: 'Clipboard service unavailable', ok: false };
     }
     const outcome = await services.clipboard.writeText(target.name);
-    return outcome.ok ? { ok: true, message: 'Name copied' } : outcome;
+    return outcome.ok ? { message: 'Name copied', ok: true } : outcome;
   },
 });
 
 const revealAction = defineContextAction({
+  appliesTo: ['file-entry'] as const,
+  group: 'navigate',
   id: 'file.reveal',
   label: 'Reveal in Finder',
-  group: 'navigate',
-  appliesTo: ['file-entry'] as const,
   requiredCapabilities: ['fs.reveal'] as const,
   run: () => Promise.resolve({ ok: true }),
 });
@@ -51,11 +51,11 @@ function Harness({ localActions = [] }: { localActions?: readonly AnyContextActi
           data-testid="row-a"
           onContextMenu={() =>
             controller.setTarget({
+              absolutePath: '/root/docs/notes.md',
+              entryType: 'file',
               kind: 'file-entry',
               name: 'notes.md',
               relativePath: 'docs/notes.md',
-              absolutePath: '/root/docs/notes.md',
-              entryType: 'file',
               rootFolderId: '/root',
             })
           }
@@ -172,11 +172,11 @@ describe('ActionContextMenu', () => {
 
   it('toasts destructively and logs when an action resolves a failure outcome', async () => {
     const failing = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.fail',
       label: 'Fail',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
-      run: () => Promise.resolve({ ok: false, error: 'boom' }),
+      run: () => Promise.resolve({ error: 'boom', ok: false }),
     });
     renderHarness({ localActions: [failing] });
     await openMenuOnRow();
@@ -197,10 +197,10 @@ describe('ActionContextMenu', () => {
 
   it('surfaces a rejecting action as an unexpected failure', async () => {
     const rejecting = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.reject',
       label: 'Reject',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
       run: () => Promise.reject(new Error('kaboom')),
     });
     renderHarness({ localActions: [rejecting] });
@@ -219,10 +219,10 @@ describe('ActionContextMenu', () => {
 
   it('surfaces a synchronously-throwing action instead of letting it escape onSelect', async () => {
     const throwing = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'danger',
       id: 'file.throw',
       label: 'Throw',
-      group: 'danger',
-      appliesTo: ['file-entry'] as const,
       run: () => {
         throw new Error('sync-kaboom');
       },
@@ -251,12 +251,12 @@ describe('ActionContextMenu', () => {
 
   it('renders gated items disabled and does not run them on click', async () => {
     const gated = defineContextAction({
-      id: 'file.copy-gated',
-      label: 'Copy (loading)',
-      group: 'copy',
       appliesTo: ['file-entry'] as const,
-      requiredCapabilities: ['clipboard'] as const,
+      group: 'copy',
+      id: 'file.copy-gated',
       isEnabled: () => false,
+      label: 'Copy (loading)',
+      requiredCapabilities: ['clipboard'] as const,
       run: async (target, services) => {
         await services.clipboard?.writeText(target.name);
         return { ok: true };
@@ -273,10 +273,10 @@ describe('ActionContextMenu', () => {
 
   it('renders a function label computed from the target', async () => {
     const labelled = defineContextAction({
+      appliesTo: ['file-entry'] as const,
+      group: 'copy',
       id: 'file.labelled',
       label: (target) => `Copy "${target.name}"`,
-      group: 'copy',
-      appliesTo: ['file-entry'] as const,
       run: () => Promise.resolve({ ok: true }),
     });
     renderHarness({ localActions: [labelled] });

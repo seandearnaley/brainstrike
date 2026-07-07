@@ -100,8 +100,8 @@ interface RuntimeProbeDefinition {
 }
 
 const DEFAULT_RUNTIME_BASE_URLS: Record<LocalRuntimeId, string> = {
-  ollama: 'http://127.0.0.1:11434',
   lmstudio: 'http://127.0.0.1:1234',
+  ollama: 'http://127.0.0.1:11434',
 };
 
 interface RuntimeCacheEntry {
@@ -134,8 +134,8 @@ const LM_STUDIO_PROBE_PATHS: readonly RuntimeProbePath[] = [
 ];
 
 const DEFAULT_PROBE_PATHS: Record<LocalRuntimeId, readonly RuntimeProbePath[]> = {
-  ollama: OLLAMA_PROBE_PATHS,
   lmstudio: LM_STUDIO_PROBE_PATHS,
+  ollama: OLLAMA_PROBE_PATHS,
 };
 
 export function resolveRuntimeBaseUrl(
@@ -329,8 +329,8 @@ function looksLikeCorsFailure(message: string): boolean {
 
 /** Human-friendly product names for the desktop CORS hint. */
 const RUNTIME_DISPLAY_NAMES: Readonly<Record<LocalRuntimeId, string>> = {
-  ollama: 'Ollama',
   lmstudio: 'LM Studio',
+  ollama: 'Ollama',
 };
 
 function buildDesktopCorsHint(runtime: LocalRuntimeId): string {
@@ -358,23 +358,23 @@ function toFailureState(
   const message = extractErrorMessage(error);
   if (isLikelyWebPolicyBlock(surface, endpoint, message)) {
     return {
-      state: 'blocked_web',
       checkedAt,
       message,
+      state: 'blocked_web',
     };
   }
   if (surface === 'desktop' && looksLikeCorsFailure(message)) {
     return {
-      state: 'unavailable',
       checkedAt,
-      message,
       hint: buildDesktopCorsHint(runtime),
+      message,
+      state: 'unavailable',
     };
   }
   return {
-    state: 'unavailable',
     checkedAt,
     message,
+    state: 'unavailable',
   };
 }
 
@@ -402,44 +402,44 @@ function evaluateProbeResponse(
 ): LocalRuntimeAvailableState | LocalRuntimeFailureState {
   if (responseResult.response.status === 401 || responseResult.response.status === 403) {
     return {
-      state: 'auth_required',
       checkedAt,
       endpoint: probe.endpoint,
+      state: 'auth_required',
       status: responseResult.response.status,
     };
   }
 
   if (!responseResult.response.ok) {
     return {
-      state: 'unavailable',
       checkedAt,
       message: `Probe failed (${responseResult.response.status}) at ${probe.endpoint}`,
+      state: 'unavailable',
     };
   }
 
   if (responseResult.parseError) {
     return {
-      state: 'incompatible',
       checkedAt,
       endpoint: probe.endpoint,
       message: `Invalid JSON response at ${probe.endpoint}`,
+      state: 'incompatible',
     };
   }
 
   if (probe.validator(responseResult.payload)) {
     return {
-      state: 'available',
       checkedAt,
       endpoint: probe.endpoint,
       latencyMs: responseResult.latencyMs,
+      state: 'available',
     };
   }
 
   return {
-    state: 'incompatible',
     checkedAt,
     endpoint: probe.endpoint,
     message: `Unexpected response shape at ${probe.endpoint}`,
+    state: 'incompatible',
   };
 }
 
@@ -515,8 +515,8 @@ export class LocalRuntimeDiscoveryService {
     ]);
 
     return {
-      ollama,
       lmstudio,
+      ollama,
     };
   }
 
@@ -608,16 +608,16 @@ export class LocalRuntimeDiscoveryService {
     if (result.state === 'available') {
       this.cache.set(runtime, {
         baseUrl,
-        status: result,
-        nextProbeAt: now + this.successTtlMs,
         consecutiveFailures: 0,
         lastSuccessfulAt: result.checkedAt,
         lastSuccessfulEndpoint: result.endpoint,
+        nextProbeAt: now + this.successTtlMs,
+        status: result,
       });
       this.logger.debug('local runtime probe succeeded', {
-        runtime,
         endpoint: result.endpoint,
         latencyMs: result.latencyMs,
+        runtime,
       });
       return result;
     }
@@ -631,15 +631,15 @@ export class LocalRuntimeDiscoveryService {
     // the backoff cache remains authoritative; unavailable local runtimes are
     // normal when users do not run Ollama or LM Studio.
     const probeFailurePayload = {
-      runtime,
+      consecutiveFailures: nextFailures,
       endpoint:
         'endpoint' in result
           ? result.endpoint
           : buildRuntimeEndpoint(baseUrl, DEFAULT_PROBE_PATHS[runtime][0]?.path ?? '/'),
-      state: result.state,
-      message: 'message' in result ? result.message : undefined,
       hint: 'hint' in result ? result.hint : undefined,
-      consecutiveFailures: nextFailures,
+      message: 'message' in result ? result.message : undefined,
+      runtime,
+      state: result.state,
     };
     if (nextFailures === 1 && options.diagnosticLogLevel !== 'debug') {
       this.logger.warn('local runtime probe did not reach available state', probeFailurePayload);
@@ -653,11 +653,11 @@ export class LocalRuntimeDiscoveryService {
 
     this.cache.set(runtime, {
       baseUrl,
-      status: nextStatus,
-      nextProbeAt: now + backoffMs,
       consecutiveFailures: nextFailures,
       lastSuccessfulAt: previousSuccessAt,
       lastSuccessfulEndpoint: previousSuccessEndpoint,
+      nextProbeAt: now + backoffMs,
+      status: nextStatus,
     });
 
     return nextStatus;
@@ -675,11 +675,11 @@ export class LocalRuntimeDiscoveryService {
     const message = getFailureMessage(failure);
 
     return {
-      state: 'stale',
       checkedAt: failure.checkedAt,
       endpoint: lastSuccessfulEndpoint,
       lastSuccessfulAt,
       reason: toFailureReason(failure.state),
+      state: 'stale',
       ...(message ? { message } : {}),
     };
   }
@@ -694,9 +694,9 @@ export class LocalRuntimeDiscoveryService {
   ): Promise<LocalRuntimeAvailableState | LocalRuntimeFailureState> {
     if (!this.fetchImpl) {
       return {
-        state: 'unavailable',
         checkedAt: this.now(),
         message: 'Fetch implementation is not available',
+        state: 'unavailable',
       };
     }
 
@@ -736,9 +736,9 @@ export class LocalRuntimeDiscoveryService {
     }
 
     return {
-      state: 'unavailable',
       checkedAt: this.now(),
       message: `No probe endpoints configured for ${runtime}`,
+      state: 'unavailable',
     };
   }
 }

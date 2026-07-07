@@ -435,8 +435,8 @@ function applySelectedDirectoryCountDiff(
 function createSelectedDirectoryCountSnapshot(folderId: string): SelectedDirectoryCountSnapshot {
   return {
     folderId,
-    selectedFilePaths: null,
     selectedDirectoryCounts: new Map(),
+    selectedFilePaths: null,
     selectedPathAncestorCache: new Map(),
   };
 }
@@ -458,8 +458,8 @@ function computeSelectedDirectoryCountSnapshot(
   if (!(folderId && selectedFilePaths.size > 0)) {
     return {
       folderId,
-      selectedFilePaths,
       selectedDirectoryCounts: new Map(),
+      selectedFilePaths,
       selectedPathAncestorCache: hasFolderChanged
         ? new Map()
         : previousSnapshot.selectedPathAncestorCache,
@@ -474,8 +474,8 @@ function computeSelectedDirectoryCountSnapshot(
     );
     return {
       folderId,
-      selectedFilePaths,
       selectedDirectoryCounts: rebuiltCounts.directoryCounts,
+      selectedFilePaths,
       selectedPathAncestorCache: rebuiltCounts.selectedPathAncestorCache,
     };
   }
@@ -490,8 +490,8 @@ function computeSelectedDirectoryCountSnapshot(
 
   return {
     folderId,
-    selectedFilePaths,
     selectedDirectoryCounts: updatedCounts.directoryCounts,
+    selectedFilePaths,
     selectedPathAncestorCache: updatedCounts.selectedPathAncestorCache,
   };
 }

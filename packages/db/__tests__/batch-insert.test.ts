@@ -53,16 +53,16 @@ describe('Batched insertMany', () => {
   it('should batch large inserts into chunks of 250', async () => {
     // Create 600 test chunks
     const chunks: FileChunkInsert[] = Array.from({ length: 600 }, (_, i) => ({
-      id: `chunk-${i}`,
-      fileRecordId: 'file-1',
       chunkIndex: i,
+      chunkSize: 100,
+      chunkType: 'text' as const,
       content: `Content ${i}`,
       contentHash: `hash-${i}`,
-      tokenCount: 100,
-      chunkType: 'text' as const,
-      chunkSize: 100,
-      embedding: undefined,
       createdAt: new Date().toISOString(),
+      embedding: undefined,
+      fileRecordId: 'file-1',
+      id: `chunk-${i}`,
+      tokenCount: 100,
       updatedAt: new Date().toISOString(),
     }));
 
@@ -95,16 +95,16 @@ describe('Batched insertMany', () => {
 
   it('should handle single chunk', async () => {
     const chunk: FileChunkInsert = {
-      id: 'chunk-1',
-      fileRecordId: 'file-1',
       chunkIndex: 0,
+      chunkSize: 12,
+      chunkType: 'text',
       content: 'Test content',
       contentHash: 'hash-1',
-      tokenCount: 10,
-      chunkType: 'text',
-      chunkSize: 12,
-      embedding: undefined,
       createdAt: new Date().toISOString(),
+      embedding: undefined,
+      fileRecordId: 'file-1',
+      id: 'chunk-1',
+      tokenCount: 10,
       updatedAt: new Date().toISOString(),
     };
 
@@ -117,29 +117,29 @@ describe('Batched insertMany', () => {
     // Create chunks with one duplicate that will cause an error
     const chunks: FileChunkInsert[] = [
       {
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Content 1',
         contentHash: 'hash-1',
-        tokenCount: 100,
-        chunkType: 'text',
-        chunkSize: 100,
-        embedding: undefined,
         createdAt: new Date().toISOString(),
+        embedding: undefined,
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        tokenCount: 100,
         updatedAt: new Date().toISOString(),
       },
       {
-        id: 'chunk-1', // Duplicate ID will cause error
-        fileRecordId: 'file-1',
         chunkIndex: 1,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Content 2',
         contentHash: 'hash-2',
-        tokenCount: 100,
-        chunkType: 'text',
-        chunkSize: 100,
-        embedding: undefined,
         createdAt: new Date().toISOString(),
+        embedding: undefined,
+        fileRecordId: 'file-1',
+        id: 'chunk-1', // Duplicate ID will cause error
+        tokenCount: 100,
         updatedAt: new Date().toISOString(),
       },
     ];
@@ -160,16 +160,16 @@ describe('Batched insertMany', () => {
     ]);
     const chunks: FileChunkInsert[] = [
       {
-        id: 'chunk-1',
-        fileRecordId: 'file-1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'Content with embedding',
         contentHash: 'hash-1',
-        tokenCount: 100,
-        chunkType: 'text',
-        chunkSize: 100,
-        embedding,
         createdAt: new Date().toISOString(),
+        embedding,
+        fileRecordId: 'file-1',
+        id: 'chunk-1',
+        tokenCount: 100,
         updatedAt: new Date().toISOString(),
       },
     ];
@@ -182,19 +182,19 @@ describe('Batched insertMany', () => {
   it('rejects embeddings that exceed the pgvector maximum dimension', async () => {
     const chunks: FileChunkInsert[] = [
       {
-        id: 'chunk-too-large',
-        fileRecordId: 'file-1',
         chunkIndex: 0,
+        chunkSize: 100,
+        chunkType: 'text',
         content: 'High dimension embedding',
         contentHash: 'hash-too-large',
-        tokenCount: 100,
-        chunkType: 'text',
-        chunkSize: 100,
+        createdAt: new Date().toISOString(),
         embedding: makeVector(16_001, [
           [0, 0.1],
           [16_000, 0.2],
         ]),
-        createdAt: new Date().toISOString(),
+        fileRecordId: 'file-1',
+        id: 'chunk-too-large',
+        tokenCount: 100,
         updatedAt: new Date().toISOString(),
       },
     ];

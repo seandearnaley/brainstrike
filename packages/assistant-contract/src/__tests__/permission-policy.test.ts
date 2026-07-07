@@ -13,10 +13,10 @@ const ALL_CATEGORIES: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 
 
 function makeInput(overrides: Partial<PermissionDecisionInput> = {}): PermissionDecisionInput {
   return {
-    riskCategory: 'edit',
     policies: { ...DEFAULT_PERMISSION_POLICIES },
-    yolo: false,
+    riskCategory: 'edit',
     sessionGrants: new Set<ToolRiskCategory>(),
+    yolo: false,
     ...overrides,
   };
 }
@@ -27,10 +27,10 @@ describe('DEFAULT_PERMISSION_POLICIES', () => {
     // (Mastra v1 has no per-tool suspend), so an 'ask' mcp default would drop
     // every user-configured MCP tool the moment enforcement is enabled.
     expect(DEFAULT_PERMISSION_POLICIES).toEqual({
-      read: 'allow',
       edit: 'ask',
       execute: 'ask',
       mcp: 'allow',
+      read: 'allow',
     });
   });
 
@@ -65,19 +65,19 @@ describe('resolvePermissionDecision', () => {
 
   it('YOLO resolves every category to allow, overriding deny/ask/override/grant', () => {
     const denyAll: PermissionPolicies = {
-      read: 'deny',
       edit: 'deny',
       execute: 'deny',
       mcp: 'deny',
+      read: 'deny',
     };
     for (const category of ALL_CATEGORIES) {
       const decision = resolvePermissionDecision(
         makeInput({
-          riskCategory: category,
-          yolo: true,
-          policies: denyAll,
           perToolOverrides: { 'some.tool': 'deny' },
+          policies: denyAll,
+          riskCategory: category,
           toolId: 'some.tool',
+          yolo: true,
         })
       );
       expect(decision).toBe('allow');
@@ -86,7 +86,7 @@ describe('resolvePermissionDecision', () => {
 
   it('keeps deny as deny unless YOLO, a grant, or an override changes it', () => {
     const policies: PermissionPolicies = { ...DEFAULT_PERMISSION_POLICIES, execute: 'deny' };
-    expect(resolvePermissionDecision(makeInput({ riskCategory: 'execute', policies }))).toBe(
+    expect(resolvePermissionDecision(makeInput({ policies, riskCategory: 'execute' }))).toBe(
       'deny'
     );
   });
@@ -106,7 +106,7 @@ describe('resolvePermissionDecision', () => {
     const policies: PermissionPolicies = { ...DEFAULT_PERMISSION_POLICIES, mcp: 'deny' };
     const grants = new Set<ToolRiskCategory>(['mcp']);
     expect(
-      resolvePermissionDecision(makeInput({ riskCategory: 'mcp', policies, sessionGrants: grants }))
+      resolvePermissionDecision(makeInput({ policies, riskCategory: 'mcp', sessionGrants: grants }))
     ).toBe('allow');
   });
 
@@ -114,9 +114,9 @@ describe('resolvePermissionDecision', () => {
     expect(
       resolvePermissionDecision(
         makeInput({
+          perToolOverrides: { 'brainstrike.trustedWrite': 'allow' },
           riskCategory: 'edit',
           toolId: 'brainstrike.trustedWrite',
-          perToolOverrides: { 'brainstrike.trustedWrite': 'allow' },
         })
       )
     ).toBe('allow');
@@ -126,9 +126,9 @@ describe('resolvePermissionDecision', () => {
     expect(
       resolvePermissionDecision(
         makeInput({
+          perToolOverrides: { 'brainstrike.secretRead': 'deny' },
           riskCategory: 'read',
           toolId: 'brainstrike.secretRead',
-          perToolOverrides: { 'brainstrike.secretRead': 'deny' },
         })
       )
     ).toBe('deny');
@@ -139,10 +139,10 @@ describe('resolvePermissionDecision', () => {
     expect(
       resolvePermissionDecision(
         makeInput({
+          perToolOverrides: { 'brainstrike.dangerousEdit': 'deny' },
           riskCategory: 'edit',
           sessionGrants: new Set<ToolRiskCategory>(['edit']),
           toolId: 'brainstrike.dangerousEdit',
-          perToolOverrides: { 'brainstrike.dangerousEdit': 'deny' },
         })
       )
     ).toBe('deny');
@@ -152,9 +152,9 @@ describe('resolvePermissionDecision', () => {
     expect(
       resolvePermissionDecision(
         makeInput({
+          perToolOverrides: { 'brainstrike.trustedWrite': 'allow' },
           riskCategory: 'edit',
           toolId: 'brainstrike.otherTool',
-          perToolOverrides: { 'brainstrike.trustedWrite': 'allow' },
         })
       )
     ).toBe('ask');
@@ -166,19 +166,19 @@ describe('resolvePermissionDecision', () => {
       execute: 'prompt',
     } as unknown as PermissionPolicies;
     expect(() =>
-      resolvePermissionDecision(makeInput({ riskCategory: 'execute', policies: malformed }))
+      resolvePermissionDecision(makeInput({ policies: malformed, riskCategory: 'execute' }))
     ).toThrow(InvalidPermissionPolicyError);
   });
 
   it('throws when a category is missing from the policy record', () => {
     const missing = {
-      read: 'allow',
       edit: 'ask',
       execute: 'ask',
+      read: 'allow',
       // mcp intentionally omitted
     } as unknown as PermissionPolicies;
     expect(() =>
-      resolvePermissionDecision(makeInput({ riskCategory: 'mcp', policies: missing }))
+      resolvePermissionDecision(makeInput({ policies: missing, riskCategory: 'mcp' }))
     ).toThrow(InvalidPermissionPolicyError);
   });
 
@@ -187,9 +187,9 @@ describe('resolvePermissionDecision', () => {
     expect(() =>
       resolvePermissionDecision(
         makeInput({
+          perToolOverrides: overrides as never,
           riskCategory: 'edit',
           toolId: 'brainstrike.tool',
-          perToolOverrides: overrides as never,
         })
       )
     ).toThrow(InvalidPermissionPolicyError);
@@ -201,7 +201,7 @@ describe('resolvePermissionDecision', () => {
       mcp: 'nope',
     } as unknown as PermissionPolicies;
     try {
-      resolvePermissionDecision(makeInput({ riskCategory: 'mcp', policies: malformed }));
+      resolvePermissionDecision(makeInput({ policies: malformed, riskCategory: 'mcp' }));
       expect.unreachable('expected resolvePermissionDecision to throw');
     } catch (error) {
       expect(error).toBeInstanceOf(InvalidPermissionPolicyError);

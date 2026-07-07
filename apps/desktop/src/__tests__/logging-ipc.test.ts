@@ -30,45 +30,45 @@ const mockIpcMain = {
 
 vi.mock('electron', () => ({
   app: {
+    getAppPath: vi.fn(() => '/mock/app'),
+    getName: vi.fn(() => 'Brainstrike'),
+    getPath: vi.fn(() => '/mock/path'),
+    getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,
-    whenReady: vi.fn(() => Promise.resolve()),
     isReady: vi.fn(() => true),
     on: vi.fn(),
-    getAppPath: vi.fn(() => '/mock/app'),
-    getPath: vi.fn(() => '/mock/path'),
-    getName: vi.fn(() => 'Brainstrike'),
-    getVersion: vi.fn(() => '0.0.0-test'),
     quit: vi.fn(),
+    whenReady: vi.fn(() => Promise.resolve()),
   },
   BrowserWindow: vi.fn(),
+  contextBridge: { exposeInMainWorld: vi.fn() },
+  dialog: {
+    showMessageBox: vi.fn(async () => ({ response: 0 })),
+  },
   ipcMain: mockIpcMain,
   ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
-  contextBridge: { exposeInMainWorld: vi.fn() },
-  webContents: {
-    getAllWebContents: vi.fn(() => mockAllWebContents),
-  },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }]),
-    getPrimaryDisplay: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } })),
+  Menu: {
+    buildFromTemplate: vi.fn(),
+    setApplicationMenu: vi.fn(),
   },
   safeStorage: {
     decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
     encryptString: vi.fn((text: string) => Buffer.from(text)),
+    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
     isEncryptionAvailable: vi.fn(() => true),
     setUsePlainTextEncryption: vi.fn(),
-    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
+  },
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }]),
+    getPrimaryDisplay: vi.fn(() => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } })),
   },
   session: {
     defaultSession: {
       webRequest: { onHeadersReceived: vi.fn() },
     },
   },
-  Menu: {
-    setApplicationMenu: vi.fn(),
-    buildFromTemplate: vi.fn(),
-  },
-  dialog: {
-    showMessageBox: vi.fn(async () => ({ response: 0 })),
+  webContents: {
+    getAllWebContents: vi.fn(() => mockAllWebContents),
   },
 }));
 
@@ -83,24 +83,24 @@ function createMockPreferences(overrides?: Partial<LoggingPreferences>): Logging
 
 function createMockPayload(overrides?: Partial<LoggingPreferences>): LoggingSettingsPayload {
   return {
-    preferences: createMockPreferences(overrides),
     capabilities: {
       canSelectDestination: true,
       defaultDestination: '/tmp/test.log',
       fileLoggingSupported: true,
       runtime: 'electron',
     },
+    preferences: createMockPreferences(overrides),
   };
 }
 
 function createValidLogRecord(overrides?: Partial<LogRecord>): LogRecord {
   return {
-    level: LogLevel.INFO,
-    timestamp: Date.now(),
     args: ['test message'],
     bindings: { scope: 'TestScope' },
+    level: LogLevel.INFO,
     message: 'test message',
     scope: 'TestScope',
+    timestamp: Date.now(),
     ...overrides,
   };
 }
@@ -199,8 +199,8 @@ describe('logging-ipc', () => {
       const payload = createMockPayload({ consoleEnabled: false });
 
       const mockContent = {
-        id: 1,
         getType: vi.fn(() => 'window'),
+        id: 1,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
@@ -323,8 +323,8 @@ describe('logging-ipc', () => {
       expect(handlers.ingestBufferedLog).toHaveBeenCalledWith(
         42,
         expect.objectContaining({
-          level: LogLevel.INFO,
           args: ['test message'],
+          level: LogLevel.INFO,
         })
       );
     });
@@ -481,8 +481,8 @@ describe('logging-ipc', () => {
 
     it('sends preferences to window-type webContents', async () => {
       const mockContent = {
-        id: 1,
         getType: vi.fn(() => 'window'),
+        id: 1,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
@@ -502,8 +502,8 @@ describe('logging-ipc', () => {
 
     it('sends preferences to webview-type webContents', async () => {
       const mockContent = {
-        id: 2,
         getType: vi.fn(() => 'webview'),
+        id: 2,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
@@ -523,8 +523,8 @@ describe('logging-ipc', () => {
 
     it('skips destroyed webContents', async () => {
       const mockContent = {
-        id: 3,
         getType: vi.fn(() => 'window'),
+        id: 3,
         isDestroyed: vi.fn(() => true),
         send: vi.fn(),
       };
@@ -541,8 +541,8 @@ describe('logging-ipc', () => {
 
     it('skips webContents with unsupported type (e.g. backgroundPage)', async () => {
       const mockContent = {
-        id: 4,
         getType: vi.fn(() => 'backgroundPage'),
+        id: 4,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
@@ -559,8 +559,8 @@ describe('logging-ipc', () => {
 
     it('handles send() throwing gracefully (webContents disappears mid-broadcast)', async () => {
       const mockContent = {
-        id: 5,
         getType: vi.fn(() => 'window'),
+        id: 5,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(() => {
           throw new Error('WebContents destroyed during send');
@@ -579,8 +579,8 @@ describe('logging-ipc', () => {
 
     it('handles webContents with missing getType method', async () => {
       const mockContent = {
-        id: 6,
         getType: undefined,
+        id: 6,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
@@ -599,20 +599,20 @@ describe('logging-ipc', () => {
 
     it('broadcasts to multiple webContents instances', async () => {
       const mockWindow = {
-        id: 10,
         getType: vi.fn(() => 'window'),
+        id: 10,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
       const mockWebview = {
-        id: 11,
         getType: vi.fn(() => 'webview'),
+        id: 11,
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
       };
       const mockDestroyed = {
-        id: 12,
         getType: vi.fn(() => 'window'),
+        id: 12,
         isDestroyed: vi.fn(() => true),
         send: vi.fn(),
       };

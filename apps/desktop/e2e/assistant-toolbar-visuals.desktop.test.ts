@@ -13,8 +13,8 @@ test.describe('Assistant hover toolbar (desktop)', () => {
 
   test('shows a bare, smaller copy/retry toolbar on hover', async ({ window }) => {
     await setupAssistantMock(window, {
-      variant: 'detailed',
       message: 'Hello from desktop assistant!',
+      variant: 'detailed',
     });
 
     const assistantChatCard = await ensureAssistantShellVisible(window);

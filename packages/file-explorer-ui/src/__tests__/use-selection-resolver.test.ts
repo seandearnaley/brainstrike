@@ -32,28 +32,6 @@ describe('useSelectionResolver', () => {
   it('dedupes loading manifest transitions across multiple resolver consumers', () => {
     const state = {
       currentFolderId: 'folder-1',
-      selectedFilePaths: new Set<string>(),
-      selectionModel: {
-        mode: 'query' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(),
-        materializedAt: null,
-        queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
-          coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
-          excludedPaths: [],
-          manifestFingerprint: 'fp-1',
-          manifestSnapshotId: 'snapshot-1',
-          totalSelectedCount: 600,
-          useRegex: false,
-        },
-      },
       querySelectionManifest: null as null | {
         filePaths: string[];
         pathSet: Set<string>;
@@ -62,6 +40,28 @@ describe('useSelectionResolver', () => {
         snapshotId: string;
         status: 'loading';
         errorMessage: null;
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 600,
+          useRegex: false,
+        },
+        ruleSetJson: null,
       },
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
@@ -84,29 +84,29 @@ describe('useSelectionResolver', () => {
   it('uses persisted materialized paths while the query manifest snapshot is unavailable', () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
         materializedAt: null,
+        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 600,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn(),
     };
 
@@ -130,29 +130,29 @@ describe('useSelectionResolver', () => {
   it('removes excluded restored query paths from the effective file list before the manifest snapshot loads', () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
         materializedAt: null,
+        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-folder' as const,
-          folderId: 'folder-1',
-          rootPath: 'src',
           coveredDirectoryPaths: ['src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: ['src/utils.ts'],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-folder' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: 'src',
           totalSelectedCount: 1,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn(),
     };
 
@@ -173,29 +173,29 @@ describe('useSelectionResolver', () => {
   it('publishes a ready manifest immediately when persisted materialized paths are exact', async () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
         materializedAt: null,
+        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -213,10 +213,10 @@ describe('useSelectionResolver', () => {
     await waitFor(() => {
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'ready',
+          filePaths: ['src/index.ts', 'src/utils.ts'],
           fingerprint: 'fp-1',
           snapshotId: 'snapshot-1',
-          filePaths: ['src/index.ts', 'src/utils.ts'],
+          status: 'ready',
         })
       );
     });
@@ -230,29 +230,29 @@ describe('useSelectionResolver', () => {
   it('publishes a ready manifest immediately when persisted materialized paths plus included overrides are exact', async () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
         materializedAt: null,
+        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-folder' as const,
-          folderId: 'folder-1',
-          rootPath: 'src',
           coveredDirectoryPaths: ['src', 'src/components'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: ['eslint.config.js'],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: ['eslint.config.js'],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-folder' as const,
           manifestFingerprint: 'fp-2',
           manifestSnapshotId: 'snapshot-2',
+          rootPath: 'src',
           totalSelectedCount: 3,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -270,10 +270,10 @@ describe('useSelectionResolver', () => {
     await waitFor(() => {
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'ready',
+          filePaths: ['eslint.config.js', 'src/index.ts', 'src/utils.ts'],
           fingerprint: 'fp-2',
           snapshotId: 'snapshot-2',
-          filePaths: ['eslint.config.js', 'src/index.ts', 'src/utils.ts'],
+          status: 'ready',
         })
       );
     });
@@ -287,29 +287,29 @@ describe('useSelectionResolver', () => {
   it('loads and publishes a ready manifest from the persisted snapshot', async () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(),
         materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -326,8 +326,8 @@ describe('useSelectionResolver', () => {
       expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledWith(expect.any(Object), 'snapshot-1');
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'ready',
           filePaths: ['/src/index.ts', '/src/utils.ts'],
+          status: 'ready',
         })
       );
     });
@@ -336,29 +336,29 @@ describe('useSelectionResolver', () => {
   it('keeps effectiveRelativePaths stable when unrelated query descriptor fields change', () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(['src/index.ts']),
         materializedAt: null,
+        materializedPaths: new Set<string>(['src/index.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 1,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn(),
     };
 
@@ -386,29 +386,29 @@ describe('useSelectionResolver', () => {
   it('publishes an errored manifest when snapshot loading fails', async () => {
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(),
         materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -424,8 +424,8 @@ describe('useSelectionResolver', () => {
     await waitFor(() => {
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'error',
           errorMessage: 'snapshot broken',
+          status: 'error',
         })
       );
     });
@@ -437,29 +437,29 @@ describe('useSelectionResolver', () => {
 
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(),
         materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -498,9 +498,9 @@ describe('useSelectionResolver', () => {
 
     expect(state.setQuerySelectionManifest).not.toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'ready',
         fingerprint: 'fp-1',
         snapshotId: 'snapshot-1',
+        status: 'ready',
       })
     );
 
@@ -508,10 +508,10 @@ describe('useSelectionResolver', () => {
     await waitFor(() => {
       expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'ready',
+          filePaths: ['/src/fresh.ts'],
           fingerprint: 'fp-2',
           snapshotId: 'snapshot-2',
-          filePaths: ['/src/fresh.ts'],
+          status: 'ready',
         })
       );
     });
@@ -522,29 +522,29 @@ describe('useSelectionResolver', () => {
 
     const state = {
       currentFolderId: 'folder-1',
+      querySelectionManifest: null,
       selectedFilePaths: new Set<string>(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set<string>(),
         materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'folder-1',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'fp-1',
           manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
           totalSelectedCount: 2,
           useRegex: false,
         },
+        ruleSetJson: null,
       },
-      querySelectionManifest: null,
       setQuerySelectionManifest: vi.fn((manifest) => {
         state.querySelectionManifest = manifest;
       }),
@@ -569,8 +569,8 @@ describe('useSelectionResolver', () => {
 
     expect(state.setQuerySelectionManifest).not.toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'ready',
         filePaths: ['/src/stale.ts'],
+        status: 'ready',
       })
     );
   });

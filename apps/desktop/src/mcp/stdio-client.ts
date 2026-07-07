@@ -84,8 +84,8 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         connected = next;
         lastConnectFailure = undefined;
         logger.info('Connected MCP stdio client', {
-          server: server.name,
           command: server.command,
+          server: server.name,
         });
         return next;
       } catch (error) {
@@ -126,28 +126,6 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
   }
 
   return {
-    name: server.name,
-    transport: 'stdio',
-    supportsTool(toolId: string): boolean {
-      return discoveredToolNames.has(toolId);
-    },
-    listTools,
-    async dispose(): Promise<void> {
-      const current = connected;
-      connected = undefined;
-      lastConnectFailure = undefined;
-      discoveredToolNames.clear();
-
-      if (!current) {
-        return;
-      }
-
-      try {
-        await current.client.close();
-      } finally {
-        await current.transport.close();
-      }
-    },
     async callTool(
       toolId: string,
       params?: Record<string, unknown>,
@@ -165,8 +143,8 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
       const { client } = await ensureConnected();
       return await client.callTool(
         {
-          name: rawToolName,
           arguments: params ?? {},
+          name: rawToolName,
         },
         undefined,
         {
@@ -181,5 +159,27 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         }
       );
     },
+    async dispose(): Promise<void> {
+      const current = connected;
+      connected = undefined;
+      lastConnectFailure = undefined;
+      discoveredToolNames.clear();
+
+      if (!current) {
+        return;
+      }
+
+      try {
+        await current.client.close();
+      } finally {
+        await current.transport.close();
+      }
+    },
+    listTools,
+    name: server.name,
+    supportsTool(toolId: string): boolean {
+      return discoveredToolNames.has(toolId);
+    },
+    transport: 'stdio',
   } satisfies McpClient;
 }

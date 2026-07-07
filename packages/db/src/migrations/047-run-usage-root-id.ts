@@ -21,7 +21,13 @@ import type { Migration } from './migration-runner';
  * same column + index on first write — all three must converge on one shape.
  */
 export const migration047RunUsageRootId: Migration = {
-  version: 47,
+  down: `
+    DROP INDEX IF EXISTS brainstrike_assistant_run_usage_root_idx;
+    --> statement-breakpoint
+
+    ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
+      DROP COLUMN IF EXISTS root_id;
+  `,
   name: 'run_usage_root_id',
   up: `
     ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
@@ -31,11 +37,5 @@ export const migration047RunUsageRootId: Migration = {
     CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_root_idx
       ON brainstrike_assistant_run_usage (resource_id, root_id);
   `,
-  down: `
-    DROP INDEX IF EXISTS brainstrike_assistant_run_usage_root_idx;
-    --> statement-breakpoint
-
-    ALTER TABLE IF EXISTS brainstrike_assistant_run_usage
-      DROP COLUMN IF EXISTS root_id;
-  `,
+  version: 47,
 };

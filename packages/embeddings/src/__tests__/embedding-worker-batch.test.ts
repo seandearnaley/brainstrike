@@ -28,8 +28,8 @@ class FakeEmbeddingService implements EmbeddingService {
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(768).fill(0.1),
       dimensions: 768,
+      embedding: new Array(768).fill(0.1),
       model: 'fake-model',
       usage: { totalTokens: 10 },
     };
@@ -47,7 +47,7 @@ class FakeEmbeddingService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -56,7 +56,7 @@ class FakeEmbeddingService implements EmbeddingService {
     return this.generateEmbedding(text);
   }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
+    return { distance: 0, method: 'cosine', similarity: 1 };
   }
   getStatus(): EmbeddingStatus {
     return this.status;
@@ -97,7 +97,7 @@ class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
       const endIndex = Math.min(texts.length, startIndex + streamBatchSize);
       const results = await this.generateEmbeddings(texts.slice(startIndex, endIndex));
       this.batchStartObserver?.(startIndex);
-      await onBatch({ startIndex, endIndex, results });
+      await onBatch({ endIndex, results, startIndex });
       await new Promise((resolve) => setTimeout(resolve, this.delayAfterBatchMs));
     }
   }
@@ -106,8 +106,8 @@ class ChunkedStreamingEmbeddingService extends FakeEmbeddingService {
 class WrongDimensionStreamingEmbeddingService extends FakeEmbeddingService {
   override async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(10).fill(0.1),
       dimensions: 10,
+      embedding: new Array(10).fill(0.1),
       model: 'wrong-dimension-stream-model',
       usage: { totalTokens: 10 },
     };
@@ -233,8 +233,8 @@ async function insertQueuedEmbeddingJob({
       JSON.stringify({
         chunkId,
         embeddingSetId,
-        modelKey: compositeKey,
         expectedDimension: 768,
+        modelKey: compositeKey,
       }),
       now,
     ]
@@ -345,8 +345,8 @@ describe('Embedding Worker Batch Optimization', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: compositeKey,
             expectedDimension: 768,
+            modelKey: compositeKey,
           }),
           now,
         ]
@@ -354,12 +354,12 @@ describe('Embedding Worker Batch Optimization', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
+      log: () => {}, // silence logs
       modelKey,
       service: new FakeEmbeddingService(),
-      log: () => {}, // silence logs
     });
 
     // Wait for all jobs to match as succeeded
@@ -425,21 +425,21 @@ describe('Embedding Worker Batch Optimization', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
+      log: () => {},
       modelKey,
       service: new FakeEmbeddingService(),
       waitForBackgroundPermit,
-      log: () => {},
     });
 
     await waitFor(async () => {
@@ -481,16 +481,16 @@ describe('Embedding Worker Batch Optimization', () => {
     };
 
     const controller = await startEmbeddingWorker({
-      db: wrappedDb,
       claimBatchSize: 1,
       concurrency: 1,
+      db: wrappedDb,
       interBatchDelayMs: 10,
       leaseMs: 2000,
+      log: () => {},
       modelKey,
       onFatalError,
       service: new FakeEmbeddingService(),
       stopOnFatalLocalError: true,
-      log: () => {},
     });
 
     try {
@@ -529,16 +529,16 @@ describe('Embedding Worker Batch Optimization', () => {
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 1,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 10,
       leaseMs: 2000,
+      log: () => {},
       modelKey,
       onFatalError,
       service: new WrongDimensionStreamingEmbeddingService(),
       stopOnFatalLocalError: true,
-      log: () => {},
     });
 
     try {
@@ -569,14 +569,14 @@ describe('Embedding Worker Batch Optimization', () => {
     const resolveClaimBatchSize = vi.fn(async () => 3);
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 10,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       resolveClaimBatchSize,
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     await waitFor(async () => claimManySpy.mock.calls.length > 0, 10_000);
@@ -593,19 +593,19 @@ describe('Embedding Worker Batch Optimization', () => {
     const resolveClaimBatchSize = vi.fn(async () => null);
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 10,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
-      metricsIntervalMs: 5000,
-      modelKey: 'jinaai/jina-embeddings-v2-base-code',
-      resolveClaimBatchSize,
-      service: new FakeEmbeddingService(),
       log: (event, meta) => {
         if (event === 'worker_metrics') {
           metricLogs.push(meta as Record<string, unknown>);
         }
       },
+      metricsIntervalMs: 5000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      resolveClaimBatchSize,
+      service: new FakeEmbeddingService(),
     });
 
     try {
@@ -665,8 +665,8 @@ describe('Embedding Worker Batch Optimization', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: compositeKey,
             expectedDimension: 768,
+            modelKey: compositeKey,
           }),
           now,
         ]
@@ -674,15 +674,15 @@ describe('Embedding Worker Batch Optimization', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: jobCount,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       heartbeatIntervalMs: 10,
       interBatchDelayMs: 10,
       leaseMs: 5000,
+      log: () => {},
       modelKey,
       service: new ChunkedStreamingEmbeddingService(2, 30),
-      log: () => {},
     });
 
     await waitFor(async () => {
@@ -724,9 +724,9 @@ describe('Embedding Worker Batch Optimization', () => {
       });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -779,9 +779,9 @@ describe('Embedding Worker Batch Optimization', () => {
       });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 3,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -828,9 +828,9 @@ describe('Embedding Worker Batch Optimization', () => {
       });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -883,9 +883,9 @@ describe('Embedding Worker Batch Optimization', () => {
     };
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       embeddingCache,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
@@ -928,9 +928,9 @@ describe('Embedding Worker Batch Optimization', () => {
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 1,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -981,9 +981,9 @@ describe('Embedding Worker Batch Optimization', () => {
       });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1029,9 +1029,9 @@ describe('Embedding Worker Batch Optimization', () => {
     const activityChanges: boolean[] = [];
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 1,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1066,9 +1066,9 @@ describe('Embedding Worker Batch Optimization', () => {
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1141,8 +1141,8 @@ describe('Embedding Worker Batch Optimization', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey: compositeKey,
             expectedDimension: 768,
+            modelKey: compositeKey,
           }),
           now,
         ]
@@ -1154,9 +1154,9 @@ describe('Embedding Worker Batch Optimization', () => {
       statsRefreshCompletedChunkThreshold: number;
       statsRefreshMinIntervalMs: number;
     } = {
-      db: db as unknown as IDatabase,
       claimBatchSize: jobCount,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 10,
       leaseMs: 5000,
       log: () => {},
@@ -1192,8 +1192,8 @@ describe('Embedding Worker Batch Optimization', () => {
       statsRefreshCompletedChunkThreshold: number;
       statsRefreshMinIntervalMs: number;
     } = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 10,
       leaseMs: 5000,
       log: idleLog,
@@ -1215,8 +1215,8 @@ describe('Embedding Worker Batch Optimization', () => {
       statsRefreshCompletedChunkThreshold: number;
       statsRefreshMinIntervalMs: number;
     } = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: stopLog,
@@ -1248,8 +1248,8 @@ describe('Embedding Worker Batch Optimization', () => {
       idlePollMaxMs: number;
       now: () => number;
     } = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       idlePollInitialMs: 5,
       idlePollMaxMs: 40,
       leaseMs: 5000,
@@ -1284,8 +1284,8 @@ describe('Embedding Worker Batch Optimization', () => {
       idlePollMaxMs: number;
       now: () => number;
     } = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       idlePollInitialMs: 5,
       idlePollMaxMs: 40,
       leaseMs: 5000,
@@ -1334,8 +1334,8 @@ describe('Embedding Worker Batch Optimization', () => {
       idlePollInitialMs: number;
       now: () => number;
     } = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       idlePollInitialMs: 300,
       leaseMs: 5000,
       log: idleLog,
@@ -1360,8 +1360,8 @@ describe('Embedding Worker Batch Optimization', () => {
   it('rejects idle polling backoff options when max is below the initial delay', async () => {
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
     const invalidWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] = {
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       idlePollInitialMs: 50,
       idlePollMaxMs: 40,
       leaseMs: 5000,
@@ -1385,8 +1385,8 @@ describe('Embedding Worker Batch Optimization', () => {
 
     try {
       controller = await startEmbeddingWorker({
-        db: db as unknown as IDatabase,
         concurrency: 1,
+        db: db as unknown as IDatabase,
         leaseMs: 5000,
         log: () => {},
         modelKey: 'jinaai/jina-embeddings-v2-base-code',
@@ -1418,8 +1418,8 @@ describe('Embedding Worker Batch Optimization', () => {
 
     try {
       controller = await startEmbeddingWorker({
-        db: db as unknown as IDatabase,
         concurrency: 1,
+        db: db as unknown as IDatabase,
         leaseMs: 5000,
         log: () => {},
         modelKey: 'jinaai/jina-embeddings-v2-base-code',
@@ -1439,8 +1439,8 @@ describe('Embedding Worker Batch Optimization', () => {
 
   it('allows explicit reinitEveryN zero to disable scheduled reinitialization', async () => {
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 5000,
       log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
@@ -1465,9 +1465,9 @@ describe('Embedding Worker Batch Optimization', () => {
     const disposeSpy = vi.spyOn(service, 'dispose');
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 1,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1500,8 +1500,8 @@ describe('Embedding Worker Batch Optimization', () => {
     try {
       await expect(
         startEmbeddingWorker({
-          db: db as unknown as IDatabase,
           concurrency: 1,
+          db: db as unknown as IDatabase,
           leaseMs: 5000,
           log: () => {},
           modelKey: 'missing-custom-model',
@@ -1559,8 +1559,8 @@ describe('Embedding Worker Batch Optimization', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
@@ -1568,8 +1568,8 @@ describe('Embedding Worker Batch Optimization', () => {
 
     const service = new FakeEmbeddingService();
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1639,8 +1639,8 @@ describe('Embedding Worker Batch Optimization', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
@@ -1659,8 +1659,8 @@ describe('Embedding Worker Batch Optimization', () => {
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1723,8 +1723,8 @@ describe('Embedding Worker Batch Optimization', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
@@ -1740,8 +1740,8 @@ describe('Embedding Worker Batch Optimization', () => {
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
@@ -1774,13 +1774,13 @@ describe('Embedding Worker Batch Optimization', () => {
           return {
             rows: [
               {
+                chunkCount: completedChunkCount,
+                dirty: false,
+                embeddedChunkCount: completedChunkCount,
                 embeddingSetId: 'set-scale',
                 fileCount: 1,
-                chunkCount: completedChunkCount,
-                embeddedChunkCount: completedChunkCount,
-                pendingChunkCount: 0,
-                dirty: false,
                 lastRefreshedAt: new Date().toISOString(),
+                pendingChunkCount: 0,
               },
             ],
           };
@@ -1821,13 +1821,13 @@ describe('Embedding Worker Batch Optimization', () => {
           return {
             rows: [
               {
+                chunkCount: 2,
+                dirty: false,
+                embeddedChunkCount: 2,
                 embeddingSetId: 'set-pending',
                 fileCount: 1,
-                chunkCount: 2,
-                embeddedChunkCount: 2,
-                pendingChunkCount: 0,
-                dirty: false,
                 lastRefreshedAt: new Date().toISOString(),
+                pendingChunkCount: 0,
               },
             ],
           };
@@ -1867,13 +1867,13 @@ describe('Embedding Worker Batch Optimization', () => {
           return {
             rows: [
               {
+                chunkCount: 1,
+                dirty: false,
+                embeddedChunkCount: 1,
                 embeddingSetId: 'set-dirty-failure',
                 fileCount: 1,
-                chunkCount: 1,
-                embeddedChunkCount: 1,
-                pendingChunkCount: 0,
-                dirty: false,
                 lastRefreshedAt: new Date().toISOString(),
+                pendingChunkCount: 0,
               },
             ],
           };
@@ -1935,13 +1935,13 @@ describe('Embedding Worker Batch Optimization', () => {
           return {
             rows: [
               {
+                chunkCount: 1,
+                dirty: false,
+                embeddedChunkCount: 1,
                 embeddingSetId: `set-concurrent-${refreshCount}`,
                 fileCount: 1,
-                chunkCount: 1,
-                embeddedChunkCount: 1,
-                pendingChunkCount: 0,
-                dirty: false,
                 lastRefreshedAt: new Date().toISOString(),
+                pendingChunkCount: 0,
               },
             ],
           };

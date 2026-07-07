@@ -207,13 +207,13 @@ export class BFSEngine {
       }
 
       // Store the actual result for this path
-      pending.results.set(path, { path, children });
+      pending.results.set(path, { children, path });
 
       // Check if all paths in this batch have results
       if (pending.results.size === pending.paths.size) {
         // Collect results in order, using actual stored results
         const results = Array.from(pending.paths).map(
-          (p) => pending.results.get(p) ?? { path: p, children: [] }
+          (p) => pending.results.get(p) ?? { children: [], path: p }
         );
         pending.resolve(results);
         this.pendingLoads.delete(pendingRequestId);
@@ -273,13 +273,13 @@ export class BFSEngine {
       }
 
       // Store the error result for this path
-      pending.results.set(path, { path, error });
+      pending.results.set(path, { error, path });
 
       // Check if all paths in this batch have results
       if (pending.results.size === pending.paths.size) {
         // Collect results in order, using actual stored results
         const results = Array.from(pending.paths).map(
-          (p) => pending.results.get(p) ?? { path: p, children: [] }
+          (p) => pending.results.get(p) ?? { children: [], path: p }
         );
         pending.resolve(results);
         this.pendingLoads.delete(pendingRequestId);
@@ -308,7 +308,6 @@ export class BFSEngine {
         return pending.operationId;
       }
     }
-
     return;
   }
 
@@ -333,21 +332,21 @@ export class BFSEngine {
       this.pendingLoads.set(requestId, {
         operationId,
         paths: new Set(paths),
-        results: new Map(),
         resolve: (results) => {
           clearTimeout(timeoutId);
           resolve(results);
         },
+        results: new Map(),
       });
 
       // Request load from main thread
       this.postMessage({
-        type: 'requestLoad',
         operationId,
         payload: {
-          requestId,
           paths,
+          requestId,
         },
+        type: 'requestLoad',
       });
     });
   }
@@ -375,18 +374,18 @@ export class BFSEngine {
    * Log a debug message via the worker protocol.
    */
   private logDebug(message: string): void {
-    this.postMessage({ type: 'log', level: 'debug', message });
+    this.postMessage({ level: 'debug', message, type: 'log' });
   }
 
   private logWarn(message: string): void {
-    this.postMessage({ type: 'log', level: 'warn', message });
+    this.postMessage({ level: 'warn', message, type: 'log' });
   }
 
   /**
    * Log an info message via the worker protocol.
    */
   private logInfo(message: string): void {
-    this.postMessage({ type: 'log', level: 'info', message });
+    this.postMessage({ level: 'info', message, type: 'log' });
   }
 
   /**
@@ -539,8 +538,8 @@ export class BFSEngine {
   ): void {
     this.postPatchMessage(
       {
+        payload: { children, loadState: 'loaded', path },
         type: 'childrenLoaded',
-        payload: { path, children, loadState: 'loaded' },
       },
       operationId
     );
@@ -552,11 +551,11 @@ export class BFSEngine {
     loadError?: string,
     operationId?: number
   ): void {
-    const payload = loadError === undefined ? { path, loadState } : { path, loadState, loadError };
+    const payload = loadError === undefined ? { loadState, path } : { loadError, loadState, path };
     this.postPatchMessage(
       {
-        type: 'nodeLoadStateChanged',
         payload,
+        type: 'nodeLoadStateChanged',
       },
       operationId
     );
@@ -601,8 +600,8 @@ export class BFSEngine {
     if (added.length > 0 || removed.length > 0) {
       this.postPatchMessage(
         {
-          type: 'expandedPathsDelta',
           payload: { added, removed },
+          type: 'expandedPathsDelta',
         },
         operationId
       );
@@ -614,8 +613,8 @@ export class BFSEngine {
     if (added.length > 0 || removed.length > 0) {
       this.postPatchMessage(
         {
-          type: 'expandedPathsDelta',
           payload: { added, removed },
+          type: 'expandedPathsDelta',
         },
         operationId
       );
@@ -698,9 +697,9 @@ export class BFSEngine {
     operationId: number
   ): void {
     this.postMessage({
-      type: 'progress',
       operationId,
-      payload: { loaded, total, currentPath },
+      payload: { currentPath, loaded, total },
+      type: 'progress',
     });
   }
 
@@ -717,9 +716,9 @@ export class BFSEngine {
    */
   private sendComplete(loadedCount: number, operationId: number): void {
     this.postMessage({
-      type: 'complete',
       operationId,
       payload: { expandedPaths: [...this.expandedPaths], loadedCount },
+      type: 'complete',
     });
   }
 
@@ -894,7 +893,7 @@ export class BFSEngine {
       this.logInfo(`[expand-all] ${slowBatchCount} batch(es) exceeded performance budget`);
     }
 
-    return { loadedCount: currentLoadedCount, lastSnapshotTime: currentSnapshotTime };
+    return { lastSnapshotTime: currentSnapshotTime, loadedCount: currentLoadedCount };
   }
 
   /**
@@ -932,12 +931,12 @@ export class BFSEngine {
     checkBudget('worker-flattenTree', durationMs, 'flattenTree');
 
     this.postMessage({
-      type: 'flattenedRows',
       payload: {
-        nodes: result,
         count: result.length,
         durationMs,
+        nodes: result,
       },
+      type: 'flattenedRows',
     });
   }
 
@@ -953,7 +952,7 @@ export class BFSEngine {
   ): void {
     for (const node of nodes) {
       // Add this node to the flattened list
-      result.push({ node, depth });
+      result.push({ depth, node });
 
       // If directory is expanded, loaded, and has children, recurse
       if (
@@ -1020,7 +1019,7 @@ export class BFSEngine {
       );
     }
 
-    return { toLoad, skipped, notFound };
+    return { notFound, skipped, toLoad };
   }
 
   /**
@@ -1056,7 +1055,7 @@ export class BFSEngine {
       const results = await this.requestLoads(toLoad, operationId);
 
       if (this.aborted) {
-        return { notFound: [], aborted: true };
+        return { aborted: true, notFound: [] };
       }
 
       counters.loadedCount += results.filter((r) => r.children).length;
@@ -1069,7 +1068,7 @@ export class BFSEngine {
       operationId
     );
     await yieldControl();
-    return { notFound, aborted: false };
+    return { aborted: false, notFound };
   }
 
   /**
@@ -1250,12 +1249,12 @@ export class BFSEngine {
     this.logDebug(`[loadSubtree] Starting with ${currentWave.size} directories to load`);
 
     return {
-      processed: new Set<string>(),
       currentWave,
-      totalDiscovered: currentWave.size,
-      loadedCount: 0,
       hitDepthLimit: false,
       hitDirectoryLimit: false,
+      loadedCount: 0,
+      processed: new Set<string>(),
+      totalDiscovered: currentWave.size,
     };
   }
 
@@ -1351,7 +1350,7 @@ export class BFSEngine {
       toLoad.push(path);
     }
 
-    return { toLoad, hitDepth };
+    return { hitDepth, toLoad };
   }
 
   /**

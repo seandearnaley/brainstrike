@@ -33,30 +33,109 @@ logEnvironmentConfig('Web', config, baseURL);
 validateEnvironmentConfig(config);
 
 export default defineConfig({
-  testDir: './e2e',
-
-  // Global timeout based on environment
-  globalTimeout: config.globalTimeout,
-
-  // Per-test timeout
-  timeout: 60_000,
+  // Fail the build on CI if you accidentally left test.only in the source code
+  forbidOnly: config.isCI,
 
   // Parallel execution based on environment
   fullyParallel: config.fullyParallel,
 
-  // Fail the build on CI if you accidentally left test.only in the source code
-  forbidOnly: config.isCI,
+  globalSetup: './e2e/global-setup.ts',
 
-  // Retry strategy based on environment
-  retries: config.retries,
+  // Global timeout based on environment
+  globalTimeout: config.globalTimeout,
 
-  // Worker count based on environment capabilities
-  workers: config.workers,
+  // Projects configuration with test type separation
+  projects: useFullBrowserCoverage
+    ? [
+        // Functional tests - all browsers
+        {
+          name: 'functional-chromium',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'chromium' },
+        },
+        {
+          name: 'functional-firefox',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'firefox' },
+        },
+        {
+          name: 'functional-webkit',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'webkit' },
+        },
+        // Smoke tests - tagged critical subset across all browsers
+        {
+          grep: /@smoke/,
+          name: 'smoke-chromium',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'chromium' },
+        },
+        {
+          grep: /@smoke/,
+          name: 'smoke-firefox',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'firefox' },
+        },
+        {
+          grep: /@smoke/,
+          name: 'smoke-webkit',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'webkit' },
+        },
+        // Performance tests - Chromium only (most stable for performance measurements)
+        {
+          name: 'performance',
+          retries: 1, // Fewer retries for performance tests
+          testMatch: '**/performance/*.test.ts',
+          timeout: 120_000, // 2 minutes for performance tests
+          use: { channel: 'chromium' },
+        },
+      ]
+    : [
+        // Default: Chromium only with test type separation
+        {
+          name: 'functional',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'chromium' },
+        },
+        {
+          grep: /@smoke/,
+          name: 'smoke',
+          testMatch: '**/!(performance)/*.test.ts',
+          timeout: 60_000,
+          use: { channel: 'chromium' },
+        },
+        {
+          name: 'performance',
+          retries: 1, // Fewer retries for performance tests
+          testMatch: '**/performance/*.test.ts',
+          timeout: 120_000, // 2 minutes for performance tests
+          use: { channel: 'chromium' },
+        },
+      ],
 
   // Reporter configuration
   reporter: config.isCI
     ? [['blob', { outputDir: 'blob-report' }], ['list']]
     : [['html', { open: 'never' }], ['list']],
+
+  // Retry strategy based on environment
+  retries: config.retries,
+  testDir: './e2e',
+  testIgnore: ['**/__tests__/**', '**/node_modules/**'],
+
+  // Test match patterns - exclude unit tests in __tests__ directories
+  testMatch: '**/*.test.ts',
+
+  // Per-test timeout
+  timeout: 60_000,
 
   use: {
     baseURL,
@@ -71,96 +150,13 @@ export default defineConfig({
         args: getCILaunchArgs(),
       },
     }),
+    screenshot: 'only-on-failure',
+    testIdAttribute: 'data-testid',
 
     // Tracing and media capture
     trace: config.isCI ? 'retain-on-failure' : 'on-first-retry',
-    screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    testIdAttribute: 'data-testid',
   },
-
-  // Projects configuration with test type separation
-  projects: useFullBrowserCoverage
-    ? [
-        // Functional tests - all browsers
-        {
-          name: 'functional-chromium',
-          testMatch: '**/!(performance)/*.test.ts',
-          use: { channel: 'chromium' },
-          timeout: 60_000,
-        },
-        {
-          name: 'functional-firefox',
-          testMatch: '**/!(performance)/*.test.ts',
-          use: { channel: 'firefox' },
-          timeout: 60_000,
-        },
-        {
-          name: 'functional-webkit',
-          testMatch: '**/!(performance)/*.test.ts',
-          use: { channel: 'webkit' },
-          timeout: 60_000,
-        },
-        // Smoke tests - tagged critical subset across all browsers
-        {
-          name: 'smoke-chromium',
-          testMatch: '**/!(performance)/*.test.ts',
-          grep: /@smoke/,
-          use: { channel: 'chromium' },
-          timeout: 60_000,
-        },
-        {
-          name: 'smoke-firefox',
-          testMatch: '**/!(performance)/*.test.ts',
-          grep: /@smoke/,
-          use: { channel: 'firefox' },
-          timeout: 60_000,
-        },
-        {
-          name: 'smoke-webkit',
-          testMatch: '**/!(performance)/*.test.ts',
-          grep: /@smoke/,
-          use: { channel: 'webkit' },
-          timeout: 60_000,
-        },
-        // Performance tests - Chromium only (most stable for performance measurements)
-        {
-          name: 'performance',
-          testMatch: '**/performance/*.test.ts',
-          use: { channel: 'chromium' },
-          timeout: 120_000, // 2 minutes for performance tests
-          retries: 1, // Fewer retries for performance tests
-        },
-      ]
-    : [
-        // Default: Chromium only with test type separation
-        {
-          name: 'functional',
-          testMatch: '**/!(performance)/*.test.ts',
-          use: { channel: 'chromium' },
-          timeout: 60_000,
-        },
-        {
-          name: 'smoke',
-          testMatch: '**/!(performance)/*.test.ts',
-          grep: /@smoke/,
-          use: { channel: 'chromium' },
-          timeout: 60_000,
-        },
-        {
-          name: 'performance',
-          testMatch: '**/performance/*.test.ts',
-          use: { channel: 'chromium' },
-          timeout: 120_000, // 2 minutes for performance tests
-          retries: 1, // Fewer retries for performance tests
-        },
-      ],
-
-  // Test match patterns - exclude unit tests in __tests__ directories
-  testMatch: '**/*.test.ts',
-  testIgnore: ['**/__tests__/**', '**/node_modules/**'],
-
-  globalSetup: './e2e/global-setup.ts',
 
   // Web server configuration - optimized for CI
   webServer: {
@@ -169,10 +165,13 @@ export default defineConfig({
     // execute against the built app instead of a live dev server that can still
     // optimize dependencies and trigger mid-test reloads.
     command: 'pnpm run start',
-    url: serverURL,
     reuseExistingServer: false,
-    timeout: 60_000, // 1 minute timeout for server startup
     stderr: 'pipe',
     stdout: 'pipe',
+    timeout: 60_000, // 1 minute timeout for server startup
+    url: serverURL,
   },
+
+  // Worker count based on environment capabilities
+  workers: config.workers,
 });

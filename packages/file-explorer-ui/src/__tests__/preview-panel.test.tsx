@@ -48,84 +48,84 @@ describe('PreviewPanel', () => {
   };
 
   const mockProps = {
-    selectedFiles: new Set(['file1', 'file2', 'file3']),
+    decodeFileSelection: vi.fn((key: string) => ({
+      folderId: `folder-${key}`,
+      path: `path/to/${key}.txt`,
+    })),
+    estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
     fileContents: {
       file1: 'content1',
       file2: 'content2',
       file3: 'content3',
     },
-    loadingFiles: new Set<string>(),
-    onSelectionChange: vi.fn(),
     fileSizes: {
       file1: 1024,
       file2: 2048,
       file3: 512,
     },
-    decodeFileSelection: vi.fn((key: string) => ({
-      folderId: `folder-${key}`,
-      path: `path/to/${key}.txt`,
-    })),
+    loadingFiles: new Set<string>(),
+    onFileClick: vi.fn(),
+    onSelectionChange: vi.fn(),
+    performUndoableAction: vi.fn(),
+    selectedFiles: new Set(['file1', 'file2', 'file3']),
     tokenCounting: {
+      countTokens: vi.fn(async (content: string) => content.length),
+      loading: false,
       mode: 'accurate' as const,
       reason: null,
-      loading: false,
-      countTokens: vi.fn(async (content: string) => content.length),
     },
-    estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
-    performUndoableAction: vi.fn(),
-    onFileClick: vi.fn(),
   };
 
   const mockState = {
     batchSelectedFiles: new Set<string>(),
+    collapseAllFolders: vi.fn(),
     collapsedFolders: new Set<string>(),
-    totalStats: {
-      totalFiles: 3,
-      totalTokens: 1500,
-      pendingCount: 0,
-    },
-    handleRemoveFile: vi.fn(),
-    handleBatchRemove: vi.fn(),
-    toggleFileSelection: vi.fn(),
-    toggleFolderCollapse: vi.fn(),
-    handleSelectAll: vi.fn(),
-    handleDeselectAll: vi.fn(),
-    isAllFilesSelected: false,
+    expandAllFolders: vi.fn(),
+    flatListItems: [
+      {
+        compositeKey: 'file1',
+        folderId: 'folder-file1',
+        path: 'path/to/file1.txt',
+        size: 1024,
+        tokens: 500,
+        type: 'file' as const,
+      },
+      {
+        compositeKey: 'file2',
+        folderId: 'folder-file2',
+        path: 'path/to/file2.txt',
+        size: 2048,
+        tokens: 750,
+        type: 'file' as const,
+      },
+      {
+        compositeKey: 'file3',
+        folderId: 'folder-file3',
+        path: 'path/to/file3.txt',
+        size: 512,
+        tokens: 250,
+        type: 'file' as const,
+      },
+    ],
     formatFileSize: vi.fn((bytes?: number) => {
       if (bytes === undefined) {
         return 'Unknown';
       }
       return `${bytes} B`;
     }),
+    handleBatchRemove: vi.fn(),
+    handleDeselectAll: vi.fn(),
+    handleRemoveFile: vi.fn(),
+    handleSelectAll: vi.fn(),
+    isAllFilesSelected: false,
     loadingFiles: new Set<string>(),
-    expandAllFolders: vi.fn(),
-    collapseAllFolders: vi.fn(),
-    flatListItems: [
-      {
-        type: 'file' as const,
-        compositeKey: 'file1',
-        folderId: 'folder-file1',
-        path: 'path/to/file1.txt',
-        size: 1024,
-        tokens: 500,
-      },
-      {
-        type: 'file' as const,
-        compositeKey: 'file2',
-        folderId: 'folder-file2',
-        path: 'path/to/file2.txt',
-        size: 2048,
-        tokens: 750,
-      },
-      {
-        type: 'file' as const,
-        compositeKey: 'file3',
-        folderId: 'folder-file3',
-        path: 'path/to/file3.txt',
-        size: 512,
-        tokens: 250,
-      },
-    ],
+    toggleFileSelection: vi.fn(),
+    toggleFolderCollapse: vi.fn(),
+    totalStats: {
+      pendingCount: 0,
+      totalFiles: 3,
+      totalTokens: 1500,
+    },
   };
 
   beforeEach(() => {
@@ -282,10 +282,10 @@ describe('PreviewPanel', () => {
       const props = {
         ...mockProps,
         tokenCounting: {
+          countTokens: vi.fn(async () => 0),
+          loading: false,
           mode: 'heuristic' as const,
           reason: 'preference-disabled' as const,
-          loading: false,
-          countTokens: vi.fn(async () => 0),
         },
       };
 
@@ -309,7 +309,7 @@ describe('PreviewPanel', () => {
       const totalTokens = 2000;
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens },
       });
 
       render(<PreviewPanel {...mockProps} />);
@@ -322,7 +322,7 @@ describe('PreviewPanel', () => {
     it('should display tree tokens in summary when include project tree is enabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
       });
 
       render(
@@ -341,7 +341,7 @@ describe('PreviewPanel', () => {
     it('should show muted tree indicator when include project tree is disabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
       });
 
       render(
@@ -360,7 +360,7 @@ describe('PreviewPanel', () => {
     it('should show zero tokens text when selected tokens are zero', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 0, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 0 },
       });
 
       render(
@@ -379,7 +379,7 @@ describe('PreviewPanel', () => {
     it('should show over budget status when over budget', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
       });
 
       render(
@@ -399,7 +399,7 @@ describe('PreviewPanel', () => {
     it('should surface tree loading state in the summary', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
       });
 
       render(
@@ -626,15 +626,15 @@ describe('PreviewPanel', () => {
   describe('Pagination', () => {
     const largeMockState = {
       ...mockState,
-      expandAllFolders: vi.fn(),
       collapseAllFolders: vi.fn(),
+      expandAllFolders: vi.fn(),
       flatListItems: Array.from({ length: 120 }, (_, i) => ({
-        type: 'file' as const,
         compositeKey: `file${i}`,
         folderId: `folder-file${i}`,
         path: `path/to/file${i}.txt`,
         size: 1024,
         tokens: 100,
+        type: 'file' as const,
       })),
     };
 
@@ -731,12 +731,12 @@ describe('PreviewPanel', () => {
       const stateWith25 = {
         ...largeMockState,
         flatListItems: Array.from({ length: 25 }, (_, i) => ({
-          type: 'file' as const,
           compositeKey: `file${i}`,
           folderId: `folder-file${i}`,
           path: `path/to/file${i}.txt`,
           size: 1024,
           tokens: 100,
+          type: 'file' as const,
         })),
       };
 
@@ -757,12 +757,12 @@ describe('PreviewPanel', () => {
       const stateWith5 = {
         ...stateWith25,
         flatListItems: Array.from({ length: 5 }, (_, i) => ({
-          type: 'file' as const,
           compositeKey: `file${i}`,
           folderId: `folder-file${i}`,
           path: `path/to/file${i}.txt`,
           size: 1024,
           tokens: 100,
+          type: 'file' as const,
         })),
       };
 
@@ -814,8 +814,8 @@ describe('PreviewPanel', () => {
 
       const propsWithMalformedKey = {
         ...mockProps,
-        selectedFiles: new Set(['file1', 'malformed', 'file3']),
         decodeFileSelection: mockDecodeWithError,
+        selectedFiles: new Set(['file1', 'malformed', 'file3']),
       };
 
       // Should not throw and render other files
@@ -934,28 +934,28 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'project',
             path: 'src/components/file1.tsx',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'project',
             path: 'src/components/file2.tsx',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file3',
             folderId: 'project',
             path: 'src/utils/file3.ts',
             size: 512,
             tokens: 250,
+            type: 'file' as const,
           },
         ],
       };
@@ -983,20 +983,20 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: '/Users/me/BrainStrike',
             path: '/Users/me/BrainStrike/README.md',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: '/Users/me/BrainStrike',
             path: '/Users/me/BrainStrike/source/index.ts',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
         ],
       };
@@ -1027,28 +1027,28 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'folder-a',
             path: 'path/to/file1.txt',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'folder-a',
             path: 'path/to/file2.txt',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file3',
             folderId: 'folder-b',
             path: 'path/to/file3.txt',
             size: 512,
             tokens: 250,
+            type: 'file' as const,
           },
         ],
       };
@@ -1076,12 +1076,12 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: '/Users/me/project',
             path: '/Users/me/project/src/file1.ts',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
         ],
       };
@@ -1133,28 +1133,28 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'folder-file1',
             path: 'path/to/file1.js',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'folder-file2',
             path: 'path/to/file2.ts',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file3',
             folderId: 'folder-file3',
             path: 'path/to/file3.js',
             size: 512,
             tokens: 250,
+            type: 'file' as const,
           },
         ],
       };
@@ -1182,20 +1182,20 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'folder-a',
             path: 'path/to/file1.txt',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'folder-b',
             path: 'path/to/file2.txt',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
         ],
       };
@@ -1301,28 +1301,28 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'folder-a',
             path: 'path/to/file1.txt',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'folder-a',
             path: 'path/to/file2.txt',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file3',
             folderId: 'folder-b',
             path: 'path/to/file3.txt',
             size: 512,
             tokens: 250,
+            type: 'file' as const,
           },
         ],
       };
@@ -1359,20 +1359,20 @@ describe('PreviewPanel', () => {
         ...mockState,
         flatListItems: [
           {
-            type: 'file' as const,
             compositeKey: 'file1',
             folderId: 'folder-a',
             path: 'path/to/file1.txt',
             size: 1024,
             tokens: 500,
+            type: 'file' as const,
           },
           {
-            type: 'file' as const,
             compositeKey: 'file2',
             folderId: 'folder-a',
             path: 'path/to/file2.txt',
             size: 2048,
             tokens: 750,
+            type: 'file' as const,
           },
         ],
       };
@@ -1465,8 +1465,8 @@ describe('PreviewPanel', () => {
     it('should handle individual file selection properly in different grouping modes', () => {
       const testGroupings = ['folder', 'fileType', 'sizeSteps', 'tokenSteps'] as const;
       const groupingLabels = {
-        folder: 'By Root Folder',
         fileType: 'By File Type',
+        folder: 'By Root Folder',
         sizeSteps: 'By Size Range',
         tokenSteps: 'By Token Range',
       } as const;
@@ -1503,12 +1503,12 @@ describe('PreviewPanel', () => {
       const largeMockState = {
         ...mockState,
         flatListItems: Array.from({ length: 1000 }, (_, i) => ({
-          type: 'file' as const,
           compositeKey: `file${i}`,
           folderId: `folder-file${i}`,
           path: `path/to/file${i}.txt`,
           size: 1024,
           tokens: 100,
+          type: 'file' as const,
         })),
       };
 

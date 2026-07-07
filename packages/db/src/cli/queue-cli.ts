@@ -29,7 +29,7 @@ function parseStates(tokens: string[], start: number): { values: string[]; next:
     values.push(String(tokens[i]));
     i++;
   }
-  return { values, next: i - 1 };
+  return { next: i - 1, values };
 }
 
 function parseArgs(argv: string[]): Args {

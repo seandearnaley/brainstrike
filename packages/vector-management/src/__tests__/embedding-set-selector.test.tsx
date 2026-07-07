@@ -4,38 +4,38 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data
 const mockCollections = [
   {
-    id: 'set-1',
-    modelKey: 'openai',
-    modelId: 'text-embedding-3-small',
+    category: null,
+    createdAt: '2024-01-01T00:00:00Z',
+    description: null,
     dimensions: 1536,
     distance: 'cosine' as const,
-    createdAt: '2024-01-01T00:00:00Z',
-    name: 'Test Collection',
-    description: null,
-    tags: null,
-    category: null,
     fileCount: 10,
+    id: 'set-1',
+    modelId: 'text-embedding-3-small',
+    modelKey: 'openai',
+    name: 'Test Collection',
+    tags: null,
   },
   {
-    id: 'set-2',
-    modelKey: 'openai',
-    modelId: 'text-embedding-3-large',
+    category: null,
+    createdAt: '2024-01-02T00:00:00Z',
+    description: null,
     dimensions: 3072,
     distance: 'cosine' as const,
-    createdAt: '2024-01-02T00:00:00Z',
-    name: null,
-    description: null,
-    tags: null,
-    category: null,
     fileCount: 5,
+    id: 'set-2',
+    modelId: 'text-embedding-3-large',
+    modelKey: 'openai',
+    name: null,
+    tags: null,
   },
 ];
 
 const mockLiveQueryResult = {
-  rows: mockCollections.map((c) => ({ ...c, fileCount: String(c.fileCount) })),
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn(),
+  rows: mockCollections.map((c) => ({ ...c, fileCount: String(c.fileCount) })),
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -46,10 +46,6 @@ vi.mock('@brainstrike/db', () => ({
 // Mock preferences store for useEmbeddingSetSelection tests
 const mockStoreState = {
   activeEmbeddingSetId: null as string | null,
-  isImporting: false,
-  isEmbeddingActive: false,
-  isEmbeddingQueueActive: false,
-  isJobQueueActive: false,
   cachedCollections: [] as Array<{
     id: string;
     modelKey: string;
@@ -95,13 +91,17 @@ const mockStoreState = {
     }>;
     totalRecords: number;
   },
+  isEmbeddingActive: false,
+  isEmbeddingQueueActive: false,
+  isImporting: false,
+  isJobQueueActive: false,
   schemaVerified: true,
   setActiveEmbeddingSetId: vi.fn(),
-  setIsImporting: vi.fn(),
-  setIsEmbeddingQueueActive: vi.fn(),
-  setIsJobQueueActive: vi.fn(),
   setCachedCollections: vi.fn(),
   setCachedFileData: vi.fn(),
+  setIsEmbeddingQueueActive: vi.fn(),
+  setIsImporting: vi.fn(),
+  setIsJobQueueActive: vi.fn(),
   setSchemaVerified: vi.fn(),
 };
 
@@ -140,6 +140,12 @@ vi.mock('@brainstrike/ui', async () => {
         </div>
       );
     },
+    SelectContent: ({ children }: any) => <div data-testid="select-content">{children}</div>,
+    SelectItem: ({ children, value, className }: any) => (
+      <div className={className} data-testid={`select-item-${value}`} data-value={value}>
+        {children}
+      </div>
+    ),
     SelectTrigger: ({ children, className }: any) => (
       <div className={className} data-testid="select-trigger">
         {children}
@@ -147,12 +153,6 @@ vi.mock('@brainstrike/ui', async () => {
     ),
     SelectValue: ({ placeholder, children }: any) => (
       <span data-testid="select-value">{children || placeholder}</span>
-    ),
-    SelectContent: ({ children }: any) => <div data-testid="select-content">{children}</div>,
-    SelectItem: ({ children, value, className }: any) => (
-      <div className={className} data-testid={`select-item-${value}`} data-value={value}>
-        {children}
-      </div>
     ),
   };
 });
@@ -257,10 +257,10 @@ describe('EmbeddingSetSelector', () => {
 
   it('shows empty state when no collections exist', () => {
     vi.mocked(usePGliteLiveQuery).mockReturnValue({
-      rows: [],
-      loading: false,
       error: null,
+      loading: false,
       refresh: vi.fn(),
+      rows: [],
     });
 
     render(
@@ -289,15 +289,15 @@ describe('EmbeddingSetSelector', () => {
 
   it('formats file count with singular form', () => {
     vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
       rows: [
         {
           ...mockCollections[0],
           fileCount: '1',
         },
       ],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
     });
 
     render(
@@ -314,15 +314,15 @@ describe('EmbeddingSetSelector', () => {
 
   it('formats large file counts with locale separator', () => {
     vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
       rows: [
         {
           ...mockCollections[0],
           fileCount: '1234567',
         },
       ],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
     });
 
     render(

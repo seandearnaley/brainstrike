@@ -22,12 +22,12 @@ const mockRemoveActiveRoot = vi.fn();
 const mockSetActiveRoots = vi.fn();
 vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(() => ({
-    setCurrentFolderId: mockSetCurrentFolderId,
-    currentFolderId: 'test-folder-id',
     addActiveRoot: mockAddActiveRoot,
+    currentFolderId: 'test-folder-id',
+    folderAccessOrder: [],
     removeActiveRoot: mockRemoveActiveRoot,
     setActiveRoots: mockSetActiveRoots,
-    folderAccessOrder: [],
+    setCurrentFolderId: mockSetCurrentFolderId,
   })),
 }));
 
@@ -37,10 +37,10 @@ function makeFsParams(
   overrides: Partial<Parameters<typeof useFileSystem>[0]> = {}
 ): Parameters<typeof useFileSystem>[0] {
   return {
-    setCurrentFolderId: mockSetCurrentFolderId,
     addActiveRoot: mockAddActiveRoot,
     removeActiveRoot: mockRemoveActiveRoot,
     setActiveRoots: mockSetActiveRoots,
+    setCurrentFolderId: mockSetCurrentFolderId,
     ...overrides,
   };
 }
@@ -106,9 +106,9 @@ describe('useFileSystem', () => {
     it('uses a RootId UUID (not path) as the folder id when name and path differ', async () => {
       const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
       MockFileSystemAdapter.prototype.requestDirectoryAccess = vi.fn().mockResolvedValue({
-        path: '/projects/shared-name',
-        name: 'shared-name',
         kind: 'directory',
+        name: 'shared-name',
+        path: '/projects/shared-name',
         platform: 'web',
       } satisfies DirectoryHandle);
 
@@ -144,17 +144,17 @@ describe('useFileSystem', () => {
       });
 
       expect(handle).toEqual({
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory',
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web',
       });
       // The stored handle is stamped with a durable RootId (storage v5), so it
       // is a superset of the returned handle — match the known fields.
       expect(result.current?.rootDirectoryHandle).toMatchObject({
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory',
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web',
       });
       // Since storage v5 the store receives a durable RootId UUID, not the path.
@@ -374,17 +374,17 @@ describe('useFileSystem', () => {
 
       await waitFor(() =>
         expect(result.current?.rootDirectoryHandle).toMatchObject({
-          path: '/test/restored/path',
-          name: 'path',
           kind: 'directory',
+          name: 'path',
+          path: '/test/restored/path',
           platform: 'web',
         })
       );
       expect(result.current).toBeDefined();
       expect(result.current?.rootDirectoryHandle).toMatchObject({
-        path: '/test/restored/path',
-        name: 'path',
         kind: 'directory',
+        name: 'path',
+        path: '/test/restored/path',
         platform: 'web',
       });
       // Since storage v5 the store receives a durable RootId UUID, not the path.
@@ -430,9 +430,9 @@ describe('useFileSystem', () => {
       });
 
       expect(result.current?.rootDirectoryHandle).toMatchObject({
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory',
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web',
       });
 
@@ -442,17 +442,17 @@ describe('useFileSystem', () => {
 
       await waitFor(() =>
         expect(result.current?.rootDirectoryHandle).toMatchObject({
-          path: 'mock-root',
-          name: 'mock-root',
           kind: 'directory',
+          name: 'mock-root',
+          path: 'mock-root',
           platform: 'web',
         })
       );
       // Should still have the manually selected directory, not the restored one
       expect(result.current?.rootDirectoryHandle).toMatchObject({
-        path: 'mock-root',
-        name: 'mock-root',
         kind: 'directory',
+        name: 'mock-root',
+        path: 'mock-root',
         platform: 'web',
       });
     });
@@ -482,9 +482,9 @@ describe('useFileSystem', () => {
           await new Promise<DirectoryHandle>((resolve) => {
             setTimeout(() => {
               resolve({
-                path: '/test/restored/path',
-                name: 'path',
                 kind: 'directory',
+                name: 'path',
+                path: '/test/restored/path',
                 platform: 'web',
               });
             }, 0);
@@ -501,9 +501,9 @@ describe('useFileSystem', () => {
       try {
         await waitFor(() =>
           expect(result.current?.rootDirectoryHandle).toMatchObject({
-            path: '/test/restored/path',
-            name: 'path',
             kind: 'directory',
+            name: 'path',
+            path: '/test/restored/path',
             platform: 'web',
           })
         );
@@ -519,9 +519,9 @@ describe('useFileSystem', () => {
 
     it('retries restore after an in-flight attempt is cancelled by adapter replacement', async () => {
       const restoredHandle: DirectoryHandle = {
-        path: '/test/restored/path',
-        name: 'path',
         kind: 'directory',
+        name: 'path',
+        path: '/test/restored/path',
         platform: 'web',
       };
       const storageAdapter = createStorageAdapter('web');
@@ -531,15 +531,15 @@ describe('useFileSystem', () => {
       const createAdapter = (
         restoreLastFolder: () => Promise<DirectoryHandle | null>
       ): FileSystemAdapter => ({
-        requestDirectoryAccess: async () => ({
-          path: 'mock-root',
-          name: 'mock-root',
-          kind: 'directory',
-          platform: 'web',
-        }),
+        exists: async () => true,
         readDirectory: async () => [],
         readFile: async () => 'test content',
-        exists: async () => true,
+        requestDirectoryAccess: async () => ({
+          kind: 'directory',
+          name: 'mock-root',
+          path: 'mock-root',
+          platform: 'web',
+        }),
         restoreLastFolder,
       });
 
@@ -554,9 +554,9 @@ describe('useFileSystem', () => {
 
       const DynamicAdaptersWrapper = ({ children }: { children: ReactNode }) =>
         createElement(AdaptersProvider, {
+          children,
           fileSystemAdapter: activeAdapter,
           storageAdapter,
-          children,
         });
 
       const { result, rerender } = renderHook(() => useFileSystem(makeFsParams()), {
@@ -601,9 +601,9 @@ describe('useFileSystem', () => {
 
         await act(async () => {
           resolveRestore?.({
-            path: '/test/restored/late',
-            name: 'late',
             kind: 'directory',
+            name: 'late',
+            path: '/test/restored/late',
             platform: 'web',
           });
           await Promise.resolve();
@@ -712,7 +712,7 @@ describe('useFileSystem', () => {
     it('appends handle to rootDirectoryHandles, sets focused, calls addActiveRoot and setCurrentFolderId', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'my-root',
-        handle: { path: '/my/root', name: 'my-root', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'my-root', path: '/my/root', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -721,15 +721,15 @@ describe('useFileSystem', () => {
       const storageAdapter = createStorageAdapter('web');
       const addRootFn = vi.fn().mockResolvedValue(descriptor);
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        addRoot: addRootFn,
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: addRootFn,
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -753,7 +753,7 @@ describe('useFileSystem', () => {
     it('does not add non-persisted descriptor to store (persisted:false)', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'ephemeral-root',
-        handle: { path: '/ephemeral', name: 'ephemeral-root', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'ephemeral-root', path: '/ephemeral', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: false,
@@ -761,15 +761,15 @@ describe('useFileSystem', () => {
       };
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: vi.fn().mockResolvedValue(descriptor),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -790,21 +790,21 @@ describe('useFileSystem', () => {
     it('falls back to requestDirectoryAccess and creates a synthetic descriptor', async () => {
       const storageAdapter = createStorageAdapter('web');
       const handle: DirectoryHandle = {
-        path: '/fallback/path',
-        name: 'fallback-path',
         kind: 'directory',
+        name: 'fallback-path',
+        path: '/fallback/path',
         platform: 'web',
       };
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(handle),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(handle),
         // No addRoot
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -838,7 +838,7 @@ describe('useFileSystem', () => {
     it('re-adding an existing root path focuses it without duplicating', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'shared-root',
-        handle: { path: '/shared/root', name: 'shared-root', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'shared-root', path: '/shared/root', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -846,15 +846,15 @@ describe('useFileSystem', () => {
       };
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: vi.fn().mockResolvedValue(descriptor),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -879,7 +879,7 @@ describe('useFileSystem', () => {
     it('switches focused root and calls setCurrentFolderId', async () => {
       const desc1: RootDescriptor = {
         displayName: 'root-a',
-        handle: { path: '/root/a', name: 'root-a', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'root-a', path: '/root/a', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -887,7 +887,7 @@ describe('useFileSystem', () => {
       };
       const desc2: RootDescriptor = {
         displayName: 'root-b',
-        handle: { path: '/root/b', name: 'root-b', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'root-b', path: '/root/b', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -896,18 +896,18 @@ describe('useFileSystem', () => {
       const storageAdapter = createStorageAdapter('web');
       let callCount = 0;
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn(),
-        readDirectory: vi.fn().mockResolvedValue([]),
-        readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
         addRoot: vi.fn().mockImplementation(() => {
           callCount++;
           return Promise.resolve(callCount === 1 ? desc1 : desc2);
         }),
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn(),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -953,7 +953,7 @@ describe('useFileSystem', () => {
     it('populates rootDirectoryHandles, calls setActiveRoots, focuses by folderAccessOrder', async () => {
       const desc1: RootDescriptor = {
         displayName: 'folder-a',
-        handle: { path: '/folder/a', name: 'folder-a', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'folder-a', path: '/folder/a', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -961,7 +961,7 @@ describe('useFileSystem', () => {
       };
       const desc2: RootDescriptor = {
         displayName: 'folder-b',
-        handle: { path: '/folder/b', name: 'folder-b', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'folder-b', path: '/folder/b', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -969,15 +969,15 @@ describe('useFileSystem', () => {
       };
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
+        requestDirectoryAccess: vi.fn(),
         restoreRoots: vi.fn().mockResolvedValue([desc1, desc2]),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       // folderAccessOrder has /folder/b first → /folder/b should be focused
       // getFolderAccessOrder is passed directly as a param (no module mock manipulation needed)
@@ -1006,7 +1006,7 @@ describe('useFileSystem', () => {
     it('skips non-granted roots from restoreRoots', async () => {
       const grantedDesc: RootDescriptor = {
         displayName: 'granted-folder',
-        handle: { path: '/granted', name: 'granted-folder', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'granted-folder', path: '/granted', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -1014,7 +1014,7 @@ describe('useFileSystem', () => {
       };
       const promptDesc: RootDescriptor = {
         displayName: 'prompt-folder',
-        handle: { path: '/prompt', name: 'prompt-folder', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'prompt-folder', path: '/prompt', platform: 'web' },
         kind: 'fsa',
         permissionState: 'prompt',
         persisted: true,
@@ -1022,15 +1022,15 @@ describe('useFileSystem', () => {
       };
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
+        requestDirectoryAccess: vi.fn(),
         restoreRoots: vi.fn().mockResolvedValue([grantedDesc, promptDesc]),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1054,9 +1054,9 @@ describe('useFileSystem', () => {
 
       await waitFor(() =>
         expect(result.current?.rootDirectoryHandle).toMatchObject({
-          path: '/test/legacy/path',
-          name: 'path',
           kind: 'directory',
+          name: 'path',
+          path: '/test/legacy/path',
           platform: 'web',
         })
       );
@@ -1076,7 +1076,7 @@ describe('useFileSystem', () => {
     it('writes the registered RootId (not the path) to the store', async () => {
       const descriptor: RootDescriptor = {
         displayName: 'reg-root',
-        handle: { path: '/reg/root', name: 'reg-root', kind: 'directory', platform: 'web' },
+        handle: { kind: 'directory', name: 'reg-root', path: '/reg/root', platform: 'web' },
         kind: 'fsa',
         permissionState: 'granted',
         persisted: true,
@@ -1084,15 +1084,15 @@ describe('useFileSystem', () => {
       };
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        addRoot: vi.fn().mockResolvedValue(descriptor),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: vi.fn().mockResolvedValue(descriptor),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1119,9 +1119,9 @@ describe('useFileSystem', () => {
       });
 
       const unstamped: DirectoryHandle = {
-        path: '/never/registered',
-        name: 'never-registered',
         kind: 'directory',
+        name: 'never-registered',
+        path: '/never/registered',
         platform: 'web',
       };
 
@@ -1140,9 +1140,9 @@ describe('useFileSystem', () => {
       const descriptor: RootDescriptor = {
         displayName: 'selected-root',
         handle: {
-          path: '/selected/root',
-          name: 'selected-root',
           kind: 'directory',
+          name: 'selected-root',
+          path: '/selected/root',
           platform: 'web',
         },
         kind: 'fsa',
@@ -1153,15 +1153,15 @@ describe('useFileSystem', () => {
       const storageAdapter = createStorageAdapter('web');
       const addRootFn = vi.fn().mockResolvedValue(descriptor);
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+        addRoot: addRootFn,
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: addRootFn,
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1177,15 +1177,15 @@ describe('useFileSystem', () => {
 
   describe('multi-root: registerRestoredHandles (restore banner)', () => {
     const handleA: DirectoryHandle = {
-      path: 'Root A',
-      name: 'Root A',
       kind: 'directory',
+      name: 'Root A',
+      path: 'Root A',
       platform: 'web',
     };
     const handleB: DirectoryHandle = {
-      path: 'Root B',
-      name: 'Root B',
       kind: 'directory',
+      name: 'Root B',
+      path: 'Root B',
       platform: 'web',
     };
 
@@ -1212,15 +1212,15 @@ describe('useFileSystem', () => {
         },
       ] satisfies RootDescriptor[]);
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
+        requestDirectoryAccess: vi.fn(),
         restoreRoots: restoreRootsFn,
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1253,15 +1253,15 @@ describe('useFileSystem', () => {
     it('falls back to synthetic rootIds when the adapter has no restoreRoots', async () => {
       const storageAdapter = createStorageAdapter('web');
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn(),
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
+        requestDirectoryAccess: vi.fn(),
         // No restoreRoots
       };
 
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1283,7 +1283,7 @@ describe('useFileSystem', () => {
   describe('multi-root: removeRootDirectory (disconnect)', () => {
     const descriptorA: RootDescriptor = {
       displayName: 'root-a',
-      handle: { path: '/roots/a', name: 'root-a', kind: 'directory', platform: 'web' },
+      handle: { kind: 'directory', name: 'root-a', path: '/roots/a', platform: 'web' },
       kind: 'fsa',
       permissionState: 'granted',
       persisted: true,
@@ -1291,7 +1291,7 @@ describe('useFileSystem', () => {
     };
     const descriptorB: RootDescriptor = {
       displayName: 'root-b',
-      handle: { path: '/roots/b', name: 'root-b', kind: 'directory', platform: 'web' },
+      handle: { kind: 'directory', name: 'root-b', path: '/roots/b', platform: 'web' },
       kind: 'fsa',
       permissionState: 'granted',
       persisted: true,
@@ -1310,11 +1310,11 @@ describe('useFileSystem', () => {
         .mockResolvedValueOnce(descriptorB);
       const removeRootFn = vi.fn().mockResolvedValue(undefined);
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptorA.handle),
+        addRoot: addRootFn,
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: addRootFn,
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptorA.handle),
         ...(withRemoveRoot ? { removeRoot: removeRootFn } : {}),
       };
       return { adapter, addRootFn, removeRootFn };
@@ -1323,14 +1323,14 @@ describe('useFileSystem', () => {
     function renderMultiRootHook(adapter: FileSystemAdapter) {
       const storageAdapter = createStorageAdapter('web');
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
       return renderHook(
         () =>
           useFileSystem({
-            setCurrentFolderId: mockSetCurrentFolderId,
             addActiveRoot: mockAddActiveRoot,
             removeActiveRoot: mockRemoveActiveRoot,
             setActiveRoots: mockSetActiveRoots,
+            setCurrentFolderId: mockSetCurrentFolderId,
           }),
         { wrapper }
       );
@@ -1466,7 +1466,7 @@ describe('useFileSystem', () => {
     const NAME = 'project';
     const descA: RootDescriptor = {
       displayName: NAME,
-      handle: { path: NAME, name: NAME, kind: 'directory', platform: 'web' },
+      handle: { kind: 'directory', name: NAME, path: NAME, platform: 'web' },
       kind: 'fsa',
       permissionState: 'granted',
       persisted: true,
@@ -1474,7 +1474,7 @@ describe('useFileSystem', () => {
     };
     const descB: RootDescriptor = {
       displayName: NAME,
-      handle: { path: NAME, name: NAME, kind: 'directory', platform: 'web' },
+      handle: { kind: 'directory', name: NAME, path: NAME, platform: 'web' },
       kind: 'fsa',
       permissionState: 'granted',
       persisted: true,
@@ -1484,23 +1484,23 @@ describe('useFileSystem', () => {
     function renderWithBothRoots() {
       const addRootFn = vi.fn().mockResolvedValueOnce(descA).mockResolvedValueOnce(descB);
       const adapter: FileSystemAdapter = {
-        requestDirectoryAccess: vi.fn().mockResolvedValue(descA.handle),
+        addRoot: addRootFn,
+        exists: vi.fn().mockResolvedValue(true),
         readDirectory: vi.fn().mockResolvedValue([]),
         readFile: vi.fn().mockResolvedValue(''),
-        exists: vi.fn().mockResolvedValue(true),
-        addRoot: addRootFn,
         removeRoot: vi.fn().mockResolvedValue(undefined),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descA.handle),
       };
       const storageAdapter = createStorageAdapter('web');
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { fileSystemAdapter: adapter, storageAdapter, children });
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
       const hook = renderHook(
         () =>
           useFileSystem({
-            setCurrentFolderId: mockSetCurrentFolderId,
             addActiveRoot: mockAddActiveRoot,
             removeActiveRoot: mockRemoveActiveRoot,
             setActiveRoots: mockSetActiveRoots,
+            setCurrentFolderId: mockSetCurrentFolderId,
           }),
         { wrapper }
       );

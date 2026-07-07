@@ -291,8 +291,8 @@ function logPathsToRestore(
   storeState: FileExplorerState
 ): void {
   logger.debug('[Restoration Effect] Paths to restore', {
-    folderId: currentRootFolderId,
     expandedPathCount: storeState.expandedDirectoryPaths.size,
+    folderId: currentRootFolderId,
     parentDirsOfSelectedFiles: plan.parentDirectoriesOfSelectedFiles.size,
     queryCoveredDirectoryCount: plan.queryCoveredDirectories.size,
     selectedFileCount: storeState.selectedFilePaths.size,
@@ -340,7 +340,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
 
   try {
     await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
-      setRestorationProgress({ loaded, total: progressTotal, currentPath });
+      setRestorationProgress({ currentPath, loaded, total: progressTotal });
     });
 
     if (currentRootFolderIdRef.current !== currentRootFolderId) {
@@ -449,9 +449,9 @@ export function useExpandedPathRestoration(
         currentRootFolderId,
         fileTreeLength: fileTree.length,
         isTreeLoading,
+        restorationKey,
         setSettledFolderId,
         setSettledRestorationKey,
-        restorationKey,
       })
     ) {
       return;
@@ -509,8 +509,8 @@ export function useExpandedPathRestoration(
     setIsRestoringExpandedPaths(true);
 
     logger.info('Restoring expanded directories and file parent directories', {
-      folderId: currentRootFolderId,
       expandedPathCount: storeState.expandedDirectoryPaths.size,
+      folderId: currentRootFolderId,
       parentDirsOfSelectedFilesCount: plan.parentDirectoriesOfSelectedFiles.size,
       totalPathCount: plan.allPathsToRestore.size,
     });
@@ -519,7 +519,7 @@ export function useExpandedPathRestoration(
       (left, right) => getPathDepth(left) - getPathDepth(right)
     );
     const total = sortedPaths.length;
-    setRestorationProgress({ loaded: 0, total, currentPath: null });
+    setRestorationProgress({ currentPath: null, loaded: 0, total });
 
     void restoreExpandedPaths({
       currentRootFolderId,
@@ -527,13 +527,13 @@ export function useExpandedPathRestoration(
       instanceInProgressFolderIdRef,
       loadSpecificPaths,
       plan,
+      restorationKey,
       setExpandedPaths,
       setIsRestoringExpandedPaths,
+      setRestorationCompletionVersion,
       setRestorationProgress,
       setSettledFolderId,
       setSettledRestorationKey,
-      setRestorationCompletionVersion,
-      restorationKey,
       sortedPaths,
       store,
     });

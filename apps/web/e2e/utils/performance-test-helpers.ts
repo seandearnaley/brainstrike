@@ -22,7 +22,7 @@ export const recordMetric = (
   threshold: number,
   unit: string
 ): PerformanceMetric => {
-  const metric = { name, value, threshold, unit, timestamp: Date.now() };
+  const metric = { name, threshold, timestamp: Date.now(), unit, value };
   // Only log in debug mode or when explicitly requested
   const isDebug =
     globalThis.process?.env?.['DEBUG'] || globalThis.process?.env?.['PERFORMANCE_LOGGING'];
@@ -62,11 +62,11 @@ export const getMemoryUsage = async (page: Page) =>
   await page.evaluate(() => {
     const memory = performance.memory;
     if (!memory) {
-      return { used: 0, total: 0, usedMB: 0 };
+      return { total: 0, used: 0, usedMB: 0 };
     }
     return {
-      used: memory.usedJSHeapSize,
       total: memory.totalJSHeapSize,
+      used: memory.usedJSHeapSize,
       usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
     };
   });
@@ -102,7 +102,22 @@ export const setupRenderTracking = async (page: Page) => {
 
     window.__renderTracker = {
       count: 0,
+
+      getStats: () => ({
+        recentRenderStorm:
+          window.__renderTracker?.renderTimes.filter(
+            (time: number) => Date.now() - time < 1000 // last second
+          ).length || 0,
+        totalRenders: renderCount,
+      }),
       renderTimes: [],
+
+      reset: () => {
+        renderCount = 0;
+        if (window.__renderTracker) {
+          window.__renderTracker.renderTimes = [];
+        }
+      },
 
       track: () => {
         const now = Date.now();
@@ -121,21 +136,6 @@ export const setupRenderTracking = async (page: Page) => {
           }
         }
       },
-
-      getStats: () => ({
-        totalRenders: renderCount,
-        recentRenderStorm:
-          window.__renderTracker?.renderTimes.filter(
-            (time: number) => Date.now() - time < 1000 // last second
-          ).length || 0,
-      }),
-
-      reset: () => {
-        renderCount = 0;
-        if (window.__renderTracker) {
-          window.__renderTracker.renderTimes = [];
-        }
-      },
     };
   });
 };
@@ -145,7 +145,7 @@ export const setupRenderTracking = async (page: Page) => {
  */
 export const getRenderStats = async (page: Page) =>
   await page.evaluate(
-    () => window.__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
+    () => window.__renderTracker?.getStats() || { recentRenderStorm: 0, totalRenders: 0 }
   );
 
 /**

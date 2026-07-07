@@ -13,7 +13,7 @@ export function getDefaultConcurrency(): number {
 
 export function initFileContentWorker(adapter: FileSystemAdapter): FileContentWorker {
   return createFileContentWorker({
-    fileSystemAdapter: adapter,
     concurrency: getDefaultConcurrency(),
+    fileSystemAdapter: adapter,
   });
 }

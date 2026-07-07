@@ -51,13 +51,13 @@ export function buildQuerySelectionManifest(args: {
   });
 
   return {
-    filePaths: normalizedPaths,
-    pathSet: new Set(normalizedPaths),
     directoryCounts,
+    errorMessage: null,
+    filePaths: normalizedPaths,
     fingerprint: args.fingerprint,
+    pathSet: new Set(normalizedPaths),
     snapshotId: args.snapshotId,
     status: args.status ?? 'ready',
-    errorMessage: null,
   };
 }
 
@@ -66,13 +66,13 @@ export function createLoadingQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: [],
-    pathSet: new Set<string>(),
     directoryCounts: new Map<string, number>(),
+    errorMessage: null,
+    filePaths: [],
     fingerprint: args.fingerprint,
+    pathSet: new Set<string>(),
     snapshotId: args.snapshotId,
     status: 'loading',
-    errorMessage: null,
   };
 }
 
@@ -82,13 +82,13 @@ export function createErroredQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: [],
-    pathSet: new Set<string>(),
     directoryCounts: new Map<string, number>(),
+    errorMessage: args.errorMessage,
+    filePaths: [],
     fingerprint: args.fingerprint,
+    pathSet: new Set<string>(),
     snapshotId: args.snapshotId,
     status: 'error',
-    errorMessage: args.errorMessage,
   };
 }
 
@@ -106,8 +106,8 @@ function buildResolvedQuerySelection(
   for (const filePath of manifest.filePaths) {
     if (excludedPaths.has(filePath)) {
       accumulateAncestorDirectoryCounts([filePath], {
-        counts: directoryCounts,
         cache: ancestorCache,
+        counts: directoryCounts,
         delta: -1,
         includeRoot: true,
       });
@@ -124,8 +124,8 @@ function buildResolvedQuerySelection(
     filePaths.push(filePath);
     pathSet.add(filePath);
     accumulateAncestorDirectoryCounts([filePath], {
-      counts: directoryCounts,
       cache: ancestorCache,
+      counts: directoryCounts,
       includeRoot: true,
     });
   }
@@ -133,9 +133,9 @@ function buildResolvedQuerySelection(
   filePaths.sort(defaultCollator.compare);
 
   return {
+    directoryCounts,
     filePaths,
     pathSet,
-    directoryCounts,
     selectedCount: filePaths.length,
   };
 }
@@ -146,9 +146,9 @@ export function resolveQuerySelection(
 ): ResolvedQuerySelection {
   if (!descriptor) {
     return {
+      directoryCounts: new Map<string, number>(),
       filePaths: [],
       pathSet: new Set<string>(),
-      directoryCounts: new Map<string, number>(),
       selectedCount: 0,
     };
   }
@@ -164,9 +164,9 @@ export function resolveQuerySelection(
       includeRoot: true,
     });
     return {
+      directoryCounts,
       filePaths: includedFilePaths,
       pathSet: new Set(includedFilePaths),
-      directoryCounts,
       selectedCount: descriptor.totalSelectedCount,
     };
   }

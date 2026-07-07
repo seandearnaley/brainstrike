@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the logger using vi.hoisted
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
   error: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -44,8 +44,8 @@ class MockWorker {
   emitError(error: Error | string) {
     const message = error instanceof Error ? error.message : String(error);
     const errorEvent = new ErrorEvent('error', {
-      message,
       error: error instanceof Error ? error : new Error(message),
+      message,
     });
 
     if (this.onerror) {
@@ -56,19 +56,19 @@ class MockWorker {
 
 // Mock localStorage
 const mockLocalStorage = {
-  data: new Map<string, string>(),
-  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) || null),
-  setItem: vi.fn((key: string, value: string) => {
-    mockLocalStorage.data.set(key, value);
-  }),
-  removeItem: vi.fn((key: string) => {
-    mockLocalStorage.data.delete(key);
-  }),
   clear: vi.fn(() => {
     mockLocalStorage.data.clear();
   }),
-  length: 0,
+  data: new Map<string, string>(),
+  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) || null),
   key: vi.fn(() => null),
+  length: 0,
+  removeItem: vi.fn((key: string) => {
+    mockLocalStorage.data.delete(key);
+  }),
+  setItem: vi.fn((key: string, value: string) => {
+    mockLocalStorage.data.set(key, value);
+  }),
 };
 
 // Add localStorage to global
@@ -177,7 +177,7 @@ describe('WorkerStorage', () => {
         // Emulate behavior of feature detection vs normal worker
         if (url.toString().startsWith('data:')) {
           // biome-ignore lint/correctness/noConstructorReturn: Mocking Worker constructor to return a specific instance
-          return { terminate: vi.fn(), addEventListener: vi.fn() } as unknown as Worker;
+          return { addEventListener: vi.fn(), terminate: vi.fn() } as unknown as Worker;
         }
         // biome-ignore lint/correctness/noConstructorReturn: Mocking Worker constructor to return a specific instance
         return mockWorker;
@@ -277,8 +277,8 @@ describe('WorkerStorage', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: JSON.stringify(testData),
+            type: 'success',
           });
         });
       });
@@ -287,8 +287,8 @@ describe('WorkerStorage', () => {
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: expect.any(String),
-        type: 'load',
         key: 'test-key',
+        type: 'load',
       });
       expect(result).toBe(JSON.stringify(testData));
     });
@@ -302,9 +302,9 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
+            error: 'Worker error',
             id: message.id,
             type: 'error',
-            error: 'Worker error',
           });
         });
       });
@@ -323,8 +323,8 @@ describe('WorkerStorage', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: null,
+            type: 'success',
           });
         });
       });
@@ -359,8 +359,8 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -373,8 +373,8 @@ describe('WorkerStorage', () => {
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: expect.any(String),
-        type: 'save',
         key: 'test-key',
+        type: 'save',
         value: JSON.stringify(testData),
       });
     });
@@ -386,9 +386,9 @@ describe('WorkerStorage', () => {
 
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'Worker error',
           id: message.id,
           type: 'error',
-          error: 'Worker error',
         });
       });
 
@@ -426,8 +426,8 @@ describe('WorkerStorage', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: true,
+            type: 'success',
           });
         });
       });
@@ -436,8 +436,8 @@ describe('WorkerStorage', () => {
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: expect.any(String),
-        type: 'remove',
         key: 'test-key',
+        type: 'remove',
       });
     });
 
@@ -447,9 +447,9 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
+            error: 'Worker error',
             id: message.id,
             type: 'error',
-            error: 'Worker error',
           });
         });
       });
@@ -527,8 +527,8 @@ describe('WorkerStorage', () => {
       // Send response with unknown ID
       mockWorker.emitMessage({
         id: 'unknown-id',
-        type: 'success',
         result: 'data',
+        type: 'success',
       });
 
       // Should silently ignore unknown response IDs (no console warning)
@@ -622,8 +622,8 @@ describe('WorkerStorage', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: `result-${message.id}`,
+            type: 'success',
           });
         });
       });
@@ -646,8 +646,8 @@ describe('WorkerStorage', () => {
         sentIds.add(data.id);
         mockWorker.emitMessage({
           id: data.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 
@@ -683,20 +683,20 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: 'bar',
+        operation: 'setItem',
         opId: 1,
+        type: 'storage_request',
+        value: 'bar',
       });
 
       await flushAsyncWork();
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith('foo', 'bar');
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
-        type: 'storage_response',
         operation: 'setItem',
         success: true,
+        type: 'storage_response',
       });
     });
 
@@ -705,20 +705,20 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: 'bar',
+        operation: 'setItem',
         opId: 2,
+        type: 'storage_request',
+        value: 'bar',
       });
 
       mockWorker.emitMessage({
         id: '2',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: 'baz',
+        operation: 'setItem',
         opId: 1,
+        type: 'storage_request',
+        value: 'baz',
       });
 
       await flushAsyncWork();
@@ -726,15 +726,15 @@ describe('WorkerStorage', () => {
       expect(mockWorker.postMessage).toHaveBeenCalledTimes(2);
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
-        type: 'storage_response',
         operation: 'setItem',
         success: true,
+        type: 'storage_response',
       });
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '2',
-        type: 'storage_response',
         operation: 'setItem',
         success: true,
+        type: 'storage_response',
       });
     });
 
@@ -744,17 +744,17 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'getItem',
         key: 'foo',
+        operation: 'getItem',
+        type: 'storage_request',
       });
 
       await flushAsyncWork();
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
-        type: 'storage_response',
         operation: 'getItem',
         rawValue: 'bar',
+        type: 'storage_response',
       });
     });
 
@@ -764,18 +764,18 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'removeItem',
         key: 'foo',
+        operation: 'removeItem',
+        type: 'storage_request',
       });
 
       await flushAsyncWork();
       expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('foo');
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
-        type: 'storage_response',
         operation: 'removeItem',
         success: true,
+        type: 'storage_response',
       });
     });
 
@@ -784,21 +784,21 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: undefined,
+        operation: 'setItem',
         opId: 1,
+        type: 'storage_request',
+        value: undefined,
       });
 
       await flushAsyncWork();
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        error: 'Cannot store undefined value',
         id: '1',
-        type: 'storage_response',
         operation: 'setItem',
         success: false,
-        error: 'Cannot store undefined value',
+        type: 'storage_response',
       });
     });
 
@@ -807,9 +807,9 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
+        operation: 'setItem',
+        type: 'storage_request',
         value: 'bar',
         // No opId
       });
@@ -823,9 +823,9 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'unknown' as 'setItem',
         key: 'foo',
+        operation: 'unknown' as 'setItem',
+        type: 'storage_request',
       });
 
       await flushAsyncWork();
@@ -850,48 +850,48 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: 'bar',
+        operation: 'setItem',
         opId: 1,
+        type: 'storage_request',
+        value: 'bar',
       });
 
       mockWorker.emitMessage({
         id: '2',
-        type: 'storage_request',
-        operation: 'getItem',
         key: 'foo',
+        operation: 'getItem',
+        type: 'storage_request',
       });
 
       mockWorker.emitMessage({
         id: '3',
-        type: 'storage_request',
-        operation: 'removeItem',
         key: 'foo',
+        operation: 'removeItem',
+        type: 'storage_request',
       });
 
       await flushAsyncWork();
       expect(mockWorker.postMessage).toHaveBeenNthCalledWith(1, {
+        error: 'fail',
         id: '1',
-        type: 'storage_response',
         operation: 'setItem',
         success: false,
-        error: 'fail',
+        type: 'storage_response',
       });
       expect(mockWorker.postMessage).toHaveBeenNthCalledWith(2, {
+        error: 'fail',
         id: '2',
-        type: 'storage_response',
         operation: 'getItem',
         success: false,
-        error: 'fail',
+        type: 'storage_response',
       });
       expect(mockWorker.postMessage).toHaveBeenNthCalledWith(3, {
+        error: 'fail',
         id: '3',
-        type: 'storage_response',
         operation: 'removeItem',
         success: false,
-        error: 'fail',
+        type: 'storage_response',
       });
     });
 
@@ -905,20 +905,20 @@ describe('WorkerStorage', () => {
 
       mockWorker.emitMessage({
         id: '1',
-        type: 'storage_request',
-        operation: 'setItem',
         key: 'foo',
-        value: 'bar',
+        operation: 'setItem',
         opId: 1,
+        type: 'storage_request',
+        value: 'bar',
       });
 
       await flushAsyncWork();
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        error: 'string-error',
         id: '1',
-        type: 'storage_response',
         operation: 'setItem',
         success: false,
-        error: 'string-error',
+        type: 'storage_response',
       });
     });
   });
@@ -979,8 +979,8 @@ describe('WorkerStorage', () => {
         queueMicrotask(() => {
           mockWorker.emitMessage({
             id: message.id,
-            type: 'success',
             result: true,
+            type: 'success',
           });
         });
       });
@@ -1005,9 +1005,9 @@ describe('WorkerStorage', () => {
       // Worker fails
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'Worker error',
           id: message.id,
           type: 'error',
-          error: 'Worker error',
         });
       });
 
@@ -1029,9 +1029,9 @@ describe('WorkerStorage', () => {
       // Worker fails
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
+          error: 'Worker error',
           id: message.id,
           type: 'error',
-          error: 'Worker error',
         });
       });
 
@@ -1053,8 +1053,8 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
         mockWorker.emitMessage({
           id: message.id,
-          type: 'success',
           result: true,
+          type: 'success',
         });
       });
 

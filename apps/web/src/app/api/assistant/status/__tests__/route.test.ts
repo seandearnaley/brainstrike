@@ -16,8 +16,8 @@ import { GET } from '../route';
 describe('assistant status route', () => {
   it('returns enabled status when provider is configured', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: true,
       apiKey: 'test-key',
+      enabled: true,
     });
 
     const res = await GET();
@@ -28,9 +28,9 @@ describe('assistant status route', () => {
 
   it('returns disabled status with reason when missing key', async () => {
     vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
-      enabled: false,
       apiKey: '',
       disabledReason: 'missing_api_key',
+      enabled: false,
     });
 
     const res = await GET();

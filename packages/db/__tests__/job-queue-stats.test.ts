@@ -12,15 +12,15 @@ describe('JobQueue stats', () => {
 
   it('returns counts by state and queue stats', async () => {
     const jq = new JobQueue(db);
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: { id: 1 } });
-    await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: { id: 2 } });
-    await jq.enqueue({ queue: 'other', jobType: 'embed_chunk', payload: { id: 3 } });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 1 }, queue: 'embeddings' });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 2 }, queue: 'embeddings' });
+    await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 3 }, queue: 'other' });
 
     const c1 = await jq.getCountsByState();
     expect(c1.find((r) => r.queue === 'embeddings' && r.state === 'queued')?.count).toBe(2);
     expect(c1.find((r) => r.queue === 'other' && r.state === 'queued')?.count).toBe(1);
 
-    const claim = await jq.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const claim = await jq.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(claim?.state).toBe('running');
 
     const stats = await jq.getQueueStats('embeddings');

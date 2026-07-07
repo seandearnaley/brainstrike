@@ -3,15 +3,15 @@ import { TokenBudgetManager } from '../token-budget-manager';
 import type { UnifiedToolMetadata } from '../unified-registry';
 
 const createTool = (overrides: Partial<UnifiedToolMetadata>): UnifiedToolMetadata => ({
-  id: `tool.${overrides.id ?? 'test'}`,
-  source: 'native',
   category: 'analysis',
-  loadingTier: 'conditional',
   description: 'Test tool',
-  enabled: true,
   discoveredAt: Date.now(),
+  enabled: true,
   estimatedTokens: 10,
+  id: `tool.${overrides.id ?? 'test'}`,
+  loadingTier: 'conditional',
   requiresApproval: false,
+  source: 'native',
   ...overrides,
 });
 
@@ -20,8 +20,8 @@ describe('TokenBudgetManager', () => {
     expect(
       () =>
         new TokenBudgetManager({
-          contextWindowTokens: 1000,
           allocation: { conditionalTools: -0.1 },
+          contextWindowTokens: 1000,
         })
     ).toThrow(/must be positive/);
   });
@@ -30,8 +30,8 @@ describe('TokenBudgetManager', () => {
     expect(
       () =>
         new TokenBudgetManager({
-          contextWindowTokens: 1000,
           allocation: { conditionalTools: 0.5 },
+          contextWindowTokens: 1000,
         })
     ).toThrow(/must sum to 1.0/);
   });
@@ -39,10 +39,10 @@ describe('TokenBudgetManager', () => {
   it('selects tools within the available budget', () => {
     const manager = new TokenBudgetManager({ contextWindowTokens: 100 });
     const tools: UnifiedToolMetadata[] = [
-      createTool({ id: 'critical-1', loadingTier: 'critical', estimatedTokens: 10 }),
-      createTool({ id: 'critical-2', loadingTier: 'critical', estimatedTokens: 20 }),
-      createTool({ id: 'conditional-1', loadingTier: 'conditional', estimatedTokens: 5 }),
-      createTool({ id: 'conditional-2', loadingTier: 'conditional', estimatedTokens: 30 }),
+      createTool({ estimatedTokens: 10, id: 'critical-1', loadingTier: 'critical' }),
+      createTool({ estimatedTokens: 20, id: 'critical-2', loadingTier: 'critical' }),
+      createTool({ estimatedTokens: 5, id: 'conditional-1', loadingTier: 'conditional' }),
+      createTool({ estimatedTokens: 30, id: 'conditional-2', loadingTier: 'conditional' }),
     ];
 
     const critical = manager.selectCriticalTools(tools);

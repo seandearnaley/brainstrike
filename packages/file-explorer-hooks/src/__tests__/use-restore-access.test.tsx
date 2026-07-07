@@ -32,11 +32,11 @@ function createDeferred<T>(): {
 
 function createAdapterWithCache(handleCache: unknown): FileSystemAdapter {
   return {
-    requestDirectoryAccess: vi.fn(),
-    readDirectory: vi.fn(),
-    readFile: vi.fn(),
     exists: vi.fn(),
     getHandleCache: () => handleCache,
+    readDirectory: vi.fn(),
+    readFile: vi.fn(),
+    requestDirectoryAccess: vi.fn(),
   } as unknown as FileSystemAdapter;
 }
 
@@ -51,33 +51,33 @@ describe('useRestoreAccess', () => {
 
   it('exposes pending restore from stored handles (new API)', async () => {
     const mockRawHandle = {
-      name: 'New Folder',
       kind: 'directory',
+      name: 'New Folder',
       queryPermission: vi.fn().mockResolvedValue('prompt'),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
-        { folderId: 'old', name: 'Old Folder', lastAccessedAt: 1 },
-        { folderId: 'new', name: 'New Folder', lastAccessedAt: 2 },
+        { folderId: 'old', lastAccessedAt: 1, name: 'Old Folder' },
+        { folderId: 'new', lastAccessedAt: 2, name: 'New Folder' },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
-        handle: mockRawHandle,
         folderId: 'new',
+        handle: mockRawHandle,
         name: 'New Folder',
         permissionState: 'prompt',
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -91,29 +91,29 @@ describe('useRestoreAccess', () => {
     expect(result.current.pendingRestore).toEqual({
       folderId: 'new',
       name: 'New Folder',
-      rawHandle: mockRawHandle,
       permissionState: 'prompt',
+      rawHandle: mockRawHandle,
     });
     expect(result.current.storedFolders).toHaveLength(2);
   });
 
   it('exposes pending restore from stored handles (legacy API)', async () => {
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
-        { folderId: 'old', name: 'Old Folder', lastAccessedAt: 1 },
-        { folderId: 'new', name: 'New Folder', lastAccessedAt: 2 },
+        { folderId: 'old', lastAccessedAt: 1, name: 'Old Folder' },
+        { folderId: 'new', lastAccessedAt: 2, name: 'New Folder' },
       ]),
       // No getLastRootHandleForRestore - tests legacy path
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -131,23 +131,23 @@ describe('useRestoreAccess', () => {
 
   it('marks denial when restore returns null and handles remain', async () => {
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'root',
-          name: 'Root',
           lastAccessedAt: 1,
+          name: 'Root',
         },
       ]),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -167,16 +167,17 @@ describe('useRestoreAccess', () => {
 
   it('restores a pending handle when stored permission is already granted', async () => {
     const mockRawHandle = {
-      name: 'Root',
       kind: 'directory',
+      name: 'Root',
       requestPermission: vi.fn(),
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'root',
-          name: 'Root',
           lastAccessedAt: 1,
+          name: 'Root',
         },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
@@ -186,7 +187,6 @@ describe('useRestoreAccess', () => {
         permissionState: 'granted',
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -203,11 +203,11 @@ describe('useRestoreAccess', () => {
     });
 
     expect(restored[0]).toMatchObject({
-      path: 'Root',
-      name: 'Root',
-      kind: 'directory',
-      platform: 'web',
       _internal: mockRawHandle,
+      kind: 'directory',
+      name: 'Root',
+      path: 'Root',
+      platform: 'web',
     });
     // Under RootId keying, the stored folderId ('root') is the authoritative
     // identity — not the handle name ('Root'). No name-based re-keying occurs.
@@ -221,10 +221,11 @@ describe('useRestoreAccess', () => {
     // equal rawHandle.name. The old name-equality cleanup is removed because it
     // would otherwise delete every stored root. The stored key is now canonical.
     const mockRawHandle = {
-      name: 'Actual Root',
       kind: 'directory',
+      name: 'Actual Root',
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'uuid-root-id',
@@ -234,7 +235,6 @@ describe('useRestoreAccess', () => {
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       removeRootHandle: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -256,11 +256,12 @@ describe('useRestoreAccess', () => {
 
   it('requests permission for prompt handles and marks denied or stale states', async () => {
     const mockRawHandle = {
-      name: 'Prompt Root',
       kind: 'directory',
+      name: 'Prompt Root',
       requestPermission: vi.fn().mockResolvedValueOnce('denied').mockResolvedValueOnce('prompt'),
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'Prompt Root',
@@ -269,7 +270,6 @@ describe('useRestoreAccess', () => {
         permissionState: 'prompt',
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -300,11 +300,12 @@ describe('useRestoreAccess', () => {
     const notFoundError = new Error('missing folder');
     notFoundError.name = 'NotFoundError';
     const mockRawHandle = {
-      name: 'Missing Root',
       kind: 'directory',
+      name: 'Missing Root',
       requestPermission: vi.fn().mockRejectedValue(notFoundError),
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'Missing Root',
@@ -313,7 +314,6 @@ describe('useRestoreAccess', () => {
         permissionState: 'unknown',
       }),
       removeRootHandle: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -337,11 +337,12 @@ describe('useRestoreAccess', () => {
     const abortError = new Error('cancelled');
     abortError.name = 'AbortError';
     const mockRawHandle = {
-      name: 'Root',
       kind: 'directory',
+      name: 'Root',
       requestPermission: vi.fn().mockRejectedValue(abortError),
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'Root',
@@ -349,7 +350,6 @@ describe('useRestoreAccess', () => {
         name: 'Root',
         permissionState: 'unknown',
       }),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -371,17 +371,17 @@ describe('useRestoreAccess', () => {
 
   it('marks stale when restore returns null and no handles remain', async () => {
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -401,19 +401,19 @@ describe('useRestoreAccess', () => {
 
   it('uses legacy restore results and refreshes stored folders', async () => {
     const restoredHandle = {
-      name: 'Restored Root',
       kind: 'directory',
+      name: 'Restored Root',
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'restored',
-          name: 'Restored Root',
           lastAccessedAt: 2,
+          name: 'Restored Root',
         },
       ]),
       restoreLastRootHandle: vi.fn().mockResolvedValue({ handle: restoredHandle }),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -430,29 +430,30 @@ describe('useRestoreAccess', () => {
     });
 
     expect(restored[0]).toMatchObject({
-      path: 'Restored Root',
-      name: 'Restored Root',
-      kind: 'directory',
-      platform: 'web',
       _internal: restoredHandle,
+      kind: 'directory',
+      name: 'Restored Root',
+      path: 'Restored Root',
+      platform: 'web',
     });
     expect(result.current.storedFolders).toEqual([{ folderId: 'restored', name: 'Restored Root' }]);
   });
 
   it('dismisses restore state and opens a different folder through the adapter', async () => {
     const selectedDirectory = {
-      path: 'Selected',
-      name: 'Selected',
       kind: 'directory',
+      name: 'Selected',
+      path: 'Selected',
       platform: 'web',
     } as const;
     const requestDirectoryAccess = vi.fn().mockResolvedValue(selectedDirectory);
     const mockRawHandle = {
-      name: 'Root',
       kind: 'directory',
+      name: 'Root',
       requestPermission: vi.fn().mockResolvedValue('denied'),
     } as unknown as FileSystemDirectoryHandle;
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'Root',
@@ -460,14 +461,13 @@ describe('useRestoreAccess', () => {
         name: 'Root',
         permissionState: 'denied',
       }),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
     const adapter = {
-      requestDirectoryAccess,
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess,
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -501,23 +501,23 @@ describe('useRestoreAccess', () => {
 
   it('clears stored handles via clearStoredHandles', async () => {
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'root',
-          name: 'Root',
           lastAccessedAt: 1,
+          name: 'Root',
         },
       ]),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -538,8 +538,8 @@ describe('useRestoreAccess', () => {
 
   it('does not repopulate restore state when handles resolve after a clear', async () => {
     const mockRawHandle = {
-      name: 'Root',
       kind: 'directory',
+      name: 'Root',
       queryPermission: vi.fn().mockResolvedValue('prompt'),
     } as unknown as FileSystemDirectoryHandle;
     const pendingLookup = createDeferred<{
@@ -549,17 +549,17 @@ describe('useRestoreAccess', () => {
       permissionState: PermissionState | 'unknown';
     } | null>();
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'root',
-          name: 'Root',
           lastAccessedAt: 1,
+          name: 'Root',
         },
       ]),
       getLastRootHandleForRestore: vi.fn(() => pendingLookup.promise),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -594,17 +594,18 @@ describe('useRestoreAccess', () => {
 
   it('syncs cleared stored handles across hook instances', async () => {
     const mockRawHandle = {
-      name: 'Root',
       kind: 'directory',
+      name: 'Root',
       queryPermission: vi.fn().mockResolvedValue('prompt'),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'root',
-          name: 'Root',
           lastAccessedAt: 1,
+          name: 'Root',
         },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
@@ -615,15 +616,14 @@ describe('useRestoreAccess', () => {
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
       exists: vi.fn(),
       getHandleCache: () => handleCache,
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
     } as unknown as FileSystemAdapter;
 
     const first = renderHook(() => useRestoreAccess(), {
@@ -656,21 +656,22 @@ describe('useRestoreAccess', () => {
 
   it('does not broadcast a clear to hooks backed by a different handle cache', async () => {
     const firstHandle = {
-      name: 'First Root',
       kind: 'directory',
+      name: 'First Root',
       queryPermission: vi.fn().mockResolvedValue('prompt'),
     } as unknown as FileSystemDirectoryHandle;
     const secondHandle = {
-      name: 'Second Root',
       kind: 'directory',
+      name: 'Second Root',
       queryPermission: vi.fn().mockResolvedValue('prompt'),
     } as unknown as FileSystemDirectoryHandle;
     const firstCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'first-root',
-          name: 'First Root',
           lastAccessedAt: 1,
+          name: 'First Root',
         },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
@@ -681,14 +682,14 @@ describe('useRestoreAccess', () => {
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
     const secondCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
         {
           folderId: 'second-root',
-          name: 'Second Root',
           lastAccessedAt: 1,
+          name: 'Second Root',
         },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
@@ -699,7 +700,6 @@ describe('useRestoreAccess', () => {
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
       restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const first = renderHook(() => useRestoreAccess(), {
@@ -745,22 +745,23 @@ describe('useRestoreAccess', () => {
     const permissionB = createDeferred<PermissionState>();
 
     const handleA = {
-      name: 'Root A',
       kind: 'directory',
+      name: 'Root A',
       requestPermission: vi.fn(() => permissionA.promise),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleB = {
-      name: 'Root B',
       kind: 'directory',
+      name: 'Root B',
       requestPermission: vi.fn(() => permissionB.promise),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       // getAllRootHandles returns full handles for multi-root burst path
       getAllRootHandles: vi.fn().mockResolvedValue([
-        { folderId: 'root-a', handle: handleA, name: 'Root A', lastAccessedAt: 2 },
-        { folderId: 'root-b', handle: handleB, name: 'Root B', lastAccessedAt: 1 },
+        { folderId: 'root-a', handle: handleA, lastAccessedAt: 2, name: 'Root A' },
+        { folderId: 'root-b', handle: handleB, lastAccessedAt: 1, name: 'Root B' },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'root-a',
@@ -769,7 +770,6 @@ describe('useRestoreAccess', () => {
         permissionState: 'prompt',
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -811,21 +811,22 @@ describe('useRestoreAccess', () => {
 
   it('partial grant: granted handles restored, denied handles logged and skipped', async () => {
     const handleA = {
-      name: 'Root A',
       kind: 'directory',
+      name: 'Root A',
       requestPermission: vi.fn().mockResolvedValue('granted'),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleB = {
-      name: 'Root B',
       kind: 'directory',
+      name: 'Root B',
       requestPermission: vi.fn().mockResolvedValue('denied'),
     } as unknown as FileSystemDirectoryHandle;
 
     const handleCache = {
+      clear: vi.fn().mockResolvedValue(undefined),
       getAllRootHandles: vi.fn().mockResolvedValue([
-        { folderId: 'root-a', handle: handleA, name: 'Root A', lastAccessedAt: 2 },
-        { folderId: 'root-b', handle: handleB, name: 'Root B', lastAccessedAt: 1 },
+        { folderId: 'root-a', handle: handleA, lastAccessedAt: 2, name: 'Root A' },
+        { folderId: 'root-b', handle: handleB, lastAccessedAt: 1, name: 'Root B' },
       ]),
       getLastRootHandleForRestore: vi.fn().mockResolvedValue({
         folderId: 'root-a',
@@ -834,7 +835,6 @@ describe('useRestoreAccess', () => {
         permissionState: 'prompt',
       }),
       markHandleRestored: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
     };
 
     const { result } = renderHook(() => useRestoreAccess(), {
@@ -865,10 +865,10 @@ describe('useRestoreAccess', () => {
   it('returns empty array and no banners when no handles need re-grant', async () => {
     // No handle cache available — legacy path with no restoreLastRootHandle
     const adapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
       // No getHandleCache — triggers "no restore method" early return
     } as unknown as FileSystemAdapter;
 

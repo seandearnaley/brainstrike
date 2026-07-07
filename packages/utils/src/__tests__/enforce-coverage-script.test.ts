@@ -24,12 +24,12 @@ describe('enforce-coverage script', () => {
     const fakeFilePath = path.join(pkgDir, 'src', 'index.ts');
     const coverageJson = {
       [fakeFilePath]: {
+        b: {},
+        f: {},
         path: fakeFilePath,
         s: { '1': 1 },
-        f: {},
-        b: {},
         statementMap: {
-          '1': { start: { line: 1, column: 0 }, end: { line: 3, column: 0 } },
+          '1': { end: { column: 0, line: 3 }, start: { column: 0, line: 1 } },
         },
       },
     };
@@ -37,7 +37,7 @@ describe('enforce-coverage script', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { force: true, recursive: true });
   });
 
   it('passes when per-package coverage meets defaults', () => {

@@ -10,12 +10,12 @@ const HUGGING_FACE_REMOTE_PATH_TEMPLATE = '{model}/resolve/{revision}/';
 const LOCAL_ARTIFACT_REMOTE_HOST_OVERRIDE_KEY = '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__';
 
 export interface LocalArtifactStore {
-  download(
+  download: (
     spec: LocalLlmModelSpec,
     onProgress?: LocalLlmProgressCallback,
     signal?: AbortSignal
-  ): Promise<void>;
-  hasRequiredArtifacts(spec: LocalLlmModelSpec): Promise<boolean>;
+  ) => Promise<void>;
+  hasRequiredArtifacts: (spec: LocalLlmModelSpec) => Promise<boolean>;
 }
 
 interface ArtifactStatus {
@@ -138,17 +138,17 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     if (cached?.status === 200) {
       const cachedBytes = await readCachedArtifactBytes(cached);
       statuses.push({
+        cachedBytes,
         filePath,
         isCached: true,
-        cachedBytes,
       });
       continue;
     }
 
     statuses.push({
+      cachedBytes: 0,
       filePath,
       isCached: false,
-      cachedBytes: 0,
     });
   }
 
@@ -258,13 +258,13 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
         response,
         (loaded, total) => {
           onProgress?.({
-            stage: 'downloading',
+            file: filePath,
+            message: `Downloading ${filePath}`,
             progress: toProgressPercent(
               downloadedBytes + loaded,
               Math.max(totalExpectedBytes, downloadedBytes + (total ?? loaded))
             ),
-            message: `Downloading ${filePath}`,
-            file: filePath,
+            stage: 'downloading',
           });
         }
       );
@@ -273,13 +273,13 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     }
 
     onProgress?.({
-      stage: 'ready',
-      progress: 100,
       message: 'Model downloaded',
+      progress: 100,
+      stage: 'ready',
     });
     logger.info('Local artifacts downloaded', {
-      modelId: spec.modelId,
       filesDownloaded: files.length,
+      modelId: spec.modelId,
     });
   }
 
@@ -317,8 +317,8 @@ export async function downloadBuiltInLocalLlmModel(
 
   if (options?.cacheDir) {
     logger.info('Ignoring browser cacheDir hint for local browser model download', {
-      modelId,
       cacheDir: options.cacheDir,
+      modelId,
     });
   }
 

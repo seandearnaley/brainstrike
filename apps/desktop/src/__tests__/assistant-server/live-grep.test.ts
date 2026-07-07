@@ -51,7 +51,7 @@ async function makeWorkspace(
 }
 
 function root(rootPath: string, id = 'root-1', name = 'workspace'): RuntimeWorkspaceRoot {
-  return { rootId: id, displayName: name, path: rootPath };
+  return { displayName: name, path: rootPath, rootId: id };
 }
 
 function literalMatcher(pattern: string): ReturnType<typeof createGrepLineMatcher> {
@@ -76,7 +76,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const dir = createdRoots.pop();
     if (dir) {
-      await fsPromises.rm(dir, { recursive: true, force: true });
+      await fsPromises.rm(dir, { force: true, recursive: true });
     }
   }
 });
@@ -159,10 +159,10 @@ describe('runLiveGrep — failure-path log redaction (regression for PR #1337 ga
 
     await runLiveGrep(
       {
-        pattern: 'x',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'x',
         roots: [root(secretPath)],
       },
       literalMatcher('x')
@@ -171,8 +171,8 @@ describe('runLiveGrep — failure-path log redaction (regression for PR #1337 ga
     expect(loggerWarnMock).toHaveBeenCalledWith(
       'live grep: root is not accessible',
       expect.objectContaining({
-        rootId: 'root-1',
         error: expect.objectContaining({ redacted: true }),
+        rootId: 'root-1',
       })
     );
     expect(JSON.stringify(loggerWarnMock.mock.calls)).not.toContain(secretPath);
@@ -189,10 +189,10 @@ describe('runLiveGrep — failure-path log redaction (regression for PR #1337 ga
     await withRipgrepFailing(async () => {
       await runLiveGrep(
         {
-          pattern: secretPattern,
-          isRegex: false,
           caseSensitive: false,
           contextLines: 0,
+          isRegex: false,
+          pattern: secretPattern,
           roots: [root(workspace)],
         },
         literalMatcher(secretPattern)
@@ -211,10 +211,10 @@ describe('runLiveGrep — basics', () => {
   it('skips (engine: skipped) when no roots are supplied', async () => {
     const result = await runLiveGrep(
       {
-        pattern: 'x',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'x',
         roots: [],
       },
       literalMatcher('x')
@@ -230,10 +230,10 @@ describe('runLiveGrep — basics', () => {
     });
     const result = await runLiveGrep(
       {
-        pattern: 'LIVE_MARKER',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 1,
+        isRegex: false,
+        pattern: 'LIVE_MARKER',
         roots: [root(dir, 'id-a', 'alpha-root')],
       },
       literalMatcher('LIVE_MARKER')
@@ -263,16 +263,16 @@ describe('runLiveGrep — basics', () => {
 
   it('respects the ignore policy (skips node_modules and build output)', async () => {
     const dir = await makeWorkspace({
-      'src/keep.ts': 'IGNORE_PROBE keep\n',
-      'node_modules/dep/index.ts': 'IGNORE_PROBE dep\n',
       'dist/bundle.ts': 'IGNORE_PROBE bundle\n',
+      'node_modules/dep/index.ts': 'IGNORE_PROBE dep\n',
+      'src/keep.ts': 'IGNORE_PROBE keep\n',
     });
     const result = await runLiveGrep(
       {
-        pattern: 'IGNORE_PROBE',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'IGNORE_PROBE',
         roots: [root(dir)],
       },
       literalMatcher('IGNORE_PROBE')
@@ -285,10 +285,10 @@ describe('runLiveGrep — basics', () => {
     const dirB = await makeWorkspace({ 'b.ts': 'MULTI there\n' }, 'brainstrike-livegrep-b-');
     const result = await runLiveGrep(
       {
-        pattern: 'MULTI',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'MULTI',
         roots: [root(dirA, 'id-a', 'alpha'), root(dirB, 'id-b', 'beta')],
       },
       literalMatcher('MULTI')
@@ -315,10 +315,10 @@ describe('runLiveGrep — rg-absent fallback (non-silent)', () => {
     try {
       const result = await runLiveGrep(
         {
-          pattern: 'WALKING_TOKEN',
-          isRegex: false,
           caseSensitive: false,
           contextLines: 0,
+          isRegex: false,
+          pattern: 'WALKING_TOKEN',
           roots: [root(dir)],
         },
         literalMatcher('WALKING_TOKEN')
@@ -344,10 +344,10 @@ describe('runLiveGrep — path containment (symlink escape)', () => {
 
     const result = await runLiveGrep(
       {
-        pattern: 'ESCAPE_PROBE',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'ESCAPE_PROBE',
         roots: [root(dir)],
       },
       literalMatcher('ESCAPE_PROBE')
@@ -363,10 +363,10 @@ describe('runLiveGrep — regex + filePaths scoping', () => {
     const dir = await makeWorkspace({ 'src/r.ts': 'value = REGEX_42 end\n' });
     const result = await runLiveGrep(
       {
-        pattern: 'REGEX_\\d+',
-        isRegex: true,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: true,
+        pattern: 'REGEX_\\d+',
         roots: [root(dir)],
       },
       createGrepLineMatcher('REGEX_\\d+', true, false)
@@ -377,17 +377,17 @@ describe('runLiveGrep — regex + filePaths scoping', () => {
 
   it('restricts matches to the filePaths allowlist', async () => {
     const dir = await makeWorkspace({
-      'src/keep.ts': 'ALLOW_PROBE keep\n',
       'src/drop.ts': 'ALLOW_PROBE drop\n',
+      'src/keep.ts': 'ALLOW_PROBE keep\n',
     });
     const result = await runLiveGrep(
       {
-        pattern: 'ALLOW_PROBE',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
-        roots: [root(dir)],
         filePaths: ['src/keep.ts'],
+        isRegex: false,
+        pattern: 'ALLOW_PROBE',
+        roots: [root(dir)],
       },
       literalMatcher('ALLOW_PROBE')
     );
@@ -412,9 +412,9 @@ describe('runLiveGrep — ignore-filter superset (rg does not drop gitignored/hi
     // gitignored source file is KEPT (it is fresh on disk), node_modules dropped.
     const dir = await makeWorkspace({
       '.gitignore': 'node_modules/\nsrc/generated-config.ts\n',
-      'src/tracked.ts': 'SUPERSET_TOKEN tracked\n',
-      'src/generated-config.ts': 'SUPERSET_TOKEN gitignored-but-present\n',
       'node_modules/dep/index.ts': 'SUPERSET_TOKEN dep\n',
+      'src/generated-config.ts': 'SUPERSET_TOKEN gitignored-but-present\n',
+      'src/tracked.ts': 'SUPERSET_TOKEN tracked\n',
     });
     // Make it a real git repo so rg's vcs-ignore (which the superset fix disables)
     // would otherwise apply to the gitignored file.
@@ -423,10 +423,10 @@ describe('runLiveGrep — ignore-filter superset (rg does not drop gitignored/hi
 
     const result = await runLiveGrep(
       {
-        pattern: 'SUPERSET_TOKEN',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'SUPERSET_TOKEN',
         roots: [root(dir)],
       },
       literalMatcher('SUPERSET_TOKEN')
@@ -448,9 +448,9 @@ describe('runLiveGrep — ignore-filter superset (rg does not drop gitignored/hi
       return;
     }
     const dir = await makeWorkspace({
-      'src/keep.ts': 'POLICY_TOKEN keep\n',
-      'node_modules/dep/index.ts': 'POLICY_TOKEN dep\n',
       'dist/bundle.js': 'POLICY_TOKEN bundle\n',
+      'node_modules/dep/index.ts': 'POLICY_TOKEN dep\n',
+      'src/keep.ts': 'POLICY_TOKEN keep\n',
     });
     // A .git directory with a file that contains the token: rg --hidden would
     // surface it, but resolveCandidate hard-excludes any `.git` path segment.
@@ -459,10 +459,10 @@ describe('runLiveGrep — ignore-filter superset (rg does not drop gitignored/hi
 
     const result = await runLiveGrep(
       {
-        pattern: 'POLICY_TOKEN',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'POLICY_TOKEN',
         roots: [root(dir)],
       },
       literalMatcher('POLICY_TOKEN')
@@ -490,10 +490,10 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
     const pattern = 'CONFIG_[A-Z]+_VALUE';
     const result = await runLiveGrep(
       {
-        pattern,
-        isRegex: true,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: true,
+        pattern,
         roots: [root(dir)],
       },
       regexMatcher(pattern)
@@ -519,10 +519,10 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
     const pattern = '\\d{4,}';
     const result = await runLiveGrep(
       {
-        pattern,
-        isRegex: true,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: true,
+        pattern,
         roots: [root(dir)],
       },
       regexMatcher(pattern)
@@ -545,8 +545,8 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
     // authoritative matcher finds the `foo` line. Proven with rg present so the
     // "rg deliberately not used for a mis-decodable literal" path is exercised.
     const dir = await makeWorkspace({
-      'src/escaped.ts': 'value = foobar end\n',
       'src/decoy.ts': 'value = 66oo end\n',
+      'src/escaped.ts': 'value = foobar end\n',
     });
     const pattern = '\\x66oo';
     // Sanity: the authoritative matcher matches the `foo` line, not the `66oo` one.
@@ -555,10 +555,10 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
 
     const result = await runLiveGrep(
       {
-        pattern,
-        isRegex: true,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: true,
+        pattern,
         roots: [root(dir)],
       },
       regexMatcher(pattern)
@@ -592,10 +592,10 @@ describe('runLiveGrep — regex superset soundness (no silent miss)', () => {
       const pattern = '\\d{4,}';
       const result = await runLiveGrep(
         {
-          pattern,
-          isRegex: true,
           caseSensitive: false,
           contextLines: 0,
+          isRegex: true,
+          pattern,
           roots: [root(dir)],
         },
         regexMatcher(pattern)
@@ -628,10 +628,10 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
     });
     const result = await runLiveGrep(
       {
-        pattern: 'BINTOKEN',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'BINTOKEN',
         roots: [root(dir)],
       },
       literalMatcher('BINTOKEN')
@@ -653,12 +653,12 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
     // trap), a dotfile match (the hidden trap), and policy-excluded files
     // (node_modules, a .min.js, .git) that NEITHER engine should surface.
     const dir = await makeWorkspace({
+      '.config-probe.ts': 'PARITY_TOKEN dotfile\n',
       '.gitignore': 'node_modules/\nsrc/ignored.ts\n',
+      'node_modules/dep/index.ts': 'PARITY_TOKEN dep\n',
+      'src/ignored.ts': 'PARITY_TOKEN gitignored\n',
       'src/plain.ts': 'PARITY_TOKEN plain\n',
       'src/withnul.ts': 'before   nul\nPARITY_TOKEN after a nul\n',
-      'src/ignored.ts': 'PARITY_TOKEN gitignored\n',
-      '.config-probe.ts': 'PARITY_TOKEN dotfile\n',
-      'node_modules/dep/index.ts': 'PARITY_TOKEN dep\n',
       'vendor/lib.min.js': 'PARITY_TOKEN minified\n',
     });
     await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
@@ -666,10 +666,10 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
     await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'PARITY_TOKEN gitdir\n', 'utf8');
 
     const options = {
-      pattern: 'PARITY_TOKEN',
-      isRegex: false,
       caseSensitive: false,
       contextLines: 0,
+      isRegex: false,
+      pattern: 'PARITY_TOKEN',
       roots: [root(dir)],
     };
 
@@ -712,19 +712,19 @@ describe('runLiveGrep — rg prunes .git/node_modules at the rg level (perf + pa
     // make rg DESCEND into them without the prune globs; the globs prune them at
     // the rg level (matching the JS walk's directory pruning), so neither appears.
     const dir = await makeWorkspace({
-      'src/keep.ts': 'PRUNE_PROBE keep\n',
       'node_modules/dep/index.ts': 'PRUNE_PROBE dep\n',
       'node_modules/dep/nested/deep.ts': 'PRUNE_PROBE deep\n',
+      'src/keep.ts': 'PRUNE_PROBE keep\n',
     });
     await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
     await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'PRUNE_PROBE gitdir\n', 'utf8');
 
     const result = await runLiveGrep(
       {
-        pattern: 'PRUNE_PROBE',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'PRUNE_PROBE',
         roots: [root(dir)],
       },
       literalMatcher('PRUNE_PROBE')
@@ -742,18 +742,18 @@ describe('runLiveGrep — rg prunes .git/node_modules at the rg level (perf + pa
       return;
     }
     const dir = await makeWorkspace({
+      'node_modules/dep/index.ts': 'NMGIT_TOKEN dep\n',
       'src/a.ts': 'NMGIT_TOKEN a\n',
       'src/b.ts': 'NMGIT_TOKEN b\n',
-      'node_modules/dep/index.ts': 'NMGIT_TOKEN dep\n',
     });
     await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });
     await fsPromises.writeFile(path.join(dir, '.git', 'config'), 'NMGIT_TOKEN gitdir\n', 'utf8');
 
     const options = {
-      pattern: 'NMGIT_TOKEN',
-      isRegex: false,
       caseSensitive: false,
       contextLines: 0,
+      isRegex: false,
+      pattern: 'NMGIT_TOKEN',
       roots: [root(dir)],
     };
     const rgResult = await runLiveGrep(options, literalMatcher('NMGIT_TOKEN'));
@@ -796,10 +796,10 @@ describe('runLiveGrep — ripgrep discovery (PATH, not a hardcoded location)', (
     const dir = await makeWorkspace({ 'src/p.ts': 'PATH_DISCOVERY_TOKEN here\n' });
     const result = await runLiveGrep(
       {
-        pattern: 'PATH_DISCOVERY_TOKEN',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'PATH_DISCOVERY_TOKEN',
         roots: [root(dir)],
       },
       literalMatcher('PATH_DISCOVERY_TOKEN')
@@ -835,10 +835,10 @@ describe('runLiveGrep — ripgrep discovery (PATH, not a hardcoded location)', (
       const dir = await makeWorkspace({ 'src/w.ts': 'NOPATH_TOKEN here\n' });
       const result = await runLiveGrep(
         {
-          pattern: 'NOPATH_TOKEN',
-          isRegex: false,
           caseSensitive: false,
           contextLines: 0,
+          isRegex: false,
+          pattern: 'NOPATH_TOKEN',
           roots: [root(dir)],
         },
         literalMatcher('NOPATH_TOKEN')
@@ -867,10 +867,10 @@ describe('runLiveGrep — candidate cap bounds the resolve (truncated)', () => {
 
     const result = await runLiveGrep(
       {
-        pattern: 'CAP_TOKEN',
-        isRegex: false,
         caseSensitive: false,
         contextLines: 0,
+        isRegex: false,
+        pattern: 'CAP_TOKEN',
         roots: [root(dir)],
       },
       literalMatcher('CAP_TOKEN')

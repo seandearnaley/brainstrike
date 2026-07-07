@@ -7,8 +7,8 @@ describe('UnifiedToolRegistry', () => {
     const registry = createUnifiedToolRegistry();
 
     registry.registerNativeTool({
-      id: 'custom.tool',
       description: 'Custom tool',
+      id: 'custom.tool',
     });
 
     const tool = registry.getTool('custom.tool');
@@ -45,8 +45,8 @@ describe('UnifiedToolRegistry', () => {
   it('filters enabled tools and preserves unknown tool entries', () => {
     const registry = createUnifiedToolRegistry();
     registry.registerNativeTool({
-      id: 'custom.tool',
       description: 'Custom tool',
+      id: 'custom.tool',
     });
 
     registry.disableTools(['custom.tool']);
@@ -72,20 +72,20 @@ describe('UnifiedToolRegistry', () => {
     registry.subscribe(unstableListener);
 
     registry.registerNativeTool({
-      id: 'tool.one',
       description: 'Tool one',
+      id: 'tool.one',
     });
     registry.registerNativeTool({
-      id: 'tool.two',
       description: 'Tool two',
+      id: 'tool.two',
     });
     registry.registerNativeTool({
-      id: 'tool.three',
       description: 'Tool three',
+      id: 'tool.three',
     });
     registry.registerNativeTool({
-      id: 'tool.four',
       description: 'Tool four',
+      id: 'tool.four',
     });
 
     expect(stableListener).toHaveBeenCalled();
@@ -93,8 +93,8 @@ describe('UnifiedToolRegistry', () => {
     const callsAfterRemoval = stableListener.mock.calls.length;
 
     registry.registerNativeTool({
-      id: 'tool.five',
       description: 'Tool five',
+      id: 'tool.five',
     });
 
     expect(stableListener).toHaveBeenCalledTimes(callsAfterRemoval + 1);

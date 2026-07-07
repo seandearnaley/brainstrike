@@ -29,7 +29,6 @@ vi.mock('@brainstrike/ui', () => {
   }
 
   return {
-    useToast: vi.fn(),
     Badge: ({ children, ...props }: MockComponentProps) => (
       <div data-testid="badge" {...props}>
         {children}
@@ -51,6 +50,7 @@ vi.mock('@brainstrike/ui', () => {
     Switch: (props: MockComponentProps) => (
       <input aria-checked={false} role="switch" type="checkbox" {...props} readOnly />
     ),
+    useToast: vi.fn(),
   };
 });
 
@@ -74,33 +74,33 @@ describe('ModelRegistrySettingsSection', () => {
 
   const setupStore = () => {
     useModelRegistryStore.setState({
-      providers: [
-        {
-          id: 'local',
-          name: 'Local Provider',
-          icon: null,
-          isEnabled: true,
-          sortOrder: 0,
-        },
-      ],
-      models: [
-        {
-          id: 'test-model',
-          providerId: 'local',
-          name: 'Test Model',
-          description: 'A test model',
-          tagline: null,
-          bestFor: null,
-          icon: null,
-          isEnabled: true,
-          capabilities: { type: 'embedding', streaming: false },
-          parameters: null,
-          sortOrder: 0,
-        },
-      ],
+      error: null,
       hasLoaded: true,
       isLoading: false,
-      error: null,
+      models: [
+        {
+          bestFor: null,
+          capabilities: { streaming: false, type: 'embedding' },
+          description: 'A test model',
+          icon: null,
+          id: 'test-model',
+          isEnabled: true,
+          name: 'Test Model',
+          parameters: null,
+          providerId: 'local',
+          sortOrder: 0,
+          tagline: null,
+        },
+      ],
+      providers: [
+        {
+          icon: null,
+          id: 'local',
+          isEnabled: true,
+          name: 'Local Provider',
+          sortOrder: 0,
+        },
+      ],
     });
   };
 
@@ -118,8 +118,8 @@ describe('ModelRegistrySettingsSection', () => {
 
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
-        title: 'Download Failed',
         description: 'Network error',
+        title: 'Download Failed',
         variant: 'destructive',
       });
     });

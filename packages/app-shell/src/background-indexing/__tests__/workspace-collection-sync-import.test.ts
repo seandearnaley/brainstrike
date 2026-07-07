@@ -68,15 +68,15 @@ function existingEntry(
   overrides: Partial<ManagedCacheEntryMetadata> = {}
 ): ManagedCacheEntryMetadata {
   return {
-    contentHash: 'hash',
     chunksCount: 1,
     chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+    contentHash: 'hash',
     embeddingSetId: 'set-1',
     fileRecordId: `rec-${relativePath}`,
     mtimeMs: 1000,
     relativePath,
-    size: 42,
     rootId: ROOT,
+    size: 42,
     updatedAt: '2026-06-09T00:00:00.000Z',
     ...overrides,
   };
@@ -99,9 +99,9 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([
         existingEntry('a.ts', {
-          size: 42,
-          mtimeMs: 1000,
           chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+          mtimeMs: 1000,
+          size: 42,
         }),
       ]),
       preparations,
@@ -117,9 +117,9 @@ describe('partitionPreparationsByStatCache', () => {
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([
         existingEntry('a.ts', {
-          size: 42,
-          mtimeMs: 1000,
           chunksProcessedAt: null,
+          mtimeMs: 1000,
+          size: 42,
         }),
       ]),
       preparations,
@@ -133,7 +133,7 @@ describe('partitionPreparationsByStatCache', () => {
   it('reads files whose size matches but mtime differs', () => {
     const preparations = [prep('a.ts', 42, 2000)];
     const result = partitionPreparationsByStatCache({
-      existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
+      existingByIdentity: existingByIdentity([existingEntry('a.ts', { mtimeMs: 1000, size: 42 })]),
       preparations,
       rootId: ROOT,
     });
@@ -145,7 +145,7 @@ describe('partitionPreparationsByStatCache', () => {
   it('reads files whose mtime matches but size differs', () => {
     const preparations = [prep('a.ts', 99, 1000)];
     const result = partitionPreparationsByStatCache({
-      existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
+      existingByIdentity: existingByIdentity([existingEntry('a.ts', { mtimeMs: 1000, size: 42 })]),
       preparations,
       rootId: ROOT,
     });
@@ -169,7 +169,7 @@ describe('partitionPreparationsByStatCache', () => {
   it('reads files when the stored entry predates the mtime column (null mtimeMs)', () => {
     const preparations = [prep('a.ts', 42, 1000)];
     const result = partitionPreparationsByStatCache({
-      existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: null })]),
+      existingByIdentity: existingByIdentity([existingEntry('a.ts', { mtimeMs: null, size: 42 })]),
       preparations,
       rootId: ROOT,
     });
@@ -181,7 +181,7 @@ describe('partitionPreparationsByStatCache', () => {
   it('reads files when the scan did not capture an mtime (null prep mtime)', () => {
     const preparations = [prep('a.ts', 42, null)];
     const result = partitionPreparationsByStatCache({
-      existingByIdentity: existingByIdentity([existingEntry('a.ts', { size: 42, mtimeMs: 1000 })]),
+      existingByIdentity: existingByIdentity([existingEntry('a.ts', { mtimeMs: 1000, size: 42 })]),
       preparations,
       rootId: ROOT,
     });
@@ -217,8 +217,8 @@ describe('partitionPreparationsByStatCache', () => {
     const fresh = prep('fresh.ts', 10, 1000);
     const result = partitionPreparationsByStatCache({
       existingByIdentity: existingByIdentity([
-        existingEntry('keep.ts', { size: 42, mtimeMs: 1000 }),
-        existingEntry('edited.ts', { size: 42, mtimeMs: 1000 }),
+        existingEntry('keep.ts', { mtimeMs: 1000, size: 42 }),
+        existingEntry('edited.ts', { mtimeMs: 1000, size: 42 }),
       ]),
       preparations: [unchanged, editedMtime, fresh],
       rootId: ROOT,
@@ -281,10 +281,10 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       abortSignal: new AbortController().signal,
       existingEntries: [
         existingEntry('unchanged.ts', {
-          size: 42,
-          mtimeMs: 1000,
-          contentHash: 'stale-hash',
           chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+          contentHash: 'stale-hash',
+          mtimeMs: 1000,
+          size: 42,
         }),
       ],
       fileContentProcessor: processor,
@@ -313,10 +313,10 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       abortSignal: new AbortController().signal,
       existingEntries: [
         existingEntry('unchunked.ts', {
-          contentHash: await hashForRecordedContent('unchunked.ts'),
-          size: 42,
-          mtimeMs: 1000,
           chunksProcessedAt: null,
+          contentHash: await hashForRecordedContent('unchunked.ts'),
+          mtimeMs: 1000,
+          size: 42,
         }),
       ],
       fileContentProcessor: processor,
@@ -387,9 +387,9 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       existingEntries: [
         // Stat-cache hit: skipped entirely, no refresh needed.
         existingEntry('hit.ts', {
-          size: 42,
-          mtimeMs: 1000,
           chunksProcessedAt: '2026-06-09T00:00:00.000Z',
+          mtimeMs: 1000,
+          size: 42,
         }),
         // Content changed: goes through replace, which persists stats itself.
         existingEntry('changed.ts', { contentHash: 'old-hash', mtimeMs: null }),
@@ -425,7 +425,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       const { processor } = createRecordingProcessor();
       await collectPreparedChangesInBatches({
         abortSignal: new AbortController().signal,
-        existingEntries: [existingEntry('unchanged.ts', { size: 42, mtimeMs: 1000 })],
+        existingEntries: [existingEntry('unchanged.ts', { mtimeMs: 1000, size: 42 })],
         fileContentProcessor: processor,
         fileNodes: [makeFileNode('unchanged.ts', 42, 1000), makeFileNode('fresh.ts', 10, 2000)],
         fileSystemAdapter: {} as FileSystemAdapter,
@@ -457,7 +457,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     // Flooring at capture must make this a hit, not a needless re-read.
     const result = await collectPreparedChangesInBatches({
       abortSignal: new AbortController().signal,
-      existingEntries: [existingEntry('jitter.ts', { size: 42, mtimeMs: 1000 })],
+      existingEntries: [existingEntry('jitter.ts', { mtimeMs: 1000, size: 42 })],
       fileContentProcessor: processor,
       fileNodes: [makeFileNode('jitter.ts', 42, 1000.7)],
       fileSystemAdapter: {} as FileSystemAdapter,
@@ -562,8 +562,8 @@ function makeMinimalChange(): PreparedCacheChange {
       fileNode: makeFileNode('a.ts', 42, 1000),
       fileSystemAdapter: {} as FileSystemAdapter,
     },
-    size: 42,
     rootId: ROOT,
+    size: 42,
   };
 }
 
@@ -606,20 +606,20 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     await expect(
       runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [change],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
         } as never,
         collection,
         db: makeMinimalDb() as never,
@@ -655,27 +655,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     const collection = makeMinimalCollection();
 
     await runRootFolderCacheImport({
-      applyManagedCacheBatch,
       abortSignal: new AbortController().signal,
+      applyManagedCacheBatch,
       changes: [change],
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-      } as never,
       chunkingWorkerPort: {
         chunkBatch: vi.fn().mockResolvedValue([]),
         chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
         isReady: vi.fn().mockReturnValue(true),
         transportKind: 'local',
       } as never,
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
       collection,
       db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
       } as never,
       onProgress: () => {},
       qosPolicy: {
@@ -711,27 +711,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
   it('logs the managed import batch lifecycle and first durable enqueue marker', async () => {
     vi.mocked(runEnhancedImport).mockImplementationOnce(async (params) => {
       const results = await params.baseImportRunner({
-        selectedFilePaths: params.request.selectedFilePaths,
-        fileTree: params.request.fileTree,
         fileContents: params.request.fileContents,
+        fileTree: params.request.fileTree,
         onProgress: () => {},
+        selectedFilePaths: params.request.selectedFilePaths,
       });
       await params.ports?.sql?.insertChunksAndEnqueueEmbeddingJobs?.(
         [
           {
-            id: 'chunk-1',
-            fileRecordId: 'file-id-a',
+            chunkIndex: 0,
+            chunkSize: 7,
+            chunkType: 'sentence',
             content: 'content',
             contentHash: 'chunk-hash-1',
-            chunkIndex: 0,
-            startLine: 1,
-            endLine: 1,
-            startOffset: 0,
-            endOffset: 7,
-            tokenCount: 1,
-            chunkType: 'sentence',
-            chunkSize: 7,
             embeddingSetId: 'collection-1',
+            endLine: 1,
+            endOffset: 7,
+            fileRecordId: 'file-id-a',
+            id: 'chunk-1',
+            startLine: 1,
+            startOffset: 0,
+            tokenCount: 1,
           },
         ] as never,
         'file-id-a',
@@ -756,20 +756,20 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     try {
       await runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [change],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
         } as never,
         collection: makeMinimalCollection(),
         db: {
@@ -778,8 +778,8 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         } as never,
         fileContentProcessor: makeMinimalFileContentProcessor(change),
         fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
           findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         } as never,
         onProgress: () => {},
         qosPolicy: {
@@ -858,27 +858,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     try {
       await runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [cleanChange, invalidChange],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
         } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
         collection: makeMinimalCollection(),
         db: makeMinimalDb() as never,
         fileContentProcessor: { processFiles } as unknown as FileContentProcessor,
         fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
           findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         } as never,
         onProgress: () => {},
         qosPolicy: {
@@ -942,21 +942,21 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     try {
       await runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [change],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          insertMany: vi.fn().mockResolvedValue([]),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+          insertMany: vi.fn().mockResolvedValue([]),
         } as never,
         collection,
         db: {
@@ -965,8 +965,8 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         } as never,
         fileContentProcessor: makeMinimalFileContentProcessor(change),
         fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
           findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         } as never,
         onProgress: () => {},
         qosPolicy: {
@@ -1023,27 +1023,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     await expect(
       runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [change],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
         } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
         collection: makeMinimalCollection(),
         db: makeMinimalIpcDbWithoutCallbackTransaction() as never,
         fileContentProcessor: makeMinimalFileContentProcessor(change),
         fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
           findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         } as never,
         onProgress: () => {},
         qosPolicy: {
@@ -1097,27 +1097,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
 
     try {
       await runRootFolderCacheImport({
-        applyManagedCacheBatch,
         abortSignal: new AbortController().signal,
+        applyManagedCacheBatch,
         changes: [firstChange, secondChange],
-        chunkRepository: {
-          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-          insertChunks: vi.fn().mockResolvedValue(undefined),
-          findByFileRecordId: vi.fn().mockResolvedValue([]),
-        } as never,
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
           isReady: vi.fn().mockReturnValue(true),
           transportKind: 'local',
         } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
         collection: makeMinimalCollection(),
         db: makeMinimalDb() as never,
         fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
         fileRecordRepository: {
-          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
           findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         } as never,
         onProgress: () => {},
         qosPolicy: {
@@ -1158,27 +1158,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     const collection = makeMinimalCollection();
 
     await runRootFolderCacheImport({
-      applyManagedCacheBatch,
       abortSignal: new AbortController().signal,
+      applyManagedCacheBatch,
       changes: [change],
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-      } as never,
       chunkingWorkerPort: {
         chunkBatch: vi.fn().mockResolvedValue([]),
         chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
         isReady: vi.fn().mockReturnValue(true),
         transportKind: 'local',
       } as never,
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
       collection,
       db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
       } as never,
       onProgress: () => {},
       qosPolicy: {
@@ -1206,27 +1206,27 @@ describe('runRootFolderCacheImport — rootId threading', () => {
     const collection = makeMinimalCollection();
 
     await runRootFolderCacheImport({
-      applyManagedCacheBatch,
       abortSignal: new AbortController().signal,
+      applyManagedCacheBatch,
       changes: [change],
-      chunkRepository: {
-        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
-        insertChunks: vi.fn().mockResolvedValue(undefined),
-        findByFileRecordId: vi.fn().mockResolvedValue([]),
-      } as never,
       chunkingWorkerPort: {
         chunkBatch: vi.fn().mockResolvedValue([]),
         chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
         isReady: vi.fn().mockReturnValue(true),
         transportKind: 'local',
       } as never,
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
       collection,
       db: makeMinimalDb() as never,
       fileContentProcessor: makeMinimalFileContentProcessor(change),
       fileRecordRepository: {
-        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
         findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
       } as never,
       onProgress: () => {},
       qosPolicy: {
