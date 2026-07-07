@@ -4,8 +4,8 @@
  */
 
 import type {
-  ChunkingStrategy as SharedChunkingStrategy,
   ResolvedChunkingStrategy,
+  ChunkingStrategy as SharedChunkingStrategy,
 } from '@brainstrike/text-splitter';
 
 /**

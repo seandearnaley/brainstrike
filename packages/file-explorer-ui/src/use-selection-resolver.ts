@@ -122,8 +122,7 @@ function resolveImmediateQueryManifest(args: {
 
   if (
     exactMaterializedManifest &&
-    (!latestManifest ||
-      latestManifest.status !== 'ready' ||
+    (latestManifest?.status !== 'ready' ||
       latestManifest.fingerprint !== descriptor.manifestFingerprint ||
       latestManifest.snapshotId !== descriptor.manifestSnapshotId)
   ) {

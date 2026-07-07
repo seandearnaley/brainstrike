@@ -306,7 +306,7 @@ export function resolveAssistantRunEventStatus(
   messages: readonly unknown[],
   event: AssistantRunEvent | null
 ): AssistantRunEventStatus {
-  if (!event || event.status !== 'running') {
+  if (event?.status !== 'running') {
     return event?.status ?? 'info';
   }
 

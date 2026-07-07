@@ -154,8 +154,7 @@ export function resolveQuerySelection(
   }
 
   if (
-    !manifest ||
-    manifest.status !== 'ready' ||
+    manifest?.status !== 'ready' ||
     manifest.fingerprint !== descriptor.manifestFingerprint ||
     manifest.snapshotId !== descriptor.manifestSnapshotId
   ) {

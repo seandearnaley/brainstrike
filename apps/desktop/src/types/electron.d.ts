@@ -1,3 +1,4 @@
+import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
   AssistantSelectionUpdatePayload,
@@ -8,15 +9,6 @@ import type {
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
   IFileNode,
 } from '@brainstrike/types';
-import type {
-  ChunkingHostChunkBatchRequest,
-  ChunkingHostChunkFileByIdRequest,
-  ChunkingHostChunkFileRequest,
-  ChunkingHostProgressEvent,
-  ChunkingHostRequest,
-  ChunkingHostResponseReport,
-  ChunkingHostStatus,
-} from '../chunking-host-shared';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -29,18 +21,6 @@ import type {
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
 } from '@brainstrike/utils/workspace-indexing-qos';
-import type { ChunkResult } from '@brainstrike/chunking-worker';
-import type {
-  EmbeddingHostBackfillRequest,
-  EmbeddingHostBackfillInfo,
-  EmbeddingHostBackfillProgress,
-  EmbeddingHostCommand,
-  EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
-  EmbeddingHostQueryEmbeddingResponseReport,
-  EmbeddingHostStatus,
-} from '../embedding-host-shared';
-import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type {
   GitAheadBehind,
   GitCommitResult,
@@ -50,14 +30,33 @@ import type {
   GitStatus,
 } from '../assistant-server/git-service';
 import type {
+  ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
+  ChunkingHostChunkFileRequest,
+  ChunkingHostProgressEvent,
+  ChunkingHostRequest,
+  ChunkingHostResponseReport,
+  ChunkingHostStatus,
+} from '../chunking-host-shared';
+import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
+import type {
+  EmbeddingHostBackfillInfo,
+  EmbeddingHostBackfillProgress,
+  EmbeddingHostBackfillRequest,
+  EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingPayload,
+  EmbeddingHostQueryEmbeddingRequest,
+  EmbeddingHostQueryEmbeddingResponseReport,
+  EmbeddingHostStatus,
+} from '../embedding-host-shared';
+import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
+import type { LoggingSettingsPayload } from '../logging-shared';
+import type {
   TerminalCreateResult,
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalResult,
 } from '../terminal-ipc-handlers';
-
-import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
-import type { LoggingSettingsPayload } from '../logging-shared';
 
 interface QueryResult {
   fields?: { name: string; dataType: string }[];

@@ -118,7 +118,7 @@ export const LoadingOverlay = ({
   }, [progressState, progressLoaded, progressTotal]);
 
   const etaText = useMemo(() => {
-    if (!progressState || progressState.phase !== 'loading') {
+    if (progressState?.phase !== 'loading') {
       return null;
     }
     const { loaded, total } = progressState;

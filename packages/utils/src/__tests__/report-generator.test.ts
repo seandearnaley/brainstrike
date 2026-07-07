@@ -87,7 +87,7 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     let current = this.mockFileSystem;
     for (const part of segments) {
       const entry = current[part];
-      if (!entry || entry.type !== 'directory' || !entry.children) {
+      if (entry?.type !== 'directory' || !entry.children) {
         return null;
       }
       current = entry.children;

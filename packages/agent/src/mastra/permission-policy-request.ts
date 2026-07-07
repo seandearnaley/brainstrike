@@ -91,7 +91,7 @@ export function isAssistantPermissionPolicyRequest(
 export function resolveRequestPermissionPolicy(
   request: AssistantPermissionPolicyRequest | undefined
 ): PermissionToolGateSnapshot | undefined {
-  if (!request || request.enforce !== true) {
+  if (request?.enforce !== true) {
     return;
   }
 

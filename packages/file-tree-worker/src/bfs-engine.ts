@@ -1334,7 +1334,7 @@ export class BFSEngine {
       }
 
       const node = this.findNode(path);
-      if (!node || node.type !== 'directory') {
+      if (node?.type !== 'directory') {
         continue;
       }
       if (node.loadState === 'loaded' || node.loadState === 'loading') {

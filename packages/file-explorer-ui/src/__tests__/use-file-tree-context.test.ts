@@ -768,7 +768,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before non-streaming child load');
       }
 
@@ -914,7 +914,7 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(initialParentDir?.type).toBe('directory');
-        if (!initialParentDir || initialParentDir.type !== 'directory') {
+        if (initialParentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be present before restoration');
         }
 
@@ -931,14 +931,14 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(parentDir?.type).toBe('directory');
-        if (!parentDir || parentDir.type !== 'directory') {
+        if (parentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be restored');
         }
         expect(parentDir.loadState).toBe('loaded');
 
         const childDir = parentDir.children?.find((node) => node.name === 'child');
         expect(childDir?.type).toBe('directory');
-        if (!childDir || childDir.type !== 'directory') {
+        if (childDir?.type !== 'directory') {
           throw new Error('Expected child directory to be restored');
         }
         expect(childDir.loadState).toBe('loaded');
@@ -977,7 +977,7 @@ describe('useFileTree (lazy loading version)', () => {
           (node) => node.type === 'directory' && node.name === 'parent'
         );
         expect(parentDir?.type).toBe('directory');
-        if (!parentDir || parentDir.type !== 'directory') {
+        if (parentDir?.type !== 'directory') {
           throw new Error('Expected parent directory to be restored');
         }
 
@@ -1053,7 +1053,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory to be present before restoration');
       }
 
@@ -1071,7 +1071,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.path === parentDir.path
       );
       expect(parentAfterDirectLoad?.type).toBe('directory');
-      if (!parentAfterDirectLoad || parentAfterDirectLoad.type !== 'directory') {
+      if (parentAfterDirectLoad?.type !== 'directory') {
         throw new Error('Expected parent directory after direct load');
       }
       expect(parentAfterDirectLoad.children?.some((child) => child.path === childPath)).toBe(true);
@@ -1098,7 +1098,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.path === parentDir.path
       );
       expect(parentAfterRestoration?.type).toBe('directory');
-      if (!parentAfterRestoration || parentAfterRestoration.type !== 'directory') {
+      if (parentAfterRestoration?.type !== 'directory') {
         throw new Error('Expected parent directory after restoration');
       }
       const childAfterRestoration = parentAfterRestoration.children?.find(
@@ -1236,7 +1236,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before loading children');
       }
 
@@ -1274,7 +1274,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before refreshing children');
       }
 
@@ -1307,7 +1307,7 @@ describe('useFileTree (lazy loading version)', () => {
 
       const refreshedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(refreshedParent?.type).toBe('directory');
-      if (!refreshedParent || refreshedParent.type !== 'directory') {
+      if (refreshedParent?.type !== 'directory') {
         throw new Error('Expected parent directory after refresh');
       }
       expect(refreshedParent.loadState).toBe('loaded');
@@ -1337,7 +1337,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before restoration');
       }
 
@@ -1347,12 +1347,12 @@ describe('useFileTree (lazy loading version)', () => {
 
       const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(loadedParent?.type).toBe('directory');
-      if (!loadedParent || loadedParent.type !== 'directory') {
+      if (loadedParent?.type !== 'directory') {
         throw new Error('Expected loaded parent directory before worker patch');
       }
       const childDir = loadedParent.children?.find((node) => node.name === 'child');
       expect(childDir?.type).toBe('directory');
-      if (!childDir || childDir.type !== 'directory') {
+      if (childDir?.type !== 'directory') {
         throw new Error('Expected child directory handle before worker patch');
       }
 
@@ -1469,7 +1469,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.name === 'parent'
       );
       expect(parentDir?.type).toBe('directory');
-      if (!parentDir || parentDir.type !== 'directory') {
+      if (parentDir?.type !== 'directory') {
         throw new Error('Expected parent directory before cache assertions');
       }
 
@@ -1479,12 +1479,12 @@ describe('useFileTree (lazy loading version)', () => {
 
       const loadedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(loadedParent?.type).toBe('directory');
-      if (!loadedParent || loadedParent.type !== 'directory') {
+      if (loadedParent?.type !== 'directory') {
         throw new Error('Expected loaded parent directory before loading child');
       }
       const childDir = loadedParent.children?.find((node) => node.name === 'child');
       expect(childDir?.type).toBe('directory');
-      if (!childDir || childDir.type !== 'directory') {
+      if (childDir?.type !== 'directory') {
         throw new Error('Expected child directory before cache assertions');
       }
 
@@ -1547,14 +1547,14 @@ describe('useFileTree (lazy loading version)', () => {
 
       const betaDirectory = result.current.fileTree.find((node) => node.path === 'mock-root/beta');
       expect(betaDirectory?.type).toBe('directory');
-      if (!betaDirectory || betaDirectory.type !== 'directory') {
+      if (betaDirectory?.type !== 'directory') {
         throw new Error('Expected beta directory to be present');
       }
       const nestedDirectory = betaDirectory.children?.find(
         (node) => node.path === 'mock-root/beta/nested'
       );
       expect(nestedDirectory?.type).toBe('directory');
-      if (!nestedDirectory || nestedDirectory.type !== 'directory') {
+      if (nestedDirectory?.type !== 'directory') {
         throw new Error('Expected nested directory to be present');
       }
       expect(nestedDirectory.loadState).toBe('loaded');

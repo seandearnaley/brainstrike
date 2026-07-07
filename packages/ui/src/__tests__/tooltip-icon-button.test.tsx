@@ -99,6 +99,7 @@ describe('TooltipIconButton', () => {
   it('does not duplicate sr-only text when asChild is true', () => {
     renderWithTooltip(
       <TooltipIconButton asChild tooltip="Test tooltip">
+        {/* biome-ignore lint/a11y/noAmbiguousAnchorText: test fixture asserting asChild composition, not real content */}
         <a href="#test">Link</a>
       </TooltipIconButton>
     );

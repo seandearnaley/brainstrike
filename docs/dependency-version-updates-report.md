@@ -71,8 +71,8 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 
 | Metric | Count |
 | --- | ---: |
-| Distinct direct dependencies checked (`pnpm outdated -r`) | 36 |
-| Outdated (current ≠ latest) or deprecated | 36 |
+| Distinct direct dependencies checked (`pnpm outdated -r`) | 33 |
+| Outdated (current ≠ latest) or deprecated | 33 |
 | Up to date (current === latest, not deprecated) | 0 |
 
 ## Outdated or deprecated packages
@@ -91,7 +91,6 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | `@babel/parser` | 7.29.7 | 7.29.7 | 8.0.0 | major | dependencies | no | @brainstrike/chunking-worker, @brainstrike/db |
 | `@babel/plugin-transform-runtime` | 7.29.7 | 7.29.7 | 8.0.1 | major | devDependencies | no | @brainstrike/desktop, @brainstrike/web |
 | `@babel/runtime` | 7.29.7 | 7.29.7 | 8.0.0 | major | devDependencies | no | @brainstrike/desktop, @brainstrike/web |
-| `@biomejs/biome` | 2.4.12 | 2.4.12 | 2.5.2 | minor | devDependencies | no | @brainstrike/web, brainstrike |
 | `@codecov/vite-plugin` | 1.9.1 | 1.9.1 | 2.0.1 | major | devDependencies | no | @brainstrike/web |
 | `@commitlint/cli` | 20.5.3 | 20.5.3 | 21.2.0 | major | devDependencies | no | brainstrike |
 | `@commitlint/config-conventional` | 20.5.3 | 20.5.3 | 21.2.0 | major | devDependencies | no | brainstrike |
@@ -102,7 +101,6 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | `@types/node` | 25.9.4 | 25.9.4 | 26.1.0 | major | devDependencies | no | @brainstrike/agent, @brainstrike/app-shell, @brainstrike/build-utils, @brainstrike/chunking-worker, @brainstrike/commands, @brainstrike/context-actions, @brainstrike/db, @brainstrike/db-explorer, @brainstrike/desktop, @brainstrike/embedding-worker, @brainstrike/embeddings, @brainstrike/file-explorer, @brainstrike/file-explorer-hooks, @brainstrike/file-explorer-ui, @brainstrike/file-import, @brainstrike/file-system, @brainstrike/file-tree-worker, @brainstrike/hooks, @brainstrike/platform-utils, @brainstrike/preferences, @brainstrike/queue, @brainstrike/queue-telemetry-collector, @brainstrike/selection-rules, @brainstrike/server-config, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/text-splitter, @brainstrike/token-cache, @brainstrike/types, @brainstrike/ui, @brainstrike/utils, @brainstrike/vector-management, @brainstrike/web, @brainstrike/worker-runtime, @brainstrike/workers, brainstrike |
 | `concurrently` | 9.2.3 | 9.2.3 | 10.0.3 | major | devDependencies | no | @brainstrike/desktop |
 | `electron` | 41.10.0 | 41.10.0 | 43.0.0 | major | devDependencies | no | @brainstrike/desktop, @brainstrike/file-system, @brainstrike/storage |
-| `jsdom` | 29.0.2 | 29.0.2 | 29.1.1 | minor | devDependencies | no | @brainstrike/app-shell, @brainstrike/db, @brainstrike/db-explorer, @brainstrike/desktop, @brainstrike/file-explorer-ui, @brainstrike/file-import, @brainstrike/preferences, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/ui, @brainstrike/vector-management, @brainstrike/web |
 | `knip` | 5.88.1 | 5.88.1 | 6.24.0 | major | devDependencies | no | brainstrike |
 | `oxc-parser` | 0.131.0 | 0.131.0 | 0.138.0 | minor | devDependencies | no | @brainstrike/chunking-worker |
 | `react-doctor` | 0.5.5 | 0.5.5 | 0.7.1 | minor | devDependencies | no | brainstrike |
@@ -110,7 +108,6 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | `react-shiki` | 0.9.3 | 0.9.3 | 0.10.1 | minor | devDependencies | no | @brainstrike/desktop, @brainstrike/web |
 | `strip-ansi` | 6.0.1 | 6.0.1 | 7.2.0 | major | dependencies | no | @brainstrike/desktop |
 | `syncpack` | 14.3.1 | 14.3.1 | 15.3.2 | major | devDependencies | no | brainstrike |
-| `turbo` | 2.9.6 | 2.9.6 | 2.10.3 | minor | devDependencies | no | brainstrike |
 | `typescript` | 5.9.3 | 5.9.3 | 6.0.3 | major | devDependencies | no | @brainstrike/agent, @brainstrike/assistant-contract, @brainstrike/build-utils, @brainstrike/chunking-worker, @brainstrike/commands, @brainstrike/config, @brainstrike/context-actions, @brainstrike/db, @brainstrike/desktop, @brainstrike/embedding-worker, @brainstrike/embeddings, @brainstrike/file-explorer, @brainstrike/file-explorer-hooks, @brainstrike/file-import, @brainstrike/file-system, @brainstrike/file-tree-worker, @brainstrike/hooks, @brainstrike/indexing-contract, @brainstrike/pipeline, @brainstrike/platform-utils, @brainstrike/queue, @brainstrike/queue-telemetry-collector, @brainstrike/selection-rules, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/text-splitter, @brainstrike/token-cache, @brainstrike/types, @brainstrike/ui, @brainstrike/utils, @brainstrike/web, @brainstrike/worker-runtime, @brainstrike/workers, brainstrike |
 | `ultracite` | 7.6.0 | 7.6.0 | 7.9.0 | minor | devDependencies | no | brainstrike |
 | `vercel` | 50.44.0 | 50.44.0 | 54.20.1 | major | devDependencies | no | brainstrike |
