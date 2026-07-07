@@ -41,6 +41,27 @@ import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
 
+/**
+ * DB/provider/network errors here can embed request-derived content (bound
+ * query params, provider API messages, request URLs) in `.message` — never log
+ * it verbatim (mirrors `redactToolErrorForLog` in assistant-tools.ts).
+ */
+function redactErrorForLog(error: unknown): {
+  code?: string | number;
+  name: string;
+  redacted: true;
+} {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return {
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    name: error instanceof Error && error.name.length > 0 ? error.name : typeof error,
+    redacted: true,
+  };
+}
+
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
 const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
 const DEFAULT_LIMIT = 20;
@@ -224,7 +245,10 @@ async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<
       [embeddingSetId]
     )) as QueryResult<EmbeddingSetRow>;
   } catch (error) {
-    logger.error('Failed to load embedding set metadata', { embeddingSetId, error });
+    logger.error('Failed to load embedding set metadata', {
+      embeddingSetId,
+      error: redactErrorForLog(error),
+    });
     throw new Error(ERROR_MESSAGES.embeddingSetLookupFailed);
   }
   const row = result.rows[0];
@@ -767,12 +791,7 @@ function handleRetrievalError(error: unknown): never {
   if (SAFE_ERROR_MESSAGES.has(message)) {
     throw new Error(message);
   }
-  logger.error('Retrieval tool failed', { error });
-  if (process.env['NODE_ENV'] === 'development') {
-    const debugMessage =
-      error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
-    throw new Error(`${ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
-  }
+  logger.error('Retrieval tool failed', { error: redactErrorForLog(error) });
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 

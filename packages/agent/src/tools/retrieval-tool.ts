@@ -206,31 +206,6 @@ function defaultEstimateTokens(text: string): number {
 }
 
 /**
- * Type guard to check if running in a Node.js-like environment.
- * Uses proper type narrowing instead of type assertions.
- */
-function isNodeEnvironment(): boolean {
-  // Check for Node.js process global with env property
-  return (
-    typeof process !== 'undefined' &&
-    process !== null &&
-    typeof process.env === 'object' &&
-    process.env !== null
-  );
-}
-
-/**
- * Type guard to check if running in development mode.
- * Safe for both Node.js and browser environments.
- */
-function isDevelopmentMode(): boolean {
-  if (!isNodeEnvironment()) {
-    return false;
-  }
-  return process.env['NODE_ENV'] === 'development';
-}
-
-/**
  * Normalizes and deduplicates file paths.
  */
 function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] | undefined {
@@ -425,12 +400,6 @@ function handleRetrievalError(error: unknown, logger?: RetrievalToolDependencies
     throw new Error(message);
   }
   logger?.error('Retrieval tool failed', { error });
-  // Expose stack trace in development mode for debugging
-  if (isDevelopmentMode()) {
-    const debugMessage =
-      error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
-    throw new Error(`${RETRIEVAL_ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
-  }
   throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
 }
 
