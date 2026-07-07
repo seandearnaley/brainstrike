@@ -24,3 +24,15 @@ allowBuilds:
   protobufjs: true
   puppeteer: true
   sharp: true
+# These two exact versions are pinned exceptions to any future minimumReleaseAge
+# policy: @mastra/memory@1.22.1's tool-approval 'output-denied' state handling
+# (the fix this repo's upgrade specifically needed, see docs/dependency-updates-
+# breaking-changes.md) shipped alongside @mastra/core@1.50.0/@mastra/mcp@1.13.1,
+# published <24h before this pin. Verified via npm registry metadata: both carry
+# GitHub Actions OIDC provenance from the canonical mastra-ai/mastra repo, a
+# maintainer list consistent with prior releases, and match the 'latest' dist-tag.
+# Remove this exclude once these versions age past whatever minimumReleaseAge
+# floor is configured (none is configured today, so this is currently a no-op).
+minimumReleaseAgeExclude:
+  - '@mastra/core@1.50.0'
+  - '@mastra/mcp@1.13.1'
