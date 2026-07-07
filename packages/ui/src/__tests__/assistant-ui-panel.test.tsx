@@ -203,11 +203,21 @@ vi.mock('@assistant-ui/react', () => {
           {children}
         </button>
       ),
-      // Slash-command "/" menu primitives. The popover only renders when the
-      // trigger is active, which never happens in these structural tests, so
-      // the items render nothing — the root just passes children through.
-      Unstable_SlashCommandRoot: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-      Unstable_TriggerPopoverPopover: () => null,
+      // "/" and "@" trigger-popover primitives (unified under one
+      // Unstable_TriggerPopoverRoot since @assistant-ui/react 0.12.26). The
+      // popover only renders its content when the trigger is active, which
+      // never happens in these structural tests, so the items render nothing —
+      // the root and the popover container just pass children through, and
+      // the behavior sub-primitives (Action/Directive) render nothing (they
+      // contribute no DOM in the real library either).
+      Unstable_TriggerPopoverRoot: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+      Unstable_TriggerPopover: Object.assign(
+        ({ children }: { children: React.ReactNode }) => <>{children}</>,
+        {
+          Action: () => null,
+          Directive: () => null,
+        }
+      ),
       Unstable_TriggerPopoverItems: () => null,
       Unstable_TriggerPopoverItem: () => null,
     },
