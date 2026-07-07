@@ -2,18 +2,25 @@ import type { ComposerPrimitive } from '@assistant-ui/react';
 import type { ComponentProps } from 'react';
 
 /**
- * The adapter type the library's mention root accepts. Derived from the
- * component's own props so we don't add a direct dependency on `@assistant-ui/core`
- * (where `Unstable_MentionAdapter` lives) — the react package only re-exports the
- * components, not that type. `NonNullable` strips the `| undefined` from the
- * optional prop.
+ * The adapter type the library's trigger popover accepts. Derived from the
+ * component's own props so we don't add a direct dependency on
+ * `@assistant-ui/core` (where `Unstable_TriggerAdapter` lives) — the react
+ * package only re-exports the components, not that type. `NonNullable` strips
+ * the `| undefined` from the optional prop.
+ *
+ * Prior to @assistant-ui/react 0.12.26 this was derived from the
+ * mention-specific `Unstable_MentionRoot`'s `adapter` prop
+ * (`Unstable_MentionAdapter`); the library unified `@` mentions and `/` slash
+ * commands under one generic `Unstable_TriggerPopover` (see
+ * `composer-trigger-popover.tsx`), so both this file's mention adapter and
+ * that file's slash-command adapter now share this same `TriggerAdapter` type.
  */
-type MentionAdapter = NonNullable<
-  ComponentProps<typeof ComposerPrimitive.Unstable_MentionRoot>['adapter']
+export type TriggerAdapter = NonNullable<
+  ComponentProps<typeof ComposerPrimitive.Unstable_TriggerPopover>['adapter']
 >;
 
 /** A single trigger item as the popover renders it (id/type/label/...). */
-type MentionTriggerItem = ReturnType<NonNullable<MentionAdapter['search']>>[number];
+type MentionTriggerItem = ReturnType<NonNullable<TriggerAdapter['search']>>[number];
 
 /**
  * A workspace file projected into the composer's "@" mention picker. The
@@ -56,7 +63,7 @@ export interface FileMention {
 export function buildFileMentionAdapter(
   files: readonly FileMention[],
   onQueryChange: (query: string) => void
-): MentionAdapter {
+): TriggerAdapter {
   const items: MentionTriggerItem[] = files.map((file) => ({
     id: file.id,
     type: 'file',

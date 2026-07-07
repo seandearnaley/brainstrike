@@ -29,6 +29,7 @@ describe('ToolFallback', () => {
     status: { type: 'complete' as const },
     addResult: () => {},
     resume: () => {},
+    respondToApproval: () => {},
   };
 
   describe('Running State', () => {

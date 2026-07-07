@@ -41,7 +41,12 @@ describe('assistant UI panel architecture', () => {
     // The mention popover UI + adapter builder live in their own modules
     // (composer-mention-popover.tsx, file-mentions.ts); the directive
     // serialize/parse contract lives in @brainstrike/assistant-contract.
-    expect(source.split('\n').length).toBeLessThanOrEqual(1720);
+    // Bumped 1720 → 1730 for the @assistant-ui/react 0.12.26 trigger-popover
+    // unification: the old nested Unstable_MentionRoot/Unstable_SlashCommandRoot
+    // wrappers were replaced by one shared Unstable_TriggerPopoverRoot ("/" and
+    // "@" popovers as siblings, not nested), which needed a few extra doc lines
+    // on ComposerInputWithTriggers explaining the sibling model.
+    expect(source.split('\n').length).toBeLessThanOrEqual(1730);
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {

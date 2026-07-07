@@ -39,7 +39,6 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import {
-  type ComponentProps,
   type FC,
   type ReactNode,
   useCallback,
@@ -607,9 +606,18 @@ const EMPTY_FILE_MENTIONS: readonly FileMention[] = [];
 
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
- * slash-enabled and plain composer paths share it — only the optional
- * `slashPopover` differs. Send / Cancel are unchanged regardless of the slash
- * feature. When `slashPopover` is omitted the row renders without any "/" menu.
+ * trigger-enabled and plain composer paths share it — only the optional
+ * `slashPopover`/`mentionPopover` differ. Send / Cancel are unchanged
+ * regardless of the trigger features. When both are omitted the row renders
+ * without any "/" or "@" menu.
+ *
+ * Since @assistant-ui/react 0.12.26, each popover is a
+ * `ComposerPrimitive.Unstable_TriggerPopover` (see `composer-trigger-popover.tsx`
+ * / `composer-mention-popover.tsx`) that renders its own `role="listbox"`
+ * container directly — they no longer need (or accept) a wrapping Mention/
+ * SlashCommand root around the input; they read composer text via the
+ * enclosing `Unstable_TriggerPopoverRoot` instead (see
+ * `ComposerInputWithTriggers` below).
  */
 const ComposerInputRow: FC<{
   isComposerDisabled: boolean;
@@ -652,48 +660,41 @@ const ComposerInputRow: FC<{
   </div>
 );
 
-type SlashCommandAdapter = ComponentProps<
-  typeof ComposerPrimitive.Unstable_SlashCommandRoot
->['adapter'];
-type FileMentionAdapter = ComponentProps<typeof ComposerPrimitive.Unstable_MentionRoot>['adapter'];
-
 /**
- * Wraps the composer input row with the "/" slash root and/or the "@" mention
- * root, mounting each ONLY when its adapter is present. The roots nest (mention
- * inside slash) so both trigger detectors run against the same composer text
- * without conflicting — "/" opens the slash menu, "@" opens the file menu. When
- * neither is present the bare input row renders, so the trigger chars do nothing
- * special (never an empty menu).
+ * Wraps the composer input row in `Unstable_TriggerPopoverRoot` ONLY when at
+ * least one trigger feature (slash commands and/or file mentions) is active —
+ * the root itself is cheap, but omitting it entirely when neither feature is
+ * present keeps the "no trigger features" path free of any trigger-popover
+ * bookkeeping. `slashPopover`/`mentionPopover` (built by the caller from
+ * `ComposerTriggerPopover`/`ComposerMentionPopover`) are each a
+ * `Unstable_TriggerPopover` declaring its own `char` ("/" or "@") and adapter;
+ * both read the same composer text via the shared root and coexist as
+ * siblings (this replaces the pre-0.12.26 nested Mention-inside-SlashCommand
+ * root pattern, which the library no longer supports — triggers are now
+ * siblings under one root, not nested wrappers). When neither is present the
+ * bare input row renders, so the trigger chars do nothing special (never an
+ * empty menu).
  */
 const ComposerInputWithTriggers: FC<{
   isComposerDisabled: boolean;
-  slashAdapter?: SlashCommandAdapter;
   slashPopover?: ReactNode;
-  fileMentionAdapter?: FileMentionAdapter;
   mentionPopover?: ReactNode;
-}> = ({ isComposerDisabled, slashAdapter, slashPopover, fileMentionAdapter, mentionPopover }) => {
-  let row: ReactNode = (
+}> = ({ isComposerDisabled, slashPopover, mentionPopover }) => {
+  const row = (
     <ComposerInputRow
       isComposerDisabled={isComposerDisabled}
       {...(slashPopover ? { slashPopover } : {})}
       {...(mentionPopover ? { mentionPopover } : {})}
     />
   );
-  if (fileMentionAdapter) {
-    row = (
-      <ComposerPrimitive.Unstable_MentionRoot adapter={fileMentionAdapter}>
-        {row}
-      </ComposerPrimitive.Unstable_MentionRoot>
-    );
+  if (!(slashPopover || mentionPopover)) {
+    return row;
   }
-  if (slashAdapter) {
-    row = (
-      <ComposerPrimitive.Unstable_SlashCommandRoot adapter={slashAdapter}>
-        {row}
-      </ComposerPrimitive.Unstable_SlashCommandRoot>
-    );
-  }
-  return <>{row}</>;
+  return (
+    <ComposerPrimitive.Unstable_TriggerPopoverRoot>
+      {row}
+    </ComposerPrimitive.Unstable_TriggerPopoverRoot>
+  );
 };
 
 const ThreadHistoryControl: FC<{
@@ -1099,7 +1100,7 @@ const ChatThreadUI: FC<{
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
   // app-passed commands during render (no setState-in-effect). The adapter hook
   // is memoized on the command list and always runs (rules-of-hooks), but the
-  // slash root is only MOUNTED when there are commands — the installed
+  // slash popover is only MOUNTED when there are commands — the installed
   // @assistant-ui opens the popover whenever "/" is typed and an adapter is
   // present, regardless of whether search() returns items, so mounting it with
   // an empty list would surface an empty menu. "No commands" ⇒ no slash feature.
@@ -1108,7 +1109,8 @@ const ChatThreadUI: FC<{
     () => toSlashCommandAdapterOptions(slashCommands),
     [slashCommands]
   );
-  const slashAdapter = useSlashCommandAdapter(slashAdapterOptions);
+  const { adapter: slashAdapter, action: slashAction } =
+    useSlashCommandAdapter(slashAdapterOptions);
   const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
 
   // "@" file-mention menu: mounted only when app-shell wires the query seam
@@ -1217,22 +1219,34 @@ const ChatThreadUI: FC<{
           data-disabled={isComposerDisabled ? '' : undefined}
           onSubmitCapture={onThreadRunStart}
         >
-          {/* The composer input row, optionally wrapped by the "/" slash root
-              and/or the "@" mention root. Each root owns its own trigger ("/"
-              vs "@") and renders its popover after the Input; both read the same
-              composer text and coexist (different trigger chars). A feature is
-              mounted ONLY when its seam is present — an unmounted root means the
-              trigger char does nothing special (never an empty menu). The roots
-              nest (mention inside slash); Send / Cancel are unchanged. */}
+          {/* The composer input row, optionally wrapped in a shared
+              `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
+              Each popover declares its own trigger char ("/" vs "@") and both
+              read the same composer text via that shared root, coexisting as
+              siblings. A feature is mounted ONLY when its seam is present —
+              an unmounted popover means the trigger char does nothing special
+              (never an empty menu). Send / Cancel are unchanged. */}
           <ComposerInputWithTriggers
             isComposerDisabled={isComposerDisabled}
             {...(hasSlashCommands
-              ? { slashAdapter, slashPopover: <ComposerTriggerPopover iconMap={slashIconMap} /> }
+              ? {
+                  slashPopover: (
+                    <ComposerTriggerPopover
+                      action={slashAction}
+                      adapter={slashAdapter}
+                      iconMap={slashIconMap}
+                    />
+                  ),
+                }
               : {})}
             {...(hasFileMentions && fileMentionAdapter
               ? {
-                  fileMentionAdapter,
-                  mentionPopover: <ComposerMentionPopover fileById={fileMentionById} />,
+                  mentionPopover: (
+                    <ComposerMentionPopover
+                      adapter={fileMentionAdapter}
+                      fileById={fileMentionById}
+                    />
+                  ),
                 }
               : {})}
           />

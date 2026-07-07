@@ -256,17 +256,39 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## Assistant UI styles (`@assistant-ui/styles`, deprecated)
+## Assistant UI (`@assistant-ui/react` 0.12.x → 0.14.x, `@assistant-ui/react-markdown` 0.12.x → 0.14.x, `@assistant-ui/react-data-stream` 0.12.11 → 0.12.18, `@assistant-ui/styles` deprecated) — completed
 
-**Why it matters:** Deprecated packages may stop receiving fixes; builds stay on an old design-token surface.
+**Status:** `@assistant-ui/react` bumped `~0.12.25` → `~0.14.26`, `@assistant-ui/react-markdown` `^0.12.9` → `^0.14.5`, `@assistant-ui/react-data-stream` `^0.12.11` → `^0.12.18` across `packages/ui`, `apps/web`, `apps/desktop`. `@assistant-ui/styles` stays pinned at `^0.3.7` (see below — there is no newer version and no drop-in replacement package).
 
-**What to verify**
+**Why it matters:** This is the highest-blast-radius dependency in the repo — `packages/ui`'s `assistant-ui-panel/*` wraps it directly, and `AGENTS.md`'s ASSISTANT RESILIENCE / PERMISSION ENGINE / ASSISTANT THREAD PERSISTENCE sections all layer custom logic on top of its primitives and hooks.
 
-- Identify the replacement package or styling approach recommended by Assistant UI for your stack (web/desktop), then migrate imports and CSS variables accordingly.
+**Root cause of the composer breakage (0.12.26): trigger-popover unification**
+
+Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24, both merged 2026-04-15):
+
+- [#3827 "unify mention and slash command under Unstable_TriggerPopover"](https://github.com/assistant-ui/assistant-ui/pull/3827) replaced the nested `Unstable_MentionRoot` + `Unstable_SlashCommandRoot` pattern with a single `Unstable_TriggerPopoverRoot` hosting one or more `Unstable_TriggerPopover` declarations (each with its own `char`, e.g. `"@"` or `"/"`) as **siblings**, not nested wrappers. `Unstable_TriggerPopoverPopover` was folded into `Unstable_TriggerPopover` itself (it now renders the `role="listbox"` container directly).
+- [#3834 "TriggerPopover v2 (Directive/Action)"](https://github.com/assistant-ui/assistant-ui/pull/3834) replaced the `onSelect: {type, ...}` discriminated union with declarative `<TriggerPopover.Directive>` (insert a directive chip, e.g. "@" mentions) / `<TriggerPopover.Action>` (fire a handler, e.g. "/" slash commands) child sub-primitives — exactly one per `TriggerPopover`. It also renamed `unstable_useToolMentionAdapter` → `unstable_useMentionAdapter` and changed `unstable_useSlashCommandAdapter`'s command shape from `{name, ...}` to `{id, ...}`, with the hook now returning `{adapter, action, iconMap?, fallbackIcon?}` (previously just the adapter).
+
+**Behavior-preservation gotcha:** the new `TriggerPopover.Action`'s `removeOnExecute` defaults to `false` (favors leaving a directive chip as an audit trail) — the OLD `Unstable_SlashCommandRoot`'s docs stated selecting a command always removed the `/command` text. We set `removeOnExecute: true` explicitly in `toSlashCommandAdapterOptions` (`packages/ui/src/assistant-ui-panel/slash-commands.ts`) to preserve the original behavior; leaving it unset would have been a silent regression that no type error would catch.
+
+**Files touched:** `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` (nested-roots → single shared `Unstable_TriggerPopoverRoot`, hook destructuring), `composer-trigger-popover.tsx` and `composer-mention-popover.tsx` (popover content moved to be the `TriggerPopover`'s own children instead of a separate `Popover` wrapper; `Directive`/`Action` behavior sub-primitives added), `file-mentions.ts` (adapter type re-derived from `Unstable_TriggerPopover`'s `adapter` prop instead of the removed `Unstable_MentionRoot`), `slash-commands.ts` (`name` → `id`, `removeOnExecute: true` added), plus test/mock updates in `__tests__/assistant-ui-panel.test.tsx`, `assistant-ui-panel/__tests__/slash-command-api-guard.test.ts`, `slash-commands.test.ts`.
+
+**Other breaking changes hit in the same bump (unrelated to the composer):**
+
+- `ToolCallMessagePart` gained a required `respondToApproval` field (tool-approval type surface) — test fixtures in `tool-fallback.test.tsx` / `tool-fallback.browser.test.tsx` needed a no-op stub added alongside the existing `addResult`/`resume` stubs. The real `ToolFallback` component doesn't read this field, so this is fixture-only.
+- `ChatModelRunOptions.config` (a legacy alias mirroring `.context`) was removed per the official [Migration to v0.14](https://www.assistant-ui.com/docs/migrations/v0-14) guide — a stale test fixture in `local-runtime-adapter.test.ts` had a dead `config: {}` field that no longer type-checks; removed (the real adapter never read it).
+- The `components` prop on `ThreadPrimitive.Messages` / `MessagePrimitive.Parts` / etc. is soft-deprecated in favor of a children render-function pattern, but **still works** in 0.14 (removal is a future minor) — this repo's 4 `components={{...}}` call sites in `assistant-ui-panel.tsx` were left as-is; migrating them is optional follow-up, not required for this bump.
+
+**What did NOT change:** `@assistant-ui/react-markdown`'s actual exports (`MarkdownTextPrimitive`, `unstable_memoizeMarkdownComponents`, `SyntaxHighlighterProps`) and its `styles/dot.css` file are byte-identical between 0.12.9 and 0.14.5 — no code changes needed there. `@assistant-ui/react-data-stream` is not imported anywhere in this repo's actual code (only referenced defensively in Vite `optimizeDeps`/`knip.jsonc` config) and its peer dependency is only against `react`, not `@assistant-ui/react`, so it has no version-lockstep constraint with the other three packages.
+
+**`@assistant-ui/styles` (deprecated) — no replacement package exists:** upstream deleted the entire `packages/styles` workspace package from the assistant-ui monorepo in [PR #3234 "chore: remove `styles` package"](https://github.com/assistant-ui/assistant-ui/pull/3234) (merged 2026-02-06), the same day `0.3.7` — the last version ever published — went out. The npm registry now marks it fully deprecated ("Package no longer supported"). There is no newer version and no drop-in successor package; the recommended go-forward path (per the removed docs' "Not using Tailwind" tab deletion) is the Tailwind-based [shadcn/ui component registry](https://www.assistant-ui.com/docs/ui/styled/thread) (`npx assistant-ui@latest add thread` or `npx shadcn@latest add https://r.assistant-ui.com/thread`), which ships components with their own Tailwind classes instead of importing a separate stylesheet. This repo already uses Tailwind and imports `@assistant-ui/styles/index.css` purely for the library's base CSS custom properties (`overrides.css` layers `--bs-*` tokens on top) — migrating off it entirely would mean re-deriving those base tokens from the shadcn registry's CSS, which is a larger follow-up than this dependency bump warrants. `^0.3.7` is kept pinned (it is already the newest — and final — version on npm).
 
 **Pointers**
 
-- Assistant UI docs / repo (search for “styles” deprecation in the org you import from).
+- Composer primitive unification: [PR #3827](https://github.com/assistant-ui/assistant-ui/pull/3827), [PR #3834](https://github.com/assistant-ui/assistant-ui/pull/3834).
+- Official migration guide: [Migration to v0.14](https://www.assistant-ui.com/docs/migrations/v0-14), [Deprecation Policy](https://www.assistant-ui.com/docs/migrations/deprecation-policy).
+- Styles package removal: [PR #3234](https://github.com/assistant-ui/assistant-ui/pull/3234), [PR #2852 "rewrite styles package"](https://github.com/assistant-ui/assistant-ui/pull/2852) (the Nov 2025 predecessor change).
+- shadcn/ui registry: [Styled Thread docs](https://www.assistant-ui.com/docs/ui/styled/thread).
 
 ---
 
