@@ -284,6 +284,36 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
+## Babel (`@babel/core`, `@babel/parser`, `@babel/plugin-transform-runtime`, `@babel/runtime` 7.x → 8.x) — completed
+
+**Status:** Upgraded all four packages to `^8.0.1` (`@babel/core`, `@babel/plugin-transform-runtime`) / `^8.0.0` (`@babel/parser`, `@babel/runtime`) across `apps/web`, `apps/desktop`, `packages/chunking-worker`, and `packages/db`.
+
+**Compatibility gate (checked first):** `babel-plugin-react-compiler` (pinned `1.0.0`) only declares `@babel/types: ^7.26.0` as a runtime dependency in its published package.json — `@babel/core`/`@babel/traverse`/`@babel/generator` are devDependencies bundled into its published `dist/index.js` at build time, so the plugin is host-Babel-version-agnostic by design. The real compatibility boundary is `@rolldown/plugin-babel@0.2.3` (used via `@vitejs/plugin-react@6`'s `reactCompilerPreset`), whose published peerDependencies already declare `"@babel/core": "^7.29.0 || ^8.0.0-rc.1"` (same shape for `@babel/plugin-transform-runtime`/`@babel/runtime`) — `pnpm install` resolved the whole 42-project workspace with zero peer warnings.
+
+**Live end-to-end proof**
+
+- Constructed the exact plugin object `apps/web/vite.config.mts` creates (`@rolldown/plugin-babel({ exclude, presets: [reactCompilerPreset({})] })`) and drove it through its real async Vite/Rolldown lifecycle (`configResolved` → `outputOptions` → `transform.handler`) against a real repo component (`apps/web/src/app/layout.tsx`) using the installed `@babel/core@8.0.1` — produced correct React Compiler output (memo-cache sentinels, `react/compiler-runtime` import).
+- `packages/chunking-worker`'s full test suite (its `babel-adapter.ts` is the only direct `@babel/parser` API consumer in the repo): 171/171 tests pass with `@babel/parser@8.0.0`.
+
+**What we touched**
+
+- Bumped `apps/web/package.json`, `apps/desktop/package.json` (`@babel/core`, `@babel/plugin-transform-runtime`, `@babel/runtime`), and `packages/chunking-worker/package.json`, `packages/db/package.json` (`@babel/parser`).
+- Fixed `packages/chunking-worker/src/parsers/babel-adapter.ts`: `@babel/parser@8`'s `ParserPlugin` type dropped `'classProperties'`, `'classPrivateProperties'`, `'classPrivateMethods'`, `'dynamicImport'`, `'importAttributes'`, and `'topLevelAwait'` (those syntaxes now parse unconditionally, so the opt-in flags were removed from the type/registry — the runtime still silently tolerates unknown plugin-name strings, but `tsc --noEmit` fails on them). `buildPlugins()` now only pushes `'decorators-legacy'` (still a real, meaningful opt-in) plus conditional `'jsx'`/`'typescript'`. Verified byte-identical AST output before/after on a fixture exercising all six affected syntaxes, and the full chunking-worker suite (171/171) plus its `type-check` stayed green (only the 3 pre-existing unbuilt-package `@brainstrike/text-splitter`/`@brainstrike/utils` errors remain, present identically on the unmodified base commit).
+
+**Surveyed and confirmed not applicable**
+
+- No use of Babel 8's removed sync convenience APIs (`transform()`/`parse()`/`transformFromAst()` → `*Sync()` variants) — only the async APIs (`transformAsync`/`loadOptionsAsync`) are used, via `@rolldown/plugin-babel`.
+- `@babel/plugin-transform-runtime`'s removed `useBuiltIns`/`corejs`/`useESModules` options aren't configured anywhere; the plugin is declared in `apps/web`/`apps/desktop` package.json but not wired into either `vite.config.mts`'s `runtimeVersion` option (dormant).
+- No `@types/babel__*` packages to reconcile (Babel 8 bundles its own types).
+- Node ^22.18.0 || >=24.11.0 requirement already satisfied (repo pins Node 24.x).
+
+**Pointers**
+
+- Babel 8 migration guide: [babeljs.io blog — Babel 8 release](https://babeljs.io/blog).
+- `@rolldown/plugin-babel`: [npm package](https://www.npmjs.com/package/@rolldown/plugin-babel).
+
+---
+
 ## Assistant UI styles (`@assistant-ui/styles`, deprecated)
 
 **Why it matters:** Deprecated packages may stop receiving fixes; builds stay on an old design-token surface.
