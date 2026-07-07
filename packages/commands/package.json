@@ -3,7 +3,7 @@
   "description": "Headless command registry: global commands + one-way bridge that projects context-actions into a searchable command surface (⌘K palette)",
   "version": "0.1.0",
   "devDependencies": {
-    "@types/node": "^25.9.4",
+    "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "happy-dom": "^20.10.6",
     "tsup": "^8.5.1",
