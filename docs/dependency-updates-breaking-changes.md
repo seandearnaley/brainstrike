@@ -23,7 +23,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 | `typescript` | 5.9.3 | 6.0.3 | Compiler defaults, `tsconfig`, editor/CI alignment |
 | `electron` | 41.2.1 | 42.3.3 | Desktop shell, Chromium/Node runtime changes, packaging |
 | `vercel` (CLI) | 50.44.0 | 54.10.2 | Deploy scripts, CLI flags, remote project behavior |
-| `knip` | 5.88.1 | 6.16.1 | Unused-code analysis, JSON reporters, Node engine |
+| `knip` | ~~5.88.1~~ 6.24.0 | 6.24.0 | Unused-code analysis, JSON reporters, Node engine — **DONE**, see Knip section below |
 | `@codecov/vite-plugin` | 1.9.1 | 2.0.1 | Vite build + Codecov upload wiring |
 | `react-helmet-async` | 2.0.5 | 3.0.0 | SSR helmet types / peer range (React 19) |
 | `@commitlint/cli` | 20.5.0 | 21.0.2 | Git hook / CI commit-message validation |
@@ -85,15 +85,24 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## Knip (`knip` 5.x → 6.x)
+## Knip (`knip` 5.x → 6.x) — DONE (bumped to 6.24.0)
 
-**Why it matters:** Knip 6 switches parsing/resolver internals and tightens CLI compatibility.
+**Status:** Root workspace `knip` devDependency bumped `^5.88.1` → `^6.24.0` (`chore/deps-knip-6`, off `chore/deps-batch-3-minor`). `apps/web`'s `package.json` had already independently pinned `knip: ^6.24.0` on this branch's earlier batch commits, but that entry is dead weight — `apps/web` has no `knip` script; the only invocation in this repo is the root `pnpm knip` script (no CLI flags), reading `knip.jsonc`.
 
-**What to verify**
+**Why it matters:** Knip 6 switches parsing/resolver internals (TypeScript-compiler-based parsing/resolution replaced by `oxc-parser`/`oxc-resolver`) and tightens CLI compatibility.
 
-- **Node.js:** Knip 6 requires a **newer Node** baseline (v20.19+ per upstream v6 announcement—confirm in the blog post for the exact floor).
-- **CLI flags removed/renamed:** Flags like `--include-libs` / `--isolate-workspaces` may be obsolete because behavior is now default; update CI invocations.
-- **JSON reporter shape:** Issues are normalized to arrays; remove reliance on removed fields such as `issues._files` / root `files` if you parse JSON output.
+**Verified non-issues for this repo:**
+
+- **Node.js:** Knip 6.24.0 requires `^20.19.0 || >=22.12.0`. Repo pins Node 24.x — clears comfortably.
+- **CLI flags removed/renamed:** `--include-libs` / `--isolate-workspaces` are gone (folded into default behavior); `pnpm knip` passes zero CLI flags anywhere in this repo, so nothing to update.
+- **JSON reporter shape:** v6 emits `{issues: [...]}` only (no top-level `files`, per-issue `files` folded in); the repo never invokes `--reporter json` or parses knip's programmatic output.
+- **`classMembers` issue type dropped** (replaced by `namespaceMembers`/`nsExports`/`nsTypes` for TS namespace support): the only `namespace` keywords in the codebase (`packages/types/src/env.d.ts`, `apps/desktop/e2e/global.d.ts`) are `declare global { namespace NodeJS { ... } }` ambient augmentations of the built-in `NodeJS` namespace, not user-defined namespaces with member exports — confirmed empirically, a full `pnpm knip` run produced zero `namespaceMembers`/`nsExports`/`nsTypes` findings.
+- **Sibling-workspace unlisted-dependency detection regression** (knip #1792, spanning 5.7.0–6.16.1): requires npm/yarn's hoisted `node_modules` linker; this repo uses pnpm's strict per-package linking and always invokes knip from the workspace root, so it's unaffected — and the underlying issue was fixed in 6.17.0 anyway, well below the 6.24.0 target.
+- **`deslop`/`doctor.config.ts` ↔ `knip.jsonc` schema coupling** (the cross-package dependency this track's plan entry called out for re-verification, per `AGENTS.md`'s `REACT DOCTOR` section): `doctor.config.ts` mirrors two knip-owned config properties by hand — `rules.exports: "off"` and the curated `ignoreDependencies` allowlist (deslop cannot express per-dependency ignores, so it disables its own `unused-dependency`/`unused-dev-dependency`/`unused-export`/`unused-type` rules and defers to `pnpm knip` instead). Both properties are unchanged, top-level `knip.jsonc` schema keys in knip 6.24.0 (verified against the installed package; no schema migration was needed for either). Confirmed by running both tools post-bump: `pnpm knip` still reports `rules.exports: "off"` behavior (a single "Unused exported types" finding, not an exports-checking flood), and `pnpm doctor` runs clean against the same pre-existing advisory backlog (981 issues, matching the documented React-Doctor-migration baseline) with no new dependency/export-rule false-positive spike from the deslop side. The coupling is intact; no `doctor.config.ts` change was required.
+
+**Real-world before/after diff** (`pnpm knip`, full turbo build first so workspace `dist/` resolves): substantive findings (Unused files / dependencies / devDependencies / exported types) were a **strict subset improvement, zero regressions** — v6's oxc-based resolver correctly stopped flagging 2 files (`packages/db/src/evaluation/retrieval-eval-cli.ts`, referenced only from a `package.json` script; `packages/vector-management/styles.css`, referenced only via `package.json#exports`) and 1 exported type (`DimensionIndexMaintenanceStatus`, re-exported from `packages/db/src/index.ts`'s public barrel) that were real false positives under v5. `Unused dependencies`/`Unused devDependencies` lists are byte-identical before/after. The `Configuration hints` section grew (91 → 143) purely from new hint categories in v6's config-linting (e.g. flagging `.d.ts`/`.json` extension registration, `packages/fonts` workspace) — advisory only, not gating.
+
+**Pre-existing, unrelated to this bump:** `knip.jsonc`'s per-workspace `"typescript": {"config": "tsconfig.json"}` blocks are not a recognized property in knip's official schema under either version and are silently inert both before and after — worth a follow-up cleanup, not a regression.
 
 **Pointers**
 
