@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.4",
-    "oxc-parser": "^0.131.0",
+    "oxc-parser": "^0.138.0",
     "rimraf": "^6.1.3",
     "tree-sitter-wasms": "^0.1.13",
     "tsup": "^8.5.1",
