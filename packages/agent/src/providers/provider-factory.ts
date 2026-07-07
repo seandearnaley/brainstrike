@@ -204,12 +204,20 @@ export function createEmbeddingProvider(
   switch (provider) {
     case 'openai': {
       const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
-      return openaiProvider.embeddingModel(model);
+      // @ai-sdk/provider@4.x's EmbeddingModelV4 is not yet in @mastra/core's
+      // MastraEmbeddingModel union (which caps at EmbeddingModelV2|V3 as of
+      // 1.49.0 -- Mastra's AI SDK v7/V4 support, PR #18477, only covers
+      // language models). V3 and V4 are structurally identical apart from
+      // the `specificationVersion` literal ('v3' vs 'v4'), so this cast is
+      // safe pending an upstream Mastra embedding-model update. See
+      // docs/dependency-updates-breaking-changes.md.
+      return openaiProvider.embeddingModel(model) as unknown as MastraEmbeddingModel<string>;
     }
 
     case 'google': {
       const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
-      return googleProvider.embeddingModel(model);
+      // Same upstream gap as the openai branch above.
+      return googleProvider.embeddingModel(model) as unknown as MastraEmbeddingModel<string>;
     }
 
     case 'anthropic':
