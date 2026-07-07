@@ -70,8 +70,8 @@ importers:
         specifier: ^20.10.6
         version: 20.10.6
       knip:
-        specifier: ^5.88.1
-        version: 5.88.1(@types/node@25.9.4)(typescript@5.9.3)
+        specifier: ^6.24.0
+        version: 6.24.0
       lefthook:
         specifier: ^2.1.9
         version: 2.1.9
@@ -10231,14 +10231,6 @@ packages:
     resolution: {integrity: sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w==}
     engines: {node: '>=6'}
 
-  knip@5.88.1:
-    resolution: {integrity: sha512-tpy5o7zu1MjawVkLPuahymVJekYY3kYjvzcoInhIchgePxTlo+api90tBv2KfhAIe5uXh+mez1tAfmbv8/TiZg==}
-    engines: {node: '>=18.18.0'}
-    hasBin: true
-    peerDependencies:
-      '@types/node': '>=18'
-      typescript: '>=5.0.4 <7'
-
   knip@6.24.0:
     resolution: {integrity: sha512-PokLlgeEjLh1rAsB7ts+52wZ37HBr1nDhE6NNONwEaXdeZGCJOkP7ZlIAI2Gtu8xohquzTWy75bc/1diI9shQw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -12500,10 +12492,6 @@ packages:
         optional: true
       oxlint:
         optional: true
-
-  unbash@2.2.0:
-    resolution: {integrity: sha512-X2wH19RAPZE3+ldGicOkoj/SIA83OIxcJ6Cuaw23hf8Xc6fQpvZXY0SftE2JgS0QhYLUG4uwodSI3R53keyh7w==}
-    engines: {node: '>=14'}
 
   unbash@4.0.2:
     resolution: {integrity: sha512-8gwNZ29+0/3zmXw7ToIHZtg6wK37xnniRUdBt7B27xZxaxfgR5tGMaGHT0t0dLtBV9fXE7zurh0s6Z1DHVjfWg==}
@@ -20840,24 +20828,6 @@ snapshots:
 
   kleur@3.0.3: {}
 
-  knip@5.88.1(@types/node@25.9.4)(typescript@5.9.3):
-    dependencies:
-      '@nodelib/fs.walk': 1.2.8
-      '@types/node': 25.9.4
-      fast-glob: 3.3.3
-      formatly: 0.3.0
-      jiti: 2.7.0
-      minimist: 1.2.8
-      oxc-resolver: 11.23.0
-      picocolors: 1.1.1
-      picomatch: 4.0.5
-      smol-toml: 1.7.0
-      strip-json-comments: 5.0.3
-      typescript: 5.9.3
-      unbash: 2.2.0
-      yaml: 2.9.0
-      zod: 4.4.3
-
   knip@6.24.0:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.5)
@@ -23671,8 +23641,6 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       oxlint: 1.66.0
-
-  unbash@2.2.0: {}
 
   unbash@4.0.2: {}
 
