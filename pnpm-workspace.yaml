@@ -24,3 +24,6 @@ allowBuilds:
   protobufjs: true
   puppeteer: true
   sharp: true
+minimumReleaseAgeExclude:
+  - '@mastra/core@1.50.0'
+  - '@mastra/mcp@1.13.1'
