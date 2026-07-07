@@ -2,6 +2,7 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __getAllAncestorDirectories,
   __resetRestorationLock,
   useExpandedPathRestoration,
   useExpandSelectedFileParentDirectories,
@@ -111,6 +112,27 @@ describe('useExpandedPathRestoration', () => {
 });
 
 describe('useExpandSelectedFileParentDirectories', () => {
+  it('derives parent directory chains without materializing segment joins per ancestor', () => {
+    const joinSpy = vi.spyOn(Array.prototype, 'join');
+
+    const absoluteAncestors = __getAllAncestorDirectories('/workspace/src/components/Button.tsx');
+    const repeatedSeparatorAncestors = __getAllAncestorDirectories('src//components/Button.tsx');
+    const fileOnlyAncestors = __getAllAncestorDirectories('Button.tsx');
+    const rootAncestors = __getAllAncestorDirectories('/');
+
+    expect(joinSpy).not.toHaveBeenCalled();
+    joinSpy.mockRestore();
+
+    expect(absoluteAncestors).toEqual([
+      '/workspace',
+      '/workspace/src',
+      '/workspace/src/components',
+    ]);
+    expect(repeatedSeparatorAncestors).toEqual(['src', 'src/components']);
+    expect(fileOnlyAncestors).toEqual([]);
+    expect(rootAncestors).toEqual([]);
+  });
+
   it('expands parent directories for selected files after restoration settles', async () => {
     const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
     const setExpandedPaths = vi.fn();
