@@ -374,6 +374,56 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
+## web-tree-sitter (`web-tree-sitter` 0.25.x → 0.26.x) — deferred
+
+**Why it matters:** `packages/chunking-worker/src/parsers/tree-sitter-adapter.ts` and
+`tree-sitter-grammar-loader.ts` use `web-tree-sitter` to parse Python for
+structure-aware chunking (function/class/decorated-definition boundaries),
+falling back to a recursive/line-based chunker when the grammar can't load.
+
+**What breaks:** The vendored grammar WASM
+(`packages/chunking-worker/grammars/python.wasm`, sourced from
+`tree-sitter-wasms@0.1.13`, still the latest published version of that
+package) uses the legacy Emscripten `"dylink"` WASM custom-section name.
+`web-tree-sitter@0.26.10`'s bundled runtime dropped the fallback that
+0.25.x had for that legacy name and only accepts `"dylink.0"`. Verified live:
+loading the exact vendored `.wasm` bytes via `Language.load()` succeeds on
+0.25.10 and throws immediately on 0.26.10 with the same bytes. All other API
+surface this repo actually calls (`Parser.init/setLanguage/parse`,
+`Language.load`, `Query`, `query.matches`, `Node.type/startIndex/endIndex`,
+`tree/parser.delete`) is unchanged between the two versions.
+
+Per the existing catch-and-evict code in `tree-sitter-grammar-loader.ts`,
+this failure doesn't crash the app — it falls back to the recursive chunker —
+but it silently defeats the whole point of the tree-sitter-based Python
+chunking feature, so it must not ship unremediated.
+
+**What to verify before unpinning**
+
+- Re-vendor `packages/chunking-worker/grammars/python.wasm` from a
+  `dylink.0`-format source. The official `tree-sitter-python@0.23.6` npm
+  package ships a prebuilt grammar WASM already in that format — verified
+  live (load + parse + query) against `web-tree-sitter@0.26.10`, producing
+  identical capture output to the current grammar.
+- `tree-sitter-wasms` (the current grammar source) is still pinned at
+  `0.1.13` with no rebuilt release; an identical fix was proposed upstream
+  and closed without merging (`Gregoor/tree-sitter-wasms#52`).
+- Add/extend a test that calls `Language.load()` against the **real**
+  vendored `.wasm` file end-to-end — the existing suite apparently never
+  exercised that path against real bytes, which is how this gap went
+  unnoticed until this investigation.
+- Only bump `web-tree-sitter` once the grammar source is swapped (or a
+  compatible `tree-sitter-wasms` release ships); do the re-vendoring and the
+  version bump together so there's no window where the feature silently
+  degrades.
+
+**Pointers**
+
+- [`Gregoor/tree-sitter-wasms#52`](https://github.com/Gregoor/tree-sitter-wasms/pull/52) (closed, unmerged; documents the `dylink` → `dylink.0` format change)
+- `tree-sitter-python` npm package (official per-language grammar, `dylink.0`-compatible as of 0.23.6)
+
+---
+
 ## Deferred or pinned dependencies
 
 Tracked decisions where we intentionally hold a dependency below its latest version, with the issue that owns the unpin.
@@ -382,6 +432,7 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 | --- | --- | --- | --- |
 | `typescript` | `^5.9.3` | 6.0.x stricter DOM types break `FileSystemDirectoryHandle` test mocks in `packages/utils`. Needs a coordinated TS 6 migration across the workspace. | (covered in TypeScript section above) |
 | `react-helmet-async` | `^2.0.5` | Re-verified 2026-07-06: the original `preserveSymlinks`/`exports` break is real but now has a verified 3-line `resolve.alias` workaround. However, a NEW and more serious blocker was found on adversarial review: 3.0.0's `React19Dispatcher` does not dedup `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and this app keeps inactive tabs mounted (`root-layout-content.tsx`'s `mountedTabs`) — reproduced live, 2 co-existing `<title>` tags in the DOM once 2 tabs have been visited. This is the actual reason to stay pinned; the exports/symlink issue alone would no longer block it. | (covered in react-helmet-async section above) |
+| `web-tree-sitter` | `^0.25.10` | 0.26.x's runtime drops support for the legacy `"dylink"` WASM custom-section name used by the vendored `tree-sitter-wasms@0.1.13` Python grammar; `Language.load()` throws on the real vendored bytes, silently falling back to the (worse) recursive chunker. Needs re-vendoring the grammar from a `dylink.0`-compatible source (e.g. `tree-sitter-python@0.23.6`) alongside the bump. | (covered in web-tree-sitter section above) |
 
 > When unpinning, follow the acceptance criteria in the linked Linear issue (or the section above), regenerate `dependency-version-updates-report.md`, and run the full `pnpm check:full` pipeline before merging.
 

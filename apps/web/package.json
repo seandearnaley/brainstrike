@@ -75,7 +75,7 @@
     "playwright": "^1.61.1",
     "react-hotkeys-hook": "^5.3.3",
     "react-resizable-panels": "^4.12.1",
-    "react-shiki": "^0.9.3",
+    "react-shiki": "^0.10.1",
     "remark-gfm": "^4.0.1",
     "serve": "^14.2.6",
     "shiki": "^4.3.1",
