@@ -1,157 +1,156 @@
 {
   "extends": "./packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/types": [
-        "packages/types/src"
+        "./packages/types/src"
       ],
       "@brainstrike/assistant-contract": [
-        "packages/assistant-contract/src"
+        "./packages/assistant-contract/src"
       ],
       "@brainstrike/assistant-contract/*": [
-        "packages/assistant-contract/src/*"
+        "./packages/assistant-contract/src/*"
       ],
       "@brainstrike/indexing-contract": [
-        "packages/indexing-contract/src"
+        "./packages/indexing-contract/src"
       ],
       "@brainstrike/indexing-contract/*": [
-        "packages/indexing-contract/src/*"
+        "./packages/indexing-contract/src/*"
       ],
       "@brainstrike/hooks": [
-        "packages/hooks/src"
+        "./packages/hooks/src"
       ],
       "@brainstrike/ui": [
-        "packages/ui/src"
+        "./packages/ui/src"
       ],
       "@brainstrike/utils": [
-        "packages/utils/src"
+        "./packages/utils/src"
       ],
       "@brainstrike/utils/*": [
-        "packages/utils/src/*"
+        "./packages/utils/src/*"
       ],
       "@brainstrike/text-splitter": [
-        "packages/text-splitter/src"
+        "./packages/text-splitter/src"
       ],
       "@brainstrike/text-splitter/*": [
-        "packages/text-splitter/src/*"
+        "./packages/text-splitter/src/*"
       ],
       "@brainstrike/file-explorer": [
-        "packages/file-explorer/src"
+        "./packages/file-explorer/src"
       ],
       "@brainstrike/file-explorer-hooks": [
-        "packages/file-explorer-hooks/src"
+        "./packages/file-explorer-hooks/src"
       ],
       "@brainstrike/file-explorer-ui": [
-        "packages/file-explorer-ui/src"
+        "./packages/file-explorer-ui/src"
       ],
       "@brainstrike/file-explorer-ui/*": [
-        "packages/file-explorer-ui/src/*"
+        "./packages/file-explorer-ui/src/*"
       ],
       "@brainstrike/storage": [
-        "packages/storage/src"
+        "./packages/storage/src"
       ],
       "@brainstrike/storage/electron": [
-        "packages/storage/src/electron.ts"
+        "./packages/storage/src/electron.ts"
       ],
       "@brainstrike/workers": [
-        "packages/workers"
+        "./packages/workers"
       ],
       "@brainstrike/workers/*": [
-        "packages/workers/*"
+        "./packages/workers/*"
       ],
       "@brainstrike/db": [
-        "packages/db/src"
+        "./packages/db/src"
       ],
       "@brainstrike/queue": [
-        "packages/queue/src"
+        "./packages/queue/src"
       ],
       "@brainstrike/queue/browser": [
-        "packages/queue/src/browser.ts"
+        "./packages/queue/src/browser.ts"
       ],
       "@brainstrike/build-utils": [
-        "packages/build-utils/src"
+        "./packages/build-utils/src"
       ],
       "@brainstrike/agent": [
-        "packages/agent/dist/index.d.ts"
+        "./packages/agent/dist/index.d.ts"
       ],
       "@brainstrike/embeddings": [
-        "packages/embeddings/src"
+        "./packages/embeddings/src"
       ],
       "@brainstrike/embeddings/provider-core": [
-        "packages/embeddings/src/provider-core.ts"
+        "./packages/embeddings/src/provider-core.ts"
       ],
       "@brainstrike/app-shell": [
-        "packages/app-shell/src"
+        "./packages/app-shell/src"
       ],
       "@brainstrike/preferences": [
-        "packages/preferences/src"
+        "./packages/preferences/src"
       ],
       "@brainstrike/vector-management": [
-        "packages/vector-management/src"
+        "./packages/vector-management/src"
       ],
       "@brainstrike/db-explorer": [
-        "packages/db-explorer/src"
+        "./packages/db-explorer/src"
       ],
       "@brainstrike/chunking-worker": [
-        "packages/chunking-worker/src"
+        "./packages/chunking-worker/src"
       ],
       "@brainstrike/file-tree-worker": [
-        "packages/file-tree-worker/src"
+        "./packages/file-tree-worker/src"
       ],
       "@brainstrike/queue-telemetry-collector": [
-        "packages/queue-telemetry-collector/src"
+        "./packages/queue-telemetry-collector/src"
       ],
       "@brainstrike/platform-utils": [
-        "packages/platform-utils/src"
+        "./packages/platform-utils/src"
       ],
       "@brainstrike/context-actions": [
-        "packages/context-actions/src"
+        "./packages/context-actions/src"
       ],
       "@brainstrike/commands": [
-        "packages/commands/src"
+        "./packages/commands/src"
       ],
       "@brainstrike/pipeline": [
-        "packages/pipeline/src"
+        "./packages/pipeline/src"
       ],
       "@brainstrike/file-import": [
-        "packages/file-import/src"
+        "./packages/file-import/src"
       ],
       "@brainstrike/file-import/browser-queue-port": [
-        "packages/file-import/src/browser-queue-port.ts"
+        "./packages/file-import/src/browser-queue-port.ts"
       ],
       "@brainstrike/file-import/chunking-worker-context": [
-        "packages/file-import/src/chunking-worker-context.tsx"
+        "./packages/file-import/src/chunking-worker-context.tsx"
       ],
       "@brainstrike/file-import/enhanced-import": [
-        "packages/file-import/src/enhanced-import.ts"
+        "./packages/file-import/src/enhanced-import.ts"
       ],
       "@brainstrike/file-system": [
-        "packages/file-system/src"
+        "./packages/file-system/src"
       ],
       "@brainstrike/file-system/electron": [
-        "packages/file-system/src/electron.ts"
+        "./packages/file-system/src/electron.ts"
       ],
       "@brainstrike/file-system/path-validation": [
-        "packages/file-system/src/path-validation.ts"
+        "./packages/file-system/src/path-validation.ts"
       ],
       "@brainstrike/server-config": [
-        "packages/server-config/src"
+        "./packages/server-config/src"
       ],
       "@brainstrike/test-utils": [
-        "packages/test-utils/src"
+        "./packages/test-utils/src"
       ],
       "@brainstrike/token-cache": [
-        "packages/token-cache/src"
+        "./packages/token-cache/src"
       ],
       "@brainstrike/embedding-worker": [
-        "packages/embedding-worker/src"
+        "./packages/embedding-worker/src"
       ],
       "@web/*": [
-        "apps/web/src/*"
+        "./apps/web/src/*"
       ],
       "@desktop/*": [
-        "apps/desktop/src/*"
+        "./apps/desktop/src/*"
       ]
     },
     "types": [

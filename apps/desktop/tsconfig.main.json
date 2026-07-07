@@ -22,7 +22,6 @@
       "node",
       "electron"
     ],
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/utils": [
         "../../packages/utils/dist/index.d.ts"

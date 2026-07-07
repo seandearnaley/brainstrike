@@ -9,13 +9,13 @@
     "declarationDir": "dist",
     "paths": {
       "@brainstrike/assistant-contract": [
-        "../assistant-contract/src/index.ts"
+        "../assistant-contract/dist/index.d.ts"
       ],
       "@brainstrike/assistant-contract/*": [
-        "../assistant-contract/src/*"
+        "../assistant-contract/dist/*.d.ts"
       ],
       "@brainstrike/utils/*": [
-        "../utils/src/*"
+        "../utils/dist/*.d.ts"
       ]
     },
     "types": [

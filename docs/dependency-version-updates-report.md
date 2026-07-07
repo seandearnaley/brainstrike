@@ -71,8 +71,8 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 
 | Metric | Count |
 | --- | ---: |
-| Distinct direct dependencies checked (`pnpm outdated -r`) | 33 |
-| Outdated (current ≠ latest) or deprecated | 33 |
+| Distinct direct dependencies checked (`pnpm outdated -r`) | 32 |
+| Outdated (current ≠ latest) or deprecated | 32 |
 | Up to date (current === latest, not deprecated) | 0 |
 
 ## Outdated or deprecated packages
@@ -108,7 +108,6 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | `react-shiki` | 0.9.3 | 0.9.3 | 0.10.1 | minor | devDependencies | no | @brainstrike/desktop, @brainstrike/web |
 | `strip-ansi` | 6.0.1 | 6.0.1 | 7.2.0 | major | dependencies | no | @brainstrike/desktop |
 | `syncpack` | 14.3.1 | 14.3.1 | 15.3.2 | major | devDependencies | no | brainstrike |
-| `typescript` | 5.9.3 | 5.9.3 | 6.0.3 | major | devDependencies | no | @brainstrike/agent, @brainstrike/assistant-contract, @brainstrike/build-utils, @brainstrike/chunking-worker, @brainstrike/commands, @brainstrike/config, @brainstrike/context-actions, @brainstrike/db, @brainstrike/desktop, @brainstrike/embedding-worker, @brainstrike/embeddings, @brainstrike/file-explorer, @brainstrike/file-explorer-hooks, @brainstrike/file-import, @brainstrike/file-system, @brainstrike/file-tree-worker, @brainstrike/hooks, @brainstrike/indexing-contract, @brainstrike/pipeline, @brainstrike/platform-utils, @brainstrike/queue, @brainstrike/queue-telemetry-collector, @brainstrike/selection-rules, @brainstrike/storage, @brainstrike/test-utils, @brainstrike/text-splitter, @brainstrike/token-cache, @brainstrike/types, @brainstrike/ui, @brainstrike/utils, @brainstrike/web, @brainstrike/worker-runtime, @brainstrike/workers, brainstrike |
 | `ultracite` | 7.6.0 | 7.6.0 | 7.9.0 | minor | devDependencies | no | brainstrike |
 | `vercel` | 50.44.0 | 50.44.0 | 54.20.1 | major | devDependencies | no | brainstrike |
 | `web-tree-sitter` | 0.25.10 | 0.25.10 | 0.26.10 | minor | dependencies | no | @brainstrike/chunking-worker |

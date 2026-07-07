@@ -21,7 +21,6 @@
       "electron",
       "vite/client"
     ],
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/agent": [
         "../../packages/agent/dist/index.d.ts"

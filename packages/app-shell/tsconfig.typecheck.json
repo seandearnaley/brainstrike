@@ -1,130 +1,129 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@brainstrike/db-explorer/database-demo-panel": [
-        "../db-explorer/src/database-demo-panel.tsx"
+        "../db-explorer/dist/database-demo-panel.d.ts"
       ],
       "@brainstrike/assistant-contract": [
-        "../assistant-contract/src/index.ts"
+        "../assistant-contract/dist/index.d.ts"
       ],
       "@brainstrike/assistant-contract/*": [
-        "../assistant-contract/src/*"
+        "../assistant-contract/dist/*.d.ts"
       ],
       "@brainstrike/types": [
-        "../types/src/index.ts"
+        "../types/dist/index.d.ts"
       ],
       "@brainstrike/types/*": [
-        "../types/src/*"
+        "../types/dist/*.d.ts"
       ],
       "@brainstrike/text-splitter": [
-        "../text-splitter/src/index.ts"
+        "../text-splitter/dist/index.d.ts"
       ],
       "@brainstrike/text-splitter/*": [
-        "../text-splitter/src/*"
+        "../text-splitter/dist/*.d.ts"
       ],
       "@brainstrike/db": [
-        "../db/src/index.ts"
+        "../db/dist/index.d.ts"
       ],
       "@brainstrike/db/*": [
-        "../db/src/*"
+        "../db/dist/*.d.ts"
       ],
       "@brainstrike/agent": [
-        "../agent/src/index.ts"
+        "../agent/dist/index.d.ts"
       ],
       "@brainstrike/agent/*": [
-        "../agent/src/*"
+        "../agent/dist/*.d.ts"
       ],
       "@brainstrike/embeddings": [
-        "../embeddings/src/index.ts"
+        "../embeddings/dist/index.d.ts"
       ],
       "@brainstrike/embeddings/*": [
-        "../embeddings/src/*"
+        "../embeddings/dist/*.d.ts"
       ],
       "@brainstrike/file-system": [
-        "../file-system/src/index.ts"
+        "../file-system/dist/index.d.ts"
       ],
       "@brainstrike/file-system/*": [
-        "../file-system/src/*"
+        "../file-system/dist/*.d.ts"
       ],
       "@brainstrike/file-tree-worker": [
-        "../file-tree-worker/src/index.ts"
+        "../file-tree-worker/dist/index.d.ts"
       ],
       "@brainstrike/file-tree-worker/*": [
-        "../file-tree-worker/src/*"
+        "../file-tree-worker/dist/*.d.ts"
       ],
       "@brainstrike/hooks": [
-        "../hooks/src/index.ts"
+        "../hooks/dist/index.d.ts"
       ],
       "@brainstrike/hooks/*": [
-        "../hooks/src/*"
+        "../hooks/dist/*.d.ts"
       ],
       "@brainstrike/platform-utils": [
-        "../platform-utils/src/index.ts"
+        "../platform-utils/dist/index.d.ts"
       ],
       "@brainstrike/platform-utils/*": [
-        "../platform-utils/src/*"
+        "../platform-utils/dist/*.d.ts"
       ],
       "@brainstrike/preferences/*": [
-        "../preferences/src/*"
+        "../preferences/dist/*.d.ts"
       ],
       "@brainstrike/utils": [
-        "../utils/src/index.ts"
+        "../utils/dist/index.d.ts"
       ],
       "@brainstrike/utils/crypto": [
-        "../utils/src/crypto.ts"
+        "../utils/dist/crypto.d.ts"
       ],
       "@brainstrike/utils/*": [
-        "../utils/src/*"
+        "../utils/dist/*.d.ts"
       ],
       "@brainstrike/file-explorer-hooks": [
-        "../file-explorer-hooks/src/index.ts"
+        "../file-explorer-hooks/dist/index.d.ts"
       ],
       "@brainstrike/file-explorer-ui": [
-        "../file-explorer-ui/src/index.ts"
+        "../file-explorer-ui/dist/index.d.ts"
       ],
       "@brainstrike/file-explorer-ui/*": [
-        "../file-explorer-ui/src/*"
+        "../file-explorer-ui/dist/*.d.ts"
       ],
       "@brainstrike/indexing-contract": [
-        "../indexing-contract/src/index.ts"
+        "../indexing-contract/dist/index.d.ts"
       ],
       "@brainstrike/indexing-contract/*": [
-        "../indexing-contract/src/*"
+        "../indexing-contract/dist/*.d.ts"
       ],
       "@brainstrike/ui": [
-        "../ui/src/index.ts"
+        "../ui/dist/index.d.ts"
       ],
       "@brainstrike/ui/*": [
-        "../ui/src/*"
+        "../ui/dist/*.d.ts"
       ],
       "@brainstrike/storage": [
-        "../storage/src/index.ts"
+        "../storage/dist/index.d.ts"
       ],
       "@brainstrike/token-cache": [
-        "../token-cache/src/index.ts"
+        "../token-cache/dist/index.d.ts"
       ],
       "@brainstrike/token-cache/*": [
-        "../token-cache/src/*"
+        "../token-cache/dist/*.d.ts"
       ],
       "@brainstrike/file-import": [
-        "../file-import/src/index.ts"
+        "../file-import/dist/index.d.ts"
       ],
       "@brainstrike/file-import/chunking-worker-context": [
-        "../file-import/src/chunking-worker-context.tsx"
+        "../file-import/dist/chunking-worker-context.d.ts"
       ],
       "@brainstrike/queue": [
-        "../queue/src/index.ts"
+        "../queue/dist/index.d.ts"
       ],
       "@brainstrike/queue/*": [
-        "../queue/src/*"
+        "../queue/dist/*.d.ts"
       ],
       "@brainstrike/selection-rules": [
-        "../selection-rules/src/index.ts"
+        "../selection-rules/dist/index.d.ts"
       ],
       "@brainstrike/selection-rules/*": [
-        "../selection-rules/src/*"
+        "../selection-rules/dist/*.d.ts"
       ],
       "@brainstrike/workers": [
         "../workers"
