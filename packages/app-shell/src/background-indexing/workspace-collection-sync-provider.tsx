@@ -1996,6 +1996,7 @@ export function WorkspaceCollectionSyncProvider({
     let disposed = false;
     let activeAuditToken: symbol | null = null;
     let inFlightAuditKey: string | null = null;
+    let recoveryAttemptedAuditKey: string | null = null;
     let verifiedAuditKey: string | null = null;
 
     const maybeAuditIdleCoverage = (
@@ -2057,6 +2058,9 @@ export function WorkspaceCollectionSyncProvider({
         markAuditVerified: (verifiedKey) => {
           if (!disposed) {
             verifiedAuditKey = verifiedKey;
+            if (recoveryAttemptedAuditKey === verifiedKey) {
+              recoveryAttemptedAuditKey = null;
+            }
           }
         },
         policyPreset: indexingPolicyPreset,
@@ -2065,6 +2069,10 @@ export function WorkspaceCollectionSyncProvider({
         setStatus: setSyncStatus,
       }).then((requiresRecoverySync) => {
         if (!disposed && requiresRecoverySync) {
+          if (recoveryAttemptedAuditKey === auditKey) {
+            return;
+          }
+          recoveryAttemptedAuditKey = auditKey;
           triggerSyncFromEvent({ mode: 'full' });
         }
       });
