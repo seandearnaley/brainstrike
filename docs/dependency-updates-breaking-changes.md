@@ -372,6 +372,36 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 - Mastra: [mastra releases](https://github.com/mastra-ai/mastra/releases).
 - Transformers.js: [huggingface/transformers.js releases](https://github.com/huggingface/transformers.js/releases).
 
+### `@ai-sdk/{anthropic,openai,google,provider}` 3.x → 4.x — completed
+
+**Status:** Upgraded `packages/agent`'s `@ai-sdk/anthropic`/`@ai-sdk/google`/`@ai-sdk/openai` to `^4.0.8` and `@ai-sdk/provider` to `4.0.2`, in lockstep with `@mastra/core` `^1.37.1` → `^1.49.0` (needed `>=1.47.0` for `LanguageModelV4` support — see Mastra PR #18477), `@mastra/mcp` `^1.8.1` → `^1.13.0`, and `@mastra/memory` `1.20.0` → `1.22.1` (peer-range compatibility).
+
+**What we touched**
+
+- `packages/agent/package.json` (the only package.json in the workspace declaring these deps).
+- `packages/agent/src/providers/provider-factory.ts`: `createEmbeddingProvider`'s `openai`/`google` branches now cast `openaiProvider.embeddingModel(model)` / `googleProvider.embeddingModel(model)` with `as unknown as MastraEmbeddingModel<string>`.
+
+**Upstream breaking changes in the 3.x → 4.x major (from `@ai-sdk/provider`'s CHANGELOG.md), and how each was addressed**
+
+- **CommonJS exports removed; all `@ai-sdk/*@4.x` packages are ESM-only (`"type": "module"`, no `require` export condition).** Does not break `packages/agent`'s own dual ESM+CJS build (see the CJS `require()` interop note below), but is the root cause of that note — this is a silent-until-runtime change class, not something a type-check or `vi.mock`-based test would catch.
+- **Minimum supported Node.js raised to 22** (was unstated/lower before). Already satisfied: `packages/agent/package.json` and the repo's Electron target both declare `engines.node: ">=22"`.
+- **Reasoning/file/tool-result-output part restructuring** (tagged file parts, new `reasoning-file` type, `image-*` tool outputs rolled into `file-*`). Verified not applicable: grepped `packages/agent/src` for `image` part / file part construction — none found; this repo doesn't construct multimodal file parts through these APIs today.
+
+**Known upstream gap (not a blocker, needs a documented cast)**
+
+- `@mastra/core` (`1.49.0`, current latest) has **no `EmbeddingModelV4` support** in its `MastraEmbeddingModel<T>` union (`vector/vector.d.ts` still caps at `EmbeddingModelV2 | EmbeddingModelV3`) — Mastra's PR #18477 that added `LanguageModelV4` support touched zero embedding-related files. `EmbeddingModelV3` and `EmbeddingModelV4` are structurally identical (same shape, differing only by the `specificationVersion: 'v3' | 'v4'` literal), so the cast at the two `provider-factory.ts` call sites above is safe pending an upstream Mastra fix. Track this and revisit the cast when `@mastra/core` adds `EmbeddingModelV4` to its embedding union — `apps/desktop/src/assistant-server.ts`'s `createLocalSemanticRecallEmbedder` already carries an equivalent pre-existing cast comment for the same reason (`EmbeddingModelV2` there), so both sites should be revisited together.
+- `RuntimeProviderOptions` in `packages/agent/src/types.ts` (`SharedV2ProviderOptions | SharedV3ProviderOptions`) has no `SharedV4ProviderOptions` variant. This compiles clean today (no code path constructs V4-only provider option shapes yet) but is a forward-compatibility gap worth closing if a V4-only provider option shape is needed later.
+
+**Not affected**
+
+- `registry.ts` and `key-resolver.ts` have zero `@ai-sdk` imports.
+- The four hand-implemented local/host-proxy model files (`local-language-model.ts`, `llm-host-chat-model.ts`, `local-message-conversion.ts`, `local-host-embedding-model.ts`) stay on `LanguageModelV2`/`EmbeddingModelV2`, still exported by `@ai-sdk/provider@4.x`.
+- `packages/agent`'s dual ESM+CJS `tsup` build (`format:['esm','cjs']`, consumed by Electron main's CJS `require('@brainstrike/agent')`) still builds clean with the ESM-only `@ai-sdk/*@4.x` packages. **Correction:** these packages are NOT inlined into the CJS bundle — `@ai-sdk/anthropic`/`@ai-sdk/google`/`@ai-sdk/openai` are regular (non-external, non-bundled) `dependencies`, so `dist/index.js` (CJS) still emits `require("@ai-sdk/anthropic")` etc. at runtime (verified: `grep -c 'require("@ai-sdk' dist/index.js` → 3). What actually makes this work is Node's `require(esm)` interop (stable since Node 22.12), which both this package's and `@ai-sdk/provider`'s `engines.node: ">=22"` already assume, and which Electron 41 (bundled Node ~22.16) satisfies. Verified end-to-end from `apps/desktop`: `node -e "require('@brainstrike/agent').createProvider('anthropic', {apiKey:'x'})"` returns a real `LanguageModelV2`-shaped object (`specificationVersion`, `modelId`, etc.) through the actual CJS `require()` path exercised by `apps/desktop/src/ipc-agent.ts`'s `resolveAgentModule()`. Flagging because **no test in the repo exercises this path** — every `ipc-agent.test.ts` case injects `globalThis.__agentModule` directly, bypassing `require()` entirely, and the "LIVE loop" Mastra proof specs (`mastra-tool-execution.spec.ts` etc.) mock `provider-factory.ts`'s `createProvider`, so they never call the real `createAnthropic`/`createOpenAI`/`createGoogleGenerativeAI` either. This was manually verified for this PR but is not covered by CI — worth a follow-up test that requires the built CJS `dist/index.js` directly instead of injecting `__agentModule`.
+
+**Pointers**
+
+- Mastra PR adding `LanguageModelV4`/AI SDK v7 support: [mastra-ai/mastra#18477](https://github.com/mastra-ai/mastra/pull/18477).
+
 ---
 
 ## Deferred or pinned dependencies
