@@ -99,6 +99,9 @@
 **Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` synthesizes file nodes for watcher-scoped workspace sync. The previous `path.split('/').filter(Boolean)` name/depth helpers measured 1137.62ms over 100k changed paths x 50 rounds on Node 24, while direct slash scanning measured 386.20ms with identical checksums.
 **Action:** Keep watcher path name/depth extraction on direct `charCodeAt`/`lastIndexOf` scans; do not reintroduce split/filter arrays in this changed-path hot path.
 
+## 2026-07-01 - Workspace sync directory resolution avoids split/filter arrays
+**Learning:** `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` still used `relativePath.split('/').filter(Boolean)` when resolving changed directory handles. This watcher-scoped path can run once per nested changed directory. A segment scanner preserving empty-segment skipping measured 428.44ms -> 327.28ms over 100k representative nested paths x 30 rounds on Node 24.16.0 with identical checksums.
+**Action:** Keep changed-directory handle resolution on `iterRelativePathSegments()` rather than materializing segment arrays.
 ## 2026-07-03 - Live grep .git candidate filtering avoids split arrays
 **Learning:** `apps/desktop/src/assistant-server/live-grep.ts` checks every live grep candidate path for an exact `.git` segment before realpath/stat work. The old `relativePath.split('/').some(...)` path allocated a segment array per candidate and measured 627.25ms over 100k representative candidate paths x 60 rounds on Node 24.16.0; a direct segment scanner measured 197.94ms with the same `.git` checksum while preserving `.github` and `.gitignore` as non-matches.
 **Action:** Keep live grep `.git` segment exclusion on direct slash scanning; do not reintroduce split/some in the candidate resolve loop.
