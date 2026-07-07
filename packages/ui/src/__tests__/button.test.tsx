@@ -12,6 +12,7 @@ describe('Button', () => {
   it('renders as child element', () => {
     render(
       <Button asChild>
+        {/* biome-ignore lint/a11y/noAmbiguousAnchorText: test fixture asserting asChild composition, not real content */}
         <a href="/link">Link</a>
       </Button>
     );

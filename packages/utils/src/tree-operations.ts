@@ -139,7 +139,7 @@ export function isLoading<T extends TreeNode>(node: T): boolean {
  * @returns true if the node can be loaded
  */
 export function canLoadNode<T extends TreeNode>(node: T | null | undefined): node is T {
-  if (!node || node.type !== 'directory') {
+  if (node?.type !== 'directory') {
     return false;
   }
   return node.loadState !== 'loaded' && node.loadState !== 'loading';

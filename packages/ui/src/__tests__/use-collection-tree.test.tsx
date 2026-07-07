@@ -63,7 +63,7 @@ describe('useCollectionTree', () => {
     expect(ids).toEqual(['file-f1', 'chunk-c1', 'chunk-c2', 'embedding-c2']);
 
     const fileNode = result.current.nodes[0];
-    if (!fileNode || fileNode.type !== 'file') {
+    if (fileNode?.type !== 'file') {
       throw new Error('expected file node');
     }
     const fileData = fileNode.data as unknown as FileData;
@@ -71,21 +71,21 @@ describe('useCollectionTree', () => {
     expect(fileData.embeddingProgress).toBe(50);
 
     const chunk1 = result.current.nodes[1];
-    if (!chunk1 || chunk1.type !== 'chunk') {
+    if (chunk1?.type !== 'chunk') {
       throw new Error('expected chunk node');
     }
     const chunk1Data = chunk1.data as unknown as ChunkData;
     expect(chunk1Data.embeddingStatus).toBe('processing');
 
     const chunk2 = result.current.nodes[2];
-    if (!chunk2 || chunk2.type !== 'chunk') {
+    if (chunk2?.type !== 'chunk') {
       throw new Error('expected chunk node');
     }
     const chunk2Data = chunk2.data as unknown as ChunkData;
     expect(chunk2Data.embeddingStatus).toBe('complete');
 
     const embedding = result.current.nodes[3];
-    if (!embedding || embedding.type !== 'embedding') {
+    if (embedding?.type !== 'embedding') {
       throw new Error('expected embedding node');
     }
     const embeddingData = embedding.data as unknown as EmbeddingData;

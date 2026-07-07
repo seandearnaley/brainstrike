@@ -30,7 +30,7 @@ function navigateToPath(
 
   for (const part of pathParts) {
     const entry = currentLevel[part];
-    if (!entry || entry.type !== 'directory' || !entry.children) {
+    if (entry?.type !== 'directory' || !entry.children) {
       return null;
     }
     currentLevel = entry.children;
@@ -212,7 +212,7 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(handle: FileHandle): Promise<string> {
     const mockData = handle._internal as MockFileEntry;
-    if (!mockData || mockData.type !== 'file') {
+    if (mockData?.type !== 'file') {
       throw new Error(`File not found: ${handle.path}`);
     }
     return mockData.content ?? '';

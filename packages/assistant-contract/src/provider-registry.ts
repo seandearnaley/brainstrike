@@ -674,7 +674,7 @@ export function getLlmModelDefinition(providerId: ProviderId, modelId: string): 
   const model = provider.models.find(
     (definition) => definition.type === 'llm' && definition.id === modelId
   );
-  if (!model || model.type !== 'llm') {
+  if (model?.type !== 'llm') {
     throw new Error(`Unknown LLM model id for provider ${providerId}: ${modelId}`);
   }
   return model;
