@@ -739,10 +739,16 @@ class DefaultDbHostManager implements DbHostManager {
 
   #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
     if (this.#abandoned.size >= MAX_ABANDONED_REQUESTS) {
-      const oldestId = this.#abandoned.keys().next().value;
-      if (oldestId !== undefined) {
-        this.#abandoned.delete(oldestId);
-      }
+      // Keep the OLDEST entries: the host runs one statement at a time, so in
+      // a timeout burst the oldest abandoned request is the statement that is
+      // actually wedging the host — evicting it would silently drop exactly
+      // the late-completion log this map exists to produce. The newer entries
+      // are queued-behind victims whose late responses add little.
+      logger.debug(
+        { droppedRequestKind: request.requestKind, requestId: id },
+        'Abandoned-request map full; not tracking further timed-out request'
+      );
+      return;
     }
     this.#abandoned.set(id, request);
   }

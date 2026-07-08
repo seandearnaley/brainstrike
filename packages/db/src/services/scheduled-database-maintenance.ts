@@ -183,6 +183,9 @@ export async function runScheduledDatabaseMaintenance(
   const startedAtMs = startedAtDate.getTime();
   const retentionMs = resolveTerminalJobRetentionMs(options);
   const vacuumTableNames = resolveVacuumTables(options);
+  // Validated on every pass (not just active ones) so a malformed option
+  // throws immediately instead of lying dormant until the queue gets busy.
+  const activePruneLimit = resolveActivePruneLimit(options);
   const activeJobs = await readActiveJobCount(db);
   const startedAt = startedAtDate.toISOString();
 
@@ -192,7 +195,6 @@ export async function runScheduledDatabaseMaintenance(
     // then scanned, so active passes still prune succeeded/canceled rows in a
     // bounded batch (one short statement on the single-statement engine) and
     // only defer the heavyweight VACUUM until the queue is idle.
-    const activePruneLimit = resolveActivePruneLimit(options);
     const activeOlderThanIso = new Date(startedAtMs - retentionMs).toISOString();
     const prunedTerminalJobs = await pruneFinishedJobsBounded(
       db,

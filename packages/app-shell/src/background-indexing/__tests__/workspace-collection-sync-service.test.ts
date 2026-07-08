@@ -890,6 +890,41 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(serializedBatch).not.toContain('file-root-a');
   });
 
+  it('splits large invalidation target sets into bounded requests so one request cannot monopolize the serial DB host', async () => {
+    // The desktop DB host executes one IPC request at a time; a single
+    // invalidate request covering thousands of targets would block every
+    // other DB request (search, status, live queries) for its full duration
+    // no matter how the DB layer batches transactions internally.
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+    const changes = Array.from({ length: 2500 }, (_, index) => ({
+      kind: 'file' as const,
+      path: `${ROOT_PATH}/src/gone/${index}.ts`,
+      type: 'removed' as const,
+    }));
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: { changes, mode: 'paths' },
+    });
+
+    const calls = vi.mocked(deps.invalidateManagedCacheEntriesByIdentity).mock.calls;
+    expect(calls.length).toBe(3);
+    for (const [callArgs] of calls) {
+      expect(callArgs.targets.length).toBeLessThanOrEqual(1000);
+      expect(callArgs.embeddingSetId).toBe('set-1');
+    }
+    const allPaths = calls.flatMap(([callArgs]) =>
+      callArgs.targets.map((target) =>
+        'relativePath' in target ? target.relativePath : target.relativePathPrefix
+      )
+    );
+    expect(new Set(allPaths).size).toBe(2500);
+  });
+
   it('invalidates a watcher-removed file by exact root identity without import or chunking', async () => {
     const deps = createDeps();
     const service = new WorkspaceCollectionSyncService(deps);

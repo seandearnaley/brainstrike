@@ -635,8 +635,7 @@ async function listExactPathInvalidationMatches(
           OR fr.id::text = t.expected_file_record_id
         )
       LEFT JOIN file_chunks fc
-        ON fc.file_record_id::text = fr.id::text
-      ORDER BY file_record_id, chunk_id`,
+        ON fc.file_record_id::text = fr.id::text`,
     [embeddingSetId, ...values]
   );
   return result.rows;
@@ -673,8 +672,7 @@ async function listPrefixDescendantInvalidationMatches(
         AND fr.path < t.relative_path || '0'
         AND substr(fr.path, 1, length(t.relative_path) + 1) = t.relative_path || '/'
       LEFT JOIN file_chunks fc
-        ON fc.file_record_id::text = fr.id::text
-      ORDER BY file_record_id, chunk_id`,
+        ON fc.file_record_id::text = fr.id::text`,
     [embeddingSetId, ...values]
   );
   return result.rows;
@@ -714,6 +712,19 @@ async function listInvalidationMatches(
   };
 }
 
+/**
+ * Deletes managed-cache identities (file records + their chunks) and cancels
+ * their pending embedding jobs.
+ *
+ * NOT atomic across target batches: each batch commits in its own
+ * transaction, so a failure part-way through leaves the completed batches
+ * deleted and throws. Callers must treat invalidation as idempotent
+ * delete-only cleanup and retry the full target set on failure — the
+ * workspace sync does exactly this (targets are files already gone from
+ * disk; re-running converges). Do NOT pair a target with a same-call
+ * replacement expecting delete+reimport atomicity — that is
+ * applyManagedCacheBatch's 'replace' mode, which stays transactional.
+ */
 export async function invalidateManagedCacheEntriesByIdentity(
   db: IDatabase,
   args: ApplyManagedCacheInvalidationsArgs

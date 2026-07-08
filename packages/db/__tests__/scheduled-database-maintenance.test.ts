@@ -109,6 +109,17 @@ describe('scheduled database maintenance', () => {
     expect(await countJobs(db)).toBe(2);
   });
 
+  it('rejects a malformed activePruneLimit even when the queue is idle', async () => {
+    // No silent fallbacks: a bad option must throw on every pass, not lie
+    // dormant until the first active-queue pass exercises the branch.
+    await expect(
+      runScheduledDatabaseMaintenance(db, {
+        activePruneLimit: 0,
+        now: () => new Date(NOW_ISO),
+      })
+    ).rejects.toThrow('activePruneLimit must be a positive integer');
+  });
+
   it('prunes old terminal jobs and vacuums job_queue when the queue is idle', async () => {
     const queue = new JobQueue(db);
     await createJobWithState(db, queue, 'succeeded', OLD_ISO);

@@ -147,7 +147,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         prunedTerminalJobs: 5000,
         status: 'partial',
       }),
-      'Scheduled database maintenance completed'
+      'Scheduled database maintenance pruned while queue active (vacuum deferred)'
     );
     expect(logger.debug).not.toHaveBeenCalledWith(
       expect.anything(),

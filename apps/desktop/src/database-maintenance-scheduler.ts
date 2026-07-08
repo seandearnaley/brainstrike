@@ -155,7 +155,8 @@ export function createDesktopDatabaseMaintenanceScheduler(
           );
         } else {
           // 'completed' (idle: full prune + vacuum) and 'partial' (active
-          // queue: bounded prune, vacuum deferred) both did real work.
+          // queue: bounded prune, vacuum deferred) both did real work; the
+          // message says which so 'completed' never claims a deferred vacuum.
           options.logger.info(
             {
               activeJobs: result.activeJobs,
@@ -164,7 +165,9 @@ export function createDesktopDatabaseMaintenanceScheduler(
               status: result.status,
               vacuumedTables: result.vacuumedTables,
             },
-            'Scheduled database maintenance completed'
+            result.status === 'partial'
+              ? 'Scheduled database maintenance pruned while queue active (vacuum deferred)'
+              : 'Scheduled database maintenance completed'
           );
         }
         return result;

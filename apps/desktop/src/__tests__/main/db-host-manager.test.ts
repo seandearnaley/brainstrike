@@ -558,6 +558,50 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('keeps the oldest abandoned request under an eviction burst so the head-of-line culprit still gets its late-completion log', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      // One wedged statement makes every request queued behind it time out
+      // too — far more than the abandoned-map capacity. The FIRST request is
+      // the one actually executing; its entry must survive the burst.
+      const promises = Array.from({ length: 70 }, (_, index) =>
+        database.query(`SELECT ${index}`, [])
+      );
+      for (const promise of promises) {
+        promise.catch(() => undefined);
+      }
+      const firstMessage = latestProcess().messages.at(-70) as PostedMessage;
+      await vi.advanceTimersByTimeAsync(5);
+      loggerWarnMock.mockClear();
+
+      await vi.advanceTimersByTimeAsync(20);
+      latestProcess().reply(firstMessage, { rows: [] });
+      await flushMicrotasks();
+
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          elapsedMs: 25,
+          ok: true,
+          requestKind: 'query',
+        }),
+        'DB host request completed after timeout'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the maintenance timeout for explicit maintenance exec requests', async () => {
     vi.useFakeTimers();
     try {

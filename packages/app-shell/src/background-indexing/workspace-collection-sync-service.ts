@@ -72,6 +72,12 @@ type WorkspaceIndexingQosPhase = keyof typeof QOS_RETRY_LABELS;
 // `foreground-query` activity is NOT bypassed — it keeps yielding fully.
 const FOREGROUND_DB_PRESSURE_STARVATION_MS = 5000;
 
+// Upper bound on targets per managed-cache invalidation REQUEST. The desktop
+// DB host serializes whole IPC requests, so this — not the DB layer's
+// internal transaction batching — is what keeps a huge invalidation (e.g. a
+// deleted worktree) from monopolizing the host and starving other queries.
+const INVALIDATION_TARGETS_PER_REQUEST = 1000;
+
 interface RootDirectoryHandle {
   _internal?: unknown;
   kind: 'directory';
@@ -868,11 +874,24 @@ export class WorkspaceCollectionSyncService {
     const { invalidationTargets, prepared } = syncChanges;
     this.setScanSummary(args.context, prepared);
     if (invalidationTargets.length > 0) {
-      await this.deps.invalidateManagedCacheEntriesByIdentity({
-        embeddingSetId: args.context.collection.id,
-        targets: invalidationTargets,
-      });
-      throwIfAborted(args.abortSignal);
+      // The desktop DB host executes ONE IPC request at a time, so a single
+      // invalidate request covering every target would monopolize the host
+      // for its full duration (and can outlive the request timeout) no matter
+      // how the DB layer batches transactions internally. Bounded requests
+      // let search/status/live-query traffic interleave between chunks;
+      // invalidation is idempotent, so a failure between chunks leaves the
+      // committed chunks valid and the next sync pass retries the rest.
+      for (
+        let offset = 0;
+        offset < invalidationTargets.length;
+        offset += INVALIDATION_TARGETS_PER_REQUEST
+      ) {
+        await this.deps.invalidateManagedCacheEntriesByIdentity({
+          embeddingSetId: args.context.collection.id,
+          targets: invalidationTargets.slice(offset, offset + INVALIDATION_TARGETS_PER_REQUEST),
+        });
+        throwIfAborted(args.abortSignal);
+      }
     }
     await this.persistStatRefreshes(prepared.statRefreshes);
 
