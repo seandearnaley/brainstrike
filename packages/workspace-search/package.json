@@ -1,0 +1,38 @@
+{
+  "name": "@brainstrike/workspace-search",
+  "description": "Workspace search result model and session-lived search store",
+  "version": "0.1.0",
+  "dependencies": {
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.2.17",
+    "happy-dom": "^20.10.6",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "peerDependencies": {
+    "react": "^19.2.4"
+  },
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}
