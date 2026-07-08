@@ -81,6 +81,8 @@ export interface HybridSearchOptions {
   minSourceCount?: number;
 
   // === RRF Options ===
+  /** Optional multi-root workspace scope (file_records.root_id ∈ rootIds). Empty array matches nothing. */
+  rootIds?: readonly string[];
   /** RRF k constant (default: 60) */
   rrfK?: number;
   /** Optional snapshot ID for selection filtering */
@@ -209,6 +211,7 @@ export class HybridSearchService {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       // RRF options
       rrfK = 60,
@@ -239,6 +242,9 @@ export class HybridSearchService {
     if (selectionSnapshotId !== undefined) {
       vectorSearchOptions.selectionSnapshotId = selectionSnapshotId;
     }
+    if (rootIds !== undefined) {
+      vectorSearchOptions.rootIds = rootIds;
+    }
 
     const ftsSearchOptions: FTSSearchOptions = {
       includeEmbedding,
@@ -259,6 +265,9 @@ export class HybridSearchService {
     }
     if (selectionSnapshotId !== undefined) {
       ftsSearchOptions.selectionSnapshotId = selectionSnapshotId;
+    }
+    if (rootIds !== undefined) {
+      ftsSearchOptions.rootIds = rootIds;
     }
 
     // Run both searches in parallel

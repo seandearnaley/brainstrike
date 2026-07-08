@@ -425,6 +425,7 @@ export class ElectronFileChunkRepository {
       embeddingSetId,
       efSearch,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -472,6 +473,13 @@ export class ElectronFileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
+      paramIndex += 1;
+    }
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
@@ -581,6 +589,7 @@ export class ElectronFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
@@ -630,6 +639,13 @@ export class ElectronFileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
+      paramIndex += 1;
+    }
 
     // Execute search query with ts_rank for relevance scoring
     const result = await this.db.query(

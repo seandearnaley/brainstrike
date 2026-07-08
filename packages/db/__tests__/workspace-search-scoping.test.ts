@@ -9,10 +9,11 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { vector } from '@electric-sql/pglite-pgvector';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { createGrepSearchService } from '../src/search/grep-search-service.js';
+import { createHybridSearchService } from '../src/search/hybrid-search-service.js';
 
 // Seed constants
 const ROOT_A = '00000000-0000-0000-0000-00000000000a';
@@ -53,10 +54,10 @@ beforeAll(async () => {
   `);
 
   await db.query(`
-    INSERT INTO file_chunks (id, file_record_id, chunk_index, content, start_line, end_line, embedding_set_id) VALUES
-      ('${CHUNK_A}', '${FILE_A}', 0, 'const needleToken = 1;', 10, 14, '${SET_ID}'),
-      ('${CHUNK_B}', '${FILE_B}', 0, 'const needleToken = 2;', 10, 14, '${SET_ID}'),
-      ('${CHUNK_LEGACY}', '${FILE_LEGACY}', 0, 'const needleToken = 3;', 10, 14, '${SET_ID}')
+    INSERT INTO file_chunks (id, file_record_id, chunk_index, content, start_line, end_line, embedding_set_id, embedding) VALUES
+      ('${CHUNK_A}', '${FILE_A}', 0, 'const needleToken = 1;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]'),
+      ('${CHUNK_B}', '${FILE_B}', 0, 'const needleToken = 2;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]'),
+      ('${CHUNK_LEGACY}', '${FILE_LEGACY}', 0, 'const needleToken = 3;', 10, 14, '${SET_ID}', '[0.1,0.2,0.3,0.4]')
   `);
 });
 
@@ -101,5 +102,53 @@ describe('grep rootIds scoping', () => {
     expect(match?.chunkId).toBeTruthy();
     expect(match?.chunkStartLine).toBe(10);
     expect(match?.chunkEndLine).toBe(14);
+  });
+});
+
+describe('fullTextSearch rootIds scoping', () => {
+  it('only returns chunks whose file is in the given roots', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.fullTextSearch('needleToken', {
+      limit: 10,
+      rootIds: [ROOT_B],
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.chunk.fileRecordId).toBe(FILE_B);
+  });
+
+  it('an empty rootIds allowlist matches nothing', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.fullTextSearch('needleToken', {
+      limit: 10,
+      rootIds: [],
+    });
+    expect(results).toHaveLength(0);
+  });
+});
+
+describe('searchSimilar rootIds scoping', () => {
+  it('excludes chunks outside the given roots (incl. NULL-root legacy)', async () => {
+    const repo = new FileChunkRepository(db);
+    const results = await repo.searchSimilar([0.1, 0.2, 0.3, 0.4], {
+      embeddingSetId: SET_ID,
+      limit: 10,
+      rootIds: [ROOT_A],
+      threshold: 0,
+    });
+    expect(results.map((r) => r.chunk.fileRecordId)).toEqual([FILE_A]);
+  });
+});
+
+describe('HybridSearchService rootIds threading', () => {
+  it('passes rootIds to both arms', async () => {
+    const searchSimilar = vi.fn().mockResolvedValue([]);
+    const fullTextSearch = vi.fn().mockResolvedValue([]);
+    const service = createHybridSearchService({ fullTextSearch, searchSimilar });
+    await service.search('q', [0.1, 0.2, 0.3, 0.4], {
+      embeddingSetId: SET_ID,
+      rootIds: [ROOT_A],
+    });
+    expect(searchSimilar.mock.calls[0]?.[1]?.rootIds).toEqual([ROOT_A]);
+    expect(fullTextSearch.mock.calls[0]?.[1]?.rootIds).toEqual([ROOT_A]);
   });
 });

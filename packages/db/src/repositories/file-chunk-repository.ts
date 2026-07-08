@@ -344,6 +344,7 @@ export class FileChunkRepository {
       efSearch,
       filePaths,
       rootId,
+      rootIds,
       selectionSnapshotId,
       includeEmbedding = false,
     } = options;
@@ -403,6 +404,13 @@ export class FileChunkRepository {
         `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
       );
       params.push(rootId);
+      paramIndex += 1;
+    }
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
       paramIndex += 1;
     }
     whereParts.push(`embedding_set_id = $${paramIndex}`);
@@ -512,6 +520,7 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
       language = 'english',
@@ -561,6 +570,13 @@ export class FileChunkRepository {
       normalizedFilePaths,
       normalizedSnapshotId
     );
+    if (rootIds !== undefined) {
+      whereParts.push(
+        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
+      );
+      params.push(Array.from(rootIds));
+      paramIndex += 1;
+    }
 
     // Execute search query with ts_rank for relevance scoring
     const result = await this.db.query(
