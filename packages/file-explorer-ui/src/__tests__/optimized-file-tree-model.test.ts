@@ -29,14 +29,14 @@ const workspaceSelectionModel: FileExplorerState['selectionModel'] = createEmpty
 function createFileNode(path: string, overrides: Partial<IFileNode> = {}): IFileNode {
   const name = path.split('/').at(-1) ?? path;
   return {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
     name,
     path,
-    type: 'file',
-    isVisible: true,
-    handle: {} as FileSystemFileHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'file',
     ...overrides,
   };
 }
@@ -48,16 +48,16 @@ function createDirectoryNode(
 ): IFileNode {
   const name = path.split('/').at(-1) ?? path;
   return {
+    children,
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    isVisible: true,
+    loadState: 'loaded',
     name,
     path,
-    type: 'directory',
-    isVisible: true,
-    handle: {} as FileSystemDirectoryHandle,
-    depth: 0,
-    selectionState: 'unchecked',
     rootFolderId: 'root',
-    loadState: 'loaded',
-    children,
+    selectionState: 'unchecked',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -221,24 +221,24 @@ describe('optimized file tree model selected descendant resolution', () => {
 
   it('uses ready query manifests and restored materialized paths for query selections', () => {
     const queryDescriptor: NonNullable<FileExplorerState['selectionModel']['queryDescriptor']> = {
-      kind: 'recursive-folder',
-      folderId: 'root',
-      rootPath: '/src',
       coveredDirectoryPaths: ['/src'],
-      includeFilters: [],
-      excludeFilters: [],
-      includedPaths: [],
       excludedPaths: [],
+      excludeFilters: [],
+      folderId: 'root',
+      includedPaths: [],
+      includeFilters: [],
+      kind: 'recursive-folder',
       manifestFingerprint: 'fp-src',
       manifestSnapshotId: 'snap-src',
+      rootPath: '/src',
       totalSelectedCount: 2,
       useRegex: false,
     };
     const selectionModel: FileExplorerState['selectionModel'] = {
       ...createEmptySelectionModel(),
+      materializedPaths: new Set(['/src/restored.ts', '/docs/restored.md']),
       mode: 'query',
       queryDescriptor,
-      materializedPaths: new Set(['/src/restored.ts', '/docs/restored.md']),
     };
 
     expect(
@@ -246,13 +246,13 @@ describe('optimized file tree model selected descendant resolution', () => {
         directoryPath: '/src',
         folderId: 'root',
         querySelectionManifest: {
-          filePaths: ['/src/a.ts', '/docs/readme.md'],
-          pathSet: new Set(['/src/a.ts', '/docs/readme.md']),
           directoryCounts: new Map([['/src', 1]]),
+          errorMessage: null,
+          filePaths: ['/src/a.ts', '/docs/readme.md'],
           fingerprint: 'fp-src',
+          pathSet: new Set(['/src/a.ts', '/docs/readme.md']),
           snapshotId: 'snap-src',
           status: 'ready',
-          errorMessage: null,
         },
         selectedFilePaths: new Set<string>(),
         selectionModel,

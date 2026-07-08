@@ -3,8 +3,8 @@ import { DrizzleFileRecordRepository } from '../../../src/repositories/drizzle/f
 
 // Mock dependencies
 const mockDb = {
-  select: vi.fn(),
   from: vi.fn(),
+  select: vi.fn(),
   where: vi.fn(),
 };
 
@@ -30,30 +30,30 @@ describe('DrizzleFileRecordRepository', () => {
       const ids = ['id1', 'id1', 'id2'];
       mockDb.where.mockResolvedValue([
         {
+          content: null,
+          contentHash: null,
+          createdAt: new Date(),
+          embeddingSetId: null,
           id: 'id1',
           name: 'File 1',
           path: '/path/1',
-          size: 100,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          embeddingSetId: null,
-          content: null,
-          contentHash: null,
-          tokenCount: null,
           processedAt: null,
+          size: 100,
+          tokenCount: null,
+          updatedAt: new Date(),
         },
         {
+          content: null,
+          contentHash: null,
+          createdAt: new Date(),
+          embeddingSetId: null,
           id: 'id2',
           name: 'File 2',
           path: '/path/2',
-          size: 200,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          embeddingSetId: null,
-          content: null,
-          contentHash: null,
-          tokenCount: null,
           processedAt: null,
+          size: 200,
+          tokenCount: null,
+          updatedAt: new Date(),
         },
       ]);
 
@@ -65,17 +65,17 @@ describe('DrizzleFileRecordRepository', () => {
     it('should handle non-existent IDs gracefully', async () => {
       mockDb.where.mockResolvedValue([
         {
+          content: null,
+          contentHash: null,
+          createdAt: new Date(),
+          embeddingSetId: null,
           id: 'id1',
           name: 'File 1',
           path: '/path/1',
-          size: 100,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          embeddingSetId: null,
-          content: null,
-          contentHash: null,
-          tokenCount: null,
           processedAt: null,
+          size: 100,
+          tokenCount: null,
+          updatedAt: new Date(),
         },
       ]);
 

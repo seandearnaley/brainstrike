@@ -37,7 +37,9 @@ describe('run turbo command helper', () => {
     const directTurboScripts = findPackageJsonFiles(process.cwd()).flatMap((packageJsonPath) => {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
       return Object.entries(packageJson.scripts ?? {})
-        .filter(([, command]) => /\b(?:pnpm\s+)?turbo\s+(?:run\s+)?(?:build|test|type-check|dev|clean)\b/u.test(command))
+        .filter(([, command]) =>
+          /\b(?:pnpm\s+)?turbo\s+(?:run\s+)?(?:build|test|type-check|dev|clean)\b/u.test(command)
+        )
         .map(([name]) => `${packageJsonPath}:${name}`);
     });
 
@@ -49,9 +51,9 @@ describe('run turbo command helper', () => {
 
     const deletions = turboCommand.planTurboCachePrune(
       [
-        { path: '/cache/a.tar.zst', size: 60, mtimeMs: 100 },
-        { path: '/cache/b.tar.zst', size: 40, mtimeMs: 50 },
-        { path: '/cache/c.tar.zst', size: 30, mtimeMs: 75 },
+        { mtimeMs: 100, path: '/cache/a.tar.zst', size: 60 },
+        { mtimeMs: 50, path: '/cache/b.tar.zst', size: 40 },
+        { mtimeMs: 75, path: '/cache/c.tar.zst', size: 30 },
       ],
       80
     );
@@ -77,10 +79,10 @@ describe('run turbo command helper', () => {
     const gone = Object.assign(new Error('entry disappeared'), { code: 'ENOENT' });
     const fakeFileSystem = {
       existsSync: () => true,
-      readdirSync: () => [{ name: 'gone.tar.zst' }],
       lstatSync: () => {
         throw gone;
       },
+      readdirSync: () => [{ name: 'gone.tar.zst' }],
     };
 
     assert.deepEqual(turboCommand.collectCacheFiles('/cache', { fs: fakeFileSystem }), []);

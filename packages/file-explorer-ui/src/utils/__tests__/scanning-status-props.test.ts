@@ -11,13 +11,13 @@ describe('computeScanningStatusProps', () => {
   const mockHandleCancelOperation = vi.fn();
 
   const defaultInput = {
-    loadingProgress: null,
-    isExpandingAll: false,
-    expandAllProgress: null,
-    cancellable: false,
-    isCancelling: false,
     cancelExpandAll: mockCancelExpandAll,
+    cancellable: false,
+    expandAllProgress: null,
     handleCancelOperation: mockHandleCancelOperation,
+    isCancelling: false,
+    isExpandingAll: false,
+    loadingProgress: null,
   };
 
   beforeEach(() => {
@@ -47,9 +47,9 @@ describe('computeScanningStatusProps', () => {
       });
 
       expect(result).toEqual({
-        isScanning: true,
         cancellable: false,
         isCancelling: false,
+        isScanning: true,
         onCancel: mockHandleCancelOperation,
       });
     });
@@ -57,8 +57,8 @@ describe('computeScanningStatusProps', () => {
     it('should use handleCancelOperation as onCancel when initial loading', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        loadingProgress: { isInitialLoading: true },
         cancellable: true,
+        loadingProgress: { isInitialLoading: true },
       });
 
       expect(result?.onCancel).toBe(mockHandleCancelOperation);
@@ -73,28 +73,28 @@ describe('computeScanningStatusProps', () => {
       });
 
       expect(result).toEqual({
-        isScanning: true,
         cancellable: true,
-        isCancelling: false,
-        onCancel: mockCancelExpandAll,
         currentPath: 'Preparing to expand directories...',
+        isCancelling: false,
+        isScanning: true,
+        onCancel: mockCancelExpandAll,
       });
     });
 
     it('should return scanning props with monotonic counts when expandAllProgress is provided', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        isExpandingAll: true,
         expandAllProgress: { loaded: 5, total: 10 },
+        isExpandingAll: true,
       });
 
       expect(result).toEqual({
-        isScanning: true,
         cancellable: true,
-        isCancelling: false,
-        onCancel: mockCancelExpandAll,
         currentPath: 'Loading 5/10 directories',
+        isCancelling: false,
+        isScanning: true,
         loadedCount: 5,
+        onCancel: mockCancelExpandAll,
         totalCount: 10,
       });
     });
@@ -102,8 +102,8 @@ describe('computeScanningStatusProps', () => {
     it('should expose raw loaded/total counts (never a percentage)', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        isExpandingAll: true,
         expandAllProgress: { loaded: 3, total: 4 },
+        isExpandingAll: true,
       });
 
       expect(result?.loadedCount).toBe(3);
@@ -125,8 +125,8 @@ describe('computeScanningStatusProps', () => {
     it('should set cancellable to true when expanding all regardless of input', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        isExpandingAll: true,
         cancellable: false,
+        isExpandingAll: true,
       });
 
       expect(result?.cancellable).toBe(true);
@@ -135,8 +135,8 @@ describe('computeScanningStatusProps', () => {
     it('should not include counts when total is 0', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        isExpandingAll: true,
         expandAllProgress: { loaded: 0, total: 0 },
+        isExpandingAll: true,
       });
 
       expect(result).not.toHaveProperty('loadedCount');
@@ -150,8 +150,8 @@ describe('computeScanningStatusProps', () => {
     it('should pass through isCancelling state', () => {
       const result = computeScanningStatusProps({
         ...defaultInput,
-        loadingProgress: { isInitialLoading: true },
         isCancelling: true,
+        loadingProgress: { isInitialLoading: true },
       });
 
       expect(result?.isCancelling).toBe(true);

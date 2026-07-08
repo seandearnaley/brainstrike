@@ -52,9 +52,9 @@ export async function loadAndFilterChunks(
     const payload = assertEmbedChunkJob(job);
     const chunk = chunkMap.get(payload.chunkId);
     if (chunk) {
-      found.push({ job, chunk, payload });
+      found.push({ chunk, job, payload });
     } else {
-      orphans.push({ job, chunkId: payload.chunkId });
+      orphans.push({ chunkId: payload.chunkId, job });
     }
   }
 
@@ -83,5 +83,5 @@ export async function loadAndFilterChunks(
     }
   }
 
-  return { toProcess, completed, orphanCount: orphans.length };
+  return { completed, orphanCount: orphans.length, toProcess };
 }

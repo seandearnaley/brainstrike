@@ -91,12 +91,12 @@ function useCopyToClipboard({ copiedDuration = 2000 } = {}) {
     // Fallback to web clipboard API
     navigator.clipboard.writeText(text).then(markCopied);
   };
-  return { isCopied, copyToClipboard } as const;
+  return { copyToClipboard, isCopied } as const;
 }
 
 const defaultComponents = memoizeMarkdownComponents({
-  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
-  SyntaxHighlighter: SyntaxHighlighterComponent,
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
   CodeHeader,
+  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
+  SyntaxHighlighter: SyntaxHighlighterComponent,
 });

@@ -28,12 +28,12 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
-          rootId: 'root-a',
-          rootDisplayName: 'project-alpha',
-          provider: 'openai',
-          model: 'gpt-5.2',
           inputTokens: 1000,
+          model: 'gpt-5.2',
           outputTokens: 200,
+          provider: 'openai',
+          rootDisplayName: 'project-alpha',
+          rootId: 'root-a',
         },
       ],
     });
@@ -51,12 +51,12 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
-          rootId: 'root-local',
-          rootDisplayName: 'local-root',
-          provider: 'local',
-          model: 'gemma',
           inputTokens: 500,
+          model: 'gemma',
           outputTokens: 100,
+          provider: 'local',
+          rootDisplayName: 'local-root',
+          rootId: 'root-local',
         },
       ],
     });
@@ -72,12 +72,12 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
-          rootId: null,
-          rootDisplayName: null,
-          provider: 'openai',
-          model: 'gpt-5.2',
           inputTokens: 10,
+          model: 'gpt-5.2',
           outputTokens: 5,
+          provider: 'openai',
+          rootDisplayName: null,
+          rootId: null,
         },
       ],
     });

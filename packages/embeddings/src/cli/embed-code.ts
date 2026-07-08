@@ -152,9 +152,9 @@ export class CodeEmbeddingCLI {
 
   constructor(config: EmbedCodeConfig) {
     this.config = {
+      chunkOverlap: 10, // 10 lines overlap
       maxFileSize: 1024 * 1024, // 1MB default
       maxLines: 100, // 100 lines per chunk
-      chunkOverlap: 10, // 10 lines overlap
       verbose: false,
       ...config,
     };
@@ -196,9 +196,9 @@ export class CodeEmbeddingCLI {
 
     for (const pattern of patterns) {
       const files = await glob(pattern, {
+        absolute: false,
         cwd: this.config.rootDir,
         ignore: excludePatterns,
-        absolute: false,
       });
       allFiles.push(...files);
     }
@@ -250,8 +250,8 @@ export class CodeEmbeddingCLI {
       if (chunkLines.length > 0) {
         chunks.push({
           content: chunkLines.join('\n'),
-          startLine: startLine + 1, // 1-based line numbers
           endLine,
+          startLine: startLine + 1, // 1-based line numbers
         });
       }
 
@@ -276,43 +276,43 @@ export class CodeEmbeddingCLI {
   detectLanguage(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase();
     const languageMap: Record<string, string> = {
-      '.js': 'javascript',
-      '.jsx': 'javascript',
-      '.ts': 'typescript',
-      '.tsx': 'typescript',
-      '.py': 'python',
-      '.java': 'java',
+      '.bash': 'shell',
       '.c': 'c',
       '.cpp': 'cpp',
+      '.cs': 'csharp',
+      '.css': 'css',
+      '.dockerfile': 'dockerfile',
+      '.fish': 'shell',
+      '.go': 'go',
       '.h': 'c',
       '.hpp': 'cpp',
-      '.cs': 'csharp',
-      '.go': 'go',
-      '.rs': 'rust',
-      '.rb': 'ruby',
-      '.php': 'php',
-      '.swift': 'swift',
-      '.kt': 'kotlin',
-      '.scala': 'scala',
-      '.r': 'r',
-      '.sql': 'sql',
-      '.sh': 'shell',
-      '.bash': 'shell',
-      '.zsh': 'shell',
-      '.fish': 'shell',
-      '.ps1': 'powershell',
-      '.dockerfile': 'dockerfile',
-      '.yml': 'yaml',
-      '.yaml': 'yaml',
-      '.json': 'json',
-      '.toml': 'toml',
-      '.xml': 'xml',
       '.html': 'html',
-      '.css': 'css',
-      '.scss': 'scss',
+      '.java': 'java',
+      '.js': 'javascript',
+      '.json': 'json',
+      '.jsx': 'javascript',
+      '.kt': 'kotlin',
+      '.php': 'php',
+      '.ps1': 'powershell',
+      '.py': 'python',
+      '.r': 'r',
+      '.rb': 'ruby',
+      '.rs': 'rust',
       '.sass': 'sass',
-      '.vue': 'vue',
+      '.scala': 'scala',
+      '.scss': 'scss',
+      '.sh': 'shell',
+      '.sql': 'sql',
       '.svelte': 'svelte',
+      '.swift': 'swift',
+      '.toml': 'toml',
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.vue': 'vue',
+      '.xml': 'xml',
+      '.yaml': 'yaml',
+      '.yml': 'yaml',
+      '.zsh': 'shell',
     };
 
     return languageMap[ext] || 'text';
@@ -376,15 +376,15 @@ export class CodeEmbeddingCLI {
         this.log(`  Chunk ${index + 1}/${total}: ${id}`);
       }
       return {
-        id,
-        filePath: file,
-        language,
         content: chunk.content,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        embedding: result.embedding,
         dimensions: result.dimensions,
+        embedding: result.embedding,
+        endLine: chunk.endLine,
+        filePath: file,
+        id,
+        language,
         model: result.model,
+        startLine: chunk.startLine,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -570,8 +570,8 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
   }
 
   const config: Partial<EmbedCodeConfig> = {
-    rootDir,
     format: 'json',
+    rootDir,
   };
 
   // Parse command line arguments
@@ -592,9 +592,9 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
   // rootDir is guaranteed to exist from validation above
   return {
     ...config,
-    rootDir,
     format: config.format || 'json',
     modelConfig: FALLBACK_MODEL_CONFIG,
+    rootDir,
   };
 }
 

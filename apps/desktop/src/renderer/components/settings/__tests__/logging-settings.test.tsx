@@ -65,38 +65,38 @@ describe('DesktopLoggingSettings', () => {
     getRendererLogBuffer().clear();
     toastSpy.mockReset();
     const preferences = createDefaultLoggingPreferences({
-      level: LogLevel.INFO,
       consoleLevel: LogLevel.INFO,
-      includeTimestamp: true,
       file: {
-        enabled: true,
-        destination: '/tmp/default.log',
-        level: LogLevel.DEBUG,
         append: true,
+        destination: '/tmp/default.log',
+        enabled: true,
+        level: LogLevel.DEBUG,
         mkdir: true,
       },
+      includeTimestamp: true,
+      level: LogLevel.INFO,
     });
 
     const capabilities: LoggingSettingsPayload['capabilities'] = {
-      runtime: 'electron',
-      fileLoggingSupported: true,
       canSelectDestination: true,
       defaultDestination: '/tmp/default.log',
+      fileLoggingSupported: true,
       reason: null,
+      runtime: 'electron',
     };
 
     window.logging = {
-      getPreferences: vi.fn().mockResolvedValue({
-        preferences,
-        capabilities,
-      }),
       getBufferedLogs: vi.fn().mockResolvedValue([]),
-      setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
-        preferences: nextPreferences,
+      getPreferences: vi.fn().mockResolvedValue({
         capabilities,
-      })),
-      selectDestination: vi.fn().mockResolvedValue('/tmp/desktop.log'),
+        preferences,
+      }),
       openDestination: vi.fn().mockResolvedValue(true),
+      selectDestination: vi.fn().mockResolvedValue('/tmp/desktop.log'),
+      setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
+        capabilities,
+        preferences: nextPreferences,
+      })),
     };
   });
 
@@ -125,11 +125,11 @@ describe('DesktopLoggingSettings', () => {
 
   it('renders an error card when loading fails', async () => {
     window.logging = {
-      getPreferences: vi.fn().mockRejectedValue(new Error('load failed')),
       getBufferedLogs: vi.fn().mockResolvedValue([]),
-      setPreferences: vi.fn(),
-      selectDestination: vi.fn(),
+      getPreferences: vi.fn().mockRejectedValue(new Error('load failed')),
       openDestination: vi.fn(),
+      selectDestination: vi.fn(),
+      setPreferences: vi.fn(),
     };
 
     render(<DesktopLoggingSettings />);

@@ -21,13 +21,13 @@ interface AdapterOptions {
 const FIXTURE: FixtureDefinition = {
   name: 'fixture-root',
   tree: {
+    'README.md': '# fixture',
     src: {
       'a.ts': 'export const a = 1;',
       nested: {
         'z.ts': 'export const z = 26;',
       },
     },
-    'README.md': '# fixture',
   },
 };
 
@@ -42,23 +42,23 @@ function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
   const includeRestoreLastFolder = options.includeRestoreLastFolder ?? true;
   const includeStreaming = options.includeStreaming ?? true;
   const realRoot: DirectoryHandle = {
-    path: '/real-root',
-    name: 'real-root',
     kind: 'directory',
+    name: 'real-root',
+    path: '/real-root',
     platform: 'electron',
   };
   const restoredRoot: DirectoryHandle = {
-    path: '/restored',
-    name: 'restored',
     kind: 'directory',
+    name: 'restored',
+    path: '/restored',
     platform: 'electron',
   };
 
   const adapter: FileSystemAdapter = {
-    requestDirectoryAccess: vi.fn(async () => realRoot),
+    exists: vi.fn(async (path: string) => path === '/real-root'),
     readDirectory: vi.fn(async () => []),
     readFile: vi.fn(async (_handle: FileHandle) => 'real-file'),
-    exists: vi.fn(async (path: string) => path === '/real-root'),
+    requestDirectoryAccess: vi.fn(async () => realRoot),
   };
 
   if (includeStreaming) {
@@ -95,7 +95,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
 
     const batches: Array<{ nodes: IFileNode[]; done: boolean; total: number }> = [];
     const onBatch: DirectoryStreamCallback = (nodes, meta) => {
-      batches.push({ nodes, done: meta.done, total: meta.total });
+      batches.push({ done: meta.done, nodes, total: meta.total });
     };
 
     await adapter.readDirectoryStreaming?.(rootHandle, onBatch, { batchSize: 2 });
@@ -121,11 +121,11 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
 
     const handle: DirectoryHandle = {
-      path: 'root',
-      name: 'root',
-      kind: 'directory',
-      platform: 'web',
       _internal: {} as unknown,
+      kind: 'directory',
+      name: 'root',
+      path: 'root',
+      platform: 'web',
     };
 
     const onBatch: DirectoryStreamCallback = () => {};
@@ -154,9 +154,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(baseReadDirectory).not.toHaveBeenCalled();
 
     const srcHandle: DirectoryHandle = {
-      path: 'fixture-root/src',
-      name: 'src',
       kind: 'directory',
+      name: 'src',
+      path: 'fixture-root/src',
       platform: 'web',
     };
     const srcEntries = await adapter.readDirectory(srcHandle);
@@ -172,9 +172,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(srcEntriesAgain[0]?.name).toBe('nested');
 
     const fileHandle: FileHandle = {
-      path: 'fixture-root/README.md',
-      name: 'README.md',
       kind: 'file',
+      name: 'README.md',
+      path: 'fixture-root/README.md',
       platform: 'web',
       size: 0,
     };
@@ -182,8 +182,8 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await expect(
       adapter.readFile({
         ...fileHandle,
-        path: 'missing.txt',
         name: 'missing.txt',
+        path: 'missing.txt',
       })
     ).resolves.toBe('');
     expect(baseReadFile).not.toHaveBeenCalled();
@@ -209,9 +209,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
 
     vi.useFakeTimers();
     const readPromise = adapter.readDirectory({
-      path: 'fixture-root/src',
-      name: 'src',
       kind: 'directory',
+      name: 'src',
+      path: 'fixture-root/src',
       platform: 'web',
     });
 
@@ -261,16 +261,16 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     }
 
     await expect(adapter.resolveFileForIndexing?.(`${root.rootId}/src/a.ts`)).resolves.toEqual({
-      kind: 'content',
       content: 'export const a = 1;',
       fileSize: 'export const a = 1;'.length,
+      kind: 'content',
     });
     await expect(
       adapter.resolveFileForIndexing?.(`${root.rootId}/${root.path}/src/a.ts`)
     ).resolves.toEqual({
-      kind: 'content',
       content: 'export const a = 1;',
       fileSize: 'export const a = 1;'.length,
+      kind: 'content',
     });
   });
 
@@ -287,9 +287,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const streamed: IFileNode[] = [];
     await adapter.readDirectoryStreaming?.(
       {
-        path: `${root.rootId}/src`,
-        name: 'src',
         kind: 'directory',
+        name: 'src',
+        path: `${root.rootId}/src`,
         platform: 'web',
       },
       (nodes) => {
@@ -308,18 +308,18 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await adapter.loadInlineFixture(NULL_SHORTHAND_FIXTURE);
 
     const entries = await adapter.readDirectory({
-      path: 'null-root',
-      name: 'null-root',
       kind: 'directory',
+      name: 'null-root',
+      path: 'null-root',
       platform: 'web',
     });
     expect(entries.map((entry) => `${entry.type}:${entry.name}`)).toEqual(['file:example.ts']);
 
     await expect(
       adapter.readFile({
-        path: 'null-root/example.ts',
-        name: 'example.ts',
         kind: 'file',
+        name: 'example.ts',
+        path: 'null-root/example.ts',
         platform: 'web',
         size: 0,
       })
@@ -331,9 +331,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await adapter.loadInlineFixture(FIXTURE);
 
     const unknownDir: DirectoryHandle = {
-      path: 'missing-dir',
-      name: 'missing-dir',
       kind: 'directory',
+      name: 'missing-dir',
+      path: 'missing-dir',
       platform: 'web',
     };
     await expect(adapter.readDirectory(unknownDir)).resolves.toEqual([]);
@@ -343,15 +343,15 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const streamed: Array<{ done: boolean; total: number }> = [];
     await adapter.readDirectoryStreaming?.(
       {
-        path: 'fixture-root/src',
-        name: 'src',
         kind: 'directory',
+        name: 'src',
+        path: 'fixture-root/src',
         platform: 'web',
       },
       (_nodes, meta) => {
         streamed.push({ done: meta.done, total: meta.total });
       },
-      { signal: abortedController.signal, batchSize: 1 }
+      { batchSize: 1, signal: abortedController.signal }
     );
     expect(streamed).toEqual([{ done: true, total: 0 }]);
   });
@@ -366,9 +366,9 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
 
     await adapter.clearInlineFixture();
     await expect(adapter.restoreLastFolder?.()).resolves.toEqual({
-      path: '/restored',
-      name: 'restored',
       kind: 'directory',
+      name: 'restored',
+      path: '/restored',
       platform: 'electron',
     });
     expect(baseRestore).toHaveBeenCalledTimes(1);

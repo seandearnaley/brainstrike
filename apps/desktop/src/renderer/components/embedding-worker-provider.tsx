@@ -27,8 +27,8 @@ function logWorkerStartError(error: unknown): void {
   const errorStack = error instanceof Error ? error.stack : undefined;
   logger.error('Failed to start embedding worker', {
     message: errorMessage,
-    stack: errorStack,
     name: error instanceof Error ? error.name : 'Unknown',
+    stack: errorStack,
   });
 }
 
@@ -48,11 +48,9 @@ function createWorkerConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>
 ): Parameters<typeof startEmbeddingWorker>[0] {
   return {
-    db,
     concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
+    db,
     leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60_000) || 60_000,
-    modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
-    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     log: (msg: string, meta?: unknown) => {
       if (meta) {
         logger.info(msg, meta);
@@ -60,11 +58,13 @@ function createWorkerConfig(
         logger.info(msg);
       }
     },
+    modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
     onDownloadProgress: (modelId: string, progress: number) => {
       const store = useModelRegistryStore.getState();
       store.setDownloadProgress(modelId, progress);
       store.setDownloading(modelId, progress < 100);
     },
+    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
   };
 }
 

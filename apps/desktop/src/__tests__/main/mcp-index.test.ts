@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sseClient = {
-  name: 'remote',
-  transport: 'sse',
+  callTool: vi.fn(async () => 'sse-result'),
   dispose: vi.fn(),
   listTools: vi.fn(async () => ({})),
+  name: 'remote',
   supportsTool: vi.fn((toolId: string) => toolId.startsWith('remote.')),
-  callTool: vi.fn(async () => 'sse-result'),
+  transport: 'sse',
 };
 const stdioClient = {
-  name: 'filesystem',
-  transport: 'stdio',
+  callTool: vi.fn(async () => 'stdio-result'),
   dispose: vi.fn(),
   listTools: vi.fn(async () => ({
     'filesystem.list_directory': { description: 'List files' },
   })),
+  name: 'filesystem',
   supportsTool: vi.fn((toolId: string) => toolId === 'filesystem.list_directory'),
-  callTool: vi.fn(async () => 'stdio-result'),
+  transport: 'stdio',
 };
 
 vi.mock('../../mcp/sse-client', () => ({
@@ -37,9 +37,9 @@ describe('mcp index', () => {
   it('initializes clients for stdio, sse, and unsupported transports', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
-        { name: 'custom', transport: 'stdio', command: 'custom', args: [] },
+        { args: [], command: 'custom', name: 'custom', transport: 'stdio' },
       ],
     });
 
@@ -51,7 +51,7 @@ describe('mcp index', () => {
   it('routes tool calls to the correct client', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
       ],
     });
@@ -66,7 +66,7 @@ describe('mcp index', () => {
   it('disposes all clients and clears registry', async () => {
     initClients({
       servers: [
-        { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
+        { args: ['/tmp'], command: 'node', name: 'filesystem', transport: 'stdio' },
         { name: 'remote', transport: 'sse', url: 'https://example.com/sse' },
       ],
     });

@@ -5,8 +5,8 @@ import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
 vi.mock('@brainstrike/preferences', () => ({
-  useDatabaseStatusSync: () => {},
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
+  useDatabaseStatusSync: () => {},
 }));
 
 // Mock the shell barrel to avoid worker/provider setup in layout tests.
@@ -27,13 +27,12 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 // Mock the UI package
 vi.mock('@brainstrike/ui', () => ({
-  ThemeProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="theme-provider">{children}</div>
-  ),
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip-provider">{children}</div>
-  ),
-  Toaster: () => <div data-testid="toaster" />,
+  // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
+  ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
+    override render() {
+      return <div data-testid="error-boundary">{this.props.children}</div>;
+    }
+  },
   NavigationSidebar: ({
     currentPath,
     onItemClick,
@@ -50,7 +49,6 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </div>
   ),
-  ThemeToggle: () => <div data-testid="theme-toggle" />,
   StatusBar: ({
     leftContent,
     centerContent,
@@ -66,12 +64,14 @@ vi.mock('@brainstrike/ui', () => ({
       <div data-testid="status-bar-right">{rightContent}</div>
     </div>
   ),
-  // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
-  ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
-    override render() {
-      return <div data-testid="error-boundary">{this.props.children}</div>;
-    }
-  },
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="theme-provider">{children}</div>
+  ),
+  ThemeToggle: () => <div data-testid="theme-toggle" />,
+  Toaster: () => <div data-testid="toaster" />,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tooltip-provider">{children}</div>
+  ),
 }));
 
 // Mock the status items. AppLayout imports the direct modules so React Doctor
@@ -98,16 +98,16 @@ vi.mock('../status-items/indexing-status-item', () => ({
 // Mock the file-explorer-hooks package
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    storageAdapter: {},
     fileSystemAdapter: {},
+    storageAdapter: {},
   }),
 }));
 
 const mockConfig: AppShellConfig = {
-  themeStorageKey: 'test-theme',
-  navigationItems: [{ name: 'Home', path: '/', icon: () => null }],
-  title: 'Test App',
   description: 'A test application',
+  navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
+  themeStorageKey: 'test-theme',
+  title: 'Test App',
 };
 
 describe('AppLayout', () => {

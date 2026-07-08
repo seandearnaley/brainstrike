@@ -8,14 +8,14 @@ function message(
   textParts: readonly string[]
 ): ThreadMessage {
   return {
-    id,
-    role,
-    createdAt: new Date('2026-06-10T00:00:00.000Z'),
-    content: textParts.map((text) => ({ type: 'text' as const, text })),
     attachments: [],
+    content: textParts.map((text) => ({ text, type: 'text' as const })),
+    createdAt: new Date('2026-06-10T00:00:00.000Z'),
+    id,
     metadata: {
       custom: {},
     },
+    role,
   } as ThreadMessage;
 }
 
@@ -29,16 +29,16 @@ describe('local runtime message conversion', () => {
 
     expect(convertMessages(messages)).toEqual([
       {
-        role: 'user',
         content: 'Find the notes\nabout test lanes.',
+        role: 'user',
       },
       {
-        role: 'assistant',
         content: 'I can search for that.',
+        role: 'assistant',
       },
       {
-        role: 'system',
         content: 'Use concise answers.',
+        role: 'system',
       },
     ]);
   });
@@ -51,8 +51,8 @@ describe('local runtime message conversion', () => {
 
     expect(convertMessages(messages)).toEqual([
       {
-        role: 'user',
         content: 'Run the full gate.',
+        role: 'user',
       },
     ]);
   });

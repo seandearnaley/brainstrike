@@ -8,7 +8,14 @@ import type { Migration } from './migration-runner';
  * but allow FSA roots to coexist by primary-key id.
  */
 export const migration041RootsPathIdentity: Migration = {
-  version: 41,
+  down: `
+    DROP INDEX IF EXISTS idx_roots_path_identity;
+    --> statement-breakpoint
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_roots_path
+      ON roots(path)
+      WHERE path IS NOT NULL;
+  `,
   name: 'roots_path_identity',
   up: `
     DROP INDEX IF EXISTS idx_roots_path;
@@ -19,12 +26,5 @@ export const migration041RootsPathIdentity: Migration = {
       WHERE path IS NOT NULL
         AND kind = 'path';
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_roots_path_identity;
-    --> statement-breakpoint
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_roots_path
-      ON roots(path)
-      WHERE path IS NOT NULL;
-  `,
+  version: 41,
 };

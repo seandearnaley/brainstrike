@@ -147,8 +147,8 @@ describe('db-host-entry', () => {
           kind: 'request',
           request: {
             kind: 'query',
-            sql: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
             params: ['set-1'],
+            sql: 'SELECT * FROM file_chunks WHERE embedding IS NULL',
           },
         },
       });
@@ -187,8 +187,8 @@ describe('db-host-entry', () => {
         kind: 'request',
         request: {
           kind: 'query',
-          sql: 'SELECT $1',
           params: { value: 'not-array-params' },
+          sql: 'SELECT $1',
         },
       },
     });
@@ -228,8 +228,8 @@ describe('db-host-entry', () => {
         request: {
           kind: 'live:start',
           payload: {
-            query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
             params: ['needle'],
+            query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
           },
         },
       },
@@ -237,8 +237,8 @@ describe('db-host-entry', () => {
     await flushMicrotasks();
 
     expect(liveQuery).toHaveBeenCalledWith({
-      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
       params: ['needle'],
+      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
     });
     expect(parentPort.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({

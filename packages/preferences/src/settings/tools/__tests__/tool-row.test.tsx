@@ -25,6 +25,7 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </span>
   ),
+  cn: (...args: (string | boolean | undefined)[]) => args.filter(Boolean).join(' '),
   Switch: ({
     checked,
     onCheckedChange,
@@ -51,45 +52,44 @@ vi.mock('@brainstrike/ui', () => ({
     />
   ),
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tooltip-content">{children}</div>
+  ),
   TooltipTrigger: ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => (
     <div data-as-child={asChild} data-testid="tooltip-trigger">
       {children}
     </div>
   ),
-  TooltipContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip-content">{children}</div>
-  ),
-  cn: (...args: (string | boolean | undefined)[]) => args.filter(Boolean).join(' '),
 }));
 
 // Mock @brainstrike/assistant-contract/local-runtime
 vi.mock('@brainstrike/assistant-contract/local-runtime', () => ({
   TOOL_CATEGORIES: {
-    retrieval: {
-      id: 'retrieval',
-      label: 'Retrieval',
-      description: 'Search tools',
-      loadPriority: 1,
-    },
-    action: { id: 'action', label: 'Actions', description: 'Action tools', loadPriority: 3 },
-    analysis: { id: 'analysis', label: 'Analysis', description: 'Analysis tools', loadPriority: 2 },
+    action: { description: 'Action tools', id: 'action', label: 'Actions', loadPriority: 3 },
+    analysis: { description: 'Analysis tools', id: 'analysis', label: 'Analysis', loadPriority: 2 },
     configuration: {
+      description: 'Config tools',
       id: 'configuration',
       label: 'Configuration',
-      description: 'Config tools',
       loadPriority: 4,
     },
+    retrieval: {
+      description: 'Search tools',
+      id: 'retrieval',
+      label: 'Retrieval',
+      loadPriority: 1,
+    },
     validation: {
+      description: 'Validation tools',
       id: 'validation',
       label: 'Validation',
-      description: 'Validation tools',
       loadPriority: 5,
     },
   },
   TOOL_LOADING_TIERS: {
-    critical: { id: 'critical', label: 'Critical', description: 'Always loaded' },
-    conditional: { id: 'conditional', label: 'Conditional', description: 'Budget-based loading' },
-    deferred: { id: 'deferred', label: 'Deferred', description: 'On-demand loading' },
+    conditional: { description: 'Budget-based loading', id: 'conditional', label: 'Conditional' },
+    critical: { description: 'Always loaded', id: 'critical', label: 'Critical' },
+    deferred: { description: 'On-demand loading', id: 'deferred', label: 'Deferred' },
   },
 }));
 
@@ -104,21 +104,21 @@ vi.mock('lucide-react', () => ({
 
 describe('ToolRow', () => {
   const defaultTool: ToolDisplayMetadata = {
-    id: 'brainstrike.retrieveContext',
-    source: 'native',
     category: 'retrieval',
-    loadingTier: 'critical',
     description: 'Retrieve context from the knowledge base for AI-assisted queries',
     enabled: true,
     estimatedTokens: 150,
+    id: 'brainstrike.retrieveContext',
+    loadingTier: 'critical',
     requiresApproval: false,
+    source: 'native',
   };
 
   const defaultProps = {
-    tool: defaultTool,
-    onToggle: vi.fn().mockResolvedValue(undefined),
-    onExpand: vi.fn(),
     expanded: false,
+    onExpand: vi.fn(),
+    onToggle: vi.fn().mockResolvedValue(undefined),
+    tool: defaultTool,
   };
 
   beforeEach(() => {
@@ -351,8 +351,8 @@ describe('ToolRow', () => {
   describe('optional callbacks', () => {
     it('handles missing onExpand gracefully', () => {
       const props = {
-        tool: defaultTool,
         onToggle: vi.fn().mockResolvedValue(undefined),
+        tool: defaultTool,
         // onExpand is not provided
       };
 

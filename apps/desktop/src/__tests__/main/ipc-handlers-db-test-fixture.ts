@@ -43,13 +43,13 @@ const {
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
-    query: vi.fn(),
     exec: vi.fn(),
-    transaction: vi.fn(),
     live: {
-      query: vi.fn(),
       incrementalQuery: vi.fn(),
+      query: vi.fn(),
     },
+    query: vi.fn(),
+    transaction: vi.fn(),
   };
   const browserWindowMock = Object.assign(vi.fn(), {
     getAllWindows: vi.fn(() => []),
@@ -117,50 +117,50 @@ const {
   const enqueueEmbeddingBackfillMock = vi.fn();
   const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
-    state: 'running' as const,
     active: false,
     lastError: null,
+    state: 'running' as const,
   }));
   const embeddingHostGetStatusMock = vi.fn(() => ({
-    state: 'running' as const,
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running' as const,
   }));
   const embeddingHostResetMock = vi.fn(async () => ({
-    state: 'running' as const,
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running' as const,
   }));
   const embeddingHostStopMock = vi.fn(async () => ({
-    state: 'stopped' as const,
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'stopped' as const,
   }));
   const embeddingHostDestroyAndRestartMock = vi.fn(async () => ({
-    state: 'running' as const,
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running' as const,
   }));
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
-    databaseProfile: 'test',
-    dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
     appDataDir: '/mock/documents/BrainStrike-dev/profiles/test',
-    nodeEnv: 'test',
-    initializationAttemptCount: 1,
-    initializationInFlight: false,
-    hasDatabaseHandle: true,
     databaseLockHeld: true,
     databaseLockPath: '/mock/documents/BrainStrike-dev/profiles/test/.db-process.lock',
+    databaseProfile: 'test',
+    dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
+    hasDatabaseHandle: true,
+    initializationAttemptCount: 1,
+    initializationInFlight: false,
+    lastInitializationFailure: null,
     lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
     lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-    lastInitializationFailure: null,
-    runtimeCorruptionRecoveryCount: 0,
     lastRuntimeCorruptionAt: null,
     lastRuntimeCorruptionContext: null,
+    nodeEnv: 'test',
+    runtimeCorruptionRecoveryCount: 0,
   }));
   const getDbHostManagerMock = vi.fn(() => ({
     applyManagedCacheBatch: applyManagedCacheBatchMock,
@@ -168,30 +168,30 @@ const {
     invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheEntriesByIdentityMock,
   }));
   return {
-    handlers,
-    mockDb,
-    browserWindowMock,
     applyManagedCacheBatchMock,
-    invalidateManagedCacheEntriesByIdentityMock,
-    parseManagedCacheBatchArgsMock,
-    parseManagedCacheInvalidationsArgsMock,
-    getDatabaseMock,
-    loggerWarn,
-    loggerDebug,
-    isCorruptionErrorMock,
-    handleRuntimeCorruptionMock,
-    resetLocalDatabaseMock,
+    browserWindowMock,
     closeDatabaseMock,
-    resetDesktopApplicationDataMock,
-    getDatabaseDiagnosticsMock,
-    getDbHostManagerMock,
-    enqueueEmbeddingBackfillMock,
-    embeddingHostIsHostWindowMock,
+    embeddingHostDestroyAndRestartMock,
     embeddingHostEnsureStartedMock,
     embeddingHostGetStatusMock,
+    embeddingHostIsHostWindowMock,
     embeddingHostResetMock,
     embeddingHostStopMock,
-    embeddingHostDestroyAndRestartMock,
+    enqueueEmbeddingBackfillMock,
+    getDatabaseDiagnosticsMock,
+    getDatabaseMock,
+    getDbHostManagerMock,
+    handleRuntimeCorruptionMock,
+    handlers,
+    invalidateManagedCacheEntriesByIdentityMock,
+    isCorruptionErrorMock,
+    loggerDebug,
+    loggerWarn,
+    mockDb,
+    parseManagedCacheBatchArgsMock,
+    parseManagedCacheInvalidationsArgsMock,
+    resetDesktopApplicationDataMock,
+    resetLocalDatabaseMock,
   };
 });
 
@@ -255,70 +255,70 @@ vi.mock('electron', async () => {
     }
   );
   const app = electronUtils.createAppMock({
-    whenReadyResolved: true,
     documentsPath: '/mock/documents',
+    whenReadyResolved: true,
   });
   const mockBrowserWindowInstance = {
-    once: vi.fn(),
-    on: vi.fn(),
-    removeListener: vi.fn(),
     destroy: vi.fn(),
-    show: vi.fn(),
-    loadFile: vi.fn(),
-    loadURL: vi.fn(),
-    maximize: vi.fn(),
+    getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
+    getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
-    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+    loadFile: vi.fn(),
+    loadURL: vi.fn(),
+    maximize: vi.fn(),
+    on: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
+    show: vi.fn(),
     webContents: {
-      setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     },
   };
   browserWindowMock.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, mockBrowserWindowInstance);
   });
   return {
-    ipcMain: typedIpcMain,
     app,
     BrowserWindow: browserWindowMock,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
-    Menu: {
-      setApplicationMenu: vi.fn(),
-      buildFromTemplate: vi.fn(),
+    clipboard: {
+      writeText: vi.fn(),
     },
-    screen: {
-      getPrimaryDisplay: vi.fn(() => ({ workAreaSize: { width: 1920, height: 1080 } })),
-      getAllDisplays: vi.fn(() => []),
+    ipcMain: typedIpcMain,
+    Menu: {
+      buildFromTemplate: vi.fn(),
+      setApplicationMenu: vi.fn(),
     },
     powerMonitor: {
       on: vi.fn(),
     },
     powerSaveBlocker: {
-      start: vi.fn(() => 1),
       isStarted: vi.fn(() => true),
+      start: vi.fn(() => 1),
       stop: vi.fn(),
     },
+    screen: {
+      getAllDisplays: vi.fn(() => []),
+      getPrimaryDisplay: vi.fn(() => ({ workAreaSize: { height: 1080, width: 1920 } })),
+    },
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),
-    },
-    clipboard: {
-      writeText: vi.fn(),
     },
   };
 });
 
 vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-  isCorruptionError: isCorruptionErrorMock,
-  handleRuntimeCorruption: handleRuntimeCorruptionMock,
-  resetLocalDatabase: resetLocalDatabaseMock,
   closeDatabase: closeDatabaseMock,
+  getDatabase: getDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+  handleRuntimeCorruption: handleRuntimeCorruptionMock,
+  isCorruptionError: isCorruptionErrorMock,
+  resetLocalDatabase: resetLocalDatabaseMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
@@ -380,10 +380,10 @@ vi.mock('@brainstrike/utils/logger', async () => {
   return {
     ...actual,
     createLogger: () => ({
-      warn: loggerWarn,
-      info: vi.fn(),
-      error: vi.fn(),
       debug: loggerDebug,
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: loggerWarn,
     }),
   };
 });
@@ -431,33 +431,33 @@ export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD');
   embeddingHostEnsureStartedMock.mockResolvedValue({
-    state: 'running',
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running',
   });
   embeddingHostGetStatusMock.mockReturnValue({
-    state: 'running',
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running',
   });
   embeddingHostResetMock.mockResolvedValue({
-    state: 'running',
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running',
   });
   embeddingHostStopMock.mockResolvedValue({
-    state: 'stopped',
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'stopped',
   });
   embeddingHostDestroyAndRestartMock.mockResolvedValue({
-    state: 'running',
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    state: 'running',
   });
 }

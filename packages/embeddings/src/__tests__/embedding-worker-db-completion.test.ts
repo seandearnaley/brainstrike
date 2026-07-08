@@ -46,11 +46,11 @@ describe('embedding worker DB completion', () => {
     );
 
     await queue.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: { chunkId, embeddingSetId },
+      queue: 'embeddings',
     });
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
     expect(claimed).not.toBeNull();
 
     const completed = await queue.completeEmbeddingChunkBatch([

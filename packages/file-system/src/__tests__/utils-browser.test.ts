@@ -13,11 +13,11 @@ import {
 
 function makeHandle(overrides: Partial<DirectoryHandle> = {}): DirectoryHandle {
   return {
+    _internal: { fake: 'handle' },
     kind: 'directory',
     name: 'test',
     path: '/test',
     platform: 'web',
-    _internal: { fake: 'handle' },
     ...overrides,
   };
 }
@@ -33,7 +33,7 @@ describe('extractNativeDirectoryHandle', () => {
 
   it('returns _internal for web platform', () => {
     const internal = { fake: 'handle' };
-    const handle = makeHandle({ platform: 'web', _internal: internal });
+    const handle = makeHandle({ _internal: internal, platform: 'web' });
     expect(extractNativeDirectoryHandle(handle)).toBe(internal);
   });
 
@@ -62,7 +62,7 @@ describe('extractNativeDirectoryHandleAsUndefined', () => {
 
   it('returns _internal for web platform', () => {
     const internal = { fake: 'handle' };
-    const handle = makeHandle({ platform: 'web', _internal: internal });
+    const handle = makeHandle({ _internal: internal, platform: 'web' });
     expect(extractNativeDirectoryHandleAsUndefined(handle)).toBe(internal);
   });
 });
@@ -78,7 +78,7 @@ describe('extractNativeDirectoryHandleAsNull', () => {
 
   it('returns _internal for web platform', () => {
     const internal = { fake: 'handle' };
-    const handle = makeHandle({ platform: 'web', _internal: internal });
+    const handle = makeHandle({ _internal: internal, platform: 'web' });
     expect(extractNativeDirectoryHandleAsNull(handle)).toBe(internal);
   });
 
@@ -213,9 +213,9 @@ describe('isFileSystemDirectoryHandle', () => {
   it('returns true for valid directory handle shape', () => {
     expect(
       isFileSystemDirectoryHandle({
+        entries: () => {},
         kind: 'directory',
         name: 'test',
-        entries: () => {},
       })
     ).toBe(true);
   });
@@ -235,9 +235,9 @@ describe('isFileSystemDirectoryHandle', () => {
   it('returns false for wrong kind', () => {
     expect(
       isFileSystemDirectoryHandle({
+        entries: () => {},
         kind: 'file',
         name: 'test',
-        entries: () => {},
       })
     ).toBe(false);
   });
@@ -245,9 +245,9 @@ describe('isFileSystemDirectoryHandle', () => {
   it('returns false when name is not a string', () => {
     expect(
       isFileSystemDirectoryHandle({
+        entries: () => {},
         kind: 'directory',
         name: 123,
-        entries: () => {},
       })
     ).toBe(false);
   });
@@ -266,9 +266,9 @@ describe('isFileSystemFileHandle', () => {
   it('returns true for valid file handle shape', () => {
     expect(
       isFileSystemFileHandle({
+        getFile: () => {},
         kind: 'file',
         name: 'test.txt',
-        getFile: () => {},
       })
     ).toBe(true);
   });
@@ -284,9 +284,9 @@ describe('isFileSystemFileHandle', () => {
   it('returns false for wrong kind', () => {
     expect(
       isFileSystemFileHandle({
+        getFile: () => {},
         kind: 'directory',
         name: 'test',
-        getFile: () => {},
       })
     ).toBe(false);
   });
@@ -294,9 +294,9 @@ describe('isFileSystemFileHandle', () => {
   it('returns false when name is not a string', () => {
     expect(
       isFileSystemFileHandle({
+        getFile: () => {},
         kind: 'file',
         name: 42,
-        getFile: () => {},
       })
     ).toBe(false);
   });

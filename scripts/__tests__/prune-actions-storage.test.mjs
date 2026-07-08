@@ -43,9 +43,9 @@ test('parseArgs reads retention options and dry-run mode', () => {
 
 test('selectArtifactsForDeletion keeps fresh artifacts and deletes expired or old artifacts', () => {
   const artifacts = [
-    { id: 1, created_at: '2026-05-03T00:30:00Z', expired: false },
-    { id: 2, created_at: '2026-05-02T11:59:00Z', expired: false },
-    { id: 3, created_at: '2026-05-03T11:30:00Z', expired: true },
+    { created_at: '2026-05-03T00:30:00Z', expired: false, id: 1 },
+    { created_at: '2026-05-02T11:59:00Z', expired: false, id: 2 },
+    { created_at: '2026-05-03T11:30:00Z', expired: true, id: 3 },
   ];
 
   assert.deepEqual(

@@ -9,9 +9,9 @@ declare module '@electric-sql/pglite/live' {
 
   export interface LiveQuery<T = Record<string, unknown>> {
     initialResults: LiveQueryResults<T>;
-    refresh(options?: { offset?: number; limit?: number }): Promise<void>;
-    subscribe(callback: (results: LiveQueryResults<T>) => void): void;
-    unsubscribe(callback?: (results: LiveQueryResults<T>) => void): Promise<void>;
+    refresh: (options?: { offset?: number; limit?: number }) => Promise<void>;
+    subscribe: (callback: (results: LiveQueryResults<T>) => void) => void;
+    unsubscribe: (callback?: (results: LiveQueryResults<T>) => void) => Promise<void>;
   }
 
   export interface LiveNamespace {

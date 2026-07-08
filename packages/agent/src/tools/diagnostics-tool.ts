@@ -18,8 +18,8 @@ export const SYSTEM_DIAGNOSTICS_TOOL_ID = 'brainstrike.systemDiagnostics' as con
  * Safe error messages that can be shown to users.
  */
 export const DIAGNOSTICS_ERROR_MESSAGES = {
-  checkFailed: 'Failed to run diagnostics. Please try again.',
   categoryUnavailable: 'The requested diagnostic category is not available.',
+  checkFailed: 'Failed to run diagnostics. Please try again.',
 } as const;
 
 export const SAFE_DIAGNOSTICS_ERRORS = new Set<string>(Object.values(DIAGNOSTICS_ERROR_MESSAGES));
@@ -284,7 +284,7 @@ function generateSummaryAndIssues(
 
   const summary = statusParts.length > 0 ? statusParts.join(' | ') : 'No diagnostics available';
 
-  return { summary, issues };
+  return { issues, summary };
 }
 
 /** Generic health check with fallback */
@@ -302,33 +302,33 @@ async function checkHealthWithFallback<T extends { status: HealthStatus }>(
 
 /** Default fallback data for each diagnostic category */
 const FALLBACK_DATABASE: DatabaseDiagnostics = {
-  status: 'unhealthy',
   connected: false,
-  tables: { fileRecords: 0, chunks: 0, embeddings: 0, embeddingSets: 0 },
   sizeBytes: 0,
+  status: 'unhealthy',
+  tables: { chunks: 0, embeddingSets: 0, embeddings: 0, fileRecords: 0 },
 };
 
 const FALLBACK_QUEUE: QueueDiagnostics = {
-  status: 'unhealthy',
-  durableQueue: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+  durableQueue: { failed: 0, queued: 0, running: 0, succeeded: 0 },
   ephemeralQueue: { pending: 0, processing: 0 },
-  throughput: 0,
   recentErrors: ['Failed to get queue status'],
+  status: 'unhealthy',
+  throughput: 0,
 };
 
 const FALLBACK_WORKER: WorkerDiagnostics = {
-  status: 'unknown',
-  isRunning: false,
   activeWorkers: 0,
-  stats: { chunksProcessed: 0, embeddingsGenerated: 0, averageLatencyMs: 0 },
+  isRunning: false,
+  stats: { averageLatencyMs: 0, chunksProcessed: 0, embeddingsGenerated: 0 },
+  status: 'unknown',
 };
 
 const FALLBACK_STORAGE: StorageDiagnostics = {
+  availableBytes: null,
+  isWritable: false,
   status: 'unknown',
   type: 'unknown',
-  availableBytes: null,
   usedBytes: 0,
-  isWritable: false,
 };
 
 /** Check if a category should be checked */
@@ -419,18 +419,18 @@ async function runSystemDiagnostics(
   const { summary, issues } = generateSummaryAndIssues(database, queue, worker, storage);
 
   deps.logger?.debug('Diagnostics complete', {
-    overallStatus,
     categoriesChecked,
     issueCount: issues.length,
+    overallStatus,
   });
 
   // Build result with only defined properties (exactOptionalPropertyTypes compliance)
   const result: SystemDiagnosticsToolResult = {
-    overallStatus,
     categoriesChecked,
-    timestamp: new Date().toISOString(),
-    summary,
     issues,
+    overallStatus,
+    summary,
+    timestamp: new Date().toISOString(),
   };
 
   if (database !== undefined) {
@@ -472,11 +472,9 @@ interface MastraTool {
  */
 export function createSystemDiagnosticsTool(deps: DiagnosticsToolDependencies): MastraTool {
   return {
-    id: SYSTEM_DIAGNOSTICS_TOOL_ID,
     description:
       'Run system diagnostics to check database, queue, worker, and storage health. ' +
       'Identifies issues and provides metrics for troubleshooting.',
-    inputSchema: SystemDiagnosticsInputSchema,
     execute: async (context: ToolContext<SystemDiagnosticsInput>) => {
       try {
         return await runSystemDiagnostics(context.context, deps);
@@ -489,6 +487,8 @@ export function createSystemDiagnosticsTool(deps: DiagnosticsToolDependencies): 
         );
       }
     },
+    id: SYSTEM_DIAGNOSTICS_TOOL_ID,
+    inputSchema: SystemDiagnosticsInputSchema,
   };
 }
 

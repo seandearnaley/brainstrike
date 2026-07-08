@@ -312,8 +312,8 @@ export function useRootsReconciliation({
         await performRootRegistration({
           adapter: adapterRef.current,
           db: dbRef.current,
-          descriptor,
           dbRootIdMap: dbRootIdMapRef.current,
+          descriptor,
           publishCanonicalMapping,
         });
       };
@@ -346,5 +346,5 @@ export function useRootsReconciliation({
     [awaitBootSettle]
   );
 
-  return { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId };
+  return { dbRootIdByAdapterRootId, registerRoot, resolveDbRootId };
 }

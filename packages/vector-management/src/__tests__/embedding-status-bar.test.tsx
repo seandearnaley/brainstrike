@@ -4,15 +4,15 @@ import { EmbeddingStatusBar, type EmbeddingStatusBarProps } from '../embedding-s
 
 describe('EmbeddingStatusBar', () => {
   const defaultProps: EmbeddingStatusBarProps = {
+    latencyStats: { avgMs: 100, p50Ms: 95, p95Ms: 150 },
+    queueCounts: { failed: 1, queued: 5, running: 2, succeeded: 100 },
+    telemetryTrend: [
+      { errorCount: 0, latencyP95: 140, throughput: 8, timestamp: Date.now() - 60_000 },
+      { errorCount: 1, latencyP95: 150, throughput: 10, timestamp: Date.now() },
+    ],
+    throughput: 10.5,
     vectorEnabled: true,
     workerStatus: 'running',
-    throughput: 10.5,
-    latencyStats: { avgMs: 100, p50Ms: 95, p95Ms: 150 },
-    queueCounts: { queued: 5, running: 2, failed: 1, succeeded: 100 },
-    telemetryTrend: [
-      { timestamp: Date.now() - 60_000, throughput: 8, latencyP95: 140, errorCount: 0 },
-      { timestamp: Date.now(), throughput: 10, latencyP95: 150, errorCount: 1 },
-    ],
   };
 
   const renderStatusBar = (props: Partial<EmbeddingStatusBarProps> = {}) =>
@@ -131,20 +131,20 @@ describe('EmbeddingStatusBar', () => {
     });
 
     it('displays queued and running counts', () => {
-      renderStatusBar({ queueCounts: { queued: 5, running: 2, failed: 0, succeeded: 0 } });
+      renderStatusBar({ queueCounts: { failed: 0, queued: 5, running: 2, succeeded: 0 } });
       // The format is "Q: 5 / 2"
       expect(screen.getByText('5')).toBeInTheDocument();
       expect(screen.getByText('2')).toBeInTheDocument();
     });
 
     it('displays failed count when > 0', () => {
-      renderStatusBar({ queueCounts: { queued: 0, running: 0, failed: 3, succeeded: 0 } });
+      renderStatusBar({ queueCounts: { failed: 3, queued: 0, running: 0, succeeded: 0 } });
       expect(screen.getByText('3')).toBeInTheDocument();
     });
 
     it('does not display failed count when 0', () => {
       const { container } = renderStatusBar({
-        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 10 },
+        queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 10 },
       });
       // Check that there's no destructive (red) text for failed count
       const destructiveText = container.querySelector('.text-destructive');
@@ -152,12 +152,12 @@ describe('EmbeddingStatusBar', () => {
     });
 
     it('displays succeeded count with checkmark when > 0', () => {
-      renderStatusBar({ queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 50 } });
+      renderStatusBar({ queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 50 } });
       expect(screen.getByText('✓50')).toBeInTheDocument();
     });
 
     it('does not display succeeded count when 0', () => {
-      renderStatusBar({ queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 } });
+      renderStatusBar({ queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 } });
       expect(screen.queryByText(/✓/)).not.toBeInTheDocument();
     });
   });
@@ -172,7 +172,7 @@ describe('EmbeddingStatusBar', () => {
 
     it('handles single-point telemetry trend', () => {
       renderStatusBar({
-        telemetryTrend: [{ timestamp: Date.now(), throughput: 5, latencyP95: 100, errorCount: 0 }],
+        telemetryTrend: [{ errorCount: 0, latencyP95: 100, throughput: 5, timestamp: Date.now() }],
       });
       expect(screen.getByRole('img', { name: 'Throughput trend' })).toBeInTheDocument();
     });
@@ -181,10 +181,10 @@ describe('EmbeddingStatusBar', () => {
       renderStatusBar({
         telemetryTrend: [
           {
-            timestamp: Date.now(),
-            throughput: Number.NaN,
-            latencyP95: Number.NEGATIVE_INFINITY,
             errorCount: 0,
+            latencyP95: Number.NEGATIVE_INFINITY,
+            throughput: Number.NaN,
+            timestamp: Date.now(),
           },
         ],
       });

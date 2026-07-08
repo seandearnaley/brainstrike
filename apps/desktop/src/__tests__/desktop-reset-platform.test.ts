@@ -102,8 +102,8 @@ describe('createDesktopFactoryResetHandler', () => {
     });
 
     await expect(handleReset()).resolves.toEqual({
-      success: false,
       message: 'llm host refused to stop',
+      success: false,
     });
     expect(logger.error).toHaveBeenCalledWith('Failed to reset desktop application data:', error);
   });
@@ -138,8 +138,8 @@ describe('createDesktopFactoryResetHandler', () => {
     });
 
     await expect(handleReset()).resolves.toEqual({
-      success: false,
       message: 'Failed to stop desktop reset runtimes: embedding-host',
+      success: false,
     });
     expect(embeddingHostStop).toHaveBeenCalledTimes(1);
     expect(chunkingHostStop).toHaveBeenCalledTimes(1);

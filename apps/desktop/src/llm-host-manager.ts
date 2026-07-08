@@ -45,12 +45,12 @@ function getMonotonicNow(): number {
  * to a callback, torn down by an AbortSignal).
  */
 interface LlmHostRequestClient {
-  forwardProgress(report: LlmHostProgressReport): void;
+  forwardProgress: (report: LlmHostProgressReport) => void;
   /** Scope prefix for request ids (WebContents id, or 'main'). */
   readonly scopeId: string;
   /** Subscribe to client teardown; returns cleanup, or null when not removable. */
-  subscribeTeardown(handler: () => void): (() => void) | null;
-  teardownMessage(requestId: string): string;
+  subscribeTeardown: (handler: () => void) => (() => void) | null;
+  teardownMessage: (requestId: string) => string;
 }
 
 /** Reserved scope for main-process callers; WebContents ids are numeric, so 'main' cannot collide. */
@@ -58,10 +58,10 @@ const MAIN_CLIENT_SCOPE_ID = 'main';
 
 function clientFromWebContents(requester: WebContents): LlmHostRequestClient {
   return {
-    scopeId: String(requester.id),
     forwardProgress: (report) => {
       requester.send(LLM_HOST_PROGRESS_EVENT, report);
     },
+    scopeId: String(requester.id),
     subscribeTeardown: (handler) => {
       if (typeof requester.once !== 'function') {
         return null;
@@ -110,13 +110,13 @@ function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport)
 
 function clientForMain(options: LlmHostMainRequestOptions): LlmHostRequestClient {
   return {
-    scopeId: MAIN_CLIENT_SCOPE_ID,
     forwardProgress: (report) => {
       options.onProgress?.(report.payload);
       if (report.payload.kind === 'loading') {
         broadcastLoadingProgressToVisibleWindows(report);
       }
     },
+    scopeId: MAIN_CLIENT_SCOPE_ID,
     subscribeTeardown: (handler) => {
       const signal = options.signal;
       if (!signal) {
@@ -170,22 +170,22 @@ export class LlmHostManager {
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
           LLM_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
       onRenderProcessGone: ({ exitCode, message, reason }) => {
-        logger.error(message, { reason, exitCode, windowRole: 'llm-host' });
+        logger.error(message, { exitCode, reason, windowRole: 'llm-host' });
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
           LLM_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
@@ -226,10 +226,10 @@ export class LlmHostManager {
     this.rejectPendingRequests('Llm host stopped while requests were in flight.');
     this.lifecycle.setStatus(
       LLM_HOST_STATUS_ADAPTER.createStatus({
-        state: 'stopping',
         active: false,
         lastError: null,
         runtimeId: this.getStatus().runtimeId,
+        state: 'stopping',
       })
     );
 
@@ -318,10 +318,10 @@ export class LlmHostManager {
     }
     this.lifecycle.setStatus(
       LLM_HOST_STATUS_ADAPTER.createStatus({
-        state: report.state,
         active: report.active,
         lastError: report.lastError,
         runtimeId: report.runtimeId,
+        state: report.state,
       })
     );
   }
@@ -342,8 +342,8 @@ export class LlmHostManager {
         pending.client.forwardProgress(report);
       } catch (error) {
         logger.warn('Failed to forward llm host progress event', {
-          requestId: report.requestId,
           error: error instanceof Error ? error.message : String(error),
+          requestId: report.requestId,
         });
       }
       return;
@@ -354,9 +354,9 @@ export class LlmHostManager {
 
     if (report.type === 'error') {
       logger.error('Llm host reported request failure', {
+        error: report.payload.errorMessage,
         requestId: report.requestId,
         runtimeId: report.runtimeId,
-        error: report.payload.errorMessage,
         ...(report.payload.errorStack ? { stack: report.payload.errorStack } : {}),
         ...(report.payload.errorDetails ? { errorDetails: report.payload.errorDetails } : {}),
       });
@@ -406,11 +406,11 @@ export class LlmHostManager {
     // sticking at the last partial percentage (loading events stop on the
     // final result, which is not broadcast).
     broadcastLoadingProgressToVisibleWindows({
-      type: 'progress',
       channel: 'llm-progress',
+      payload: { kind: 'loading', message: 'Model loaded', progress: 100 },
       requestId: `${MAIN_CLIENT_SCOPE_ID}:warmup-complete`,
       runtimeId: this.getStatus().runtimeId,
-      payload: { kind: 'loading', progress: 100, message: 'Model loaded' },
+      type: 'progress',
     });
   }
 
@@ -425,10 +425,10 @@ export class LlmHostManager {
   ): Promise<LocalLlmGenerationResult> {
     this.assertMainRequestNotAborted(options);
     logger.info('Dispatching llm-host generate request from main', {
-      modelId: payload.modelId,
       messageCount: payload.messages.length,
-      toolCount: payload.options?.tools?.length ?? 0,
+      modelId: payload.modelId,
       thinkingEnabled: payload.options?.thinking?.enabled ?? true,
+      toolCount: payload.options?.tools?.length ?? 0,
     });
     const result = await this.sendRequest(clientForMain(options), {
       ...payload,
@@ -460,9 +460,9 @@ export class LlmHostManager {
     if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
       this.recordPreCancelledRequest(clientFromWebContents(requester), scopedRequestId);
       logger.debug('Skipping llm-host cancel because the host is not running', {
+        hasHostWindow: Boolean(hostWindow),
         requestId: trimmedRequestId,
         state: status.state,
-        hasHostWindow: Boolean(hostWindow),
       });
       return;
     }
@@ -472,10 +472,10 @@ export class LlmHostManager {
 
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
     logger.info('Dispatching llm-host generate request', {
-      modelId: payload.modelId,
       messageCount: payload.messages.length,
-      toolCount: payload.options?.tools?.length ?? 0,
+      modelId: payload.modelId,
       thinkingEnabled: payload.options?.thinking?.enabled ?? true,
+      toolCount: payload.options?.tools?.length ?? 0,
     });
     return await this.sendRequest(clientFromWebContents(requester), payload);
   }
@@ -519,12 +519,11 @@ export class LlmHostManager {
       const deadlineAt = getMonotonicNow() + timeoutMs;
 
       const pending: PendingLlmRequest = {
-        requestId,
         client,
-        resolve,
-        reject,
         deadlineAt,
-        timeoutMs,
+        reject,
+        requestId,
+        resolve,
         timeoutId: setTimeout(
           () => {
             pending.cleanupRequesterListener?.();
@@ -534,6 +533,7 @@ export class LlmHostManager {
           },
           Math.max(0, deadlineAt - getMonotonicNow())
         ),
+        timeoutMs,
       };
       const cleanupRequesterListener = client.subscribeTeardown(teardownHandler);
       if (cleanupRequesterListener) {
@@ -553,11 +553,11 @@ export class LlmHostManager {
           : { ...payload, clientRequestId: requestId.slice(requestId.indexOf(':') + 1) };
 
       const request: LlmHostRequest = {
-        type: 'request',
         channel: 'llm',
+        payload: payloadWithClientRequestId,
         requestId,
         runtimeId: this.getStatus().runtimeId,
-        payload: payloadWithClientRequestId,
+        type: 'request',
       };
 
       try {
@@ -666,14 +666,14 @@ export class LlmHostManager {
     }
 
     const cancelRequest: LlmHostRequest = {
-      type: 'request',
       channel: 'llm',
-      requestId: crypto.randomUUID(),
-      runtimeId: this.getStatus().runtimeId,
       payload: {
         kind: 'cancel',
         requestId,
       },
+      requestId: crypto.randomUUID(),
+      runtimeId: this.getStatus().runtimeId,
+      type: 'request',
     };
 
     targetWindow.webContents.send(LLM_HOST_REQUEST_EVENT, cancelRequest);
@@ -688,9 +688,9 @@ export class LlmHostManager {
       this.sendCancelRequestToHost(requestId, hostWindow);
     } catch (error) {
       logger.warn('Failed to cancel llm host request', {
-        requestId,
-        reason,
         error: error instanceof Error ? error.message : String(error),
+        reason,
+        requestId,
       });
     }
   }

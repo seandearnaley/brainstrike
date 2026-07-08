@@ -7,10 +7,10 @@ interface MockRow {
 }
 
 const mockLiveQueryState = {
-  rows: [] as MockRow[],
-  loading: false,
   error: null as Error | null,
+  loading: false,
   refresh: vi.fn(),
+  rows: [] as MockRow[],
 };
 
 const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
@@ -18,8 +18,8 @@ const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryS
 );
 
 const mockVectorStatusUiStore = {
-  isImporting: false,
   isEmbeddingActive: false,
+  isImporting: false,
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -61,9 +61,9 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(42);
     expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: expect.stringContaining('FROM collection_indexing_stats'),
-        params: ['collection-1'],
         enabled: true,
+        params: ['collection-1'],
+        query: expect.stringContaining('FROM collection_indexing_stats'),
       })
     );
   });
@@ -136,7 +136,7 @@ describe('useIndexedChunkCount', () => {
     await act(async () => {
       window.dispatchEvent(
         new CustomEvent('brainstrike:queue-drained', {
-          detail: { queue: 'embeddings', embeddingSetId: 'collection-1' },
+          detail: { embeddingSetId: 'collection-1', queue: 'embeddings' },
         })
       );
       await Promise.resolve();

@@ -30,9 +30,9 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         const removedValue = await electronAPI.storage.getItem('test-key');
 
         return {
-          setValue: value,
           hasKeys: keys.length >= 0,
           removedValue,
+          setValue: value,
           success: true,
         };
       } catch (error) {
@@ -66,8 +66,8 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         const existsResult = await electronAPI.fileSystem.exists('/mock/test/path');
 
         return {
-          hasDirectoryAccess: directoryResult !== null,
           canCheckExists: typeof existsResult === 'boolean',
+          hasDirectoryAccess: directoryResult !== null,
           success: true,
         };
       } catch (error) {
@@ -94,7 +94,7 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
 
       try {
         await electronAPI.storage.setItem('', 'value');
-        return { unexpectedSuccess: true, success: true };
+        return { success: true, unexpectedSuccess: true };
       } catch (error) {
         return {
           errorCaught: true,
@@ -147,10 +147,10 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         const endTime = Date.now();
 
         return {
-          success: true,
           allCorrect,
           duration: endTime - startTime,
           operationsCount: operationCount,
+          success: true,
         };
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) };
@@ -189,9 +189,9 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         ]);
 
         return {
+          allCorrect: value1 === 'value-1' && value2 === 'value-2' && value3 === 'value-3',
           success: true,
           values: [value1, value2, value3],
-          allCorrect: value1 === 'value-1' && value2 === 'value-2' && value3 === 'value-3',
         };
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) };
@@ -231,8 +231,8 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
         return {
           success: true,
           successCount,
-          totalOperations,
           successRate: successCount / totalOperations,
+          totalOperations,
         };
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) };

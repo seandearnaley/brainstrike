@@ -21,12 +21,12 @@ interface MockLogger {
 }
 
 const loggerMock = vi.hoisted<MockLogger>(() => ({
-  error: vi.fn(),
-  warn: vi.fn(),
-  info: vi.fn(),
   debug: vi.fn(),
-  trace: vi.fn(),
+  error: vi.fn(),
   fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
@@ -71,13 +71,13 @@ describe('useFileTree', () => {
     const seedRootWithOneFile = () => {
       MockFileSystemAdapter.setMockDirectoryData('root', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'file.ts',
           path: 'root/file.ts',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'adapter-supplied',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
     };
@@ -114,36 +114,36 @@ describe('useFileTree', () => {
     it('should throw PartialRefreshError when some subdirectories fail to load', async () => {
       // Create a structure with files and subdirectories
       const mockSuccessFile: IFileNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'success.txt',
         path: 'root/success.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
         size: 100,
+        type: 'file',
       };
 
       const mockSuccessDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'success-dir',
         path: 'root/success-dir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockFailDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'fail-dir',
         path: 'root/fail-dir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       // Setup root directory with mixed content
@@ -156,13 +156,13 @@ describe('useFileTree', () => {
       // Success directory has some files (hook will call with just the directory name)
       MockFileSystemAdapter.setMockDirectoryData('success-dir', [
         {
+          depth: 2,
+          handle: {} as FileSystemFileHandle,
           name: 'nested.txt',
           path: 'root/success-dir/nested.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 2,
-          selectionState: 'unchecked',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
 
@@ -195,25 +195,25 @@ describe('useFileTree', () => {
     it('should throw regular Error when all subdirectories fail to load', async () => {
       // Create directories that will all fail
       const mockFailDir1: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'fail-dir1',
         path: 'root/fail-dir1',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockFailDir2: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'fail-dir2',
         path: 'root/fail-dir2',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       MockFileSystemAdapter.setMockDirectoryData('root', [mockFailDir1, mockFailDir2]);
@@ -248,46 +248,46 @@ describe('useFileTree', () => {
     it('should handle nested directory partial failures', async () => {
       // Create a complex nested structure
       const mockRootFile: IFileNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'root.txt',
         path: 'root/root.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       };
 
       const mockParentDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'parent',
         path: 'root/parent',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockSuccessNestedDir: IFileNode = {
+        children: [],
+        depth: 2,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'success-nested',
         path: 'root/parent/success-nested',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockFailNestedDir: IFileNode = {
+        children: [],
+        depth: 2,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'fail-nested',
         path: 'root/parent/fail-nested',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       // Setup directory structure (hook will call with full paths for nested dirs)
@@ -298,13 +298,13 @@ describe('useFileTree', () => {
       ]);
       MockFileSystemAdapter.setMockDirectoryData('parent/success-nested', [
         {
+          depth: 3,
+          handle: {} as FileSystemFileHandle,
           name: 'deep.txt',
           path: 'root/parent/success-nested/deep.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 3,
-          selectionState: 'unchecked',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
 
@@ -337,24 +337,24 @@ describe('useFileTree', () => {
     it('should maintain file tree state after partial refresh', async () => {
       // Setup initial successful structure
       const mockSuccessFile: IFileNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'success.txt',
         path: 'root/success.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       };
 
       const mockSuccessDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'success-dir',
         path: 'root/success-dir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       MockFileSystemAdapter.setMockDirectoryData('root', [mockSuccessFile, mockSuccessDir]);
@@ -368,14 +368,14 @@ describe('useFileTree', () => {
 
       // Add a failing directory for refresh
       const mockFailDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'fail-dir',
         path: 'root/fail-dir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       MockFileSystemAdapter.setMockDirectoryData('root', [
@@ -406,13 +406,13 @@ describe('useFileTree', () => {
   describe('Basic functionality', () => {
     it('should load a simple file tree successfully', async () => {
       const mockFile: IFileNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'test.txt',
         path: 'root/test.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       };
 
       MockFileSystemAdapter.setMockDirectoryData('root', [mockFile]);
@@ -431,57 +431,57 @@ describe('useFileTree', () => {
     it('should sort subdirectory children correctly', async () => {
       // Create a directory with mixed files and subdirectories in unsorted order
       const mockParentDir: IFileNode = {
+        children: [],
+        depth: 1,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'parent',
         path: 'root/parent',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 1,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       // Create subdirectory children in intentionally unsorted order
       const mockSubDirZ: IFileNode = {
+        children: [],
+        depth: 2,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'z-subdir',
         path: 'root/parent/z-subdir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockFileY: IFileNode = {
+        depth: 2,
+        handle: {} as FileSystemFileHandle,
         name: 'y-file.txt',
         path: 'root/parent/y-file.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       };
 
       const mockSubDirA: IFileNode = {
+        children: [],
+        depth: 2,
+        handle: {} as FileSystemDirectoryHandle,
         name: 'a-subdir',
         path: 'root/parent/a-subdir',
-        type: 'directory',
-        handle: {} as FileSystemDirectoryHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
-        children: [],
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const mockFileB: IFileNode = {
+        depth: 2,
+        handle: {} as FileSystemFileHandle,
         name: 'b-file.txt',
         path: 'root/parent/b-file.txt',
-        type: 'file',
-        handle: {} as FileSystemFileHandle,
-        depth: 2,
-        selectionState: 'unchecked',
         rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'file',
       };
 
       // Setup directory structure with intentionally unsorted children
@@ -550,24 +550,24 @@ describe('useFileTree', () => {
 
       MockFileSystemAdapter.setMockDirectoryData('root-a', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'first.txt',
           path: 'root-a/first.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root-a',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
       MockFileSystemAdapter.setMockDirectoryData('root-b', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'second.txt',
           path: 'root-b/second.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root-b',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
 
@@ -599,24 +599,24 @@ describe('useFileTree', () => {
 
       MockFileSystemAdapter.setMockDirectoryData('root-old', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'old.txt',
           path: 'root-old/old.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root-old',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
       MockFileSystemAdapter.setMockDirectoryData('root-new', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'new.txt',
           path: 'root-new/new.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root-new',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
 
@@ -637,13 +637,13 @@ describe('useFileTree', () => {
 
       MockFileSystemAdapter.setMockDirectoryData('root-new', [
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'newer.txt',
           path: 'root-new/newer.txt',
-          type: 'file',
-          handle: {} as FileSystemFileHandle,
-          depth: 1,
-          selectionState: 'unchecked',
           rootFolderId: 'root-new',
+          selectionState: 'unchecked',
+          type: 'file',
         },
       ]);
 

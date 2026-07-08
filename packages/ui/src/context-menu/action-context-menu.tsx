@@ -48,7 +48,7 @@ export function useContextMenuTarget(): ContextMenuTargetController {
     targetRef.current = next;
     setTargetState(next);
   }, []);
-  return { target, targetRef, setTarget };
+  return { setTarget, target, targetRef };
 }
 
 export interface ActionContextMenuProps {

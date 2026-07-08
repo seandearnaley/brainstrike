@@ -98,22 +98,22 @@ function resolveRangedFileTokens(args: {
   const { fullFileTokenCount, ranges, content } = args;
   const hasAnyActiveRange = ranges.some((range) => range.isActive !== false);
   if (!hasAnyActiveRange) {
-    return { tokens: 0, hasActiveSelection: false };
+    return { hasActiveSelection: false, tokens: 0 };
   }
 
   if (!content) {
-    return { tokens: fullFileTokenCount, hasActiveSelection: true };
+    return { hasActiveSelection: true, tokens: fullFileTokenCount };
   }
 
   const lines = splitContentLines(content);
   const normalizedRanges = normalizeContextLineRanges(ranges, lines.length);
   if (normalizedRanges.length === 0) {
-    return { tokens: 0, hasActiveSelection: false };
+    return { hasActiveSelection: false, tokens: 0 };
   }
 
   return {
-    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
     hasActiveSelection: true,
+    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
   };
 }
 
@@ -181,13 +181,13 @@ export function computeContextSelectedTokenSummary(
   args: ContextSelectedTokenSummaryArgs
 ): ContextSelectedTokenSummary {
   const summary: ContextSelectedTokenSummary = {
-    sourceSelectedTokens: args.sourceSelectedTokens,
-    outputSelectedTokens: args.sourceSelectedTokens,
-    sourcePendingCount: args.sourcePendingCount,
+    activeRangeFilesCount: 0,
     // Pending source files mean outputSelectedTokens is still a partial estimate.
     outputPendingCount: args.sourcePendingCount,
+    outputSelectedTokens: args.sourceSelectedTokens,
     rangeAdjustedFilesCount: 0,
-    activeRangeFilesCount: 0,
+    sourcePendingCount: args.sourcePendingCount,
+    sourceSelectedTokens: args.sourceSelectedTokens,
   };
 
   if (!args.useTapestryRangesForContextOutput) {
@@ -214,9 +214,9 @@ export function computeContextSelectedTokenSummary(
     summary.rangeAdjustedFilesCount++;
 
     const resolution = resolveRangedFileTokens({
+      content: args.fileContents[compositeKey],
       fullFileTokenCount,
       ranges: explicitRanges,
-      content: args.fileContents[compositeKey],
     });
     if (resolution.hasActiveSelection) {
       summary.activeRangeFilesCount++;

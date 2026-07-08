@@ -363,12 +363,12 @@ export function SettingsPageContent({
 
 export function createAppearanceSettingsCategory(): SettingsCategory {
   return {
-    id: 'appearance',
-    title: 'Appearance',
-    description: 'Choose your theme and personalize the interface for your workflow.',
-    keywords: ['theme', 'color', 'display', 'dark mode'],
-    icon: Palette,
     content: <ThemeSettings />,
+    description: 'Choose your theme and personalize the interface for your workflow.',
+    icon: Palette,
+    id: 'appearance',
+    keywords: ['theme', 'color', 'display', 'dark mode'],
+    title: 'Appearance',
   };
 }
 
@@ -382,12 +382,12 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
   accurateRuntimeAvailable: boolean | null;
 }): SettingsCategory {
   return {
-    id: 'token-counting',
-    title: 'Token Counting',
-    description: 'Control the tokenizer used for previews and chunk generation.',
-    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
-    icon: Sigma,
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
+    description: 'Control the tokenizer used for previews and chunk generation.',
+    icon: Sigma,
+    id: 'token-counting',
+    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    title: 'Token Counting',
   };
 }
 
@@ -414,11 +414,6 @@ export function createFactoryResetSettingsCategory(
   options?: CreateFactoryResetSettingsCategoryOptions
 ): SettingsCategory {
   return {
-    id: 'factory-reset',
-    title: 'Factory Reset',
-    description: 'Wipe application data and reset preferences.',
-    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
-    icon: Settings,
     content: (
       <FactoryResetSettingsSection
         hasStoredFolders={options?.hasStoredFolders}
@@ -427,14 +422,20 @@ export function createFactoryResetSettingsCategory(
         onClearStoredFolders={options?.onClearStoredFolders}
       />
     ),
+    description: 'Wipe application data and reset preferences.',
+    icon: Settings,
+    id: 'factory-reset',
+    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
+    title: 'Factory Reset',
   };
 }
 
 export function createModelRegistrySettingsCategory(): SettingsCategory {
   return {
-    id: 'models',
-    title: 'Models & Providers',
+    content: <ModelSelectionPage />,
     description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+    icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
+    id: 'models',
     keywords: [
       'models',
       'providers',
@@ -445,38 +446,38 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
       'google',
       'download',
     ],
-    icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
-    content: <ModelSelectionPage />,
+    title: 'Models & Providers',
   };
 }
 
 export function createApiKeysSettingsCategory(): SettingsCategory {
   return {
-    id: 'api-keys',
-    title: 'API Keys',
-    description: 'Manage API keys for external LLM providers.',
-    keywords: ['api', 'keys', 'secrets', 'credentials', 'openai', 'anthropic', 'google'],
-    icon: Key,
     content: <ApiKeysSettings />,
+    description: 'Manage API keys for external LLM providers.',
+    icon: Key,
+    id: 'api-keys',
+    keywords: ['api', 'keys', 'secrets', 'credentials', 'openai', 'anthropic', 'google'],
+    title: 'API Keys',
   };
 }
 
 export function createSearchIndexingSettingsCategory(): SettingsCategory {
   return {
-    id: 'search-indexing',
-    title: 'Search & Indexing',
-    description: 'Choose the managed cache collection and control root-folder background indexing.',
-    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
-    icon: Search,
     content: <SearchIndexingSettingsSection />,
+    description: 'Choose the managed cache collection and control root-folder background indexing.',
+    icon: Search,
+    id: 'search-indexing',
+    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
+    title: 'Search & Indexing',
   };
 }
 
 export function createPermissionSettingsCategory(): SettingsCategory {
   return {
-    id: 'permissions',
-    title: 'Permissions',
+    content: <PermissionSettingsSection />,
     description: 'Gate the assistant’s tools behind an allow / ask / deny policy.',
+    icon: ShieldCheck,
+    id: 'permissions',
     keywords: [
       'permissions',
       'permission',
@@ -490,17 +491,17 @@ export function createPermissionSettingsCategory(): SettingsCategory {
       'safety',
       'guardrails',
     ],
-    icon: ShieldCheck,
-    content: <PermissionSettingsSection />,
+    title: 'Permissions',
   };
 }
 
 export function createLocalRuntimeSettingsCategory(): SettingsCategory {
   return {
-    id: 'local-runtimes',
-    title: 'Local Runtimes',
+    content: <LocalRuntimeSettingsSection />,
     description:
       'Detect and configure local LLM servers (Ollama, LM Studio) for chat and embeddings.',
+    icon: Cpu,
+    id: 'local-runtimes',
     keywords: [
       'ollama',
       'lm studio',
@@ -511,7 +512,6 @@ export function createLocalRuntimeSettingsCategory(): SettingsCategory {
       'gpu',
       'self-hosted',
     ],
-    icon: Cpu,
-    content: <LocalRuntimeSettingsSection />,
+    title: 'Local Runtimes',
   };
 }

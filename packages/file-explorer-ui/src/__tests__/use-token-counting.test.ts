@@ -32,24 +32,24 @@ function createTokenCacheContextValue(
   return {
     cacheVersion: 0,
     clearHotCache: () => {},
+    countingMode: 'accurate',
+    countTextTokens: async () => 0,
     getFileSize: () => undefined,
     getTokenCount: () => null,
     getTotalTokens: async () => 0,
     invalidate: () => {},
     isAnyLoading: false,
     isLoading: () => false,
-    preloadFolder: async () => {},
-    queueForCounting: () => {},
-    updateFileSizeCache: () => {},
-    updateHotCache: () => {},
-    isReady: true,
     isOperational: true,
     isPersisted: true,
-    persistenceMode: 'persistent',
+    isReady: true,
     isWorkerReady: true,
-    countingMode: 'accurate',
-    countTextTokens: async () => 0,
+    persistenceMode: 'persistent',
+    preloadFolder: async () => {},
+    queueForCounting: () => {},
     store: {} as TokenCacheContextValue['store'],
+    updateFileSizeCache: () => {},
+    updateHotCache: () => {},
     ...overrides,
   };
 }
@@ -67,9 +67,9 @@ describe('useTokenCounting', () => {
     const countTextTokens = vi.fn(async () => 42);
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
-        isOperational: true,
         countingMode: 'accurate',
         countTextTokens,
+        isOperational: true,
       })
     );
 
@@ -87,9 +87,9 @@ describe('useTokenCounting', () => {
     const countTextTokens = vi.fn(async () => 123);
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
-        isOperational: true,
         countingMode: 'accurate',
         countTextTokens,
+        isOperational: true,
       })
     );
 
@@ -114,9 +114,9 @@ describe('useTokenCounting', () => {
   it('reports runtime unavailability when the token cache worker is unavailable', async () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
-        isOperational: false,
         countingMode: 'accurate',
         countTextTokens: vi.fn(async () => 99),
+        isOperational: false,
       })
     );
 

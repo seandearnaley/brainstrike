@@ -4,29 +4,29 @@ import { describe, expect, it, vi } from 'vitest';
 import { walkDirectoryParallel } from '../parallel-directory-walker';
 
 const rootHandle: DirectoryHandle = {
+  _internal: undefined,
   kind: 'directory',
   name: 'root',
   path: '/workspace/root',
   platform: 'electron',
-  _internal: undefined,
 };
 
 function createDirectoryEntry(name: string, path: string): IFileNode {
   return {
+    handle: { kind: 'directory', name },
     name,
     path,
     type: 'directory',
-    handle: { kind: 'directory', name },
   } as IFileNode;
 }
 
 function createFileEntry(name: string, path: string): IFileNode {
   return {
+    handle: { kind: 'file', name },
     name,
     path,
-    type: 'file',
-    handle: { kind: 'file', name },
     size: 32,
+    type: 'file',
   } as IFileNode;
 }
 
@@ -77,8 +77,8 @@ describe('walkDirectoryParallel', () => {
     );
     expect(tree).toEqual([
       expect.objectContaining({
-        name: 'src',
         children: [expect.objectContaining({ name: 'index.ts' })],
+        name: 'src',
       }),
     ]);
   });
@@ -118,8 +118,8 @@ describe('walkDirectoryParallel', () => {
     expect(skipped).toContain('.pnpm-store');
     expect(tree).toEqual([
       expect.objectContaining({
-        name: 'src',
         children: [expect.objectContaining({ name: 'index.ts' })],
+        name: 'src',
       }),
     ]);
   });
@@ -144,11 +144,11 @@ describe('walkDirectoryParallel', () => {
 
   it('uses canonical entry handle paths for web child directory reads while preserving relative node paths', async () => {
     const webRootHandle: DirectoryHandle = {
+      _internal: undefined,
       kind: 'directory',
       name: 'web-root',
       path: 'web-root',
       platform: 'web',
-      _internal: undefined,
     };
     const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
       if (handle.path === 'web-root') {
@@ -175,14 +175,14 @@ describe('walkDirectoryParallel', () => {
     expect(readDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: 'web-root/docs' }));
     expect(tree).toEqual([
       expect.objectContaining({
-        name: 'docs',
-        path: 'docs',
         children: [
           expect.objectContaining({
             name: 'guide.md',
             path: 'docs/guide.md',
           }),
         ],
+        name: 'docs',
+        path: 'docs',
       }),
     ]);
   });

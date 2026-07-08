@@ -419,12 +419,12 @@ describe('desktop embedding backfill termination logging', () => {
       expect(event.sender.send).toHaveBeenCalledWith(
         EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
         expect.objectContaining({
+          current: 0,
           embeddingSetId: 'set-background-failed',
+          message: 'metadata missing',
           source: 'background-indexing',
           stage: 'error',
-          current: 0,
           total: 0,
-          message: 'metadata missing',
         })
       );
     });
@@ -467,10 +467,10 @@ describe('desktop embedding backfill termination logging', () => {
       expect(event.sender.send).toHaveBeenCalledWith(
         EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
         expect.objectContaining({
+          current: 1,
           embeddingSetId: 'set-background-completed',
           source: 'background-indexing',
           stage: 'complete',
-          current: 1,
           total: 1,
         })
       );
@@ -512,13 +512,13 @@ describe('desktop embedding backfill termination logging', () => {
       expect(attachedEvent.sender.send).toHaveBeenCalledWith(
         EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
         expect.objectContaining({
+          current: 1,
           embeddingSetId: 'set-background-reattach',
+          message: 'drain failed',
           requestId: first.requestId,
           source: 'background-indexing',
           stage: 'error',
-          current: 1,
           total: 1,
-          message: 'drain failed',
         })
       );
     });

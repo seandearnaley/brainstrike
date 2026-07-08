@@ -91,8 +91,8 @@ export function parseToolResultMessage(content: unknown): LocalLlmMessage[] {
     }
     const response = resolveToolResultResponse(part as Record<string, unknown>);
     const toolMsg: LocalLlmMessage = {
-      role: 'tool',
       content: '',
+      role: 'tool',
     };
     if (typeof part.toolCallId === 'string') {
       toolMsg.toolCallId = part.toolCallId;
@@ -129,24 +129,24 @@ export function extractToolCallsFromParts(content: unknown): LocalLlmToolCall[] 
     }
     const input: unknown = part.input;
     toolCalls.push({
+      function: {
+        arguments: typeof input === 'string' ? input : JSON.stringify(input ?? {}),
+        name: part.toolName,
+      },
       id: typeof part.toolCallId === 'string' ? part.toolCallId : generateUUID(),
       type: 'function',
-      function: {
-        name: part.toolName,
-        arguments: typeof input === 'string' ? input : JSON.stringify(input ?? {}),
-      },
     });
   }
   return toolCalls;
 }
 
 function convertSystemMessage(content: unknown): LocalLlmMessage[] {
-  return typeof content === 'string' ? [{ role: 'system', content }] : [];
+  return typeof content === 'string' ? [{ content, role: 'system' }] : [];
 }
 
 function convertUserMessage(content: unknown): LocalLlmMessage[] {
   const text = extractTextFromParts(content);
-  return text ? [{ role: 'user', content: text }] : [];
+  return text ? [{ content: text, role: 'user' }] : [];
 }
 
 function convertAssistantMessage(content: unknown): LocalLlmMessage[] {
@@ -157,8 +157,8 @@ function convertAssistantMessage(content: unknown): LocalLlmMessage[] {
   }
   return [
     {
-      role: 'assistant',
       content: text ?? '',
+      role: 'assistant',
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
     },
   ];
@@ -213,12 +213,12 @@ export function convertToolsFromArray(
   return tools
     .filter((tool): tool is LanguageModelV2FunctionTool => tool.type === 'function')
     .map((tool) => ({
-      type: 'function' as const,
       function: {
-        name: tool.name,
         description: tool.description ?? '',
+        name: tool.name,
         parameters: tool.inputSchema as LocalLlmToolDefinition['function']['parameters'],
       },
+      type: 'function' as const,
     }));
 }
 
@@ -251,22 +251,22 @@ export function buildV2ContentFromResult(
 
   if (result.reasoningText) {
     content.push({
-      type: 'reasoning',
       text: result.reasoningText,
+      type: 'reasoning',
     } as LanguageModelV2Content);
   }
 
   if (result.text) {
-    content.push({ type: 'text', text: result.text });
+    content.push({ text: result.text, type: 'text' });
   }
 
   if (result.toolCalls) {
     for (const toolCall of result.toolCalls) {
       content.push({
-        type: 'tool-call',
+        input: toolCall.function.arguments,
         toolCallId: toolCall.id,
         toolName: toolCall.function.name,
-        input: toolCall.function.arguments,
+        type: 'tool-call',
       });
     }
   }

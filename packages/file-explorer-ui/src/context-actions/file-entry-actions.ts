@@ -16,10 +16,10 @@ async function copyToClipboard(
   successMessage: string
 ): Promise<ActionOutcome> {
   if (!services.clipboard) {
-    return { ok: false, error: 'Clipboard service unavailable' };
+    return { error: 'Clipboard service unavailable', ok: false };
   }
   const outcome = await services.clipboard.writeText(text);
-  return outcome.ok ? { ok: true, message: successMessage } : outcome;
+  return outcome.ok ? { message: successMessage, ok: true } : outcome;
 }
 
 function revealLabel(): string {
@@ -28,38 +28,38 @@ function revealLabel(): string {
 }
 
 const copyName: ContextAction<'file-entry'> = {
+  appliesTo: ['file-entry'],
+  group: 'copy',
+  icon: Copy,
   id: 'file.copy-name',
   label: 'Copy Name',
-  icon: Copy,
-  group: 'copy',
-  appliesTo: ['file-entry'],
   requiredCapabilities: ['clipboard'],
   run: (target, services) => copyToClipboard(services, target.name, 'Name copied'),
 };
 
 const copyRelativePath: ContextAction<'file-entry'> = {
+  appliesTo: ['file-entry'],
+  group: 'copy',
+  icon: Copy,
   id: 'file.copy-relative-path',
   label: 'Copy Relative Path',
-  icon: Copy,
-  group: 'copy',
-  appliesTo: ['file-entry'],
   requiredCapabilities: ['clipboard'],
   run: (target, services) => copyToClipboard(services, target.relativePath, 'Relative path copied'),
 };
 
 const copyFullPath: ContextAction<'file-entry'> = {
-  id: 'file.copy-full-path',
-  label: 'Copy Full Path',
-  icon: Copy,
-  group: 'copy',
   appliesTo: ['file-entry'],
-  requiredCapabilities: ['clipboard'],
+  group: 'copy',
+  icon: Copy,
+  id: 'file.copy-full-path',
   isVisible: (target) => target.absolutePath !== null,
+  label: 'Copy Full Path',
+  requiredCapabilities: ['clipboard'],
   run: (target, services) => {
     if (target.absolutePath === null) {
       return Promise.resolve<ActionOutcome>({
-        ok: false,
         error: 'No absolute path available for this entry',
+        ok: false,
       });
     }
     return copyToClipboard(services, target.absolutePath, 'Full path copied');
@@ -67,19 +67,19 @@ const copyFullPath: ContextAction<'file-entry'> = {
 };
 
 const revealInOs: ContextAction<'file-entry'> = {
-  id: 'file.reveal-in-os',
-  label: () => revealLabel(),
-  icon: FolderOpen,
-  group: 'navigate',
   appliesTo: ['file-entry'],
-  requiredCapabilities: ['fs.reveal'],
+  group: 'navigate',
+  icon: FolderOpen,
+  id: 'file.reveal-in-os',
   isVisible: (target) => target.absolutePath !== null,
+  label: () => revealLabel(),
+  requiredCapabilities: ['fs.reveal'],
   run: async (target: FileEntryTarget, services) => {
     if (!services.platformFs) {
-      return { ok: false, error: 'Platform file-system service unavailable' };
+      return { error: 'Platform file-system service unavailable', ok: false };
     }
     if (target.absolutePath === null) {
-      return { ok: false, error: 'No absolute path available for this entry' };
+      return { error: 'No absolute path available for this entry', ok: false };
     }
     return await services.platformFs.showItemInFolder(target.absolutePath);
   },

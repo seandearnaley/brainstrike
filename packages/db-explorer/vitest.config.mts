@@ -74,19 +74,8 @@ export default defineConfig({
     ],
   },
   test: {
-    globals: true,
-    environment: 'happy-dom',
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
-    unstubGlobals: true,
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {
       enabled: coverageEnabled,
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/**',
         'dist/**',
@@ -95,6 +84,17 @@ export default defineConfig({
         '**/mockData/**',
         'src/**/__tests__/**',
       ],
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
     },
+    environment: 'happy-dom',
+    exclude: ['**/node_modules/**', '**/dist/**'],
+    globals: true,
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    pool: 'threads',
+    setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    unstubGlobals: true,
   },
 });

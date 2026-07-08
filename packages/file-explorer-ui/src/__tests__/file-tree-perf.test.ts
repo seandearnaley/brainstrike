@@ -46,7 +46,7 @@ function flattenTree(
   acc: { node: TreeNode; depth: number }[] = []
 ): { node: TreeNode; depth: number }[] {
   for (const n of nodes) {
-    acc.push({ node: n, depth });
+    acc.push({ depth, node: n });
     if (n.type === 'directory' && expandedPaths.has(n.path) && n.children) {
       flattenTree(
         n.children.filter((c) => c.isVisible !== false),
@@ -239,9 +239,9 @@ describe('FileTree Performance (BST-145)', () => {
 
         // Test with increasing tree sizes
         const configs = [
-          { targetNodeCount: 100, maxDepth: 3, filesPerDir: 3, subdirsPerDir: 2 },
-          { targetNodeCount: 500, maxDepth: 4, filesPerDir: 4, subdirsPerDir: 3 },
-          { targetNodeCount: 1000, maxDepth: 5, filesPerDir: 5, subdirsPerDir: 3 },
+          { filesPerDir: 3, maxDepth: 3, subdirsPerDir: 2, targetNodeCount: 100 },
+          { filesPerDir: 4, maxDepth: 4, subdirsPerDir: 3, targetNodeCount: 500 },
+          { filesPerDir: 5, maxDepth: 5, subdirsPerDir: 3, targetNodeCount: 1000 },
         ];
 
         for (const config of configs) {
@@ -258,9 +258,9 @@ describe('FileTree Performance (BST-145)', () => {
           const measurement = measureFlattenTreeAverageMs(tree, expandedPaths);
 
           results.push({
-            nodes: allNodes.length,
             averageMs: measurement.averageMs,
             iterations: measurement.iterations,
+            nodes: allNodes.length,
           });
         }
 

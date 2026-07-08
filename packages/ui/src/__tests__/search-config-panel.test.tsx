@@ -14,9 +14,9 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe('SearchConfigPanel', () => {
   const createDefaultConfig = (): SearchConfig => ({
-    threshold: 0.5,
-    resultLimit: 20,
     distanceMetric: 'cosine',
+    resultLimit: 20,
+    threshold: 0.5,
   });
 
   const createProps = (
@@ -119,8 +119,8 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(
       <SearchConfigPanel
         {...createProps({
-          onConfigChange,
           config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+          onConfigChange,
         })}
       />
     );
@@ -132,7 +132,7 @@ describe('SearchConfigPanel', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(
       <SearchConfigPanel
-        {...createProps({ onConfigChange, config: { ...createDefaultConfig(), threshold: 0.75 } })}
+        {...createProps({ config: { ...createDefaultConfig(), threshold: 0.75 }, onConfigChange })}
       />
     );
     expect(screen.getByText('0.75')).toBeInTheDocument();
@@ -296,8 +296,8 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(
       <SearchConfigPanel
         {...createProps({
-          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
           collectionDistanceMetric: 'l2',
+          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
         })}
       />
     );
@@ -309,8 +309,8 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(
       <SearchConfigPanel
         {...createProps({
-          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
           collectionDistanceMetric: 'cosine',
+          config: { ...createDefaultConfig(), distanceMetric: 'cosine' },
         })}
       />
     );

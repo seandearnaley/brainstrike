@@ -8,38 +8,38 @@ let RootLayoutContent: React.ComponentType;
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
-    type: 'result',
     id: 'stub',
-    vectors: [new Float32Array(0)],
     metadata: {
-      model: 'stub-model',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: 0,
+      dtype: 'fp16',
       elapsedMs: 0,
       fallbackApplied: false,
-      dimensions: 0,
+      model: 'stub-model',
     },
+    type: 'result',
+    vectors: [new Float32Array(0)],
   } satisfies QueueResult;
   return {
     add: vi.fn(async () => result),
     addBulk: vi.fn(async () => [result]),
+    cancel: vi.fn(async () => {}),
+    drain: vi.fn(async () => {}),
+    isPaused: false,
+    isProcessing: false,
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
-    drain: vi.fn(async () => {}),
-    cancel: vi.fn(async () => {}),
-    isPaused: false,
-    isProcessing: false,
   };
 };
 
 const queueStub = createQueueStub();
 
 vi.mock('../create-embedding-queue', () => ({
+  createBrowserEmbeddingQueue: vi.fn(() => queueStub),
   embeddingQueue: queueStub,
   getEmbeddingQueue: () => queueStub,
-  createBrowserEmbeddingQueue: vi.fn(() => queueStub),
 }));
 
 // Mock the database module
@@ -48,20 +48,20 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useDatabase: () => ({
     db: null,
-    isLoading: false,
     error: null,
+    isLoading: false,
   }),
 }));
 
 // Mock the file system module
 vi.mock('@brainstrike/file-system', () => ({
   createFileSystemAdapter: () => ({
+    createDirectory: vi.fn().mockResolvedValue(undefined),
+    deleteFile: vi.fn().mockResolvedValue(undefined),
+    exists: vi.fn().mockResolvedValue(false),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue(''),
     writeFile: vi.fn().mockResolvedValue(undefined),
-    deleteFile: vi.fn().mockResolvedValue(undefined),
-    exists: vi.fn().mockResolvedValue(false),
-    createDirectory: vi.fn().mockResolvedValue(undefined),
   }),
   createFixtureCapableAdapter: (adapter: unknown) => adapter,
   WebFileSystemAdapter: vi.fn(),
@@ -70,10 +70,10 @@ vi.mock('@brainstrike/file-system', () => ({
 // Mock the storage module
 vi.mock('@brainstrike/storage', () => ({
   createStorageAdapter: () => ({
-    getItem: vi.fn().mockResolvedValue(null),
-    setItem: vi.fn().mockResolvedValue(undefined),
-    removeItem: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
+    getItem: vi.fn().mockResolvedValue(null),
+    removeItem: vi.fn().mockResolvedValue(undefined),
+    setItem: vi.fn().mockResolvedValue(undefined),
   }),
   LocalStorageAdapter: vi.fn(),
 }));

@@ -28,10 +28,10 @@ describe('Brainstrike DB runtime baseline', () => {
 
   it('records known schema drift between hand-authored migrations and Drizzle schema', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.schemaDrift).toContainEqual({
-      id: 'provider-model-catalog',
-      productionTables: ['providers', 'models'],
       drizzleGeneratedManifestFinalTables: ['providers', 'models'],
       drizzleSchemaTables: ['providers', 'models'],
+      id: 'provider-model-catalog',
+      productionTables: ['providers', 'models'],
       status: 'schema-and-manifest-reconciled',
     });
   });

@@ -12,9 +12,9 @@ interface ImportCounts {
 
 function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
   return {
-    newFiles: results.filter((r) => r.imported && !r.existed).length,
     existedButProcessed: results.filter((r) => !r.imported && r.existed).length,
     failed: results.filter((r) => !(r.imported || r.existed)).length,
+    newFiles: results.filter((r) => r.imported && !r.existed).length,
     processingErrors: results.filter((r) => r.error && (r.imported || r.existed)).length,
     totalChunks: results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0),
     totalEmbeddings: results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0),
@@ -72,8 +72,8 @@ export function createImportCompletionHandler(
     const description = buildDescription(counts);
 
     toast({
-      title: counts.failed > 0 ? 'Import Completed with Errors' : 'Import Complete',
       description,
+      title: counts.failed > 0 ? 'Import Completed with Errors' : 'Import Complete',
       variant: counts.failed > 0 ? 'destructive' : 'default',
     });
 

@@ -23,8 +23,8 @@ describe('local-artifact-store', () => {
   it('uses the app hf proxy with full origin in browser http environments', () => {
     globalThis.window = {
       location: {
-        protocol: 'http:',
         origin: 'http://localhost:8080',
+        protocol: 'http:',
       },
     } as Window;
 
@@ -42,10 +42,10 @@ describe('local-artifact-store', () => {
 
   it('uses the hugging face host for electron renderers even when they are served over http', () => {
     globalThis.window = {
+      electronAPI: {},
       location: {
         protocol: 'http:',
       },
-      electronAPI: {},
     } as Window & { electronAPI: Record<string, never> };
 
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
@@ -91,8 +91,8 @@ describe('local-artifact-store', () => {
   it('configures transformers runtime fetches to use the same remote host contract as downloads', () => {
     globalThis.window = {
       location: {
-        protocol: 'http:',
         origin: 'http://localhost:8080',
+        protocol: 'http:',
       },
     } as Window;
 
@@ -111,10 +111,10 @@ describe('local-artifact-store', () => {
 
   it('configures transformers runtime fetches to use hugging face directly in electron renderers', () => {
     globalThis.window = {
+      electronAPI: {},
       location: {
         protocol: 'http:',
       },
-      electronAPI: {},
     } as Window & { electronAPI: Record<string, never> };
 
     const environment: {
@@ -147,10 +147,10 @@ describe('local-artifact-store', () => {
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('partial', {
-        status: 206,
         headers: {
           'content-length': '7',
         },
+        status: 206,
       })
     );
     const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
@@ -173,13 +173,12 @@ describe('local-artifact-store', () => {
       match: vi.fn().mockImplementation(async (url: string) => {
         if (url.endsWith('/config.json')) {
           return new Response('cached', {
-            status: 200,
             headers: {
               'content-length': String(3900 * 1024 * 1024),
             },
+            status: 200,
           });
         }
-        return;
       }),
       put: vi.fn(),
     } as unknown as Cache;
@@ -197,7 +196,7 @@ describe('local-artifact-store', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(
-        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+        async () => new Response('ok', { headers: { 'content-length': '2' }, status: 200 })
       );
     const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
 
@@ -218,13 +217,12 @@ describe('local-artifact-store', () => {
       match: vi.fn().mockImplementation(async (url: string) => {
         if (url.endsWith('/large.onnx')) {
           return new Response('cached-large', {
-            status: 200,
             headers: {
               'content-length': '900',
             },
+            status: 200,
           });
         }
-        return;
       }),
       put: vi.fn(async (_url: string, response: Response) => {
         await response.arrayBuffer();
@@ -252,20 +250,20 @@ describe('local-artifact-store', () => {
           },
         }),
         {
-          status: 200,
           headers: {
             'content-length': '100',
           },
+          status: 200,
         }
       )
     );
 
     const spec = {
       ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-      totalSizeBytes: 1000,
       artifacts: {
         text: ['large.onnx', 'small.onnx'],
       },
+      totalSizeBytes: 1000,
     };
     const progress = vi.fn();
 
@@ -273,9 +271,9 @@ describe('local-artifact-store', () => {
 
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'downloading',
-        progress: 95,
         file: 'small.onnx',
+        progress: 95,
+        stage: 'downloading',
       })
     );
     fetchSpy.mockRestore();
@@ -316,20 +314,20 @@ describe('local-artifact-store', () => {
           },
         }),
         {
-          status: 200,
           headers: {
             'content-length': '1',
           },
+          status: 200,
         }
       )
     );
 
     const spec = {
       ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-      totalSizeBytes: 1,
       artifacts: {
         text: ['config.json'],
       },
+      totalSizeBytes: 1,
     };
 
     await new BrowserCacheArtifactStore().download(spec, undefined, controller.signal);
@@ -372,7 +370,7 @@ describe('local-artifact-store', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
-        new Response('first', { status: 200, headers: { 'content-length': '5' } })
+        new Response('first', { headers: { 'content-length': '5' }, status: 200 })
       )
       .mockImplementationOnce(async () => {
         throw new Error('second fetch should not run');
@@ -380,10 +378,10 @@ describe('local-artifact-store', () => {
 
     const spec = {
       ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-      totalSizeBytes: 10,
       artifacts: {
         text: ['config.json', 'tokenizer.json'],
       },
+      totalSizeBytes: 10,
     };
 
     cache.put = vi.fn(async (_url: string, response: Response) => {
@@ -410,11 +408,11 @@ describe('local-artifact-store', () => {
     const blobSpy = vi.fn(async () => new Blob(['cached']));
     const cache = {
       match: vi.fn().mockResolvedValue({
-        status: 200,
-        headers: new Headers(),
         clone: () => ({
           blob: blobSpy,
         }),
+        headers: new Headers(),
+        status: 200,
       } as unknown as Response),
       put: vi.fn(),
     } as unknown as Cache;
@@ -432,7 +430,7 @@ describe('local-artifact-store', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(
-        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+        async () => new Response('ok', { headers: { 'content-length': '2' }, status: 200 })
       );
     const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
 
@@ -466,15 +464,15 @@ describe('local-artifact-store', () => {
     });
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('ok', { status: 200, headers: { 'content-length': '2' } }));
+      .mockResolvedValue(new Response('ok', { headers: { 'content-length': '2' }, status: 200 }));
 
     await expect(
       new BrowserCacheArtifactStore().download({
         ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-        totalSizeBytes: 2,
         artifacts: {
           text: ['config.json'],
         },
+        totalSizeBytes: 2,
       })
     ).resolves.toBeUndefined();
 
@@ -510,10 +508,10 @@ describe('local-artifact-store', () => {
     await expect(
       new BrowserCacheArtifactStore().download({
         ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-        totalSizeBytes: 20,
         artifacts: {
           text: ['config.json'],
         },
+        totalSizeBytes: 20,
       })
     ).rejects.toThrow('storage_insufficient');
 
@@ -547,8 +545,8 @@ describe('local-artifact-store', () => {
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, {
-        status: 200,
         headers: { 'content-length': '-5' },
+        status: 200,
       })
     );
     const progress = vi.fn();
@@ -557,10 +555,10 @@ describe('local-artifact-store', () => {
       new BrowserCacheArtifactStore().download(
         {
           ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
-          totalSizeBytes: 1,
           artifacts: {
             text: ['config.json'],
           },
+          totalSizeBytes: 1,
         },
         progress
       )
@@ -568,8 +566,8 @@ describe('local-artifact-store', () => {
 
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
-        stage: 'downloading',
         progress: 0,
+        stage: 'downloading',
       })
     );
     fetchSpy.mockRestore();

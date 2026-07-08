@@ -27,18 +27,18 @@ function truncateMiddle(value: string, maxLength = 48): string {
 const selectCollectionSyncStatus = (
   state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
 ) => ({
-  state: state.state,
-  backfillRequestId: state.backfillRequestId,
-  managedCollectionName: state.managedCollectionName,
-  currentFilePath: state.currentFilePath,
-  lastError: state.lastError,
-  pauseReasons: state.pauseReasons,
   activeRootPath: state.activeRootPath,
-  scanSummary: state.scanSummary,
-  importProgress: state.importProgress,
+  backfillRequestId: state.backfillRequestId,
   chunkingProgress: state.chunkingProgress,
+  currentFilePath: state.currentFilePath,
   embeddingProgress: state.embeddingProgress,
+  importProgress: state.importProgress,
+  lastError: state.lastError,
+  managedCollectionName: state.managedCollectionName,
+  pauseReasons: state.pauseReasons,
   queueProgress: state.queueProgress,
+  scanSummary: state.scanSummary,
+  state: state.state,
 });
 
 function getStatusItemValue(

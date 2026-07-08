@@ -9,9 +9,9 @@ const FakeIcon = (_props: { className?: string }) => null;
 
 function makeCommand(overrides: Partial<SlashCommand> = {}): SlashCommand {
   return {
+    execute: vi.fn(),
     id: 'thread.new',
     label: 'New thread',
-    execute: vi.fn(),
     ...overrides,
   };
 }
@@ -20,7 +20,7 @@ describe('toSlashCommandAdapterOptions', () => {
   it('maps the command id to the library item id and preserves the label + execute', () => {
     const execute = vi.fn();
     const options = toSlashCommandAdapterOptions([
-      makeCommand({ id: 'fs.reveal', label: 'Reveal in Finder', execute }),
+      makeCommand({ execute, id: 'fs.reveal', label: 'Reveal in Finder' }),
     ]);
 
     expect(options.commands).toHaveLength(1);
@@ -44,7 +44,7 @@ describe('toSlashCommandAdapterOptions', () => {
 describe('buildSlashCommandIconMap', () => {
   it('keys icon components by command id and omits icon-less commands', () => {
     const iconMap = buildSlashCommandIconMap([
-      makeCommand({ id: 'thread.new', icon: FakeIcon }),
+      makeCommand({ icon: FakeIcon, id: 'thread.new' }),
       makeCommand({ id: 'nav.settings', label: 'Settings' }),
     ]);
 

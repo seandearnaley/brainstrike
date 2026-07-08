@@ -28,13 +28,13 @@ export interface QueueTelemetryCollectorOptions {
 }
 
 export interface QueueTelemetryCollector {
-  clearBatches(): void;
-  getEndpoint(): string | null;
-  isRunning(): boolean;
-  listBatches(): readonly QueueTelemetryBatch[];
-  nextBatch(options?: { readonly timeoutMs?: number }): Promise<QueueTelemetryBatch>;
-  start(): Promise<void>;
-  stop(): Promise<void>;
+  clearBatches: () => void;
+  getEndpoint: () => string | null;
+  isRunning: () => boolean;
+  listBatches: () => readonly QueueTelemetryBatch[];
+  nextBatch: (options?: { readonly timeoutMs?: number }) => Promise<QueueTelemetryBatch>;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
 }
 
 type BatchListener = (batch: QueueTelemetryBatch) => void;
@@ -189,7 +189,7 @@ export function createQueueTelemetryCollector(
     if (method === 'POST') {
       return null;
     }
-    return { status: 405, message: 'Method Not Allowed' };
+    return { message: 'Method Not Allowed', status: 405 };
   };
 
   const validateApiKey = (request: IncomingMessage): ValidationError | null => {
@@ -198,7 +198,7 @@ export function createQueueTelemetryCollector(
     }
     const providedKey = headerValue(request.headers['x-api-key']);
     if (!providedKey) {
-      return { status: 401, message: 'Unauthorized' };
+      return { message: 'Unauthorized', status: 401 };
     }
 
     // HMAC the provided value to normalize length and prevent leaking key length via timing
@@ -207,7 +207,7 @@ export function createQueueTelemetryCollector(
       .digest();
 
     if (!timingSafeDigestEqual(providedHmac, apiKeyHmac)) {
-      return { status: 401, message: 'Unauthorized' };
+      return { message: 'Unauthorized', status: 401 };
     }
 
     return null;
@@ -218,35 +218,35 @@ export function createQueueTelemetryCollector(
     try {
       payload = JSON.parse(buffer.toString('utf8')) as unknown;
     } catch {
-      return { status: 400, message: 'Invalid JSON payload' };
+      return { message: 'Invalid JSON payload', status: 400 };
     }
     if (!isPlainObject(payload)) {
-      return { status: 400, message: 'Payload must be an object' };
+      return { message: 'Payload must be an object', status: 400 };
     }
     return payload;
   };
 
   const extractRuntime = (value: unknown): QueueTelemetryRuntime | ValidationError => {
     if (!isTelemetryRuntime(value)) {
-      return { status: 400, message: 'Invalid runtime' };
+      return { message: 'Invalid runtime', status: 400 };
     }
     return value;
   };
 
   const extractSentAt = (value: unknown): Date | ValidationError => {
     if (typeof value !== 'string') {
-      return { status: 400, message: 'Invalid sentAt timestamp' };
+      return { message: 'Invalid sentAt timestamp', status: 400 };
     }
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
-      return { status: 400, message: 'Invalid sentAt timestamp' };
+      return { message: 'Invalid sentAt timestamp', status: 400 };
     }
     return parsed;
   };
 
   const extractEvents = (value: unknown): readonly QueueTelemetryEvent[] | ValidationError => {
     if (!Array.isArray(value) || value.some((event) => !isTelemetryEvent(event))) {
-      return { status: 400, message: 'Invalid telemetry events' };
+      return { message: 'Invalid telemetry events', status: 400 };
     }
     return value as QueueTelemetryEvent[];
   };
@@ -269,7 +269,7 @@ export function createQueueTelemetryCollector(
       bodyBuffer = await readRequestBody(request, maxBodyBytes);
     } catch (error) {
       if (error instanceof PayloadTooLargeError) {
-        return { status: 413, message: error.message };
+        return { message: error.message, status: 413 };
       }
       throw error;
     }
@@ -296,11 +296,11 @@ export function createQueueTelemetryCollector(
     const metadata = normalizeMetadata(decoded['metadata'] ?? null);
 
     return {
-      runtime,
-      sentAt,
-      receivedAt: new Date(),
       events,
       metadata,
+      receivedAt: new Date(),
+      runtime,
+      sentAt,
     };
   };
 
@@ -309,10 +309,10 @@ export function createQueueTelemetryCollector(
   ): Promise<QueueTelemetryBatch | ValidationError> => {
     const requestPath = resolveRequestPath(request.url);
     if (!requestPath) {
-      return { status: 400, message: 'Request URL missing' };
+      return { message: 'Request URL missing', status: 400 };
     }
     if (requestPath !== path) {
-      return { status: 404, message: 'Not Found' };
+      return { message: 'Not Found', status: 404 };
     }
 
     const methodValidation = validateMethod(request.method);
@@ -389,6 +389,26 @@ export function createQueueTelemetryCollector(
   };
 
   return {
+    clearBatches() {
+      batches.splice(0, batches.length);
+    },
+    getEndpoint() {
+      if (!addressInfo) {
+        return null;
+      }
+      const address = addressInfo.address === '::' ? '127.0.0.1' : addressInfo.address;
+      return `http://${address}:${addressInfo.port}${path}`;
+    },
+    isRunning() {
+      return Boolean(server?.listening);
+    },
+    listBatches() {
+      return [...batches];
+    },
+    nextBatch(options) {
+      const timeoutMs = options?.timeoutMs ?? WAIT_FOR_BATCH_TIMEOUT_MS;
+      return waitForBatch(timeoutMs);
+    },
     async start() {
       if (server) {
         return;
@@ -407,8 +427,8 @@ export function createQueueTelemetryCollector(
           addressInfo = addr;
           logger.info('Queue telemetry collector listening', {
             address: addr.address,
-            port: addr.port,
             path,
+            port: addr.port,
           });
           resolve();
         });
@@ -430,26 +450,6 @@ export function createQueueTelemetryCollector(
       server = null;
       addressInfo = null;
       listeners.clear();
-    },
-    isRunning() {
-      return Boolean(server?.listening);
-    },
-    getEndpoint() {
-      if (!addressInfo) {
-        return null;
-      }
-      const address = addressInfo.address === '::' ? '127.0.0.1' : addressInfo.address;
-      return `http://${address}:${addressInfo.port}${path}`;
-    },
-    listBatches() {
-      return [...batches];
-    },
-    clearBatches() {
-      batches.splice(0, batches.length);
-    },
-    nextBatch(options) {
-      const timeoutMs = options?.timeoutMs ?? WAIT_FOR_BATCH_TIMEOUT_MS;
-      return waitForBatch(timeoutMs);
     },
   };
 }

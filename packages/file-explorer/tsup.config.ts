@@ -1,16 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/testing.ts', 'src/worker-storage.worker.js'],
-  format: ['esm', 'cjs'],
-  splitting: false,
   clean: false,
-  target: 'es2022',
   dts: false,
-  injectStyle: false,
-  // Copy the transpiled worker (Rollup/Vite emits ".worker.js") as a separate asset so
-  // it can be loaded at runtime without bundling issues.
-  loader: { '.worker.js': 'copy' },
+  entry: ['src/index.ts', 'src/testing.ts', 'src/worker-storage.worker.js'],
   esbuildOptions(options, context) {
     if (context.format === 'cjs') {
       // Suppress "import.meta is not available with the cjs output format" warning.
@@ -30,4 +23,11 @@ export default defineConfig({
       };
     }
   },
+  format: ['esm', 'cjs'],
+  injectStyle: false,
+  // Copy the transpiled worker (Rollup/Vite emits ".worker.js") as a separate asset so
+  // it can be loaded at runtime without bundling issues.
+  loader: { '.worker.js': 'copy' },
+  splitting: false,
+  target: 'es2022',
 });

@@ -17,8 +17,8 @@ export function createMainLlmHostClient(manager: AssistantLlmHostManager): Local
     generate: (request, options = {}) =>
       manager.generateForMain(
         {
-          modelId: request.modelId,
           messages: request.messages,
+          modelId: request.modelId,
           ...(request.options ? { options: request.options } : {}),
         },
         options

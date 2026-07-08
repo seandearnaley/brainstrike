@@ -17,7 +17,12 @@ import type { Migration } from './migration-runner';
  * legacy numbered runner may not create every one of them.
  */
 export const migration035Uuidv7PrimaryKeys: Migration = {
-  version: 35,
+  down: `
+    ALTER TABLE IF EXISTS selection_snapshots ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    ALTER TABLE IF EXISTS token_cache ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    ALTER TABLE IF EXISTS embedding_cache ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    ALTER TABLE IF EXISTS view_filter_presets ALTER COLUMN id SET DEFAULT gen_random_uuid();
+  `,
   name: 'uuidv7_primary_keys',
   up: `
     ALTER TABLE IF EXISTS selection_snapshots ALTER COLUMN id SET DEFAULT uuidv7();
@@ -25,10 +30,5 @@ export const migration035Uuidv7PrimaryKeys: Migration = {
     ALTER TABLE IF EXISTS embedding_cache ALTER COLUMN id SET DEFAULT uuidv7();
     ALTER TABLE IF EXISTS view_filter_presets ALTER COLUMN id SET DEFAULT uuidv7();
   `,
-  down: `
-    ALTER TABLE IF EXISTS selection_snapshots ALTER COLUMN id SET DEFAULT gen_random_uuid();
-    ALTER TABLE IF EXISTS token_cache ALTER COLUMN id SET DEFAULT gen_random_uuid();
-    ALTER TABLE IF EXISTS embedding_cache ALTER COLUMN id SET DEFAULT gen_random_uuid();
-    ALTER TABLE IF EXISTS view_filter_presets ALTER COLUMN id SET DEFAULT gen_random_uuid();
-  `,
+  version: 35,
 };

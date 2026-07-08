@@ -17,8 +17,8 @@ function makeHandlers(
   paths: { lstatPath?: ReturnType<typeof vi.fn>; statPath?: ReturnType<typeof vi.fn> } = {}
 ) {
   return createShellIpcHandlers({
-    shell,
     lstatPath: paths.lstatPath ?? makeStatPath(),
+    shell,
     statPath: paths.statPath ?? makeStatPath(),
   });
 }
@@ -42,8 +42,8 @@ describe('shell IPC handlers', () => {
     const openResult = await handlers.openPath('/Users/dev/missing.pdf');
     const revealResult = await handlers.showItemInFolder('/Users/dev/missing.pdf');
 
-    expect(openResult).toEqual({ ok: false, error: 'Shell target path does not exist' });
-    expect(revealResult).toEqual({ ok: false, error: 'Shell target path does not exist' });
+    expect(openResult).toEqual({ error: 'Shell target path does not exist', ok: false });
+    expect(revealResult).toEqual({ error: 'Shell target path does not exist', ok: false });
     expect(shell.openPath).not.toHaveBeenCalled();
     expect(shell.showItemInFolder).not.toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe('shell IPC handlers', () => {
     shell.openPath.mockResolvedValue('No application found');
     const handlers = makeHandlers(shell);
     const result = await handlers.openPath('/Users/dev/file.xyz');
-    expect(result).toEqual({ ok: false, error: 'No application found' });
+    expect(result).toEqual({ error: 'No application found', ok: false });
   });
 
   it('opens a valid absolute path', async () => {
@@ -122,7 +122,7 @@ describe('shell IPC handlers', () => {
     });
     const handlers = makeHandlers(shell);
     const result = await handlers.showItemInFolder('/Users/dev/project/file.ts');
-    expect(result).toEqual({ ok: false, error: 'shell unavailable' });
+    expect(result).toEqual({ error: 'shell unavailable', ok: false });
   });
 
   it('converts a rejecting shell.openPath into a structured failure', async () => {
@@ -130,6 +130,6 @@ describe('shell IPC handlers', () => {
     shell.openPath.mockRejectedValue(new Error('open failed'));
     const handlers = makeHandlers(shell);
     const result = await handlers.openPath('/Users/dev/file.pdf');
-    expect(result).toEqual({ ok: false, error: 'open failed' });
+    expect(result).toEqual({ error: 'open failed', ok: false });
   });
 });

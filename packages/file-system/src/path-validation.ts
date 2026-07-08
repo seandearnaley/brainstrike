@@ -196,7 +196,7 @@ async function resolveRealPath(
     // Re-check sensitive paths after symlink resolution to prevent symlink bypass
     const sensitiveError = validateSensitivePath(real, blockSensitiveDirectories, platform);
     if (sensitiveError) {
-      return { ok: false, error: sensitiveError };
+      return { error: sensitiveError, ok: false };
     }
 
     if (baseReal && !isPathInsideRoot(baseReal, real)) {
@@ -205,7 +205,7 @@ async function resolveRealPath(
         'Resolved path is outside the configured root.',
         real
       );
-      return { ok: false, error };
+      return { error, ok: false };
     }
     return { ok: true, path: real };
   } catch (error) {
@@ -217,7 +217,7 @@ async function resolveRealPath(
           'Requested path is outside the configured root.',
           candidate
         );
-        return { ok: false, error: outsideError };
+        return { error: outsideError, ok: false };
       }
       if (allowMissing) {
         return { ok: true, path: candidate };
@@ -225,7 +225,7 @@ async function resolveRealPath(
     }
     const message = error instanceof Error ? error.message : 'Failed to resolve path.';
     const resolveError = buildError('realpath-failure', message, candidate);
-    return { ok: false, error: resolveError };
+    return { error: resolveError, ok: false };
   }
 }
 
@@ -245,11 +245,11 @@ export async function resolveValidatedPath(
   const raw = getRawPath(requestedPath, fallbackPath);
   if (!raw) {
     const error = buildError('invalid-input', 'Requested path is missing or invalid.');
-    return { ok: false, error };
+    return { error, ok: false };
   }
   const rawError = validateRawPath(raw, maxTraversal);
   if (rawError) {
-    return { ok: false, error: rawError };
+    return { error: rawError, ok: false };
   }
 
   const expanded = expandHome(raw);
@@ -257,7 +257,7 @@ export async function resolveValidatedPath(
   const candidate = resolveCandidate(expanded, baseReal);
   const sensitiveError = validateSensitivePath(candidate, blockSensitiveDirectories, platform);
   if (sensitiveError) {
-    return { ok: false, error: sensitiveError };
+    return { error: sensitiveError, ok: false };
   }
 
   if (!baseReal && allowMissing) {

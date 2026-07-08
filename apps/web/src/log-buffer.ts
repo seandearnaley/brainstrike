@@ -4,8 +4,8 @@ import { addLogListener } from '@brainstrike/utils/logger';
 
 // Use smaller buffer with arg size limits for better memory performance
 const webLogBuffer = new LogBuffer({
-  size: 500, // Reduced from 1000 for memory efficiency
   maxArgSize: 500, // Limit arg size to 500 chars
+  size: 500, // Reduced from 1000 for memory efficiency
 });
 
 const removeListener = addLogListener((record) => {

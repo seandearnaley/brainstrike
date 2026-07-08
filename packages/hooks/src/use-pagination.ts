@@ -75,14 +75,14 @@ export function usePagination({
 
   return {
     currentPage,
-    totalPages,
-    startIndex,
     endIndex,
-    goToPage,
     goToNextPage,
+    goToPage,
     goToPreviousPage,
-    resetToFirstPage,
     isFirstPage,
     isLastPage,
+    resetToFirstPage,
+    startIndex,
+    totalPages,
   };
 }

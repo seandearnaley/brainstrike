@@ -126,9 +126,6 @@ if (typeof window !== 'undefined') {
 }
 
 initializeLogging({
-  runtime: 'electron-renderer',
-  level: rendererLevel,
-  consoleLevel: rendererConsoleLevel,
   appName: 'brainstrike-desktop',
   appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
   baseBindings: {
@@ -137,29 +134,32 @@ initializeLogging({
     windowRole: desktopRendererRole,
     ...(rendererRuntimeKind && rendererRuntimeId
       ? createRuntimeLogBindings({
-          runtimeKind: rendererRuntimeKind,
           runtimeId: rendererRuntimeId,
+          runtimeKind: rendererRuntimeKind,
           windowRole: desktopRendererRole,
         })
       : {}),
   },
+  consoleLevel: rendererConsoleLevel,
+  level: rendererLevel,
+  runtime: 'electron-renderer',
 });
 
 const removeRendererErrorHooks =
   typeof window === 'undefined'
     ? () => {}
     : installRendererErrorHooks({
-        scope: 'DesktopRenderer',
         onError: () => {
           flushQueueTelemetry?.();
         },
+        scope: 'DesktopRenderer',
       });
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
   loggingStore.updatePreferences({
-    level: rendererLevel,
     consoleLevel: rendererConsoleLevel,
+    level: rendererLevel,
   });
 }
 
@@ -191,8 +191,8 @@ function sanitizeLogValue(value: unknown): unknown {
   }
   if (value instanceof Error) {
     return {
-      name: value.name,
       message: value.message,
+      name: value.name,
       stack: value.stack,
     };
   }
@@ -217,8 +217,8 @@ if (desktopRendererRole !== 'visible-ui') {
     const runtimeAwareRecord =
       rendererRuntimeKind && rendererRuntimeId
         ? bindRuntimeLogRecord(record, {
-            runtimeKind: rendererRuntimeKind,
             runtimeId: rendererRuntimeId,
+            runtimeKind: rendererRuntimeKind,
             windowRole: desktopRendererRole,
           })
         : record;
@@ -238,8 +238,8 @@ if (desktopRendererRole !== 'visible-ui') {
     windowRole: desktopRendererRole,
     ...(rendererRuntimeKind && rendererRuntimeId
       ? createRuntimeLogBindings({
-          runtimeKind: rendererRuntimeKind,
           runtimeId: rendererRuntimeId,
+          runtimeKind: rendererRuntimeKind,
           windowRole: desktopRendererRole,
         })
       : {}),
@@ -274,12 +274,12 @@ const rendererTelemetrySink =
         ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
           ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
-        runtime: 'electron-renderer',
         metadata: {
           app: 'desktop-renderer',
           mode: import.meta.env.MODE,
           version: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
         },
+        runtime: 'electron-renderer',
       })
     : null;
 

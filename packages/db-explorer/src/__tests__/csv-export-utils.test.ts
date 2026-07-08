@@ -35,35 +35,35 @@ vi.mock('jszip', () => {
 describe('CSV Export Utils', () => {
   const mockRecords: FileRecord[] = [
     {
+      content: 'This is a test file with some content',
+      contentHash: 'abc123',
+      createdAt: '2024-01-01T00:00:00Z',
       id: '1',
       name: 'test.txt',
       path: '/path/to/test.txt',
-      size: 1024,
-      createdAt: '2024-01-01T00:00:00Z',
-      updatedAt: '2024-01-01T00:00:00Z',
-      content: 'This is a test file with some content',
-      contentHash: 'abc123',
-      tokenCount: 10,
       processedAt: '2024-01-01T01:00:00Z',
+      size: 1024,
+      tokenCount: 10,
+      updatedAt: '2024-01-01T00:00:00Z',
     },
     {
+      content: 'Content with "quotes" and\nnewlines',
+      contentHash: 'def456',
+      createdAt: '2024-01-02T00:00:00Z',
       id: '2',
       name: 'file,with,commas.csv',
       path: '/path/to/"quoted".csv',
-      size: 2048,
-      createdAt: '2024-01-02T00:00:00Z',
-      updatedAt: '2024-01-02T00:00:00Z',
-      content: 'Content with "quotes" and\nnewlines',
-      contentHash: 'def456',
-      tokenCount: 20,
       processedAt: '2024-01-02T01:00:00Z',
+      size: 2048,
+      tokenCount: 20,
+      updatedAt: '2024-01-02T00:00:00Z',
     },
     {
+      createdAt: '2024-01-03T00:00:00Z',
       id: '3',
       name: 'empty.txt',
       path: '/path/to/empty.txt',
       size: 0,
-      createdAt: '2024-01-03T00:00:00Z',
       updatedAt: '2024-01-03T00:00:00Z',
       // No content fields
     },
@@ -71,77 +71,77 @@ describe('CSV Export Utils', () => {
 
   const mockFileChunks = [
     {
-      id: 'chunk1',
-      fileRecordId: '1',
       chunkIndex: 0,
+      chunkSize: 55,
       chunkType: 'text' as const,
       content: 'This is the first chunk of content for testing purposes.',
-      tokenCount: 12,
-      chunkSize: 55,
       contentHash: 'chunk1hash',
-      embedding: [0.1, 0.2, 0.3, 0.4, 0.5],
       createdAt: '2024-01-01T00:00:00Z',
+      embedding: [0.1, 0.2, 0.3, 0.4, 0.5],
+      fileRecordId: '1',
+      id: 'chunk1',
+      tokenCount: 12,
       updatedAt: '2024-01-01T00:00:00Z',
     },
     {
-      id: 'chunk2',
-      fileRecordId: '1',
       chunkIndex: 1,
+      chunkSize: 89,
       chunkType: 'sentence' as const,
       content:
         'This is the second chunk with a longer content that should be truncated in the preview.',
-      tokenCount: 18,
-      chunkSize: 89,
       contentHash: 'chunk2hash',
-      embedding: [0.6, 0.7, 0.8, 0.9, 1.0],
       createdAt: '2024-01-01T01:00:00Z',
+      embedding: [0.6, 0.7, 0.8, 0.9, 1.0],
+      fileRecordId: '1',
+      id: 'chunk2',
+      tokenCount: 18,
       updatedAt: '2024-01-01T01:00:00Z',
     },
     {
-      id: 'chunk3',
-      fileRecordId: '2',
       chunkIndex: 0,
+      chunkSize: 29,
       chunkType: 'recursive' as const,
       content: 'Third chunk without embedding',
-      tokenCount: 6,
-      chunkSize: 29,
       contentHash: 'chunk3hash',
       createdAt: '2024-01-02T00:00:00Z',
+      fileRecordId: '2',
+      id: 'chunk3',
+      tokenCount: 6,
       updatedAt: '2024-01-02T00:00:00Z',
     },
   ];
 
   const mockRecordsWithChunkMetadata: FileRecord[] = [
     {
+      chunkingStrategy: 'sentence',
+      chunksCount: 2,
+      chunksProcessedAt: '2024-01-01T02:00:00Z',
+      content: 'This is a test file with some content',
+      contentHash: 'abc123',
+      createdAt: '2024-01-01T00:00:00Z',
+      embedding: [0.1, 0.2, 0.3],
       id: '1',
       name: 'test.txt',
       path: '/path/to/test.txt',
-      size: 1024,
-      createdAt: '2024-01-01T00:00:00Z',
-      updatedAt: '2024-01-01T00:00:00Z',
-      content: 'This is a test file with some content',
-      contentHash: 'abc123',
-      tokenCount: 10,
       processedAt: '2024-01-01T01:00:00Z',
-      chunksCount: 2,
-      chunkingStrategy: 'sentence',
-      chunksProcessedAt: '2024-01-01T02:00:00Z',
-      embedding: [0.1, 0.2, 0.3],
+      size: 1024,
+      tokenCount: 10,
+      updatedAt: '2024-01-01T00:00:00Z',
     },
     {
+      chunkingStrategy: 'recursive',
+      chunksCount: 1,
+      chunksProcessedAt: '2024-01-02T02:00:00Z',
+      content: 'Content with "quotes" and\nnewlines',
+      contentHash: 'def456',
+      createdAt: '2024-01-02T00:00:00Z',
       id: '2',
       name: 'file,with,commas.csv',
       path: '/path/to/"quoted".csv',
-      size: 2048,
-      createdAt: '2024-01-02T00:00:00Z',
-      updatedAt: '2024-01-02T00:00:00Z',
-      content: 'Content with "quotes" and\nnewlines',
-      contentHash: 'def456',
-      tokenCount: 20,
       processedAt: '2024-01-02T01:00:00Z',
-      chunksCount: 1,
-      chunkingStrategy: 'recursive',
-      chunksProcessedAt: '2024-01-02T02:00:00Z',
+      size: 2048,
+      tokenCount: 20,
+      updatedAt: '2024-01-02T00:00:00Z',
     },
   ];
 
@@ -173,8 +173,8 @@ describe('CSV Export Utils', () => {
 
     it('should use custom columns when provided', () => {
       const customColumns = [
-        { header: 'Name', getValue: (record: FileRecord) => record.name },
-        { header: 'Size', getValue: (record: FileRecord) => record.size },
+        { getValue: (record: FileRecord) => record.name, header: 'Name' },
+        { getValue: (record: FileRecord) => record.size, header: 'Size' },
       ];
       const csv = generateCSV(mockRecords, customColumns);
       const lines = csv.split('\n');
@@ -317,16 +317,16 @@ describe('CSV Export Utils', () => {
     it('should handle chunks with different embedding dimensions', () => {
       const chunksWithDifferentDims = [
         {
-          id: 'chunk1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 55,
           chunkType: 'text' as const,
           content: 'Test content',
-          tokenCount: 12,
-          chunkSize: 55,
           contentHash: 'chunk1hash',
-          embedding: [0.1, 0.2], // 2 dimensions
           createdAt: '2024-01-01T00:00:00Z',
+          embedding: [0.1, 0.2], // 2 dimensions
+          fileRecordId: '1',
+          id: 'chunk1',
+          tokenCount: 12,
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ];
@@ -341,42 +341,42 @@ describe('CSV Export Utils', () => {
     it('should skip chunks without embeddings in mixed arrays', () => {
       const mixedChunks = [
         {
-          id: 'chunk1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 55,
           chunkType: 'text' as const,
           content: 'Test content',
-          tokenCount: 12,
-          chunkSize: 55,
           contentHash: 'chunk1hash',
-          embedding: [0.1, 0.2],
           createdAt: '2024-01-01T00:00:00Z',
+          embedding: [0.1, 0.2],
+          fileRecordId: '1',
+          id: 'chunk1',
+          tokenCount: 12,
           updatedAt: '2024-01-01T00:00:00Z',
         },
         {
-          id: 'chunk2',
-          fileRecordId: '1',
           chunkIndex: 1,
+          chunkSize: 32,
           chunkType: 'text' as const,
           content: 'Test content without embedding',
-          tokenCount: 8,
-          chunkSize: 32,
           contentHash: 'chunk2hash',
           // No embedding property
           createdAt: '2024-01-01T00:00:00Z',
+          fileRecordId: '1',
+          id: 'chunk2',
+          tokenCount: 8,
           updatedAt: '2024-01-01T00:00:00Z',
         },
         {
-          id: 'chunk3',
-          fileRecordId: '1',
           chunkIndex: 2,
+          chunkSize: 20,
           chunkType: 'text' as const,
           content: 'Another test content',
-          tokenCount: 6,
-          chunkSize: 20,
           contentHash: 'chunk3hash',
-          embedding: [0.3, 0.4],
           createdAt: '2024-01-01T00:00:00Z',
+          embedding: [0.3, 0.4],
+          fileRecordId: '1',
+          id: 'chunk3',
+          tokenCount: 6,
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ];
@@ -394,16 +394,16 @@ describe('CSV Export Utils', () => {
     it('should handle chunks with empty embeddings array', () => {
       const chunksWithEmptyEmbeddings = [
         {
-          id: 'chunk1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 55,
           chunkType: 'text' as const,
           content: 'Test content',
-          tokenCount: 12,
-          chunkSize: 55,
           contentHash: 'chunk1hash',
-          embedding: [], // Empty array
           createdAt: '2024-01-01T00:00:00Z',
+          embedding: [], // Empty array
+          fileRecordId: '1',
+          id: 'chunk1',
+          tokenCount: 12,
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ];
@@ -420,16 +420,16 @@ describe('CSV Export Utils', () => {
       // We'll create a scenario where a chunk passes the initial filter but fails the inner check
       const chunksWithMixedEmbeddings = [
         {
-          id: 'chunk1',
-          fileRecordId: '1',
           chunkIndex: 0,
+          chunkSize: 55,
           chunkType: 'text' as const,
           content: 'Test content',
-          tokenCount: 12,
-          chunkSize: 55,
           contentHash: 'chunk1hash',
-          embedding: [0.1, 0.2],
           createdAt: '2024-01-01T00:00:00Z',
+          embedding: [0.1, 0.2],
+          fileRecordId: '1',
+          id: 'chunk1',
+          tokenCount: 12,
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ];
@@ -439,10 +439,10 @@ describe('CSV Export Utils', () => {
       if (originalChunk) {
         // Simulate a chunk that has embedding but becomes null during processing
         Object.defineProperty(originalChunk, 'embedding', {
+          configurable: true,
+          enumerable: true,
           get: () => [0.1, 0.2], // Returns truthy for filter
           set: () => {}, // Allows setting but ignores
-          enumerable: true,
-          configurable: true,
         });
       }
 

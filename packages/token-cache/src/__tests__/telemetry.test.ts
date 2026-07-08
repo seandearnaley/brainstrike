@@ -40,16 +40,16 @@ describe('Token Indexer Telemetry', () => {
       listeners.push(addIndexerTelemetryListener(listener));
 
       const event: IndexerTelemetryEvent = {
-        timestamp: Date.now(),
-        event: 'indexed_file',
         compositeKey: 'folder::/file.ts',
-        folderId: 'folder',
-        filePath: '/file.ts',
-        tokenCount: 100,
-        mode: 'accurate',
-        fileSize: 1024,
         elapsedMs: 50,
+        event: 'indexed_file',
+        filePath: '/file.ts',
+        fileSize: 1024,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        timestamp: Date.now(),
+        tokenCount: 100,
       };
 
       emitIndexerTelemetry(event);
@@ -65,10 +65,10 @@ describe('Token Indexer Telemetry', () => {
       listeners.push(addIndexerTelemetryListener(listener2));
 
       const event: IndexerTelemetryEvent = {
-        timestamp: Date.now(),
-        event: 'indexing_error',
         compositeKey: 'folder::/file.ts',
         errorMessage: 'Failed to read file',
+        event: 'indexing_error',
+        timestamp: Date.now(),
       };
 
       emitIndexerTelemetry(event);
@@ -87,11 +87,11 @@ describe('Token Indexer Telemetry', () => {
       listeners.push(addIndexerTelemetryListener(goodListener));
 
       const event: IndexerTelemetryEvent = {
-        timestamp: Date.now(),
+        batchCompleted: 3,
+        batchTotal: 10,
         event: 'indexing_backlog',
         inFlight: 5,
-        batchTotal: 10,
-        batchCompleted: 3,
+        timestamp: Date.now(),
       };
 
       // Should not throw
@@ -108,11 +108,11 @@ describe('Token Indexer Telemetry', () => {
 
       // Emit an event
       emitIndexerTelemetry({
-        timestamp: Date.now(),
+        batchCompleted: 0,
+        batchTotal: 0,
         event: 'indexing_backlog',
         inFlight: 0,
-        batchTotal: 0,
-        batchCompleted: 0,
+        timestamp: Date.now(),
       });
 
       expect(listener).toHaveBeenCalledTimes(1);
@@ -122,11 +122,11 @@ describe('Token Indexer Telemetry', () => {
 
       // Emit another event
       emitIndexerTelemetry({
-        timestamp: Date.now(),
+        batchCompleted: 0,
+        batchTotal: 0,
         event: 'indexing_backlog',
         inFlight: 0,
-        batchTotal: 0,
-        batchCompleted: 0,
+        timestamp: Date.now(),
       });
 
       // Listener should not be called again
@@ -141,13 +141,13 @@ describe('Token Indexer Telemetry', () => {
 
       emitIndexedFile({
         compositeKey: 'folder::/src/index.ts',
-        folderId: 'folder',
-        filePath: '/src/index.ts',
-        tokenCount: 500,
-        mode: 'accurate',
-        fileSize: 2048,
         elapsedMs: 25,
+        filePath: '/src/index.ts',
+        fileSize: 2048,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 500,
       });
 
       expect(listener).toHaveBeenCalledTimes(1);
@@ -170,13 +170,13 @@ describe('Token Indexer Telemetry', () => {
 
       emitIndexedFile({
         compositeKey: 'folder::/cached.ts',
-        folderId: 'folder',
-        filePath: '/cached.ts',
-        tokenCount: 0, // Cache hits have 0 token count
-        mode: 'accurate',
-        fileSize: 1024,
         elapsedMs: 5, // Very fast - just hash check
+        filePath: '/cached.ts',
+        fileSize: 1024,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: true,
+        tokenCount: 0, // Cache hits have 0 token count
       });
 
       const event = listener.mock.calls[0]?.[0] as IndexedFileTelemetryEvent;
@@ -192,9 +192,9 @@ describe('Token Indexer Telemetry', () => {
 
       emitIndexingError({
         compositeKey: 'folder::/binary.bin',
-        folderId: 'folder',
-        filePath: '/binary.bin',
         errorMessage: 'Binary file - cannot count tokens',
+        filePath: '/binary.bin',
+        folderId: 'folder',
       });
 
       expect(listener).toHaveBeenCalledTimes(1);
@@ -226,9 +226,9 @@ describe('Token Indexer Telemetry', () => {
       listeners.push(addIndexerTelemetryListener(listener));
 
       emitIndexingBacklog({
-        inFlight: 10,
-        batchTotal: 50,
         batchCompleted: 25,
+        batchTotal: 50,
+        inFlight: 10,
       });
 
       expect(listener).toHaveBeenCalledTimes(1);
@@ -249,36 +249,36 @@ describe('Token Indexer Telemetry', () => {
       // Emit some indexed_file events
       emitIndexedFile({
         compositeKey: 'f1',
-        folderId: 'folder',
-        filePath: '/f1.ts',
-        tokenCount: 100,
-        mode: 'accurate',
-        fileSize: 1024,
         elapsedMs: 10,
+        filePath: '/f1.ts',
+        fileSize: 1024,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 100,
       });
 
       emitIndexedFile({
         compositeKey: 'f2',
-        folderId: 'folder',
-        filePath: '/f2.ts',
-        tokenCount: 200,
-        mode: 'accurate',
-        fileSize: 2048,
         elapsedMs: 20,
+        filePath: '/f2.ts',
+        fileSize: 2048,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 200,
       });
 
       // Emit a cache hit
       emitIndexedFile({
         compositeKey: 'f3',
-        folderId: 'folder',
-        filePath: '/f3.ts',
-        tokenCount: 0,
-        mode: 'accurate',
-        fileSize: 512,
         elapsedMs: 2,
+        filePath: '/f3.ts',
+        fileSize: 512,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: true,
+        tokenCount: 0,
       });
 
       // Emit an error
@@ -310,13 +310,13 @@ describe('Token Indexer Telemetry', () => {
       // Emit an event at t=0
       emitIndexedFile({
         compositeKey: 'old',
-        folderId: 'folder',
-        filePath: '/old.ts',
-        tokenCount: 100,
-        mode: 'accurate',
-        fileSize: 1024,
         elapsedMs: 10,
+        filePath: '/old.ts',
+        fileSize: 1024,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 100,
       });
 
       // Advance time past the window
@@ -325,13 +325,13 @@ describe('Token Indexer Telemetry', () => {
       // Emit a new event
       emitIndexedFile({
         compositeKey: 'new',
-        folderId: 'folder',
-        filePath: '/new.ts',
-        tokenCount: 200,
-        mode: 'accurate',
-        fileSize: 2048,
         elapsedMs: 20,
+        filePath: '/new.ts',
+        fileSize: 2048,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 200,
       });
 
       const stats = snapshot();
@@ -350,13 +350,13 @@ describe('Token Indexer Telemetry', () => {
       for (const [i, elapsedMs] of latencies.entries()) {
         emitIndexedFile({
           compositeKey: `f${i}`,
-          folderId: 'folder',
-          filePath: `/f${i}.ts`,
-          tokenCount: 100,
-          mode: 'accurate',
-          fileSize: 1024,
           elapsedMs,
+          filePath: `/f${i}.ts`,
+          fileSize: 1024,
+          folderId: 'folder',
+          mode: 'accurate',
           skipped: false,
+          tokenCount: 100,
         });
       }
 
@@ -375,13 +375,13 @@ describe('Token Indexer Telemetry', () => {
 
       emitIndexedFile({
         compositeKey: 'f1',
-        folderId: 'folder',
-        filePath: '/f1.ts',
-        tokenCount: 100,
-        mode: 'accurate',
-        fileSize: 1024,
         elapsedMs: 10,
+        filePath: '/f1.ts',
+        fileSize: 1024,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 100,
       });
 
       // Advance time significantly
@@ -389,13 +389,13 @@ describe('Token Indexer Telemetry', () => {
 
       emitIndexedFile({
         compositeKey: 'f2',
-        folderId: 'folder',
-        filePath: '/f2.ts',
-        tokenCount: 200,
-        mode: 'accurate',
-        fileSize: 2048,
         elapsedMs: 20,
+        filePath: '/f2.ts',
+        fileSize: 2048,
+        folderId: 'folder',
+        mode: 'accurate',
         skipped: false,
+        tokenCount: 200,
       });
 
       const stats = snapshot();
@@ -429,13 +429,13 @@ describe('Token Indexer Telemetry', () => {
       for (let i = 0; i < 10; i++) {
         emitIndexedFile({
           compositeKey: `f${i}`,
-          folderId: 'folder',
-          filePath: `/f${i}.ts`,
-          tokenCount: 100,
-          mode: 'accurate',
-          fileSize: 1024,
           elapsedMs: 10,
+          filePath: `/f${i}.ts`,
+          fileSize: 1024,
+          folderId: 'folder',
+          mode: 'accurate',
           skipped: false,
+          tokenCount: 100,
         });
       }
 

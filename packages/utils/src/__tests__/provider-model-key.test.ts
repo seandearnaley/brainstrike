@@ -14,15 +14,15 @@ describe('provider-model-key', () => {
 
   it('parses canonical composite keys', () => {
     expect(parseProviderModelKey('openai::text-embedding-3-small')).toEqual({
-      provider: 'openai',
       modelId: 'text-embedding-3-small',
+      provider: 'openai',
     });
   });
 
   it('parses legacy provider:model keys', () => {
     expect(parseProviderModelKey('local:all-MiniLM-L6-v2')).toEqual({
-      provider: 'local',
       modelId: 'all-MiniLM-L6-v2',
+      provider: 'local',
     });
   });
 

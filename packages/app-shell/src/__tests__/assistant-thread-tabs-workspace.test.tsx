@@ -8,8 +8,8 @@ import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace
 const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   dbMocks: {
     database: undefined as unknown,
-    initializing: false,
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+    initializing: false,
     providerError: null as Error | null,
   },
   fileExplorerMocks: {
@@ -28,8 +28,8 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
+  useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
@@ -63,17 +63,17 @@ describe('AssistantThreadTabsWorkspace', () => {
       0,
       threadRows.length,
       {
+        createdAt: new Date('2026-04-22T09:00:00Z'),
         id: 'thread-a',
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Purchasing app search log',
-        createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
       {
+        createdAt: new Date('2026-04-22T09:00:00Z'),
         id: 'thread-b',
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Amazon Bedrock Converse',
-        createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T10:00:00Z'),
       }
     );
@@ -91,10 +91,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('INSERT INTO mastra_threads')) {
         threadRows.unshift({
+          createdAt: params?.[4],
           id: String(params?.[0]),
           resourceId: String(params?.[1]),
           title: String(params?.[2]),
-          createdAt: params?.[4],
           updatedAt: params?.[5],
         });
       }
@@ -197,8 +197,8 @@ describe('AssistantThreadTabsWorkspace', () => {
       useAssistantThreadStore.setState({
         loadStateByResourceId: {
           [WORKSPACE_MEMORY_RESOURCE_ID]: {
-            status: 'error',
             error: 'PGlite failed to initialize.',
+            status: 'error',
           },
         },
       });

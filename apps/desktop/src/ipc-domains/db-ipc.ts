@@ -534,7 +534,7 @@ export function registerDatabaseIpcHandlers(
     ) => {
       const record = liveSubscriptions.get(Number(payload?.id));
       if (!record) {
-        return { success: false, message: 'Subscription not found' };
+        return { message: 'Subscription not found', success: false };
       }
       return runScheduledDatabaseWork(
         event,

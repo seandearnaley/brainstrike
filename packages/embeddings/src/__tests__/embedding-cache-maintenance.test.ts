@@ -18,7 +18,7 @@ describe('EmbeddingCacheMaintenanceController', () => {
     const firstMaintenance = deferred<{ needed: boolean; evicted: number; totalEntries: number }>();
     const cache: EmbeddingCacheInterface = {
       evictIfNeeded: vi.fn(() => firstMaintenance.promise),
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       getStats: vi.fn(async () => ({
         newestAccessedAt: null,
@@ -58,7 +58,7 @@ describe('EmbeddingCacheMaintenanceController', () => {
     const firstMaintenance = deferred<{ needed: boolean; evicted: number; totalEntries: number }>();
     const cache: EmbeddingCacheInterface = {
       evictIfNeeded: vi.fn(() => firstMaintenance.promise),
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       getStats: vi.fn(async () => ({
         newestAccessedAt: null,
@@ -110,7 +110,7 @@ describe('EmbeddingCacheMaintenanceController', () => {
   it('does not repeat eviction after stats logging fails for an already-maintained generation', async () => {
     const cache: EmbeddingCacheInterface = {
       evictIfNeeded: vi.fn(async () => ({ evicted: 0, needed: false, totalEntries: 1 })),
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       getStats: vi.fn(async () => {
         throw new Error('stats unavailable');

@@ -107,12 +107,12 @@ export interface SerializedSelectionModel {
  */
 export function createEmptySelectionModel(): SelectionModel {
   return {
-    mode: 'explicit',
     explicitPaths: new Set(),
-    ruleSetJson: null,
-    materializedPaths: null,
     materializedAt: null,
+    materializedPaths: null,
+    mode: 'explicit',
     queryDescriptor: null,
+    ruleSetJson: null,
   };
 }
 
@@ -480,14 +480,9 @@ export const DEFAULT_TOKEN_BUDGET = 100_000;
 export const DEFAULT_STATE = {
   // Multi-root (Phase 4) — empty initial state (single-root compat)
   activeRootIds: [] as string[],
-  rootDescriptors: {} as Record<string, StoredRootDescriptor>,
-  selectedFilePaths: new Set<string>(),
-  expandedDirectoryPaths: new Set<string>(),
-  // Show EVERYTHING by default — filtering is opt-in via presets/chips. A
-  // code-glob default silently masquerades as "all files" on fresh profiles
-  // and during the pre-rehydration boot window ("a typescript filter was
-  // applied but the dropdown said All Files").
-  includeFilters: [] as string[],
+  devInlineFixtureEnabled: false,
+  disabledExcludeFilters: new Set<string>(),
+  disabledIncludeFilters: new Set<string>(),
   // .git is excluded by default because view filter globs match dot-paths
   // (dot:true) — without it the repository object store floods the tree.
   excludeFilters: [
@@ -499,24 +494,29 @@ export const DEFAULT_STATE = {
     'test-results',
     'playwright-report',
   ] as string[],
-  useRegex: false,
-  includeProjectTree: true,
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
+  expandedDirectoryPaths: new Set<string>(),
+  fileContents: {} as Record<string, string>,
+  folderAccessOrder: [] as string[],
   // Used only when generating reports
   folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
-  maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
-  lastActiveTab: 'files',
-  folderAccessOrder: [] as string[],
-  fileContents: {} as Record<string, string>,
-  quickFilter: '',
-  querySelectionManifest: null as QuerySelectionManifest | null,
-  devInlineFixtureEnabled: false,
-  selectionModel: createEmptySelectionModel(),
+  // Show EVERYTHING by default — filtering is opt-in via presets/chips. A
+  // code-glob default silently masquerades as "all files" on fresh profiles
+  // and during the pre-rehydration boot window ("a typescript filter was
+  // applied but the dropdown said All Files").
+  includeFilters: [] as string[],
+  includeProjectTree: true,
   isAccessLoading: false,
-  selectionVersion: 0,
-  viewFilterPresetId: null as string | null,
-  disabledIncludeFilters: new Set<string>(),
-  disabledExcludeFilters: new Set<string>(),
-  isFiltersExpanded: true,
   isFilterChipsVisible: true,
+  isFiltersExpanded: true,
+  lastActiveTab: 'files',
+  maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+  querySelectionManifest: null as QuerySelectionManifest | null,
+  quickFilter: '',
+  rootDescriptors: {} as Record<string, StoredRootDescriptor>,
+  selectedFilePaths: new Set<string>(),
+  selectionModel: createEmptySelectionModel(),
+  selectionVersion: 0,
+  tokenBudget: DEFAULT_TOKEN_BUDGET,
+  useRegex: false,
+  viewFilterPresetId: null as string | null,
 } as const;

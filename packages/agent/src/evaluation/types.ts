@@ -139,8 +139,8 @@ export interface EvaluationConfig {
  * Default evaluation configuration.
  */
 export const DEFAULT_EVALUATION_CONFIG: EvaluationConfig = {
-  kValues: [1, 3, 5, 10],
-  verbose: false,
   concurrency: 1,
+  kValues: [1, 3, 5, 10],
   timeoutMs: 30_000,
+  verbose: false,
 };

@@ -40,14 +40,14 @@ function recordingRunner(canned: GitCommandRun): {
     calls.push({ args, cwd });
     return Promise.resolve(canned);
   };
-  return { runner, calls };
+  return { calls, runner };
 }
 
 afterEach(async () => {
   while (createdDirs.length > 0) {
     const dir = createdDirs.pop();
     if (dir) {
-      await fsPromises.rm(dir, { recursive: true, force: true });
+      await fsPromises.rm(dir, { force: true, recursive: true });
     }
   }
 });
@@ -56,8 +56,8 @@ describe('git IPC handlers — root resolution + containment', () => {
   it('rejects a missing/empty rootId without running git', async () => {
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: '',
       stderr: '',
+      stdout: '',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({ resolver: fakeResolver([]), run: runner });
@@ -76,8 +76,8 @@ describe('git IPC handlers — root resolution + containment', () => {
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: '',
       stderr: '',
+      stdout: '',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -97,8 +97,8 @@ describe('git IPC handlers — root resolution + containment', () => {
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: '# branch.head main\n',
       stderr: '',
+      stdout: '# branch.head main\n',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -119,8 +119,8 @@ describe('git IPC handlers — root resolution + containment', () => {
     const missing = path.join(dir, 'gone');
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: '',
       stderr: '',
+      stdout: '',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -139,8 +139,8 @@ describe('git IPC handlers — root resolution + containment', () => {
   it('rejects a root with no local filesystem path (web/FSA root)', async () => {
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: '',
       stderr: '',
+      stdout: '',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -174,8 +174,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 128,
-      stdout: '',
       stderr: 'fatal: could not read Username for https://example.com: terminal prompts disabled',
+      stdout: '',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -205,8 +205,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const dir = await makeDir();
     // Per-call responses: the upstream probe succeeds, then the push succeeds.
     const responses = [
-      { exitCode: 0, stdout: 'origin/main\n', stderr: '', timedOut: false },
-      { exitCode: 0, stdout: 'Everything up-to-date\n', stderr: '', timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'origin/main\n', timedOut: false },
+      { exitCode: 0, stderr: '', stdout: 'Everything up-to-date\n', timedOut: false },
     ];
     let index = 0;
     const calls: { args: readonly string[]; cwd: string }[] = [];
@@ -218,8 +218,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
         index += 1;
         return Promise.resolve({
           exitCode: response?.exitCode ?? 0,
-          stdout: response?.stdout ?? '',
           stderr: response?.stderr ?? '',
+          stdout: response?.stdout ?? '',
           timedOut: false,
         });
       },
@@ -235,8 +235,8 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: 'Already up to date.\n',
       stderr: '',
+      stdout: 'Already up to date.\n',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({
@@ -256,10 +256,10 @@ describe('git IPC handlers — push/pull command construction (no network)', () 
     const dir = await makeDir();
     const { runner } = recordingRunner({
       exitCode: null,
-      stdout: '',
-      stderr: '',
-      timedOut: true,
       failureReason: 'timeout',
+      stderr: '',
+      stdout: '',
+      timedOut: true,
     });
     const handlers = createGitIpcHandlers({
       resolver: fakeResolver([{ displayName: 'repo', path: dir, rootId: 'r1' }]),
@@ -279,8 +279,8 @@ describe('git IPC handlers — commit arg construction (no shell)', () => {
     const dir = await makeDir();
     const { runner, calls } = recordingRunner({
       exitCode: 0,
-      stdout: 'abc1234',
       stderr: '',
+      stdout: 'abc1234',
       timedOut: false,
     });
     const handlers = createGitIpcHandlers({

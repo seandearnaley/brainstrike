@@ -47,7 +47,7 @@ describe('runStatementsInTransaction (pglite integration)', () => {
 
     const result = await runStatementsInTransaction(
       db,
-      [{ sql: 'SELECT $1::int AS n', params: [42] }, { sql: 'SELECT 99 AS n' }],
+      [{ params: [42], sql: 'SELECT $1::int AS n' }, { sql: 'SELECT 99 AS n' }],
       0
     );
     expect((result.rows[0] as { n: number }).n).toBe(42);

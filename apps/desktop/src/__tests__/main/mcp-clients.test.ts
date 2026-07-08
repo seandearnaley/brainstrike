@@ -23,11 +23,11 @@ describe('mcp-clients', () => {
     initClients({
       servers: [
         {
-          transport: 'stdio',
-          name: 'filesystem',
-          command: process.execPath,
           args: [filesystemServerEntrypoint, '/tmp'],
+          command: process.execPath,
           env: {},
+          name: 'filesystem',
+          transport: 'stdio',
         },
       ],
     });
@@ -41,11 +41,11 @@ describe('mcp-clients', () => {
 
   test('hot re-init replaces clients', async () => {
     initClients({
-      servers: [{ transport: 'stdio', name: 'filesystem', command: 'node', args: ['-e', ''] }],
+      servers: [{ args: ['-e', ''], command: 'node', name: 'filesystem', transport: 'stdio' }],
     });
     const c1 = getClient('filesystem');
     expect(c1).toBeTruthy();
-    initClients({ servers: [{ transport: 'sse', name: 'web', url: 'http://localhost:7801/sse' }] });
+    initClients({ servers: [{ name: 'web', transport: 'sse', url: 'http://localhost:7801/sse' }] });
     const c2 = getClient('filesystem');
     expect(c2).toBeUndefined();
   });
@@ -62,11 +62,11 @@ describe('mcp-clients', () => {
       initClients({
         servers: [
           {
-            transport: 'stdio',
-            name: 'filesystem',
-            command: process.execPath,
             args: [filesystemServerEntrypoint, realTmp],
+            command: process.execPath,
             env: {},
+            name: 'filesystem',
+            transport: 'stdio',
           },
         ],
       });
@@ -79,7 +79,7 @@ describe('mcp-clients', () => {
       expect(res?.content?.[0]?.text).toContain('foo.txt');
       expect(res?.content?.[0]?.text).toContain('docs');
     } finally {
-      await fsp.rm(tmp, { recursive: true, force: true });
+      await fsp.rm(tmp, { force: true, recursive: true });
     }
   }, 30_000);
 });

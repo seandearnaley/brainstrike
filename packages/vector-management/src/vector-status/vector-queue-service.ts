@@ -61,7 +61,7 @@ export interface VectorQueueSnapshot {
 }
 
 export interface VectorQueueDatabase {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 export interface VectorQueueServiceDependencies {
@@ -153,16 +153,16 @@ async function getEmbeddingSetQueueCounts(
   const row = result.rows[0];
   if (!row) {
     return {
+      failed: 0,
       queued: 0,
       running: 0,
-      failed: 0,
       succeeded: 0,
     };
   }
   return {
+    failed: Number(row.failed ?? 0),
     queued: Number(row.queued ?? 0),
     running: Number(row.running ?? 0),
-    failed: Number(row.failed ?? 0),
     succeeded: Number(row.succeeded ?? 0),
   };
 }
@@ -260,8 +260,8 @@ export interface ReembedResult {
 }
 
 export interface VectorQueueService {
-  backfill(activeSetId: string, options: BackfillOptions): Promise<QueueCounts>;
-  clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
+  backfill: (activeSetId: string, options: BackfillOptions) => Promise<QueueCounts>;
+  clearQueue: (states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>) => Promise<void>;
   /**
    * Re-embed workflow: clears existing embeddings and triggers backfill.
    * Use this when switching models or when embeddings need to be regenerated.
@@ -288,15 +288,18 @@ export interface VectorQueueService {
    * @param onProgress - Progress callback for the backfill phase
    * @returns Result with cleared count and final queue counts
    */
-  reembedSet(embeddingSetId: string, onProgress: BackfillProgressHandler): Promise<ReembedResult>;
-  refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
-  retryFailed(limit: number): Promise<void>;
+  reembedSet: (
+    embeddingSetId: string,
+    onProgress: BackfillProgressHandler
+  ) => Promise<ReembedResult>;
+  refresh: (activeSetId: string | null) => Promise<VectorQueueSnapshot>;
+  retryFailed: (limit: number) => Promise<void>;
   /**
    * Validates that the API key is available for the embedding set's model.
    * Call this before backfill to prevent enqueueing jobs that will fail.
    */
-  validateApiKeyForSet(embeddingSetId: string): Promise<ApiKeyValidation>;
-  wipeQueue(): Promise<void>;
+  validateApiKeyForSet: (embeddingSetId: string) => Promise<ApiKeyValidation>;
+  wipeQueue: () => Promise<void>;
 }
 
 export function createVectorQueueService(
@@ -305,93 +308,15 @@ export function createVectorQueueService(
   const { db, jobQueue, chunkRepository } = dependencies;
 
   const defaultCounts: QueueCounts = {
+    failed: 0,
     queued: 0,
     running: 0,
-    failed: 0,
     succeeded: 0,
   };
 
   const defaultLatency: LatencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
 
   return {
-    async refresh(activeSetId) {
-      const since = new Date(Date.now() - 60_000).toISOString();
-      const [queueStats, throughputRows, lastErrorRows, latencyRows, coverage] = await Promise.all([
-        jobQueue.getQueueStats(EMBEDDINGS_QUEUE),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count
-             FROM job_queue
-            WHERE queue = $1 AND state = 'succeeded' AND updated_at >= $2`,
-          [EMBEDDINGS_QUEUE, since]
-        ),
-        db.query<{ error: string | null }>(
-          `SELECT error
-             FROM job_queue
-            WHERE state = 'failed'
-              AND queue = $1
-         ORDER BY updated_at DESC
-            LIMIT 1`,
-          [EMBEDDINGS_QUEUE]
-        ),
-        db.query<{ runAt: string; updatedAt: string }>(
-          `SELECT run_at AS "runAt", updated_at AS "updatedAt"
-             FROM job_queue
-            WHERE queue = $1
-              AND state = 'succeeded'
-              AND updated_at >= $2
-         ORDER BY updated_at DESC
-            LIMIT 200`,
-          [EMBEDDINGS_QUEUE, since]
-        ),
-        activeSetId
-          ? chunkRepository.getCoverageForSet(activeSetId)
-          : Promise.resolve({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 }),
-      ]);
-
-      const stats = queueStats[0];
-      const queueCounts: QueueCounts = stats
-        ? {
-            queued: stats.queued,
-            running: stats.running,
-            failed: stats.failed,
-            succeeded: stats.succeeded,
-          }
-        : defaultCounts;
-
-      const throughput = Number(throughputRows.rows[0]?.count ?? 0);
-      const lastError = lastErrorRows.rows[0]?.error ?? null;
-      const latency = calculateLatency(latencyRows.rows) ?? defaultLatency;
-
-      const coverageSnapshot: CoverageSnapshot | null = activeSetId
-        ? {
-            total: coverage.totalChunks,
-            withSet: coverage.chunksWithEmbeddingsForSet,
-          }
-        : null;
-
-      return {
-        coverage: coverageSnapshot,
-        queueCounts,
-        throughput,
-        lastError,
-        latency,
-      };
-    },
-
-    async validateApiKeyForSet(embeddingSetId): Promise<ApiKeyValidation> {
-      try {
-        const setMetadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
-        const validation = await checkApiKeyAvailability(setMetadata.modelKey);
-        if (validation.available) {
-          return { valid: true };
-        }
-        return { valid: false, reason: validation.reason, message: validation.message };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to validate API key';
-        return { valid: false, reason: 'validation-error', message };
-      }
-    },
-
     async backfill(activeSetId, options) {
       const { onProgress, signal } = options;
       const queueCapacityTimeoutMs =
@@ -407,18 +332,18 @@ export function createVectorQueueService(
       throwIfAborted(signal);
       const total = await countBackfillCandidates(db, activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
-        embeddingSetId: activeSetId,
-        modelKey: setMetadata.modelKey,
-        expectedDimension: setMetadata.expectedDimension,
         candidates: total,
+        embeddingSetId: activeSetId,
+        expectedDimension: setMetadata.expectedDimension,
+        modelKey: setMetadata.modelKey,
       });
       if (total === 0) {
         const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
         // An already-current incremental pass legitimately has no candidates;
         // diagnostics remain attached for investigation without surfacing a warning.
         logger.info('Backfill found no eligible chunks', {
-          embeddingSetId: activeSetId,
           diagnostics,
+          embeddingSetId: activeSetId,
         });
       }
       const failedBeforeBackfill = (await getEmbeddingSetQueueCounts(db, activeSetId)).failed;
@@ -450,8 +375,8 @@ export function createVectorQueueService(
           setMetadata
         );
         logger.debug('Embedded batch enqueued', {
-          embeddingSetId: activeSetId,
           batchSize: batch.length,
+          embeddingSetId: activeSetId,
           inserted,
         });
         done = Math.min(total, done + inserted);
@@ -479,31 +404,15 @@ export function createVectorQueueService(
       }
       logger.info('Backfill complete', {
         embeddingSetId: activeSetId,
-        total,
         enqueued: done,
         queueCounts: drainedCounts,
+        total,
       });
       return drainedCounts;
     },
 
-    async retryFailed(limit) {
-      const repairedQueued = await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, limit);
-      const requeuedFailed = await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
-      if (repairedQueued > 0 || requeuedFailed > 0) {
-        logger.warn('Retry recovered embedding queue jobs', {
-          repairedQueued,
-          requeuedFailed,
-          limit,
-        });
-      }
-    },
-
     async clearQueue(states) {
       await jobQueue.clear(EMBEDDINGS_QUEUE, states);
-    },
-
-    async wipeQueue() {
-      await jobQueue.clear(EMBEDDINGS_QUEUE);
     },
 
     async reembedSet(embeddingSetId, onProgress) {
@@ -511,18 +420,111 @@ export function createVectorQueueService(
 
       // Step 1: Clear existing embeddings for this set
       const clearedCount = await chunkRepository.clearEmbeddingsForSet(embeddingSetId);
-      logger.info('Cleared existing embeddings', { embeddingSetId, clearedCount });
+      logger.info('Cleared existing embeddings', { clearedCount, embeddingSetId });
 
       // Step 2: Trigger backfill to regenerate embeddings
       const queueCounts = await this.backfill(embeddingSetId, { onProgress });
 
       logger.info('Re-embed workflow complete', {
-        embeddingSetId,
         clearedCount,
+        embeddingSetId,
         queueCounts,
       });
 
       return { clearedCount, queueCounts };
+    },
+    async refresh(activeSetId) {
+      const since = new Date(Date.now() - 60_000).toISOString();
+      const [queueStats, throughputRows, lastErrorRows, latencyRows, coverage] = await Promise.all([
+        jobQueue.getQueueStats(EMBEDDINGS_QUEUE),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+             FROM job_queue
+            WHERE queue = $1 AND state = 'succeeded' AND updated_at >= $2`,
+          [EMBEDDINGS_QUEUE, since]
+        ),
+        db.query<{ error: string | null }>(
+          `SELECT error
+             FROM job_queue
+            WHERE state = 'failed'
+              AND queue = $1
+         ORDER BY updated_at DESC
+            LIMIT 1`,
+          [EMBEDDINGS_QUEUE]
+        ),
+        db.query<{ runAt: string; updatedAt: string }>(
+          `SELECT run_at AS "runAt", updated_at AS "updatedAt"
+             FROM job_queue
+            WHERE queue = $1
+              AND state = 'succeeded'
+              AND updated_at >= $2
+         ORDER BY updated_at DESC
+            LIMIT 200`,
+          [EMBEDDINGS_QUEUE, since]
+        ),
+        activeSetId
+          ? chunkRepository.getCoverageForSet(activeSetId)
+          : Promise.resolve({ chunksWithEmbeddingsForSet: 0, totalChunks: 0 }),
+      ]);
+
+      const stats = queueStats[0];
+      const queueCounts: QueueCounts = stats
+        ? {
+            failed: stats.failed,
+            queued: stats.queued,
+            running: stats.running,
+            succeeded: stats.succeeded,
+          }
+        : defaultCounts;
+
+      const throughput = Number(throughputRows.rows[0]?.count ?? 0);
+      const lastError = lastErrorRows.rows[0]?.error ?? null;
+      const latency = calculateLatency(latencyRows.rows) ?? defaultLatency;
+
+      const coverageSnapshot: CoverageSnapshot | null = activeSetId
+        ? {
+            total: coverage.totalChunks,
+            withSet: coverage.chunksWithEmbeddingsForSet,
+          }
+        : null;
+
+      return {
+        coverage: coverageSnapshot,
+        lastError,
+        latency,
+        queueCounts,
+        throughput,
+      };
+    },
+
+    async retryFailed(limit) {
+      const repairedQueued = await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, limit);
+      const requeuedFailed = await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
+      if (repairedQueued > 0 || requeuedFailed > 0) {
+        logger.warn('Retry recovered embedding queue jobs', {
+          limit,
+          repairedQueued,
+          requeuedFailed,
+        });
+      }
+    },
+
+    async validateApiKeyForSet(embeddingSetId): Promise<ApiKeyValidation> {
+      try {
+        const setMetadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
+        const validation = await checkApiKeyAvailability(setMetadata.modelKey);
+        if (validation.available) {
+          return { valid: true };
+        }
+        return { message: validation.message, reason: validation.reason, valid: false };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to validate API key';
+        return { message, reason: 'validation-error', valid: false };
+      }
+    },
+
+    async wipeQueue() {
+      await jobQueue.clear(EMBEDDINGS_QUEUE);
     },
   };
 }
@@ -634,12 +636,12 @@ async function loadBackfillCandidateDiagnostics(
   );
   const row = result.rows[0];
   return {
-    fileCount: Number(row?.fileCount ?? 0),
     chunkCount: Number(row?.chunkCount ?? 0),
-    pendingChunkCount: Number(row?.pendingChunkCount ?? 0),
     embeddedChunkCount: Number(row?.embeddedChunkCount ?? 0),
-    queuedOrRunningJobs: Number(row?.queuedOrRunningJobs ?? 0),
     failedJobs: Number(row?.failedJobs ?? 0),
+    fileCount: Number(row?.fileCount ?? 0),
+    pendingChunkCount: Number(row?.pendingChunkCount ?? 0),
+    queuedOrRunningJobs: Number(row?.queuedOrRunningJobs ?? 0),
   };
 }
 
@@ -662,12 +664,12 @@ async function recoverBackfillQueueState(
 
   logger.warn('Backfill recovered blocked embedding jobs', {
     embeddingSetId,
-    repairedQueued,
-    requeuedFailed,
-    recoveryLimit: BACKFILL_QUEUE_RECOVERY_LIMIT,
     mayHaveRemainingBlockedJobs:
       repairedQueued >= BACKFILL_QUEUE_RECOVERY_LIMIT ||
       requeuedFailed >= BACKFILL_QUEUE_RECOVERY_LIMIT,
+    recoveryLimit: BACKFILL_QUEUE_RECOVERY_LIMIT,
+    repairedQueued,
+    requeuedFailed,
   });
 }
 
@@ -744,15 +746,15 @@ async function resolveEmbeddingSetJobMetadata(
   const expectedDimension = Number(row.dimensions ?? Number.NaN);
   if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
     logger.error('Failed to resolve embedding set metadata (invalid dimension)', {
-      embeddingSetId,
       dimensions: row.dimensions,
+      embeddingSetId,
     });
     throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata`);
   }
 
   return {
-    modelKey: canonical.composite,
     expectedDimension,
+    modelKey: canonical.composite,
   };
 }
 
@@ -768,17 +770,17 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      queue: EMBEDDINGS_QUEUE,
+      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
       jobType: 'embed_chunk' as const,
+      maxAttempts: 5,
       payload: {
         chunkId: String(row.id),
-        fileRecordId: String(row.fileRecordId),
         embeddingSetId,
-        modelKey: metadata.modelKey,
         expectedDimension: metadata.expectedDimension,
+        fileRecordId: String(row.fileRecordId),
+        modelKey: metadata.modelKey,
       },
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
-      maxAttempts: 5,
+      queue: EMBEDDINGS_QUEUE,
     }))
   );
 

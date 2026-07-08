@@ -223,17 +223,17 @@ function parseTrackedEntry(line: string, isRename: boolean): GitStatusFile | nul
       path: newPath,
       ...(originalPath ? { originalPath } : {}),
       staged,
+      status: staged ? stagedCode : unstagedCode,
       unstaged,
       untracked: false,
-      status: staged ? stagedCode : unstagedCode,
     };
   }
   return {
     path: pathPortion,
     staged,
+    status: staged ? stagedCode : unstagedCode,
     unstaged,
     untracked: false,
-    status: staged ? stagedCode : unstagedCode,
   };
 }
 
@@ -283,16 +283,16 @@ function parseStatusLine(line: string): GitStatusFile | null {
     return {
       path: line.slice(2),
       staged: false,
+      status: '?',
       unstaged: false,
       untracked: true,
-      status: '?',
     };
   }
   if (line.startsWith('u ')) {
     // Unmerged: path begins after the 10 fixed header columns.
     const pathPortion = line.split(' ').slice(10).join(' ');
     if (pathPortion.length > 0) {
-      return { path: pathPortion, staged: true, unstaged: true, untracked: false, status: 'U' };
+      return { path: pathPortion, staged: true, status: 'U', unstaged: true, untracked: false };
     }
   }
   return null;
@@ -303,7 +303,7 @@ function parseStatusLine(line: string): GitStatusFile | null {
  * Pure and exported for direct unit testing.
  */
 export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'> {
-  const header: BranchHeader = { branch: null, upstream: null, ahead: null, behind: null };
+  const header: BranchHeader = { ahead: null, behind: null, branch: null, upstream: null };
   const files: GitStatusFile[] = [];
 
   for (const rawLine of stdout.split('\n')) {
@@ -322,12 +322,12 @@ export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'
   }
 
   return {
-    branch: header.branch,
-    upstream: header.upstream,
     ahead: header.ahead,
     behind: header.behind,
+    branch: header.branch,
     clean: files.length === 0,
     files,
+    upstream: header.upstream,
   };
 }
 
@@ -353,13 +353,13 @@ function resolveContainedPathArg(rawPath: string | undefined): GitResult<string 
     return { ok: true, value: null };
   }
   if (path.isAbsolute(trimmed)) {
-    return { ok: false, error: `path "${rawPath}" must be relative to the opened folder` };
+    return { error: `path "${rawPath}" must be relative to the opened folder`, ok: false };
   }
   // Normalize with POSIX semantics on a forward-slashed copy so `..` segments
   // are resolved; any remaining leading `..` means the path escapes the root.
   const normalized = path.posix.normalize(trimmed.replace(/\\/g, '/'));
   if (normalized === '..' || normalized.startsWith('../')) {
-    return { ok: false, error: `path "${rawPath}" escapes the opened folder` };
+    return { error: `path "${rawPath}" escapes the opened folder`, ok: false };
   }
   return { ok: true, value: normalized };
 }
@@ -395,13 +395,13 @@ async function assertUntrackedDiffPathContained(
     // it. A `..`/absolute relative means a symlinked ancestor escaped the root.
     const relative = path.relative(realRoot, realParent);
     if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      return { ok: false, error: `path "${pathArg}" resolves outside the opened folder` };
+      return { error: `path "${pathArg}" resolves outside the opened folder`, ok: false };
     }
     return { ok: true, value: null };
   } catch {
     // realpath throws if the parent directory does not exist; we cannot prove
     // containment, so refuse rather than risk an escape.
-    return { ok: false, error: `path "${pathArg}" could not be resolved inside the opened folder` };
+    return { error: `path "${pathArg}" could not be resolved inside the opened folder`, ok: false };
   }
 }
 
@@ -427,40 +427,89 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   return {
-    /** Porcelain status + branch + ahead/behind, parsed into a typed structure. */
-    status: async (): Promise<GitResult<GitStatus>> => {
+    /** Ahead/behind counts vs the upstream tracking ref. */
+    aheadBehind: async (): Promise<GitResult<GitAheadBehind>> => {
       try {
-        // Scope to the opened root ('-- .') so a root that is a SUBDIR of a
-        // larger worktree reports only its own changes — never sibling paths
-        // like `../other/file` that could then be passed back to diff/stage and
-        // escape the opened folder. `--branch` still yields the repo-wide branch
-        // header (ahead/behind), which is what the meter wants.
-        const run_ = await invoke(['status', '--porcelain=v2', '--branch', '--', '.']);
-        if (run_.exitCode !== 0) {
-          if (isNotARepository(run_)) {
-            // A non-repo (or web FSA root) is a clean, EXPECTED state — not an
-            // error. The caller renders "not a git repo", no crash.
-            return {
-              ok: true,
-              value: {
-                isRepository: false,
-                branch: null,
-                upstream: null,
-                ahead: null,
-                behind: null,
-                clean: true,
-                files: [],
-              },
-            };
-          }
-          return { ok: false, error: describeFailure(run_) };
+        // `@{upstream}` errors with exit 128 when no upstream is set — that is a
+        // valid state, not a failure.
+        const upstreamRun = await invoke([
+          'rev-parse',
+          '--abbrev-ref',
+          '--symbolic-full-name',
+          '@{upstream}',
+        ]);
+        if (upstreamRun.exitCode !== 0) {
+          return {
+            ok: true,
+            value: { ahead: null, behind: null, hasUpstream: false, upstream: null },
+          };
         }
+        const upstream = upstreamRun.stdout.trim() || null;
+        const countRun = await invoke([
+          'rev-list',
+          '--left-right',
+          '--count',
+          'HEAD...@{upstream}',
+        ]);
+        if (countRun.exitCode !== 0) {
+          return { error: describeFailure(countRun), ok: false };
+        }
+        // Output is "<ahead>\t<behind>".
+        const [aheadRaw, behindRaw] = countRun.stdout.trim().split(/\s+/);
+        const ahead = Number.parseInt(aheadRaw ?? '', 10);
+        const behind = Number.parseInt(behindRaw ?? '', 10);
         return {
           ok: true,
-          value: { isRepository: true, ...parsePorcelainV2(run_.stdout) },
+          value: {
+            ahead: Number.isNaN(ahead) ? null : ahead,
+            behind: Number.isNaN(behind) ? null : behind,
+            hasUpstream: true,
+            upstream,
+          },
         };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /**
+     * Commit the staged changes with `message`. The message is passed as a
+     * single `execFile` argument (`-m <message>`), so shell metacharacters in it
+     * are inert — they become the literal commit message, never executed.
+     */
+    commit: async (params: { message: string }): Promise<GitResult<GitCommitResult>> => {
+      try {
+        const message = params.message;
+        if (typeof message !== 'string' || message.trim().length === 0) {
+          return { error: 'commit message must be a non-empty string', ok: false };
+        }
+        const run_ = await invoke(['commit', '-m', message]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        // Resolve the new commit hash + branch without re-parsing porcelain noise.
+        // The commit landed; a failed hash rev-parse is a REAL error, not a blank
+        // hash returned as success (no-silent-fallbacks, per this file's header).
+        const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
+        if (hashRun.exitCode !== 0) {
+          return {
+            error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
+            ok: false,
+          };
+        }
+        // Branch is best-effort metadata: a detached HEAD legitimately resolves to
+        // `HEAD` → null; only an exit-0 result is trusted as a real branch name.
+        const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
+        const branchName = branchRun.exitCode === 0 ? branchRun.stdout.trim() : '';
+        return {
+          ok: true,
+          value: {
+            branch: branchName.length > 0 && branchName !== 'HEAD' ? branchName : null,
+            commit: hashRun.stdout.trim(),
+          },
+        };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
       }
     },
 
@@ -515,142 +564,35 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         // `--no-index`, exit code 1 means "files differ" (expected success).
         const noIndexDiffered = untracked && run_.exitCode === 1;
         if (run_.exitCode !== 0 && run_.failureReason !== 'maxBuffer' && !noIndexDiffered) {
-          return { ok: false, error: describeFailure(run_) };
+          return { error: describeFailure(run_), ok: false };
         }
         const overflowed = run_.failureReason === 'maxBuffer';
         const bounded = boundOutput(run_.stdout);
         return {
           ok: true,
           value: {
-            staged,
             path: pathArg,
-            unifiedDiff: bounded.text,
+            staged,
             truncated: bounded.truncated || overflowed,
+            unifiedDiff: bounded.text,
           },
         };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
       }
     },
 
-    /** Stage a path (or all changes within the opened root): `git add`. */
-    stage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
+    /** Pull (fetch + merge) from the upstream remote (network op). */
+    pull: async (): Promise<GitResult<GitPushPullResult>> => {
       try {
-        const pathResult = resolveContainedPathArg(params.path);
-        if (!pathResult.ok) {
-          return pathResult;
-        }
-        // No path → scope to the opened root ('.'), never the whole worktree.
-        const run_ = await invoke(['add', '--', pathResult.value ?? '.']);
+        const run_ = await invoke(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
-          return { ok: false, error: describeFailure(run_) };
+          return { error: describeFailure(run_), ok: false };
         }
-        return { ok: true, value: null };
+        const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
+        return { ok: true, value: { output: bounded.text } };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
-      }
-    },
-
-    /** Unstage a path (or all within the opened root): `git restore --staged`. */
-    unstage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
-      try {
-        const pathResult = resolveContainedPathArg(params.path);
-        if (!pathResult.ok) {
-          return pathResult;
-        }
-        const run_ = await invoke(['restore', '--staged', '--', pathResult.value ?? '.']);
-        if (run_.exitCode !== 0) {
-          return { ok: false, error: describeFailure(run_) };
-        }
-        return { ok: true, value: null };
-      } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
-      }
-    },
-
-    /**
-     * Commit the staged changes with `message`. The message is passed as a
-     * single `execFile` argument (`-m <message>`), so shell metacharacters in it
-     * are inert — they become the literal commit message, never executed.
-     */
-    commit: async (params: { message: string }): Promise<GitResult<GitCommitResult>> => {
-      try {
-        const message = params.message;
-        if (typeof message !== 'string' || message.trim().length === 0) {
-          return { ok: false, error: 'commit message must be a non-empty string' };
-        }
-        const run_ = await invoke(['commit', '-m', message]);
-        if (run_.exitCode !== 0) {
-          return { ok: false, error: describeFailure(run_) };
-        }
-        // Resolve the new commit hash + branch without re-parsing porcelain noise.
-        // The commit landed; a failed hash rev-parse is a REAL error, not a blank
-        // hash returned as success (no-silent-fallbacks, per this file's header).
-        const hashRun = await invoke(['rev-parse', '--short', 'HEAD']);
-        if (hashRun.exitCode !== 0) {
-          return {
-            ok: false,
-            error: `commit created but resolving its hash failed: ${describeFailure(hashRun)}`,
-          };
-        }
-        // Branch is best-effort metadata: a detached HEAD legitimately resolves to
-        // `HEAD` → null; only an exit-0 result is trusted as a real branch name.
-        const branchRun = await invoke(['rev-parse', '--abbrev-ref', 'HEAD']);
-        const branchName = branchRun.exitCode === 0 ? branchRun.stdout.trim() : '';
-        return {
-          ok: true,
-          value: {
-            commit: hashRun.stdout.trim(),
-            branch: branchName.length > 0 && branchName !== 'HEAD' ? branchName : null,
-          },
-        };
-      } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
-      }
-    },
-
-    /** Ahead/behind counts vs the upstream tracking ref. */
-    aheadBehind: async (): Promise<GitResult<GitAheadBehind>> => {
-      try {
-        // `@{upstream}` errors with exit 128 when no upstream is set — that is a
-        // valid state, not a failure.
-        const upstreamRun = await invoke([
-          'rev-parse',
-          '--abbrev-ref',
-          '--symbolic-full-name',
-          '@{upstream}',
-        ]);
-        if (upstreamRun.exitCode !== 0) {
-          return {
-            ok: true,
-            value: { hasUpstream: false, upstream: null, ahead: null, behind: null },
-          };
-        }
-        const upstream = upstreamRun.stdout.trim() || null;
-        const countRun = await invoke([
-          'rev-list',
-          '--left-right',
-          '--count',
-          'HEAD...@{upstream}',
-        ]);
-        if (countRun.exitCode !== 0) {
-          return { ok: false, error: describeFailure(countRun) };
-        }
-        // Output is "<ahead>\t<behind>".
-        const [aheadRaw, behindRaw] = countRun.stdout.trim().split(/\s+/);
-        const ahead = Number.parseInt(aheadRaw ?? '', 10);
-        const behind = Number.parseInt(behindRaw ?? '', 10);
-        return {
-          ok: true,
-          value: {
-            hasUpstream: true,
-            upstream,
-            ahead: Number.isNaN(ahead) ? null : ahead,
-            behind: Number.isNaN(behind) ? null : behind,
-          },
-        };
-      } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
       }
     },
 
@@ -680,26 +622,83 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
             ['push', '-u', 'origin', 'HEAD'];
         const run_ = await invoke(args, GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
-          return { ok: false, error: describeFailure(run_) };
+          return { error: describeFailure(run_), ok: false };
         }
         const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
         return { ok: true, value: { output: bounded.text } };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
       }
     },
 
-    /** Pull (fetch + merge) from the upstream remote (network op). */
-    pull: async (): Promise<GitResult<GitPushPullResult>> => {
+    /** Stage a path (or all changes within the opened root): `git add`. */
+    stage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
       try {
-        const run_ = await invoke(['pull'], GIT_NETWORK_TIMEOUT_MS);
-        if (run_.exitCode !== 0) {
-          return { ok: false, error: describeFailure(run_) };
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!pathResult.ok) {
+          return pathResult;
         }
-        const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
-        return { ok: true, value: { output: bounded.text } };
+        // No path → scope to the opened root ('.'), never the whole worktree.
+        const run_ = await invoke(['add', '--', pathResult.value ?? '.']);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: null };
       } catch (error) {
-        return { ok: false, error: toErrorMessage(error) };
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+    /** Porcelain status + branch + ahead/behind, parsed into a typed structure. */
+    status: async (): Promise<GitResult<GitStatus>> => {
+      try {
+        // Scope to the opened root ('-- .') so a root that is a SUBDIR of a
+        // larger worktree reports only its own changes — never sibling paths
+        // like `../other/file` that could then be passed back to diff/stage and
+        // escape the opened folder. `--branch` still yields the repo-wide branch
+        // header (ahead/behind), which is what the meter wants.
+        const run_ = await invoke(['status', '--porcelain=v2', '--branch', '--', '.']);
+        if (run_.exitCode !== 0) {
+          if (isNotARepository(run_)) {
+            // A non-repo (or web FSA root) is a clean, EXPECTED state — not an
+            // error. The caller renders "not a git repo", no crash.
+            return {
+              ok: true,
+              value: {
+                ahead: null,
+                behind: null,
+                branch: null,
+                clean: true,
+                files: [],
+                isRepository: false,
+                upstream: null,
+              },
+            };
+          }
+          return { error: describeFailure(run_), ok: false };
+        }
+        return {
+          ok: true,
+          value: { isRepository: true, ...parsePorcelainV2(run_.stdout) },
+        };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
+    /** Unstage a path (or all within the opened root): `git restore --staged`. */
+    unstage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
+      try {
+        const pathResult = resolveContainedPathArg(params.path);
+        if (!pathResult.ok) {
+          return pathResult;
+        }
+        const run_ = await invoke(['restore', '--staged', '--', pathResult.value ?? '.']);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: null };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
       }
     },
   };

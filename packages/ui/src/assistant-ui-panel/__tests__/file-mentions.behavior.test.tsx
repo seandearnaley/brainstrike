@@ -124,7 +124,7 @@ describe('composer @file mentions', () => {
       )
     );
     expect(parseFileMentionDirectives(input.value)).toEqual([
-      expect.objectContaining({ rootId: 'root-1', path: 'src/a}b.ts' }),
+      expect.objectContaining({ path: 'src/a}b.ts', rootId: 'root-1' }),
     ]);
   });
 

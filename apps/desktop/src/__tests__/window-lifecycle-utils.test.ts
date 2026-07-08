@@ -6,6 +6,8 @@ import { waitForWindowClosed } from '../window-lifecycle-utils';
 function createMockWindow(destroyed = false): BrowserWindow {
   const emitter = new EventEmitter();
   return {
+    // expose emitter for test control
+    _emit: (event: string) => emitter.emit(event),
     isDestroyed: vi.fn(() => destroyed),
     on: vi.fn((event: string, listener: () => void) => {
       emitter.on(event, listener);
@@ -15,8 +17,6 @@ function createMockWindow(destroyed = false): BrowserWindow {
       emitter.removeListener(event, listener);
       return emitter;
     }),
-    // expose emitter for test control
-    _emit: (event: string) => emitter.emit(event),
   } as unknown as BrowserWindow & { _emit: (event: string) => boolean };
 }
 

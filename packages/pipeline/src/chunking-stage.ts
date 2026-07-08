@@ -100,7 +100,7 @@ export interface ChunkingWorkerPortLike {
   /**
    * Chunk multiple files in a batch.
    */
-  chunkBatch?(
+  chunkBatch?: (
     files: Array<{
       fileRecordId: string;
       content: string;
@@ -118,27 +118,27 @@ export interface ChunkingWorkerPortLike {
       onFileComplete?: (fileRecordId: string, result: WorkerChunkResult) => void;
       onFileError?: (fileRecordId: string, error: string) => void;
     }
-  ): Promise<WorkerChunkResult[]>;
+  ) => Promise<WorkerChunkResult[]>;
   /**
    * Chunk a single file.
    */
-  chunkFile(
+  chunkFile: (
     fileRecordId: string,
     content: string,
     fileName: string,
     filePath: string,
     options: ChunkingRequestOptions
-  ): Promise<WorkerChunkResult>;
+  ) => Promise<WorkerChunkResult>;
 
   /**
    * Check if the worker is ready.
    */
-  isReady(): boolean;
+  isReady: () => boolean;
 
   /**
    * Terminate the worker.
    */
-  terminate(): void;
+  terminate: () => void;
 }
 
 // =============================================================================
@@ -225,26 +225,26 @@ export interface ChunkingStage {
   /**
    * Chunk multiple files.
    */
-  chunkBatch(input: ChunkingBatchInput): Promise<ChunkingBatchResult>;
+  chunkBatch: (input: ChunkingBatchInput) => Promise<ChunkingBatchResult>;
   /**
    * Chunk a single file.
    */
-  chunkFile(input: ChunkingInput): Promise<ChunkingOutput>;
+  chunkFile: (input: ChunkingInput) => Promise<ChunkingOutput>;
 
   /**
    * Check if the worker is ready.
    */
-  isReady(): boolean;
+  isReady: () => boolean;
 
   /**
    * Terminate the worker.
    */
-  terminate(): void;
+  terminate: () => void;
 
   /**
    * Wait for the worker to become ready.
    */
-  waitForReady(timeoutMs?: number): Promise<boolean>;
+  waitForReady: (timeoutMs?: number) => Promise<boolean>;
 }
 
 // =============================================================================
@@ -257,15 +257,15 @@ export interface ChunkingStage {
 function toChunkOutput(portable: PortableChunk): ChunkOutput {
   return {
     chunkIndex: portable.chunkIndex,
+    chunkSize: portable.chunkSize,
+    chunkType: portable.chunkType,
     content: portable.content,
     contentHash: portable.contentHash as ContentHash,
-    startLine: portable.startLine,
     endLine: portable.endLine,
-    startOffset: portable.startOffset,
     endOffset: portable.endOffset,
+    startLine: portable.startLine,
+    startOffset: portable.startOffset,
     tokenCount: portable.tokenCount,
-    chunkType: portable.chunkType,
-    chunkSize: portable.chunkSize,
   };
 }
 
@@ -274,11 +274,11 @@ function toChunkOutput(portable: PortableChunk): ChunkOutput {
  */
 function toChunkingOutput(fileId: FileId, result: WorkerChunkResult): ChunkingOutput {
   const output: ChunkingOutput = {
-    fileId,
     chunks: result.chunks.map(toChunkOutput),
+    fileId,
+    skipped: result.skipped,
     strategyUsed: result.strategyUsed,
     totalTokens: result.totalTokens,
-    skipped: result.skipped,
   };
 
   // Conditionally add skipReason (exactOptionalPropertyTypes compliance)
@@ -294,12 +294,12 @@ function toChunkingOutput(fileId: FileId, result: WorkerChunkResult): ChunkingOu
  */
 function buildFailedOutput(fileId: FileId, error: string): ChunkingOutput {
   return {
-    fileId,
     chunks: [],
-    strategyUsed: 'sentence',
-    totalTokens: 0,
+    fileId,
     skipped: true,
     skipReason: error,
+    strategyUsed: 'sentence',
+    totalTokens: 0,
   };
 }
 
@@ -402,10 +402,10 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
 
   function createBatchState(): BatchState {
     return {
+      failedCount: 0,
       results: [],
       totalChunks: 0,
       totalTokens: 0,
-      failedCount: 0,
     };
   }
 
@@ -440,11 +440,11 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
     }
 
     const progress: ChunkingStageProgress = {
-      totalFiles,
       completedFiles,
+      elapsedMs: Date.now() - startTime,
       failedFiles: state.failedCount,
       totalChunks: state.totalChunks,
-      elapsedMs: Date.now() - startTime,
+      totalFiles,
     };
 
     if (currentFile !== undefined) {
@@ -460,13 +460,13 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
     startTime: number
   ): ChunkingBatchResult {
     return {
-      results: state.results,
-      totalFiles,
-      successCount: state.results.length - state.failedCount,
-      errorCount: state.failedCount,
-      totalChunks: state.totalChunks,
-      totalTokens: state.totalTokens,
       durationMs: Date.now() - startTime,
+      errorCount: state.failedCount,
+      results: state.results,
+      successCount: state.results.length - state.failedCount,
+      totalChunks: state.totalChunks,
+      totalFiles,
+      totalTokens: state.totalTokens,
     };
   }
 
@@ -514,11 +514,11 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
   }
 
   return {
-    chunkFile,
     chunkBatch,
+    chunkFile,
     isReady: () => workerPort.isReady(),
-    waitForReady,
     terminate: () => workerPort.terminate(),
+    waitForReady,
   };
 }
 
@@ -531,13 +531,13 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
  */
 function buildEmptyBatchResult(totalFiles: number, startTime: number): ChunkingBatchResult {
   return {
-    results: [],
-    totalFiles,
-    successCount: 0,
-    errorCount: 0,
-    totalChunks: 0,
-    totalTokens: 0,
     durationMs: Date.now() - startTime,
+    errorCount: 0,
+    results: [],
+    successCount: 0,
+    totalChunks: 0,
+    totalFiles,
+    totalTokens: 0,
   };
 }
 
@@ -551,13 +551,13 @@ function buildFailedBatchResult(
 ): ChunkingBatchResult {
   const results = files.map((file) => buildFailedOutput(file.fileId, error));
   return {
-    results,
-    totalFiles: files.length,
-    successCount: 0,
-    errorCount: files.length,
-    totalChunks: 0,
-    totalTokens: 0,
     durationMs: Date.now() - startTime,
+    errorCount: files.length,
+    results,
+    successCount: 0,
+    totalChunks: 0,
+    totalFiles: files.length,
+    totalTokens: 0,
   };
 }
 

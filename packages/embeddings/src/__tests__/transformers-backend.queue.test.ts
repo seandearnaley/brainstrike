@@ -13,18 +13,18 @@ vi.mock('@huggingface/transformers', () => ({
 
 function createQueueResult(id: string, vector: readonly number[]): QueueResult {
   return {
-    type: 'result',
     id,
-    vectors: [Float32Array.from(vector)],
     metadata: {
-      model: 'bge-m3',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: vector.length,
+      dtype: 'fp16',
       elapsedMs: 1,
       fallbackApplied: false,
-      dimensions: vector.length,
+      model: 'bge-m3',
     },
+    type: 'result',
+    vectors: [Float32Array.from(vector)],
   };
 }
 
@@ -33,9 +33,6 @@ function createQueueStub() {
   const queue: QueueAdapter = {
     add,
     addBulk: vi.fn(async () => []),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
     cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
     get isPaused() {
@@ -44,8 +41,11 @@ function createQueueStub() {
     get isProcessing() {
       return false;
     },
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
-  return { queue, add };
+  return { add, queue };
 }
 
 describe('TransformersBackend queue integration', () => {
@@ -79,8 +79,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     backend.setTargetDimensions(2);
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -117,8 +117,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -167,8 +167,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     backend.setTargetDimensions(3.7);
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -193,18 +193,18 @@ describe('TransformersBackend queue integration', () => {
 
     const { queue, add } = createQueueStub();
     add.mockResolvedValueOnce({
-      type: 'result',
       id: 'batch',
-      vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
       metadata: {
-        model: 'bge-m3',
-        device: 'webgpu',
-        dtype: 'fp16',
         batchSize: 3,
+        device: 'webgpu',
+        dimensions: 2,
+        dtype: 'fp16',
         elapsedMs: 1,
         fallbackApplied: false,
-        dimensions: 2,
+        model: 'bge-m3',
       },
+      type: 'result',
+      vectors: Array.from({ length: 10 }, () => Float32Array.from([0.1, 0.2])),
     });
 
     const { TransformersBackend } = await import('../transformers-backend');
@@ -216,8 +216,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'webgpu',
+      modelId: 'bge-m3',
       quantized: false,
       streamBatchSize: 3,
     });
@@ -248,8 +248,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'wasm',
+      modelId: 'bge-m3',
       quantized: false,
     });
 
@@ -275,8 +275,8 @@ describe('TransformersBackend queue integration', () => {
     const backend = new TransformersBackend();
     await expect(
       backend.initialize({
-        modelId: 'bge-m3',
         device: 'wasm',
+        modelId: 'bge-m3',
         quantized: false,
       })
     ).rejects.toThrow('creation failed');
@@ -301,8 +301,8 @@ describe('TransformersBackend queue integration', () => {
 
     const backend = new TransformersBackend();
     await backend.initialize({
-      modelId: 'bge-m3',
       device: 'wasm',
+      modelId: 'bge-m3',
       quantized: false,
     });
 

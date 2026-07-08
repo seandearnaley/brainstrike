@@ -82,10 +82,10 @@ describe('provider catalog timestamp migration', () => {
       ORDER BY table_name, column_name
     `);
     expect(beforeTypes.rows).toEqual([
-      { table_name: 'models', column_name: 'created_at', data_type: 'text' },
-      { table_name: 'models', column_name: 'updated_at', data_type: 'text' },
-      { table_name: 'providers', column_name: 'created_at', data_type: 'text' },
-      { table_name: 'providers', column_name: 'updated_at', data_type: 'text' },
+      { column_name: 'created_at', data_type: 'text', table_name: 'models' },
+      { column_name: 'updated_at', data_type: 'text', table_name: 'models' },
+      { column_name: 'created_at', data_type: 'text', table_name: 'providers' },
+      { column_name: 'updated_at', data_type: 'text', table_name: 'providers' },
     ]);
 
     await db.query(
@@ -141,17 +141,17 @@ describe('provider catalog timestamp migration', () => {
       ORDER BY table_name, column_name
     `);
     expect(afterTypes.rows).toEqual([
-      { table_name: 'models', column_name: 'created_at', data_type: 'timestamp with time zone' },
-      { table_name: 'models', column_name: 'updated_at', data_type: 'timestamp with time zone' },
+      { column_name: 'created_at', data_type: 'timestamp with time zone', table_name: 'models' },
+      { column_name: 'updated_at', data_type: 'timestamp with time zone', table_name: 'models' },
       {
-        table_name: 'providers',
         column_name: 'created_at',
         data_type: 'timestamp with time zone',
+        table_name: 'providers',
       },
       {
-        table_name: 'providers',
         column_name: 'updated_at',
         data_type: 'timestamp with time zone',
+        table_name: 'providers',
       },
     ]);
 
@@ -193,10 +193,10 @@ describe('provider catalog timestamp migration', () => {
     `);
     expect(catalogRead.rows).toEqual([
       {
-        provider_id: 'openai',
         model_id: 'gpt-5.2',
-        provider_updated_type: 'timestamp with time zone',
         model_updated_type: 'timestamp with time zone',
+        provider_id: 'openai',
+        provider_updated_type: 'timestamp with time zone',
       },
     ]);
 
@@ -223,10 +223,10 @@ describe('provider catalog timestamp migration', () => {
     `);
     expect(rolledBackCatalogRead.rows).toEqual([
       {
-        provider_created_at: LEGACY_PROVIDER_CREATED_AT,
-        provider_updated_at: LEGACY_PROVIDER_UPDATED_AT,
         model_created_at: LEGACY_MODEL_CREATED_AT,
         model_updated_at: LEGACY_MODEL_UPDATED_AT,
+        provider_created_at: LEGACY_PROVIDER_CREATED_AT,
+        provider_updated_at: LEGACY_PROVIDER_UPDATED_AT,
       },
     ]);
   });

@@ -40,12 +40,12 @@ describe('database-demo-store', () => {
       'database-demo.v2',
       JSON.stringify({
         state: {
-          showSettings: true,
           expandedFileIds: ['file-1'],
           recordPage: 2,
           recordPageSize: 25,
           searchQuery: 'report',
           searchThreshold: 0.7,
+          showSettings: true,
         } satisfies PersistedDatabaseDemoStore,
         version: 2,
       })

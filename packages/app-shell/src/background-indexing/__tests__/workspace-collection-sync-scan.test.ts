@@ -4,11 +4,11 @@ import { __workspaceCollectionSyncScanInternalsForTests } from '../workspace-col
 describe('workspace collection sync scan path helpers', () => {
   it('extracts names and depths without changing split/filter path semantics', () => {
     const cases = [
-      { path: 'src/index.ts', depth: 2, name: 'index.ts' },
-      { path: '/src//components/Button.tsx/', depth: 3, name: 'Button.tsx' },
-      { path: 'README.md', depth: 1, name: 'README.md' },
-      { path: '', depth: 0, name: '' },
-      { path: '///', depth: 0, name: '///' },
+      { depth: 2, name: 'index.ts', path: 'src/index.ts' },
+      { depth: 3, name: 'Button.tsx', path: '/src//components/Button.tsx/' },
+      { depth: 1, name: 'README.md', path: 'README.md' },
+      { depth: 0, name: '', path: '' },
+      { depth: 0, name: '///', path: '///' },
     ];
 
     for (const { path, depth, name } of cases) {

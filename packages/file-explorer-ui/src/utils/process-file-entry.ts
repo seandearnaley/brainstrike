@@ -13,9 +13,9 @@ export function processFileEntry(
 
   return {
     ...entry,
-    path: finalPath,
     depth: calculatePathDepth(relativePath),
-    selectionState: 'unchecked',
+    path: finalPath,
     rootFolderId,
+    selectionState: 'unchecked',
   };
 }

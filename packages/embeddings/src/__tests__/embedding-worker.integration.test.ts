@@ -24,8 +24,8 @@ class FakeEmbeddingService implements EmbeddingService {
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(768).fill(0.1),
       dimensions: 768,
+      embedding: new Array(768).fill(0.1),
       model: 'fake-model',
       usage: { totalTokens: 10 },
     };
@@ -43,7 +43,7 @@ class FakeEmbeddingService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -52,7 +52,7 @@ class FakeEmbeddingService implements EmbeddingService {
     return this.generateEmbedding(text);
   }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
+    return { distance: 0, method: 'cosine', similarity: 1 };
   }
   getStatus(): EmbeddingStatus {
     return this.status;
@@ -138,20 +138,20 @@ describe('embedding-worker', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
           expectedDimension: 768,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
+      log: (m) => console.error(m),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      log: (m) => console.error(m),
     });
 
     // Wait for terminal state (succeeded/failed)
@@ -218,8 +218,8 @@ describe('embedding-worker', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
@@ -243,12 +243,12 @@ describe('embedding-worker', () => {
     };
 
     const controller = await startEmbeddingWorker({
-      db: dbWithUnavailableExtensionProbe,
       concurrency: 1,
+      db: dbWithUnavailableExtensionProbe,
       leaseMs: 2000,
+      log: () => {},
       modelKey,
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     let finalState = '';
@@ -310,8 +310,8 @@ describe('embedding-worker', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
@@ -333,12 +333,12 @@ describe('embedding-worker', () => {
     };
 
     const controller = await startEmbeddingWorker({
-      db: dbWithUnavailableSchemaProbes,
       concurrency: 1,
+      db: dbWithUnavailableSchemaProbes,
       leaseMs: 2000,
+      log: () => {},
       modelKey,
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     let finalState = '';
@@ -404,20 +404,20 @@ describe('embedding-worker', () => {
         JSON.stringify({
           chunkId,
           embeddingSetId,
-          modelKey: compositeKey,
           expectedDimension: 768,
+          modelKey: compositeKey,
         }),
         now,
       ]
     );
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 2000,
+      log: (m) => console.error(m),
       modelKey,
       service: new FakeEmbeddingService(),
-      log: (m) => console.error(m),
     });
 
     let finalState2 = '';

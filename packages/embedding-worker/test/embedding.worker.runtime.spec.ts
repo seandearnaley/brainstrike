@@ -50,13 +50,13 @@ interface MockGpuDevice {
 }
 
 vi.mock('workerpool', () => ({
+  Transfer: transferMock,
   worker: (handlers: {
     runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
   }) => {
     registeredHandlers.runEmbedding = handlers.runEmbedding;
   },
   workerEmit: workerEmitMock,
-  Transfer: transferMock,
 }));
 
 vi.mock('@huggingface/transformers', () => ({
@@ -152,9 +152,9 @@ describe('embedding worker runtime', () => {
       mockSelf.onerror?.('Test error message');
       const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
       expect(errorCall?.[0]).toMatchObject({
-        type: 'error',
         id: 'global',
         message: 'Worker uncaught error: Test error message',
+        type: 'error',
       });
     });
 
@@ -168,18 +168,18 @@ describe('embedding worker runtime', () => {
 
       // Exercise with ErrorEvent-like object
       const errorEvent = {
-        message: 'Uncaught TypeError',
         filename: 'worker.js',
         lineno: 42,
+        message: 'Uncaught TypeError',
       };
       mockSelf.onerror?.(errorEvent as unknown as ErrorEvent);
       const errorCall = workerEmitMock.mock.calls.find(
         ([event]) => event?.message === 'Worker uncaught error: Uncaught TypeError'
       );
       expect(errorCall?.[0]).toMatchObject({
-        type: 'error',
-        id: 'global',
         cause: 'worker.js:42',
+        id: 'global',
+        type: 'error',
       });
     });
 
@@ -200,8 +200,8 @@ describe('embedding worker runtime', () => {
         ([event]) => event?.message === 'Worker unhandled rejection: Promise rejected'
       );
       expect(errorCall?.[0]).toMatchObject({
-        type: 'error',
         id: 'global',
+        type: 'error',
       });
       expect(errorCall?.[0].cause).toContain('Promise rejected');
     });
@@ -223,8 +223,8 @@ describe('embedding worker runtime', () => {
         ([event]) => event?.message === 'Worker unhandled rejection: Simple string rejection'
       );
       expect(errorCall?.[0]).toMatchObject({
-        type: 'error',
         id: 'global',
+        type: 'error',
       });
     });
   });
@@ -238,9 +238,9 @@ describe('embedding worker runtime', () => {
           messageListeners.add(listener);
         }
       }),
-      postMessage,
       onerror: undefined,
       onunhandledrejection: undefined,
+      postMessage,
     });
     pipelineMock.mockResolvedValue(async () => Float32Array.from([0.2, 0.8]));
     await import('../src/embedding.worker');
@@ -252,36 +252,36 @@ describe('embedding worker runtime', () => {
 
     handleMessage({
       data: {
-        type: 'stream-embed',
         request: {
-          type: 'embed',
+          deviceHint: 'wasm',
           id: 'stream-1',
           model: 'bge-m3',
-          texts: ['hello'],
           targetDimension: 2,
-          deviceHint: 'wasm',
+          texts: ['hello'],
+          type: 'embed',
         },
+        type: 'stream-embed',
       },
     } as MessageEvent<unknown>);
     await flushMicrotasks();
 
     expect(postMessage).toHaveBeenCalledWith(
       {
-        type: 'progress',
         id: 'stream-1',
         phase: 'initializing',
         progress: 0,
+        type: 'progress',
       },
       []
     );
     await waitForAssertion(() =>
       expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'batch',
-          id: 'stream-1',
           batchIndex: 0,
-          startIndex: 0,
           endIndex: 1,
+          id: 'stream-1',
+          startIndex: 0,
+          type: 'batch',
         }),
         expect.any(Array)
       )
@@ -289,21 +289,21 @@ describe('embedding worker runtime', () => {
 
     handleMessage({
       data: {
-        type: 'stream-ack',
-        id: 'stream-1',
         batchIndex: 0,
+        id: 'stream-1',
+        type: 'stream-ack',
       },
     } as MessageEvent<unknown>);
     await flushMicrotasks();
 
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'complete',
         id: 'stream-1',
         metadata: expect.objectContaining({
           batchSize: 1,
           dimensions: 2,
         }),
+        type: 'complete',
       }),
       []
     );
@@ -321,20 +321,20 @@ describe('embedding worker runtime', () => {
         }
       }),
       close: closeMock,
-      postMessage,
       onerror: undefined,
       onunhandledrejection: undefined,
+      postMessage,
     });
 
     let resolveLost: ((info: { message: string; reason?: string }) => void) | null = null;
     await setOrtWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
       lost: new Promise((resolve) => {
         resolveLost = resolve;
       }),
       queue: {
         submit: vi.fn(),
       },
-      createCommandEncoder: () => ({ finish: () => ({}) }),
     });
     pipelineMock.mockResolvedValue(async () => Float32Array.from([0.2, 0.8]));
     await import('../src/embedding.worker');
@@ -346,23 +346,23 @@ describe('embedding worker runtime', () => {
 
     handleMessage({
       data: {
-        type: 'stream-embed',
         request: {
-          type: 'embed',
+          deviceHint: 'webgpu',
           id: 'stream-device-loss',
           model: 'bge-m3',
-          texts: ['hello'],
           targetDimension: 2,
-          deviceHint: 'webgpu',
+          texts: ['hello'],
+          type: 'embed',
         },
+        type: 'stream-embed',
       },
     } as MessageEvent<unknown>);
 
     await waitForAssertion(() =>
       expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'batch',
           id: 'stream-device-loss',
+          type: 'batch',
         }),
         expect.any(Array)
       )
@@ -373,10 +373,10 @@ describe('embedding worker runtime', () => {
 
     expect(postMessage).toHaveBeenCalledWith(
       {
-        type: 'error',
+        cause: 'reason=destroyed',
         id: 'stream-device-loss',
         message: 'WebGPU device lost: device was lost',
-        cause: 'reason=destroyed',
+        type: 'error',
       },
       []
     );
@@ -392,9 +392,9 @@ describe('embedding worker runtime', () => {
           messageListeners.add(listener);
         }
       }),
-      postMessage,
       onerror: undefined,
       onunhandledrejection: undefined,
+      postMessage,
     });
     await import('../src/embedding.worker');
 
@@ -405,16 +405,16 @@ describe('embedding worker runtime', () => {
 
     handleMessage({
       data: {
-        type: 'stream-embed',
         request: null,
+        type: 'stream-embed',
       },
     } as MessageEvent<unknown>);
 
     expect(postMessage).toHaveBeenCalledWith(
       {
-        type: 'error',
         id: 'unknown',
         message: 'Streaming request payload must be an object.',
+        type: 'error',
       },
       []
     );
@@ -434,12 +434,12 @@ describe('embedding worker runtime', () => {
     transformersImportState.error = new Error('transformers import failed');
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'retry-import-first',
         model: 'bge-m3',
         texts: ['hello'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('transformers import failed');
 
@@ -447,16 +447,16 @@ describe('embedding worker runtime', () => {
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'retry-import-second',
         model: 'bge-m3',
         texts: ['hello'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).resolves.toMatchObject({
-      type: 'result',
       id: 'retry-import-second',
+      type: 'result',
     });
   });
 
@@ -472,16 +472,16 @@ describe('embedding worker runtime', () => {
       const runEmbedding = await loadWorker();
 
       const result = await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'pack-1',
         model: 'bge-m3',
         texts: ['a', 'b', 'c', 'd'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       });
 
       expect(result.vectors).toHaveLength(4);
-      const firstBuffer = result.vectors[0]!.buffer;
+      const firstBuffer = result.vectors[0]?.buffer;
       for (const vector of result.vectors) {
         expect(vector.buffer).toBe(firstBuffer);
       }
@@ -496,12 +496,12 @@ describe('embedding worker runtime', () => {
       const runEmbedding = await loadWorker();
 
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'pack-transfer',
         model: 'bge-m3',
         texts: ['a', 'b', 'c'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       });
 
       // Transfer() is invoked once per non-empty processEmbeddings call.
@@ -522,11 +522,11 @@ describe('embedding worker runtime', () => {
       const runEmbedding = await loadWorker();
 
       const result = await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'pack-uneven-transfer',
         model: 'bge-m3',
         texts: ['a', 'b'],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
 
       expect(result.vectors.map((vector) => vector.length)).toEqual([2, 3]);
@@ -541,11 +541,11 @@ describe('embedding worker runtime', () => {
       pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
       const runEmbedding = await loadWorker();
       await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'pack-empty',
         model: 'bge-m3',
         texts: [],
-        deviceHint: 'wasm',
+        type: 'embed',
       });
       // Empty path returns success directly without packing.
       expect(transferMock).not.toHaveBeenCalled();
@@ -557,12 +557,12 @@ describe('embedding worker runtime', () => {
       );
       const runEmbedding = await loadWorker();
       const result = await runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'pack-values',
         model: 'bge-m3',
         texts: ['a', 'b'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       });
 
       // After L2-normalize: [1,10] / sqrt(101) ≈ [0.0995, 0.9950]
@@ -578,11 +578,11 @@ describe('embedding worker runtime', () => {
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
     const runEmbedding = await loadWorker();
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'empty',
       model: 'bge-m3',
       texts: [],
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(result.vectors).toHaveLength(0);
     expect(result.metadata.batchSize).toBe(0);
@@ -597,12 +597,12 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'webgpu',
         id: 'doc-1',
         model: 'bge-m3',
         texts: ['hello world'],
         truncateDim: 2,
-        deviceHint: 'webgpu',
+        type: 'embed',
       })
     ).rejects.toThrow('webgpu unavailable');
     expect(pipelineMock).toHaveBeenCalledTimes(1);
@@ -633,22 +633,22 @@ describe('embedding worker runtime', () => {
     }));
 
     await setOrtWebGpuDevice({
+      createCommandEncoder: createCommandEncoderMock,
       lost,
       queue: {
         submit: submitMock,
       },
-      createCommandEncoder: createCommandEncoderMock,
     });
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'webgpu-guard',
       model: 'bge-m3',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     await flushMicrotasks();
@@ -666,11 +666,11 @@ describe('embedding worker runtime', () => {
     expect(deviceLostCall).toBeUndefined();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'webgpu-guard-reload',
       model: 'bge-m3',
       texts: ['hello again'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
@@ -680,23 +680,23 @@ describe('embedding worker runtime', () => {
     vi.stubGlobal('navigator', { gpu: {} });
 
     await setOrtWebGpuDevice({
+      createCommandEncoder: () => {
+        throw new Error('encoder unavailable');
+      },
       lost: new Promise(() => {}),
       queue: {
         submit: vi.fn(),
-      },
-      createCommandEncoder: () => {
-        throw new Error('encoder unavailable');
       },
     });
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const runEmbedding = await loadWorker();
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'webgpu-tick-failure',
       model: 'bge-m3',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     await flushMicrotasks();
@@ -718,11 +718,11 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'webgpu',
         id: 'guard-missing-env',
         model: 'bge-m3',
         texts: ['hello'],
-        deviceHint: 'webgpu',
+        type: 'embed',
       })
     ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
     expect(disposeMock).toHaveBeenCalledTimes(1);
@@ -740,11 +740,11 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'webgpu',
         id: 'guard-invalid-device',
         model: 'bge-m3',
         texts: ['hello'],
-        deviceHint: 'webgpu',
+        type: 'embed',
       })
     ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
     expect('dispose' in extractor).toBe(false);
@@ -760,27 +760,27 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'webgpu',
         id: 'guard-device-reject',
         model: 'bge-m3',
         texts: ['hello'],
-        deviceHint: 'webgpu',
+        type: 'embed',
       })
     ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
 
     await setOrtWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
       lost: new Promise(() => {}),
       queue: {
         submit: vi.fn(),
       },
-      createCommandEncoder: () => ({ finish: () => ({}) }),
     });
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'guard-device-retry',
       model: 'bge-m3',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
 
     expect(result.metadata).toMatchObject({
@@ -795,14 +795,14 @@ describe('embedding worker runtime', () => {
     pipelineMock.mockResolvedValue(async () => vector);
     const runEmbedding = await loadWorker();
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
+      dimensionParameter: 'dimensions',
       id: 'custom-dim',
       model: 'bge-m3',
-      texts: ['hello'],
-      targetDimension: 1024,
-      dimensionParameter: 'dimensions',
       provider: 'openai',
-      deviceHint: 'wasm',
+      targetDimension: 1024,
+      texts: ['hello'],
+      type: 'embed',
     });
     expect(result.metadata.dimensions).toBe(1024);
     expect(Array.from(result.vectors[0])).toHaveLength(1024);
@@ -814,40 +814,40 @@ describe('embedding worker runtime', () => {
 
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
+        dimensionParameter: 'output_dimensionality',
         id: 'invalid-output-dimensionality',
         model: 'bge-m3',
-        texts: ['test'],
-        targetDimension: 0,
-        dimensionParameter: 'output_dimensionality',
         provider: 'google',
-        deviceHint: 'wasm',
+        targetDimension: 0,
+        texts: ['test'],
+        type: 'embed',
       })
     ).rejects.toThrow('output_dimensionality');
 
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
+        dimensionParameter: 'output_dimension',
         id: 'invalid-output-dimension',
         model: 'bge-m3',
-        texts: ['test'],
-        targetDimension: Number.POSITIVE_INFINITY,
-        dimensionParameter: 'output_dimension',
         provider: 'cohere',
-        deviceHint: 'wasm',
+        targetDimension: Number.POSITIVE_INFINITY,
+        texts: ['test'],
+        type: 'embed',
       })
     ).rejects.toThrow('output_dimension');
 
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
+        dimensionParameter: 'dimensions',
         id: 'invalid-dimensions',
         model: 'bge-m3',
-        texts: ['test'],
-        targetDimension: -1,
-        dimensionParameter: 'dimensions',
         provider: 'openai',
-        deviceHint: 'wasm',
+        targetDimension: -1,
+        texts: ['test'],
+        type: 'embed',
       })
     ).rejects.toThrow('dimensions');
   });
@@ -858,23 +858,23 @@ describe('embedding worker runtime', () => {
 
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'invalid-non-integer-dimension',
         model: 'bge-m3',
-        texts: ['test'],
         targetDimension: 2.5,
-        deviceHint: 'wasm',
+        texts: ['test'],
+        type: 'embed',
       })
     ).rejects.toThrow('must be an integer');
 
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'invalid-large-dimension',
         model: 'bge-m3',
-        texts: ['test'],
         targetDimension: 20_001,
-        deviceHint: 'wasm',
+        texts: ['test'],
+        type: 'embed',
       })
     ).rejects.toThrow('supported maximum');
   });
@@ -887,12 +887,12 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'bulk',
         model: 'bge-m3',
         texts: Array.from({ length: 32 }, (_, index) => `text-${index}`),
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('batch failed');
     expect(failingExtractor).toHaveBeenCalled();
@@ -906,18 +906,18 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'empty-output',
         model: 'bge-m3',
         texts: ['nope'],
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('Embedding pipeline returned no tensors');
     const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
     expect(errorCall?.[0]).toMatchObject({
-      type: 'error',
       id: 'empty-output',
       message: 'Embedding pipeline returned no tensors',
+      type: 'error',
     });
   });
 
@@ -931,19 +931,19 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'numeric-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('Embedding failed with error code: 42');
     const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
     expect(errorCall?.[0]).toMatchObject({
-      type: 'error',
-      id: 'numeric-error',
       cause: 'Error code: 42 (0x2a)',
+      id: 'numeric-error',
+      type: 'error',
     });
   });
 
@@ -957,12 +957,12 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'string-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('pipeline initialization failed');
   });
@@ -976,12 +976,12 @@ describe('embedding worker runtime', () => {
     });
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'undefined-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('unknown error');
 
@@ -991,12 +991,12 @@ describe('embedding worker runtime', () => {
     });
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'null-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('unknown error');
   });
@@ -1012,12 +1012,12 @@ describe('embedding worker runtime', () => {
     });
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'object-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('Embedding failed:');
 
@@ -1026,12 +1026,12 @@ describe('embedding worker runtime', () => {
     });
     await expect(
       runEmbedding({
-        type: 'embed',
+        deviceHint: 'wasm',
         id: 'circular-error',
         model: 'bge-m3',
         texts: ['test'],
         truncateDim: 2,
-        deviceHint: 'wasm',
+        type: 'embed',
       })
     ).rejects.toThrow('Embedding failed:');
   });
@@ -1047,9 +1047,9 @@ describe('embedding worker runtime', () => {
     }));
 
     await setOrtWebGpuDevice({
+      createCommandEncoder: createCommandEncoderMock,
       lost: new Promise(() => {}),
       queue: { submit: submitMock },
-      createCommandEncoder: createCommandEncoderMock,
     });
 
     // Set up BroadcastChannel mock to capture onmessage handlers
@@ -1073,11 +1073,11 @@ describe('embedding worker runtime', () => {
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'pause-test',
       model: 'bge-m3',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     await flushMicrotasks();
 
@@ -1108,9 +1108,9 @@ describe('embedding worker runtime', () => {
     const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
 
     await setOrtWebGpuDevice({
+      createCommandEncoder: vi.fn<() => MockGpuCommandEncoder>(() => ({ finish: finishMock })),
       lost: new Promise(() => {}),
       queue: { submit: submitMock },
-      createCommandEncoder: vi.fn<() => MockGpuCommandEncoder>(() => ({ finish: finishMock })),
     });
 
     // Create a slow extractor that we can control
@@ -1126,11 +1126,11 @@ describe('embedding worker runtime', () => {
 
     // Start inference (won't resolve until we call resolveInference)
     const embeddingPromise = runEmbedding({
-      type: 'embed',
+      deviceHint: 'webgpu',
       id: 'active-guard',
       model: 'bge-m3',
       texts: ['hello'],
-      deviceHint: 'webgpu',
+      type: 'embed',
     });
     await flushMicrotasks();
 
@@ -1153,24 +1153,24 @@ describe('embedding worker runtime', () => {
 
     pipelineMock.mockResolvedValueOnce(async () => new MockTensor([1, 2, 3], [3]));
     const oneDimensional = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'tensor-1d',
       model: 'bge-m3',
       texts: ['single'],
       truncateDim: 3,
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(oneDimensional.vectors).toHaveLength(1);
     expect(oneDimensional.vectors[0]).toHaveLength(3);
 
     pipelineMock.mockResolvedValueOnce(async () => new NestedMockTensor([1, 2, 3], [1, 1, 3]));
     const nested = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'tensor-nested',
       model: 'bge-m3',
       texts: ['nested'],
       truncateDim: 3,
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(nested.vectors).toHaveLength(1);
     expect(nested.vectors[0]).toHaveLength(3);
@@ -1185,12 +1185,12 @@ describe('embedding worker runtime', () => {
     });
     const runEmbedding = await loadWorker();
     const result = await runEmbedding({
-      type: 'embed',
+      deviceHint: 'wasm',
       id: 'tensor',
       model: 'bge-m3',
       texts: Array.from({ length: 9 }, (_, index) => `item-${index}`),
       truncateDim: 3,
-      deviceHint: 'wasm',
+      type: 'embed',
     });
     expect(result.vectors).toHaveLength(9);
     expect(Array.from(result.vectors[0])).toHaveLength(3);

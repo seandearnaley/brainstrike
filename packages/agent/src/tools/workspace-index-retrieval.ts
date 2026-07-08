@@ -79,10 +79,10 @@ export function createWorkspaceIndexUnavailableResult(
     ? `Workspace Index is blocked: ${status.blockedReason ?? 'unknown'}.`
     : 'Workspace Index is unavailable for retrieval.';
   return {
-    status: 'unavailable',
-    reason,
     message,
     query,
+    reason,
+    status: 'unavailable',
     workspaceIndex: status,
   };
 }

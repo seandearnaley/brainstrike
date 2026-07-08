@@ -19,7 +19,7 @@ describe('fs-tools', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(rootDir, { recursive: true, force: true });
+    await fs.rm(rootDir, { force: true, recursive: true });
   });
 
   it('lists entries inside the resolved root', async () => {
@@ -34,18 +34,18 @@ describe('fs-tools', () => {
   });
 
   it('reads files with truncation and base64 encoding', async () => {
-    const truncated = await handleFilesystemRead({ path: 'alpha.txt', maxBytes: 4 }, rootDir);
+    const truncated = await handleFilesystemRead({ maxBytes: 4, path: 'alpha.txt' }, rootDir);
 
     expect(truncated).toEqual(
       expect.objectContaining({
-        path: expect.stringContaining(`${path.sep}alpha.txt`),
         encoding: 'utf8',
+        path: expect.stringContaining(`${path.sep}alpha.txt`),
         truncated: true,
       })
     );
 
     const base64Result = await handleFilesystemRead(
-      { path: 'alpha.txt', encoding: 'base64', maxBytes: 5 },
+      { encoding: 'base64', maxBytes: 5, path: 'alpha.txt' },
       rootDir
     );
 
@@ -64,7 +64,7 @@ describe('fs-tools', () => {
   });
 
   it('searches for matching names within the root', async () => {
-    const results = await handleFilesystemSearch({ query: 'alpha', path: '.' }, rootDir);
+    const results = await handleFilesystemSearch({ path: '.', query: 'alpha' }, rootDir);
 
     expect(results).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'alpha.txt', type: 'file' })])

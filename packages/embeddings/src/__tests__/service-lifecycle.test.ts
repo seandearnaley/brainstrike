@@ -44,36 +44,36 @@ vi.mock('../transformers-backend', () => ({
 
 // Test model configurations
 const BGE_BASE_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 768,
   id: 'Xenova/bge-base-en-v1.5',
   name: 'BGE Base',
-  dimensions: 768,
-  quantized: false,
-  description: 'test model',
-  tags: ['test'],
   origin: 'hf',
+  quantized: false,
   size: 'small',
+  tags: ['test'],
 };
 
 const BGE_M3_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 1024,
   id: 'Xenova/bge-m3',
   name: 'BGE M3',
-  dimensions: 1024,
-  quantized: false,
-  description: 'test model',
-  tags: ['test'],
   origin: 'hf',
+  quantized: false,
   size: 'large',
+  tags: ['test'],
 };
 
 const JINA_CODE_MODEL: ModelConfig = {
+  description: 'test model',
+  dimensions: 768,
   id: 'jinaai/jina-embeddings-v2-base-code',
   name: 'Jina Code',
-  dimensions: 768,
-  quantized: false,
-  description: 'test model',
-  tags: ['code'],
   origin: 'hf',
+  quantized: false,
   size: 'medium',
+  tags: ['code'],
 };
 
 describe('SimpleEmbeddingService lifecycle', () => {
@@ -86,9 +86,9 @@ describe('SimpleEmbeddingService lifecycle', () => {
       backendInitialized = true;
     });
     generateEmbeddingMock.mockResolvedValue({
+      dimensions: 2,
       embedding: [0.1, 0.2],
       model: 'bge-m3',
-      dimensions: 2,
     });
   });
 
@@ -117,7 +117,7 @@ describe('SimpleEmbeddingService lifecycle', () => {
           res();
         };
       });
-      return { resolve: resolve!, promise };
+      return { promise, resolve: resolve! };
     })();
 
     initializeMock.mockImplementationOnce(() => deferred.promise);

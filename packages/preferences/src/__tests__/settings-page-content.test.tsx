@@ -15,7 +15,7 @@ vi.mock('@brainstrike/ui', () => {
   const ThemeSettings = () => <div data-testid="theme-settings" />;
   const cn = (...values: string[]) => values.filter(Boolean).join(' ');
   const useToast = vi.fn(() => ({ toast: vi.fn() }));
-  return { Input, ThemeSettings, cn, useToast };
+  return { cn, Input, ThemeSettings, useToast };
 });
 
 vi.mock('../settings/system/factory-reset-settings-section', () => ({
@@ -39,8 +39,8 @@ describe('SettingsPageContent', () => {
     const category: SettingsCategory = {
       content: <div data-testid={`category-${id}`}>{title}</div>,
       id,
-      title,
       keywords: [title.toLowerCase()],
+      title,
     };
     if (description !== undefined) {
       category.description = description;

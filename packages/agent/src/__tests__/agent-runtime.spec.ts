@@ -42,13 +42,13 @@ describe('agent-runtime edge cases', () => {
       const messages: AgentMessage[] = [
         {
           id: '1',
+          parts: [{ text: '   ', type: 'text' }], // Only whitespace
           role: 'user',
-          parts: [{ type: 'text', text: '   ' }], // Only whitespace
         },
         {
           id: '2',
+          parts: [{ text: 'Hello', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: 'Hello' }],
         },
       ];
 
@@ -64,12 +64,12 @@ describe('agent-runtime edge cases', () => {
       const messages: AgentMessage[] = [
         {
           id: '1',
-          role: 'user',
           parts: [
-            { type: 'text', text: 'First line' },
-            { type: 'text', text: 'Second line' },
-            { type: 'text', text: 'Third line' },
+            { text: 'First line', type: 'text' },
+            { text: 'Second line', type: 'text' },
+            { text: 'Third line', type: 'text' },
           ],
+          role: 'user',
         },
       ];
 
@@ -85,18 +85,18 @@ describe('agent-runtime edge cases', () => {
       const messages: AgentMessage[] = [
         {
           id: '1',
+          parts: [{ text: '', type: 'text' }],
           role: 'user',
-          parts: [{ type: 'text', text: '' }],
         },
         {
           id: '2',
+          parts: [{ text: 'Valid message', type: 'text' }],
           role: 'assistant',
-          parts: [{ type: 'text', text: 'Valid message' }],
         },
         {
           id: '3',
+          parts: [{ text: '  \n  ', type: 'text' }], // Only whitespace
           role: 'system',
-          parts: [{ type: 'text', text: '  \n  ' }], // Only whitespace
         },
       ];
 
@@ -113,12 +113,12 @@ describe('agent-runtime edge cases', () => {
       const messages: AgentMessage[] = [
         {
           id: '1',
-          role: 'user',
           parts: [
-            { type: 'text', text: 'Text part' },
+            { text: 'Text part', type: 'text' },
             // @ts-expect-error - testing with unexpected part type
-            { type: 'unknown', data: 'something' },
+            { data: 'something', type: 'unknown' },
           ],
+          role: 'user',
         },
       ];
 
@@ -142,18 +142,18 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              args: ['script.js'],
+              command: 'node',
+              env: { NODE_ENV: 'test' },
               name: 'test-server',
               transport: 'stdio',
-              command: 'node',
-              args: ['script.js'],
-              env: { NODE_ENV: 'test' },
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -166,17 +166,17 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              headers: { Authorization: 'Bearer token' },
               name: 'sse-server',
               transport: 'sse',
               url: 'https://example.com/mcp',
-              headers: { Authorization: 'Bearer token' },
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -189,7 +189,6 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
@@ -199,6 +198,7 @@ describe('agent-runtime edge cases', () => {
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // Should still create runtime, just without that server
@@ -210,10 +210,10 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       expect(runtime.mcpClient).toBeUndefined();
@@ -224,7 +224,6 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             null as unknown as {
@@ -233,12 +232,13 @@ describe('agent-runtime edge cases', () => {
               command: string;
             },
             {
+              command: 'echo',
               name: 'valid-server',
               transport: 'stdio',
-              command: 'echo',
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       expect(runtime.mcpClient).toBeDefined();
@@ -249,16 +249,16 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              command: 'echo',
               name: 'no-args-server',
               transport: 'stdio',
-              command: 'echo',
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -270,17 +270,17 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              args: [],
+              command: 'echo',
               name: 'empty-args',
               transport: 'stdio',
-              command: 'echo',
-              args: [],
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -292,7 +292,6 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
@@ -302,6 +301,7 @@ describe('agent-runtime edge cases', () => {
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -313,17 +313,17 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              headers: {},
               name: 'empty-headers',
               transport: 'sse',
               url: 'https://example.com',
-              headers: {},
             },
           ],
         },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -335,8 +335,8 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         model: 'gpt-5.2',
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       expect(runtime.agent).toBeDefined();
@@ -347,8 +347,8 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         instructions: 'Custom system instructions',
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       expect(runtime.agent).toBeDefined();
@@ -359,17 +359,17 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
-        runtime: { apiKey: 'test-key', provider: 'openai' },
         mcpConfig: {
           servers: [
             {
+              command: 'echo',
               name: 'test',
               transport: 'stdio',
-              command: 'echo',
             },
           ],
         },
         mcpTimeoutMs: 10_000,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)
@@ -384,9 +384,9 @@ describe('agent-runtime edge cases', () => {
 
       const runtime = await createMastraAgentRuntime({
         runtime: {
+          agentLoop: { inputTokenLimit: 126_000 },
           apiKey: 'test-key',
           provider: 'openai',
-          agentLoop: { inputTokenLimit: 126_000 },
         },
       });
 
@@ -402,12 +402,12 @@ describe('agent-runtime edge cases', () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
 
       const runtime = await createMastraAgentRuntime({
+        instructions: 'Custom system instructions',
         runtime: {
+          agentLoop: { inputTokenLimit: 8192 },
           apiKey: 'test-key',
           provider: 'openai',
-          agentLoop: { inputTokenLimit: 8192 },
         },
-        instructions: 'Custom system instructions',
       });
 
       const instructions = runtime.agent.getInstructions();
@@ -435,9 +435,9 @@ describe('agent-runtime edge cases', () => {
       // no agentLoop, so no budget note may be injected.
       const runtime = await createMastraAgentRuntime({
         resolved: {
-          runtime: { provider: 'openai' },
-          provider: 'openai',
           apiKey: 'test-key',
+          provider: 'openai',
+          runtime: { provider: 'openai' },
         },
       });
 
@@ -453,7 +453,7 @@ describe('agent-runtime edge cases', () => {
       const controller = new AbortController();
 
       const messages: AgentMessage[] = [
-        { id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] },
+        { id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' },
       ];
 
       // Abort immediately
@@ -483,7 +483,7 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
-            controller.enqueue({ type: 'text-delta', textDelta: '' });
+            controller.enqueue({ textDelta: '', type: 'text-delta' });
             controller.enqueue({ type: 'finish', usage: {} });
             controller.close();
           },
@@ -492,7 +492,7 @@ describe('agent-runtime edge cases', () => {
       };
 
       const iterator = await streamMastraAgent(
-        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
         { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
@@ -518,15 +518,15 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
-              type: 'finish',
               payload: {
                 output: {
                   usage: {
-                    inputTokens: 10,
                     completionTokens: 20,
+                    inputTokens: 10,
                   },
                 },
               },
+              type: 'finish',
             });
             controller.close();
           },
@@ -535,7 +535,7 @@ describe('agent-runtime edge cases', () => {
       };
 
       const iterator = await streamMastraAgent(
-        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
         { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
@@ -572,7 +572,7 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({ type: 'step-start' });
-            controller.enqueue({ type: 'error', error: 'Test error message' });
+            controller.enqueue({ error: 'Test error message', type: 'error' });
             controller.close();
           },
         });
@@ -581,7 +581,7 @@ describe('agent-runtime edge cases', () => {
 
       try {
         const iterator = await streamMastraAgent(
-          [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+          [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
           { runtime: { apiKey: 'test-key', provider: 'openai' } }
         );
 
@@ -624,9 +624,9 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
-              type: 'tripwire',
               tripwireReason: 'Content policy violation',
-              usage: { promptTokens: 5, completionTokens: 0 },
+              type: 'tripwire',
+              usage: { completionTokens: 0, promptTokens: 5 },
             });
             controller.close();
           },
@@ -636,7 +636,7 @@ describe('agent-runtime edge cases', () => {
 
       try {
         const iterator = await streamMastraAgent(
-          [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+          [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
           { runtime: { apiKey: 'test-key', provider: 'openai' } }
         );
 
@@ -678,7 +678,7 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
-            controller.enqueue({ type: 'unknown-type', data: 'something' });
+            controller.enqueue({ data: 'something', type: 'unknown-type' });
             controller.enqueue({ type: 'finish', usage: {} });
             controller.close();
           },
@@ -687,7 +687,7 @@ describe('agent-runtime edge cases', () => {
       };
 
       const iterator = await streamMastraAgent(
-        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
         { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
@@ -713,8 +713,8 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
-              type: 'text-delta',
               payload: { textDelta: 'from payload' },
+              type: 'text-delta',
             });
             controller.enqueue({ type: 'finish', usage: {} });
             controller.close();
@@ -724,7 +724,7 @@ describe('agent-runtime edge cases', () => {
       };
 
       const iterator = await streamMastraAgent(
-        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
         { runtime: { apiKey: 'test-key', provider: 'openai' } }
       );
 
@@ -762,12 +762,12 @@ describe('agent-runtime edge cases', () => {
       let caughtError: Error | undefined;
       try {
         await streamMastraAgent(
-          [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+          [{ id: '1', parts: [{ text: 'test', type: 'text' }], role: 'user' }],
           {
-            runtime: { apiKey: 'test-key', provider: 'openai' },
             mcpConfig: {
-              servers: [{ name: 'test', transport: 'stdio', command: 'echo' }],
+              servers: [{ command: 'echo', name: 'test', transport: 'stdio' }],
             },
+            runtime: { apiKey: 'test-key', provider: 'openai' },
           }
         );
       } catch (error) {

@@ -65,26 +65,26 @@ export function useImportFlow({
 
   const { isImporting, progress, importFiles, chunkRepository, cancelImport } =
     useEnhancedFileImportService({
-      onProgress: () => setShowImportProgress(true),
+      chunkingStrategy: importSettings.chunkingStrategy,
+      chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
+      chunkOverlap: importSettings.chunkOverlap,
+      chunkSize: importSettings.chunkSize,
+      chunkTokenLimit: importSettings.chunkTokenLimit,
+      embeddingQueue: embeddingQueue ?? null,
+      enableChunking: importSettings.enableChunking,
       onComplete: async (results) => {
         await onImportCompleteRef.current?.(results);
       },
       onError: (error) => {
         toast({
-          title: 'Import Failed',
           description: error.message,
+          title: 'Import Failed',
           variant: 'destructive',
         });
       },
-      enableChunking: importSettings.enableChunking,
-      chunkingStrategy: importSettings.chunkingStrategy,
-      chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-      chunkSize: importSettings.chunkSize,
-      chunkOverlap: importSettings.chunkOverlap,
-      tokenTrueSizing: importSettings.tokenTrueSizing,
-      chunkTokenLimit: importSettings.chunkTokenLimit,
-      embeddingQueue: embeddingQueue ?? null,
+      onProgress: () => setShowImportProgress(true),
       resolveTargetEmbeddingSetId: resolveCollectionId,
+      tokenTrueSizing: importSettings.tokenTrueSizing,
     });
 
   useEffect(() => {
@@ -94,8 +94,8 @@ export function useImportFlow({
   const showDestructiveToast = useCallback(
     (title: string, description: string) => {
       toast({
-        title,
         description,
+        title,
         variant: 'destructive',
       });
     },
@@ -160,8 +160,8 @@ export function useImportFlow({
       setIsCancelling(true);
       cancelImport();
       toast({
-        title: 'Import Cancelled',
         description: 'The import was cancelled. Already imported files and chunks have been kept.',
+        title: 'Import Cancelled',
       });
     }
   }, [isImporting, cancelImport, toast]);
@@ -169,14 +169,14 @@ export function useImportFlow({
   const memoizedProgress = useMemo(() => progress as EnhancedImportProgress | null, [progress]);
 
   return {
-    handleImportClick,
-    handleCancelImport,
-    isImporting,
-    isCancelling,
-    progress: memoizedProgress,
-    showImportProgress,
-    setShowImportProgress,
-    selectedFileCount: selectedFilePaths.size,
     chunkRepository: chunkRepository ?? null,
+    handleCancelImport,
+    handleImportClick,
+    isCancelling,
+    isImporting,
+    progress: memoizedProgress,
+    selectedFileCount: selectedFilePaths.size,
+    setShowImportProgress,
+    showImportProgress,
   };
 }

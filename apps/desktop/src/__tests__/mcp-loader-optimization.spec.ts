@@ -22,13 +22,13 @@ describe('mcp-loader optimization', () => {
 
   beforeEach(async () => {
     // Clean up before each test
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await fsp.rm(tmpDir, { force: true, recursive: true });
     // Reset internal cache if possible (via setCustomMcpConfigPath(null))
     await setCustomMcpConfigPath(null);
   });
 
   afterEach(async () => {
-    await fsp.rm(tmpDir, { recursive: true, force: true });
+    await fsp.rm(tmpDir, { force: true, recursive: true });
   });
 
   it('should return default path when custom path file does not exist', async () => {

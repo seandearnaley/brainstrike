@@ -252,7 +252,7 @@ describe('wasmLoader.deleteIndexedDB', () => {
         onerror: ((event: unknown) => void) | null;
         onblocked: ((event: unknown) => void) | null;
         error: unknown;
-      } = { onsuccess: null, onerror: null, onblocked: null, error: null };
+      } = { error: null, onblocked: null, onerror: null, onsuccess: null };
       queueMicrotask(() => request.onsuccess?.(undefined));
       return request;
     });

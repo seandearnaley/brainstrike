@@ -11,18 +11,18 @@ let mockStorageAdapter: ThemeStorageAdapter;
 
 // Mock classList
 const mockClassList = {
-  remove: vi.fn(),
   add: vi.fn(),
   contains: vi.fn(),
-  toggle: vi.fn(),
-  replace: vi.fn(),
-  toString: vi.fn(),
-  value: '',
-  length: 0,
-  item: vi.fn(),
   entries: vi.fn(),
   forEach: vi.fn(),
+  item: vi.fn(),
   keys: vi.fn(),
+  length: 0,
+  remove: vi.fn(),
+  replace: vi.fn(),
+  toggle: vi.fn(),
+  toString: vi.fn(),
+  value: '',
   values: vi.fn(),
   [Symbol.iterator]: vi.fn(),
 } as unknown as DOMTokenList;
@@ -34,11 +34,11 @@ describe('ThemeProvider', () => {
 
     // Create fresh mock storage adapter
     mockStorageAdapter = {
-      getItem: vi.fn().mockResolvedValue(null),
-      setItem: vi.fn().mockResolvedValue(undefined),
-      removeItem: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
       getAllKeys: vi.fn().mockResolvedValue([]),
+      getItem: vi.fn().mockResolvedValue(null),
+      removeItem: vi.fn().mockResolvedValue(undefined),
+      setItem: vi.fn().mockResolvedValue(undefined),
     } as ThemeStorageAdapter;
 
     // Set the classList on the document element
@@ -49,14 +49,14 @@ describe('ThemeProvider', () => {
 
     // Mock window.matchMedia
     global.matchMedia = vi.fn().mockImplementation((query) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
       matches: query === '(prefers-color-scheme: dark)',
       media: query,
       onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
+      removeListener: vi.fn(),
     }));
   });
 
@@ -114,14 +114,14 @@ describe('ThemeProvider', () => {
   it('applies system theme when theme is set to system', async () => {
     // Mock system theme as dark
     global.matchMedia = vi.fn().mockImplementation((query) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
       matches: query === '(prefers-color-scheme: dark)',
       media: query,
       onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
+      removeListener: vi.fn(),
     }));
 
     const { result } = renderHook(() => useTheme(), { wrapper });

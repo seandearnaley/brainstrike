@@ -80,17 +80,17 @@ export function RenameEmbeddingSetDialog({
   const { toast } = useToast();
   const [updating, setUpdating] = useState(false);
   const [formData, setFormData] = useState({
-    name: embeddingSet?.name ?? '',
-    description: embeddingSet?.description ?? '',
-    tags: embeddingSet?.tags ?? '',
     category: embeddingSet?.category ?? '',
+    description: embeddingSet?.description ?? '',
+    name: embeddingSet?.name ?? '',
+    tags: embeddingSet?.tags ?? '',
   });
 
   const validateInputs = (): boolean => {
     if (!(repository && embeddingSet)) {
       toast({
-        title: 'Error',
         description: 'Invalid configuration',
+        title: 'Error',
         variant: 'destructive',
       });
       return false;
@@ -98,8 +98,8 @@ export function RenameEmbeddingSetDialog({
 
     if (!formData.name.trim()) {
       toast({
-        title: 'Validation Error',
         description: 'Please provide a name for the collection',
+        title: 'Validation Error',
         variant: 'destructive',
       });
       return false;
@@ -120,28 +120,28 @@ export function RenameEmbeddingSetDialog({
       await repository.updateMetadata(embeddingSet.id, metadata);
 
       dispatchEmbeddingSetUpdated({
-        id: embeddingSet.id,
-        reason: 'updated',
         collection: {
-          id: embeddingSet.id,
-          modelKey: embeddingSet.modelKey,
-          modelId: embeddingSet.modelId,
+          category: metadata.category ?? null,
+          chunkCount: embeddingSet.chunkCount,
+          createdAt: embeddingSet.createdAt,
+          description: metadata.description ?? null,
           dimensions: embeddingSet.dimensions,
           distance: embeddingSet.distance,
-          createdAt: embeddingSet.createdAt,
-          name: metadata.name ?? null,
-          description: metadata.description ?? null,
-          tags: metadata.tags ?? null,
-          category: metadata.category ?? null,
-          fileCount: embeddingSet.fileCount,
-          chunkCount: embeddingSet.chunkCount,
           embeddingCount: embeddingSet.embeddingCount,
+          fileCount: embeddingSet.fileCount,
+          id: embeddingSet.id,
+          modelId: embeddingSet.modelId,
+          modelKey: embeddingSet.modelKey,
+          name: metadata.name ?? null,
+          tags: metadata.tags ?? null,
         },
+        id: embeddingSet.id,
+        reason: 'updated',
       });
 
       toast({
-        title: 'Success',
         description: `Updated collection: ${formData.name}`,
+        title: 'Success',
       });
 
       setUpdating(false);
@@ -150,8 +150,8 @@ export function RenameEmbeddingSetDialog({
       setUpdating(false);
       logger.error('Failed to rename embedding set', { error });
       toast({
-        title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update collection',
+        title: 'Error',
         variant: 'destructive',
       });
       return;

@@ -133,8 +133,8 @@ function buildProviderGroups(models: DbModel[], providers: DbProvider[]): Provid
     } else {
       grouped.set(provider.id, {
         id: provider.id,
-        name: provider.name,
         models: [model],
+        name: provider.name,
       });
     }
   }
@@ -150,8 +150,8 @@ function buildProviderGroups(models: DbModel[], providers: DbProvider[]): Provid
   if (unknownModels.length > 0) {
     orderedGroups.push({
       id: 'unknown',
-      name: 'Unknown Provider',
       models: unknownModels,
+      name: 'Unknown Provider',
     });
   }
 
@@ -562,20 +562,20 @@ export function ModelList({
     const sectionList: ModelSection[] = [];
     if (activeRemote) {
       sectionList.push({
-        id: 'remote',
-        title: 'Remote Models',
         description: 'Hosted providers (OpenAI, Anthropic, Google, and more).',
         groups: buildProviderGroups(remoteModels, providers),
+        id: 'remote',
         modelsCount: remoteModels.length,
+        title: 'Remote Models',
       });
     }
     if (activeLocal) {
       sectionList.push({
-        id: 'local',
-        title: 'Local Models',
         description: 'On-device transformer models cached to disk.',
         groups: buildProviderGroups(localModels, providers),
+        id: 'local',
         modelsCount: localModels.length,
+        title: 'Local Models',
       });
     }
     return sectionList;

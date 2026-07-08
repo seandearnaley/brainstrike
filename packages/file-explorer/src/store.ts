@@ -32,20 +32,20 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
   const initialData = {
     // Initial state properties from DEFAULT_STATE
     ...DEFAULT_STATE,
-    // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
-    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-    // Initialize/Override specific state parts as needed
-    currentFolderId: null,
-    folderStates: {},
-    folderAccessOrder: [],
-    selectedFilePaths: new Set<string>(),
-    expandedDirectoryPaths: new Set<string>(),
-    quickFilter: '',
-    // Ephemeral access loading state (not persisted)
-    isAccessLoading: false,
     // Multi-root (Phase 4) initial state
     activeRootIds: [] as string[],
+    // Initialize/Override specific state parts as needed
+    currentFolderId: null,
+    expandedDirectoryPaths: new Set<string>(),
+    folderAccessOrder: [],
+    folderStates: {},
+    // Ephemeral access loading state (not persisted)
+    isAccessLoading: false,
+    // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
+    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+    quickFilter: '',
     rootDescriptors: {} as FileExplorerState['rootDescriptors'],
+    selectedFilePaths: new Set<string>(),
   };
 
   const actions = {
@@ -56,23 +56,23 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createFileContentActions(set, get),
     ...createSelectionModelActions(set, get),
     ...createActiveRootActions(set, get),
-    setQuickFilter: (value: string) => {
-      set({ quickFilter: value });
-    },
     clearQuickFilter: () => {
       set({ quickFilter: '' });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });
     },
-    setIsAccessLoading: (loading: boolean) => {
-      set({ isAccessLoading: loading });
+    setFilterChipsVisible: (visible: boolean) => {
+      set({ isFilterChipsVisible: visible });
     },
     setFiltersExpanded: (expanded: boolean) => {
       set({ isFiltersExpanded: expanded });
     },
-    setFilterChipsVisible: (visible: boolean) => {
-      set({ isFilterChipsVisible: visible });
+    setIsAccessLoading: (loading: boolean) => {
+      set({ isAccessLoading: loading });
+    },
+    setQuickFilter: (value: string) => {
+      set({ quickFilter: value });
     },
   };
 
@@ -98,21 +98,21 @@ if (typeof localStorage === 'undefined') {
   defaultPersistStorageAdapter = new MemoryStorageAdapter();
 } else {
   defaultPersistStorageAdapter = {
-    async getItem(key: string) {
-      return localStorage.getItem(key);
-    },
-    async setItem(key: string, value: string) {
-      localStorage.setItem(key, value);
-    },
-    async removeItem(key: string) {
-      localStorage.removeItem(key);
-    },
     /* v8 ignore start -- Zustand persist storage only calls getItem/setItem/removeItem */
     async clear() {
       localStorage.clear();
     },
     async getAllKeys() {
       return Object.keys(localStorage);
+    },
+    async getItem(key: string) {
+      return localStorage.getItem(key);
+    },
+    async removeItem(key: string) {
+      localStorage.removeItem(key);
+    },
+    async setItem(key: string, value: string) {
+      localStorage.setItem(key, value);
     },
     /* v8 ignore stop */
   };

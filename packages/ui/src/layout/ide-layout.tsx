@@ -94,9 +94,13 @@ function buildHorizontalSaveArgs(
   const rawExplorerSize = layout[config.layoutIds.explorerPanel];
   const rawToolsSize = layout[config.layoutIds.toolsPanel];
   const explorerSize =
-    rawExplorerSize != null && rawExplorerSize > 0 ? rawExplorerSize : (config.safeLeftSize ?? 25);
+    rawExplorerSize !== null && rawExplorerSize !== undefined && rawExplorerSize > 0
+      ? rawExplorerSize
+      : (config.safeLeftSize ?? 25);
   const toolsSize =
-    rawToolsSize != null && rawToolsSize > 0 ? rawToolsSize : (config.safeRightSize ?? 20);
+    rawToolsSize !== null && rawToolsSize !== undefined && rawToolsSize > 0
+      ? rawToolsSize
+      : (config.safeRightSize ?? 20);
   return [
     [explorerSize, toolsSize, config.safeConsoleSize ?? 20],
     !!config.showConsole,
@@ -112,7 +116,9 @@ function buildVerticalSaveArgs(
 ): SaveLayoutArgs {
   const rawConsoleSize = layout[config.layoutIds.consolePanel];
   const consoleSize =
-    rawConsoleSize != null && rawConsoleSize > 0 ? rawConsoleSize : (config.safeConsoleSize ?? 20);
+    rawConsoleSize !== null && rawConsoleSize !== undefined && rawConsoleSize > 0
+      ? rawConsoleSize
+      : (config.safeConsoleSize ?? 20);
   return [
     [config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize],
     !!config.showConsole,
@@ -144,18 +150,18 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
   const stableConfig = useMemo<LayoutHandlerConfig>(
     () =>
       buildLayoutHandlerConfig({
-        leftPanelContent,
-        layoutIds,
-        rightPanelContent,
         consoleContent,
-        showLeftPanel,
-        showRightPanel,
-        showConsole,
+        isInitialRenderRef,
+        layoutIds,
+        leftPanelContent,
+        rightPanelContent,
+        safeConsoleSize,
         safeLeftSize,
         safeRightSize,
-        safeConsoleSize,
         saveLayout,
-        isInitialRenderRef,
+        showConsole,
+        showLeftPanel,
+        showRightPanel,
       }),
     [
       leftPanelContent,
@@ -297,7 +303,7 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
     [stableConfig, scheduleCommit]
   );
 
-  return { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown };
+  return { handleHorizontalLayout, handleSeparatorPointerDown, handleVerticalLayout };
 }
 
 // Configuration for initial layout application
@@ -533,11 +539,11 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
       if (isDevEnv() && !hasLoggedMissingRefs.current) {
         hasLoggedMissingRefs.current = true;
         logger.warn('Panel refs not ready for layout initialization', {
+          console: !!consolePanelRef.current,
           horizontal: !!horizontalGroupRef.current,
-          vertical: !!verticalGroupRef.current,
           left: !!leftPanelRef.current,
           right: !!rightPanelRef.current,
-          console: !!consolePanelRef.current,
+          vertical: !!verticalGroupRef.current,
         });
       }
       return;
@@ -546,23 +552,23 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
     // Wait for refs and DOM to stabilize
     const timeoutId = setTimeout(() => {
       applyInitialLayout({
+        consolePanelRef,
+        hasAppliedInitialLayout,
+        hasConsole,
+        hasExplorer,
+        hasTools,
         horizontalGroupRef: horizontalGroupRef.current,
-        verticalGroupRef: verticalGroupRef.current,
+        isInitialRenderRef,
         layoutIds,
         leftPanelRef,
         rightPanelRef,
-        consolePanelRef,
-        hasAppliedInitialLayout,
-        isInitialRenderRef,
-        hasExplorer,
-        hasTools,
-        hasConsole,
-        showLeftPanel,
-        showRightPanel,
-        showConsole,
+        safeConsoleSize,
         safeLeftSize,
         safeRightSize,
-        safeConsoleSize,
+        showConsole,
+        showLeftPanel,
+        showRightPanel,
+        verticalGroupRef: verticalGroupRef.current,
       });
     }, LAYOUT_INITIALIZATION_DELAY_MS); // Wait for DOM to stabilize
 
@@ -618,9 +624,9 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
 
   const noopAdapter: PanelPersistenceAdapter = useMemo(
     () => ({
+      flush: async () => {},
       load: async () => null,
       save: async () => {},
-      flush: async () => {},
     }),
     []
   );
@@ -644,27 +650,27 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
       sRight?: boolean
     ) =>
       ctx.setState({
-        sizes: newSizes,
         showConsole: sConsole ?? showConsole,
         showLeftPanel: sLeft ?? showLeftPanel,
         showRightPanel: sRight ?? showRightPanel,
+        sizes: newSizes,
       });
 
     const toggleField = (field: 'showConsole' | 'showLeftPanel' | 'showRightPanel') =>
       ctx.setState({
-        sizes,
         showConsole,
         showLeftPanel,
         showRightPanel,
+        sizes,
         [field]: !ctx[field],
       });
 
     return {
-      sizes,
+      saveLayout,
       showConsole,
       showLeftPanel,
       showRightPanel,
-      saveLayout,
+      sizes,
       toggleConsole: () => toggleField('showConsole'),
       toggleLeftPanel: () => toggleField('showLeftPanel'),
       toggleRightPanel: () => toggleField('showRightPanel'),
@@ -933,15 +939,15 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
   );
 
   return {
-    handleShowLeftPanel,
-    handleHideLeftPanel,
-    handleShowRightPanel,
-    handleHideRightPanel,
-    handleShowConsole,
+    handleConsolePanelCollapse,
     handleHideConsole,
+    handleHideLeftPanel,
+    handleHideRightPanel,
     handleLeftPanelCollapse,
     handleRightPanelCollapse,
-    handleConsolePanelCollapse,
+    handleShowConsole,
+    handleShowLeftPanel,
+    handleShowRightPanel,
   };
 }
 
@@ -968,29 +974,29 @@ export interface IdeLayoutPanelConstraints {
 }
 
 const DEFAULT_LEFT_PANEL_CHROME: PanelChromeConfig = {
-  title: 'Explorer',
-  showButtonLabel: 'Show explorer panel',
-  showButtonTestId: 'show-explorer-panel',
   hideButtonLabel: 'Hide explorer panel',
   hideButtonTestId: 'hide-explorer-panel',
   icon: PanelLeft,
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  title: 'Explorer',
 };
 
 const DEFAULT_RIGHT_PANEL_CHROME: PanelChromeConfig = {
-  title: 'Tools',
-  showButtonLabel: 'Show tools panel',
-  showButtonTestId: 'show-tools-panel',
   hideButtonLabel: 'Hide tools panel',
   hideButtonTestId: 'hide-tools-panel',
   icon: PanelRight,
+  showButtonLabel: 'Show tools panel',
+  showButtonTestId: 'show-tools-panel',
+  title: 'Tools',
 };
 
 const DEFAULT_PANEL_CONSTRAINTS: IdeLayoutPanelConstraints = {
+  consolePanelMaxSize: '80%',
+  consolePanelMinSize: '15%',
   leftPanelMaxSize: '50%',
   leftPanelMinSize: '15%',
   mainContentMinSize: '30%',
-  consolePanelMaxSize: '80%',
-  consolePanelMinSize: '15%',
   rightPanelMaxSize: '60%',
   rightPanelMinSize: '15%',
 };
@@ -1045,11 +1051,11 @@ export const IdeLayout = React.memo(function IdeLayout({
   const layoutIds = useMemo<LayoutIds>(() => {
     const prefix = panelIdPrefix ? `${panelIdPrefix}-` : '';
     return {
+      consolePanel: `${prefix}console-panel`,
       explorerPanel: `${prefix}explorer-panel`,
+      mainContentPanel: `${prefix}main-content-panel`,
       middlePanel: `${prefix}middle-panel`,
       toolsPanel: `${prefix}tools-panel`,
-      mainContentPanel: `${prefix}main-content-panel`,
-      consolePanel: `${prefix}console-panel`,
     };
   }, [panelIdPrefix]);
 
@@ -1079,23 +1085,23 @@ export const IdeLayout = React.memo(function IdeLayout({
   // v4 CRITICAL: Apply initial layout imperatively after mount
   // defaultLayout only works on first render - we need setLayout() for dynamic control
   useInitialLayoutEffect({
-    horizontalGroupRef,
-    verticalGroupRef,
-    leftPanelRef,
-    rightPanelRef,
     consolePanelRef,
-    layoutIds,
     hasAppliedInitialLayout,
-    isInitialRenderRef,
+    hasConsole,
     hasExplorer,
     hasTools,
-    hasConsole,
-    showLeftPanel,
-    showRightPanel,
-    showConsole,
+    horizontalGroupRef,
+    isInitialRenderRef,
+    layoutIds,
+    leftPanelRef,
+    rightPanelRef,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    verticalGroupRef,
   });
 
   // Sync panel visibility with imperative API (for user interactions after mount)
@@ -1148,36 +1154,36 @@ export const IdeLayout = React.memo(function IdeLayout({
     handleRightPanelCollapse,
     handleConsolePanelCollapse,
   } = usePanelToggleHandlers({
+    hideConsoleButtonRef,
+    hideExplorerButtonRef,
+    hideToolsPanelButtonRef,
+    isInitialRenderRef,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
+    saveLayout,
     showConsole,
     showLeftPanel,
     showRightPanel,
-    saveLayout,
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,
-    isInitialRenderRef,
-    hideExplorerButtonRef,
-    hideToolsPanelButtonRef,
-    hideConsoleButtonRef,
   });
 
   // Layout handlers
   const layoutConfig: LayoutHandlerConfig = {
+    consoleContent,
+    isInitialRenderRef,
+    layoutIds,
     leftPanelContent,
     rightPanelContent,
-    consoleContent,
-    layoutIds,
-    showLeftPanel,
-    showRightPanel,
-    showConsole,
+    safeConsoleSize,
     safeLeftSize,
     safeRightSize,
-    safeConsoleSize,
     saveLayout,
-    isInitialRenderRef,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
   };
 
   const { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown } =

@@ -190,8 +190,8 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
     case 'transaction:exec':
       return {
         requestKind: request.kind,
-        transactionId: request.transactionId,
         sqlPreview: createQueryPreview(request.sql),
+        transactionId: request.transactionId,
         ...createParamsCountDiagnostic(request.params),
       };
     case 'transaction:commit':
@@ -203,15 +203,15 @@ function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeout
       };
     case 'live:start':
       return {
-        requestKind: request.kind,
         payloadQueryPreview: createQueryPreview(request.payload.query),
+        requestKind: request.kind,
         ...createParamsCountDiagnostic(request.payload.params),
       };
     case 'live:refresh':
     case 'live:stop':
       return {
-        requestKind: request.kind,
         liveId: request.liveId,
+        requestKind: request.kind,
       };
     default:
       return { requestKind: request.kind };
@@ -486,8 +486,8 @@ class DefaultDbHostManager implements DbHostManager {
         requestKind: request.kind,
         resolve: resolve as (value: unknown) => void,
         startedAt,
-        timer,
         timeoutMs,
+        timer,
       });
       host.postMessage(envelope);
     });
@@ -538,7 +538,7 @@ class DefaultDbHostManager implements DbHostManager {
       this.#rejectAll(error);
     });
     host.on('error', (type, location) => {
-      logger.error('DB host process error', { type, location });
+      logger.error('DB host process error', { location, type });
     });
     this.#host = host;
     return host;
@@ -628,8 +628,8 @@ class DefaultDbHostManager implements DbHostManager {
     readonly query: string;
   }): Promise<RemoteLiveQuery<TRecord>> {
     const requestPayload = {
-      query: payload.query,
       mode: payload.mode,
+      query: payload.query,
       ...(payload.params === undefined || payload.params === null
         ? {}
         : { params: payload.params }),
@@ -674,15 +674,15 @@ class DefaultDbHostManager implements DbHostManager {
       exec: async (sql, params) =>
         await this.send({
           kind: 'transaction:exec',
-          transactionId,
           sql,
+          transactionId,
           ...(params ? { params } : {}),
         }),
       query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'transaction:query',
-          transactionId,
           sql,
+          transactionId,
           ...(params ? { params } : {}),
         }),
     };

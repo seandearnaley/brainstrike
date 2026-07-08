@@ -17,11 +17,11 @@ const logger = createLogger('CommandPalette');
 const GROUP_ORDER: readonly CommandGroup[] = ['navigate', 'thread', 'file', 'workspace', 'danger'];
 
 const GROUP_HEADINGS: Record<CommandGroup, string> = {
+  danger: 'Danger',
+  file: 'File',
   navigate: 'Navigate',
   thread: 'Thread',
-  file: 'File',
   workspace: 'Workspace',
-  danger: 'Danger',
 };
 
 const DEFAULT_GROUP: CommandGroup = 'workspace';
@@ -61,7 +61,7 @@ function groupCommands(commands: readonly Command[]): readonly GroupedCommands[]
   for (const group of GROUP_ORDER) {
     const grouped = buckets.get(group);
     if (grouped && grouped.length > 0) {
-      sections.push({ group, commands: grouped });
+      sections.push({ commands: grouped, group });
     }
   }
   return sections;
@@ -112,8 +112,8 @@ export function CommandPalette({
         outcome = await command.run(context);
       } catch (error) {
         outcome = {
-          ok: false,
           error: error instanceof Error ? error.message : 'Command failed unexpectedly',
+          ok: false,
         };
       }
       if (outcome.ok) {
@@ -124,9 +124,9 @@ export function CommandPalette({
       const description = outcome.error ?? `"${command.label}" could not be completed.`;
       reportCommandFailure(command, description);
       toast({
-        variant: 'destructive',
-        title: 'Command failed',
         description,
+        title: 'Command failed',
+        variant: 'destructive',
       });
     },
     [context, handleOpenChange, toast]
@@ -211,5 +211,5 @@ function CommandPaletteItem({ command, onSelect }: CommandPaletteItemProps): Rea
 }
 
 function reportCommandFailure(command: Command, description: string): void {
-  logger.error('Command failed', { id: command.id, description });
+  logger.error('Command failed', { description, id: command.id });
 }

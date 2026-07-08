@@ -24,19 +24,19 @@ export interface RestoreAccessModalProps {
 }
 
 const variantCopy = {
-  pending: {
-    title: 'Restore access to your last folder?',
-    description:
-      'Your browser remembered the folder you were working with. Restore access to continue where you left off, or choose a different folder.',
-  },
   denied: {
-    title: 'Folder access was denied',
     description:
       'Permission to access the folder was denied. Try again or choose a different folder to continue.',
+    title: 'Folder access was denied',
+  },
+  pending: {
+    description:
+      'Your browser remembered the folder you were working with. Restore access to continue where you left off, or choose a different folder.',
+    title: 'Restore access to your last folder?',
   },
   stale: {
-    title: 'Stored folder is no longer accessible',
     description: 'The folder may have been moved or deleted. Choose a new folder to continue.',
+    title: 'Stored folder is no longer accessible',
   },
 } as const satisfies Record<RestoreAccessModalVariant, { title: string; description: string }>;
 

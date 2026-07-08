@@ -68,8 +68,8 @@ function deriveDestinationLabel(
   }
   if (fallback) {
     return {
-      label: 'Not configured',
       hint: `Default path will be used: ${fallback}`,
+      label: 'Not configured',
     };
   }
   return { label: 'Not configured' };
@@ -109,8 +109,8 @@ export function LoggingSettingsSection({
         setIsSyncing(false);
         const message = error instanceof Error ? error.message : String(error);
         toast({
-          title: 'Failed to update logging preferences',
           description: message,
+          title: 'Failed to update logging preferences',
           variant: 'destructive',
         });
         throw error;
@@ -123,8 +123,8 @@ export function LoggingSettingsSection({
   const clonePreferences = useCallback(
     (prefs: LoggingPreferences): LoggingPreferences => ({
       ...prefs,
-      redactPaths: [...prefs.redactPaths],
       file: { ...prefs.file },
+      redactPaths: [...prefs.redactPaths],
     }),
     []
   );
@@ -190,8 +190,8 @@ export function LoggingSettingsSection({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
-        title: 'Failed to update log destination',
         description: message,
+        title: 'Failed to update log destination',
         variant: 'destructive',
       });
     }
@@ -206,10 +206,10 @@ export function LoggingSettingsSection({
     const success = await onOpenLogDestination(currentDestination);
     if (!success) {
       toast({
-        title: 'Unable to open log file',
         description: currentDestination
           ? `Path "${currentDestination}" is not accessible.`
           : 'No log file destination is configured.',
+        title: 'Unable to open log file',
         variant: 'destructive',
       });
     }
@@ -229,8 +229,8 @@ export function LoggingSettingsSection({
     } catch (error) {
       setPreferences(previous);
       toast({
-        title: 'Failed to reset logging preferences',
         description: error instanceof Error ? error.message : 'Unknown error occurred.',
+        title: 'Failed to reset logging preferences',
         variant: 'destructive',
       });
     }

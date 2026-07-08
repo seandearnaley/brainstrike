@@ -85,7 +85,7 @@ function buildNoticeCopy(
   if (indexingActive) {
     // Intentionally count-free so the text never changes during indexing.
     const message = `${label} is indexing…`;
-    return { message, detail: message };
+    return { detail: message, message };
   }
 
   const chunks = coverage.totalChunks.toLocaleString();
@@ -101,17 +101,17 @@ function buildNoticeCopy(
   switch (coverage.status) {
     case 'needs_reindex':
       return {
-        message: `${label} needs re-indexing · ${pending} file${filePlural} pending`,
         detail: `${label} needs re-indexing after the source line-range update — re-import or run indexing so retrieval can cite exact line ranges. ${pending} file${filePlural} still have unprocessed chunks.`,
+        message: `${label} needs re-indexing · ${pending} file${filePlural} pending`,
       };
     case 'partial_source_ranges':
       return {
-        message: `${missing} chunk${chunkPlural} missing source ranges`,
         detail: `${missing} chunk${chunkPlural} missing source ranges. Semantic search may skip those hits until they are re-chunked.`,
+        message: `${missing} chunk${chunkPlural} missing source ranges`,
       };
     case 'fully_indexed': {
       const message = `Fully indexed · ${chunks} chunk${coverage.totalChunks === 1 ? '' : 's'} / ${files} file${coverage.totalFiles === 1 ? '' : 's'}`;
-      return { message, detail: message };
+      return { detail: message, message };
     }
     default:
       return null;
@@ -121,14 +121,14 @@ function buildNoticeCopy(
 type CoverageNoticeTone = 'indexing' | 'healthy' | 'warning';
 
 const TONE_ICON: Record<CoverageNoticeTone, typeof CheckCircle2> = {
-  indexing: Loader2,
   healthy: CheckCircle2,
+  indexing: Loader2,
   warning: AlertTriangle,
 };
 
 const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
-  indexing: 'text-sky-500',
   healthy: 'text-emerald-500',
+  indexing: 'text-sky-500',
   warning: 'text-amber-500',
 };
 
@@ -136,8 +136,8 @@ const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
 // stand out from the muted healthy/indexing states and don't rely on color
 // alone (WCAG). Healthy/indexing are non-actionable, so they stay calm.
 const TONE_TEXT_CLASS: Record<CoverageNoticeTone, string> = {
-  indexing: 'text-muted-foreground',
   healthy: 'text-muted-foreground',
+  indexing: 'text-muted-foreground',
   warning: 'text-amber-700 dark:text-amber-300',
 };
 

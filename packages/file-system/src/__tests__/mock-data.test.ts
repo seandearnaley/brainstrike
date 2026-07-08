@@ -12,28 +12,28 @@ describe('mock file-system test data', () => {
 
     const first = nodes[0];
     expect(first).toMatchObject({
-      name: 'mock-file1.txt',
-      path: `${TEST_DIRECTORY_PATH}/mock-file1.txt`,
-      type: 'file',
-      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       handle: {
         id: 'mock-file-1',
         kind: 'file',
         platform: 'electron',
       },
+      name: 'mock-file1.txt',
+      path: `${TEST_DIRECTORY_PATH}/mock-file1.txt`,
+      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      type: 'file',
     });
 
     const folder = nodes[2];
     expect(folder).toMatchObject({
-      name: 'mock-subfolder',
-      type: 'directory',
-      path: `${TEST_DIRECTORY_PATH}/mock-subfolder`,
-      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      children: [],
       handle: {
         kind: 'directory',
         platform: 'electron',
       },
-      children: [],
+      name: 'mock-subfolder',
+      path: `${TEST_DIRECTORY_PATH}/mock-subfolder`,
+      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      type: 'directory',
     });
   });
 

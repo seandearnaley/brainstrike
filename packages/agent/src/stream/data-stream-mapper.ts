@@ -251,8 +251,8 @@ export class DataStreamMapper {
         code: DataStreamCode.finishMessage,
         value: {
           finishReason: 'error',
-          usage,
           path: [],
+          usage,
         },
       } satisfies EncodedChunk;
       this.finishEmitted = true;
@@ -280,8 +280,8 @@ export class DataStreamMapper {
       code: DataStreamCode.finishMessage,
       value: {
         finishReason: 'error',
-        usage,
         path: [],
+        usage,
       },
     });
     this.finishEmitted = true;
@@ -327,8 +327,8 @@ export class DataStreamMapper {
     const encoded = {
       code: DataStreamCode.auiDataPart,
       value: {
-        name: ASSISTANT_RUN_EVENT_DATA_NAME,
         data: toJsonSafe(chunk.event),
+        name: ASSISTANT_RUN_EVENT_DATA_NAME,
       },
     } satisfies EncodedChunk;
     if (this.streamingPartOpen) {
@@ -409,9 +409,9 @@ export class DataStreamMapper {
       yield {
         code: DataStreamCode.toolCall,
         value: {
+          args: toArgsObject(args, state.pendingArgsText),
           toolCallId: callId,
           toolName: state.toolName,
-          args: toArgsObject(args, state.pendingArgsText),
         },
       } satisfies EncodedChunk;
     }
@@ -428,8 +428,8 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.auiDataPart,
       value: {
-        name: TOOL_APPROVAL_DATA_NAME,
         data,
+        name: TOOL_APPROVAL_DATA_NAME,
       },
     } satisfies EncodedChunk;
   }
@@ -444,9 +444,9 @@ export class DataStreamMapper {
     yield* this.startStepIfNeeded();
     this.toolState.set(callId, {
       argsEmitted: false,
-      toolName,
-      pendingArgsText: '',
       lastInput: extractToolInput(payload),
+      pendingArgsText: '',
+      toolName,
     });
     yield {
       code: DataStreamCode.startToolCall,
@@ -467,7 +467,7 @@ export class DataStreamMapper {
       }
       yield {
         code: DataStreamCode.toolCallArgsTextDelta,
-        value: { toolCallId: callId, argsTextDelta: delta },
+        value: { argsTextDelta: delta, toolCallId: callId },
       } satisfies EncodedChunk;
       return;
     }
@@ -480,7 +480,7 @@ export class DataStreamMapper {
       state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
-        value: { toolCallId: callId, toolName: state.toolName, args },
+        value: { args, toolCallId: callId, toolName: state.toolName },
       } satisfies EncodedChunk;
     }
   }
@@ -505,13 +505,13 @@ export class DataStreamMapper {
         state.argsEmitted = true;
         yield {
           code: DataStreamCode.toolCall,
-          value: { toolCallId: callId, toolName: state.toolName, args },
+          value: { args, toolCallId: callId, toolName: state.toolName },
         } satisfies EncodedChunk;
       }
       this.toolState.delete(callId);
       yield {
         code: DataStreamCode.toolCallResult,
-        value: { toolCallId: callId, result: bounded.output, isError: true },
+        value: { isError: true, result: bounded.output, toolCallId: callId },
       } satisfies EncodedChunk;
       this.pendingToolErrorTexts.push(bounded.errorText);
       this.startNewStepForNextText = true;
@@ -522,13 +522,13 @@ export class DataStreamMapper {
       state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
-        value: { toolCallId: callId, toolName: state.toolName, args },
+        value: { args, toolCallId: callId, toolName: state.toolName },
       } satisfies EncodedChunk;
     }
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.toolCallResult,
-      value: { toolCallId: callId, result: bounded.output },
+      value: { result: bounded.output, toolCallId: callId },
     } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
   }
@@ -547,14 +547,14 @@ export class DataStreamMapper {
       state.argsEmitted = true;
       yield {
         code: DataStreamCode.toolCall,
-        value: { toolCallId: callId, toolName: state.toolName, args },
+        value: { args, toolCallId: callId, toolName: state.toolName },
       } satisfies EncodedChunk;
     }
 
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.toolCallResult,
-      value: { toolCallId: callId, result: output, isError: true },
+      value: { isError: true, result: output, toolCallId: callId },
     } satisfies EncodedChunk;
     this.pendingToolErrorTexts.push(readToolOutputErrorText(output));
     this.startNewStepForNextText = true;
@@ -586,8 +586,8 @@ export class DataStreamMapper {
         finishReason: abnormalFinishMessage
           ? 'error'
           : (stepBeforeFinalize?.finishReason ?? finishReason),
-        usage,
         path: [],
+        usage,
       },
     } satisfies EncodedChunk;
     this.finishEmitted = true;
@@ -602,11 +602,11 @@ export class DataStreamMapper {
     }
     const stepId = `${this.messageId}:step:${this.nextStepIndex}`;
     this.currentStep = {
+      finishReason: 'unknown',
       id: stepId,
       index: this.nextStepIndex,
-      usage: toDataStreamUsage(),
-      finishReason: 'unknown',
       status: 'success',
+      usage: toDataStreamUsage(),
     } satisfies StepState;
     this.nextStepIndex += 1;
     yield {
@@ -636,9 +636,9 @@ export class DataStreamMapper {
       code: DataStreamCode.finishStep,
       value: {
         finishReason: step.finishReason,
-        usage: step.usage,
         isContinued: false,
         path: [],
+        usage: step.usage,
       },
     } satisfies EncodedChunk;
   }

@@ -12,15 +12,15 @@ describe('EmbeddingActionsDropdown', () => {
   });
 
   const defaultProps: EmbeddingActionsDropdownProps = {
-    onBackfill: vi.fn(),
-    onRetryFailed: vi.fn(),
-    onClearQueue: vi.fn(),
-    onWipeQueue: vi.fn(),
-    hasDb: true,
     backfilling: false,
     backfillProgress: null,
-    failedCount: 0,
     coverage: { total: 100, withSet: 50 },
+    failedCount: 0,
+    hasDb: true,
+    onBackfill: vi.fn(),
+    onClearQueue: vi.fn(),
+    onRetryFailed: vi.fn(),
+    onWipeQueue: vi.fn(),
     queueCounts: { queued: 0, running: 0 },
   };
 
@@ -112,9 +112,9 @@ describe('EmbeddingActionsDropdown', () => {
 
     it('prioritizes backfilling progress over starting state', () => {
       renderDropdown({
-        startingWorker: true,
         backfilling: true,
         backfillProgress: { done: 25, total: 100 },
+        startingWorker: true,
       });
       expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });

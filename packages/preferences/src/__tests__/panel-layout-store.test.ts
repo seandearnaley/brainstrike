@@ -65,7 +65,7 @@ describe('panel-layout-store', () => {
   });
 
   it('setState merges partial updates', () => {
-    store.getState().setState({ showRightPanel: true, activeTab: 'settings' });
+    store.getState().setState({ activeTab: 'settings', showRightPanel: true });
     const s = store.getState();
     expect(s.showRightPanel).toBe(true);
     expect(s.activeTab).toBe('settings');
@@ -133,10 +133,10 @@ describe('panel-layout-store', () => {
       STORE_NAME,
       JSON.stringify({
         state: {
-          sizes: [4.488, 5.386, 0],
+          showConsole: true,
           showLeftPanel: false,
           showRightPanel: true,
-          showConsole: true,
+          sizes: [4.488, 5.386, 0],
         },
         version: 2,
       })

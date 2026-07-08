@@ -21,10 +21,10 @@ describe('@brainstrike/text-splitter', () => {
   it('bounds the compiled separator regex cache', () => {
     for (let index = 0; index < 70; index += 1) {
       const chunks = splitTextRecursively(`a${index}b${index}c`, {
-        chunkSize: 2,
         chunkOverlap: 0,
-        separators: [`${index}`],
+        chunkSize: 2,
         isSeparatorRegex: true,
+        separators: [`${index}`],
       });
       expect(chunks.length).toBeGreaterThan(0);
     }
@@ -37,8 +37,8 @@ describe('@brainstrike/text-splitter', () => {
 
   it('splits long text recursively with literal separators', async () => {
     const splitter = new RecursiveTextSplitter({
-      chunkSize: 32,
       chunkOverlap: 4,
+      chunkSize: 32,
       separators: ['\n\n', '\n', '. ', ' ', ''],
     });
 
@@ -54,8 +54,8 @@ describe('@brainstrike/text-splitter', () => {
 
   it('uses owned default separators when none are provided', () => {
     const chunks = splitTextRecursively('Alpha beta gamma delta', {
-      chunkSize: 10,
       chunkOverlap: 2,
+      chunkSize: 10,
     });
 
     expect(chunks.length).toBeGreaterThan(1);
@@ -72,8 +72,8 @@ describe('@brainstrike/text-splitter', () => {
 
   it('preserves overlapping context between neighboring chunks', () => {
     const chunks = splitTextRecursively('ab cd ef gh ij', {
-      chunkSize: 6,
       chunkOverlap: 3,
+      chunkSize: 6,
       separators: [' ', ''],
     });
 
@@ -83,9 +83,9 @@ describe('@brainstrike/text-splitter', () => {
 
   it('preserves whitespace inside overlap windows', () => {
     const chunks = splitTextByStrategy('word1    word2    word3', {
-      strategy: 'character',
-      chunkSize: 12,
       chunkOverlap: 4,
+      chunkSize: 12,
+      strategy: 'character',
     });
 
     expect(chunks.length).toBeGreaterThan(1);
@@ -96,8 +96,8 @@ describe('@brainstrike/text-splitter', () => {
 
   it('falls back to fixed-width splits when no separator matches', () => {
     const chunks = splitTextRecursively('abcdefghij', {
-      chunkSize: 3,
       chunkOverlap: 0,
+      chunkSize: 3,
       separators: [''],
     });
 
@@ -106,10 +106,10 @@ describe('@brainstrike/text-splitter', () => {
 
   it('supports regex separators', () => {
     const chunks = splitTextRecursively('a1b2c3d4e5f6', {
-      chunkSize: 4,
       chunkOverlap: 0,
-      separators: ['\\d'],
+      chunkSize: 4,
       isSeparatorRegex: true,
+      separators: ['\\d'],
     });
 
     expect(chunks.length).toBeGreaterThan(1);
@@ -119,19 +119,19 @@ describe('@brainstrike/text-splitter', () => {
   it('throws a clear error for invalid regex separators', () => {
     expect(() =>
       splitTextRecursively('abcdef', {
-        chunkSize: 3,
         chunkOverlap: 0,
-        separators: ['[unclosed'],
+        chunkSize: 3,
         isSeparatorRegex: true,
+        separators: ['[unclosed'],
       })
     ).toThrow('Invalid regex separator "[unclosed"');
   });
 
   it('supports character strategy with overlap', () => {
     const chunks = splitTextByStrategy('abcdefghij', {
-      strategy: 'character',
-      chunkSize: 4,
       chunkOverlap: 1,
+      chunkSize: 4,
+      strategy: 'character',
     });
 
     expect(chunks).toEqual(['abcd', 'defg', 'ghij']);
@@ -141,9 +141,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '# Title\n\n## Section\n\nBody text\n\n### Detail\n\nMore text',
       {
-        strategy: 'markdown',
-        chunkSize: 18,
         chunkOverlap: 2,
+        chunkSize: 18,
+        strategy: 'markdown',
       }
     );
 
@@ -155,9 +155,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '# Title\n\nIntro\n\n## A\n\nAlpha paragraph.\n\n## B\n\nBeta paragraph.',
       {
-        strategy: 'semantic-markdown',
-        chunkSize: 28,
         chunkOverlap: 4,
+        chunkSize: 28,
+        strategy: 'semantic-markdown',
       }
     );
 
@@ -169,9 +169,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '# Title\n\nThis section has enough prose to exceed the small chunk target and needs recursive splitting within the heading family.',
       {
-        strategy: 'semantic-markdown',
-        chunkSize: 24,
         chunkOverlap: 4,
+        chunkSize: 24,
+        strategy: 'semantic-markdown',
       }
     );
 
@@ -183,9 +183,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '<article><section><p>Alpha beta gamma</p></section><section><p>Delta epsilon zeta</p></section></article>',
       {
-        strategy: 'html',
-        chunkSize: 40,
         chunkOverlap: 4,
+        chunkSize: 40,
+        strategy: 'html',
       }
     );
 
@@ -196,9 +196,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '{"rows":[{"id":1,"name":"alpha"},{"id":2,"name":"beta"},{"id":3,"name":"gamma"}]}',
       {
-        strategy: 'json',
-        chunkSize: 36,
         chunkOverlap: 4,
+        chunkSize: 36,
+        strategy: 'json',
       }
     );
 
@@ -209,9 +209,9 @@ describe('@brainstrike/text-splitter', () => {
     const chunks = splitTextByStrategy(
       '\\section{Intro}\nAlpha beta gamma\n\\subsection{Detail}\nDelta epsilon zeta',
       {
-        strategy: 'latex',
-        chunkSize: 28,
         chunkOverlap: 2,
+        chunkSize: 28,
+        strategy: 'latex',
       }
     );
 
@@ -257,10 +257,10 @@ describe('@brainstrike/text-splitter', () => {
 
   it('honors explicit regex separators on RecursiveTextSplitter instances', async () => {
     const splitter = new RecursiveTextSplitter({
-      chunkSize: 6,
       chunkOverlap: 0,
-      separators: ['\\d+'],
+      chunkSize: 6,
       isSeparatorRegex: true,
+      separators: ['\\d+'],
     });
 
     await expect(splitter.splitText('alpha123beta456gamma')).resolves.toEqual([
@@ -274,23 +274,23 @@ describe('@brainstrike/text-splitter', () => {
   it('resolves final effective strategy from the shared contract', () => {
     expect(
       resolveEffectiveChunkingStrategy({
+        isCode: true,
         requested: 'auto',
         resolvedAutoStrategy: 'recursive',
-        isCode: true,
       })
     ).toBe('recursive');
     expect(
       resolveEffectiveChunkingStrategy({
+        isCode: false,
         requested: 'auto',
         resolvedAutoStrategy: 'recursive',
-        isCode: false,
       })
     ).toBe('sentence');
     expect(
       resolveEffectiveChunkingStrategy({
+        isCode: false,
         requested: 'html',
         resolvedAutoStrategy: 'sentence',
-        isCode: false,
       })
     ).toBe('html');
   });
@@ -314,8 +314,8 @@ describe('@brainstrike/text-splitter', () => {
   it('throws on invalid chunk overlap', () => {
     expect(() =>
       splitTextRecursively('abc', {
-        chunkSize: 4,
         chunkOverlap: 4,
+        chunkSize: 4,
       })
     ).toThrow('chunkOverlap must be smaller than chunkSize');
   });
@@ -323,22 +323,22 @@ describe('@brainstrike/text-splitter', () => {
   it('throws on invalid text and size inputs', () => {
     expect(() =>
       splitTextRecursively(123 as unknown as string, {
-        chunkSize: 4,
         chunkOverlap: 0,
+        chunkSize: 4,
       })
     ).toThrow('text must be a string');
 
     expect(() =>
       splitTextRecursively('abc', {
-        chunkSize: 0,
         chunkOverlap: 0,
+        chunkSize: 0,
       })
     ).toThrow('chunkSize must be a positive integer');
 
     expect(() =>
       splitTextRecursively('abc', {
-        chunkSize: 4,
         chunkOverlap: -1,
+        chunkSize: 4,
       })
     ).toThrow('chunkOverlap must be a non-negative integer');
   });
@@ -346,16 +346,16 @@ describe('@brainstrike/text-splitter', () => {
   it('throws on invalid separator configuration', () => {
     expect(() =>
       splitTextRecursively('abc', {
-        chunkSize: 4,
         chunkOverlap: 0,
+        chunkSize: 4,
         separators: [],
       })
     ).toThrow('separators must contain at least one entry');
 
     expect(() =>
       splitTextRecursively('abc', {
-        chunkSize: 4,
         chunkOverlap: 0,
+        chunkSize: 4,
         separators: [' ', 1 as unknown as string],
       })
     ).toThrow('separators must be strings');
@@ -363,15 +363,15 @@ describe('@brainstrike/text-splitter', () => {
 
   it('uses custom strategy separators without mutating shared defaults', () => {
     const chunks = splitTextByStrategy('alpha::beta::gamma', {
-      strategy: 'markdown',
-      chunkSize: 8,
       chunkOverlap: 0,
+      chunkSize: 8,
       separators: ['::', ''],
+      strategy: 'markdown',
     });
 
     expect(chunks).toEqual(['alpha::', 'beta::', 'gamma']);
     expect(
-      splitTextByStrategy('abcdef', { strategy: 'character', chunkSize: 10, chunkOverlap: 0 })
+      splitTextByStrategy('abcdef', { chunkOverlap: 0, chunkSize: 10, strategy: 'character' })
     ).toEqual(['abcdef']);
   });
 

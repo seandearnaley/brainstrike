@@ -16,9 +16,9 @@ vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
     ...actual,
     fileContent: {
       ...actual.fileContent,
+      isBinaryExtension: vi.fn(),
       isTextContent: vi.fn(),
       isTextExtension: vi.fn(),
-      isBinaryExtension: vi.fn(),
     },
   };
 });
@@ -48,17 +48,17 @@ describe('useFileContentLoading', () => {
     fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
       const fileName = path.split('/').pop() || 'unknown.file';
       return createFileNode({
-        name: fileName,
-        path,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: fileName,
           path,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: fileName,
+        path,
         rootFolderId: rootId || 'default-folder',
       });
     });
@@ -104,17 +104,17 @@ describe('useFileContentLoading', () => {
     it('should load text file content', async () => {
       const filePath = '/test.txt';
       const fileNode = createFileNode({
-        name: 'test.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'test.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'test.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       const expectedContent = 'custom test content for text file';
@@ -137,17 +137,17 @@ describe('useFileContentLoading', () => {
     it('should handle binary files', async () => {
       const filePath = '/test.png';
       const fileNode = createFileNode({
-        name: 'test.png',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'test.png',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'test.png',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
 
@@ -170,18 +170,18 @@ describe('useFileContentLoading', () => {
     it('should handle large files', async () => {
       const filePath = '/large.txt';
       const fileNode = createFileNode({
-        name: 'large.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'large.txt',
           path: filePath,
           platform: 'web',
           size: 2 * 1024 * 1024,
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'large.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       const expectedLargeContent = 'content of large file';
@@ -205,17 +205,17 @@ describe('useFileContentLoading', () => {
     it('should handle absolute paths for electron platform', async () => {
       const absolutePath = '/Users/test/project/src/main.tsx';
       const fileNode = createFileNode({
-        name: 'main.tsx',
-        path: absolutePath, // Absolute path for Electron
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'main.tsx',
           path: absolutePath,
           platform: 'electron',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'main.tsx',
+        path: absolutePath, // Absolute path for Electron
         rootFolderId: TestFolderId,
       });
       const expectedContent = 'electron file content';
@@ -236,17 +236,17 @@ describe('useFileContentLoading', () => {
     it('passes platform information to the adapter', async () => {
       const filePath = '/platform.txt';
       const fileNode = createFileNode({
-        name: 'platform.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'platform.txt',
           path: filePath,
           platform: 'electron',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'platform.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       // Override the fileExplorer mock to return this specific node
@@ -277,17 +277,17 @@ describe('useFileContentLoading', () => {
       MockFileSystemAdapter.setMockReadFileError(filePath, new Error(errorMessage));
 
       const fileNode = createFileNode({
-        name: 'error.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'error.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'error.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       // Ensure it's treated as a text file that would attempt loading
@@ -311,31 +311,31 @@ describe('useFileContentLoading', () => {
       const errorFilePath = '/error-then-success.txt';
       const successFilePath = '/success-after-error.txt';
       const errorFileNode = createFileNode({
-        name: 'error-then-success.txt',
-        path: errorFilePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'error-then-success.txt',
           path: errorFilePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'error-then-success.txt',
+        path: errorFilePath,
         rootFolderId: TestFolderId,
       });
       const successFileNode = createFileNode({
-        name: 'success-after-error.txt',
-        path: successFilePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'success-after-error.txt',
           path: successFilePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'success-after-error.txt',
+        path: successFilePath,
         rootFolderId: TestFolderId,
       });
 
@@ -393,17 +393,17 @@ describe('useFileContentLoading', () => {
     it('should use cached content for already loaded files', async () => {
       const filePath = '/cached-file.txt';
       const fileNode = createFileNode({
-        name: 'cached-file.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'cached-file.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'cached-file.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       const initialContent = 'Initial content for caching test';
@@ -443,17 +443,17 @@ describe('useFileContentLoading', () => {
     it('should reload content after clearing cache', async () => {
       const filePath = '/force-reload.txt';
       const fileNode = createFileNode({
-        name: 'force-reload.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'force-reload.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'force-reload.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       const initialContent = 'Initial content for force reload';
@@ -508,31 +508,31 @@ describe('useFileContentLoading', () => {
       const content2 = 'Content for multi2';
 
       const fileNode1 = createFileNode({
-        name: 'multi1.txt',
-        path: filePath1,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'multi1.txt',
           path: filePath1,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'multi1.txt',
+        path: filePath1,
         rootFolderId: TestFolderId,
       });
       const fileNode2 = createFileNode({
-        name: 'multi2.txt',
-        path: filePath2,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'multi2.txt',
           path: filePath2,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'multi2.txt',
+        path: filePath2,
         rootFolderId: TestFolderId,
       });
 
@@ -563,31 +563,31 @@ describe('useFileContentLoading', () => {
       const errorMessageText = 'Multi error message';
 
       const successNode = createFileNode({
-        name: 'multi-success.txt',
-        path: successPath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'multi-success.txt',
           path: successPath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'multi-success.txt',
+        path: successPath,
         rootFolderId: TestFolderId,
       });
       const errorNode = createFileNode({
-        name: 'multi-error.txt',
-        path: errorPath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'multi-error.txt',
           path: errorPath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'multi-error.txt',
+        path: errorPath,
         rootFolderId: TestFolderId,
       });
 
@@ -617,17 +617,17 @@ describe('useFileContentLoading', () => {
     it('stores error message for folder mismatch', async () => {
       const filePath = '/mismatch.txt';
       const fileNode = createFileNode({
-        name: 'mismatch.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'mismatch.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'mismatch.txt',
+        path: filePath,
         rootFolderId: 'other-folder-id',
       });
 
@@ -668,17 +668,17 @@ describe('useFileContentLoading', () => {
       const compositeKey = getCompositeKey('/still-missing.txt');
       const readSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
       const dummyNode = createFileNode({
-        name: 'dummy.txt',
-        path: '/dummy.txt',
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'dummy.txt',
           path: '/dummy.txt',
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'dummy.txt',
+        path: '/dummy.txt',
         rootFolderId: TestFolderId,
       });
       const { result, rerender } = renderUseFileContentLoadingHook([dummyNode]);
@@ -696,17 +696,17 @@ describe('useFileContentLoading', () => {
     it('records per-file error and keeps global error null when readFile throws', async () => {
       const filePath = '/adapter-error.txt';
       const fileNode = createFileNode({
-        name: 'adapter-error.txt',
-        path: filePath,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'adapter-error.txt',
           path: filePath,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'adapter-error.txt',
+        path: filePath,
         rootFolderId: TestFolderId,
       });
       const readSpy = vi
@@ -732,17 +732,17 @@ describe('useFileContentLoading', () => {
       const filePaths = Array.from({ length: total }, (_, i) => `/chunk-${i}.txt`);
       const fileNodes = filePaths.map((path) =>
         createFileNode({
-          name: path.slice(1),
-          path,
           handle: {
+            createWritable: vi.fn(),
+            getFile: vi.fn(),
+            isSameEntry: vi.fn(),
             kind: 'file',
             name: path.slice(1),
             path,
             platform: 'web',
-            getFile: vi.fn(),
-            createWritable: vi.fn(),
-            isSameEntry: vi.fn(),
           } as FileSystemFileHandle,
+          name: path.slice(1),
+          path,
           rootFolderId: TestFolderId,
         })
       );
@@ -783,31 +783,31 @@ describe('useFileContentLoading', () => {
       const path1 = '/clear1.txt';
       const path2 = '/clear2.txt';
       const node1 = createFileNode({
-        name: 'clear1.txt',
-        path: path1,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'clear1.txt',
           path: path1,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'clear1.txt',
+        path: path1,
         rootFolderId: TestFolderId,
       });
       const node2 = createFileNode({
-        name: 'clear2.txt',
-        path: path2,
         handle: {
+          createWritable: vi.fn(),
+          getFile: vi.fn(),
+          isSameEntry: vi.fn(),
           kind: 'file',
           name: 'clear2.txt',
           path: path2,
           platform: 'web',
-          getFile: vi.fn(),
-          createWritable: vi.fn(),
-          isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
+        name: 'clear2.txt',
+        path: path2,
         rootFolderId: TestFolderId,
       });
       MockFileSystemAdapter.setMockFileContent(path1, 'one');

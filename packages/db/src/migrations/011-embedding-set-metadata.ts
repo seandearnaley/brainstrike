@@ -5,7 +5,17 @@ import type { Migration } from './migration-runner';
 // - Migrates existing sets with default names based on model_key
 
 export const migration011EmbeddingSetMetadata: Migration = {
-  version: 11,
+  down: `
+    -- Drop index
+    DROP INDEX IF EXISTS idx_embedding_sets_name;
+
+    -- Remove metadata columns
+    ALTER TABLE embedding_sets
+      DROP COLUMN IF EXISTS category,
+      DROP COLUMN IF EXISTS tags,
+      DROP COLUMN IF EXISTS description,
+      DROP COLUMN IF EXISTS name;
+  `,
   name: 'embedding_set_metadata',
   up: `
     -- Add user-facing metadata columns to embedding_sets
@@ -24,15 +34,5 @@ export const migration011EmbeddingSetMetadata: Migration = {
     -- Add index for faster lookups by name
     CREATE INDEX IF NOT EXISTS idx_embedding_sets_name ON embedding_sets(name);
   `,
-  down: `
-    -- Drop index
-    DROP INDEX IF EXISTS idx_embedding_sets_name;
-
-    -- Remove metadata columns
-    ALTER TABLE embedding_sets
-      DROP COLUMN IF EXISTS category,
-      DROP COLUMN IF EXISTS tags,
-      DROP COLUMN IF EXISTS description,
-      DROP COLUMN IF EXISTS name;
-  `,
+  version: 11,
 };

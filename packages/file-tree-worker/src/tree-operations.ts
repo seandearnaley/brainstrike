@@ -105,7 +105,7 @@ export function discoverChildDirectories(
       }
     }
   }
-  return { nextWave, newCount };
+  return { newCount, nextWave };
 }
 
 /**

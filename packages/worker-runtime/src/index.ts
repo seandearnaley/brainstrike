@@ -275,11 +275,11 @@ export function createBackgroundRuntimeStatus<TRuntimeKind extends string>(
   }
 ): BackgroundRuntimeStatus<TRuntimeKind> {
   return {
-    runtimeKind,
-    runtimeId,
-    state,
     active: options?.active ?? false,
     lastError: options?.lastError ?? null,
+    runtimeId,
+    runtimeKind,
+    state,
   };
 }
 
@@ -294,7 +294,6 @@ export function createBackgroundRuntimeStatusAdapter<TRuntimeKind extends string
   runtimeKind: TRuntimeKind
 ): BackgroundRuntimeStatusAdapter<TRuntimeKind> {
   return {
-    runtimeKind,
     assertStatus: (value: unknown) => assertBackgroundRuntimeStatus(value, runtimeKind),
     createStatus: (status: BackgroundRuntimeStatusShapeInput) =>
       createBackgroundRuntimeStatus(runtimeKind, status.runtimeId, status.state, {
@@ -303,6 +302,7 @@ export function createBackgroundRuntimeStatusAdapter<TRuntimeKind extends string
       }),
     createStoppedStatus: (runtimeId?: string) =>
       createStoppedBackgroundRuntimeStatus(runtimeKind, runtimeId),
+    runtimeKind,
   };
 }
 
@@ -320,12 +320,12 @@ export function createBackgroundRuntimeLifecycleChannels<TRuntimeKind extends st
   runtimeKind: TRuntimeKind
 ): BackgroundRuntimeLifecycleChannels<TRuntimeKind> {
   return {
-    statusEvent: createBackgroundRuntimeScopedChannel(runtimeKind, 'status'),
-    reportStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'report-status'),
     ensureStarted: createBackgroundRuntimeScopedChannel(runtimeKind, 'ensure-started'),
-    stop: createBackgroundRuntimeScopedChannel(runtimeKind, 'stop'),
-    reset: createBackgroundRuntimeScopedChannel(runtimeKind, 'reset'),
     getStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'get-status'),
+    reportStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'report-status'),
+    reset: createBackgroundRuntimeScopedChannel(runtimeKind, 'reset'),
+    statusEvent: createBackgroundRuntimeScopedChannel(runtimeKind, 'status'),
+    stop: createBackgroundRuntimeScopedChannel(runtimeKind, 'stop'),
   };
 }
 
@@ -335,15 +335,15 @@ export function createBackgroundRuntimeDescriptor<TRuntimeKind extends string>(
   const statusAdapter = createBackgroundRuntimeStatusAdapter(runtimeKind);
   const stoppedRuntimeId = `${runtimeKind}:stopped` as const;
   return {
-    runtimeKind,
-    lifecycleChannels: createBackgroundRuntimeLifecycleChannels(runtimeKind),
-    statusAdapter,
-    stoppedRuntimeId,
     createScopedChannel: <TSuffix extends string>(suffix: TSuffix) =>
       createBackgroundRuntimeScopedChannel(runtimeKind, suffix),
     createScopedChannels: <TChannels extends Record<string, string>>(channels: TChannels) =>
       createBackgroundRuntimeScopedChannels(runtimeKind, channels),
     createStoppedStatus: (runtimeId?: string) => statusAdapter.createStoppedStatus(runtimeId),
+    lifecycleChannels: createBackgroundRuntimeLifecycleChannels(runtimeKind),
+    runtimeKind,
+    statusAdapter,
+    stoppedRuntimeId,
   };
 }
 
@@ -396,10 +396,10 @@ export function assertRuntimeObjectPayloadEnvelope(
   return {
     candidate,
     envelopeBase: {
-      type,
       channel,
       requestId,
       runtimeId,
+      type,
     },
     payload: payload as Record<string, unknown>,
   };
@@ -529,8 +529,8 @@ export function serializeRuntimeError(error: unknown): SerializedRuntimeError {
   const errorWithCode = normalized as Error & { code?: unknown; cause?: unknown };
 
   return {
-    name: normalized.name,
     message: normalized.message,
+    name: normalized.name,
     ...(typeof normalized.stack === 'string' ? { stack: normalized.stack } : {}),
     ...(typeof errorWithCode.code === 'string' ? { code: errorWithCode.code } : {}),
     ...(typeof errorWithCode.cause === 'string' ? { cause: errorWithCode.cause } : {}),
@@ -588,18 +588,18 @@ export function assertBackgroundRuntimeStatus<TRuntimeKind extends string>(
   }
 
   return {
-    state,
     active: candidate['active'],
     lastError: candidate['lastError'],
-    runtimeKind,
     runtimeId: candidate['runtimeId'],
+    runtimeKind,
+    state,
   };
 }
 
 export function createRuntimeLogBindings(bindings: RuntimeLogBindings): Record<string, unknown> {
   return {
-    runtimeKind: bindings.runtimeKind,
     runtimeId: bindings.runtimeId,
+    runtimeKind: bindings.runtimeKind,
     ...(bindings.windowRole ? { windowRole: bindings.windowRole } : {}),
     ...(bindings.channel ? { channel: bindings.channel } : {}),
     ...(bindings.requestId ? { requestId: bindings.requestId } : {}),

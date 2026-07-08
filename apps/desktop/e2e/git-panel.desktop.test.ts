@@ -80,7 +80,7 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
         JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
       );
     },
-    { rootPath, rootId: ROOT_ID }
+    { rootId: ROOT_ID, rootPath }
   );
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'p4-git-seed-root');
@@ -98,7 +98,7 @@ async function openGitPanel(page: Page): Promise<void> {
 
 test.afterAll(() => {
   for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 
@@ -149,7 +149,7 @@ test.describe('Git panel (desktop)', () => {
 
     // The file row is a <button> whose accessible name is the file path itself
     // (the stage/unstage controls are "Stage …"/"Unstage …"), so match exactly.
-    await page.getByRole('button', { name: 'hello.ts', exact: true }).first().click();
+    await page.getByRole('button', { exact: true, name: 'hello.ts' }).first().click();
     await expect(page.getByTestId('git-panel-diff')).toBeVisible({ timeout: 20_000 });
   });
 

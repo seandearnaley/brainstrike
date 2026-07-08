@@ -26,15 +26,6 @@ const storage = createSafeJsonStorageAdapter();
 export const useEditorViewStateStore = create<EditorViewStateStore>()(
   persist(
     (set, get) => ({
-      scrollTops: {},
-      selections: {},
-
-      setScrollTop: (key, top) =>
-        set((s) => ({ scrollTops: { ...s.scrollTops, [key]: Math.max(0, top | 0) } })),
-      getScrollTop: (key) => get().scrollTops[key] ?? 0,
-      setSelection: (key, start, end) =>
-        set((s) => ({ selections: { ...s.selections, [key]: { start, end } } })),
-      getSelection: (key) => get().selections[key],
       clear: (key) => {
         if (!key) {
           set({ scrollTops: {}, selections: {} });
@@ -45,12 +36,21 @@ export const useEditorViewStateStore = create<EditorViewStateStore>()(
         const { [key]: _b, ...restSel } = selections;
         set({ scrollTops: restScrolls, selections: restSel });
       },
+      getScrollTop: (key) => get().scrollTops[key] ?? 0,
+      getSelection: (key) => get().selections[key],
+      scrollTops: {},
+      selections: {},
+
+      setScrollTop: (key, top) =>
+        set((s) => ({ scrollTops: { ...s.scrollTops, [key]: Math.max(0, top | 0) } })),
+      setSelection: (key, start, end) =>
+        set((s) => ({ selections: { ...s.selections, [key]: { end, start } } })),
     }),
     {
       name: STORE_NAME,
-      version: 1,
-      storage: createJSONStorage(() => storage),
       partialize: (s) => ({ scrollTops: s.scrollTops, selections: s.selections }),
+      storage: createJSONStorage(() => storage),
+      version: 1,
     }
   )
 );

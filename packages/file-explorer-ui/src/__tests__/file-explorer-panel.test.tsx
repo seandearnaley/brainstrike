@@ -76,31 +76,31 @@ vi.mock('../shell/use-selection-manager-context', () => ({
 }));
 vi.mock('../hooks/use-view-filter-presets', () => ({
   useViewFilterPresets: vi.fn(() => ({
-    presets: [],
-    loading: false,
-    error: null,
     createPreset: vi.fn(),
-    updatePreset: vi.fn(),
     deletePreset: vi.fn(),
-    refresh: vi.fn(),
+    error: null,
     getPreset: vi.fn(),
+    loading: false,
+    presets: [],
+    refresh: vi.fn(),
+    updatePreset: vi.fn(),
   })),
 }));
 vi.mock('../indexing/use-background-token-indexer-integration', () => ({
   useBackgroundTokenIndexerIntegration: vi.fn(() => ({
-    isIndexing: false,
-    triggerIndexing: vi.fn(),
-    isReady: true,
-    progress: null,
     diagnostics: {
-      indexedCount: 0,
-      inFlightCount: 0,
-      fileHandleMapSize: 0,
-      workerReady: true,
       cacheOperational: true,
       cachePersisted: true,
       clearIndexedCache: vi.fn(),
+      fileHandleMapSize: 0,
+      indexedCount: 0,
+      inFlightCount: 0,
+      workerReady: true,
     },
+    isIndexing: false,
+    isReady: true,
+    progress: null,
+    triggerIndexing: vi.fn(),
   })),
 }));
 vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
@@ -109,22 +109,22 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     ...actual,
     useAdapters: vi.fn(() => ({ fileSystemAdapter: {}, storageAdapter: {} })),
     useRestoreAccess: vi.fn(() => ({
+      beginRestore: vi.fn().mockResolvedValue([]),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: false,
       pendingRestore: null,
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      isCheckingStoredHandles: false,
-      beginRestore: vi.fn().mockResolvedValue([]),
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
     })),
     useToastManager: vi.fn(() => ({
-      toast: vi.fn(),
-      showToast: showToastMock,
-      handleRefreshError: vi.fn(),
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: handleDirectorySelectErrorMock,
+      handleRefreshError: vi.fn(),
+      showToast: showToastMock,
+      toast: vi.fn(),
     })),
   };
 });
@@ -166,65 +166,65 @@ describe('FileExplorerPanel', () => {
     setDevInlineFixtureEnabledMock = vi.fn();
     hydrateFolderStateMock = vi.fn();
     const storeState = {
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
-      setFilters: setFiltersMock,
-      setUseRegex: vi.fn(),
-      setViewFilterPresetId: vi.fn(),
-      currentFolderId: '/root',
-      setCurrentFolderId: vi.fn(),
-      hydrateFolderState: hydrateFolderStateMock,
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
-      isFiltersExpanded: true,
-      setFiltersExpanded: vi.fn(),
-      disabledIncludeFilters: new Set<string>(),
-      disabledExcludeFilters: new Set<string>(),
-      toggleFilterEnabled: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: '/root',
       devInlineFixtureEnabled: false,
-      setDevInlineFixtureEnabled: setDevInlineFixtureEnabledMock,
+      disabledExcludeFilters: new Set<string>(),
+      disabledIncludeFilters: new Set<string>(),
+      excludeFilters: [],
+      expandAllDirectories: vi.fn(),
       folderStates: {
         '/root': {
+          excludeFilters: [],
+          expandedDirectoryPaths: new Set<string>(),
+          folderSummaryThreshold: 5,
+          includeFilters: [],
+          includeProjectTree: true,
+          lastAccessed: Date.now(),
+          lastActiveTab: 'files' as const,
+          maxSelectionCount: 5,
           selectedFilePaths: new Set<string>(['/root|@|file.ts']),
           selectionModel: {
-            mode: 'explicit' as const,
             explicitPaths: new Set<string>(['/root|@|file.ts']),
-            ruleSetJson: null,
-            materializedPaths: null,
             materializedAt: null,
+            materializedPaths: null,
+            mode: 'explicit' as const,
             queryDescriptor: null,
+            ruleSetJson: null,
           },
-          expandedDirectoryPaths: new Set<string>(),
-          includeFilters: [],
-          excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: true,
           tokenBudget: 100_000,
-          folderSummaryThreshold: 5,
-          maxSelectionCount: 5,
-          lastActiveTab: 'files' as const,
-          lastAccessed: Date.now(),
+          useRegex: false,
           viewFilterPresetId: null,
         },
       },
+      folderSummaryThreshold: 5,
+      hydrateFolderState: hydrateFolderStateMock,
+      includeFilters: [],
+      includeProjectTree: true,
+      isFiltersExpanded: true,
+      maxSelectionCount: 5,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId: vi.fn(),
+      setDevInlineFixtureEnabled: setDevInlineFixtureEnabledMock,
+      setFilters: setFiltersMock,
+      setFiltersExpanded: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      toggleFilterEnabled: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
 
     const mockStore = Object.assign(
@@ -239,76 +239,76 @@ describe('FileExplorerPanel', () => {
     handleRootDirectorySelectMock = vi.fn();
     applyFileFiltersMock = vi.fn();
     refreshFileExplorerMock = vi.fn();
-    isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
+    isFileSystemAccessSupportedMock = vi.fn(() => ({ reason: '', supported: true }));
     fileExplorerReturnValue = {
-      fileTree: [],
-      handleRootDirectorySelect: handleRootDirectorySelectMock,
-      isLoading: false,
-      error: null,
-      fileContents: {},
-      loadingFiles: new Set<string>(),
+      addRootDirectory: vi.fn().mockResolvedValue(null),
       applyFileFilters: applyFileFiltersMock,
-      filterError: null,
-      rootDirectoryHandle: {
-        path: '/root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
-      },
-      isFileSystemAccessSupported: isFileSystemAccessSupportedMock,
-      refreshFileExplorer: refreshFileExplorerMock,
-      isInitialLoad: false,
-      loadingProgress: null,
+      cancelChildLoading: vi.fn(),
+      cancelExpandAll: vi.fn(),
       cancellable: false,
       cancelOperation: vi.fn(),
-      isCancelling: false,
-      clearRootDirectory: vi.fn(),
-      loadFileContent: vi.fn(),
-      loadMultipleFileContents: vi.fn(),
-      clearFileContents: vi.fn(),
-      loadingPaths: new Set<string>(),
-      loadChildren: vi.fn(),
-      refreshDirectory: vi.fn(),
-      expandAllProgressively: vi.fn(),
-      cancelExpandAll: vi.fn(),
-      isExpandingAll: false,
-      expandAllProgress: null,
-      isRestoringExpandedPaths: false,
-      restorationProgress: null,
-      cancelChildLoading: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      setAccessLoading: vi.fn(),
-      canLoadWithoutTree: false,
-      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
       cancelRecursiveSelect: vi.fn(),
-      isLoadingForSelection: false,
-      loadingPathForSelection: null,
-      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
       cancelSelectAll: vi.fn(),
+      canLoadWithoutTree: false,
+      clearFileContents: vi.fn(),
+      clearRootDirectory: vi.fn(),
+      error: null,
+      expandAllProgress: null,
+      expandAllProgressively: vi.fn(),
+      fileContents: {},
+      fileTree: [],
+      filterError: null,
+      handleRootDirectorySelect: handleRootDirectorySelectMock,
+      isCancelling: false,
+      isExpandingAll: false,
+      isFileSystemAccessSupported: isFileSystemAccessSupportedMock,
+      isInitialLoad: false,
+      isLoading: false,
       isLoadingForSelectAll: false,
-      // Multi-root (Phase 4+)
-      rootDirectoryHandles: [],
-      addRootDirectory: vi.fn().mockResolvedValue(null),
+      isLoadingForSelection: false,
+      isRestoringExpandedPaths: false,
+      loadChildren: vi.fn(),
+      loadFileContent: vi.fn(),
+      loadingFiles: new Set<string>(),
+      loadingPathForSelection: null,
+      loadingPaths: new Set<string>(),
+      loadingProgress: null,
+      loadMultipleFileContents: vi.fn(),
+      refreshDirectory: vi.fn(),
+      refreshFileExplorer: refreshFileExplorerMock,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
-      setFocusedRoot: vi.fn(),
+      restorationProgress: null,
+      rootDirectoryHandle: {
+        _internal: {} as FileSystemDirectoryHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/root',
+        platform: 'web' as const,
+      },
+      // Multi-root (Phase 4+)
+      rootDirectoryHandles: [],
       // Storage v5
       rootIdByPath: new Map<string, string>(),
+      selectAllRecursively: vi.fn().mockResolvedValue({ filePaths: [], success: true }),
+      selectFolderRecursively: vi.fn().mockResolvedValue({ filePaths: [], success: true }),
+      setAccessLoading: vi.fn(),
+      setFocusedRoot: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
     vi.mocked(useSelectionManager).mockReturnValue({
-      // required API surface for selection manager
-      selectedCount: 0,
-      selectedFilesList: [],
-      setSelectedFilesFromList: vi.fn(),
-      selectedFilePaths: new Set<string>(),
-      handleSelectionChange: vi.fn(),
-      wouldExceedSelectionLimit: vi.fn(),
       effectiveSelection: new Set<string>(),
+      handleSelectionChange: vi.fn(),
       isQueryMode: false,
       isRulesMode: false,
+      // required API surface for selection manager
+      selectedCount: 0,
+      selectedFilePaths: new Set<string>(),
+      selectedFilesList: [],
+      setSelectedFilesFromList: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(),
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     showToastMock = vi.fn();
@@ -334,15 +334,15 @@ describe('FileExplorerPanel', () => {
     const setAccessLoadingMock = vi.fn();
 
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: true,
       pendingRestore: null,
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: vi.fn(),
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: true,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
@@ -358,65 +358,65 @@ describe('FileExplorerPanel', () => {
   it('keeps the recoverable current folder while a web root handle is missing', async () => {
     const setCurrentFolderId = vi.fn();
     const storeState = {
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
-      setFilters: vi.fn(),
-      setUseRegex: vi.fn(),
-      setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'brainstrike',
-      setCurrentFolderId,
-      hydrateFolderState: vi.fn(),
-      maxSelectionCount: 2000,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
-      isFiltersExpanded: true,
-      setFiltersExpanded: vi.fn(),
-      disabledIncludeFilters: new Set<string>(),
-      disabledExcludeFilters: new Set<string>(),
-      toggleFilterEnabled: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: 'brainstrike',
       devInlineFixtureEnabled: false,
-      setDevInlineFixtureEnabled: vi.fn(),
+      disabledExcludeFilters: new Set<string>(),
+      disabledIncludeFilters: new Set<string>(),
+      excludeFilters: [],
+      expandAllDirectories: vi.fn(),
       folderStates: {
         brainstrike: {
+          excludeFilters: [],
+          expandedDirectoryPaths: new Set<string>(['src']),
+          folderSummaryThreshold: 5,
+          includeFilters: [],
+          includeProjectTree: true,
+          lastAccessed: Date.now(),
+          lastActiveTab: 'files' as const,
+          maxSelectionCount: 2000,
           selectedFilePaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
           selectionModel: {
-            mode: 'explicit' as const,
             explicitPaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
-            ruleSetJson: null,
-            materializedPaths: null,
             materializedAt: null,
+            materializedPaths: null,
+            mode: 'explicit' as const,
             queryDescriptor: null,
+            ruleSetJson: null,
           },
-          expandedDirectoryPaths: new Set<string>(['src']),
-          includeFilters: [],
-          excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: true,
           tokenBudget: 100_000,
-          folderSummaryThreshold: 5,
-          maxSelectionCount: 2000,
-          lastActiveTab: 'files' as const,
-          lastAccessed: Date.now(),
+          useRegex: false,
           viewFilterPresetId: null,
         },
       },
+      folderSummaryThreshold: 5,
+      hydrateFolderState: vi.fn(),
+      includeFilters: [],
+      includeProjectTree: true,
+      isFiltersExpanded: true,
+      maxSelectionCount: 2000,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId,
+      setDevInlineFixtureEnabled: vi.fn(),
+      setFilters: vi.fn(),
+      setFiltersExpanded: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      toggleFilterEnabled: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
     const mockStore = Object.assign(
       (selector?: (s: typeof storeState) => unknown) =>
@@ -429,9 +429,9 @@ describe('FileExplorerPanel', () => {
     );
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
-      rootDirectoryHandle: null,
       fileTree: [],
       isLoading: false,
+      rootDirectoryHandle: null,
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -446,22 +446,22 @@ describe('FileExplorerPanel', () => {
     const setAccessLoadingMock = vi.fn();
 
     handleRootDirectorySelectMock.mockResolvedValueOnce({
-      path: 'new-root',
-      name: 'new-root',
-      kind: 'directory',
-      platform: 'web',
       _internal: {},
+      kind: 'directory',
+      name: 'new-root',
+      path: 'new-root',
+      platform: 'web',
     });
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: dismissRestoreMock,
+      isCheckingStoredHandles: false,
       pendingRestore: null,
       showDeniedBanner: false,
       showStaleBanner: true,
       storedFolders: [{ folderId: 'brainstrike', name: 'brainstrike' }],
-      beginRestore: vi.fn(),
-      dismissRestore: dismissRestoreMock,
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: false,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
@@ -491,15 +491,15 @@ describe('FileExplorerPanel', () => {
     } as unknown as FileSystemDirectoryHandle;
 
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: beginRestoreMock,
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: false,
       pendingRestore: createPendingRestore(rawHandle),
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: beginRestoreMock,
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: false,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
@@ -514,11 +514,11 @@ describe('FileExplorerPanel', () => {
     expect(requestPermissionMock).toHaveBeenCalledWith({ mode: 'read' });
     await waitFor(() =>
       expect(setRootDirectoryHandleMock).toHaveBeenCalledWith({
-        path: 'brainstrike',
-        name: 'brainstrike',
-        kind: 'directory',
-        platform: 'web',
         _internal: rawHandle,
+        kind: 'directory',
+        name: 'brainstrike',
+        path: 'brainstrike',
+        platform: 'web',
         // The restore modal now stamps the durable rootId (pendingRestore.folderId).
         rootId: 'brainstrike',
       })
@@ -532,18 +532,18 @@ describe('FileExplorerPanel', () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
     const restoredHandleA = {
-      path: 'restored-a',
-      name: 'restored-a',
-      kind: 'directory' as const,
-      platform: 'web' as const,
       _internal: {},
+      kind: 'directory' as const,
+      name: 'restored-a',
+      path: 'restored-a',
+      platform: 'web' as const,
     } satisfies DirectoryHandle;
     const restoredHandleB = {
-      path: 'restored-b',
-      name: 'restored-b',
-      kind: 'directory' as const,
-      platform: 'web' as const,
       _internal: {},
+      kind: 'directory' as const,
+      name: 'restored-b',
+      path: 'restored-b',
+      platform: 'web' as const,
     } satisfies DirectoryHandle;
     const beginRestoreMock = vi.fn(
       async () => [restoredHandleA, restoredHandleB] as readonly DirectoryHandle[]
@@ -557,20 +557,20 @@ describe('FileExplorerPanel', () => {
     } as unknown as FileSystemDirectoryHandle;
 
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: beginRestoreMock,
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: false,
       pendingRestore: createPendingRestore(rawHandle, { permissionState: 'denied' }),
       showDeniedBanner: true,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: beginRestoreMock,
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: false,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
-      rootDirectoryHandle: null,
       registerRestoredHandles: registerRestoredHandlesMock,
+      rootDirectoryHandle: null,
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -598,15 +598,15 @@ describe('FileExplorerPanel', () => {
     } as unknown as FileSystemDirectoryHandle;
 
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: beginRestoreMock,
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: false,
       pendingRestore: createPendingRestore(rawHandle),
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: beginRestoreMock,
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: false,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
@@ -623,11 +623,11 @@ describe('FileExplorerPanel', () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();
     const restoredHandle = {
-      path: 'legacy',
-      name: 'legacy',
-      kind: 'directory' as const,
-      platform: 'web' as const,
       _internal: {},
+      kind: 'directory' as const,
+      name: 'legacy',
+      path: 'legacy',
+      platform: 'web' as const,
     } satisfies DirectoryHandle;
     const beginRestoreMock = vi.fn(async () => [restoredHandle] as readonly DirectoryHandle[]);
     const registerRestoredHandlesMock = vi.fn().mockResolvedValue(undefined);
@@ -636,20 +636,20 @@ describe('FileExplorerPanel', () => {
     } as FileSystemDirectoryHandle);
 
     vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      beginRestore: beginRestoreMock,
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      dismissRestore: vi.fn(),
+      isCheckingStoredHandles: false,
       pendingRestore,
       showDeniedBanner: false,
       showStaleBanner: false,
       storedFolders: [],
-      beginRestore: beginRestoreMock,
-      dismissRestore: vi.fn(),
-      chooseDifferentFolder: vi.fn(),
-      clearStoredHandles: vi.fn(),
-      isCheckingStoredHandles: false,
     });
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
-      rootDirectoryHandle: null,
       registerRestoredHandles: registerRestoredHandlesMock,
+      rootDirectoryHandle: null,
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -677,9 +677,9 @@ describe('FileExplorerPanel', () => {
       expect(showToastMock).toHaveBeenCalled();
       expect(refreshEvents).toHaveLength(1);
       expect(refreshEvents[0]?.detail).toEqual({
-        source: 'manual',
-        scope: 'full',
         roots: [],
+        scope: 'full',
+        source: 'manual',
       });
     } finally {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
@@ -718,10 +718,10 @@ describe('FileExplorerPanel', () => {
     const cancelOperationMock = vi.fn();
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      isLoading: true,
       cancellable: true,
       cancelOperation: cancelOperationMock,
-      loadingProgress: { loadingCount: 1, isInitialLoading: true },
+      isLoading: true,
+      loadingProgress: { isInitialLoading: true, loadingCount: 1 },
     });
 
     const user = userEvent.setup();
@@ -732,8 +732,8 @@ describe('FileExplorerPanel', () => {
 
     expect(cancelOperationMock).toHaveBeenCalled();
     expect(showToastMock).toHaveBeenCalledWith({
-      title: 'Operation Cancelled',
       description: 'The file loading operation has been cancelled.',
+      title: 'Operation Cancelled',
       variant: 'default',
     });
   });
@@ -741,9 +741,9 @@ describe('FileExplorerPanel', () => {
   it('displays inline scanning indicator when loading', async () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      isLoading: true,
       cancellable: false,
-      loadingProgress: { loadingCount: 1, isInitialLoading: true },
+      isLoading: true,
+      loadingProgress: { isInitialLoading: true, loadingCount: 1 },
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -755,19 +755,19 @@ describe('FileExplorerPanel', () => {
   it('shows error when browser is not compatible', async () => {
     const handleBrowserCompatibilityErrorMock = vi.fn();
     isFileSystemAccessSupportedMock.mockReturnValueOnce({
-      supported: false,
       reason: 'Browser not supported',
+      supported: false,
     });
 
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
     vi.mocked(useToastManager).mockReturnValueOnce({
-      toast: vi.fn(),
-      showToast: vi.fn(),
-      handleRefreshError: vi.fn(),
       handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
+      handleRefreshError: vi.fn(),
+      showToast: vi.fn(),
+      toast: vi.fn(),
     });
 
     const user = userEvent.setup();
@@ -780,20 +780,20 @@ describe('FileExplorerPanel', () => {
 
   it('enables inline fixture when directory picker is unavailable and fixture adapter is present', async () => {
     isFileSystemAccessSupportedMock.mockReturnValueOnce({
-      supported: false,
       reason: 'Browser not supported',
+      supported: false,
     });
 
     const { useAdapters } = await import('@brainstrike/file-explorer-hooks');
     vi.mocked(useAdapters).mockReturnValueOnce({
       fileSystemAdapter: {
-        loadInlineFixture: vi.fn(),
+        canLoadInlineFixture: true,
         clearInlineFixture: vi.fn(),
         isInlineFixtureActive: vi.fn(() => false),
-        canLoadInlineFixture: true,
-        requestDirectoryAccess: vi.fn(),
+        loadInlineFixture: vi.fn(),
         readDirectory: vi.fn(),
         readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
       } as unknown as ReturnType<typeof useAdapters>['fileSystemAdapter'],
       storageAdapter: {} as unknown as ReturnType<typeof useAdapters>['storageAdapter'],
     });
@@ -805,9 +805,9 @@ describe('FileExplorerPanel', () => {
 
     expect(setDevInlineFixtureEnabledMock).toHaveBeenCalledWith(true);
     expect(showToastMock).toHaveBeenCalledWith({
-      title: 'Demo Mode Enabled',
       description:
         'Local directory picker is not available in this browser. Using built-in mock project instead.',
+      title: 'Demo Mode Enabled',
     });
   });
 
@@ -832,12 +832,12 @@ describe('FileExplorerPanel', () => {
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
     vi.mocked(useToastManager).mockReturnValueOnce({
-      toast: vi.fn(),
-      showToast: vi.fn(),
-      handleRefreshError: handleRefreshErrorMock,
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: vi.fn(),
       handlePartialRefreshError: vi.fn(),
+      handleRefreshError: handleRefreshErrorMock,
+      showToast: vi.fn(),
+      toast: vi.fn(),
     });
 
     const user = userEvent.setup();
@@ -851,9 +851,9 @@ describe('FileExplorerPanel', () => {
   it('does not show action buttons when no root directory is selected', async () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      rootDirectoryHandle: null,
       isLoading: true,
-      loadingProgress: { loadingCount: 1, isInitialLoading: true },
+      loadingProgress: { isInitialLoading: true, loadingCount: 1 },
+      rootDirectoryHandle: null,
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -866,15 +866,15 @@ describe('FileExplorerPanel', () => {
 
   it('displays toolbar with correct selection count', async () => {
     vi.mocked(useSelectionManager).mockReturnValueOnce({
-      selectedCount: 3,
-      selectedFilesList: ['file1', 'file2', 'file3'],
-      setSelectedFilesFromList: vi.fn(),
-      selectedFilePaths: new Set(['file1', 'file2', 'file3']),
-      handleSelectionChange: vi.fn(),
-      wouldExceedSelectionLimit: vi.fn(),
       effectiveSelection: new Set(['file1', 'file2', 'file3']),
+      handleSelectionChange: vi.fn(),
       isQueryMode: false,
       isRulesMode: false,
+      selectedCount: 3,
+      selectedFilePaths: new Set(['file1', 'file2', 'file3']),
+      selectedFilesList: ['file1', 'file2', 'file3'],
+      setSelectedFilesFromList: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(),
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     renderWithProviders(<FileExplorerPanel />);
@@ -885,15 +885,15 @@ describe('FileExplorerPanel', () => {
 
   it('renders correctly when selectedFilesList is empty', async () => {
     vi.mocked(useSelectionManager).mockReturnValueOnce({
-      selectedCount: 0,
-      selectedFilesList: [],
-      setSelectedFilesFromList: vi.fn(),
-      selectedFilePaths: new Set(),
-      handleSelectionChange: vi.fn(),
-      wouldExceedSelectionLimit: vi.fn(),
       effectiveSelection: new Set<string>(),
+      handleSelectionChange: vi.fn(),
       isQueryMode: false,
       isRulesMode: false,
+      selectedCount: 0,
+      selectedFilePaths: new Set(),
+      selectedFilesList: [],
+      setSelectedFilesFromList: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(),
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     renderWithProviders(<FileExplorerPanel />);
@@ -906,9 +906,9 @@ describe('FileExplorerPanel', () => {
   it('displays initial loading state correctly', async () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      isLoading: true,
       isInitialLoad: true,
-      loadingProgress: { loadingCount: 1, isInitialLoading: true },
+      isLoading: true,
+      loadingProgress: { isInitialLoading: true, loadingCount: 1 },
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -920,10 +920,10 @@ describe('FileExplorerPanel', () => {
   it('shows cancelling state when operation is being cancelled', async () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      isLoading: true,
-      isCancelling: true,
       cancellable: true,
-      loadingProgress: { loadingCount: 1, isInitialLoading: true },
+      isCancelling: true,
+      isLoading: true,
+      loadingProgress: { isInitialLoading: true, loadingCount: 1 },
     });
 
     renderWithProviders(<FileExplorerPanel />);
@@ -955,36 +955,36 @@ describe('FileExplorerPanel', () => {
     const collapseAllDirectories = vi.fn();
 
     const storeState = {
-      includeFilters: [],
+      clearQuickFilter: vi.fn(),
+      collapseAllDirectories,
+      currentFolderId: 'root',
       excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
+      expandAllDirectories: vi.fn(),
+      expandedDirectoryPaths: new Set<string>(),
+      folderSummaryThreshold: 5,
+      includeFilters: [],
+      includeProjectTree: true,
+      maxSelectionCount: 5,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId: vi.fn(),
+      setExpandedPaths: vi.fn(),
       setFilters: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
       setUseRegex: vi.fn(),
       setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'root',
-      setCurrentFolderId: vi.fn(),
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories,
-      expandedDirectoryPaths: new Set<string>(),
-      setExpandedPaths: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
-      clearQuickFilter: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
 
     const mockStore = Object.assign(
@@ -996,17 +996,17 @@ describe('FileExplorerPanel', () => {
 
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      expandAllProgressively: expandAllProgressivelyMock,
       cancelExpandAll: cancelExpandAllMock,
+      expandAllProgressively: expandAllProgressivelyMock,
       fileTree: [
         {
-          path: '/dir',
-          name: 'dir',
-          type: 'directory',
-          handle: {} as any,
           depth: 0,
-          selectionState: 'unchecked',
+          handle: {} as any,
+          name: 'dir',
+          path: '/dir',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ],
     });
@@ -1025,36 +1025,36 @@ describe('FileExplorerPanel', () => {
     const user = userEvent.setup();
     const cancelExpandAllMock = vi.fn();
     const storeState = {
-      includeFilters: [],
+      clearQuickFilter: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: 'root',
       excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
+      expandAllDirectories: vi.fn(),
+      expandedDirectoryPaths: new Set<string>(['/dir']),
+      folderSummaryThreshold: 5,
+      includeFilters: [],
+      includeProjectTree: true,
+      maxSelectionCount: 5,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId: vi.fn(),
+      setExpandedPaths: vi.fn(),
       setFilters: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
       setUseRegex: vi.fn(),
       setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'root',
-      setCurrentFolderId: vi.fn(),
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      expandedDirectoryPaths: new Set<string>(['/dir']),
-      setExpandedPaths: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
-      clearQuickFilter: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
 
     const mockStore = Object.assign(
@@ -1072,17 +1072,17 @@ describe('FileExplorerPanel', () => {
 
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
-      expandAllProgressively: expandAllProgressivelyMock,
       cancelExpandAll: cancelExpandAllMock,
+      expandAllProgressively: expandAllProgressivelyMock,
       fileTree: [
         {
-          path: '/dir',
-          name: 'dir',
-          type: 'directory',
-          handle: {} as any,
           depth: 0,
-          selectionState: 'unchecked',
+          handle: {} as any,
+          name: 'dir',
+          path: '/dir',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ],
     });
@@ -1097,34 +1097,34 @@ describe('FileExplorerPanel', () => {
 
   it('filters the tree correctly with quick filter', async () => {
     const storeState = {
-      includeFilters: [],
+      clearQuickFilter: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: 'root',
       excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
+      expandAllDirectories: vi.fn(),
+      folderSummaryThreshold: 5,
+      includeFilters: [],
+      includeProjectTree: true,
+      maxSelectionCount: 5,
+      quickFilter: 'foo',
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId: vi.fn(),
       setFilters: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
       setUseRegex: vi.fn(),
       setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'root',
-      setCurrentFolderId: vi.fn(),
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      quickFilter: 'foo',
-      setQuickFilter: vi.fn(),
-      clearQuickFilter: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
 
     const mockStore = Object.assign(
@@ -1138,42 +1138,42 @@ describe('FileExplorerPanel', () => {
       ...fileExplorerReturnValue,
       fileTree: [
         {
-          path: '/foo.ts',
+          depth: 0,
+          handle: {} as any,
           name: 'foo.ts',
-          type: 'file',
-          handle: {} as any,
-          depth: 0,
-          selectionState: 'unchecked',
+          path: '/foo.ts',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
         {
-          path: '/bar.ts',
+          depth: 0,
+          handle: {} as any,
           name: 'bar.ts',
-          type: 'file',
-          handle: {} as any,
-          depth: 0,
-          selectionState: 'unchecked',
+          path: '/bar.ts',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
         },
         {
-          path: '/dir',
-          name: 'dir',
-          type: 'directory',
-          handle: {} as any,
-          depth: 0,
-          selectionState: 'unchecked',
-          rootFolderId: 'root',
           children: [
             {
-              path: '/dir/foo-in-dir.ts',
-              name: 'foo-in-dir.ts',
-              type: 'file',
-              handle: {} as any,
               depth: 1,
-              selectionState: 'unchecked',
+              handle: {} as any,
+              name: 'foo-in-dir.ts',
+              path: '/dir/foo-in-dir.ts',
               rootFolderId: 'root',
+              selectionState: 'unchecked',
+              type: 'file',
             },
           ],
+          depth: 0,
+          handle: {} as any,
+          name: 'dir',
+          path: '/dir',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ],
     });
@@ -1196,44 +1196,44 @@ describe('FileExplorerPanel', () => {
       ...fileExplorerReturnValue,
       fileTree: [
         {
-          path: '/foo.ts',
-          name: 'foo.ts',
-          type: 'file',
+          depth: 0,
+          handle: {} as any,
           isVisible: true,
-          handle: {} as any,
-          depth: 0,
-          selectionState: 'unchecked',
+          name: 'foo.ts',
+          path: '/foo.ts',
           rootFolderId: 'root',
-        },
-        {
-          path: '/hidden.ts',
-          name: 'hidden.ts',
+          selectionState: 'unchecked',
           type: 'file',
-          isVisible: false,
-          handle: {} as any,
-          depth: 0,
-          selectionState: 'unchecked',
-          rootFolderId: 'root',
         },
         {
-          path: '/dir',
-          name: 'dir',
-          type: 'directory',
-          handle: {} as any,
           depth: 0,
-          selectionState: 'unchecked',
+          handle: {} as any,
+          isVisible: false,
+          name: 'hidden.ts',
+          path: '/hidden.ts',
           rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
+        },
+        {
           children: [
             {
-              path: '/dir/bar.ts',
-              name: 'bar.ts',
-              type: 'file',
-              handle: {} as any,
               depth: 1,
-              selectionState: 'unchecked',
+              handle: {} as any,
+              name: 'bar.ts',
+              path: '/dir/bar.ts',
               rootFolderId: 'root',
+              selectionState: 'unchecked',
+              type: 'file',
             },
           ],
+          depth: 0,
+          handle: {} as any,
+          name: 'dir',
+          path: '/dir',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ],
     });
@@ -1258,65 +1258,65 @@ describe('FileExplorerPanel', () => {
     const setCurrentFolderId = vi.fn();
     const hydrateFolderState = vi.fn();
     const storeState = {
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
-      setFilters: vi.fn(),
-      setUseRegex: vi.fn(),
-      setViewFilterPresetId: vi.fn(),
-      currentFolderId: ROOT_UUID,
-      setCurrentFolderId,
-      hydrateFolderState,
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
-      isFiltersExpanded: true,
-      setFiltersExpanded: vi.fn(),
-      disabledIncludeFilters: new Set<string>(),
-      disabledExcludeFilters: new Set<string>(),
-      toggleFilterEnabled: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: ROOT_UUID,
       devInlineFixtureEnabled: false,
-      setDevInlineFixtureEnabled: vi.fn(),
+      disabledExcludeFilters: new Set<string>(),
+      disabledIncludeFilters: new Set<string>(),
+      excludeFilters: [],
+      expandAllDirectories: vi.fn(),
       folderStates: {
         [ROOT_UUID]: {
+          excludeFilters: [],
+          expandedDirectoryPaths: new Set<string>(['src']),
+          folderSummaryThreshold: 5,
+          includeFilters: [],
+          includeProjectTree: true,
+          lastAccessed: Date.now(),
+          lastActiveTab: 'files' as const,
+          maxSelectionCount: 5,
           selectedFilePaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
           selectionModel: {
-            mode: 'explicit' as const,
             explicitPaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
-            ruleSetJson: null,
-            materializedPaths: null,
             materializedAt: null,
+            materializedPaths: null,
+            mode: 'explicit' as const,
             queryDescriptor: null,
+            ruleSetJson: null,
           },
-          expandedDirectoryPaths: new Set<string>(['src']),
-          includeFilters: [],
-          excludeFilters: [],
-          useRegex: false,
-          includeProjectTree: true,
           tokenBudget: 100_000,
-          folderSummaryThreshold: 5,
-          maxSelectionCount: 5,
-          lastActiveTab: 'files' as const,
-          lastAccessed: Date.now(),
+          useRegex: false,
           viewFilterPresetId: null,
         },
       },
+      folderSummaryThreshold: 5,
+      hydrateFolderState,
+      includeFilters: [],
+      includeProjectTree: true,
+      isFiltersExpanded: true,
+      maxSelectionCount: 5,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>([`${ROOT_UUID}|@|src/file-0.ts`]),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId,
+      setDevInlineFixtureEnabled: vi.fn(),
+      setFilters: vi.fn(),
+      setFiltersExpanded: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      toggleFilterEnabled: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
     const mockStore = Object.assign(
       (selector?: (s: typeof storeState) => unknown) =>
@@ -1330,11 +1330,11 @@ describe('FileExplorerPanel', () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       rootDirectoryHandle: {
-        path: '/root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web' as const,
         _internal: {} as FileSystemDirectoryHandle,
+        kind: 'directory',
+        name: 'root',
+        path: '/root',
+        platform: 'web' as const,
       },
       // The handle's path maps to the durable UUID identity.
       rootIdByPath: new Map<string, string>([['/root', ROOT_UUID]]),
@@ -1352,34 +1352,34 @@ describe('FileExplorerPanel', () => {
   it('syncs current folder ID with root directory handle', async () => {
     const setCurrentFolderId = vi.fn();
     const storeState = {
-      includeFilters: [],
+      clearQuickFilter: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      currentFolderId: 'old-root',
       excludeFilters: [],
-      useRegex: false,
-      viewFilterPresetId: null,
+      expandAllDirectories: vi.fn(),
+      folderSummaryThreshold: 5,
+      includeFilters: [],
+      includeProjectTree: true,
+      maxSelectionCount: 5,
+      quickFilter: '',
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+        ruleSetJson: null,
+      },
+      setCurrentFolderId,
       setFilters: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setMaterializedPaths: vi.fn(),
+      setQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
       setUseRegex: vi.fn(),
       setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'old-root',
-      setCurrentFolderId,
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      setIncludeProjectTree: vi.fn(),
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
-      clearQuickFilter: vi.fn(),
-      setRootDirectoryHandle: vi.fn(),
-      selectionModel: {
-        mode: 'explicit' as const,
-        explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      },
-      setMaterializedPaths: vi.fn(),
+      useRegex: false,
+      viewFilterPresetId: null,
     };
 
     const mockStore = Object.assign(
@@ -1392,11 +1392,11 @@ describe('FileExplorerPanel', () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       rootDirectoryHandle: {
-        path: '/new-root',
-        name: 'shared-name',
-        kind: 'directory',
-        platform: 'web' as const,
         _internal: {} as FileSystemDirectoryHandle,
+        kind: 'directory',
+        name: 'shared-name',
+        path: '/new-root',
+        platform: 'web' as const,
       },
     });
 
@@ -1436,37 +1436,37 @@ describe('FileExplorerPanel', () => {
     it('calls setFiltersExpanded when toggle button is clicked', async () => {
       const setFiltersExpandedMock = vi.fn();
       const storeState = {
-        includeFilters: [],
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
         excludeFilters: [],
-        useRegex: false,
-        viewFilterPresetId: null,
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: [],
+        includeProjectTree: true,
+        isFiltersExpanded: true,
+        maxSelectionCount: 5,
+        quickFilter: '',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
         setFilters: vi.fn(),
+        setFiltersExpanded: setFiltersExpandedMock,
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
         setUseRegex: vi.fn(),
         setViewFilterPresetId: vi.fn(),
-        currentFolderId: 'root',
-        setCurrentFolderId: vi.fn(),
-        maxSelectionCount: 5,
-        includeProjectTree: true,
-        setIncludeProjectTree: vi.fn(),
-        folderSummaryThreshold: 5,
-        expandAllDirectories: vi.fn(),
-        collapseAllDirectories: vi.fn(),
-        selectionModel: {
-          mode: 'explicit' as const,
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-        },
-        setMaterializedPaths: vi.fn(),
-        quickFilter: '',
-        setQuickFilter: vi.fn(),
-        clearQuickFilter: vi.fn(),
-        isFiltersExpanded: true,
-        setFiltersExpanded: setFiltersExpandedMock,
-        disabledIncludeFilters: new Set<string>(),
-        disabledExcludeFilters: new Set<string>(),
         toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
       };
 
       const mockStore = Object.assign(
@@ -1488,37 +1488,37 @@ describe('FileExplorerPanel', () => {
 
     it('shows expanded content when isFiltersExpanded is true', async () => {
       const storeState = {
-        includeFilters: ['*.ts'],
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
         excludeFilters: ['node_modules'],
-        useRegex: false,
-        viewFilterPresetId: null,
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: ['*.ts'],
+        includeProjectTree: true,
+        isFiltersExpanded: true,
+        maxSelectionCount: 5,
+        quickFilter: '',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
         setFilters: vi.fn(),
+        setFiltersExpanded: vi.fn(),
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
         setUseRegex: vi.fn(),
         setViewFilterPresetId: vi.fn(),
-        currentFolderId: 'root',
-        setCurrentFolderId: vi.fn(),
-        maxSelectionCount: 5,
-        includeProjectTree: true,
-        setIncludeProjectTree: vi.fn(),
-        folderSummaryThreshold: 5,
-        expandAllDirectories: vi.fn(),
-        collapseAllDirectories: vi.fn(),
-        selectionModel: {
-          mode: 'explicit' as const,
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-        },
-        setMaterializedPaths: vi.fn(),
-        quickFilter: '',
-        setQuickFilter: vi.fn(),
-        clearQuickFilter: vi.fn(),
-        isFiltersExpanded: true,
-        setFiltersExpanded: vi.fn(),
-        disabledIncludeFilters: new Set<string>(),
-        disabledExcludeFilters: new Set<string>(),
         toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
       };
 
       const mockStore = Object.assign(
@@ -1539,37 +1539,37 @@ describe('FileExplorerPanel', () => {
 
     it('has collapsed content when isFiltersExpanded is false', async () => {
       const storeState = {
-        includeFilters: [],
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
         excludeFilters: [],
-        useRegex: false,
-        viewFilterPresetId: null,
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: [],
+        includeProjectTree: true,
+        isFiltersExpanded: false,
+        maxSelectionCount: 5,
+        quickFilter: '',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
         setFilters: vi.fn(),
+        setFiltersExpanded: vi.fn(),
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
         setUseRegex: vi.fn(),
         setViewFilterPresetId: vi.fn(),
-        currentFolderId: 'root',
-        setCurrentFolderId: vi.fn(),
-        maxSelectionCount: 5,
-        includeProjectTree: true,
-        setIncludeProjectTree: vi.fn(),
-        folderSummaryThreshold: 5,
-        expandAllDirectories: vi.fn(),
-        collapseAllDirectories: vi.fn(),
-        selectionModel: {
-          mode: 'explicit' as const,
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-        },
-        setMaterializedPaths: vi.fn(),
-        quickFilter: '',
-        setQuickFilter: vi.fn(),
-        clearQuickFilter: vi.fn(),
-        isFiltersExpanded: false,
-        setFiltersExpanded: vi.fn(),
-        disabledIncludeFilters: new Set<string>(),
-        disabledExcludeFilters: new Set<string>(),
         toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
       };
 
       const mockStore = Object.assign(
@@ -1591,39 +1591,39 @@ describe('FileExplorerPanel', () => {
     it('toggles filter chips visibility via the chips toggle button', async () => {
       const setFilterChipsVisibleMock = vi.fn();
       const storeState = {
-        includeFilters: ['*.ts'],
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
         excludeFilters: ['node_modules'],
-        useRegex: false,
-        viewFilterPresetId: null,
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: ['*.ts'],
+        includeProjectTree: true,
+        isFilterChipsVisible: true,
+        isFiltersExpanded: true,
+        maxSelectionCount: 5,
+        quickFilter: '',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
+        setFilterChipsVisible: setFilterChipsVisibleMock,
         setFilters: vi.fn(),
+        setFiltersExpanded: vi.fn(),
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
         setUseRegex: vi.fn(),
         setViewFilterPresetId: vi.fn(),
-        currentFolderId: 'root',
-        setCurrentFolderId: vi.fn(),
-        maxSelectionCount: 5,
-        includeProjectTree: true,
-        setIncludeProjectTree: vi.fn(),
-        folderSummaryThreshold: 5,
-        expandAllDirectories: vi.fn(),
-        collapseAllDirectories: vi.fn(),
-        selectionModel: {
-          mode: 'explicit' as const,
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-        },
-        setMaterializedPaths: vi.fn(),
-        quickFilter: '',
-        setQuickFilter: vi.fn(),
-        clearQuickFilter: vi.fn(),
-        isFiltersExpanded: true,
-        setFiltersExpanded: vi.fn(),
-        isFilterChipsVisible: true,
-        setFilterChipsVisible: setFilterChipsVisibleMock,
-        disabledIncludeFilters: new Set<string>(),
-        disabledExcludeFilters: new Set<string>(),
         toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
       };
 
       const mockStore = Object.assign(
@@ -1649,39 +1649,39 @@ describe('FileExplorerPanel', () => {
 
     it('marks the chips region inert when isFilterChipsVisible is false', async () => {
       const storeState = {
-        includeFilters: ['*.ts'],
+        clearQuickFilter: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        currentFolderId: 'root',
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
         excludeFilters: [],
-        useRegex: false,
-        viewFilterPresetId: null,
+        expandAllDirectories: vi.fn(),
+        folderSummaryThreshold: 5,
+        includeFilters: ['*.ts'],
+        includeProjectTree: true,
+        isFilterChipsVisible: false,
+        isFiltersExpanded: true,
+        maxSelectionCount: 5,
+        quickFilter: '',
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          ruleSetJson: null,
+        },
+        setCurrentFolderId: vi.fn(),
+        setFilterChipsVisible: vi.fn(),
         setFilters: vi.fn(),
+        setFiltersExpanded: vi.fn(),
+        setIncludeProjectTree: vi.fn(),
+        setMaterializedPaths: vi.fn(),
+        setQuickFilter: vi.fn(),
         setUseRegex: vi.fn(),
         setViewFilterPresetId: vi.fn(),
-        currentFolderId: 'root',
-        setCurrentFolderId: vi.fn(),
-        maxSelectionCount: 5,
-        includeProjectTree: true,
-        setIncludeProjectTree: vi.fn(),
-        folderSummaryThreshold: 5,
-        expandAllDirectories: vi.fn(),
-        collapseAllDirectories: vi.fn(),
-        selectionModel: {
-          mode: 'explicit' as const,
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-        },
-        setMaterializedPaths: vi.fn(),
-        quickFilter: '',
-        setQuickFilter: vi.fn(),
-        clearQuickFilter: vi.fn(),
-        isFiltersExpanded: true,
-        setFiltersExpanded: vi.fn(),
-        isFilterChipsVisible: false,
-        setFilterChipsVisible: vi.fn(),
-        disabledIncludeFilters: new Set<string>(),
-        disabledExcludeFilters: new Set<string>(),
         toggleFilterEnabled: vi.fn(),
+        useRegex: false,
+        viewFilterPresetId: null,
       };
 
       const mockStore = Object.assign(
@@ -1721,15 +1721,15 @@ describe('FileExplorerPanel', () => {
         onSelectFolderRecursively: (node: unknown) => Promise<unknown>;
       };
       const clickedNode = {
-        name: 'sub',
-        path: 'sub',
-        type: 'directory' as const,
-        rootFolderId: UUID_B,
         children: [],
         depth: 0,
-        selectionState: 'unchecked' as const,
-        isVisible: true,
         handle: {},
+        isVisible: true,
+        name: 'sub',
+        path: 'sub',
+        rootFolderId: UUID_B,
+        selectionState: 'unchecked' as const,
+        type: 'directory' as const,
       };
 
       await sidebarProps.onSelectFolderRecursively(clickedNode);

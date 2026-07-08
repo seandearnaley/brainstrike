@@ -65,10 +65,10 @@ async function getTokenUtils(): Promise<{
 }> {
   if (!tokenUtilsPromise) {
     tokenUtilsPromise = import('./token-utils-lite').then((mod) => ({
-      supportsAccurateTokenCounting: mod.supportsAccurateTokenCounting,
-      getAccurateTokenCountingFailureReason: mod.getAccurateTokenCountingFailureReason,
       countTokensAccurate: mod.countTokensAccurate,
       countTokensHeuristic: mod.countTokensHeuristic,
+      getAccurateTokenCountingFailureReason: mod.getAccurateTokenCountingFailureReason,
+      supportsAccurateTokenCounting: mod.supportsAccurateTokenCounting,
     }));
   }
   return tokenUtilsPromise;
@@ -95,10 +95,10 @@ async function countTokens(request: TokenCountRequest): Promise<TokenCountResult
   const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
   return {
-    id: request.id,
-    tokenCount,
     contentHash,
+    id: request.id,
     mode: request.mode,
+    tokenCount,
   };
 }
 
@@ -125,19 +125,19 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
     const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
     const result: TokenCountResult = {
-      id: request.id,
-      tokenCount,
       contentHash,
+      id: request.id,
       mode: request.mode,
+      tokenCount,
     };
 
     results.push(result);
 
     self.postMessage({
-      type: 'progress',
       completed: i + 1,
-      total,
       currentId: request.id,
+      total,
+      type: 'progress',
     });
 
     // Yield to event loop periodically to prevent blocking
@@ -166,8 +166,8 @@ async function hashContentBatch(
 ): Promise<Array<{ id: string; hash: string }>> {
   const hasher = await initHasher();
   return contents.map(({ id, content }) => ({
-    id,
     hash: hashToHex(hasher.h64(content)),
+    id,
   }));
 }
 
@@ -221,16 +221,16 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
     try {
       const result = await executeRequestMethod(method, params);
       const response: TokenWorkerResponse = {
-        type: 'response',
         requestId,
         result,
+        type: 'response',
       };
       self.postMessage(response);
     } catch (error) {
       const response: TokenWorkerResponseError = {
-        type: 'error',
-        requestId,
         message: error instanceof Error ? error.message : String(error),
+        requestId,
+        type: 'error',
       };
       if (error instanceof Error && error.stack) {
         response.cause = error.stack;

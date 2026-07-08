@@ -74,11 +74,11 @@ describe('ScanningStatus', () => {
         <ScanningStatus
           depthProgress={{
             currentDepth: 2,
-            maxDepthSeen: 3,
-            estimatedMaxDepth: 5,
-            filesFound: 100,
             directoriesCompleted: 10,
             directoriesRemaining: 5,
+            estimatedMaxDepth: 5,
+            filesFound: 100,
+            maxDepthSeen: 3,
           }}
           isScanning={true}
         />
@@ -91,11 +91,11 @@ describe('ScanningStatus', () => {
         <ScanningStatus
           depthProgress={{
             currentDepth: 1,
-            maxDepthSeen: 1,
-            estimatedMaxDepth: 5,
-            filesFound: 50,
             directoriesCompleted: 5,
             directoriesRemaining: 3,
+            estimatedMaxDepth: 5,
+            filesFound: 50,
+            maxDepthSeen: 1,
           }}
           isScanning={true}
         />
@@ -108,11 +108,11 @@ describe('ScanningStatus', () => {
         <ScanningStatus
           depthProgress={{
             currentDepth: 3,
-            maxDepthSeen: 3,
-            estimatedMaxDepth: 5,
-            filesFound: 10_000,
             directoriesCompleted: 100,
             directoriesRemaining: 20,
+            estimatedMaxDepth: 5,
+            filesFound: 10_000,
+            maxDepthSeen: 3,
           }}
           isScanning={true}
         />

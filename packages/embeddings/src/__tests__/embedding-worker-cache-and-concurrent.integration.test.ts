@@ -45,8 +45,8 @@ class FakeEmbeddingService implements EmbeddingService {
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     this.callCount++;
     return {
-      embedding: new Array(this.dimensions).fill(0.1),
       dimensions: this.dimensions,
+      embedding: new Array(this.dimensions).fill(0.1),
       model: 'fake-model',
       usage: { totalTokens: 10 },
     };
@@ -64,7 +64,7 @@ class FakeEmbeddingService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
 
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -76,7 +76,7 @@ class FakeEmbeddingService implements EmbeddingService {
   }
 
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
+    return { distance: 0, method: 'cosine', similarity: 1 };
   }
 
   getStatus(): EmbeddingStatus {
@@ -167,8 +167,8 @@ async function setupTestData(
       JSON.stringify({
         chunkId,
         embeddingSetId,
-        modelKey,
         expectedDimension: dimensions,
+        modelKey,
       }),
       now,
     ]
@@ -195,7 +195,7 @@ describe('embedding-worker: cache operations', () => {
 
     // Create a failing cache implementation
     const failingCache: EmbeddingCacheInterface = {
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       set: async () => {
         throw new Error('Simulated cache set failure');
@@ -208,23 +208,23 @@ describe('embedding-worker: cache operations', () => {
     };
 
     await setupTestData(db, {
-      embeddingSetId: 'cache-fail-set',
-      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'cache-fail-file',
       chunkId: 'cache-fail-chunk',
+      dimensions: 768,
+      embeddingSetId: 'cache-fail-set',
+      fileId: 'cache-fail-file',
       jobId: 'cache-fail-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
+      embeddingCache: failingCache,
       leaseMs: 5000,
+      log: (msg, meta) => logs.push({ meta, msg }),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      embeddingCache: failingCache,
-      log: (msg, meta) => logs.push({ msg, meta }),
     });
 
     // Wait for job to complete
@@ -252,30 +252,30 @@ describe('embedding-worker: cache operations', () => {
     const pendingAccessTimeFlush = deferred<void>();
     const cacheWithPendingWrite: EmbeddingCacheInterface = {
       flushPendingAccessTimeUpdates: vi.fn(() => pendingAccessTimeFlush.promise),
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       set: async () => {},
       setBatch: vi.fn(() => pendingCacheWrite.promise),
     };
 
     await setupTestData(db, {
-      embeddingSetId: 'cache-stop-flush-set',
-      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'cache-stop-flush-file',
       chunkId: 'cache-stop-flush-chunk',
+      dimensions: 768,
+      embeddingSetId: 'cache-stop-flush-set',
+      fileId: 'cache-stop-flush-file',
       jobId: 'cache-stop-flush-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
+      embeddingCache: cacheWithPendingWrite,
       leaseMs: 5000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      embeddingCache: cacheWithPendingWrite,
-      log: () => {},
     });
 
     await waitFor(async () => vi.mocked(cacheWithPendingWrite.setBatch).mock.calls.length > 0);
@@ -310,22 +310,22 @@ describe('embedding-worker: cache operations', () => {
     // Create a cache that returns a hit
     const cacheWithHit: EmbeddingCacheInterface = {
       get: async (contentHash, modelKey) => ({
-        hit: true,
         entry: {
           contentHash,
-          modelKey,
-          embedding: cachedEmbedding,
           dimensions: 768,
+          embedding: cachedEmbedding,
+          modelKey,
         },
+        hit: true,
       }),
       getBatch: async (requests) => {
         const result = new Map<string, CachedEmbedding>();
         for (const req of requests) {
           result.set(`${req.contentHash}:${req.modelKey}`, {
             contentHash: req.contentHash,
-            modelKey: req.modelKey,
-            embedding: cachedEmbedding,
             dimensions: 768,
+            embedding: cachedEmbedding,
+            modelKey: req.modelKey,
           });
         }
         return result;
@@ -335,23 +335,23 @@ describe('embedding-worker: cache operations', () => {
     };
 
     await setupTestData(db, {
-      embeddingSetId: 'cache-hit-set',
-      modelKey: 'local::jina-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'cache-hit-file',
       chunkId: 'cache-hit-chunk',
+      dimensions: 768,
+      embeddingSetId: 'cache-hit-set',
+      fileId: 'cache-hit-file',
       jobId: 'cache-hit-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jina-code',
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
+      embeddingCache: cacheWithHit,
       leaseMs: 5000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service,
-      embeddingCache: cacheWithHit,
-      log: () => {},
     });
 
     await waitFor(async () => {
@@ -370,7 +370,7 @@ describe('embedding-worker: cache operations', () => {
     const logs: Array<{ msg: string; meta?: unknown }> = [];
     const cacheWithMaintenance: EmbeddingCacheInterface = {
       evictIfNeeded: vi.fn(async () => ({ evicted: 0, needed: false, totalEntries: 1 })),
-      get: async () => ({ hit: false, entry: null }),
+      get: async () => ({ entry: null, hit: false }),
       getBatch: async () => new Map(),
       getStats: vi.fn(async () => ({
         newestAccessedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -388,23 +388,23 @@ describe('embedding-worker: cache operations', () => {
     }
 
     await setupTestData(db, {
-      embeddingSetId: 'cache-maintenance-set',
-      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'cache-maintenance-file',
       chunkId: 'cache-maintenance-chunk',
+      dimensions: 768,
+      embeddingSetId: 'cache-maintenance-set',
+      fileId: 'cache-maintenance-file',
       jobId: 'cache-maintenance-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
+      db: db as unknown as IDatabase,
+      embeddingCache: cacheWithMaintenance,
       leaseMs: 5000,
+      log: (msg, meta) => logs.push({ meta, msg }),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      embeddingCache: cacheWithMaintenance,
-      log: (msg, meta) => logs.push({ msg, meta }),
     });
 
     await waitFor(async () => {
@@ -487,12 +487,12 @@ describe('embedding-worker: concurrent access patterns', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 3, // Process all 3 jobs concurrently
+      db: db as unknown as IDatabase,
       leaseMs: 5000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     // Wait for all jobs to complete
@@ -567,8 +567,8 @@ describe('embedding-worker: concurrent access patterns', () => {
           JSON.stringify({
             chunkId,
             embeddingSetId,
-            modelKey,
             expectedDimension: 768,
+            modelKey,
           }),
           now,
         ]
@@ -576,13 +576,13 @@ describe('embedding-worker: concurrent access patterns', () => {
     }
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       claimBatchSize: 2,
       concurrency: 1,
+      db: db as unknown as IDatabase,
       leaseMs: 5000,
+      log: () => {},
       modelKey,
       service: new SlowBatchService(),
-      log: () => {},
     });
 
     await waitFor(async () => {
@@ -660,21 +660,21 @@ describe('embedding-worker: concurrent access patterns', () => {
 
     // Start two workers with concurrency=2 each (simulating competition)
     const controller1 = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 2,
+      db: db as unknown as IDatabase,
       leaseMs: 5000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     const controller2 = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 2,
+      db: db as unknown as IDatabase,
       leaseMs: 5000,
+      log: () => {},
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
-      log: () => {},
     });
 
     // Wait for all jobs to complete
@@ -716,23 +716,23 @@ describe('embedding-worker: lease management edge cases', () => {
     }
 
     await setupTestData(db, {
-      embeddingSetId: 'lease-expire-set',
-      modelKey: 'local::jina-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'lease-expire-file',
       chunkId: 'lease-expire-chunk',
+      dimensions: 768,
+      embeddingSetId: 'lease-expire-set',
+      fileId: 'lease-expire-file',
       jobId: 'lease-expire-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jina-code',
     });
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
-      leaseMs: 100, // Very short lease
+      db: db as unknown as IDatabase,
       heartbeatIntervalMs: 50,
+      leaseMs: 100, // Very short lease
+      log: (msg, meta) => logs.push({ meta, msg }),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new VerySlowService(),
-      log: (msg, meta) => logs.push({ msg, meta }),
     });
 
     // Wait for job to reach a terminal state (may be succeeded if heartbeat keeps it alive, or failed)
@@ -764,25 +764,25 @@ describe('embedding-worker: lease management edge cases', () => {
     }
 
     await setupTestData(db, {
-      embeddingSetId: 'lease-extend-set',
-      modelKey: 'local::jina-code',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
-      fileId: 'lease-extend-file',
       chunkId: 'lease-extend-chunk',
+      dimensions: 768,
+      embeddingSetId: 'lease-extend-set',
+      fileId: 'lease-extend-file',
       jobId: 'lease-extend-job',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'local::jina-code',
     });
 
     const logs: Array<{ msg: string; meta?: unknown }> = [];
 
     const controller = await startEmbeddingWorker({
-      db: db as unknown as IDatabase,
       concurrency: 1,
-      leaseMs: 2000,
+      db: db as unknown as IDatabase,
       heartbeatIntervalMs: 100, // Frequent heartbeats to extend lease
+      leaseMs: 2000,
+      log: (msg, meta) => logs.push({ meta, msg }),
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new ModeratelySlowService(),
-      log: (msg, meta) => logs.push({ msg, meta }),
     });
 
     // Wait for job to complete

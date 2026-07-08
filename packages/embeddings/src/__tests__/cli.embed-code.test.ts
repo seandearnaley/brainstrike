@@ -9,8 +9,8 @@ const readFileSync = vi.fn();
 const statSync = vi.fn(() => ({ size: 10 }));
 vi.mock('node:fs', () => ({
   readFileSync,
-  writeFileSync,
   statSync,
+  writeFileSync,
 }));
 
 // Mock glob to return a synthetic list
@@ -25,8 +25,8 @@ vi.mock('../bge-m3-service', () => {
     async generateEmbedding(text: string) {
       const n = Math.max(3, Math.min(5, text.length));
       return {
-        embedding: Array.from({ length: n }, (_, i) => i * 0.1),
         dimensions: n,
+        embedding: Array.from({ length: n }, (_, i) => i * 0.1),
         model: 'dummy',
       };
     }
@@ -46,17 +46,17 @@ describe('CodeEmbeddingCLI basics', () => {
   it('splits content into chunks with overlap and detects language', async () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     const cli = new CodeEmbeddingCLI({
-      rootDir: '.',
+      chunkOverlap: 1,
       format: 'json',
       maxLines: 2,
-      chunkOverlap: 1,
       modelConfig: FALLBACK_MODEL_CONFIG,
+      rootDir: '.',
     });
     const chunks = cli.splitIntoChunks('a\nb\nc\nd', 'file.ts');
     expect(chunks).toEqual([
-      { content: 'a\nb', startLine: 1, endLine: 2 },
-      { content: 'b\nc', startLine: 2, endLine: 3 },
-      { content: 'c\nd', startLine: 3, endLine: 4 },
+      { content: 'a\nb', endLine: 2, startLine: 1 },
+      { content: 'b\nc', endLine: 3, startLine: 2 },
+      { content: 'c\nd', endLine: 4, startLine: 3 },
     ]);
     expect(cli.detectLanguage('x.tsx')).toBe('typescript');
   });
@@ -64,16 +64,16 @@ describe('CodeEmbeddingCLI basics', () => {
   it('preserves explicit zero chunk overlap', async () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     const cli = new CodeEmbeddingCLI({
-      rootDir: '.',
+      chunkOverlap: 0,
       format: 'json',
       maxLines: 2,
-      chunkOverlap: 0,
       modelConfig: FALLBACK_MODEL_CONFIG,
+      rootDir: '.',
     });
 
     expect(cli.splitIntoChunks('a\nb\nc', 'file.ts')).toEqual([
-      { content: 'a\nb', startLine: 1, endLine: 2 },
-      { content: 'c', startLine: 3, endLine: 3 },
+      { content: 'a\nb', endLine: 2, startLine: 1 },
+      { content: 'c', endLine: 3, startLine: 3 },
     ]);
   });
 
@@ -83,11 +83,11 @@ describe('CodeEmbeddingCLI basics', () => {
     expect(
       () =>
         new CodeEmbeddingCLI({
-          rootDir: '.',
+          chunkOverlap: 2,
           format: 'json',
           maxLines: 2,
-          chunkOverlap: 2,
           modelConfig: FALLBACK_MODEL_CONFIG,
+          rootDir: '.',
         })
     ).toThrow('chunkOverlap must be less than maxLines');
   });
@@ -95,12 +95,12 @@ describe('CodeEmbeddingCLI basics', () => {
   it('processes files and saves JSON and CSV outputs', async () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     const cli = new CodeEmbeddingCLI({
-      rootDir: '/proj',
-      format: 'json',
-      verbose: true,
-      maxLines: 3,
       chunkOverlap: 0,
+      format: 'json',
+      maxLines: 3,
       modelConfig: FALLBACK_MODEL_CONFIG,
+      rootDir: '/proj',
+      verbose: true,
     });
 
     // stub reads for two files
@@ -126,13 +126,13 @@ describe('CodeEmbeddingCLI basics', () => {
 
     // Now with output
     const cliCsv = new CodeEmbeddingCLI({
-      rootDir: '/proj',
       format: 'csv',
-      output: jsonPath,
       modelConfig: FALLBACK_MODEL_CONFIG,
+      output: jsonPath,
+      rootDir: '/proj',
     });
     await cliCsv.saveEmbeddings(
-      embeddings.map((e) => ({ ...e, embedding: [0.1, 0.2, 0.3], content: 'x' }))
+      embeddings.map((e) => ({ ...e, content: 'x', embedding: [0.1, 0.2, 0.3] }))
     );
     expect(writeFileSync).toHaveBeenCalled();
   });
@@ -141,21 +141,21 @@ describe('CodeEmbeddingCLI basics', () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
-      rootDir: '/proj',
       format: 'csv',
-      output: path.join('/tmp', 'embeddings.csv'),
       modelConfig: FALLBACK_MODEL_CONFIG,
+      output: path.join('/tmp', 'embeddings.csv'),
+      rootDir: '/proj',
     });
     const embedding = {
-      id: 'id"1',
-      filePath: 'src/"quoted".ts',
-      language: 'type"script',
-      startLine: 1,
-      endLine: 1,
       content: 'const label = "quoted";',
-      embedding: [0.1],
       dimensions: 1,
+      embedding: [0.1],
+      endLine: 1,
+      filePath: 'src/"quoted".ts',
+      id: 'id"1',
+      language: 'type"script',
       model: 'model"key',
+      startLine: 1,
       timestamp: '2026-04-29T19:12:19.086Z',
     } satisfies CodeEmbeddingForSave;
 
@@ -174,21 +174,21 @@ describe('CodeEmbeddingCLI basics', () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
-      rootDir: '/proj',
       format: 'pgvector',
-      output: path.join('/tmp', 'embeddings.sql'),
       modelConfig: FALLBACK_MODEL_CONFIG,
+      output: path.join('/tmp', 'embeddings.sql'),
+      rootDir: '/proj',
     });
     const embedding = {
-      id: "src/$code$/unsafe's:file.ts:1-3",
-      filePath: "src/$code$/unsafe'file.ts",
-      language: "type'script",
-      startLine: 1,
-      endLine: 3,
       content: "const value = '$code$';\nSELECT $$broken$$;\nO'Reilly",
-      embedding: [0.1, 0.2, 0.3],
       dimensions: 3,
+      embedding: [0.1, 0.2, 0.3],
+      endLine: 3,
+      filePath: "src/$code$/unsafe'file.ts",
+      id: "src/$code$/unsafe's:file.ts:1-3",
+      language: "type'script",
       model: "model'key",
+      startLine: 1,
       timestamp: '2026-04-29T19:12:19.086Z',
     } satisfies CodeEmbeddingForSave;
 
@@ -213,21 +213,21 @@ describe('CodeEmbeddingCLI basics', () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
     const cli = new CodeEmbeddingCLI({
-      rootDir: '/proj',
       format: 'pgvector',
-      output: path.join('/tmp', 'embeddings.sql'),
       modelConfig: FALLBACK_MODEL_CONFIG,
+      output: path.join('/tmp', 'embeddings.sql'),
+      rootDir: '/proj',
     });
     const embedding = {
-      id: 'src/file.ts:1-1',
-      filePath: 'src/file.ts',
-      language: 'typescript',
-      startLine: 1,
-      endLine: 1,
       content: 'const value = "\\0";\0',
-      embedding: [0.1],
       dimensions: 1,
+      embedding: [0.1],
+      endLine: 1,
+      filePath: 'src/file.ts',
+      id: 'src/file.ts:1-1',
+      language: 'typescript',
       model: 'model-key',
+      startLine: 1,
       timestamp: '2026-04-29T19:12:19.086Z',
     } satisfies CodeEmbeddingForSave;
 

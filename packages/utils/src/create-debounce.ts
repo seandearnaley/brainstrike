@@ -43,5 +43,5 @@ export function createDebounce<Args extends unknown[]>(
     }
   };
 
-  return { run, flush };
+  return { flush, run };
 }

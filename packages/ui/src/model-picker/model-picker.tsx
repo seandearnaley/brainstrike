@@ -66,7 +66,7 @@ export function ModelPicker({
     <Popover modal={false} onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         {renderTrigger ? (
-          renderTrigger({ value, models, providers, placeholder, disabled })
+          renderTrigger({ disabled, models, placeholder, providers, value })
         ) : (
           <ModelPickerTrigger
             className={className}

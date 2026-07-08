@@ -25,8 +25,8 @@ describe('ThemeToggle', () => {
 
   it('renders toggle button with correct aria-label for light mode', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();
@@ -35,8 +35,8 @@ describe('ThemeToggle', () => {
 
   it('renders toggle button with correct aria-label for dark mode', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'dark',
       setTheme: mockSetTheme,
+      theme: 'dark',
     });
 
     renderThemeToggle();
@@ -46,8 +46,8 @@ describe('ThemeToggle', () => {
   it('toggles theme when clicked', async () => {
     const user = userEvent.setup();
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();
@@ -57,8 +57,8 @@ describe('ThemeToggle', () => {
 
   it('renders sun and moon icons with aria-hidden', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();
@@ -74,8 +74,8 @@ describe('ThemeToggle', () => {
 
   it('includes screen reader text', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();
@@ -85,8 +85,8 @@ describe('ThemeToggle', () => {
   it('shows tooltip on hover', async () => {
     const user = userEvent.setup();
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();
@@ -100,8 +100,8 @@ describe('ThemeToggle', () => {
 
   it('has correct styling for tactile feedback', () => {
     (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      theme: 'light',
       setTheme: mockSetTheme,
+      theme: 'light',
     });
 
     renderThemeToggle();

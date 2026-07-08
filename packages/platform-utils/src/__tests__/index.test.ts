@@ -119,10 +119,10 @@ describe('Platform Utils', () => {
         // Mock globalThis to throw error when accessing window
         const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
         Object.defineProperty(globalThis, 'window', {
+          configurable: true,
           get: () => {
             throw new Error('Window access error');
           },
-          configurable: true,
         });
 
         const platform = detectPlatform();
@@ -140,10 +140,10 @@ describe('Platform Utils', () => {
         // Mock globalThis to throw error when accessing process
         const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'process');
         Object.defineProperty(globalThis, 'process', {
+          configurable: true,
           get: () => {
             throw new Error('Process access error');
           },
-          configurable: true,
         });
 
         const platform = detectPlatform();
@@ -163,17 +163,17 @@ describe('Platform Utils', () => {
         const originalProcessDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'process');
 
         Object.defineProperty(globalThis, 'window', {
+          configurable: true,
           get: () => {
             throw new Error('Window error');
           },
-          configurable: true,
         });
 
         Object.defineProperty(globalThis, 'process', {
+          configurable: true,
           get: () => {
             throw new Error('Process error');
           },
-          configurable: true,
         });
 
         const platform = detectPlatform();

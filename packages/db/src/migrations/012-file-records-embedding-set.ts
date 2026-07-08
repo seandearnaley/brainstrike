@@ -5,7 +5,14 @@ import type { Migration } from './migration-runner';
 // This associates an imported file with a specific collection at import time
 
 export const migration012FileRecordsEmbeddingSet: Migration = {
-  version: 12,
+  down: `
+    -- Drop index
+    DROP INDEX IF EXISTS idx_file_records_embedding_set;
+
+    -- Remove column from file_records
+    ALTER TABLE file_records
+      DROP COLUMN IF EXISTS embedding_set_id;
+  `,
   name: 'file_records_embedding_set',
   up: `
     -- Add embedding_set_id to file_records
@@ -39,12 +46,5 @@ export const migration012FileRecordsEmbeddingSet: Migration = {
       END IF;
     END $$;
   `,
-  down: `
-    -- Drop index
-    DROP INDEX IF EXISTS idx_file_records_embedding_set;
-
-    -- Remove column from file_records
-    ALTER TABLE file_records
-      DROP COLUMN IF EXISTS embedding_set_id;
-  `,
+  version: 12,
 };

@@ -41,8 +41,8 @@ const {
     } | null,
   };
   return {
-    databaseWorkSchedulerState,
     createPriorityDbHandleMock: vi.fn((db: unknown) => db),
+    databaseWorkSchedulerState,
     getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
     usePGliteDatabaseMock: vi.fn((): unknown => null),
@@ -58,9 +58,9 @@ interface LiveQueryState {
 }
 
 const liveQueryState: LiveQueryState = {
-  rows: [],
-  loading: false,
   error: null,
+  loading: false,
+  rows: [],
 };
 
 function createDeferred<T>(): {
@@ -116,12 +116,12 @@ function createDatabaseWorkSnapshot(
     lastNormalAt: null,
     lastStartedAt: null,
     priorityStats: {
+      background: createPriorityStats(),
       foreground: createPriorityStats(),
       normal: createPriorityStats(),
-      background: createPriorityStats(),
     },
-    queued: { foreground: 0, normal: 0, background: 0 },
-    queuedLabels: { foreground: [], normal: [], background: [] },
+    queued: { background: 0, foreground: 0, normal: 0 },
+    queuedLabels: { background: [], foreground: [], normal: [] },
     runningLabel: null,
     runningPriority: null,
     snapshotAt: 0,
@@ -146,11 +146,11 @@ function createRuntimeStatus(
   lastError: string | null = null
 ): EmbeddingRuntimeStatus {
   return {
-    runtimeKind: 'embedding-worker',
-    runtimeId: 'embedding-worker:test',
-    state,
     active: state === 'running',
     lastError,
+    runtimeId: 'embedding-worker:test',
+    runtimeKind: 'embedding-worker',
+    state,
   };
 }
 
@@ -209,10 +209,10 @@ describe('IndexingActivityCoordinator', () => {
     databaseWorkSchedulerState.current = null;
     usePGliteDatabaseMock.mockReturnValue(null);
     usePGliteLiveQueryMock.mockImplementation(() => ({
-      rows: liveQueryState.rows,
-      loading: liveQueryState.loading,
       error: liveQueryState.error,
+      loading: liveQueryState.loading,
       refresh: vi.fn(async () => {}),
+      rows: liveQueryState.rows,
     }));
     __resetIndexingActivityStoreForTests();
     __resetVectorStatusUIStoreForTests();
@@ -228,11 +228,11 @@ describe('IndexingActivityCoordinator', () => {
     const query = vi.fn(async () => ({
       rows: [
         {
+          failed: '0',
+          nextRunnableAt: '2026-04-25T12:00:00.000Z',
           queued: '7',
           running: '1',
-          failed: '0',
           succeeded: '23',
-          nextRunnableAt: '2026-04-25T12:00:00.000Z',
         },
       ],
     }));
@@ -242,15 +242,15 @@ describe('IndexingActivityCoordinator', () => {
 
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-        status: 'active',
         phase: 'queue',
         queue: {
+          failed: 0,
+          nextRunnableAt: '2026-04-25T12:00:00.000Z',
           queued: 7,
           running: 1,
-          failed: 0,
           succeeded: 23,
-          nextRunnableAt: '2026-04-25T12:00:00.000Z',
         },
+        status: 'active',
       });
     });
 
@@ -258,11 +258,11 @@ describe('IndexingActivityCoordinator', () => {
     expect(createPriorityDbHandleMock).toHaveBeenCalledWith({ query }, 'background');
     expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
     expect(useVectorStatusUIStore.getState().durableQueueStats).toEqual({
+      failed: 0,
+      nextRunnableAt: '2026-04-25T12:00:00.000Z',
       queued: 7,
       running: 1,
-      failed: 0,
       succeeded: 23,
-      nextRunnableAt: '2026-04-25T12:00:00.000Z',
     });
     expect(useVectorStatusUIStore.getState().isJobQueueActive).toBe(true);
   });
@@ -272,9 +272,9 @@ describe('IndexingActivityCoordinator', () => {
     vi.mocked(runtime.controller.getBackfillsInFlight).mockResolvedValue([
       {
         embeddingSetId: 'collection-b',
+        progress: { current: 2, total: 9 },
         requestId: 'embedding-backfill:collection-b',
         source: 'manual',
-        progress: { current: 2, total: 9 },
       },
     ]);
     useSharedEmbeddingRuntimeMock.mockReturnValue({
@@ -287,31 +287,31 @@ describe('IndexingActivityCoordinator', () => {
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot.activeBackfills).toEqual([
         {
+          current: 2,
           embeddingSetId: 'collection-b',
           requestId: 'embedding-backfill:collection-b',
           source: 'manual',
-          current: 2,
           total: 9,
         },
       ]);
     });
 
     runtime.emitBackfillProgress({
+      current: 5,
       embeddingSetId: 'collection-c',
       requestId: 'background-indexing-backfill:collection-c',
       source: 'background-indexing',
       stage: 'backfill',
-      current: 5,
       total: 11,
     });
 
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot.activeBackfills).toEqual([
         {
+          current: 5,
           embeddingSetId: 'collection-c',
           requestId: 'background-indexing-backfill:collection-c',
           source: 'background-indexing',
-          current: 5,
           total: 11,
         },
       ]);
@@ -325,9 +325,9 @@ describe('IndexingActivityCoordinator', () => {
 
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-        status: 'unavailable',
         phase: null,
         queue: null,
+        status: 'unavailable',
       });
     });
     expect(useVectorStatusUIStore.getState().durableQueueStats).toBeNull();
@@ -339,26 +339,26 @@ describe('IndexingActivityCoordinator', () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     useBackgroundIndexingPreferencesStore.getState().setPaused(true);
     useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-      state: 'paused',
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
       pauseReasons: ['Paused manually'],
+      state: 'paused',
     });
 
     render(<IndexingActivityCoordinator />);
 
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-        status: 'paused',
-        phase: 'background-indexing',
         background: {
           enabled: true,
-          paused: true,
           managedCollectionId: 'collection-a',
           managedCollectionName: 'Workspace cache',
-          state: 'paused',
+          paused: true,
           pauseReasons: ['Paused manually'],
+          state: 'paused',
         },
+        phase: 'background-indexing',
+        status: 'paused',
       });
     });
   });
@@ -386,7 +386,7 @@ describe('IndexingActivityCoordinator', () => {
       currentBackgroundWaitMs: 25,
       lastBackgroundYieldAt: 1000,
       lastForegroundAt: 950,
-      queued: { foreground: 1, normal: 0, background: 4 },
+      queued: { background: 4, foreground: 1, normal: 0 },
     });
     for (const listener of listeners) {
       listener(pressureSnapshot);
@@ -394,9 +394,9 @@ describe('IndexingActivityCoordinator', () => {
 
     await waitFor(() => {
       expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
-        status: 'active',
-        phase: 'background-indexing',
         databaseWork: pressureSnapshot,
+        phase: 'background-indexing',
+        status: 'active',
       });
     });
   });
@@ -404,7 +404,7 @@ describe('IndexingActivityCoordinator', () => {
   it('clears scheduler polling errors after a successful Electron snapshot refresh', async () => {
     liveQueryState.loading = true;
     const successfulSnapshot = createDatabaseWorkSnapshot({
-      queued: { foreground: 1, normal: 0, background: 0 },
+      queued: { background: 0, foreground: 1, normal: 0 },
     });
     const firstSnapshot = createDeferred<IndexingDatabaseWorkSnapshot>();
     const secondSnapshot = createDeferred<IndexingDatabaseWorkSnapshot>();
@@ -443,9 +443,9 @@ describe('IndexingActivityCoordinator', () => {
 
       await waitFor(() => {
         expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+          databaseWork: successfulSnapshot,
           lastError: null,
           status: 'active',
-          databaseWork: successfulSnapshot,
         });
       });
     } finally {

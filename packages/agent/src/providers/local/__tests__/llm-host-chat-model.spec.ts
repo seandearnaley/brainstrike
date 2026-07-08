@@ -9,14 +9,14 @@ import type {
 import type { LocalLlmGenerationResult } from '../types';
 
 const USER_PROMPT = [
-  { role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] },
+  { content: [{ text: 'Hello', type: 'text' as const }], role: 'user' as const },
 ];
 
 function makeResult(overrides: Partial<LocalLlmGenerationResult> = {}): LocalLlmGenerationResult {
   return {
-    text: 'final answer',
     finishReason: 'stop',
-    usage: { promptTokens: 12, completionTokens: 6, totalTokens: 18 },
+    text: 'final answer',
+    usage: { completionTokens: 6, promptTokens: 12, totalTokens: 18 },
     ...overrides,
   };
 }
@@ -33,11 +33,11 @@ function makeClient(
 ): ScriptedClient {
   const requests: LocalLlmHostGenerateRequest[] = [];
   return {
-    requests,
     generate: (request, options = {}) => {
       requests.push(request);
       return script(request, options);
     },
+    requests,
     warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -90,7 +90,7 @@ describe('LlmHostChatModel', () => {
       options.onProgress?.({ kind: 'reasoning', reasoningText: 'thinking' });
       options.onProgress?.({ kind: 'reasoning', reasoningText: 'thinking hard' });
       options.onProgress?.({ kind: 'text', text: 'answer' });
-      return makeResult({ text: 'answer', reasoningText: 'thinking hard' });
+      return makeResult({ reasoningText: 'thinking hard', text: 'answer' });
     });
     const model = new LlmHostChatModel('test-model', client);
 
@@ -130,13 +130,13 @@ describe('LlmHostChatModel', () => {
   it('emits tool-call parts and a tool-calls finish reason', async () => {
     const client = makeClient(async () =>
       makeResult({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: { arguments: '{"city":"Paris"}', name: 'get_weather' },
             id: 'call-1',
             type: 'function',
-            function: { name: 'get_weather', arguments: '{"city":"Paris"}' },
           },
         ],
       })
@@ -151,9 +151,9 @@ describe('LlmHostChatModel', () => {
       toolName: string;
     };
     expect(toolCall).toMatchObject({
+      input: '{"city":"Paris"}',
       toolCallId: 'call-1',
       toolName: 'get_weather',
-      input: '{"city":"Paris"}',
     });
     const finish = parts.find((part) => part.type === 'finish') as { finishReason: string };
     expect(finish.finishReason).toBe('tool-calls');
@@ -197,30 +197,30 @@ describe('LlmHostChatModel', () => {
   it('passes the abort signal, tools, thinking and sampling options to the client', async () => {
     let observedOptions: LocalLlmHostRequestOptions | undefined;
     const client: ScriptedClient = {
-      requests: [],
       generate: (request, options = {}) => {
         client.requests.push(request);
         observedOptions = options;
         return Promise.resolve(makeResult());
       },
+      requests: [],
       warmup: vi.fn().mockResolvedValue(undefined),
     };
     const abortController = new AbortController();
     const model = new LlmHostChatModel('test-model', client, {
-      thinking: { enabled: false },
       temperature: 0.4,
+      thinking: { enabled: false },
     });
 
     await model.doGenerate({
-      prompt: USER_PROMPT,
       abortSignal: abortController.signal,
       maxOutputTokens: 99,
+      prompt: USER_PROMPT,
       tools: [
         {
-          type: 'function',
-          name: 'get_time',
           description: 'Get time',
-          inputSchema: { type: 'object', properties: {} },
+          inputSchema: { properties: {}, type: 'object' },
+          name: 'get_time',
+          type: 'function',
         },
       ],
     });
@@ -252,8 +252,8 @@ describe('LlmHostChatModel', () => {
     const model = new LlmHostChatModel('test-model', client);
 
     const { stream } = await model.doStream({
-      prompt: USER_PROMPT,
       abortSignal: abortController.signal,
+      prompt: USER_PROMPT,
     });
     const reader = stream.getReader();
     abortController.abort();
@@ -272,9 +272,9 @@ describe('LlmHostChatModel', () => {
   it('doGenerate maps reasoning, text and tool calls into V2 content', async () => {
     const client = makeClient(async () =>
       makeResult({
-        text: 'visible',
         reasoningText: 'hidden thoughts',
-        toolCalls: [{ id: 'c1', type: 'function', function: { name: 't', arguments: '{}' } }],
+        text: 'visible',
+        toolCalls: [{ function: { arguments: '{}', name: 't' }, id: 'c1', type: 'function' }],
       })
     );
     const model = new LlmHostChatModel('test-model', client);
@@ -282,9 +282,9 @@ describe('LlmHostChatModel', () => {
     const result = await model.doGenerate({ prompt: USER_PROMPT });
 
     expect(result.content).toEqual([
-      { type: 'reasoning', text: 'hidden thoughts' },
-      { type: 'text', text: 'visible' },
-      { type: 'tool-call', toolCallId: 'c1', toolName: 't', input: '{}' },
+      { text: 'hidden thoughts', type: 'reasoning' },
+      { text: 'visible', type: 'text' },
+      { input: '{}', toolCallId: 'c1', toolName: 't', type: 'tool-call' },
     ]);
   });
 });

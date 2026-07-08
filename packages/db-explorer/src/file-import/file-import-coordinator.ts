@@ -55,8 +55,8 @@ function prepareRequestsFromCache(
 
     if (!folderId) {
       tracker.addError({
-        file: path,
         error: 'Invalid file selection format',
+        file: path,
       });
       continue;
     }
@@ -66,9 +66,9 @@ function prepareRequestsFromCache(
     if (cachedContent && isContentAccessible(cachedContent)) {
       const fileName = getImportPathFileName(path);
       const request: FileImportRequest = {
-        path,
-        name: fileName,
         content: cachedContent,
+        name: fileName,
+        path,
         size: cachedContent.length,
       };
 
@@ -90,7 +90,7 @@ function prepareRequestsFromCache(
     });
   }
 
-  return { requests, pending };
+  return { pending, requests };
 }
 
 function createImportRequest(
@@ -99,9 +99,9 @@ function createImportRequest(
   embeddingSetId?: string
 ): FileImportRequest {
   const request: FileImportRequest = {
-    path: fileNode.path,
-    name: fileNode.name,
     content,
+    name: fileNode.name,
+    path: fileNode.path,
     size: fileNode.size ?? content.length,
   };
 
@@ -186,8 +186,8 @@ async function loadMissingFileContents(
         );
         if (!resolved) {
           tracker.addError({
-            file: pendingFile.path,
             error: 'File not found in tree and no cached content available',
+            file: pendingFile.path,
           });
           return null;
         }
@@ -204,8 +204,8 @@ async function loadMissingFileContents(
         );
       } catch (error) {
         tracker.addError({
-          file: pendingFile.path,
           error: resolveReadError(error),
+          file: pendingFile.path,
         });
         return null;
       } finally {
@@ -306,8 +306,8 @@ function mapResultErrors(
         original?.name ?? (original ? getImportPathFileName(original.path) : 'Unknown');
 
       return {
-        file: fileName,
         error: result.error ?? 'Import failed',
+        file: fileName,
       } satisfies ErrorEntry;
     })
     .filter((entry): entry is ErrorEntry => entry !== null);
@@ -380,8 +380,8 @@ export async function runFileImport(
   const finalProgress = tracker.complete();
 
   return {
-    results,
     progress: finalProgress,
+    results,
   };
 }
 
@@ -391,14 +391,14 @@ export function appendProcessError(
 ): ReturnType<ImportProgressTracker['snapshot']> {
   return {
     ...progress,
-    errors: [...progress.errors, { file: IMPORT_PROCESS_LABEL, error: message }],
+    errors: [...progress.errors, { error: message, file: IMPORT_PROCESS_LABEL }],
   };
 }
 
 export function createProcessErrorProgress(total: number, message: string) {
   return {
-    total,
     completed: 0,
-    errors: [{ file: IMPORT_PROCESS_LABEL, error: message }],
+    errors: [{ error: message, file: IMPORT_PROCESS_LABEL }],
+    total,
   };
 }

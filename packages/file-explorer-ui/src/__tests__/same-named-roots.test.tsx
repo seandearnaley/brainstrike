@@ -34,18 +34,18 @@ const ROOT_ID_B = 'bbbbbbbb-0000-0000-0000-00000000000b';
 
 // Same display name ("project"), different paths and different RootIds.
 const handleA = {
-  name: 'project',
+  _internal: {} as FileSystemDirectoryHandle,
   kind: 'directory' as const,
+  name: 'project',
   path: '/work/project',
   platform: 'web' as const,
-  _internal: {} as FileSystemDirectoryHandle,
 };
 const handleB = {
-  name: 'project',
+  _internal: {} as FileSystemDirectoryHandle,
   kind: 'directory' as const,
+  name: 'project',
   path: '/personal/project',
   platform: 'web' as const,
-  _internal: {} as FileSystemDirectoryHandle,
 };
 
 describe('same-named roots resolve distinct RootId identities (storage v5)', () => {

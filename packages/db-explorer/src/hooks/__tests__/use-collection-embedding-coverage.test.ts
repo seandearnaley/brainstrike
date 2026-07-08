@@ -14,9 +14,9 @@ interface MockCoverageRow {
 }
 
 const mockLiveQueryState = {
-  rows: [] as MockCoverageRow[],
-  loading: false,
   error: null as Error | null,
+  loading: false,
+  rows: [] as MockCoverageRow[],
 };
 
 const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
@@ -56,11 +56,11 @@ describe('collection embedding coverage status', () => {
   it('ignores a stale live-query row for a previous active collection', () => {
     mockLiveQueryState.rows = [
       {
-        embeddingsetid: 'previous-collection',
-        totalfiles: 3,
-        totalchunks: 9,
-        pendingreindexfiles: 3,
         chunksmissing: 0,
+        embeddingsetid: 'previous-collection',
+        pendingreindexfiles: 3,
+        totalchunks: 9,
+        totalfiles: 3,
       },
     ];
 

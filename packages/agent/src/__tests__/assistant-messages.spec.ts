@@ -24,9 +24,6 @@ describe('convertAssistantUiMessages', () => {
   it('extracts unique text segments across nested assistant-ui nodes', () => {
     const messages = convertAssistantUiMessages([
       {
-        id: 42,
-        role: 'User',
-        text: '  Hello world  ',
         content: [
           'Hello world',
           { text: 'Additional context' },
@@ -34,9 +31,12 @@ describe('convertAssistantUiMessages', () => {
           { children: [{ text: 'Nested text' }] },
           { values: [true, false, 'Additional context'] },
         ],
+        id: 42,
         parts: {
           messages: [{ text: 'Hello world' }, { value: 7n }],
         },
+        role: 'User',
+        text: '  Hello world  ',
       },
     ]);
 
@@ -45,30 +45,30 @@ describe('convertAssistantUiMessages', () => {
     expect(first.id).toBe('42');
     expect(first.role).toBe('user');
     expect(first.parts).toEqual([
-      { type: 'text', text: 'Hello world' },
-      { type: 'text', text: 'Additional context' },
-      { type: 'text', text: '123' },
-      { type: 'text', text: 'Nested text' },
-      { type: 'text', text: 'true' },
-      { type: 'text', text: 'false' },
-      { type: 'text', text: '7' },
+      { text: 'Hello world', type: 'text' },
+      { text: 'Additional context', type: 'text' },
+      { text: '123', type: 'text' },
+      { text: 'Nested text', type: 'text' },
+      { text: 'true', type: 'text' },
+      { text: 'false', type: 'text' },
+      { text: '7', type: 'text' },
     ]);
   });
 
   it('does not extract assistant-ui part discriminators as prompt text', () => {
     const messages = convertAssistantUiMessages([
       {
+        content: [{ text: 'Hello', type: 'text' }],
         id: 'msg-1',
         role: 'user',
-        content: [{ type: 'text', text: 'Hello' }],
       },
     ]);
 
     expect(messages).toEqual([
       {
         id: 'msg-1',
+        parts: [{ text: 'Hello', type: 'text' }],
         role: 'user',
-        parts: [{ type: 'text', text: 'Hello' }],
       },
     ]);
   });
@@ -82,7 +82,7 @@ describe('convertAssistantUiMessages', () => {
     expect(fallbackMessages).toHaveLength(1);
     const [fallback] = fallbackMessages as [AgentMessage];
     expect(fallback.role).toBe('user');
-    expect(fallback.parts).toEqual([{ type: 'text', text: 'needs fallback' }]);
+    expect(fallback.parts).toEqual([{ text: 'needs fallback', type: 'text' }]);
     expect(typeof fallback.id).toBe('string');
     expect(fallback.id.length).toBeGreaterThan(0);
   });
@@ -111,23 +111,23 @@ describe('toAiSdkStyleStream', () => {
     streamMastraAgentMock.mockResolvedValue(asyncStream);
 
     const toolStub = {
-      foo: { id: 'foo', description: 'stub' },
+      foo: { description: 'stub', id: 'foo' },
     } as unknown as NonNullable<RuntimeData['mastraTools']>;
     const runtime: RuntimeData = {
-      model: 'gpt-test',
       mastraTools: toolStub,
       mcpConfig: {
         servers: [
           {
+            command: 'echo',
             name: 'stdio-test',
             transport: 'stdio',
-            command: 'echo',
           },
         ],
       },
+      model: 'gpt-test',
     };
     const messages: AgentMessage[] = [
-      { id: '1', role: 'user', parts: [{ type: 'text', text: 'hi' }] },
+      { id: '1', parts: [{ text: 'hi', type: 'text' }], role: 'user' },
     ];
 
     const result = await toAiSdkStyleStream(messages, runtime);
@@ -153,15 +153,15 @@ describe('toAiSdkStyleStream', () => {
     })();
     streamMastraAgentMock.mockResolvedValue(asyncStream);
     const messages: AgentMessage[] = [
-      { id: '1', role: 'user', parts: [{ type: 'text', text: 'old question' }] },
-      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'old answer' }] },
-      { id: '3', role: 'user', parts: [{ type: 'text', text: 'current question' }] },
+      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
+      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
+      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
     ];
 
     await toAiSdkStyleStream(messages, {
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-a',
+        threadId: 'thread-1',
       },
     });
 
@@ -176,31 +176,31 @@ describe('toAiSdkStyleStream', () => {
     })();
     streamMastraAgentMock.mockResolvedValue(asyncStream);
     const messages: AgentMessage[] = [
-      { id: '1', role: 'user', parts: [{ type: 'text', text: 'old question' }] },
-      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'old answer' }] },
-      { id: '3', role: 'user', parts: [{ type: 'text', text: 'current question' }] },
+      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
+      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
+      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
       {
         id: '4',
-        role: 'assistant',
         parts: [
           {
-            type: 'tool-invocation',
             toolInvocation: {
+              args: {},
+              result: 'done',
               state: 'result',
               toolCallId: 'tc-1',
               toolName: 'search',
-              args: {},
-              result: 'done',
             },
+            type: 'tool-invocation',
           },
         ],
+        role: 'assistant',
       },
     ];
 
     await toAiSdkStyleStream(messages, {
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-a',
+        threadId: 'thread-1',
       },
     });
 
@@ -215,16 +215,16 @@ describe('toAiSdkStyleStream', () => {
     })();
     streamMastraAgentMock.mockResolvedValue(asyncStream);
     const messages: AgentMessage[] = [
-      { id: 'system-1', role: 'system', parts: [{ type: 'text', text: 'Use workspace context.' }] },
-      { id: '1', role: 'user', parts: [{ type: 'text', text: 'old question' }] },
-      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'old answer' }] },
-      { id: '3', role: 'user', parts: [{ type: 'text', text: 'current question' }] },
+      { id: 'system-1', parts: [{ text: 'Use workspace context.', type: 'text' }], role: 'system' },
+      { id: '1', parts: [{ text: 'old question', type: 'text' }], role: 'user' },
+      { id: '2', parts: [{ text: 'old answer', type: 'text' }], role: 'assistant' },
+      { id: '3', parts: [{ text: 'current question', type: 'text' }], role: 'user' },
     ];
 
     await toAiSdkStyleStream(messages, {
       memory: {
-        threadId: 'thread-1',
         resourceId: 'workspace-a',
+        threadId: 'thread-1',
       },
     });
 
@@ -235,15 +235,15 @@ describe('toAiSdkStyleStream', () => {
 
   it('rejects memory-backed streams without a user turn', async () => {
     const messages: AgentMessage[] = [
-      { id: 'system-1', role: 'system', parts: [{ type: 'text', text: 'Use context.' }] },
-      { id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'No prompt.' }] },
+      { id: 'system-1', parts: [{ text: 'Use context.', type: 'text' }], role: 'system' },
+      { id: 'assistant-1', parts: [{ text: 'No prompt.', type: 'text' }], role: 'assistant' },
     ];
 
     await expect(
       toAiSdkStyleStream(messages, {
         memory: {
-          threadId: 'thread-1',
           resourceId: 'workspace-a',
+          threadId: 'thread-1',
         },
       })
     ).rejects.toThrow('Mastra memory requires a current user message');

@@ -84,10 +84,10 @@ describe('File System Factory', () => {
       // Mock globalThis to throw error
       const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'process');
       Object.defineProperty(globalThis, 'process', {
+        configurable: true,
         get: () => {
           throw new Error('Test error');
         },
-        configurable: true,
       });
 
       const platform = detectPlatform();

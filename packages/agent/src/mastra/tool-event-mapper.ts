@@ -33,25 +33,25 @@ export function mapMastraToolEvent(
       }
       const args = readMastraStreamPartValue(candidate, 'args');
       return {
-        type: 'tool-event',
         name: displayName,
-        status: 'start',
         payload: {
-          callId,
-          toolCallId: callId,
           args,
-          input: args,
-          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          callId,
           dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
-          invalid: readMastraStreamPartValue(candidate, 'invalid'),
           error: readMastraStreamPartValue(candidate, 'error'),
+          input: args,
+          invalid: readMastraStreamPartValue(candidate, 'invalid'),
+          providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+          toolCallId: callId,
         },
+        status: 'start',
+        type: 'tool-event',
       } satisfies StreamChunk;
     }
     case 'tool-call-input-streaming-start': {
       return progressEvent(displayName, callId, {
-        step: PROGRESS_START_STEP,
         providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+        step: PROGRESS_START_STEP,
       });
     }
     case 'tool-call-delta': {
@@ -81,16 +81,16 @@ export function mapMastraToolEvent(
         readMastraStreamPartValue(candidate, 'error') ??
         readMastraStreamPartValue(candidate, 'result');
       return {
-        type: 'tool-event',
         name: displayName,
-        status: 'error',
         payload: {
           callId,
-          toolCallId: callId,
+          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
           error,
           providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
-          dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+          toolCallId: callId,
         },
+        status: 'error',
+        type: 'tool-event',
       } satisfies StreamChunk;
     }
     default:
@@ -109,20 +109,20 @@ function mapToolResultEvent(
   const errorResult =
     readMastraStreamPartValue(candidate, 'isError') === true || isGuardedToolError(result);
   return {
-    type: 'tool-event',
     name: displayName,
-    status: errorResult ? 'error' : 'success',
     payload: {
       callId,
       toolCallId: callId,
       ...(errorResult ? { error: result } : { output: result }),
-      result,
-      isError: errorResult,
-      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
-      dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
-      preliminary: readMastraStreamPartValue(candidate, 'preliminary'),
       args: readMastraStreamPartValue(candidate, 'args'),
+      dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+      isError: errorResult,
+      preliminary: readMastraStreamPartValue(candidate, 'preliminary'),
+      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
+      result,
     },
+    status: errorResult ? 'error' : 'success',
+    type: 'tool-event',
   } satisfies StreamChunk;
 }
 
@@ -134,16 +134,16 @@ function mapToolOutputEvent(
   const output = readMastraStreamPartValue(candidate, 'output');
   const guardedError = isGuardedToolError(output);
   return {
-    type: 'tool-event',
     name: displayName,
-    status: guardedError ? 'error' : 'success',
     payload: {
       callId,
       toolCallId: callId,
       ...(guardedError ? { error: output } : { output }),
-      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
       dynamic: readMastraStreamPartValue(candidate, 'dynamic'),
+      providerExecuted: readMastraStreamPartValue(candidate, 'providerExecuted'),
     },
+    status: guardedError ? 'error' : 'success',
+    type: 'tool-event',
   } satisfies StreamChunk;
 }
 
@@ -153,14 +153,14 @@ function progressEvent(
   payload: Record<string, unknown>
 ): StreamChunk {
   return {
-    type: 'tool-event',
     name,
-    status: 'progress',
     payload: {
       callId,
       toolCallId: callId,
       ...payload,
     },
+    status: 'progress',
+    type: 'tool-event',
   } satisfies StreamChunk;
 }
 
@@ -189,7 +189,6 @@ function resolveRawToolName(
       return maybeName;
     }
   }
-
   return;
 }
 

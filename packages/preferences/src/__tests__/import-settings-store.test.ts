@@ -189,14 +189,14 @@ describe('import-settings-store', () => {
 
     options.storage.setItem(options.name, {
       state: {
-        enableChunking: true,
         chunkingPreset: 'docs',
         chunkingStrategy: 'semantic-markdown',
         chunkingStrategyExplicit: true,
-        chunkSize: 777,
         chunkOverlap: 33,
-        tokenTrueSizing: true,
+        chunkSize: 777,
         chunkTokenLimit: 5555,
+        enableChunking: true,
+        tokenTrueSizing: true,
       },
       version: 6,
     });
@@ -226,11 +226,11 @@ describe('import-settings-store', () => {
 
     options.storage.setItem(options.name, {
       state: {
-        enableChunking: true,
-        chunkSize: 777,
         chunkOverlap: 33,
-        tokenTrueSizing: true,
+        chunkSize: 777,
         chunkTokenLimit: 5555,
+        enableChunking: true,
+        tokenTrueSizing: true,
       },
       version: 6,
     });

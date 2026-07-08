@@ -313,8 +313,8 @@ test.describe('Embedding Host Renderer - crash a', () => {
     );
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
       chunksPerFile: CRASH_REPRO_LARGE_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-large-backfill-fixture-loaded');
@@ -373,24 +373,24 @@ test.describe('Embedding Host Renderer - crash a', () => {
     const peaks = samples.reduce(
       (current, sample) => ({
         hostHeapMB: Math.max(current.hostHeapMB, sample.snapshot.hostHeap.usedMB),
-        visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
         mainRssMB: Math.max(current.mainRssMB, sample.snapshot.process.mainProcess.rssMB),
+        visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
       }),
       {
         hostHeapMB: baseline.hostHeap.usedMB,
-        visibleHeapMB: baseline.visibleHeap.usedMB,
         mainRssMB: baseline.process.mainProcess.rssMB,
+        visibleHeapMB: baseline.visibleHeap.usedMB,
       }
     );
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-large-backfill-survival',
-        fixture,
-        warmedBaseline,
         baseline,
+        fixture,
         peaks,
         sampleCount: samples.length,
+        type: 'crash-repro-large-backfill-survival',
+        warmedBaseline,
       })
     );
 
@@ -433,8 +433,8 @@ test.describe('Embedding Host Renderer - crash a', () => {
     await ensureEmbeddingHostWarmed(activeWindow);
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_BACKGROUNDING_FILE_COUNT,
       chunksPerFile: CRASH_REPRO_BACKGROUNDING_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_BACKGROUNDING_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-backgrounding-fixture-loaded');
@@ -493,12 +493,12 @@ test.describe('Embedding Host Renderer - crash a', () => {
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-backgrounding-survival',
-        fixture,
-        postFocusTimeOrigin,
         baselineTimeOrigin,
+        fixture,
         hostState: hostStatus.state,
+        postFocusTimeOrigin,
         queueStats,
+        type: 'crash-repro-backgrounding-survival',
       })
     );
 
@@ -531,8 +531,8 @@ test.describe('Embedding Host Renderer - crash a', () => {
     await ensureEmbeddingHostWarmed(activeWindow);
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_IDLE_FILE_COUNT,
       chunksPerFile: CRASH_REPRO_IDLE_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_IDLE_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-idle-fixture-loaded');
@@ -577,7 +577,7 @@ test.describe('Embedding Host Renderer - crash a', () => {
         `crash-repro-idle-check-${index + 1}`
       );
 
-      idleChecks.push({ index: index + 1, rendererAlive, memorySnapshot });
+      idleChecks.push({ index: index + 1, memorySnapshot, rendererAlive });
 
       // Assert renderer did not crash on each poll
       expect(rendererAlive).toBe(true);
@@ -622,11 +622,11 @@ test.describe('Embedding Host Renderer - crash a', () => {
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-idle-stability',
-        fixture,
-        baselineMemory,
-        idleCheckCount: idleChecks.length,
         allRendererAlive: idleChecks.every((check) => check.rendererAlive),
+        baselineMemory,
+        fixture,
+        idleCheckCount: idleChecks.length,
+        type: 'crash-repro-idle-stability',
       })
     );
 
@@ -656,9 +656,9 @@ test.describe('Embedding Host Renderer - crash a', () => {
 
     // Use minimal chunk content to maximize embedding throughput and IPC rate
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_IPC_FILE_COUNT,
-      chunksPerFile: CRASH_REPRO_IPC_CHUNKS_PER_FILE,
       chunkContentBytes: 0,
+      chunksPerFile: CRASH_REPRO_IPC_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_IPC_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-ipc-flood-fixture-loaded');
@@ -733,13 +733,13 @@ test.describe('Embedding Host Renderer - crash a', () => {
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-ipc-flood-resilience',
-        fixture,
         baseline,
-        postGcSnapshot,
-        visibleHeapGrowth,
+        fixture,
         hostHeapGrowth,
+        postGcSnapshot,
         sampleCount: samples.length,
+        type: 'crash-repro-ipc-flood-resilience',
+        visibleHeapGrowth,
       })
     );
 
@@ -776,8 +776,8 @@ test.describe('Embedding Host Renderer - crash a', () => {
     await ensureEmbeddingHostWarmed(activeWindow);
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: CRASH_REPRO_SUSPEND_FILE_COUNT,
       chunksPerFile: CRASH_REPRO_SUSPEND_CHUNKS_PER_FILE,
+      fileCount: CRASH_REPRO_SUSPEND_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-suspend-fixture-loaded');
@@ -831,9 +831,9 @@ test.describe('Embedding Host Renderer - crash a', () => {
 
     console.log(
       JSON.stringify({
-        type: 'crash-repro-suspend-resume',
-        fixture,
         cyclesCompleted: 3,
+        fixture,
+        type: 'crash-repro-suspend-resume',
         verificationJobState: terminalState,
       })
     );

@@ -24,22 +24,22 @@ describe('Bulk Import with Batching', () => {
   it('should import multiple files in batches', async () => {
     const requests: FileImportRequest[] = [
       {
+        content: 'Content for file 1',
         name: 'file1.txt',
         path: '/path/to/file1.txt',
         size: 100,
-        content: 'Content for file 1',
       },
       {
+        content: 'Content for file 2',
         name: 'file2.txt',
         path: '/path/to/file2.txt',
         size: 200,
-        content: 'Content for file 2',
       },
       {
+        content: 'Content for file 3',
         name: 'file3.txt',
         path: '/path/to/file3.txt',
         size: 300,
-        content: 'Content for file 3',
       },
     ];
 
@@ -65,10 +65,10 @@ describe('Bulk Import with Batching', () => {
     try {
       await repository.bulkImport([
         {
+          content: 'Content for file 1',
           name: 'file1.txt',
           path: '/path/to/file1.txt',
           size: 100,
-          content: 'Content for file 1',
         },
       ]);
     } finally {
@@ -83,10 +83,10 @@ describe('Bulk Import with Batching', () => {
     // First import a file
     const firstBatch: FileImportRequest[] = [
       {
+        content: 'Duplicate content',
         name: 'file1.txt',
         path: '/path/to/file1.txt',
         size: 100,
-        content: 'Duplicate content',
       },
     ];
 
@@ -99,16 +99,16 @@ describe('Bulk Import with Batching', () => {
     // Now try to import the same content again
     const secondBatch: FileImportRequest[] = [
       {
+        content: 'Duplicate content', // Same content as file1
         name: 'file2.txt',
         path: '/path/to/file2.txt',
         size: 100,
-        content: 'Duplicate content', // Same content as file1
       },
       {
+        content: 'Unique content',
         name: 'file3.txt',
         path: '/path/to/file3.txt',
         size: 200,
-        content: 'Unique content',
       },
     ];
 
@@ -132,16 +132,16 @@ describe('Bulk Import with Batching', () => {
 
   it('should call progress callback during bulk import', async () => {
     const requests: FileImportRequest[] = Array.from({ length: 5 }, (_, i) => ({
+      content: `Content for file ${i}`,
       name: `file${i}.txt`,
       path: `/path/to/file${i}.txt`,
       size: 100 + i,
-      content: `Content for file ${i}`,
     }));
 
     const progressCalls: Array<{ completed: number; total: number; current?: string }> = [];
 
     await repository.bulkImport(requests, (completed, total, current) => {
-      progressCalls.push({ completed, total, current });
+      progressCalls.push({ completed, current, total });
     });
 
     // Should have progress calls during processing and final call
@@ -155,10 +155,10 @@ describe('Bulk Import with Batching', () => {
 
   it('should handle large batch import (>100 files)', async () => {
     const requests: FileImportRequest[] = Array.from({ length: 250 }, (_, i) => ({
+      content: `Unique content for file ${i}`,
       name: `file${i}.txt`,
       path: `/path/to/file${i}.txt`,
       size: 100 + i,
-      content: `Unique content for file ${i}`,
     }));
 
     const results = await repository.bulkImport(requests);
@@ -174,16 +174,16 @@ describe('Bulk Import with Batching', () => {
   it('reports null-byte content as batch errors before records reach PGlite', async () => {
     const requests: FileImportRequest[] = [
       {
+        content: 'clean file',
         name: 'clean.txt',
         path: '/path/to/clean.txt',
         size: 10,
-        content: 'clean file',
       },
       {
+        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
         name: 'late-null.txt',
         path: '/path/to/late-null.txt',
         size: 620,
-        content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
       },
     ];
 
@@ -211,16 +211,16 @@ describe('Bulk Import with Batching', () => {
     // First import some files
     const firstBatch: FileImportRequest[] = [
       {
+        content: 'Existing content 1',
         name: 'existing1.txt',
         path: '/path/to/existing1.txt',
         size: 100,
-        content: 'Existing content 1',
       },
       {
+        content: 'Existing content 2',
         name: 'existing2.txt',
         path: '/path/to/existing2.txt',
         size: 200,
-        content: 'Existing content 2',
       },
     ];
 
@@ -229,28 +229,28 @@ describe('Bulk Import with Batching', () => {
     // Now import a mixed batch
     const secondBatch: FileImportRequest[] = [
       {
+        content: 'Existing content 1', // Duplicate
         name: 'existing1_copy.txt',
         path: '/path/to/copy1.txt',
         size: 100,
-        content: 'Existing content 1', // Duplicate
       },
       {
+        content: 'New content 1',
         name: 'new1.txt',
         path: '/path/to/new1.txt',
         size: 300,
-        content: 'New content 1',
       },
       {
+        content: 'Existing content 2', // Duplicate
         name: 'existing2_copy.txt',
         path: '/path/to/copy2.txt',
         size: 200,
-        content: 'Existing content 2', // Duplicate
       },
       {
+        content: 'New content 2',
         name: 'new2.txt',
         path: '/path/to/new2.txt',
         size: 400,
-        content: 'New content 2',
       },
     ];
 
@@ -276,16 +276,16 @@ describe('Bulk Import with Batching', () => {
 
     const requests: FileImportRequest[] = [
       {
+        content: shortContent,
         name: 'short.txt',
         path: '/path/to/short.txt',
         size: shortContent.length,
-        content: shortContent,
       },
       {
+        content: longContent,
         name: 'long.txt',
         path: '/path/to/long.txt',
         size: longContent.length,
-        content: longContent,
       },
     ];
 
@@ -302,10 +302,10 @@ describe('Bulk Import with Batching', () => {
 
   it('should maintain order in batch results', async () => {
     const requests: FileImportRequest[] = Array.from({ length: 10 }, (_, i) => ({
+      content: `Content ${i}`,
       name: `file${i}.txt`,
       path: `/path/to/file${i}.txt`,
       size: 100 + i,
-      content: `Content ${i}`,
     }));
 
     const results = await repository.bulkImport(requests);
@@ -325,16 +325,16 @@ describe('Bulk Import with Batching', () => {
   it('should handle files with special characters in content', async () => {
     const requests: FileImportRequest[] = [
       {
+        content: 'Content with 特殊字符 and émojis 🚀',
         name: 'special.txt',
         path: '/path/to/special.txt',
         size: 100,
-        content: 'Content with 特殊字符 and émojis 🚀',
       },
       {
+        content: 'Content with "quotes" and \'apostrophes\'',
         name: 'quotes.txt',
         path: '/path/to/quotes.txt',
         size: 50,
-        content: 'Content with "quotes" and \'apostrophes\'',
       },
     ];
 

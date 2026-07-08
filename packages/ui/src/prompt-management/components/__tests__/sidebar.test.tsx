@@ -4,14 +4,14 @@ import type { Category, PromptFilter } from '../../types';
 import { Sidebar } from '../sidebar';
 
 const categories: Category[] = [
-  { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
-  { id: 'coding', name: 'Coding', color: '#3b82f6', icon: 'Code' },
+  { color: '#64748b', icon: 'Box', id: 'general', name: 'General' },
+  { color: '#3b82f6', icon: 'Code', id: 'coding', name: 'Coding' },
 ];
 
 const baseFilter: PromptFilter = {
+  favoritesOnly: false,
   search: '',
   tags: [],
-  favoritesOnly: false,
 };
 
 describe('Sidebar', () => {
@@ -53,7 +53,7 @@ describe('Sidebar', () => {
     expect(onFilterChange).toHaveBeenCalledWith({ categoryId: null, favoritesOnly: false });
 
     fireEvent.click(screen.getByText('Favorites'));
-    expect(onFilterChange).toHaveBeenCalledWith({ favoritesOnly: true, categoryId: null });
+    expect(onFilterChange).toHaveBeenCalledWith({ categoryId: null, favoritesOnly: true });
 
     fireEvent.click(screen.getByText('Coding'));
     expect(onFilterChange).toHaveBeenCalledWith({ categoryId: 'coding', favoritesOnly: false });

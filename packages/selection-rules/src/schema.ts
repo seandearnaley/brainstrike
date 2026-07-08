@@ -345,13 +345,13 @@ export function isCapRule(rule: SelectionRule): rule is CapRule {
 export function createEmptyRuleSet(folderId: string): SelectionRuleSet {
   const now = new Date().toISOString();
   return {
-    version: SELECTION_RULES_SCHEMA_VERSION,
     folderId,
-    rules: [],
     metadata: {
       createdAt: now,
       updatedAt: now,
     },
+    rules: [],
+    version: SELECTION_RULES_SCHEMA_VERSION,
   };
 }
 
@@ -360,12 +360,12 @@ export function createEmptyRuleSet(folderId: string): SelectionRuleSet {
  */
 export function createEmptyMaterializedSelection(): MaterializedSelection {
   return {
-    paths: new Set(),
     appliedRules: [],
     capped: false,
-    originalCount: 0,
-    warnings: [],
     materializedAt: new Date().toISOString(),
+    originalCount: 0,
+    paths: new Set(),
+    warnings: [],
   };
 }
 

@@ -125,11 +125,11 @@ describe('@brainstrike/worker-runtime', () => {
 
   it('creates stopped statuses with canonical runtime ids', () => {
     expect(createStoppedBackgroundRuntimeStatus('chunking-host')).toEqual({
-      runtimeKind: 'chunking-host',
-      runtimeId: 'chunking-host:stopped',
-      state: 'stopped',
       active: false,
       lastError: null,
+      runtimeId: 'chunking-host:stopped',
+      runtimeKind: 'chunking-host',
+      state: 'stopped',
     });
   });
 
@@ -137,30 +137,30 @@ describe('@brainstrike/worker-runtime', () => {
     expect(
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-host',
-          runtimeId: 'embedding-host:123',
-          state: 'running',
           active: true,
           lastError: null,
+          runtimeId: 'embedding-host:123',
+          runtimeKind: 'embedding-host',
+          state: 'running',
         },
         'embedding-host'
       )
     ).toEqual({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:123',
-      state: 'running',
       active: true,
       lastError: null,
+      runtimeId: 'embedding-host:123',
+      runtimeKind: 'embedding-host',
+      state: 'running',
     });
 
     expect(() =>
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-worker',
-          runtimeId: 'embedding-host:123',
-          state: 'running',
           active: true,
           lastError: null,
+          runtimeId: 'embedding-host:123',
+          runtimeKind: 'embedding-worker',
+          state: 'running',
         },
         'embedding-host'
       )
@@ -172,41 +172,41 @@ describe('@brainstrike/worker-runtime', () => {
 
     expect(
       adapter.createStatus({
-        runtimeId: 'chunking-host:runtime-1',
-        state: 'running',
         active: true,
         lastError: null,
+        runtimeId: 'chunking-host:runtime-1',
+        state: 'running',
       })
     ).toEqual({
-      runtimeKind: 'chunking-host',
-      runtimeId: 'chunking-host:runtime-1',
-      state: 'running',
       active: true,
       lastError: null,
+      runtimeId: 'chunking-host:runtime-1',
+      runtimeKind: 'chunking-host',
+      state: 'running',
     });
 
     expect(adapter.createStoppedStatus()).toEqual({
-      runtimeKind: 'chunking-host',
-      runtimeId: 'chunking-host:stopped',
-      state: 'stopped',
       active: false,
       lastError: null,
+      runtimeId: 'chunking-host:stopped',
+      runtimeKind: 'chunking-host',
+      state: 'stopped',
     });
 
     expect(
       adapter.assertStatus({
-        runtimeKind: 'chunking-host',
-        runtimeId: 'chunking-host:runtime-2',
-        state: 'error',
         active: false,
         lastError: 'boom',
+        runtimeId: 'chunking-host:runtime-2',
+        runtimeKind: 'chunking-host',
+        state: 'error',
       })
     ).toEqual({
-      runtimeKind: 'chunking-host',
-      runtimeId: 'chunking-host:runtime-2',
-      state: 'error',
       active: false,
       lastError: 'boom',
+      runtimeId: 'chunking-host:runtime-2',
+      runtimeKind: 'chunking-host',
+      state: 'error',
     });
   });
 
@@ -224,12 +224,12 @@ describe('@brainstrike/worker-runtime', () => {
       reportResponse: 'chunking-host:report-response',
     });
     expect(createBackgroundRuntimeLifecycleChannels('chunking-host')).toEqual({
-      statusEvent: 'chunking-host:status',
-      reportStatus: 'chunking-host:report-status',
       ensureStarted: 'chunking-host:ensure-started',
-      stop: 'chunking-host:stop',
-      reset: 'chunking-host:reset',
       getStatus: 'chunking-host:get-status',
+      reportStatus: 'chunking-host:report-status',
+      reset: 'chunking-host:reset',
+      statusEvent: 'chunking-host:status',
+      stop: 'chunking-host:stop',
     });
   });
 
@@ -252,11 +252,11 @@ describe('@brainstrike/worker-runtime', () => {
       enqueueBackfill: 'embedding-host:enqueue-backfill',
     });
     expect(descriptor.createStoppedStatus()).toEqual({
-      runtimeKind: 'embedding-host',
-      runtimeId: 'embedding-host:stopped',
-      state: 'stopped',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host:stopped',
+      runtimeKind: 'embedding-host',
+      state: 'stopped',
     });
   });
 
@@ -264,31 +264,31 @@ describe('@brainstrike/worker-runtime', () => {
     expect(
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'progress',
           channel: 'chunking-host:progress',
-          requestId: 'request-1',
-          runtimeId: 'chunking-host:runtime-1',
           payload: {
             currentIndex: 1,
           },
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          type: 'progress',
         },
         'Chunking host response report'
       )
     ).toEqual({
       candidate: {
-        type: 'progress',
         channel: 'chunking-host:progress',
-        requestId: 'request-1',
-        runtimeId: 'chunking-host:runtime-1',
         payload: {
           currentIndex: 1,
         },
+        requestId: 'request-1',
+        runtimeId: 'chunking-host:runtime-1',
+        type: 'progress',
       },
       envelopeBase: {
-        type: 'progress',
         channel: 'chunking-host:progress',
         requestId: 'request-1',
         runtimeId: 'chunking-host:runtime-1',
+        type: 'progress',
       },
       payload: {
         currentIndex: 1,
@@ -298,11 +298,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'wat',
           channel: 'chunking-host:progress',
+          payload: {},
           requestId: 'request-1',
           runtimeId: 'chunking-host:runtime-1',
-          payload: {},
+          type: 'wat',
         },
         'Chunking host response report'
       )
@@ -316,11 +316,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'progress',
           channel: 'chunking-host:progress',
+          payload: {},
           requestId: '',
           runtimeId: 'chunking-host:runtime-1',
-          payload: {},
+          type: 'progress',
         },
         'Runtime envelope'
       )
@@ -328,11 +328,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'progress',
           channel: '',
+          payload: {},
           requestId: 'request-1',
           runtimeId: 'chunking-host:runtime-1',
-          payload: {},
+          type: 'progress',
         },
         'Runtime envelope'
       )
@@ -340,11 +340,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'progress',
           channel: 'chunking-host:progress',
+          payload: {},
           requestId: 'request-1',
           runtimeId: '',
-          payload: {},
+          type: 'progress',
         },
         'Runtime envelope'
       )
@@ -352,11 +352,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertRuntimeObjectPayloadEnvelope(
         {
-          type: 'progress',
           channel: 'chunking-host:progress',
+          payload: [],
           requestId: 'request-1',
           runtimeId: 'chunking-host:runtime-1',
-          payload: [],
+          type: 'progress',
         },
         'Runtime envelope'
       )
@@ -367,18 +367,18 @@ describe('@brainstrike/worker-runtime', () => {
     expect(
       assertRuntimeRequestPayloadBase(
         {
+          content: 'hello',
           kind: 'chunk-file',
           requestId: 'request-1',
-          content: 'hello',
         },
         'Chunking host chunk-file request',
         'chunk-file'
       )
     ).toEqual({
       candidate: {
+        content: 'hello',
         kind: 'chunk-file',
         requestId: 'request-1',
-        content: 'hello',
       },
       requestBase: {
         kind: 'chunk-file',
@@ -478,10 +478,10 @@ describe('@brainstrike/worker-runtime', () => {
     };
 
     expect(serialized).toMatchObject({
-      name: 'Error',
-      message: 'boom',
-      code: 'E_RUNTIME',
       cause: 'root-cause',
+      code: 'E_RUNTIME',
+      message: 'boom',
+      name: 'Error',
     });
     expect(restored.message).toBe('boom');
     expect(restored.code).toBe('E_RUNTIME');
@@ -490,11 +490,11 @@ describe('@brainstrike/worker-runtime', () => {
 
   it('normalizes non-Error runtime errors', () => {
     expect(serializeRuntimeError('boom')).toMatchObject({
-      name: 'Error',
       message: 'boom',
+      name: 'Error',
     });
     expect(deserializeRuntimeError('boom').message).toBe('boom');
-    expect(deserializeRuntimeError({ name: 'X', message: 'y' }).message).toBe('y');
+    expect(deserializeRuntimeError({ message: 'y', name: 'X' }).message).toBe('y');
   });
 
   it('rejects invalid background runtime status payloads', () => {
@@ -504,11 +504,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-host',
-          runtimeId: 'embedding-host:1',
-          state: 'wat',
           active: true,
           lastError: null,
+          runtimeId: 'embedding-host:1',
+          runtimeKind: 'embedding-host',
+          state: 'wat',
         },
         'embedding-host'
       )
@@ -516,11 +516,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-host',
-          runtimeId: 'embedding-host:1',
-          state: 'running',
           active: 'yes',
           lastError: null,
+          runtimeId: 'embedding-host:1',
+          runtimeKind: 'embedding-host',
+          state: 'running',
         },
         'embedding-host'
       )
@@ -528,11 +528,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-host',
-          runtimeId: 'embedding-host:1',
-          state: 'running',
           active: true,
           lastError: 42,
+          runtimeId: 'embedding-host:1',
+          runtimeKind: 'embedding-host',
+          state: 'running',
         },
         'embedding-host'
       )
@@ -540,11 +540,11 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() =>
       assertBackgroundRuntimeStatus(
         {
-          runtimeKind: 'embedding-host',
-          runtimeId: '',
-          state: 'running',
           active: true,
           lastError: null,
+          runtimeId: '',
+          runtimeKind: 'embedding-host',
+          state: 'running',
         },
         'embedding-host'
       )
@@ -554,40 +554,40 @@ describe('@brainstrike/worker-runtime', () => {
   it('creates runtime log bindings without optional fields', () => {
     expect(
       createRuntimeLogBindings({
-        runtimeKind: 'embedding-host',
         runtimeId: 'embedding-host:1',
+        runtimeKind: 'embedding-host',
       })
     ).toEqual({
-      runtimeKind: 'embedding-host',
       runtimeId: 'embedding-host:1',
+      runtimeKind: 'embedding-host',
     });
   });
 
   it('binds runtime metadata into log records', () => {
     const record: LogRecord = {
-      level: 'info',
-      timestamp: Date.now(),
       args: ['hello'],
       bindings: { runtime: 'electron-renderer' },
+      level: 'info',
       message: 'hello',
       scope: 'TestScope',
+      timestamp: Date.now(),
     };
 
     const bound = bindRuntimeLogRecord(record, {
-      runtimeKind: 'embedding-host',
-      runtimeId: 'runtime-1',
-      windowRole: 'embedding-host',
       channel: 'control',
       requestId: 'request-1',
+      runtimeId: 'runtime-1',
+      runtimeKind: 'embedding-host',
+      windowRole: 'embedding-host',
     });
 
     expect(bound.bindings).toMatchObject({
-      runtime: 'electron-renderer',
-      runtimeKind: 'embedding-host',
-      runtimeId: 'runtime-1',
-      windowRole: 'embedding-host',
       channel: 'control',
       requestId: 'request-1',
+      runtime: 'electron-renderer',
+      runtimeId: 'runtime-1',
+      runtimeKind: 'embedding-host',
+      windowRole: 'embedding-host',
     });
   });
 
@@ -599,12 +599,12 @@ describe('@brainstrike/worker-runtime', () => {
           errorHandlers.add(handler);
         }
       }),
+      postMessage: vi.fn(),
       removeEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
         if (type === 'error') {
           errorHandlers.delete(handler);
         }
       }),
-      postMessage: vi.fn(),
     } as unknown as Worker;
 
     const failures: string[] = [];
@@ -637,6 +637,7 @@ describe('@brainstrike/worker-runtime', () => {
           messageHandlers.add(handler);
         }
       }),
+      postMessage: vi.fn(),
       removeEventListener: vi.fn(
         (type: string, handler: (event: MessageEvent<unknown>) => void) => {
           if (type === 'message') {
@@ -644,7 +645,6 @@ describe('@brainstrike/worker-runtime', () => {
           }
         }
       ),
-      postMessage: vi.fn(),
     } as unknown as Worker;
 
     const transport = createWorkerTransport(worker);
@@ -674,12 +674,12 @@ describe('@brainstrike/worker-runtime', () => {
           errorHandlers.add(handler);
         }
       }),
+      postMessage: vi.fn(),
       removeEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
         if (type === 'error') {
           errorHandlers.delete(handler);
         }
       }),
-      postMessage: vi.fn(),
     } as unknown as Worker;
 
     const failures: string[] = [];
@@ -715,8 +715,8 @@ describe('@brainstrike/worker-runtime', () => {
     });
     const postMessage = vi.fn();
     const transport = createSubscriptionTransport({
-      subscribe,
       postMessage,
+      subscribe,
     });
 
     const cleanup = transport.onMessage(subscriptionListener);

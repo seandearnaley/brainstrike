@@ -104,6 +104,14 @@ export function createBrowserJsonStorage(options: BrowserJsonStorageOptions = {}
         return null;
       }
     },
+    removeItem: (key) => {
+      const { error: storageAccessError, storage } = readLocalStorage();
+      if (storageAccessError !== undefined) {
+        notifyPersistenceIssue(options, 'remove', key, storageAccessError);
+      }
+      removeStoredValue(storage, key, options);
+      memory.delete(key);
+    },
     setItem: (key, value) => {
       const { error: storageAccessError, storage } = readLocalStorage();
       if (storageAccessError !== undefined) {
@@ -119,14 +127,6 @@ export function createBrowserJsonStorage(options: BrowserJsonStorageOptions = {}
         }
       }
       memory.set(key, value);
-    },
-    removeItem: (key) => {
-      const { error: storageAccessError, storage } = readLocalStorage();
-      if (storageAccessError !== undefined) {
-        notifyPersistenceIssue(options, 'remove', key, storageAccessError);
-      }
-      removeStoredValue(storage, key, options);
-      memory.delete(key);
     },
   };
 }

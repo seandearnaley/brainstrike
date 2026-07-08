@@ -12,26 +12,26 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'test1.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 8,
+        existed: false,
+        id: 'test1.txt',
+        imported: true,
       },
       {
-        id: 'test2.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 5,
         chunksWithEmbeddings: 5,
+        existed: false,
+        id: 'test2.txt',
+        imported: true,
       },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '2 new • 15 chunks created, 13 embedded',
+      title: 'Import Complete',
       variant: 'default',
     });
 
@@ -61,10 +61,10 @@ describe('createImportCompletionHandler', () => {
 
     await handler([
       {
+        chunksCreated: 1,
+        existed: false,
         id: 'test1.txt',
         imported: true,
-        existed: false,
-        chunksCreated: 1,
       },
     ]);
 
@@ -80,33 +80,33 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'test1.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 10,
+        existed: false,
+        id: 'test1.txt',
+        imported: true,
       },
       {
-        id: 'test2.txt',
-        imported: false,
-        existed: false,
         chunksCreated: 0,
         error: 'Failed to import',
+        existed: false,
+        id: 'test2.txt',
+        imported: false,
       },
       {
-        id: 'test3.txt',
-        imported: false,
-        existed: false,
         chunksCreated: 0,
         error: 'Access denied',
+        existed: false,
+        id: 'test3.txt',
+        imported: false,
       },
     ];
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Completed with Errors',
       description: '1 new • 10 chunks created, 10 embedded, 2 failed',
+      title: 'Import Completed with Errors',
       variant: 'destructive',
     });
   });
@@ -120,27 +120,27 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'test1.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 0,
         chunksWithEmbeddings: 0,
+        existed: false,
+        id: 'test1.txt',
+        imported: true,
       },
       {
-        id: 'test2.txt',
-        imported: true,
-        existed: false,
-        error: 'Processing failed',
         chunksCreated: 5,
         chunksWithEmbeddings: 0,
+        error: 'Processing failed',
+        existed: false,
+        id: 'test2.txt',
+        imported: true,
       },
     ];
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '2 new • 5 chunks created, 1 errors',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -154,26 +154,26 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
+        chunksCreated: 0,
+        error: 'Failed',
+        existed: false,
         id: 'test1.txt',
         imported: false,
-        existed: false,
-        chunksCreated: 0,
-        error: 'Failed',
       },
       {
-        id: 'test2.txt',
-        imported: false,
-        existed: false,
         chunksCreated: 0,
         error: 'Failed',
+        existed: false,
+        id: 'test2.txt',
+        imported: false,
       },
     ];
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Completed with Errors',
       description: '2 failed',
+      title: 'Import Completed with Errors',
       variant: 'destructive',
     });
   });
@@ -188,8 +188,8 @@ describe('createImportCompletionHandler', () => {
     handler([]);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: 'No files processed',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -203,19 +203,19 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'test1.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 0,
+        existed: false,
+        id: 'test1.txt',
+        imported: true,
       },
     ];
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '1 new • 10 chunks created',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -229,34 +229,34 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'test1.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 10,
+        existed: false,
+        id: 'test1.txt',
+        imported: true,
       },
       {
-        id: 'test2.txt',
-        imported: true,
-        existed: false,
-        error: 'Partial failure',
         chunksCreated: 5,
         chunksWithEmbeddings: 3,
+        error: 'Partial failure',
+        existed: false,
+        id: 'test2.txt',
+        imported: true,
       },
       {
-        id: 'test3.txt',
-        imported: false,
-        existed: false,
         chunksCreated: 0,
         error: 'Import failed',
+        existed: false,
+        id: 'test3.txt',
+        imported: false,
       },
     ];
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Completed with Errors',
       description: '2 new • 15 chunks created, 13 embedded, 1 failed, 1 errors',
+      title: 'Import Completed with Errors',
       variant: 'destructive',
     });
   });
@@ -271,18 +271,18 @@ describe('createImportCompletionHandler', () => {
     // Simulates importing 10 files that already exist in file_records
     // to a new collection - creates chunks but files have imported:false, existed:true
     const results: EnhancedImportResult[] = Array.from({ length: 10 }, (_, i) => ({
-      id: `test${i}.txt`,
-      imported: false,
-      existed: true,
       chunksCreated: 2,
       chunksWithEmbeddings: 2,
+      existed: true,
+      id: `test${i}.txt`,
+      imported: false,
     }));
 
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '10 existing • 20 chunks created, 20 embedded',
+      title: 'Import Complete',
       variant: 'default',
     });
   });

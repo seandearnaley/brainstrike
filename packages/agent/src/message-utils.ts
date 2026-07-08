@@ -167,8 +167,8 @@ function toAgentMessage(
   }
   return {
     id: ensureMessageId(message.id),
+    parts: segments.map((text) => ({ text, type: 'text' }) satisfies AgentMessagePartText),
     role,
-    parts: segments.map((text) => ({ type: 'text', text }) satisfies AgentMessagePartText),
   } satisfies AgentMessage;
 }
 

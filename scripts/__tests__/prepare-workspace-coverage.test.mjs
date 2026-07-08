@@ -9,15 +9,15 @@ import { prepareWorkspaceCoverage } from '../prepare-workspace-coverage.mjs';
 function fileCoverage(filePath, hits) {
   return {
     [filePath]: {
-      path: filePath,
-      statementMap: {
-        0: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
-      },
-      s: { 0: hits },
-      branchMap: {},
       b: {},
-      fnMap: {},
+      branchMap: {},
       f: {},
+      fnMap: {},
+      path: filePath,
+      s: { 0: hits },
+      statementMap: {
+        0: { end: { column: 1, line: 1 }, start: { column: 0, line: 1 } },
+      },
     },
   };
 }

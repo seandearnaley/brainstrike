@@ -17,18 +17,18 @@ interface FileChunkRow {
 
 function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileChunkRow[] }) {
   const state = {
-    sets: [...sets],
     chunks: [...chunks],
+    sets: [...sets],
   };
 
   function selectEmbeddingSets<T>(): { rows: T[] } {
     const rows = state.sets.map((set) => ({
-      id: set.id,
-      modelKey: set.model_key,
-      modelId: set.model_id,
+      createdAt: set.created_at,
       dimensions: set.dimensions,
       distance: set.distance,
-      createdAt: set.created_at,
+      id: set.id,
+      modelId: set.model_id,
+      modelKey: set.model_key,
     }));
     return { rows: rows as T[] };
   }
@@ -42,8 +42,8 @@ function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileC
       counts.set(chunk.embedding_set_id, (counts.get(chunk.embedding_set_id) ?? 0) + 1);
     }
     const rows = Array.from(counts.entries()).map(([embeddingSetId, count]) => ({
-      embeddingSetId,
       count,
+      embeddingSetId,
     }));
     return { rows: rows as T[] };
   }
@@ -89,36 +89,36 @@ function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileC
   }
 
   return {
-    state,
     query,
+    state,
   };
 }
 
 describe('normalizeEmbeddingSets', () => {
   it('merges duplicate sets and rewrites chunk references', async () => {
     const db = createMockDb({
+      chunks: [
+        { embedding_set_id: 'set-a', id: 'chunk-1' },
+        { embedding_set_id: 'set-a', id: 'chunk-2' },
+        { embedding_set_id: 'set-b', id: 'chunk-3' },
+      ],
       sets: [
         {
-          id: 'set-a',
-          model_key: 'local:jina-code',
-          model_id: 'jina-code',
+          created_at: '2025-01-01T00:00:00.000Z',
           dimensions: 768,
           distance: 'cosine',
-          created_at: '2025-01-01T00:00:00.000Z',
+          id: 'set-a',
+          model_id: 'jina-code',
+          model_key: 'local:jina-code',
         },
         {
-          id: 'set-b',
-          model_key: 'jina-code',
-          model_id: 'jina-code',
+          created_at: '2025-01-02T00:00:00.000Z',
           dimensions: 768,
           distance: 'cosine',
-          created_at: '2025-01-02T00:00:00.000Z',
+          id: 'set-b',
+          model_id: 'jina-code',
+          model_key: 'jina-code',
         },
-      ],
-      chunks: [
-        { id: 'chunk-1', embedding_set_id: 'set-a' },
-        { id: 'chunk-2', embedding_set_id: 'set-a' },
-        { id: 'chunk-3', embedding_set_id: 'set-b' },
       ],
     });
 
@@ -134,17 +134,17 @@ describe('normalizeEmbeddingSets', () => {
 
   it('is idempotent when called multiple times', async () => {
     const db = createMockDb({
+      chunks: [],
       sets: [
         {
-          id: 'set-c',
-          model_key: 'openai::text-embedding-3-small',
-          model_id: 'text-embedding-3-small',
+          created_at: '2025-01-03T00:00:00.000Z',
           dimensions: 1536,
           distance: 'cosine',
-          created_at: '2025-01-03T00:00:00.000Z',
+          id: 'set-c',
+          model_id: 'text-embedding-3-small',
+          model_key: 'openai::text-embedding-3-small',
         },
       ],
-      chunks: [],
     });
 
     await normalizeEmbeddingSets(db);

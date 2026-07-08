@@ -46,7 +46,7 @@ test.describe('Assistant retrieval (desktop)', () => {
   });
 
   test('shows retrieval tool event and response', async ({ window }) => {
-    await setupAssistantMock(window, { variant: 'tool', message: 'Retrieved answer.' });
+    await setupAssistantMock(window, { message: 'Retrieved answer.', variant: 'tool' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
@@ -64,7 +64,7 @@ test.describe('Assistant retrieval (desktop)', () => {
 
   test('shows retrieval tool errors when execution fails', async ({ window }) => {
     const errorMessage = 'Select an active embedding set to enable retrieval.';
-    await setupAssistantMock(window, { variant: 'tool-error', errorMessage });
+    await setupAssistantMock(window, { errorMessage, variant: 'tool-error' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
@@ -82,7 +82,7 @@ test.describe('Assistant retrieval (desktop)', () => {
 
   test('surfaces assistant stream failures', async ({ window }) => {
     const errorMessage = 'Network error while contacting assistant.';
-    await setupAssistantMock(window, { variant: 'stream-error', errorMessage });
+    await setupAssistantMock(window, { errorMessage, variant: 'stream-error' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 

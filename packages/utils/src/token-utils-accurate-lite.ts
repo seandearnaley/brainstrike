@@ -275,8 +275,8 @@ function extractEncoderConfig(module: Record<string, unknown>): {
 
   return {
     bpeRanks,
-    specialTokens: specialTokens as Record<string, number>,
     patStr,
+    specialTokens: specialTokens as Record<string, number>,
   };
 }
 

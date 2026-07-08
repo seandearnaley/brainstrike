@@ -17,9 +17,9 @@ interface MockSecretsBridge {
 
 function installSecretsBridge(overrides?: Partial<MockSecretsBridge>): MockSecretsBridge {
   const bridge: MockSecretsBridge = {
+    deleteKey: overrides?.deleteKey ?? vi.fn().mockResolvedValue(true),
     getKey: overrides?.getKey ?? vi.fn().mockResolvedValue(null),
     saveKey: overrides?.saveKey ?? vi.fn().mockResolvedValue(true),
-    deleteKey: overrides?.deleteKey ?? vi.fn().mockResolvedValue(true),
   };
   (window as unknown as { secrets: MockSecretsBridge }).secrets = bridge;
   return bridge;
@@ -34,10 +34,10 @@ describe('LocalRuntimeSettingsSection', () => {
   beforeEach(() => {
     __resetAssistantPreferencesStoreForTests();
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
-      state: 'available',
       checkedAt: 1000,
       endpoint: 'http://127.0.0.1:11434/api/tags',
       latencyMs: 3,
+      state: 'available',
     });
   });
 
@@ -144,54 +144,54 @@ describe('LocalRuntimeSettingsSection', () => {
   // isolation) is exercised.
   it.each([
     {
+      expectedDetail: /401/,
+      expectedLabel: 'Auth required',
       name: 'auth_required',
       status: {
-        state: 'auth_required' as const,
         checkedAt: 1,
         endpoint: 'http://127.0.0.1:11434/v1/models',
+        state: 'auth_required' as const,
         status: 401 as const,
       },
-      expectedLabel: 'Auth required',
-      expectedDetail: /401/,
     },
     {
-      name: 'blocked_web',
-      status: { state: 'blocked_web' as const, checkedAt: 2, message: 'CSP blocked the probe' },
-      expectedLabel: 'Blocked by browser',
       expectedDetail: /CSP blocked/,
+      expectedLabel: 'Blocked by browser',
+      name: 'blocked_web',
+      status: { checkedAt: 2, message: 'CSP blocked the probe', state: 'blocked_web' as const },
     },
     {
+      expectedDetail: /too old/,
+      expectedLabel: 'Incompatible',
       name: 'incompatible',
       status: {
-        state: 'incompatible' as const,
         checkedAt: 3,
         endpoint: 'http://127.0.0.1:11434/api/tags',
         message: 'Server is too old',
+        state: 'incompatible' as const,
       },
-      expectedLabel: 'Incompatible',
-      expectedDetail: /too old/,
     },
     {
+      expectedDetail: /Last reachable at/,
+      expectedLabel: 'Stale',
       name: 'stale',
       status: {
-        state: 'stale' as const,
         checkedAt: 4,
         endpoint: 'http://127.0.0.1:11434/api/tags',
         lastSuccessfulAt: 0,
         reason: 'unavailable' as const,
+        state: 'stale' as const,
       },
-      expectedLabel: 'Stale',
-      expectedDetail: /Last reachable at/,
     },
     {
+      expectedDetail: /Connection refused/,
+      expectedLabel: 'Unavailable',
       name: 'unavailable (with message)',
       status: {
-        state: 'unavailable' as const,
         checkedAt: 5,
         message: 'Connection refused',
+        state: 'unavailable' as const,
       },
-      expectedLabel: 'Unavailable',
-      expectedDetail: /Connection refused/,
     },
   ])('renders the descriptor for $name status returned by the probe', async ({
     status,
@@ -214,9 +214,9 @@ describe('LocalRuntimeSettingsSection', () => {
     // actually distinguishes a force-enabled card from a plain `unavailable`
     // one. This guards the descriptor branch that swaps the label text.
     vi.mocked(LocalRuntimeDiscoveryService.prototype.probeRuntime).mockResolvedValue({
-      state: 'unavailable',
       checkedAt: 6,
       message: 'down',
+      state: 'unavailable',
     });
     useAssistantPreferencesStore
       .getState()
@@ -263,8 +263,8 @@ describe('LocalRuntimeSettingsSection', () => {
     // "(stored)" placeholder in the input.
     const deleteKey = vi.fn().mockResolvedValue(true);
     installSecretsBridge({
-      getKey: vi.fn().mockResolvedValue('tok_existing'),
       deleteKey,
+      getKey: vi.fn().mockResolvedValue('tok_existing'),
     });
     const user = userEvent.setup();
     render(<LocalRuntimeSettingsSection />);
@@ -360,7 +360,7 @@ describe('LocalRuntimeSettingsSection', () => {
     // A failing save MUST NOT clear the input — the user typed credentials
     // by hand and would have to re-enter them on every retry. This locks in
     // the `result === true` guard around setDraftToken('').
-    const saveKey = vi.fn().mockResolvedValue({ ok: false, error: 'keychain locked' });
+    const saveKey = vi.fn().mockResolvedValue({ error: 'keychain locked', ok: false });
     installSecretsBridge({ saveKey });
     const user = userEvent.setup();
     render(<LocalRuntimeSettingsSection />);

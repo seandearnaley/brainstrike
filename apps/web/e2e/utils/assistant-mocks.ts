@@ -16,27 +16,27 @@ function buildChunks(): Chunk[] {
     {
       delayMs: 250,
       type: 'c',
-      value: { toolCallId: 'mock-call', argsTextDelta: 'starting\n' },
+      value: { argsTextDelta: 'starting\n', toolCallId: 'mock-call' },
     },
     { delayMs: 200, type: '0', value: 'starting' },
     {
       delayMs: 300,
       type: 'c',
-      value: { toolCallId: 'mock-call', argsTextDelta: 'echoing\n' },
+      value: { argsTextDelta: 'echoing\n', toolCallId: 'mock-call' },
     },
     { delayMs: 200, type: '0', value: 'echoing' },
     {
       delayMs: 300,
       type: 'c',
-      value: { toolCallId: 'mock-call', argsTextDelta: 'finishing\n' },
+      value: { argsTextDelta: 'finishing\n', toolCallId: 'mock-call' },
     },
     { delayMs: 200, type: '0', value: 'finishing' },
     {
       delayMs: 250,
       type: 'a',
       value: {
-        toolCallId: 'mock-call',
         result: { text: 'echo hello from mock' },
+        toolCallId: 'mock-call',
       },
     },
     {
@@ -47,7 +47,7 @@ function buildChunks(): Chunk[] {
     {
       delayMs: 100,
       type: 'd',
-      value: { finishReason: 'stop', usage: { inputTokens: 12, outputTokens: 24 }, path: [] },
+      value: { finishReason: 'stop', path: [], usage: { inputTokens: 12, outputTokens: 24 } },
     },
   ];
 }
@@ -90,6 +90,9 @@ export async function mockAssistantApi(page: Page): Promise<void> {
         };
 
         const stream = new ReadableStream<Uint8Array>({
+          cancel() {
+            aborted = true;
+          },
           async pull(controller) {
             if (aborted) {
               return handleAbort(controller);
@@ -98,9 +101,6 @@ export async function mockAssistantApi(page: Page): Promise<void> {
               return controller.close();
             }
             await processNextChunk(controller);
-          },
-          cancel() {
-            aborted = true;
           },
         });
 
@@ -116,12 +116,12 @@ export async function mockAssistantApi(page: Page): Promise<void> {
         }
 
         return new Response(stream, {
-          status: 200,
           headers: {
+            'Cache-Control': 'no-store',
             'Content-Type': 'text/plain; charset=utf-8',
             'x-vercel-ai-data-stream': 'v1',
-            'Cache-Control': 'no-store',
           },
+          status: 200,
         });
       }
 
@@ -130,11 +130,11 @@ export async function mockAssistantApi(page: Page): Promise<void> {
           typeof input === 'string' ? input : input instanceof Request ? input.url : input.href;
         if (url.includes('/api/assistant/status')) {
           return new Response(JSON.stringify({ enabled: true }), {
-            status: 200,
             headers: {
-              'Content-Type': 'application/json',
               'Cache-Control': 'no-store',
+              'Content-Type': 'application/json',
             },
+            status: 200,
           });
         }
         if (

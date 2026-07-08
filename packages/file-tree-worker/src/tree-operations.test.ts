@@ -24,23 +24,23 @@ import type { BatchLoadResult, WorkerFileNode } from './types';
 // Test fixtures
 function createFileNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    depth: 1,
     name: 'file.txt',
     path: '/root/file.txt',
-    type: 'file',
-    depth: 1,
     rootFolderId: 'root',
+    type: 'file',
     ...overrides,
   };
 }
 
 function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    depth: 1,
+    loadState: 'unloaded',
     name: 'dir',
     path: '/root/dir',
-    type: 'directory',
-    depth: 1,
     rootFolderId: 'root',
-    loadState: 'unloaded',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -78,8 +78,8 @@ describe('findNodeByPath', () => {
   it('should find nested node', () => {
     const tree = [
       createDirectoryNode({
+        children: [createDirectoryNode({ name: 'child', path: '/root/parent/child' })],
         path: '/root/parent',
-        children: [createDirectoryNode({ path: '/root/parent/child', name: 'child' })],
       }),
     ];
     const found = findNodeByPath(tree, '/root/parent/child');
@@ -170,7 +170,7 @@ describe('updateNodeChildren', () => {
 
 describe('setNodeLoadState', () => {
   it('should set loading state', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+    const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
 
     const updated = setNodeLoadState(tree, '/root/dir', 'loading');
 
@@ -192,8 +192,8 @@ describe('collectDirectoryPaths', () => {
     const tree = [
       createDirectoryNode({ path: '/root/dir1' }),
       createDirectoryNode({
-        path: '/root/dir2',
         children: [createDirectoryNode({ path: '/root/dir2/nested' })],
+        path: '/root/dir2',
       }),
       createFileNode({ path: '/root/file.txt' }),
     ];
@@ -213,18 +213,18 @@ describe('collectExpandedPaths', () => {
   it('should collect paths of loaded directories with children', () => {
     const tree = [
       // Loaded with children - should be included
-      createDirectoryNode({ path: '/root/loaded', loadState: 'loaded', children: [] }),
+      createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/loaded' }),
       // Unloaded - should not be included
-      createDirectoryNode({ path: '/root/unloaded', loadState: 'unloaded' }),
+      createDirectoryNode({ loadState: 'unloaded', path: '/root/unloaded' }),
       // Loaded without children - should not be included (loadState only)
-      createDirectoryNode({ path: '/root/loaded-no-children', loadState: 'loaded' }),
+      createDirectoryNode({ loadState: 'loaded', path: '/root/loaded-no-children' }),
       createDirectoryNode({
-        path: '/root/parent',
-        loadState: 'loaded',
         children: [
           // Nested loaded with children
-          createDirectoryNode({ path: '/root/parent/nested', loadState: 'loaded', children: [] }),
+          createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/parent/nested' }),
         ],
+        loadState: 'loaded',
+        path: '/root/parent',
       }),
     ];
 
@@ -241,9 +241,9 @@ describe('collectExpandedPaths', () => {
 describe('getUnloadedDirectories', () => {
   it('should return unloaded directories from current wave', () => {
     const tree = [
-      createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
-      createDirectoryNode({ path: '/root/dir2', loadState: 'loaded' }),
-      createDirectoryNode({ path: '/root/dir3', loadState: 'unloaded' }),
+      createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' }),
+      createDirectoryNode({ loadState: 'loaded', path: '/root/dir2' }),
+      createDirectoryNode({ loadState: 'unloaded', path: '/root/dir3' }),
     ];
     const currentWave = new Set(['/root/dir1', '/root/dir2', '/root/dir3']);
     const processed = new Set<string>();
@@ -259,11 +259,11 @@ describe('getUnloadedDirectories', () => {
   it('should retry errored directories from current wave', () => {
     const tree = [
       createDirectoryNode({
-        path: '/root/dir1',
-        loadState: 'error',
         loadError: 'Permission denied',
+        loadState: 'error',
+        path: '/root/dir1',
       }),
-      createDirectoryNode({ path: '/root/dir2', loadState: 'loaded' }),
+      createDirectoryNode({ loadState: 'loaded', path: '/root/dir2' }),
     ];
     const currentWave = new Set(['/root/dir1', '/root/dir2']);
     const processed = new Set<string>();
@@ -274,7 +274,7 @@ describe('getUnloadedDirectories', () => {
   });
 
   it('should skip already processed paths', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' })];
+    const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' })];
     const currentWave = new Set(['/root/dir1']);
     const processed = new Set(['/root/dir1']);
 
@@ -284,7 +284,7 @@ describe('getUnloadedDirectories', () => {
   });
 
   it('should add paths to processed set', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' })];
+    const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' })];
     const currentWave = new Set(['/root/dir1']);
     const processed = new Set<string>();
 
@@ -298,13 +298,13 @@ describe('discoverChildDirectories', () => {
   it('should discover child directories from loaded nodes', () => {
     const tree = [
       createDirectoryNode({
-        path: '/root/parent',
-        loadState: 'loaded',
         children: [
-          createDirectoryNode({ path: '/root/parent/child1', loadState: 'unloaded' }),
-          createDirectoryNode({ path: '/root/parent/child2', loadState: 'unloaded' }),
+          createDirectoryNode({ loadState: 'unloaded', path: '/root/parent/child1' }),
+          createDirectoryNode({ loadState: 'unloaded', path: '/root/parent/child2' }),
           createFileNode({ path: '/root/parent/file.txt' }),
         ],
+        loadState: 'loaded',
+        path: '/root/parent',
       }),
     ];
     const currentWave = new Set(['/root/parent']);
@@ -321,9 +321,9 @@ describe('discoverChildDirectories', () => {
   it('should skip already processed child directories', () => {
     const tree = [
       createDirectoryNode({
-        path: '/root/parent',
+        children: [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent/child' })],
         loadState: 'loaded',
-        children: [createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded' })],
+        path: '/root/parent',
       }),
     ];
     const currentWave = new Set(['/root/parent']);
@@ -338,9 +338,9 @@ describe('discoverChildDirectories', () => {
 
 describe('applyBatchResultsToTree', () => {
   it('should apply successful load results', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+    const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
     const children = [createFileNode({ path: '/root/dir/file.txt' })];
-    const results: BatchLoadResult[] = [{ path: '/root/dir', children }];
+    const results: BatchLoadResult[] = [{ children, path: '/root/dir' }];
 
     const updated = applyBatchResultsToTree(tree, results);
 
@@ -349,8 +349,8 @@ describe('applyBatchResultsToTree', () => {
   });
 
   it('should apply error results', () => {
-    const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
-    const results: BatchLoadResult[] = [{ path: '/root/dir', error: 'Access denied' }];
+    const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
+    const results: BatchLoadResult[] = [{ error: 'Access denied', path: '/root/dir' }];
 
     const updated = applyBatchResultsToTree(tree, results);
 
@@ -360,12 +360,12 @@ describe('applyBatchResultsToTree', () => {
 
   it('should apply multiple results', () => {
     const tree = [
-      createDirectoryNode({ path: '/root/dir1', loadState: 'loading' }),
-      createDirectoryNode({ path: '/root/dir2', loadState: 'loading' }),
+      createDirectoryNode({ loadState: 'loading', path: '/root/dir1' }),
+      createDirectoryNode({ loadState: 'loading', path: '/root/dir2' }),
     ];
     const results: BatchLoadResult[] = [
-      { path: '/root/dir1', children: [] },
-      { path: '/root/dir2', error: 'Error' },
+      { children: [], path: '/root/dir1' },
+      { error: 'Error', path: '/root/dir2' },
     ];
 
     const updated = applyBatchResultsToTree(tree, results);

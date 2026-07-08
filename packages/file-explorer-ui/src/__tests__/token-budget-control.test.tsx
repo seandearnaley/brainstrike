@@ -5,8 +5,8 @@ import { TokenBudgetControl } from '../indexing/token-budget-control';
 vi.mock('lucide-react', () => ({
   Check: () => <span data-testid="check-icon" />,
   Pencil: () => <span data-testid="pencil-icon" />,
-  X: () => <span data-testid="x-icon" />,
   Target: () => <span data-testid="target-icon" />,
+  X: () => <span data-testid="x-icon" />,
 }));
 
 vi.mock('@brainstrike/ui', async () => {
@@ -45,12 +45,6 @@ vi.mock('@brainstrike/ui', async () => {
     Input: React.forwardRef<HTMLInputElement, InputProps>((props, ref) => (
       <input ref={ref} {...props} />
     )),
-    TooltipProvider: ({ children }: GenericProps) => <>{children}</>,
-    Tooltip: ({ children }: GenericProps) => <>{children}</>,
-    TooltipTrigger: ({ children, asChild: _asChild, ...props }: GenericProps) => (
-      <div {...props}>{children}</div>
-    ),
-    TooltipContent: ({ children }: GenericProps) => <div>{children}</div>,
     Popover: ({ children, open: controlledOpen, onOpenChange }: PopoverProps) => {
       const [open, setOpenState] = React.useState(controlledOpen ?? false);
 
@@ -69,6 +63,10 @@ vi.mock('@brainstrike/ui', async () => {
         <PopoverContext.Provider value={{ open, setOpen }}>{children}</PopoverContext.Provider>
       );
     },
+    PopoverContent: ({ children, ...props }: GenericProps) => {
+      const { open } = React.useContext(PopoverContext);
+      return open ? <div {...props}>{children}</div> : null;
+    },
     PopoverTrigger: ({ children, asChild: _asChild, ...props }: GenericProps) => {
       const { setOpen, open } = React.useContext(PopoverContext);
       return (
@@ -77,10 +75,12 @@ vi.mock('@brainstrike/ui', async () => {
         </button>
       );
     },
-    PopoverContent: ({ children, ...props }: GenericProps) => {
-      const { open } = React.useContext(PopoverContext);
-      return open ? <div {...props}>{children}</div> : null;
-    },
+    Tooltip: ({ children }: GenericProps) => <>{children}</>,
+    TooltipContent: ({ children }: GenericProps) => <div>{children}</div>,
+    TooltipProvider: ({ children }: GenericProps) => <>{children}</>,
+    TooltipTrigger: ({ children, asChild: _asChild, ...props }: GenericProps) => (
+      <div {...props}>{children}</div>
+    ),
   };
 });
 

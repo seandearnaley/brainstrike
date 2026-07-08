@@ -28,8 +28,8 @@ vi.mock('electron', () => ({
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 
-const ROOT_A = { rootId: 'root-a', displayName: 'ProjectA' };
-const ROOT_B = { rootId: 'root-b', displayName: 'ProjectB' };
+const ROOT_A = { displayName: 'ProjectA', rootId: 'root-a' };
+const ROOT_B = { displayName: 'ProjectB', rootId: 'root-b' };
 const EMBED_DIM = 768;
 
 function makeVector(entries: [number, number][]): number[] {
@@ -47,13 +47,13 @@ let rootBPath: string;
 
 function twoRootRuntime(): RuntimeData {
   return {
-    workspaceRoots: [
-      { rootId: ROOT_A.rootId, displayName: ROOT_A.displayName, path: rootAPath },
-      { rootId: ROOT_B.rootId, displayName: ROOT_B.displayName, path: rootBPath },
-    ],
     workspaceIndexEmbeddingSetId: 'set-1',
     workspaceIndexingEnabled: true,
     workspaceIndexStatusState: 'idle',
+    workspaceRoots: [
+      { displayName: ROOT_A.displayName, path: rootAPath, rootId: ROOT_A.rootId },
+      { displayName: ROOT_B.displayName, path: rootBPath, rootId: ROOT_B.rootId },
+    ],
   } as unknown as RuntimeData;
 }
 
@@ -142,11 +142,11 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
     const repo = new FileChunkRepository(db);
     const baseChunk = {
-      tokenCount: 10,
-      chunkType: 'code' as const,
       chunkSize: 50,
-      embeddingSetId: 'set-1',
+      chunkType: 'code' as const,
       createdAt: now,
+      embeddingSetId: 'set-1',
+      tokenCount: 10,
       updatedAt: now,
     };
     // Embeddings + full source ranges so the SAME chunks serve both grep
@@ -155,37 +155,37 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     await repo.insertMany([
       {
         ...baseChunk,
-        id: 'c-a-readme',
-        contentHash: 'h1',
-        fileRecordId: 'fr-a-readme',
         chunkIndex: 0,
         content: 'const sharedMarker = "alpha";',
-        startLine: 3,
-        endLine: 3,
-        startOffset: 60,
-        endOffset: 89,
+        contentHash: 'h1',
         embedding: QUERY_VECTOR,
+        endLine: 3,
+        endOffset: 89,
+        fileRecordId: 'fr-a-readme',
+        id: 'c-a-readme',
+        startLine: 3,
+        startOffset: 60,
       },
       {
         ...baseChunk,
-        id: 'c-b-readme',
-        contentHash: 'h2',
-        fileRecordId: 'fr-b-readme',
         chunkIndex: 0,
         content: 'const sharedMarker = "beta";',
-        startLine: 3,
-        endLine: 3,
-        startOffset: 60,
-        endOffset: 88,
+        contentHash: 'h2',
         embedding: QUERY_VECTOR,
+        endLine: 3,
+        endOffset: 88,
+        fileRecordId: 'fr-b-readme',
+        id: 'c-b-readme',
+        startLine: 3,
+        startOffset: 60,
       },
     ]);
   }, 60_000);
 
   afterAll(async () => {
     await db.close();
-    await fsPromises.rm(rootAPath, { recursive: true, force: true });
-    await fsPromises.rm(rootBPath, { recursive: true, force: true });
+    await fsPromises.rm(rootAPath, { force: true, recursive: true });
+    await fsPromises.rm(rootBPath, { force: true, recursive: true });
   });
 
   it('Task: "what folders are open?" — listWorkspaceContext lists both roots', async () => {
@@ -193,15 +193,15 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       'brainstrike.listWorkspaceContext'
     ].execute({ context: {} });
     expect(result.workspaceRoots).toEqual([
-      { rootId: ROOT_A.rootId, displayName: ROOT_A.displayName, path: rootAPath },
-      { rootId: ROOT_B.rootId, displayName: ROOT_B.displayName, path: rootBPath },
+      { displayName: ROOT_A.displayName, path: rootAPath, rootId: ROOT_A.rootId },
+      { displayName: ROOT_B.displayName, path: rootBPath, rootId: ROOT_B.rootId },
     ]);
   });
 
   it('Task: grep a shared term — content matches are labelled and same-path roots stay distinct', async () => {
     const result = await buildDesktopAssistantTools(twoRootRuntime())[
       'brainstrike.grepSearch'
-    ].execute({ context: { pattern: 'sharedMarker', outputMode: 'content' } });
+    ].execute({ context: { outputMode: 'content', pattern: 'sharedMarker' } });
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode');
     }
@@ -213,7 +213,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
   it('Task: grep scoped to one folder via `root` — only that root matches', async () => {
     const result = await buildDesktopAssistantTools(twoRootRuntime())[
       'brainstrike.grepSearch'
-    ].execute({ context: { pattern: 'sharedMarker', outputMode: 'content', root: 'ProjectB' } });
+    ].execute({ context: { outputMode: 'content', pattern: 'sharedMarker', root: 'ProjectB' } });
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode');
     }
@@ -265,7 +265,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
   it('Task: read curated context in a chosen root (explicit filePaths) — labelled by root', async () => {
     const result = await buildDesktopAssistantTools(twoRootRuntime())[
       'brainstrike.readWorkspaceContext'
-    ].execute({ context: { root: 'ProjectB', filePaths: ['/README.md'] } });
+    ].execute({ context: { filePaths: ['/README.md'], root: 'ProjectB' } });
     expect(result.rootName).toBe('ProjectB');
     expect(result.files[0]?.content).toContain('Project B');
   });
@@ -284,8 +284,8 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
     // maps that to the matching client folder — verified live on desktop).
     const focusedRuntime = {
       ...twoRootRuntime(),
-      workspaceRootPath: rootAPath,
       selectionFolderId: 'client-folder-uuid',
+      workspaceRootPath: rootAPath,
     } as unknown as RuntimeData;
     const result = await buildDesktopAssistantTools(focusedRuntime)[
       'brainstrike.updateWorkspaceContextSelection'
@@ -298,7 +298,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
     });
     const result = await tools['brainstrike.queryEmbeddingSpace'].execute({
-      context: { query: 'shared marker', embeddingSetId: 'set-1', threshold: 0 },
+      context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 },
     });
     if ('status' in result) {
       throw new Error('expected a retrieval result');
@@ -318,7 +318,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
     });
     const result = await tools['brainstrike.queryEmbeddingSpace'].execute({
-      context: { query: 'shared marker', embeddingSetId: 'set-1', threshold: 0, root: 'ProjectA' },
+      context: { embeddingSetId: 'set-1', query: 'shared marker', root: 'ProjectA', threshold: 0 },
     });
     if ('status' in result) {
       throw new Error('expected a retrieval result');

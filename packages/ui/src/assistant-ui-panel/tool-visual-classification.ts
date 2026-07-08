@@ -31,10 +31,10 @@ interface CategoryTint {
 }
 
 const TINTS: Record<ToolVisualCategory, CategoryTint> = {
-  memory: { card: 'border-violet-300/50 bg-violet-500/5', rail: 'text-violet-500' },
   internal: { card: 'border-sky-300/50 bg-sky-500/5', rail: 'text-sky-500' },
-  mcp: { card: 'border-teal-300/50 bg-teal-500/5', rail: 'text-teal-500' },
   lifecycle: { card: 'border-border bg-background/70', rail: 'text-muted-foreground' },
+  mcp: { card: 'border-teal-300/50 bg-teal-500/5', rail: 'text-teal-500' },
+  memory: { card: 'border-violet-300/50 bg-violet-500/5', rail: 'text-violet-500' },
 };
 
 /** Subtle, theme-aware tint per category. Failure (red) is applied by the caller and overrides this. */

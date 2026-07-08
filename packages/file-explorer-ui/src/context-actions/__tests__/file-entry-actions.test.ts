@@ -9,11 +9,11 @@ import {
 } from '../file-entry-actions';
 
 const desktopTarget: ContextTarget = {
+  absolutePath: '/root/docs/notes.md',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'notes.md',
   relativePath: 'docs/notes.md',
-  absolutePath: '/root/docs/notes.md',
-  entryType: 'file',
   rootFolderId: '/root',
 };
 
@@ -21,8 +21,8 @@ function makeServices() {
   return {
     clipboard: { writeText: vi.fn().mockResolvedValue({ ok: true }) },
     platformFs: {
-      showItemInFolder: vi.fn().mockResolvedValue({ ok: true }),
       openPath: vi.fn().mockResolvedValue({ ok: true }),
+      showItemInFolder: vi.fn().mockResolvedValue({ ok: true }),
     },
   } satisfies ActionServices;
 }
@@ -41,7 +41,7 @@ describe('fileEntryActions', () => {
     const services = makeServices();
     const outcome = await copyNameAction.run(desktopTarget, services);
     expect(services.clipboard.writeText).toHaveBeenCalledWith('notes.md');
-    expect(outcome).toEqual({ ok: true, message: 'Name copied' });
+    expect(outcome).toEqual({ message: 'Name copied', ok: true });
   });
 
   it('copy-relative-path writes the relative path', async () => {
@@ -68,8 +68,8 @@ describe('fileEntryActions', () => {
 
   it('clipboard failures propagate as the action outcome', async () => {
     const services = makeServices();
-    services.clipboard.writeText.mockResolvedValue({ ok: false, error: 'denied' });
+    services.clipboard.writeText.mockResolvedValue({ error: 'denied', ok: false });
     const outcome = await copyNameAction.run(desktopTarget, services);
-    expect(outcome).toEqual({ ok: false, error: 'denied' });
+    expect(outcome).toEqual({ error: 'denied', ok: false });
   });
 });

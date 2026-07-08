@@ -142,10 +142,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const runtimeId = createRuntimeId(this.options.role);
     this.setStatus(
       this.options.createStatus({
-        state: 'starting',
         active: false,
         lastError: null,
         runtimeId,
+        state: 'starting',
       })
     );
 
@@ -177,10 +177,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         const message = error instanceof Error ? error.message : String(error);
         this.setStatus(
           this.options.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId,
+            state: 'error',
           })
         );
         return this.getStatus();
@@ -199,10 +199,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         this.destroyHostWindow();
         this.setStatus(
           this.options.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.status.runtimeId,
+            state: 'error',
           })
         );
         return this.getStatus();
@@ -334,23 +334,23 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
     const window = new BrowserWindow({
-      width: 320,
+      focusable: false,
       height: 240,
       show: false,
       skipTaskbar: true,
-      focusable: false,
       webPreferences: {
-        preload: preloadPath,
-        nodeIntegration: false,
+        allowRunningInsecureContent: false,
+        backgroundThrottling: false,
         contextIsolation: true,
+        experimentalFeatures: false,
+        navigateOnDragDrop: false,
+        nodeIntegration: false,
+        preload: preloadPath,
+        safeDialogs: true,
         sandbox: enableSandbox,
         webSecurity: true,
-        allowRunningInsecureContent: false,
-        experimentalFeatures: false,
-        safeDialogs: true,
-        navigateOnDragDrop: false,
-        backgroundThrottling: false,
       },
+      width: 320,
     });
 
     // Security: Prevent unauthorized window creation by background renderer hosts
@@ -451,9 +451,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         return;
       }
       this.options.onRenderProcessGone?.({
+        exitCode: details.exitCode,
         message: `${this.options.role} renderer exited (${details.reason}, code ${details.exitCode})`,
         reason: details.reason,
-        exitCode: details.exitCode,
         window,
       });
     });
@@ -468,9 +468,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           return;
         }
         this.options.onDidFailLoad?.({
-          message: `${this.options.role} failed to load (${errorCode}): ${errorDescription}`,
           errorCode,
           errorDescription,
+          message: `${this.options.role} failed to load (${errorCode}): ${errorDescription}`,
           url,
           window,
         });

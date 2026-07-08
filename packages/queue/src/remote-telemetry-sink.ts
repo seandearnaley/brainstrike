@@ -27,8 +27,8 @@ export interface QueueTelemetrySinkOptions {
 }
 
 export interface QueueTelemetrySink {
-  dispose(): Promise<void>;
-  flush(): Promise<void>;
+  dispose: () => Promise<void>;
+  flush: () => Promise<void>;
 }
 
 function resolveDefaultRuntime(): QueueTelemetryRuntime {
@@ -86,10 +86,10 @@ function createRequestInit(
   controller: AbortController | undefined
 ): RequestInit {
   return {
-    method: 'POST',
-    headers,
     body,
+    headers,
     keepalive: true,
+    method: 'POST',
     ...(controller
       ? {
           signal: controller.signal,
@@ -253,18 +253,18 @@ export function initializeQueueTelemetrySink(
       logger.warn(
         'Queue telemetry sink disabled after repeated failures - endpoint may be unreachable',
         {
-          error: errorMessage,
           consecutiveFailures: failureState.consecutiveFailures,
           droppedEvents: payloadEvents.length,
+          error: errorMessage,
         }
       );
       return;
     }
 
     logger.debug('Queue telemetry sink failed to send payload, will retry', {
+      consecutiveFailures: failureState.consecutiveFailures,
       error: errorMessage,
       eventCount: payloadEvents.length,
-      consecutiveFailures: failureState.consecutiveFailures,
     });
     events.unshift(...payloadEvents);
     trimBufferedEvents();
@@ -290,10 +290,10 @@ export function initializeQueueTelemetrySink(
     flushing = true;
     const payloadEvents = events.splice(0, events.length);
     const body = JSON.stringify({
-      runtime,
-      sentAt: new Date().toISOString(),
       events: payloadEvents,
       metadata,
+      runtime,
+      sentAt: new Date().toISOString(),
     });
 
     try {
@@ -323,7 +323,7 @@ export function initializeQueueTelemetrySink(
   };
 
   return {
-    flush,
     dispose,
+    flush,
   };
 }

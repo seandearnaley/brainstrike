@@ -47,13 +47,13 @@ function toBoolean(value: boolean | string): boolean {
 
 function mapStatsRow(row: CollectionIndexingStatsRow): CollectionIndexingStats {
   return {
+    chunkCount: toNumber(row.chunkCount),
+    dirty: toBoolean(row.dirty),
+    embeddedChunkCount: toNumber(row.embeddedChunkCount),
     embeddingSetId: row.embeddingSetId,
     fileCount: toNumber(row.fileCount),
-    chunkCount: toNumber(row.chunkCount),
-    embeddedChunkCount: toNumber(row.embeddedChunkCount),
-    pendingChunkCount: toNumber(row.pendingChunkCount),
-    dirty: toBoolean(row.dirty),
     lastRefreshedAt: row.lastRefreshedAt,
+    pendingChunkCount: toNumber(row.pendingChunkCount),
   };
 }
 

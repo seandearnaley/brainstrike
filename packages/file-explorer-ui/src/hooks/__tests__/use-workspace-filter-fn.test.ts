@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceFilterFn } from '../use-workspace-filter-fn';
 
 const mocks = vi.hoisted(() => ({
+  applyFileFilters: vi.fn(),
   state: {
-    includeFilters: ['*.ts', '*.tsx'],
     excludeFilters: ['node_modules'],
+    includeFilters: ['*.ts', '*.tsx'],
     useRegex: false,
   },
-  applyFileFilters: vi.fn(),
 }));
 
 vi.mock('@brainstrike/hooks', () => ({

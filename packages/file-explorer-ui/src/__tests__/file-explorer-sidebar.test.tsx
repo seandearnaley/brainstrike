@@ -45,36 +45,36 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [
     createDirectoryNode({
-      name: 'src',
-      path: 'src',
       children: [
         createFileNode({
           name: 'index.ts',
           path: 'src/index.ts',
         }),
       ],
+      name: 'src',
+      path: 'src',
     }),
   ];
 
   // Create a proper DirectoryHandle with all required properties
   const mockDirectoryHandle = {
-    name: 'test-directory',
+    _internal: {} as FileSystemDirectoryHandle,
     kind: 'directory' as const,
+    name: 'test-directory',
     path: '/test-directory',
     platform: 'web' as const,
-    _internal: {} as FileSystemDirectoryHandle,
   };
 
   const defaultProps = {
+    currentFolderId: 'test-folder',
+    filterError: null,
+    isInitialLoad: false,
+    isLoading: false,
+    loadingFiles: new Set<string>(),
+    onTreeRender: vi.fn(),
+    quickFilteredTree: mockTreeData,
     rootDirectoryHandle: mockDirectoryHandle,
     treeError: null,
-    filterError: null,
-    quickFilteredTree: mockTreeData,
-    loadingFiles: new Set<string>(),
-    isLoading: false,
-    isInitialLoad: false,
-    currentFolderId: 'test-folder',
-    onTreeRender: vi.fn(),
   };
 
   beforeEach(() => {
@@ -178,18 +178,18 @@ describe('FileExplorerSidebar', () => {
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)
   it('renders EXACTLY 2 section headers and 2 treegrids in forest mode', async () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
 
     const nodesA: IFileNode[] = [
@@ -245,18 +245,18 @@ describe('FileExplorerSidebar', () => {
     const setFocusedRoot = vi.fn();
 
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
 
     const nodesB: IFileNode[] = [
@@ -306,18 +306,18 @@ describe('FileExplorerSidebar', () => {
     const setFocusedRoot = vi.fn();
 
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
 
     act(() => {
@@ -346,26 +346,26 @@ describe('FileExplorerSidebar', () => {
     const user = userEvent.setup();
 
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
 
     const subDirB: IFileNode = {
       ...createDirectoryNode({
+        children: [],
         name: 'sub',
         path: '/project-b/sub',
         rootFolderId: '/project-b',
-        children: [],
       }),
       // Real streaming loads attach the child's handle; the lazy loader
       // reads children through it. Structural stub is fine — the adapter is
@@ -436,18 +436,18 @@ describe('FileExplorerSidebar', () => {
     const user = userEvent.setup();
 
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
 
@@ -532,28 +532,28 @@ describe('FileExplorerSidebar', () => {
     const user = userEvent.setup();
 
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
 
     const subDirB: IFileNode = {
       ...createDirectoryNode({
+        children: [],
         name: 'sub',
         path: '/project-b/sub',
         rootFolderId: ROOT_ID_B,
-        children: [],
       }),
       handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
       loadState: 'unloaded',
@@ -588,8 +588,8 @@ describe('FileExplorerSidebar', () => {
     // The focused-root-bound panel handler must NOT be consulted for a click
     // inside another root's section.
     const panelSelectFolderRecursively = vi.fn(async () => ({
-      success: true,
       filePaths: [] as string[],
+      success: true,
     }));
 
     const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
@@ -645,18 +645,18 @@ describe('FileExplorerSidebar', () => {
   // limit; clicking again clears the root's selection).
   describe('root section select-all checkboxes', () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
@@ -791,18 +791,18 @@ describe('FileExplorerSidebar', () => {
   describe('global view filters across forest sections', () => {
     it('applies the workspace filters to every section tree and refilters reactively', async () => {
       const handleA = {
-        name: 'project-a',
+        _internal: {} as FileSystemDirectoryHandle,
         kind: 'directory' as const,
+        name: 'project-a',
         path: '/project-a',
         platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
       };
       const handleB = {
-        name: 'project-b',
+        _internal: {} as FileSystemDirectoryHandle,
         kind: 'directory' as const,
+        name: 'project-b',
         path: '/project-b',
         platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
       };
       const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
       const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
@@ -881,18 +881,18 @@ describe('FileExplorerSidebar', () => {
 
     it('shows compact per-section empty states: filtered-out vs genuinely empty', async () => {
       const handleA = {
-        name: 'project-a',
+        _internal: {} as FileSystemDirectoryHandle,
         kind: 'directory' as const,
+        name: 'project-a',
         path: '/project-a',
         platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
       };
       const handleB = {
-        name: 'project-b',
+        _internal: {} as FileSystemDirectoryHandle,
         kind: 'directory' as const,
+        name: 'project-b',
         path: '/project-b',
         platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
       };
       const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
       const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
@@ -967,28 +967,28 @@ describe('FileExplorerSidebar', () => {
   // tree in forest mode).
   it('forest expand-all expands unloaded directories in EVERY section via the registry', async () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
 
     const subDirB: IFileNode = {
       ...createDirectoryNode({
+        children: [],
         name: 'sub',
         path: '/project-b/sub',
         rootFolderId: ROOT_ID_B,
-        children: [],
       }),
       handle: { kind: 'directory', name: 'sub', path: '/project-b/sub' },
       loadState: 'unloaded',
@@ -1075,18 +1075,18 @@ describe('FileExplorerSidebar', () => {
   // files in view").
   it('forest select-all sweeps EVERY section via the registry into the right stores', async () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
@@ -1178,18 +1178,18 @@ describe('FileExplorerSidebar', () => {
   // the visible forest).
   it('quick filter filters EVERY forest section and visible keys aggregate across roots', async () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-0000000000bb';
@@ -1292,18 +1292,18 @@ describe('FileExplorerSidebar', () => {
   // -------------------------------------------------------------------------
   describe('disconnect flow (forest mode)', () => {
     const handleA = {
-      name: 'project-a',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-a',
       path: '/project-a',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const handleB = {
-      name: 'project-b',
+      _internal: {} as FileSystemDirectoryHandle,
       kind: 'directory' as const,
+      name: 'project-b',
       path: '/project-b',
       platform: 'web' as const,
-      _internal: {} as FileSystemDirectoryHandle,
     };
     const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-000000000001';
     const ROOT_ID_B = 'bbbbbbbb-0000-4000-8000-000000000002';

@@ -34,7 +34,7 @@ export const useFileLoadingManager = ({
       try {
         await loadFileContent(path);
       } catch (error) {
-        logger.warn('Failed to load file content', { path, error });
+        logger.warn('Failed to load file content', { error, path });
       } finally {
         setLoadingFiles((prev) => {
           const newSet = new Set(prev);

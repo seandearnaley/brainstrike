@@ -13,18 +13,18 @@ import {
 
 function createQueueAdapter(): QueueAdapter {
   const queueResult: QueueResult = {
-    type: 'result',
     id: 'test-result',
-    vectors: [],
     metadata: {
-      model: 'test-model',
-      device: 'wasm',
-      dtype: 'fp16',
       batchSize: 0,
+      device: 'wasm',
+      dimensions: 0,
+      dtype: 'fp16',
       elapsedMs: 0,
       fallbackApplied: false,
-      dimensions: 0,
+      model: 'test-model',
     },
+    type: 'result',
+    vectors: [],
   };
 
   return {
@@ -32,11 +32,11 @@ function createQueueAdapter(): QueueAdapter {
     addBulk: async () => [queueResult],
     cancel: async () => {},
     drain: async () => {},
+    isPaused: false,
+    isProcessing: false,
     onProgress: () => () => {},
     pause: () => {},
     resume: () => {},
-    isPaused: false,
-    isProcessing: false,
   };
 }
 

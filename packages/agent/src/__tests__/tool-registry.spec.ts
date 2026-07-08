@@ -44,22 +44,22 @@ describe('tool registry', () => {
     expect(controller.args[0]).toContain('"query": "vite"');
 
     const progress = recordToolProgress(registry, 'web.search', {
-      toolCallId: 'call-1',
-      step: 'Downloading',
       percent: 42.3,
+      step: 'Downloading',
+      toolCallId: 'call-1',
     });
 
     expect(progress).toBe('Downloading (42%)');
     expect(controller.args[1]).toContain('Downloading (42%)');
 
     completeToolCall(registry, 'web.search', 'error', {
-      toolCallId: 'call-1',
       result: { items: ['a', 'b'] },
+      toolCallId: 'call-1',
     });
 
     expect(controller.response).toEqual({
       isError: true,
-      result: { toolCallId: 'call-1', result: { items: ['a', 'b'] } },
+      result: { result: { items: ['a', 'b'] }, toolCallId: 'call-1' },
     });
     expect(controller.closed).toBe(true);
   });
@@ -75,7 +75,7 @@ describe('tool registry', () => {
     expect(first.args[0]).toContain('Progress (10%)');
 
     startToolCall(registry, 'web.search', { callId: 'explicit-id' }, second);
-    recordToolProgress(registry, 'web.search', { toolCallId: 'explicit-id', note: 'step' });
+    recordToolProgress(registry, 'web.search', { note: 'step', toolCallId: 'explicit-id' });
     expect(second.args[0]).toContain('"callId": "explicit-id"');
     expect(second.args[1]).toContain('Progress — step');
   });

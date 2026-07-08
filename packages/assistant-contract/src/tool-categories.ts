@@ -49,34 +49,34 @@ export interface ToolCategoryInfo {
  * Category metadata for UI display.
  */
 export const TOOL_CATEGORIES: Record<ToolCategory, ToolCategoryInfo> = {
-  retrieval: {
-    id: 'retrieval',
-    label: 'Retrieval',
-    description: 'Search and query tools for finding information',
-    loadPriority: 1,
-  },
-  analysis: {
-    id: 'analysis',
-    label: 'Analysis',
-    description: 'Tools that analyze or summarize data',
-    loadPriority: 2,
-  },
   action: {
+    description: 'Tools that modify state or trigger operations',
     id: 'action',
     label: 'Actions',
-    description: 'Tools that modify state or trigger operations',
     loadPriority: 3,
   },
+  analysis: {
+    description: 'Tools that analyze or summarize data',
+    id: 'analysis',
+    label: 'Analysis',
+    loadPriority: 2,
+  },
   configuration: {
+    description: 'System configuration and settings tools',
     id: 'configuration',
     label: 'Configuration',
-    description: 'System configuration and settings tools',
     loadPriority: 4,
   },
+  retrieval: {
+    description: 'Search and query tools for finding information',
+    id: 'retrieval',
+    label: 'Retrieval',
+    loadPriority: 1,
+  },
   validation: {
+    description: 'Tools that check or validate state',
     id: 'validation',
     label: 'Validation',
-    description: 'Tools that check or validate state',
     loadPriority: 5,
   },
 };
@@ -91,20 +91,20 @@ export interface ToolLoadingTierInfo {
 }
 
 export const TOOL_LOADING_TIERS: Record<ToolLoadingTier, ToolLoadingTierInfo> = {
-  critical: {
-    id: 'critical',
-    label: 'Critical',
-    description: 'Always loaded with every agent session',
-  },
   conditional: {
+    description: 'Loaded based on available token budget',
     id: 'conditional',
     label: 'Conditional',
-    description: 'Loaded based on available token budget',
+  },
+  critical: {
+    description: 'Always loaded with every agent session',
+    id: 'critical',
+    label: 'Critical',
   },
   deferred: {
+    description: 'Only loaded when explicitly requested',
     id: 'deferred',
     label: 'Deferred',
-    description: 'Only loaded when explicitly requested',
   },
 };
 
@@ -134,108 +134,6 @@ export interface NativeToolDefaultMetadata {
  * Tool IDs follow the namespace.toolName pattern.
  */
 export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
-  // Core workspace reading tools
-  'brainstrike.readWorkspaceFile': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 140,
-  },
-  // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
-  // the Phase 1 permission engine gates it when enforcement is on.
-  'brainstrike.writeWorkspaceFile': {
-    category: 'action',
-    loadingTier: 'critical',
-    requiresApproval: true,
-    estimatedTokens: 140,
-    riskCategory: 'edit',
-  },
-  // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
-  // block and replaces it. Same edit-risk gating.
-  'brainstrike.stringReplaceWorkspaceFile': {
-    category: 'action',
-    loadingTier: 'critical',
-    requiresApproval: true,
-    estimatedTokens: 160,
-    riskCategory: 'edit',
-  },
-  'brainstrike.findWorkspaceSymbol': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 150,
-  },
-  'brainstrike.readWorkspaceDirectory': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 120,
-  },
-  'brainstrike.listWorkspaceContext': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 120,
-  },
-  'brainstrike.readWorkspaceContext': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 180,
-  },
-  'brainstrike.updateWorkspaceContextSelection': {
-    category: 'action',
-    loadingTier: 'critical',
-    requiresApproval: true,
-    estimatedTokens: 150,
-    riskCategory: 'edit',
-  },
-  'brainstrike.updateWorkspaceTapestrySelections': {
-    category: 'action',
-    loadingTier: 'critical',
-    requiresApproval: true,
-    estimatedTokens: 190,
-    riskCategory: 'edit',
-  },
-  'brainstrike.listEmbeddingSpaces': {
-    category: 'analysis',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 110,
-  },
-  'brainstrike.queryEmbeddingSpace': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 190,
-  },
-  'brainstrike.grepSearch': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 160,
-  },
-  // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
-  // risk bucket (it is also derivable from retrieval + no-approval) so the
-  // permission engine allows it by default, like the other workspace readers.
-  'brainstrike.globWorkspace': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 130,
-    riskCategory: 'read',
-  },
-  // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
-  // false: it does NOT mutate workspace state, so the permission engine allows
-  // it by default like the other readers. NOTE the privacy caveat documented on
-  // the tool description: it sends the query to an EXTERNAL service (Tavily).
-  'brainstrike.webSearch': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 130,
-    riskCategory: 'read',
-  },
   // Arbitrary shell execution — THE highest-risk native tool. There is NO
   // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.
   // When the permission engine enforces a policy and `execute` is `'ask'` (the
@@ -245,10 +143,112 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   // is `'deny'`. `'allow'`/YOLO runs it unprompted.
   'brainstrike.executeCommand': {
     category: 'action',
+    estimatedTokens: 180,
     loadingTier: 'critical',
     requiresApproval: true,
-    estimatedTokens: 180,
     riskCategory: 'execute',
+  },
+  'brainstrike.findWorkspaceSymbol': {
+    category: 'retrieval',
+    estimatedTokens: 150,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
+  // risk bucket (it is also derivable from retrieval + no-approval) so the
+  // permission engine allows it by default, like the other workspace readers.
+  'brainstrike.globWorkspace': {
+    category: 'retrieval',
+    estimatedTokens: 130,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  'brainstrike.grepSearch': {
+    category: 'retrieval',
+    estimatedTokens: 160,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  'brainstrike.listEmbeddingSpaces': {
+    category: 'analysis',
+    estimatedTokens: 110,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  'brainstrike.listWorkspaceContext': {
+    category: 'retrieval',
+    estimatedTokens: 120,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  'brainstrike.queryEmbeddingSpace': {
+    category: 'retrieval',
+    estimatedTokens: 190,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  'brainstrike.readWorkspaceContext': {
+    category: 'retrieval',
+    estimatedTokens: 180,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  'brainstrike.readWorkspaceDirectory': {
+    category: 'retrieval',
+    estimatedTokens: 120,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  // Core workspace reading tools
+  'brainstrike.readWorkspaceFile': {
+    category: 'retrieval',
+    estimatedTokens: 140,
+    loadingTier: 'critical',
+    requiresApproval: false,
+  },
+  // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
+  // block and replaces it. Same edit-risk gating.
+  'brainstrike.stringReplaceWorkspaceFile': {
+    category: 'action',
+    estimatedTokens: 160,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
+  },
+  'brainstrike.updateWorkspaceContextSelection': {
+    category: 'action',
+    estimatedTokens: 150,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
+  },
+  'brainstrike.updateWorkspaceTapestrySelections': {
+    category: 'action',
+    estimatedTokens: 190,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
+  },
+  // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
+  // false: it does NOT mutate workspace state, so the permission engine allows
+  // it by default like the other readers. NOTE the privacy caveat documented on
+  // the tool description: it sends the query to an EXTERNAL service (Tavily).
+  'brainstrike.webSearch': {
+    category: 'retrieval',
+    estimatedTokens: 130,
+    loadingTier: 'critical',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
+  // the Phase 1 permission engine gates it when enforcement is on.
+  'brainstrike.writeWorkspaceFile': {
+    category: 'action',
+    estimatedTokens: 140,
+    loadingTier: 'critical',
+    requiresApproval: true,
+    riskCategory: 'edit',
   },
 };
 

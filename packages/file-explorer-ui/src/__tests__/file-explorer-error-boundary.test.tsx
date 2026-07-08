@@ -26,7 +26,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...mod,
-    useToast: () => ({ toast: mockToast }),
     Button: ({
       children,
       onClick,
@@ -48,6 +47,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         {children}
       </button>
     ),
+    useToast: () => ({ toast: mockToast }),
   };
 });
 
@@ -181,8 +181,8 @@ describe('FileExplorerErrorBoundary', () => {
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Success',
       description: 'Error details copied to clipboard',
+      title: 'Success',
     });
   });
 
@@ -209,8 +209,8 @@ describe('FileExplorerErrorBoundary', () => {
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(mockToast).not.toHaveBeenCalledWith({
-      title: 'Success',
       description: 'Error details copied to clipboard',
+      title: 'Success',
     });
   });
 

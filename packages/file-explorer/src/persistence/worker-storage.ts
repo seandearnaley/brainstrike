@@ -169,11 +169,11 @@ export class WorkerStorage {
       }
     } catch (error) {
       this.worker?.postMessage({
+        error: error instanceof Error ? error.message : String(error),
         id,
-        type: 'storage_response',
         operation,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        type: 'storage_response',
       });
     }
   }
@@ -188,9 +188,9 @@ export class WorkerStorage {
     if (opId && opId < lastOp) {
       this.worker?.postMessage({
         id,
-        type: 'storage_response',
         operation: 'setItem',
         success: true,
+        type: 'storage_response',
       });
       return;
     }
@@ -201,31 +201,31 @@ export class WorkerStorage {
     // If value is undefined, we still need to respond but shouldn't store anything
     if (value === undefined) {
       this.worker?.postMessage({
+        error: 'Cannot store undefined value',
         id,
-        type: 'storage_response',
         operation: 'setItem',
         success: false,
-        error: 'Cannot store undefined value',
+        type: 'storage_response',
       });
       return;
     }
 
     await this.storageAdapter.setItem(key, value);
-    this.worker?.postMessage({ id, type: 'storage_response', operation: 'setItem', success: true });
+    this.worker?.postMessage({ id, operation: 'setItem', success: true, type: 'storage_response' });
   }
 
   private async processGetItemRequest(id: string, key: string) {
     const rawValue = await this.storageAdapter.getItem(key);
-    this.worker?.postMessage({ id, type: 'storage_response', operation: 'getItem', rawValue });
+    this.worker?.postMessage({ id, operation: 'getItem', rawValue, type: 'storage_response' });
   }
 
   private async processRemoveItemRequest(id: string, key: string) {
     await this.storageAdapter.removeItem(key);
     this.worker?.postMessage({
       id,
-      type: 'storage_response',
       operation: 'removeItem',
       success: true,
+      type: 'storage_response',
     });
   }
 
@@ -275,8 +275,8 @@ export class WorkerStorage {
         void this.storageAdapter.setItem(key, serialized);
       } catch (error) {
         logger.error('Failed to flush pending worker storage write:', {
-          key,
           error,
+          key,
         });
       }
     }
@@ -299,7 +299,7 @@ export class WorkerStorage {
       }
 
       const id = (++this.messageId).toString();
-      this.pendingRequests.set(id, { resolve, reject });
+      this.pendingRequests.set(id, { reject, resolve });
 
       const message: WorkerMessage = { id, type };
       if (key !== undefined) {
@@ -385,7 +385,7 @@ export class WorkerStorage {
         }
       }, 100); // 100ms debounce
 
-      this.debounceState.set(key, { timer, resolve, value });
+      this.debounceState.set(key, { resolve, timer, value });
     });
   }
 

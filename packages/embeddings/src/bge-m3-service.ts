@@ -42,8 +42,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     // has a keep-alive guard that prevents GPU idle crashes in Electron.
     // See: docs/debug-handoff-renderer-crash.md
     this._config = {
-      modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
+      modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       quantized: false,
       ...(options.streamBatchSize ? { streamBatchSize: options.streamBatchSize } : {}),
       ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
@@ -69,11 +69,11 @@ export class SimpleEmbeddingService implements EmbeddingService {
     const modelConfig: ModelConfig =
       typeof modelConfigOrId === 'string'
         ? {
+            description: 'Dynamically created config from model ID',
+            dimensions: DEFAULT_EMBEDDING_DIMENSION,
             id: modelConfigOrId,
             name: modelConfigOrId,
-            dimensions: DEFAULT_EMBEDDING_DIMENSION,
             quantized: false,
-            description: 'Dynamically created config from model ID',
             tags: ['local'],
           }
         : modelConfigOrId;
@@ -82,8 +82,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     const shouldQuantize = modelConfig.dimensions <= 768 && !modelConfig.quantized;
 
     const config: Partial<EmbeddingConfig> = {
-      modelId: modelConfig.id,
       device: deviceOverride || this._config.device || 'webgpu',
+      modelId: modelConfig.id,
       quantized: shouldQuantize,
       ...(cacheDir ? { cacheDir } : {}),
     };
@@ -270,9 +270,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
         if (options?.onProgress && p.status === 'progress' && p.loaded && p.total) {
           const progressPercent = Math.round((p.loaded / p.total) * 100);
           options.onProgress({
-            stage: 'downloading',
-            progress: progressPercent,
             message: `Downloading ${p.file || 'model'}... ${progressPercent}%`,
+            progress: progressPercent,
+            stage: 'downloading',
           });
         }
       },

@@ -16,7 +16,7 @@ import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers'
 async function clickSettingsThemeButton(page: Page, themeName: 'Light' | 'Dark' | 'System') {
   await page
     .getByTestId('settings-category-appearance')
-    .getByRole('button', { name: themeName, exact: true })
+    .getByRole('button', { exact: true, name: themeName })
     .click();
 }
 
@@ -47,7 +47,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
   test('should load CSS variables in light mode', async ({ page }) => {
     // Switch to light mode (use settings-specific selector to avoid nav button conflict)
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Light');
     await waitForThemeApplied(page, 'light');
 
@@ -57,8 +57,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const styles = getComputedStyle(root);
 
       return {
-        bsBackground: styles.getPropertyValue('--bs-background').trim(),
         background: styles.getPropertyValue('--background').trim(),
+        bsBackground: styles.getPropertyValue('--bs-background').trim(),
         colorBackground: styles.getPropertyValue('--color-background').trim(),
       };
     });
@@ -74,7 +74,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
   test('should load CSS variables in dark mode', async ({ page }) => {
     // Switch to dark mode
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -84,8 +84,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const styles = getComputedStyle(root);
 
       return {
-        bsBackground: styles.getPropertyValue('--bs-background').trim(),
         background: styles.getPropertyValue('--background').trim(),
+        bsBackground: styles.getPropertyValue('--bs-background').trim(),
         colorBackground: styles.getPropertyValue('--color-background').trim(),
         isDarkMode: root.classList.contains('dark'),
       };
@@ -102,7 +102,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should maintain warm neutral theme in dark mode (not pure black)', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -114,8 +114,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const [hue, saturation, lightness] = background.split(' ');
       return {
         hue: Number.parseInt(hue ?? '0', 10),
-        saturation: Number.parseInt(saturation ?? '0', 10),
         lightness: Number.parseInt(lightness ?? '0', 10),
+        saturation: Number.parseInt(saturation ?? '0', 10),
       };
     });
 
@@ -133,7 +133,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should ensure --background equals --bs-background', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -145,9 +145,9 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const background = styles.getPropertyValue('--background').trim();
 
       return {
-        bsBackground,
-        background,
         areEqual: bsBackground === background,
+        background,
+        bsBackground,
       };
     });
 
@@ -158,7 +158,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should verify all theme variables are consistent', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -198,7 +198,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should not have assistant-ui hardcoded values overriding theme', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -224,7 +224,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should have visible gradients with sufficient color separation', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
@@ -249,12 +249,12 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should maintain theme when opening assistant panel', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
     // Navigate back to main page
-    await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
 
     // Open tools panel (assistant panel)
     await ensureRightPanelVisible(page);
@@ -275,11 +275,11 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   });
 
   test('should apply theme to assistant panel elements', async ({ page }) => {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Settings' }).click();
     await clickSettingsThemeButton(page, 'Dark');
     await waitForThemeApplied(page, 'dark');
 
-    await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+    await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
     await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 

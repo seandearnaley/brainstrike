@@ -98,58 +98,6 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
  */
 export const fileFilter = {
   /**
-   * Checks if a path should be ignored based on default patterns
-   */
-  shouldIgnorePath(path: string): boolean {
-    return IGNORE_REGEX.test(path);
-  },
-
-  /**
-   * Matches a string against a wildcard pattern
-   */
-  matchWildcard(str: string, pattern: string): boolean {
-    return matchWildcardPattern(str, pattern);
-  },
-
-  /**
-   * Matches a string against a regex pattern
-   */
-  matchRegex(str: string, pattern: string): boolean {
-    const regex = getRegexMatcher(pattern);
-    return regex ? regex.test(str) : false;
-  },
-
-  /**
-   * Creates a matcher function for a given pattern
-   */
-  createMatcher(pattern: string, useRegex: boolean): (str: string) => boolean {
-    if (useRegex) {
-      const regex = getRegexMatcher(pattern);
-      if (!regex) {
-        return () => false;
-      }
-      return (str: string) => regex.test(str);
-    }
-
-    const matcher = getOrCreateWildcardMatcher(pattern);
-    return (str: string) => matcher.match(str);
-  },
-
-  /**
-   * Checks if a path matches any of the provided matchers
-   *
-   * @internal Internal recursive helper used by filterNode.
-   */
-  _matchesAny(path: string, matchers: ((str: string) => boolean)[]): boolean {
-    for (const matcher of matchers) {
-      if (matcher(path)) {
-        return true;
-      }
-    }
-    return false;
-  },
-
-  /**
    * Helper to filter children of a directory
    *
    * @internal Internal recursive helper used by _filterNodeRecursive.
@@ -237,6 +185,36 @@ export const fileFilter = {
   },
 
   /**
+   * Checks if a path matches any of the provided matchers
+   *
+   * @internal Internal recursive helper used by filterNode.
+   */
+  _matchesAny(path: string, matchers: ((str: string) => boolean)[]): boolean {
+    for (const matcher of matchers) {
+      if (matcher(path)) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Creates a matcher function for a given pattern
+   */
+  createMatcher(pattern: string, useRegex: boolean): (str: string) => boolean {
+    if (useRegex) {
+      const regex = getRegexMatcher(pattern);
+      if (!regex) {
+        return () => false;
+      }
+      return (str: string) => regex.test(str);
+    }
+
+    const matcher = getOrCreateWildcardMatcher(pattern);
+    return (str: string) => matcher.match(str);
+  },
+
+  /**
    * Applies filters to a file node.
    *
    * Uses structural sharing: when no children are filtered, the original node reference is returned.
@@ -252,5 +230,26 @@ export const fileFilter = {
     const excludeMatchers = excludeFilters.map((p) => this.createMatcher(p, !!useRegex));
 
     return this._filterNodeRecursive(node, includeMatchers, excludeMatchers);
+  },
+
+  /**
+   * Matches a string against a regex pattern
+   */
+  matchRegex(str: string, pattern: string): boolean {
+    const regex = getRegexMatcher(pattern);
+    return regex ? regex.test(str) : false;
+  },
+
+  /**
+   * Matches a string against a wildcard pattern
+   */
+  matchWildcard(str: string, pattern: string): boolean {
+    return matchWildcardPattern(str, pattern);
+  },
+  /**
+   * Checks if a path should be ignored based on default patterns
+   */
+  shouldIgnorePath(path: string): boolean {
+    return IGNORE_REGEX.test(path);
   },
 };

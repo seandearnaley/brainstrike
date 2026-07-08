@@ -69,8 +69,8 @@ export function useAssistantAvailability(
           return;
         }
         setStatus({
-          state: 'error',
           message: error instanceof Error ? error.message : String(error),
+          state: 'error',
         });
       });
 
@@ -151,7 +151,7 @@ export async function fetchAssistantStatusState({
   }
 
   if (payload.reason) {
-    return { state: 'disabled', reason: payload.reason };
+    return { reason: payload.reason, state: 'disabled' };
   }
 
   return { state: 'disabled' };

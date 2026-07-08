@@ -1,7 +1,12 @@
 import type { Migration } from './migration-runner';
 
 export const migration045DimensionIndexMaintenance: Migration = {
-  version: 45,
+  down: `
+    DROP INDEX IF EXISTS idx_embedding_dimension_index_maintenance_due;
+    --> statement-breakpoint
+
+    DROP TABLE IF EXISTS embedding_dimension_index_maintenance;
+  `,
   name: 'dimension_index_maintenance',
   up: `
     CREATE TABLE IF NOT EXISTS embedding_dimension_index_maintenance (
@@ -27,10 +32,5 @@ export const migration045DimensionIndexMaintenance: Migration = {
     CREATE INDEX IF NOT EXISTS idx_embedding_dimension_index_maintenance_due
       ON embedding_dimension_index_maintenance (state, next_run_at, requested_at);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_embedding_dimension_index_maintenance_due;
-    --> statement-breakpoint
-
-    DROP TABLE IF EXISTS embedding_dimension_index_maintenance;
-  `,
+  version: 45,
 };

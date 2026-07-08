@@ -17,34 +17,34 @@ const allNodeTypes: CollectionBrowserFilters['nodeTypes'] = new Set([
 const makeFilters = (
   overrides: Partial<CollectionBrowserFilters> = {}
 ): CollectionBrowserFilters => ({
-  searchQuery: '',
-  nodeTypes: new Set(allNodeTypes),
   embeddingStatus: 'all',
+  nodeTypes: new Set(allNodeTypes),
   searchMatchesOnly: false,
+  searchQuery: '',
   ...overrides,
 });
 
 const testData: CollectionTreeInput = {
+  chunks: [
+    {
+      chunkIndex: 0,
+      content: 'needle in the app',
+      embedding: [0.1, 0.2, 0.3],
+      fileRecordId: 'f1',
+      id: 'c1',
+      tokenCount: 10,
+    },
+    {
+      chunkIndex: 0,
+      content: 'unrelated content',
+      fileRecordId: 'f2',
+      id: 'c2',
+      tokenCount: 5,
+    },
+  ],
   files: [
     { id: 'f1', name: 'app.tsx', path: '/repo/app.tsx', size: 123 },
     { id: 'f2', name: 'other.ts', path: '/repo/other.ts', size: 50 },
-  ],
-  chunks: [
-    {
-      id: 'c1',
-      fileRecordId: 'f1',
-      chunkIndex: 0,
-      content: 'needle in the app',
-      tokenCount: 10,
-      embedding: [0.1, 0.2, 0.3],
-    },
-    {
-      id: 'c2',
-      fileRecordId: 'f2',
-      chunkIndex: 0,
-      content: 'unrelated content',
-      tokenCount: 5,
-    },
   ],
 };
 
@@ -120,7 +120,7 @@ describe('useCollectionBrowserState', () => {
     const expandedIds = new Set<string>();
     const onExpandedIdsChange = vi.fn();
     const onSortChange = vi.fn();
-    const sortState: CollectionSortState = { key: 'count', direction: 'desc' };
+    const sortState: CollectionSortState = { direction: 'desc', key: 'count' };
     const { result } = renderHook(() =>
       useCollectionBrowserState({
         data: testData,
@@ -141,8 +141,8 @@ describe('useCollectionBrowserState', () => {
 
     expect(result.current.treeTableSortState).toEqual({ columnId: 'meta', direction: 'desc' });
     expect(onExpandedIdsChange).toHaveBeenCalledWith(new Set(['file-f1']));
-    expect(onSortChange).toHaveBeenNthCalledWith(1, { key: 'count', direction: 'asc' });
-    expect(onSortChange).toHaveBeenNthCalledWith(2, { key: 'score', direction: 'desc' });
+    expect(onSortChange).toHaveBeenNthCalledWith(1, { direction: 'asc', key: 'count' });
+    expect(onSortChange).toHaveBeenNthCalledWith(2, { direction: 'desc', key: 'score' });
     expect(onSortChange).toHaveBeenNthCalledWith(3, null);
   });
 
@@ -172,13 +172,13 @@ describe('useCollectionBrowserState', () => {
     const onSelectedIdChange = vi.fn();
     const semanticResults: SemanticSearchResult[] = [
       {
-        nodeId: 'chunk-c1',
         chunkId: 'c1',
-        fileRecordId: 'f1',
-        similarity: 0.87,
         content: 'needle in the app',
         fileName: 'app.tsx',
         filePath: '/repo/app.tsx',
+        fileRecordId: 'f1',
+        nodeId: 'chunk-c1',
+        similarity: 0.87,
       },
     ];
 

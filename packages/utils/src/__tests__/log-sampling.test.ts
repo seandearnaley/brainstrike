@@ -22,7 +22,7 @@ describe('log-sampling', () => {
     });
 
     it('always logs the first N items when alwaysLogFirst is set', () => {
-      const sampler = createLogSampler({ everyNth: 100, alwaysLogFirst: 3 });
+      const sampler = createLogSampler({ alwaysLogFirst: 3, everyNth: 100 });
 
       expect(sampler.shouldLog()).toBe(true); // 1st
       expect(sampler.shouldLog()).toBe(true); // 2nd
@@ -31,7 +31,7 @@ describe('log-sampling', () => {
     });
 
     it('respects everyNth option', () => {
-      const sampler = createLogSampler({ everyNth: 5, alwaysLogFirst: 0 });
+      const sampler = createLogSampler({ alwaysLogFirst: 0, everyNth: 5 });
       const results: boolean[] = [];
 
       for (let i = 0; i < 15; i++) {
@@ -46,7 +46,7 @@ describe('log-sampling', () => {
     });
 
     it('forceLog bypasses sampling', () => {
-      const sampler = createLogSampler({ everyNth: 1000, alwaysLogFirst: 0 });
+      const sampler = createLogSampler({ alwaysLogFirst: 0, everyNth: 1000 });
 
       sampler.forceLog();
       sampler.forceLog();
@@ -71,7 +71,7 @@ describe('log-sampling', () => {
     });
 
     it('logSummary calls the provided function with stats', () => {
-      const sampler = createLogSampler({ everyNth: 2, alwaysLogFirst: 1 });
+      const sampler = createLogSampler({ alwaysLogFirst: 1, everyNth: 2 });
       sampler.shouldLog(); // 1st - logged (alwaysLogFirst)
       sampler.shouldLog(); // 2nd - logged (everyNth)
       sampler.shouldLog(); // 3rd - skipped
@@ -81,10 +81,10 @@ describe('log-sampling', () => {
       sampler.logSummary(logFn);
 
       expect(logFn).toHaveBeenCalledWith({
-        totalCalls: 4,
         loggedCalls: 3,
-        skippedCalls: 1,
         sampleRate: 0.75,
+        skippedCalls: 1,
+        totalCalls: 4,
       });
     });
   });

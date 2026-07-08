@@ -65,21 +65,21 @@ describe('mcp-clients (sse request/response)', () => {
 
       if (method === 'GET' && url.endsWith('/sse')) {
         const stream = new ReadableStream<Uint8Array>({
+          cancel() {
+            streams.splice(0, streams.length);
+          },
           start(controller) {
             controller.enqueue(encoder.encode(': ok\n\n'));
             streams.push(controller);
           },
-          cancel() {
-            streams.splice(0, streams.length);
-          },
         });
         return new Response(stream, {
-          status: 200,
           headers: {
-            'Content-Type': 'text/event-stream',
-            Connection: 'keep-alive',
             'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'Content-Type': 'text/event-stream',
           },
+          status: 200,
         });
       }
 
@@ -103,10 +103,10 @@ describe('mcp-clients (sse request/response)', () => {
     initClients({
       servers: [
         {
-          transport: 'sse',
-          name: 'web',
-          url: `http://127.0.0.1:${port}/sse`,
           headers: {},
+          name: 'web',
+          transport: 'sse',
+          url: `http://127.0.0.1:${port}/sse`,
         },
       ],
     });
@@ -116,7 +116,7 @@ describe('mcp-clients (sse request/response)', () => {
       echo: string | null;
       tool: string;
     };
-    expect(res).toMatchObject({ tool: 'web.echo', echo: 'hello' });
+    expect(res).toMatchObject({ echo: 'hello', tool: 'web.echo' });
   });
 
   test('Resolves with error object on tool-error event', async () => {
@@ -125,7 +125,7 @@ describe('mcp-clients (sse request/response)', () => {
         const line =
           'event: tool-error\n' +
           `id: ${parsed.id}\n` +
-          `data: ${JSON.stringify({ id: parsed.id, error: 'failed' })}\n\n`;
+          `data: ${JSON.stringify({ error: 'failed', id: parsed.id })}\n\n`;
         const payload = encoder.encode(line);
         for (const controller of activeStreams) {
           controller.enqueue(payload);
@@ -135,7 +135,7 @@ describe('mcp-clients (sse request/response)', () => {
     // Emit an error for a new request id
     initClients({
       servers: [
-        { transport: 'sse', name: 'web', url: `http://127.0.0.1:${port}/sse`, headers: {} },
+        { headers: {}, name: 'web', transport: 'sse', url: `http://127.0.0.1:${port}/sse` },
       ],
     });
     const client = getClient('web');

@@ -107,9 +107,9 @@ vi.mock('react-resizable-panels', () => {
     ...props
   }: PanelProps) => {
     const handle = {
-      isCollapsed: vi.fn().mockReturnValue(false),
-      expand: vi.fn(),
       collapse: vi.fn(),
+      expand: vi.fn(),
+      isCollapsed: vi.fn().mockReturnValue(false),
       resize: vi.fn(),
     } as {
       isCollapsed: Mock;
@@ -186,11 +186,11 @@ describe('IdeLayout', () => {
     }
 
     mockState = {
-      sizes: [25, 20, 30],
+      saveLayout: vi.fn(),
       showConsole: false,
       showLeftPanel: false,
       showRightPanel: false,
-      saveLayout: vi.fn(),
+      sizes: [25, 20, 30],
       toggleConsole: vi.fn(),
       toggleLeftPanel: vi.fn(),
       toggleRightPanel: vi.fn(),
@@ -287,10 +287,10 @@ describe('IdeLayout', () => {
     render(
       <PanelLayoutProvider
         controlledState={{
-          sizes: [25, 5, 20],
           showConsole: false,
           showLeftPanel: false,
           showRightPanel: false,
+          sizes: [25, 5, 20],
         }}
         onChange={onChange}
       >
@@ -303,19 +303,19 @@ describe('IdeLayout', () => {
     fireEvent.click(screen.getByTestId('show-tools-panel'));
 
     expect(onChange).toHaveBeenCalledWith({
-      sizes: [25, 20, 20],
       showConsole: false,
       showLeftPanel: false,
       showRightPanel: true,
+      sizes: [25, 20, 20],
     });
   });
 
   it('ignores layout callbacks until the initial layout is applied', () => {
     vi.useFakeTimers();
     Object.assign(mockState, {
+      showConsole: true,
       showLeftPanel: true,
       showRightPanel: true,
-      showConsole: true,
     });
     const { unmount } = renderDefaultLayout();
 
@@ -325,8 +325,8 @@ describe('IdeLayout', () => {
       'tools-panel': 20,
     });
     handlers.vertical[0]?.({
-      'main-content-panel': 70,
       'console-panel': 30,
+      'main-content-panel': 70,
     });
 
     act(() => {
@@ -341,10 +341,10 @@ describe('IdeLayout', () => {
   it('normalizes invalid persisted panel sizes before applying the initial layout', () => {
     vi.useFakeTimers();
     Object.assign(mockState, {
-      sizes: [Number.NaN, 4, undefined],
       showConsole: true,
       showLeftPanel: true,
       showRightPanel: true,
+      sizes: [Number.NaN, 4, undefined],
     });
     const { unmount } = renderDefaultLayout();
 
@@ -368,9 +368,9 @@ describe('IdeLayout', () => {
   it('calls saveLayout from layout callbacks', () => {
     vi.useFakeTimers();
     Object.assign(mockState, {
+      showConsole: true,
       showLeftPanel: true,
       showRightPanel: true,
-      showConsole: true,
     });
     const { unmount } = renderDefaultLayout();
 
@@ -398,8 +398,8 @@ describe('IdeLayout', () => {
 
     // Vertical layout change within middle panel
     handlers.vertical[0]?.({
-      'main-content': 60,
       'console-panel': 40,
+      'main-content': 60,
     });
     // Flush RAF coalescing so commitLayouts runs
     act(() => {
@@ -419,8 +419,8 @@ describe('IdeLayout', () => {
   it('handles layout changes when left panel is missing', () => {
     vi.useFakeTimers();
     Object.assign(mockState, {
-      showRightPanel: true,
       showConsole: true,
+      showRightPanel: true,
     });
     const { unmount } = render(
       <IdeLayout consoleContent={consoleContent} rightPanelContent={rightContent}>
@@ -681,7 +681,7 @@ describe('IdeLayout', () => {
 
   it('restores a sensible default size when showing a previously collapsed left panel', () => {
     // Start with tiny left panel size to trigger default restore
-    Object.assign(mockState, { sizes: [0, 50, 50], showLeftPanel: false });
+    Object.assign(mockState, { showLeftPanel: false, sizes: [0, 50, 50] });
     const { rerender } = renderDefaultLayout();
 
     // Wire toggle to update mocked hook state and trigger rerender
@@ -710,7 +710,7 @@ describe('IdeLayout', () => {
 
   it('persists left panel visibility when resize collapses and expands it', () => {
     vi.useFakeTimers();
-    Object.assign(mockState, { sizes: [5, 20, 30], showLeftPanel: true });
+    Object.assign(mockState, { showLeftPanel: true, sizes: [5, 20, 30] });
     const { rerender, unmount } = renderDefaultLayout();
 
     act(() => {
@@ -751,7 +751,7 @@ describe('IdeLayout', () => {
 
   it('persists right panel visibility when resize collapses and expands it', () => {
     vi.useFakeTimers();
-    Object.assign(mockState, { sizes: [25, 5, 30], showRightPanel: true });
+    Object.assign(mockState, { showRightPanel: true, sizes: [25, 5, 30] });
     const { rerender, unmount } = renderDefaultLayout();
 
     act(() => {
@@ -787,7 +787,7 @@ describe('IdeLayout', () => {
 
   it('persists console visibility when resize collapses and expands it', () => {
     vi.useFakeTimers();
-    Object.assign(mockState, { sizes: [25, 20, 5], showConsole: true });
+    Object.assign(mockState, { showConsole: true, sizes: [25, 20, 5] });
     const { rerender, unmount } = renderDefaultLayout();
 
     act(() => {
@@ -869,9 +869,9 @@ describe('IdeLayout', () => {
     it('coalesces vertical layout changes independently from horizontal', () => {
       vi.useFakeTimers();
       Object.assign(mockState, {
+        showConsole: true,
         showLeftPanel: true,
         showRightPanel: true,
-        showConsole: true,
       });
       const { unmount } = renderDefaultLayout();
 
@@ -882,7 +882,7 @@ describe('IdeLayout', () => {
 
       // Fire both horizontal and vertical changes within the same frame
       handlers.horizontal[0]?.({ 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 });
-      handlers.vertical[0]?.({ 'main-content-panel': 70, 'console-panel': 30 });
+      handlers.vertical[0]?.({ 'console-panel': 30, 'main-content-panel': 70 });
 
       // Flush one RAF frame — both are processed, but vertical overwrites the final args
       act(() => {
@@ -1040,9 +1040,9 @@ describe('IdeLayout', () => {
       // collapsible panel (the outer separator sits flush against the inner separator
       // with a 0-width panel between them).
       Object.assign(mockState, {
+        showConsole: false,
         showLeftPanel: false,
         showRightPanel: false,
-        showConsole: false,
       });
       render(
         <IdeLayout
@@ -1066,9 +1066,9 @@ describe('IdeLayout', () => {
 
     it('expanded panels render their adjacent Separator with the panel-divider color and hover variant', () => {
       Object.assign(mockState, {
+        showConsole: true,
         showLeftPanel: true,
         showRightPanel: true,
-        showConsole: true,
       });
       renderDefaultLayout();
       const handles = screen.getAllByTestId('resize-handle');

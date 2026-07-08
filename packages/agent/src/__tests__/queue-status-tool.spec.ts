@@ -14,10 +14,10 @@ describe('QueueStatusTool', () => {
   function createMockSnapshot(overrides: Partial<VectorQueueSnapshot> = {}): VectorQueueSnapshot {
     return {
       coverage: { total: 100, withSet: 80 },
-      queueCounts: { queued: 5, running: 2, failed: 1, succeeded: 50 },
-      throughput: 10,
       lastError: null,
       latency: mockLatency,
+      queueCounts: { failed: 1, queued: 5, running: 2, succeeded: 50 },
+      throughput: 10,
       ...overrides,
     };
   }
@@ -110,7 +110,7 @@ describe('QueueStatusTool', () => {
       const deps = createMockDeps({
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
-            queueCounts: { queued: 3, running: 1, failed: 0, succeeded: 10 },
+            queueCounts: { failed: 0, queued: 3, running: 1, succeeded: 10 },
           })
         ),
       });
@@ -127,7 +127,7 @@ describe('QueueStatusTool', () => {
       const deps = createMockDeps({
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
-            queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 100 },
+            queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 100 },
           })
         ),
       });
@@ -222,7 +222,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: { total: 100, withSet: 100 },
-            queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 100 },
+            queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 100 },
           })
         ),
       });
@@ -240,7 +240,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: { total: 200, withSet: 150 },
-            queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+            queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
           })
         ),
       });
@@ -259,7 +259,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: { total: 100, withSet: 0 },
-            queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+            queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
           })
         ),
       });
@@ -277,7 +277,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: null,
-            queueCounts: { queued: 10, running: 5, failed: 0, succeeded: 0 },
+            queueCounts: { failed: 0, queued: 10, running: 5, succeeded: 0 },
             throughput: 20,
           })
         ),
@@ -297,7 +297,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: null,
-            queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 50 },
+            queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 50 },
           })
         ),
       });
@@ -315,7 +315,7 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: null,
-            queueCounts: { queued: 0, running: 0, failed: 5, succeeded: 0 },
+            queueCounts: { failed: 5, queued: 0, running: 0, succeeded: 0 },
           })
         ),
       });
@@ -334,8 +334,8 @@ describe('QueueStatusTool', () => {
         getQueueSnapshot: vi.fn().mockResolvedValue(
           createMockSnapshot({
             coverage: null,
-            queueCounts: { queued: 0, running: 0, failed: 1, succeeded: 0 },
             lastError: longError,
+            queueCounts: { failed: 1, queued: 0, running: 0, succeeded: 0 },
           })
         ),
       });

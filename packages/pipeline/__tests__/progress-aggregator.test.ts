@@ -145,7 +145,7 @@ describe('createProgressAggregator', () => {
 
     it('can update chunking total dynamically', () => {
       aggregator = createProgressAggregator();
-      aggregator.reportChunkingProgress({ total: 100, completed: 10 });
+      aggregator.reportChunkingProgress({ completed: 10, total: 100 });
 
       const snapshot = aggregator.getSnapshot();
       expect(snapshot.chunking.total).toBe(100);
@@ -206,9 +206,9 @@ describe('createProgressAggregator', () => {
       const snapshot = aggregator.getSnapshot();
       expect(snapshot.recentErrors).toHaveLength(1);
       expect(snapshot.recentErrors[0]).toEqual({
-        stage: 'import',
-        item: 'file.ts',
         error: 'Failed to read file',
+        item: 'file.ts',
+        stage: 'import',
         timestamp: '2025-01-04T12:00:00.000Z',
       });
     });
@@ -290,7 +290,7 @@ describe('createProgressAggregator', () => {
   describe('reset', () => {
     it('resets all progress to initial state', () => {
       aggregator = createProgressAggregator();
-      aggregator.setTotals({ files: 100, chunks: 500, embeddings: 500 });
+      aggregator.setTotals({ chunks: 500, embeddings: 500, files: 100 });
       aggregator.reportImportProgress({ completed: 50 });
       aggregator.reportChunkingProgress({ completed: 250 });
       aggregator.reportError('import', 'file.ts', 'Error');
@@ -391,9 +391,9 @@ describe('createProgressAggregator', () => {
       const snapshot = aggregator.getSnapshot();
       snapshot.import.completed = 999;
       (snapshot.recentErrors as PipelineError[]).push({
-        stage: 'import',
-        item: 'fake',
         error: 'fake',
+        item: 'fake',
+        stage: 'import',
         timestamp: 'fake',
       });
 
@@ -408,12 +408,12 @@ describe('utility functions', () => {
   describe('calculateOverallPercentage', () => {
     it('returns 0 when no totals are set', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 0, failed: 0, inProgress: 0, total: 0 },
+        embedding: { completed: 0, failed: 0, inProgress: 0, total: 0 },
+        import: { completed: 0, failed: 0, inProgress: 0, total: 0 },
         phase: 'importing',
-        import: { total: 0, completed: 0, inProgress: 0, failed: 0 },
-        chunking: { total: 0, completed: 0, inProgress: 0, failed: 0 },
-        embedding: { total: 0, completed: 0, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(calculateOverallPercentage(progress)).toBe(0);
@@ -421,12 +421,12 @@ describe('utility functions', () => {
 
     it('calculates weighted percentage correctly', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 200, failed: 0, inProgress: 0, total: 200 }, // 100% * 0.3 = 30
+        embedding: { completed: 100, failed: 0, inProgress: 0, total: 200 }, // 50% * 0.5 = 25
+        import: { completed: 100, failed: 0, inProgress: 0, total: 100 }, // 100% * 0.2 = 20
         phase: 'embedding',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 0 }, // 100% * 0.2 = 20
-        chunking: { total: 200, completed: 200, inProgress: 0, failed: 0 }, // 100% * 0.3 = 30
-        embedding: { total: 200, completed: 100, inProgress: 0, failed: 0 }, // 50% * 0.5 = 25
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       // 20 + 30 + 25 = 75
@@ -435,12 +435,12 @@ describe('utility functions', () => {
 
     it('handles partial completion', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 0, failed: 0, inProgress: 0, total: 200 }, // 0% * 0.3 = 0
+        embedding: { completed: 0, failed: 0, inProgress: 0, total: 0 }, // 0% * 0.5 = 0
+        import: { completed: 50, failed: 0, inProgress: 0, total: 100 }, // 50% * 0.2 = 10
         phase: 'chunking',
-        import: { total: 100, completed: 50, inProgress: 0, failed: 0 }, // 50% * 0.2 = 10
-        chunking: { total: 200, completed: 0, inProgress: 0, failed: 0 }, // 0% * 0.3 = 0
-        embedding: { total: 0, completed: 0, inProgress: 0, failed: 0 }, // 0% * 0.5 = 0
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(calculateOverallPercentage(progress)).toBe(10);
@@ -450,12 +450,12 @@ describe('utility functions', () => {
   describe('hasFailures', () => {
     it('returns false when no failures', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        embedding: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        import: { completed: 100, failed: 0, inProgress: 0, total: 100 },
         phase: 'complete',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 0 },
-        chunking: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        embedding: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(hasFailures(progress)).toBe(false);
@@ -463,12 +463,12 @@ describe('utility functions', () => {
 
     it('returns true when import has failures', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        embedding: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        import: { completed: 99, failed: 1, inProgress: 0, total: 100 },
         phase: 'complete',
-        import: { total: 100, completed: 99, inProgress: 0, failed: 1 },
-        chunking: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        embedding: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(hasFailures(progress)).toBe(true);
@@ -476,12 +476,12 @@ describe('utility functions', () => {
 
     it('returns true when chunking has failures', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 195, failed: 5, inProgress: 0, total: 200 },
+        embedding: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        import: { completed: 100, failed: 0, inProgress: 0, total: 100 },
         phase: 'complete',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 0 },
-        chunking: { total: 200, completed: 195, inProgress: 0, failed: 5 },
-        embedding: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(hasFailures(progress)).toBe(true);
@@ -489,12 +489,12 @@ describe('utility functions', () => {
 
     it('returns true when embedding has failures', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        embedding: { completed: 190, failed: 10, inProgress: 0, total: 200 },
+        import: { completed: 100, failed: 0, inProgress: 0, total: 100 },
         phase: 'complete',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 0 },
-        chunking: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        embedding: { total: 200, completed: 190, inProgress: 0, failed: 10 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       expect(hasFailures(progress)).toBe(true);
@@ -504,12 +504,12 @@ describe('utility functions', () => {
   describe('getTotalCounts', () => {
     it('aggregates counts across all stages', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 150, failed: 3, inProgress: 10, total: 200 },
+        embedding: { completed: 50, failed: 2, inProgress: 20, total: 200 },
+        import: { completed: 100, failed: 5, inProgress: 0, total: 100 },
         phase: 'embedding',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 5 },
-        chunking: { total: 200, completed: 150, inProgress: 10, failed: 3 },
-        embedding: { total: 200, completed: 50, inProgress: 20, failed: 2 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       const counts = getTotalCounts(progress);
@@ -524,12 +524,12 @@ describe('utility functions', () => {
   describe('formatProgress', () => {
     it('formats progress with all stages', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 200, failed: 0, inProgress: 0, total: 200 },
+        embedding: { completed: 100, failed: 0, inProgress: 0, total: 200 },
+        import: { completed: 100, failed: 0, inProgress: 0, total: 100 },
         phase: 'embedding',
-        import: { total: 100, completed: 100, inProgress: 0, failed: 0 },
-        chunking: { total: 200, completed: 200, inProgress: 0, failed: 0 },
-        embedding: { total: 200, completed: 100, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       const formatted = formatProgress(progress);
@@ -543,12 +543,12 @@ describe('utility functions', () => {
 
     it('omits stages with zero total', () => {
       const progress: PipelineProgress = {
+        chunking: { completed: 0, failed: 0, inProgress: 0, total: 0 },
+        embedding: { completed: 0, failed: 0, inProgress: 0, total: 0 },
+        import: { completed: 5, failed: 0, inProgress: 0, total: 10 },
         phase: 'importing',
-        import: { total: 10, completed: 5, inProgress: 0, failed: 0 },
-        chunking: { total: 0, completed: 0, inProgress: 0, failed: 0 },
-        embedding: { total: 0, completed: 0, inProgress: 0, failed: 0 },
-        startedAt: '',
         recentErrors: [],
+        startedAt: '',
       };
 
       const formatted = formatProgress(progress);
@@ -575,9 +575,9 @@ describe('integration scenarios', () => {
     aggregator.setTotals({ files: 3 });
 
     // Import phase
-    aggregator.reportImportProgress({ inProgress: 1, currentItem: 'file1.ts' });
-    aggregator.reportImportProgress({ completed: 1, inProgress: 1, currentItem: 'file2.ts' });
-    aggregator.reportImportProgress({ completed: 2, inProgress: 1, currentItem: 'file3.ts' });
+    aggregator.reportImportProgress({ currentItem: 'file1.ts', inProgress: 1 });
+    aggregator.reportImportProgress({ completed: 1, currentItem: 'file2.ts', inProgress: 1 });
+    aggregator.reportImportProgress({ completed: 2, currentItem: 'file3.ts', inProgress: 1 });
     aggregator.reportImportProgress({ completed: 3 });
 
     // Chunking phase (discovered 10 chunks)
@@ -636,7 +636,7 @@ describe('integration scenarios', () => {
     aggregator.reportError('import', 'flaky-file.ts', 'Network timeout');
 
     // Retry second file - completed count stays at 1 until success
-    aggregator.reportImportProgress({ completed: 1, inProgress: 1, currentItem: 'flaky-file.ts' });
+    aggregator.reportImportProgress({ completed: 1, currentItem: 'flaky-file.ts', inProgress: 1 });
 
     // Retry succeeds
     aggregator.reportImportProgress({ completed: 2 });

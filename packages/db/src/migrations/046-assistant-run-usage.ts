@@ -16,7 +16,12 @@ import type { Migration } from './migration-runner';
  * write, so the migration and the runtime bootstrap must agree.
  */
 export const migration046AssistantRunUsage: Migration = {
-  version: 46,
+  down: `
+    DROP INDEX IF EXISTS brainstrike_assistant_run_usage_thread_idx;
+    --> statement-breakpoint
+
+    DROP TABLE IF EXISTS brainstrike_assistant_run_usage;
+  `,
   name: 'assistant_run_usage',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage (
@@ -35,10 +40,5 @@ export const migration046AssistantRunUsage: Migration = {
     CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
       ON brainstrike_assistant_run_usage (thread_id);
   `,
-  down: `
-    DROP INDEX IF EXISTS brainstrike_assistant_run_usage_thread_idx;
-    --> statement-breakpoint
-
-    DROP TABLE IF EXISTS brainstrike_assistant_run_usage;
-  `,
+  version: 46,
 };

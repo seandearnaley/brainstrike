@@ -37,12 +37,12 @@ function createTestNode(
   depth = 0
 ): TreeNode<TestData> {
   return {
-    id,
-    type: 'file',
-    depth,
     data: { name },
-    parentId,
+    depth,
     hasChildren,
+    id,
+    parentId,
+    type: 'file',
   };
 }
 
@@ -53,19 +53,19 @@ function createFlattenedRow<T>(
   options: Partial<FlattenedRow<T>> = {}
 ): FlattenedRow<T> {
   return {
-    node,
-    index,
-    isExpanded: false,
-    isSelected: false,
-    isHighlighted: false,
-    isInContext: false,
-    matchesFilter: true,
     aria: {
       ariaLevel: node.depth + 1,
-      ariaSetSize: 1,
       ariaPosInSet: 1,
       ariaRowIndex: index + 2,
+      ariaSetSize: 1,
     },
+    index,
+    isExpanded: false,
+    isHighlighted: false,
+    isInContext: false,
+    isSelected: false,
+    matchesFilter: true,
+    node,
     ...options,
   };
 }
@@ -139,8 +139,8 @@ describe('tree-utils', () => {
 
       const result = flattenTree(nodes, {
         expandedIds: new Set(),
-        selectedId: '1',
         highlightedIds: new Set(['2']),
+        selectedId: '1',
       });
 
       expect(result.rows[0]?.isSelected).toBe(true);
@@ -544,9 +544,9 @@ describe('tree-utils', () => {
     it('provides default ARIA attributes', () => {
       expect(DEFAULT_ARIA).toEqual({
         ariaLevel: 1,
-        ariaSetSize: 1,
         ariaPosInSet: 1,
         ariaRowIndex: 1,
+        ariaSetSize: 1,
       });
     });
   });
@@ -589,8 +589,8 @@ describe('tree-utils', () => {
       ];
 
       const result = flattenTree(nodes, {
-        expandedIds: new Set(),
         contextNodeIds: new Set(['1', '3']),
+        expandedIds: new Set(),
       });
 
       expect(result.rows[0]!.isInContext).toBe(true);
@@ -619,8 +619,8 @@ describe('tree-utils', () => {
       const result = flattenTreeRecursive(
         roots,
         {
-          expandedIds: new Set(['parent']),
           contextNodeIds: new Set(['child2']),
+          expandedIds: new Set(['parent']),
         },
         getChildren
       );

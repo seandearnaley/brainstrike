@@ -78,8 +78,8 @@ describe('migration 046: assistant run usage table', () => {
        ORDER BY id`
     );
     expect(rows.rows).toEqual([
-      { model: 'gpt-5.2', provider: 'openai', input_tokens: 100, output_tokens: 50 },
-      { model: 'claude-opus-4-8', provider: 'anthropic', input_tokens: 200, output_tokens: 75 },
+      { input_tokens: 100, model: 'gpt-5.2', output_tokens: 50, provider: 'openai' },
+      { input_tokens: 200, model: 'claude-opus-4-8', output_tokens: 75, provider: 'anthropic' },
     ]);
 
     const totals = await db.query<{ in_total: number | string; out_total: number | string }>(

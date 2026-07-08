@@ -17,11 +17,11 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe = addQueueTelemetryListener(listener);
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
-      taskId: 'task-123',
       model: 'test-model',
+      taskId: 'task-123',
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event);
@@ -42,11 +42,11 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe3 = addQueueTelemetryListener(listener3);
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
+      elapsedMs: 1500,
       event: 'complete',
       taskId: 'task-456',
-      elapsedMs: 1500,
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event);
@@ -65,11 +65,11 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe = addQueueTelemetryListener(listener);
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
+      errorMessage: 'Test error',
       event: 'error',
       taskId: 'task-789',
-      errorMessage: 'Test error',
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event);
@@ -94,10 +94,10 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe3 = addQueueTelemetryListener(listener3);
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'custom',
       event: 'enqueue',
       taskId: 'task-error',
+      timestamp: Date.now(),
     };
 
     // Should not throw even though listener1 throws
@@ -121,10 +121,10 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     unsubscribe(); // Should not throw
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-multi-unsub',
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event);
@@ -136,20 +136,20 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe = addQueueTelemetryListener(listener);
 
     const event: QueueTelemetryEvent = {
-      timestamp: 1_234_567_890,
-      adapter: 'workerpool',
-      event: 'complete',
-      taskId: 'full-event',
-      model: 'bert-base',
-      elapsedMs: 2500,
-      activeBefore: 5,
       activeAfter: 4,
-      pending: 10,
+      activeBefore: 5,
+      adapter: 'workerpool',
+      elapsedMs: 2500,
+      event: 'complete',
       metadata: {
-        custom: 'value',
         count: 42,
+        custom: 'value',
         nested: { data: true },
       },
+      model: 'bert-base',
+      pending: 10,
+      taskId: 'full-event',
+      timestamp: 1_234_567_890,
     };
 
     emitQueueTelemetry(event);
@@ -162,10 +162,10 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
 
   it('should emit when no listeners are registered', () => {
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'no-listeners',
+      timestamp: Date.now(),
     };
 
     // Should not throw
@@ -184,12 +184,12 @@ describe('createQueueTelemetryAggregator', () => {
     const snapshot = aggregator.snapshot();
 
     expect(snapshot).toEqual({
-      events: [],
-      throughputPerMinute: 0,
       averageLatencyMs: null,
+      errorCount: 0,
+      events: [],
       latencyP50Ms: null,
       latencyP95Ms: null,
-      errorCount: 0,
+      throughputPerMinute: 0,
     });
 
     aggregator.dispose();
@@ -199,18 +199,18 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     const event1: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
+      timestamp: Date.now(),
     };
 
     const event2: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-1',
-      elapsedMs: 1000,
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event1);
@@ -232,11 +232,11 @@ describe('createQueueTelemetryAggregator', () => {
     // Emit 10 complete events
     for (let index = 0; index < 10; index += 1) {
       emitQueueTelemetry({
-        timestamp: now,
         adapter: 'workerpool',
+        elapsedMs: 1000,
         event: 'complete',
         taskId: `task-${index}`,
-        elapsedMs: 1000,
+        timestamp: now,
       });
     }
 
@@ -253,27 +253,27 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-1',
-      elapsedMs: 1000,
+      timestamp: now,
     });
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 2000,
       event: 'complete',
       taskId: 'task-2',
-      elapsedMs: 2000,
+      timestamp: now,
     });
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 3000,
       event: 'complete',
       taskId: 'task-3',
-      elapsedMs: 3000,
+      timestamp: now,
     });
 
     const snapshot = aggregator.snapshot(now);
@@ -291,11 +291,11 @@ describe('createQueueTelemetryAggregator', () => {
     const latencies = [100, 200, 300, 400, 500];
     for (const latency of latencies) {
       emitQueueTelemetry({
-        timestamp: now,
         adapter: 'workerpool',
+        elapsedMs: latency,
         event: 'complete',
         taskId: `task-${latency}`,
-        elapsedMs: latency,
+        timestamp: now,
       });
     }
 
@@ -314,11 +314,11 @@ describe('createQueueTelemetryAggregator', () => {
     const latencies = Array.from({ length: 100 }, (_, index) => (index + 1) * 10);
     for (const latency of latencies) {
       emitQueueTelemetry({
-        timestamp: now,
         adapter: 'workerpool',
+        elapsedMs: latency,
         event: 'complete',
         taskId: `task-${latency}`,
-        elapsedMs: latency,
+        timestamp: now,
       });
     }
 
@@ -335,27 +335,27 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-1',
-      elapsedMs: 1000,
+      timestamp: now,
     });
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      errorMessage: 'Error 1',
       event: 'error',
       taskId: 'task-2',
-      errorMessage: 'Error 1',
+      timestamp: now,
     });
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      errorMessage: 'Error 2',
       event: 'error',
       taskId: 'task-3',
-      errorMessage: 'Error 2',
+      timestamp: now,
     });
 
     const snapshot = aggregator.snapshot(now);
@@ -372,20 +372,20 @@ describe('createQueueTelemetryAggregator', () => {
 
     // Emit old event first (15 seconds ago, outside window)
     emitQueueTelemetry({
-      timestamp: now - 15_000,
       adapter: 'workerpool',
+      elapsedMs: 500,
       event: 'complete',
       taskId: 'task-old',
-      elapsedMs: 500,
+      timestamp: now - 15_000,
     });
 
     // Emit event at current time
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-recent',
-      elapsedMs: 1000,
+      timestamp: now,
     });
 
     const snapshot = aggregator.snapshot(now);
@@ -403,10 +403,10 @@ describe('createQueueTelemetryAggregator', () => {
     // Emit 10 events (more than maxEvents)
     for (let index = 0; index < 10; index += 1) {
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
+        timestamp: Date.now(),
       });
     }
 
@@ -424,10 +424,10 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-no-latency',
+      timestamp: Date.now(),
     });
 
     const snapshot = aggregator.snapshot();
@@ -444,19 +444,19 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: -100, // Negative latency
       event: 'complete',
       taskId: 'task-1',
-      elapsedMs: -100, // Negative latency
+      timestamp: now,
     });
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-2',
-      elapsedMs: 1000,
+      timestamp: now,
     });
 
     const snapshot = aggregator.snapshot(now);
@@ -473,11 +473,11 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: now,
       adapter: 'workerpool',
+      elapsedMs: 1500,
       event: 'complete',
       taskId: 'task-single',
-      elapsedMs: 1500,
+      timestamp: now,
     });
 
     const snapshot = aggregator.snapshot(now);
@@ -493,19 +493,19 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator();
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-before-dispose',
+      timestamp: Date.now(),
     });
 
     aggregator.dispose();
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-after-dispose',
+      timestamp: Date.now(),
     });
 
     const snapshot = aggregator.snapshot();
@@ -523,11 +523,11 @@ describe('createQueueTelemetryAggregator', () => {
     // Emit 15 complete events
     for (let index = 0; index < 15; index += 1) {
       emitQueueTelemetry({
-        timestamp: now,
         adapter: 'workerpool',
+        elapsedMs: 1000,
         event: 'complete',
         taskId: `task-${index}`,
-        elapsedMs: 1000,
+        timestamp: now,
       });
     }
 
@@ -543,11 +543,11 @@ describe('createQueueTelemetryAggregator', () => {
     const aggregator = createQueueTelemetryAggregator(0);
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
+      elapsedMs: 1000,
       event: 'complete',
       taskId: 'task-1',
-      elapsedMs: 1000,
+      timestamp: Date.now(),
     });
 
     const snapshot = aggregator.snapshot();

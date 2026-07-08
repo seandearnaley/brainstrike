@@ -25,34 +25,34 @@ function makeNode(
   hasChildren = false,
   depth = 0
 ): TreeNode<TestData> {
-  return { id, type: 'file', depth, data: { name }, parentId, hasChildren };
+  return { data: { name }, depth, hasChildren, id, parentId, type: 'file' };
 }
 
 function makeRow(n: TreeNode<TestData>, index: number, isExpanded = false): FlattenedRow<TestData> {
   return {
-    node: n,
-    index,
-    isExpanded,
-    isSelected: false,
-    isHighlighted: false,
-    isInContext: false,
-    matchesFilter: true,
     aria: {
       ariaLevel: n.depth + 1,
-      ariaSetSize: 1,
       ariaPosInSet: 1,
       ariaRowIndex: index + 2,
+      ariaSetSize: 1,
     },
+    index,
+    isExpanded,
+    isHighlighted: false,
+    isInContext: false,
+    isSelected: false,
+    matchesFilter: true,
+    node: n,
   };
 }
 
 function keyEvent(key: string, opts: Partial<React.KeyboardEvent> = {}): React.KeyboardEvent {
   return {
-    key,
-    shiftKey: false,
     ctrlKey: false,
+    key,
     metaKey: false,
     preventDefault: vi.fn(),
+    shiftKey: false,
     target: document.createElement('div'),
     ...opts,
   } as unknown as React.KeyboardEvent;
@@ -67,7 +67,7 @@ function buildSimpleTree(): {
   const nodes = [makeNode('a', 'Alpha'), makeNode('b', 'Bravo'), makeNode('c', 'Charlie')];
   const rows = nodes.map((n, i) => makeRow(n, i));
   const getChildren = () => [] as TreeNode<TestData>[];
-  return { nodes, rows, getChildren };
+  return { getChildren, nodes, rows };
 }
 
 /** Build a parent-child tree for expand/collapse tests. */
@@ -94,7 +94,7 @@ function buildParentChildTree(): {
 
   const collapsedRows = [makeRow(allNodes[0]!, 0, false), makeRow(allNodes[3]!, 1)];
 
-  return { allNodes, expandedRows, collapsedRows, getChildren };
+  return { allNodes, collapsedRows, expandedRows, getChildren };
 }
 
 function defaultOptions(
@@ -111,15 +111,15 @@ function defaultOptions(
   }
 
   const options: UseTreeKeyboardOptions<TestData> = {
-    rows,
-    rowIndexById,
-    nodes,
-    getChildren,
     expandedIds: new Set<string>(),
-    onToggleExpand: vi.fn(),
-    selectionMode: 'single',
-    onSelect: vi.fn(),
+    getChildren,
     isTableFocused: true,
+    nodes,
+    onSelect: vi.fn(),
+    onToggleExpand: vi.fn(),
+    rowIndexById,
+    rows,
+    selectionMode: 'single',
     ...overrides,
   };
 
@@ -239,8 +239,8 @@ describe('useTreeKeyboard — arrow navigation', () => {
 
   it('does not move when there are no visible rows', () => {
     const opts = defaultOptions({
-      rows: [],
       rowIndexById: new Map(),
+      rows: [],
     });
     const { result } = renderHook(() => useTreeKeyboard(opts));
 
@@ -290,10 +290,10 @@ describe('useTreeKeyboard — expand/collapse', () => {
     const roots = buildTreeFromFlatNodes(allNodes);
 
     const opts = defaultOptions({
-      rows: collapsedRows,
-      nodes: roots,
       getChildren,
+      nodes: roots,
       onToggleExpand,
+      rows: collapsedRows,
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -314,10 +314,10 @@ describe('useTreeKeyboard — expand/collapse', () => {
     const roots = buildTreeFromFlatNodes(allNodes);
 
     const opts = defaultOptions({
-      rows: expandedRows,
-      nodes: roots,
-      getChildren,
       expandedIds: new Set(['parent']),
+      getChildren,
+      nodes: roots,
+      rows: expandedRows,
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -339,11 +339,11 @@ describe('useTreeKeyboard — expand/collapse', () => {
     const roots = buildTreeFromFlatNodes(allNodes);
 
     const opts = defaultOptions({
-      rows: expandedRows,
-      nodes: roots,
-      getChildren,
       expandedIds: new Set(['parent']),
+      getChildren,
+      nodes: roots,
       onToggleExpand,
+      rows: expandedRows,
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -364,10 +364,10 @@ describe('useTreeKeyboard — expand/collapse', () => {
     const roots = buildTreeFromFlatNodes(allNodes);
 
     const opts = defaultOptions({
-      rows: expandedRows,
-      nodes: roots,
-      getChildren,
       expandedIds: new Set(['parent']),
+      getChildren,
+      nodes: roots,
+      rows: expandedRows,
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -425,9 +425,9 @@ describe('useTreeKeyboard — selection', () => {
   it('Space toggles selection in multi-select mode', () => {
     const onMultiSelectChange = vi.fn();
     const opts = defaultOptions({
-      selectionMode: 'multi',
       multiSelectedIds: new Set<string>(),
       onMultiSelectChange,
+      selectionMode: 'multi',
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -462,9 +462,9 @@ describe('useTreeKeyboard — selection', () => {
   it('Escape clears selection in multi mode', () => {
     const onMultiSelectChange = vi.fn();
     const opts = defaultOptions({
-      selectionMode: 'multi',
       multiSelectedIds: new Set(['a', 'b']),
       onMultiSelectChange,
+      selectionMode: 'multi',
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -485,9 +485,9 @@ describe('useTreeKeyboard — Shift+Arrow range selection', () => {
   it('Shift+ArrowDown extends multi-selection', () => {
     const onMultiSelectChange = vi.fn();
     const opts = defaultOptions({
-      selectionMode: 'multi',
       multiSelectedIds: new Set<string>(),
       onMultiSelectChange,
+      selectionMode: 'multi',
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -512,9 +512,9 @@ describe('useTreeKeyboard — Ctrl/Cmd+A select all', () => {
   it('selects all visible rows', () => {
     const onMultiSelectChange = vi.fn();
     const opts = defaultOptions({
-      selectionMode: 'multi',
       multiSelectedIds: new Set<string>(),
       onMultiSelectChange,
+      selectionMode: 'multi',
     });
 
     const { result } = renderHook(() => useTreeKeyboard(opts));
@@ -613,8 +613,8 @@ describe('useTreeKeyboard — focus management', () => {
 
     rerender({
       ...opts,
-      rows: [],
       rowIndexById: new Map(),
+      rows: [],
     });
 
     expect(result.current.state.focusedId).toBeNull();
@@ -635,8 +635,8 @@ describe('useTreeKeyboard — focus management', () => {
 
     rerender({
       ...opts,
-      rows: replacementRows,
       rowIndexById: replacementIndexById,
+      rows: replacementRows,
     });
 
     expect(result.current.state.focusedId).toBeNull();
@@ -662,7 +662,7 @@ describe('useTreeKeyboard — focus management', () => {
 describe('useTreeKeyboard — no-op on selectionMode none', () => {
   it('Enter does nothing in none mode', () => {
     const onSelect = vi.fn();
-    const opts = defaultOptions({ selectionMode: 'none', onSelect });
+    const opts = defaultOptions({ onSelect, selectionMode: 'none' });
     const { result } = renderHook(() => useTreeKeyboard(opts));
 
     act(() => {

@@ -11,23 +11,23 @@ import type { WorkerFileNode, WorkerToMainMessage } from './types';
 // Test fixtures
 function createFileNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    depth: 1,
     name: 'file.txt',
     path: '/root/file.txt',
-    type: 'file',
-    depth: 1,
     rootFolderId: 'root',
+    type: 'file',
     ...overrides,
   };
 }
 
 function createDirectoryNode(overrides: Partial<WorkerFileNode> = {}): WorkerFileNode {
   return {
+    depth: 1,
+    loadState: 'unloaded',
     name: 'dir',
     path: '/root/dir',
-    type: 'directory',
-    depth: 1,
     rootFolderId: 'root',
-    loadState: 'unloaded',
+    type: 'directory',
     ...overrides,
   };
 }
@@ -71,7 +71,7 @@ describe('BFSEngine', () => {
 
   describe('handleLoadResult', () => {
     it('should update tree with loaded children', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const children = [createFileNode({ path: '/root/dir/file.txt' })];
@@ -85,9 +85,9 @@ describe('BFSEngine', () => {
     it('clears stale load errors when a directory later loads successfully', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -100,7 +100,7 @@ describe('BFSEngine', () => {
     });
 
     it('should emit children-loaded patch without a redundant loaded-state patch', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
       engine.setTree(tree, 'root');
       messages = [];
 
@@ -108,8 +108,8 @@ describe('BFSEngine', () => {
       engine.handleLoadResult('/root/dir', children);
 
       expect(messages).toContainEqual({
+        payload: { children, loadState: 'loaded', path: '/root/dir' },
         type: 'childrenLoaded',
-        payload: { path: '/root/dir', children, loadState: 'loaded' },
       });
       expect(
         messages.some(
@@ -124,16 +124,16 @@ describe('BFSEngine', () => {
 
     it('should not report unchanged expanded paths as both removed and added', () => {
       const child = createDirectoryNode({
-        name: 'child',
-        path: '/root/dir/child',
         depth: 2,
         loadState: 'loaded',
+        name: 'child',
+        path: '/root/dir/child',
       });
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'loaded',
           children: [child],
+          loadState: 'loaded',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -146,7 +146,7 @@ describe('BFSEngine', () => {
     });
 
     it('should resolve pending load promise when all paths complete', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       // Start a load operation (simulating what expandAll would do internally)
@@ -161,8 +161,8 @@ describe('BFSEngine', () => {
 
     it('correlates successful load results to the matching request id', async () => {
       const tree = [
-        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir2' }),
       ];
       engine.setTree(tree, 'root');
 
@@ -197,22 +197,22 @@ describe('BFSEngine', () => {
         .map((message) => message.operationId);
       expect(completedOperationIds).toEqual(expect.arrayContaining([11, 22]));
       expect(messages).toContainEqual({
-        type: 'childrenLoaded',
         operationId: 22,
         payload: {
-          path: '/root/dir2',
           children: [createFileNode({ path: '/root/dir2/file.txt' })],
           loadState: 'loaded',
+          path: '/root/dir2',
         },
+        type: 'childrenLoaded',
       });
     });
 
     it('should maintain the path index without a full rebuild after directory loads', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root',
+          children: [createDirectoryNode({ depth: 1, loadState: 'loading', path: '/root/dir' })],
           loadState: 'loaded',
-          children: [createDirectoryNode({ path: '/root/dir', loadState: 'loading', depth: 1 })],
+          path: '/root',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -222,7 +222,7 @@ describe('BFSEngine', () => {
       const buildPathIndexSpy = vi.spyOn(indexedEngine, 'buildPathIndex');
 
       engine.handleLoadResult('/root/dir', [
-        createDirectoryNode({ path: '/root/dir/child', loadState: 'unloaded', depth: 2 }),
+        createDirectoryNode({ depth: 2, loadState: 'unloaded', path: '/root/dir/child' }),
       ]);
 
       expect(buildPathIndexSpy).not.toHaveBeenCalled();
@@ -231,18 +231,18 @@ describe('BFSEngine', () => {
     it('should remove stale subtree entries from the path index after directory reloads', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              path: '/root/dir',
-              loadState: 'loaded',
-              depth: 1,
               children: [
-                createFileNode({ path: '/root/dir/stale.txt', name: 'stale.txt', depth: 2 }),
+                createFileNode({ depth: 2, name: 'stale.txt', path: '/root/dir/stale.txt' }),
               ],
+              depth: 1,
+              loadState: 'loaded',
+              path: '/root/dir',
             }),
           ],
+          loadState: 'loaded',
+          path: '/root',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -251,7 +251,7 @@ describe('BFSEngine', () => {
       };
 
       engine.handleLoadResult('/root/dir', [
-        createFileNode({ path: '/root/dir/fresh.txt', name: 'fresh.txt', depth: 2 }),
+        createFileNode({ depth: 2, name: 'fresh.txt', path: '/root/dir/fresh.txt' }),
       ]);
 
       expect(indexedEngine.findNode('/root/dir/stale.txt')).toBeNull();
@@ -259,20 +259,20 @@ describe('BFSEngine', () => {
     });
 
     it('should emit a loading-state patch for external directory updates', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
       messages = [];
 
       engine.applyDirectoryChildrenUpdate('/root/dir', [], 'loading', 42);
 
       expect(messages).toContainEqual({
-        type: 'nodeLoadStateChanged',
         operationId: 42,
         payload: {
-          path: '/root/dir',
-          loadState: 'loading',
           loadError: undefined,
+          loadState: 'loading',
+          path: '/root/dir',
         },
+        type: 'nodeLoadStateChanged',
       });
       expect(messages.some((message) => message.type === 'childrenLoaded')).toBe(false);
     });
@@ -287,7 +287,7 @@ describe('BFSEngine', () => {
     });
 
     it('warns when a legacy id-less load result could match multiple pending loads', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
       engine.setTree(tree, 'root');
       const mutableEngine = engine as unknown as {
         pendingLoads: Map<
@@ -309,25 +309,25 @@ describe('BFSEngine', () => {
         operationId: 1,
         paths: new Set(['/root/dir']),
         reject: noop,
-        results: new Map(),
         resolve: noop,
+        results: new Map(),
         timeoutId: firstTimeout,
       });
       mutableEngine.pendingLoads.set('request-2', {
         operationId: 2,
         paths: new Set(['/root/other']),
         reject: noop,
-        results: new Map(),
         resolve: noop,
+        results: new Map(),
         timeoutId: extraTimeout,
       });
 
       engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
 
       expect(messages).toContainEqual({
-        type: 'log',
         level: 'warn',
         message: 'Legacy id-less load result resolved while 2 loads were pending',
+        type: 'log',
       });
       clearTimeout(firstTimeout);
       clearTimeout(extraTimeout);
@@ -336,7 +336,7 @@ describe('BFSEngine', () => {
 
   describe('handleLoadError', () => {
     it('should set error state on node', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      const tree = [createDirectoryNode({ loadState: 'loading', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       engine.handleLoadError('/root/dir', 'Permission denied');
@@ -347,7 +347,7 @@ describe('BFSEngine', () => {
     });
 
     it('should resolve a correlated pending path load with an error result', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadPaths(['/root/dir'], 77);
@@ -366,26 +366,26 @@ describe('BFSEngine', () => {
       const updatedTree = engine.getTree();
       expect(updatedTree[0]?.loadState).toBe('error');
       expect(messages).toContainEqual({
-        type: 'nodeLoadStateChanged',
         operationId: 77,
         payload: {
-          path: '/root/dir',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir',
         },
+        type: 'nodeLoadStateChanged',
       });
       const completeMsg = messages.find((message) => message.type === 'complete');
       expect(completeMsg).toEqual({
-        type: 'complete',
         operationId: 77,
         payload: { expandedPaths: [], loadedCount: 0 },
+        type: 'complete',
       });
     });
 
     it('correlates legacy id-less load errors after skipping unmatched pending loads', async () => {
       const tree = [
-        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir2' }),
       ];
       engine.setTree(tree, 'root');
       const firstLoad = engine.loadPaths(['/root/dir1'], 51);
@@ -407,30 +407,30 @@ describe('BFSEngine', () => {
       await Promise.all([firstLoad, secondLoad]);
 
       expect(engine.getTree()).toEqual([
-        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({ loadState: 'loaded', path: '/root/dir1' }),
         expect.objectContaining({
-          path: '/root/dir2',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir2',
         }),
       ]);
       expect(messages).toContainEqual({
-        type: 'nodeLoadStateChanged',
         operationId: 52,
         payload: {
-          path: '/root/dir2',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir2',
         },
+        type: 'nodeLoadStateChanged',
       });
     });
 
     it('clears stale load errors when a directory is marked loading again', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'error',
           loadError: 'Previous failure',
+          loadState: 'error',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -444,8 +444,8 @@ describe('BFSEngine', () => {
 
     it('correlates load errors without patching unrelated paths', async () => {
       const tree = [
-        createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' }),
-        createDirectoryNode({ path: '/root/dir2', loadState: 'unloaded' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir1' }),
+        createDirectoryNode({ loadState: 'unloaded', path: '/root/dir2' }),
       ];
       engine.setTree(tree, 'root');
 
@@ -468,21 +468,21 @@ describe('BFSEngine', () => {
       await Promise.all([firstLoad, secondLoad]);
 
       expect(engine.getTree()).toEqual([
-        expect.objectContaining({ path: '/root/dir1', loadState: 'loaded' }),
+        expect.objectContaining({ loadState: 'loaded', path: '/root/dir1' }),
         expect.objectContaining({
-          path: '/root/dir2',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir2',
         }),
       ]);
       expect(messages).toContainEqual({
-        type: 'nodeLoadStateChanged',
         operationId: 32,
         payload: {
-          path: '/root/dir2',
-          loadState: 'error',
           loadError: 'Permission denied',
+          loadState: 'error',
+          path: '/root/dir2',
         },
+        type: 'nodeLoadStateChanged',
       });
     });
   });
@@ -522,9 +522,9 @@ describe('BFSEngine', () => {
     it('should keep tree data cached (not reset to unloaded)', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'loaded',
           children: [createFileNode({ path: '/root/dir/file.txt' })],
+          loadState: 'loaded',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -540,9 +540,9 @@ describe('BFSEngine', () => {
     it('should send expanded-path removal patch', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'loaded',
           children: [createFileNode({ path: '/root/dir/file.txt' })],
+          loadState: 'loaded',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -560,16 +560,16 @@ describe('BFSEngine', () => {
     it('removes nested expanded paths in one delta', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/parent',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              path: '/root/parent/child',
-              loadState: 'loaded',
-              depth: 2,
               children: [],
+              depth: 2,
+              loadState: 'loaded',
+              path: '/root/parent/child',
             }),
           ],
+          loadState: 'loaded',
+          path: '/root/parent',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -578,20 +578,20 @@ describe('BFSEngine', () => {
       engine.collapseAll();
 
       expect(messages).toContainEqual({
-        type: 'expandedPathsDelta',
         payload: {
           added: [],
           removed: ['/root/parent', '/root/parent/child'],
         },
+        type: 'expandedPathsDelta',
       });
     });
 
     it('does not emit an expanded-path delta when collapse is already synchronized', () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'loaded',
           children: [],
+          loadState: 'loaded',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -605,7 +605,7 @@ describe('BFSEngine', () => {
 
     it('should not affect file nodes', () => {
       const tree = [
-        createDirectoryNode({ path: '/root/dir', loadState: 'loaded' }),
+        createDirectoryNode({ loadState: 'loaded', path: '/root/dir' }),
         createFileNode({ path: '/root/file.txt' }),
       ];
       engine.setTree(tree, 'root');
@@ -628,7 +628,7 @@ describe('BFSEngine', () => {
     });
 
     it('should skip already loaded directories', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded', children: [] })];
+      const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       // Start loadPaths - it will skip already loaded dirs and complete
@@ -644,7 +644,7 @@ describe('BFSEngine', () => {
     });
 
     it('should log start and completion for non-empty paths', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadPaths(['/root/dir']);
@@ -665,7 +665,7 @@ describe('BFSEngine', () => {
 
   describe('expandAll', () => {
     it('should send log messages during operation', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded', children: [] })];
+      const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       // Start expandAll but abort immediately to prevent hanging
@@ -685,7 +685,7 @@ describe('BFSEngine', () => {
 
     it('should send complete message when all directories are loaded', async () => {
       // Tree with already-loaded directory (nothing to expand)
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded', children: [] })];
+      const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       await engine.expandAll();
@@ -699,7 +699,7 @@ describe('BFSEngine', () => {
     });
 
     it('should request loads for unloaded directories', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       // Start expandAll
@@ -721,7 +721,7 @@ describe('BFSEngine', () => {
     });
 
     it('should handle nested directories in BFS order', async () => {
-      const tree = [createDirectoryNode({ path: '/root/parent', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent' })];
       engine.setTree(tree, 'root');
 
       const expandPromise = engine.expandAll();
@@ -734,7 +734,7 @@ describe('BFSEngine', () => {
 
       // Simulate first load - parent contains a child directory
       engine.handleLoadResult('/root/parent', [
-        createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+        createDirectoryNode({ depth: 2, loadState: 'unloaded', path: '/root/parent/child' }),
       ]);
 
       // Wait for next wave request
@@ -753,7 +753,7 @@ describe('BFSEngine', () => {
     });
 
     it('should stop when aborted', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const expandPromise = engine.expandAll();
@@ -779,14 +779,14 @@ describe('BFSEngine', () => {
       // Tree with all directories already loaded (no fetching needed)
       const tree = [
         createDirectoryNode({
-          path: '/root/dir1',
-          loadState: 'loaded',
           children: [createFileNode({ path: '/root/dir1/file.txt' })],
+          loadState: 'loaded',
+          path: '/root/dir1',
         }),
         createDirectoryNode({
-          path: '/root/dir2',
-          loadState: 'loaded',
           children: [],
+          loadState: 'loaded',
+          path: '/root/dir2',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -801,7 +801,7 @@ describe('BFSEngine', () => {
     });
 
     it('should include loadedCount > 0 in complete message when directories need loading', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const expandPromise = engine.expandAll();
@@ -826,15 +826,15 @@ describe('BFSEngine', () => {
 
     it('stops before requesting directories beyond the depth limit', async () => {
       const deepPath = `/${Array.from({ length: 53 }, (_, index) => `level-${index}`).join('/')}`;
-      engine.setTree([createDirectoryNode({ path: deepPath, loadState: 'unloaded' })], 'root');
+      engine.setTree([createDirectoryNode({ loadState: 'unloaded', path: deepPath })], 'root');
 
       await engine.expandAll(55);
 
       expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
       expect(messages).toContainEqual({
-        type: 'complete',
         operationId: 55,
         payload: { expandedPaths: [], loadedCount: 0 },
+        type: 'complete',
       });
       expect(
         messages.some(
@@ -861,7 +861,7 @@ describe('BFSEngine', () => {
     });
 
     it('should include loadedCount=0 when all paths are already loaded', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded', children: [] })];
+      const tree = [createDirectoryNode({ children: [], loadState: 'loaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       await engine.loadPaths(['/root/dir']);
@@ -874,7 +874,7 @@ describe('BFSEngine', () => {
     });
 
     it('should include loadedCount > 0 when paths need loading', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadPaths(['/root/dir']);
@@ -899,7 +899,7 @@ describe('BFSEngine', () => {
       // This tests the retry mechanism for paths that don't exist in the tree yet
       // because their parent directories haven't been loaded.
       // Start with just the root directory loaded
-      const tree = [createDirectoryNode({ path: '/root/parent', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent' })];
       engine.setTree(tree, 'root');
 
       // Request loading a nested path that doesn't exist yet (child path before parent loaded)
@@ -913,7 +913,7 @@ describe('BFSEngine', () => {
 
       // Simulate parent loading - it contains the child directory
       engine.handleLoadResult('/root/parent', [
-        createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+        createDirectoryNode({ depth: 2, loadState: 'unloaded', path: '/root/parent/child' }),
       ]);
 
       // Wait for the child path to be requested (after retry)
@@ -938,7 +938,7 @@ describe('BFSEngine', () => {
     it('should reject when the main thread does not answer a load request before timeout', async () => {
       vi.useFakeTimers();
       try {
-        const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+        const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
         engine.setTree(tree, 'root');
 
         const loadPromise = engine.loadPaths(['/root/dir'], 88);
@@ -956,15 +956,15 @@ describe('BFSEngine', () => {
     });
 
     it('counts permanently missing paths as skipped after bounded retries', async () => {
-      engine.setTree([createDirectoryNode({ path: '/root/dir', loadState: 'loaded' })], 'root');
+      engine.setTree([createDirectoryNode({ loadState: 'loaded', path: '/root/dir' })], 'root');
 
       await engine.loadPaths(['/root/missing'], 43);
 
       expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
       expect(messages).toContainEqual({
-        type: 'complete',
         operationId: 43,
         payload: { expandedPaths: [], loadedCount: 0 },
+        type: 'complete',
       });
       expect(
         messages.some(
@@ -983,14 +983,14 @@ describe('BFSEngine', () => {
 
       expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
       expect(messages).toContainEqual({
-        type: 'complete',
         operationId: 44,
         payload: { expandedPaths: [], loadedCount: 0 },
+        type: 'complete',
       });
     });
 
     it('returns without completion when an in-flight path load is aborted', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadPaths(['/root/dir'], 45);
@@ -1003,9 +1003,9 @@ describe('BFSEngine', () => {
       await loadPromise;
 
       expect(messages).toContainEqual({
-        type: 'log',
         level: 'info',
         message: '[loadPaths] Aborted',
+        type: 'log',
       });
       expect(
         messages.some((message) => message.type === 'complete' && message.operationId === 45)
@@ -1042,9 +1042,9 @@ describe('BFSEngine', () => {
     it('should send complete with 0 count when directory is already fully loaded', async () => {
       const tree = [
         createDirectoryNode({
-          path: '/root/dir',
-          loadState: 'loaded',
           children: [createFileNode({ path: '/root/dir/file.txt' })],
+          loadState: 'loaded',
+          path: '/root/dir',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1059,7 +1059,7 @@ describe('BFSEngine', () => {
     });
 
     it('should load unloaded directory and send complete', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadSubtree('/root/dir');
@@ -1083,7 +1083,7 @@ describe('BFSEngine', () => {
     });
 
     it('should load nested unloaded directories', async () => {
-      const tree = [createDirectoryNode({ path: '/root/parent', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/parent' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadSubtree('/root/parent');
@@ -1096,7 +1096,7 @@ describe('BFSEngine', () => {
 
       // Simulate first load - parent contains a child directory
       engine.handleLoadResult('/root/parent', [
-        createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+        createDirectoryNode({ depth: 2, loadState: 'unloaded', path: '/root/parent/child' }),
       ]);
 
       // Wait for next wave request
@@ -1122,11 +1122,11 @@ describe('BFSEngine', () => {
       // unloaded child directories, loadSubtree should find and load them
       const tree = [
         createDirectoryNode({
-          path: '/root/parent',
-          loadState: 'loaded',
           children: [
-            createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+            createDirectoryNode({ depth: 2, loadState: 'unloaded', path: '/root/parent/child' }),
           ],
+          loadState: 'loaded',
+          path: '/root/parent',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1157,22 +1157,22 @@ describe('BFSEngine', () => {
       // to find deeply nested unloaded ones
       const tree = [
         createDirectoryNode({
-          path: '/root/level1',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              path: '/root/level1/level2',
-              loadState: 'loaded',
-              depth: 2,
               children: [
                 createDirectoryNode({
-                  path: '/root/level1/level2/level3',
-                  loadState: 'unloaded',
                   depth: 3,
+                  loadState: 'unloaded',
+                  path: '/root/level1/level2/level3',
                 }),
               ],
+              depth: 2,
+              loadState: 'loaded',
+              path: '/root/level1/level2',
             }),
           ],
+          loadState: 'loaded',
+          path: '/root/level1',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1201,7 +1201,7 @@ describe('BFSEngine', () => {
     });
 
     it('should handle abort during loading', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadSubtree('/root/dir');
@@ -1226,7 +1226,7 @@ describe('BFSEngine', () => {
     });
 
     it('should send progress updates during loading', async () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      const tree = [createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })];
       engine.setTree(tree, 'root');
 
       const loadPromise = engine.loadSubtree('/root/dir');
@@ -1250,10 +1250,10 @@ describe('BFSEngine', () => {
       const deepPath = `/root/${Array.from({ length: 52 }, (_, index) => `level-${index}`).join('/')}`;
       const tree = [
         createDirectoryNode({
-          path: '/root',
-          loadState: 'loaded',
+          children: [createDirectoryNode({ depth: 52, loadState: 'unloaded', path: deepPath })],
           depth: 0,
-          children: [createDirectoryNode({ path: deepPath, loadState: 'unloaded', depth: 52 })],
+          loadState: 'loaded',
+          path: '/root',
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1262,9 +1262,9 @@ describe('BFSEngine', () => {
 
       expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
       expect(messages).toContainEqual({
-        type: 'complete',
         operationId: 66,
         payload: { expandedPaths: ['/root'], loadedCount: 0 },
+        type: 'complete',
       });
       expect(
         messages.some(
@@ -1305,9 +1305,9 @@ describe('BFSEngine', () => {
       expect(state.hitDirectoryLimit).toBe(true);
       expect(messages.some((message) => message.type === 'requestLoad')).toBe(false);
       expect(messages).toContainEqual({
-        type: 'log',
         level: 'info',
         message: `[loadSubtree] Reached directory limit (${MAX_EXPAND_DIRECTORIES}), stopping`,
+        type: 'log',
       });
     });
   });
@@ -1329,7 +1329,7 @@ describe('BFSEngine', () => {
     it('should flatten a tree with only root-level nodes', () => {
       const tree = [
         createFileNode({ name: 'file1.txt', path: '/root/file1.txt' }),
-        createDirectoryNode({ name: 'dir1', path: '/root/dir1', loadState: 'unloaded' }),
+        createDirectoryNode({ loadState: 'unloaded', name: 'dir1', path: '/root/dir1' }),
       ];
       engine.setTree(tree, 'root');
 
@@ -1347,10 +1347,10 @@ describe('BFSEngine', () => {
     it('should include children of expanded and loaded directories', () => {
       const tree = [
         createDirectoryNode({
+          children: [createFileNode({ depth: 2, name: 'child.txt', path: '/root/dir1/child.txt' })],
+          loadState: 'loaded',
           name: 'dir1',
           path: '/root/dir1',
-          loadState: 'loaded',
-          children: [createFileNode({ name: 'child.txt', path: '/root/dir1/child.txt', depth: 2 })],
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1371,10 +1371,10 @@ describe('BFSEngine', () => {
     it('should not include children of collapsed directories', () => {
       const tree = [
         createDirectoryNode({
+          children: [createFileNode({ depth: 2, name: 'child.txt', path: '/root/dir1/child.txt' })],
+          loadState: 'loaded',
           name: 'dir1',
           path: '/root/dir1',
-          loadState: 'loaded',
-          children: [createFileNode({ name: 'child.txt', path: '/root/dir1/child.txt', depth: 2 })],
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1394,9 +1394,9 @@ describe('BFSEngine', () => {
     it('should not include children of expanded but unloaded directories', () => {
       const tree = [
         createDirectoryNode({
+          loadState: 'unloaded', // Not loaded yet - children not set
           name: 'dir1',
           path: '/root/dir1',
-          loadState: 'unloaded', // Not loaded yet - children not set
         }),
       ];
       engine.setTree(tree, 'root');
@@ -1427,24 +1427,24 @@ describe('BFSEngine', () => {
     it('should handle deeply nested expanded directories', () => {
       const tree = [
         createDirectoryNode({
-          name: 'level1',
-          path: '/root/level1',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              name: 'level2',
-              path: '/root/level1/level2',
-              depth: 2,
-              loadState: 'loaded',
               children: [
                 createFileNode({
+                  depth: 3,
                   name: 'deep.txt',
                   path: '/root/level1/level2/deep.txt',
-                  depth: 3,
                 }),
               ],
+              depth: 2,
+              loadState: 'loaded',
+              name: 'level2',
+              path: '/root/level1/level2',
             }),
           ],
+          loadState: 'loaded',
+          name: 'level1',
+          path: '/root/level1',
         }),
       ];
       engine.setTree(tree, 'root');

@@ -72,11 +72,11 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
   mkdirSync(canonicalDir, { recursive: true });
 
   if (files.length === 1 && path.resolve(files[0]) === path.resolve(canonicalFile)) {
-    return { cleaned: 0, packageRoot, files: 1, merged: false };
+    return { cleaned: 0, files: 1, merged: false, packageRoot };
   }
 
   const inputDir = path.join(tempRoot, safeName(packageRoot));
-  rmSync(inputDir, { recursive: true, force: true });
+  rmSync(inputDir, { force: true, recursive: true });
   mkdirSync(inputDir, { recursive: true });
 
   files.forEach((file, index) => {
@@ -111,13 +111,13 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
     }
   }
 
-  return { cleaned, packageRoot, files: files.length, merged: true };
+  return { cleaned, files: files.length, merged: true, packageRoot };
 }
 
 export function prepareWorkspaceCoverage({ roots = ['packages', 'apps'] } = {}) {
   const groups = groupCoverageFiles(roots);
   const tempRoot = path.resolve('.nyc_output', 'workspace-coverage-inputs');
-  rmSync(tempRoot, { recursive: true, force: true });
+  rmSync(tempRoot, { force: true, recursive: true });
   mkdirSync(tempRoot, { recursive: true });
 
   const results = [];

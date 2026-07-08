@@ -168,27 +168,27 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
     persist(
       (set) => ({
         ...DEFAULT_STATE,
-        setEnabled: (enabled: boolean) => set({ enabled }),
-        setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
-          set({ indexingPolicyPreset }),
         markHydrated: () => set({ hasHydrated: true }),
-        setManagedCollectionId: (managedCollectionId: string | null) =>
-          set({ managedCollectionId }),
-        setPaused: (paused: boolean) => set({ paused }),
         reset: () =>
           set({
             enabled: DEFAULT_STATE.enabled,
+            hasHydrated: true,
             indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
             managedCollectionId: DEFAULT_STATE.managedCollectionId,
             mode: DEFAULT_STATE.mode,
             paused: DEFAULT_STATE.paused,
-            hasHydrated: true,
           }),
+        setEnabled: (enabled: boolean) => set({ enabled }),
+        setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
+          set({ indexingPolicyPreset }),
+        setManagedCollectionId: (managedCollectionId: string | null) =>
+          set({ managedCollectionId }),
+        setPaused: (paused: boolean) => set({ paused }),
       }),
       {
+        migrate: (persistedState: unknown) =>
+          migrateBackgroundIndexingPreferencesState(persistedState),
         name: STORE_NAME,
-        version: STORE_VERSION,
-        storage,
         partialize: (state: BackgroundIndexingPreferencesStore) => ({
           enabled: state.enabled,
           indexingPolicyPreset: state.indexingPolicyPreset,
@@ -196,13 +196,8 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           mode: state.mode,
           paused: state.paused,
         }),
-        migrate: (persistedState: unknown) =>
-          migrateBackgroundIndexingPreferencesState(persistedState),
-        onRehydrateStorage: () => (_state, error) => {
-          if (error) {
-            return;
-          }
-        },
+        storage,
+        version: STORE_VERSION,
       }
     )
   );

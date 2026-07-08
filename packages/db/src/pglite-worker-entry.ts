@@ -30,7 +30,7 @@ void worker({
     const workerOptions = parseWorkerInitOptions(options);
     // PGlite engine extensions run here; client-side extensions are installed by PGliteWorker.
     const pgliteOptions: PGliteOptions = {
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     };
     if (workerOptions.dataDir !== undefined) {
       pgliteOptions.dataDir = workerOptions.dataDir;

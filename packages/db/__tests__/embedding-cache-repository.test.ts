@@ -39,7 +39,7 @@ describe('createEmbeddingCacheRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
     const migrationResult = await runMigrations(client);
     if (!migrationResult.success) {

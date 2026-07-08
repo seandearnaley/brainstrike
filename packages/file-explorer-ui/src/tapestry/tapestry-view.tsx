@@ -23,14 +23,14 @@ function applyDeltas(
   if (mode === 'MOVING') {
     const rangeHeight = initialRange.endLine - initialRange.startLine;
     const start = initialRange.startLine + deltaLines;
-    return { startLine: start, endLine: start + rangeHeight };
+    return { endLine: start + rangeHeight, startLine: start };
   }
   if (mode === 'RESIZING_TOP') {
     let start = initialRange.startLine + deltaLines;
     if (start >= currentEnd - 1) {
       start = currentEnd - 1;
     }
-    return { startLine: start, endLine: currentEnd };
+    return { endLine: currentEnd, startLine: start };
   }
   if (mode === 'RESIZING_BOTTOM') {
     let end = initialRange.endLine + deltaLines;
@@ -38,9 +38,9 @@ function applyDeltas(
     if (end <= start + 1) {
       end = start + 1;
     }
-    return { startLine: start, endLine: end };
+    return { endLine: end, startLine: start };
   }
-  return { startLine: initialRange.startLine, endLine: initialRange.endLine };
+  return { endLine: initialRange.endLine, startLine: initialRange.startLine };
 }
 
 /**
@@ -64,7 +64,7 @@ function findNeighborBounds(
     }
   }
 
-  return { minLine: prevEnd, maxLine: nextStart };
+  return { maxLine: nextStart, minLine: prevEnd };
 }
 
 function clampMoveBounds(
@@ -84,7 +84,7 @@ function clampMoveBounds(
     startLine = endLine - height;
   }
 
-  return { startLine, endLine };
+  return { endLine, startLine };
 }
 
 function clampResizeBounds(
@@ -102,7 +102,7 @@ function clampResizeBounds(
     endLine = maxLine;
   }
 
-  return { startLine, endLine };
+  return { endLine, startLine };
 }
 
 function applyOverlapConstraints(
@@ -162,7 +162,7 @@ function calculateNewRange(
     endLine = totalLines;
   }
 
-  return { startLine, endLine };
+  return { endLine, startLine };
 }
 
 interface TapestrySection {
@@ -296,17 +296,17 @@ function computeUpwardCreationBounds(
     }
   }
 
-  return { startLine, endLine };
+  return { endLine, startLine };
 }
 
 const IDLE_DRAG_STATE: DragState = {
-  mode: 'IDLE',
+  anchorLine: undefined,
   fileId: null,
-  rangeId: null,
-  startY: 0,
   initialRange: null,
   initialTotalLines: 0,
-  anchorLine: undefined,
+  mode: 'IDLE',
+  rangeId: null,
+  startY: 0,
 };
 
 /**
@@ -522,36 +522,36 @@ function useTapestryDrag(
 
         const newId = createRangeId();
         const newRange: TapestryRange = {
-          id: newId,
-          startLine: clickedLine,
-          endLine: clickedLine + 1,
-          isActive: true,
           color: generateColor(file.selections.length),
+          endLine: clickedLine + 1,
+          id: newId,
+          isActive: true,
+          startLine: clickedLine,
           userModified: true,
         };
 
         updateRanges(fileId, (ranges) => [...ranges, newRange]);
         dragStateRef.current = {
-          mode: 'RESIZING_BOTTOM',
+          anchorLine: clickedLine,
           fileId,
-          rangeId: newId,
-          startY: clientY,
           initialRange: newRange,
           initialTotalLines: file.totalLines,
-          anchorLine: clickedLine,
+          mode: 'RESIZING_BOTTOM',
+          rangeId: newId,
+          startY: clientY,
         };
         setIsDragging(true);
       } else {
         const resolvedRange =
           initialRange ?? file.selections.find((range) => range.id === rangeId) ?? null;
         dragStateRef.current = {
-          mode,
+          anchorLine: undefined,
           fileId,
-          rangeId,
-          startY: clientY,
           initialRange: resolvedRange,
           initialTotalLines: file.totalLines,
-          anchorLine: undefined,
+          mode,
+          rangeId,
+          startY: clientY,
         };
         setIsDragging(true);
       }
@@ -569,7 +569,7 @@ function useTapestryDrag(
     [updateRanges]
   );
 
-  return { startDrag, isDragging };
+  return { isDragging, startDrag };
 }
 
 export const TapestryView = memo<TapestryViewProps>(function TapestryView({
@@ -660,7 +660,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
       updateRanges(fileId, (ranges) =>
         ranges.map((range) =>
           range.id === rangeId
-            ? { ...range, startLine: newStartLine, endLine: newEndLine, userModified: true }
+            ? { ...range, endLine: newEndLine, startLine: newStartLine, userModified: true }
             : range
         )
       );

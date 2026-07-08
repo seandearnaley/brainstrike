@@ -16,6 +16,9 @@ interface RegisterStoragePreferencesIpcHandlersOptions {
 const logger = createLogger('StoragePreferencesIpc');
 
 const panelPersistenceStateSchema = z.object({
+  showConsole: z.boolean(),
+  showLeftPanel: z.boolean(),
+  showRightPanel: z.boolean(),
   sizes: z.array(
     z.number().superRefine((value, ctx) => {
       if (Number.isFinite(value)) {
@@ -27,9 +30,6 @@ const panelPersistenceStateSchema = z.object({
       });
     })
   ),
-  showConsole: z.boolean(),
-  showLeftPanel: z.boolean(),
-  showRightPanel: z.boolean(),
 });
 
 type PanelPersistenceState = z.infer<typeof panelPersistenceStateSchema>;
@@ -84,13 +84,13 @@ export function registerStoragePreferencesIpcHandlers({
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
         logger.warn('Cannot save layout: store not initialized');
-        return { success: false, message: 'Store not initialized' };
+        return { message: 'Store not initialized', success: false };
       }
 
       const parsed = panelPersistenceStateSchema.safeParse(state);
       if (!parsed.success) {
         logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
-        return { success: false, message: 'Invalid panel layout payload' };
+        return { message: 'Invalid panel layout payload', success: false };
       }
 
       try {
@@ -99,7 +99,7 @@ export function registerStoragePreferencesIpcHandlers({
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.warn('Failed to save panel layout', { error: message });
-        return { success: false, message };
+        return { message, success: false };
       }
     }
   );
@@ -111,27 +111,27 @@ export function registerStoragePreferencesIpcHandlers({
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
         logger.warn('Cannot load layout: store not initialized');
-        return { success: false, message: 'Store not initialized' };
+        return { message: 'Store not initialized', success: false };
       }
 
       try {
         const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
         const candidate = layout?.v1;
         if (!candidate) {
-          return { success: true, data: null };
+          return { data: null, success: true };
         }
 
         const parsed = panelPersistenceStateSchema.safeParse(candidate);
         if (!parsed.success) {
           logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
-          return { success: false, message: 'Invalid panel layout data' };
+          return { message: 'Invalid panel layout data', success: false };
         }
 
-        return { success: true, data: parsed.data };
+        return { data: parsed.data, success: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.warn('Failed to load panel layout', { error: message });
-        return { success: false, message };
+        return { message, success: false };
       }
     }
   );
@@ -143,14 +143,14 @@ export function registerStoragePreferencesIpcHandlers({
       try {
         const store = getSettingsStoreAccess(getStore);
         if (!store) {
-          return { success: false, message: 'Store not initialized' };
+          return { message: 'Store not initialized', success: false };
         }
         store.clear();
         return { success: true };
       } catch (error) {
         return {
-          success: false,
           message: error instanceof Error ? error.message : String(error),
+          success: false,
         };
       }
     }

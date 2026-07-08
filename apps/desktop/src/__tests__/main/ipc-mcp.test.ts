@@ -34,37 +34,37 @@ function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => 
 
 // Mock electron
 vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/tmp'),
+  },
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => []),
+  },
+  dialog: {
+    showOpenDialog: vi.fn(),
+  },
   ipcMain: {
     handle: vi.fn(),
     on: vi.fn(),
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   },
-  dialog: {
-    showOpenDialog: vi.fn(),
-  },
-  BrowserWindow: {
-    getAllWindows: vi.fn(() => []),
-  },
-  app: {
-    getPath: vi.fn(() => '/tmp'),
-  },
 }));
 
 // Mock dependencies
 vi.mock('../../mcp-loader', () => ({
   getDefaultMcpConfigTemplate: vi.fn(() => '{\n  "servers": []\n}'),
-  loadMcpConfig: vi.fn(),
-  watchMcpConfig: vi.fn(),
   getMcpConfigPath: vi.fn(),
-  setCustomMcpConfigPath: vi.fn(),
+  loadMcpConfig: vi.fn(),
   readMcpConfigText: vi.fn(),
+  setCustomMcpConfigPath: vi.fn(),
+  watchMcpConfig: vi.fn(),
   writeMcpConfigText: vi.fn(),
 }));
 
 vi.mock('../../mcp', () => ({
-  initClients: vi.fn(),
   disposeClients: vi.fn(),
+  initClients: vi.fn(),
 }));
 
 vi.mock('../../openai-api-key', () => ({
@@ -72,10 +72,10 @@ vi.mock('../../openai-api-key', () => ({
 }));
 
 const mockSecretsService = {
-  saveKey: vi.fn(),
-  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   deleteKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
+  saveKey: vi.fn(),
 };
 
 vi.mock('../../secrets', () => ({
@@ -195,10 +195,10 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:get', () => {
     it('should load config and initialize clients when config exists', async () => {
       const mockConfig = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }] },
         loadedAt: Date.now(),
+        path: '/path/to/config',
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
@@ -218,8 +218,8 @@ describe('ipc-mcp handlers', () => {
 
     it('should dispose clients when config does not exist', async () => {
       const mockConfig = {
-        path: '/path/to/config',
         exists: false,
+        path: '/path/to/config',
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
@@ -243,15 +243,15 @@ describe('ipc-mcp handlers', () => {
 
     it('should update last config reference', async () => {
       const mockConfig1 = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd1', name: 'test1', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'test1', command: 'cmd1' }] },
+        path: '/path/to/config',
       };
 
       const mockConfig2 = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd2', name: 'test2', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'test2', command: 'cmd2' }] },
+        path: '/path/to/config',
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
@@ -320,9 +320,9 @@ describe('ipc-mcp handlers', () => {
 
       // Simulate config change
       const newConfig = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd', name: 'updated', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'updated', command: 'cmd' }] },
+        path: '/path/to/config',
       };
 
       if (!watchCallback) {
@@ -352,8 +352,8 @@ describe('ipc-mcp handlers', () => {
 
       // Simulate config removal
       const invalidConfig = {
-        path: '/path/to/config',
         exists: false,
+        path: '/path/to/config',
       };
 
       if (!watchCallback) {
@@ -380,9 +380,9 @@ describe('ipc-mcp handlers', () => {
       await watchHandler({});
 
       const newConfig = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd', name: 'watched', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'watched', command: 'cmd' }] },
+        path: '/path/to/config',
       };
 
       if (!watchCallback) {
@@ -509,20 +509,20 @@ describe('ipc-mcp handlers', () => {
 
       // Simulate multiple config changes
       const config1 = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd1', name: 'server1', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'server1', command: 'cmd1' }] },
+        path: '/path/to/config',
       };
 
       const config2 = {
-        path: '/path/to/config',
         exists: false,
+        path: '/path/to/config',
       };
 
       const config3 = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd2', name: 'server2', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'server2', command: 'cmd2' }] },
+        path: '/path/to/config',
       };
 
       if (!watchCallback) {
@@ -549,10 +549,10 @@ describe('ipc-mcp handlers', () => {
 
     it('should handle get -> watch -> get flow with same config', async () => {
       const mockConfig = {
-        path: '/path/to/config',
+        config: { servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }] },
         exists: true,
-        config: { servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }] },
         loadedAt: Date.now(),
+        path: '/path/to/config',
       };
 
       const mockedLoad = vi.mocked(loadMcpConfig);
@@ -620,9 +620,9 @@ describe('ipc-mcp handlers', () => {
       } as never);
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
-        path: '/tmp/new.json',
-        exists: true,
         config: { servers: [] },
+        exists: true,
+        path: '/tmp/new.json',
       } as never);
       vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/new.json' as never);
 
@@ -640,7 +640,7 @@ describe('ipc-mcp handlers', () => {
       expect(setCustomMcpConfigPath).toHaveBeenCalledWith(path.resolve('/tmp/new.json'));
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(watchMcpConfig).toHaveBeenCalled();
-      expect(result).toEqual({ success: true, path: '/tmp/new.json' });
+      expect(result).toEqual({ path: '/tmp/new.json', success: true });
     });
 
     it('rejects arbitrary renderer-supplied paths that were not selected natively', async () => {
@@ -659,10 +659,10 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:readText', () => {
     it('returns MCP config text document', async () => {
       vi.mocked(readMcpConfigText).mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       } as never);
 
       const handler = handlers.get('mcp:config:readText');
@@ -673,10 +673,10 @@ describe('ipc-mcp handlers', () => {
       const result = await handler();
       expect(readMcpConfigText).toHaveBeenCalledWith(true);
       expect(result).toEqual({
-        path: '/tmp/mcp.config.json',
-        exists: true,
-        created: false,
         content: '{\n  "servers": []\n}',
+        created: false,
+        exists: true,
+        path: '/tmp/mcp.config.json',
       });
     });
   });
@@ -684,13 +684,13 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:writeText', () => {
     it('writes valid config and reloads active clients', async () => {
       vi.mocked(writeMcpConfigText).mockResolvedValue({
-        success: true,
         path: '/tmp/mcp.config.json',
+        success: true,
       } as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
-        path: '/tmp/mcp.config.json',
-        exists: true,
         config: { servers: [] },
+        exists: true,
+        path: '/tmp/mcp.config.json',
       } as never);
 
       const handler = handlers.get('mcp:config:writeText');
@@ -701,14 +701,14 @@ describe('ipc-mcp handlers', () => {
       const result = await handler({} as never, '{ "servers": [] }');
       expect(writeMcpConfigText).toHaveBeenCalledWith('{ "servers": [] }');
       expect(loadMcpConfig).toHaveBeenCalled();
-      expect(result).toEqual({ success: true, path: '/tmp/mcp.config.json' });
+      expect(result).toEqual({ path: '/tmp/mcp.config.json', success: true });
     });
 
     it('returns validation failure without reloading clients', async () => {
       vi.mocked(writeMcpConfigText).mockResolvedValue({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'invalid_mcp_config',
+        path: '/tmp/mcp.config.json',
+        success: false,
       } as never);
 
       const handler = handlers.get('mcp:config:writeText');
@@ -720,9 +720,9 @@ describe('ipc-mcp handlers', () => {
       const result = await handler({} as never, '{ invalid }');
       expect(vi.mocked(loadMcpConfig).mock.calls.length).toBe(loadCallsBefore);
       expect(result).toEqual({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'invalid_mcp_config',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
     });
 
@@ -739,9 +739,9 @@ describe('ipc-mcp handlers', () => {
 
       expect(writeMcpConfigText).not.toHaveBeenCalled();
       expect(result).toEqual({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'MCP config exceeds 1000000 bytes',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
     });
 
@@ -757,9 +757,9 @@ describe('ipc-mcp handlers', () => {
 
       expect(writeMcpConfigText).not.toHaveBeenCalled();
       expect(result).toEqual({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'MCP config content must be a string',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
     });
 
@@ -775,9 +775,9 @@ describe('ipc-mcp handlers', () => {
 
       expect(writeMcpConfigText).not.toHaveBeenCalled();
       expect(result).toEqual({
-        success: false,
-        path: '/tmp/mcp.config.json',
         error: 'MCP config content cannot be empty',
+        path: '/tmp/mcp.config.json',
+        success: false,
       });
     });
   });
@@ -790,9 +790,9 @@ describe('ipc-mcp handlers', () => {
 
       vi.mocked(getMcpConfigPath).mockResolvedValue(samplePath as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
-        path: samplePath,
-        exists: true,
         config: { servers: [] },
+        exists: true,
+        path: samplePath,
       } as never);
 
       const handler = handlers.get('mcp:config:createSample');
@@ -802,12 +802,12 @@ describe('ipc-mcp handlers', () => {
 
       const result = await handler();
 
-      expect(result).toEqual({ success: true, path: samplePath });
+      expect(result).toEqual({ path: samplePath, success: true });
       const content = await fsp.readFile(samplePath, 'utf8');
       expect(content).toContain('"servers"');
       expect(getMcpConfigPath).toHaveBeenCalled();
 
-      await fsp.rm(tempDir, { recursive: true, force: true });
+      await fsp.rm(tempDir, { force: true, recursive: true });
     });
 
     it('refuses to overwrite an existing config file', async () => {
@@ -828,14 +828,14 @@ describe('ipc-mcp handlers', () => {
       const result = await handler();
 
       expect(result).toEqual({
-        success: false,
-        path: samplePath,
         error:
           'MCP config already exists. Select the existing file or reset the path before creating a sample.',
+        path: samplePath,
+        success: false,
       });
       expect(await fsp.readFile(samplePath, 'utf8')).toBe(originalContent);
 
-      await fsp.rm(tempDir, { recursive: true, force: true });
+      await fsp.rm(tempDir, { force: true, recursive: true });
     });
 
     it('restarts watcher after creating sample config', async () => {
@@ -850,9 +850,9 @@ describe('ipc-mcp handlers', () => {
         .mockResolvedValueOnce(secondWatcher as never);
       vi.mocked(getMcpConfigPath).mockResolvedValue(samplePath as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
-        path: samplePath,
-        exists: true,
         config: { servers: [] },
+        exists: true,
+        path: samplePath,
       } as never);
 
       const watchHandler = handlers.get('mcp:config:watch');
@@ -864,11 +864,11 @@ describe('ipc-mcp handlers', () => {
       await watchHandler({});
       const result = await createSampleHandler();
 
-      expect(result).toEqual({ success: true, path: samplePath });
+      expect(result).toEqual({ path: samplePath, success: true });
       expect(firstWatcher.close).toHaveBeenCalledTimes(1);
       expect(watchMcpConfig).toHaveBeenCalledTimes(2);
 
-      await fsp.rm(tempDir, { recursive: true, force: true });
+      await fsp.rm(tempDir, { force: true, recursive: true });
     });
   });
 });

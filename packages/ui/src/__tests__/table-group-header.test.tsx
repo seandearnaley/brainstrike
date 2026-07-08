@@ -20,8 +20,8 @@ describe('TableGroupHeader', () => {
     isCollapsed: false,
     isFullySelected: false,
     isPartiallySelected: false,
-    onToggleCollapse: vi.fn(),
     onSelectionChange: vi.fn(),
+    onToggleCollapse: vi.fn(),
   };
 
   it('renders label, icon and stats', () => {

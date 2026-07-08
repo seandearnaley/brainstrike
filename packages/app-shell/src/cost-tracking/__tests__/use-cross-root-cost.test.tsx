@@ -7,8 +7,8 @@ const { unsubscribeMock, subscribeMock, usePGliteDatabaseMock, usePGliteLiveQuer
     const unsubscribe = vi.fn(async () => undefined);
     const subscribe = vi.fn(() => unsubscribe);
     return {
-      unsubscribeMock: unsubscribe,
       subscribeMock: subscribe,
+      unsubscribeMock: unsubscribe,
       usePGliteDatabaseMock: vi.fn(),
       // The live-query hook drives the real subscription lifecycle (its own
       // package tests prove subscribe-on-mount / unsubscribe-on-unmount). Here we
@@ -46,7 +46,7 @@ describe('useCrossRootCost', () => {
       if (options.enabled) {
         subscribeMock();
       }
-      return { rows: [], loading: false, error: null, refresh: vi.fn() };
+      return { error: null, loading: false, refresh: vi.fn(), rows: [] };
     });
   });
 
@@ -98,7 +98,7 @@ describe('useCrossRootCost', () => {
           void unsubscribe();
         };
       }, [options.enabled]);
-      return { rows: [], loading: false, error: null, refresh: vi.fn() };
+      return { error: null, loading: false, refresh: vi.fn(), rows: [] };
     });
 
     const { result, unmount } = renderHook(() => useCrossRootCost());
@@ -115,20 +115,20 @@ describe('useCrossRootCost', () => {
   it('maps live-query rows through the strict repo parser (bigint string → number)', () => {
     usePGliteDatabaseMock.mockReturnValue({});
     usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
       rows: [
         {
-          rootId: 'root-a',
-          rootDisplayName: 'project-alpha',
-          provider: 'openai',
-          model: 'gpt-5.2',
           // PGlite returns SUM()::bigint as a string — must coerce to number.
           inputTokens: '1500',
+          model: 'gpt-5.2',
           outputTokens: '300',
+          provider: 'openai',
+          rootDisplayName: 'project-alpha',
+          rootId: 'root-a',
         },
       ],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
     });
 
     const { result } = renderHook(() => useCrossRootCost());
@@ -136,12 +136,12 @@ describe('useCrossRootCost', () => {
     expect(result.current.error).toBeNull();
     expect(result.current.rows).toEqual([
       {
-        rootId: 'root-a',
-        rootDisplayName: 'project-alpha',
-        provider: 'openai',
-        model: 'gpt-5.2',
         inputTokens: 1500,
+        model: 'gpt-5.2',
         outputTokens: 300,
+        provider: 'openai',
+        rootDisplayName: 'project-alpha',
+        rootId: 'root-a',
       },
     ]);
   });
@@ -149,21 +149,21 @@ describe('useCrossRootCost', () => {
   it('surfaces a malformed aggregate row as an error, never fabricated zeros', () => {
     usePGliteDatabaseMock.mockReturnValue({});
     usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
       rows: [
         {
-          rootId: 'root-a',
-          rootDisplayName: 'project-alpha',
-          provider: 'openai',
-          model: 'gpt-5.2',
           // A negative aggregate is impossible from a CHECK-constrained table,
           // but a corrupt/garbage value must read as "couldn't load", not $0.
           inputTokens: -5,
+          model: 'gpt-5.2',
           outputTokens: 'not-a-number',
+          provider: 'openai',
+          rootDisplayName: 'project-alpha',
+          rootId: 'root-a',
         },
       ],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
     });
 
     const { result } = renderHook(() => useCrossRootCost());

@@ -46,13 +46,7 @@ export function buildProfileCommand(packageName, options) {
   const scriptName = options.coverage ? 'test:coverage' : 'test';
   return [
     'pnpm',
-    [
-      '--filter',
-      packageName,
-      'run',
-      scriptName,
-      '--experimental.importDurations.print',
-    ],
+    ['--filter', packageName, 'run', scriptName, '--experimental.importDurations.print'],
   ];
 }
 

@@ -83,10 +83,10 @@ jobs:
   unit:
     name: Unit
     runs-on: ubuntu-latest
-    # Foundational PRs (e.g. changes to @brainstrike/utils) pull in ~30
-    # dependent packages via pnpm's `...[ref]` filter. 30 minutes was tight
-    # on those — bumped to 45 to leave headroom.
-    timeout-minutes: 45
+    # Foundational PRs (e.g. changes to @brainstrike/utils or lint presets)
+    # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
+    # aligned with Coverage so broad but valid changes do not time out mid-run.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6

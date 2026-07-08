@@ -36,11 +36,11 @@ export interface BudgetAllocation {
  * Default budget allocation percentages.
  */
 export const DEFAULT_BUDGET_ALLOCATION: BudgetAllocation = {
-  systemPrompt: 0.15,
-  responseBuffer: 0.1,
-  criticalTools: 0.15,
   conditionalTools: 0.35,
   contextResults: 0.25,
+  criticalTools: 0.15,
+  responseBuffer: 0.1,
+  systemPrompt: 0.15,
 };
 
 /**
@@ -199,11 +199,11 @@ export class TokenBudgetManager {
     }
 
     return {
+      budgetAvailable: budget,
       selectedTools,
       skippedTools,
-      tokensUsed,
       tokensRemaining: budget - tokensUsed,
-      budgetAvailable: budget,
+      tokensUsed,
     };
   }
 
@@ -261,8 +261,8 @@ export class TokenBudgetManager {
     const deferred = tools.filter((t) => t.loadingTier === 'deferred' && t.enabled);
 
     return {
-      critical,
       conditional,
+      critical,
       deferred,
       totalTokensUsed: critical.tokensUsed + conditional.tokensUsed,
     };
@@ -276,11 +276,11 @@ export class TokenBudgetManager {
     conditionalTokensUsed: number
   ): BudgetUtilizationReport {
     const allocatedTokens = {
-      systemPrompt: Math.floor(this.contextWindowTokens * this.allocation.systemPrompt),
-      responseBuffer: Math.floor(this.contextWindowTokens * this.allocation.responseBuffer),
-      criticalTools: Math.floor(this.contextWindowTokens * this.allocation.criticalTools),
       conditionalTools: Math.floor(this.contextWindowTokens * this.allocation.conditionalTools),
       contextResults: Math.floor(this.contextWindowTokens * this.allocation.contextResults),
+      criticalTools: Math.floor(this.contextWindowTokens * this.allocation.criticalTools),
+      responseBuffer: Math.floor(this.contextWindowTokens * this.allocation.responseBuffer),
+      systemPrompt: Math.floor(this.contextWindowTokens * this.allocation.systemPrompt),
     };
 
     const totalToolTokens = criticalTokensUsed + conditionalTokensUsed;
@@ -288,13 +288,13 @@ export class TokenBudgetManager {
     const remainingForContext = allocatedTokens.contextResults + (toolBudget - totalToolTokens);
 
     return {
-      contextWindowTokens: this.contextWindowTokens,
       allocatedTokens,
-      usedTokens: {
-        criticalTools: criticalTokensUsed,
-        conditionalTools: conditionalTokensUsed,
-      },
+      contextWindowTokens: this.contextWindowTokens,
       remainingForContext,
+      usedTokens: {
+        conditionalTools: conditionalTokensUsed,
+        criticalTools: criticalTokensUsed,
+      },
       utilizationPercent: toolBudget > 0 ? (totalToolTokens / toolBudget) * 100 : 0,
     };
   }
@@ -378,10 +378,10 @@ export const COMMON_CONTEXT_WINDOWS = {
   large: 128_000,
   /** GPT-4 / Claude 2 (32K) */
   medium: 32_000,
-  /** GPT-3.5 Turbo (16K) */
-  small: 16_000,
   /** Smaller models (8K) */
   minimal: 8000,
+  /** GPT-3.5 Turbo (16K) */
+  small: 16_000,
 } as const;
 
 /**

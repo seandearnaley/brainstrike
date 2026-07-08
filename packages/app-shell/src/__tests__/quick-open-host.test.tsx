@@ -48,11 +48,11 @@ describe('QuickOpenHost', () => {
   it('opens the selected file by its root-disambiguated compositeKey and switches to the explorer tab', async () => {
     filesRef.current = [
       {
+        compositeKey: 'root-b|@|src/index.ts',
         id: 'b',
         name: 'index.ts',
         path: 'src/index.ts',
         rootLabel: 'Beta',
-        compositeKey: 'root-b|@|src/index.ts',
       },
     ];
     useQuickOpenStore.setState({ isOpen: true });

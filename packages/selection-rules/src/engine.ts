@@ -56,7 +56,7 @@ export interface TreeAdapter {
    *
    * @returns Iterable of file paths for lazy evaluation
    */
-  getAllFilePaths(): Iterable<string>;
+  getAllFilePaths: () => Iterable<string>;
 
   /**
    * Get all files under a specific root directory.
@@ -65,14 +65,14 @@ export interface TreeAdapter {
    * @param maxDepth - Maximum depth to traverse (undefined = unlimited)
    * @returns Iterable of file paths
    */
-  getFilesUnderRoot(root: string, maxDepth?: number): Iterable<string>;
+  getFilesUnderRoot: (root: string, maxDepth?: number) => Iterable<string>;
 
   /**
    * Get total file count (for optimization).
    *
    * @returns Total number of files (non-directories)
    */
-  getTotalFileCount(): number;
+  getTotalFileCount: () => number;
 
   /**
    * Check if a path exists in the tree.
@@ -80,7 +80,7 @@ export interface TreeAdapter {
    * @param path - Path to check
    * @returns true if path exists
    */
-  pathExists(path: string): boolean;
+  pathExists: (path: string) => boolean;
 }
 
 // ============================================================================
@@ -99,12 +99,12 @@ export interface TreeAdapter {
  * 6. cap → Post-process limit
  */
 const RULE_TYPE_PRECEDENCE: Record<SelectionRule['type'], number> = {
-  'root-include': 1,
+  cap: 6,
+  explicit: 5,
+  'glob-exclude': 4,
   'glob-include': 2,
   'root-exclude': 3,
-  'glob-exclude': 4,
-  explicit: 5,
-  cap: 6,
+  'root-include': 1,
 };
 
 const GLOB_MATCH_OPTIONS = { dot: true } as const;
@@ -243,12 +243,12 @@ export class SelectionRuleEngine {
     const capResult = this.processCapRules(selection, options, warnings, appliedRules);
 
     return {
-      paths: capResult.selection,
       appliedRules: [...new Set(appliedRules)],
       capped: capResult.capped,
-      originalCount,
-      warnings,
       materializedAt: new Date().toISOString(),
+      originalCount,
+      paths: capResult.selection,
+      warnings,
     };
   }
 
@@ -386,7 +386,7 @@ export class SelectionRuleEngine {
       capped = true;
     }
 
-    return { selection: result, capped };
+    return { capped, selection: result };
   }
 
   /**
@@ -575,7 +575,7 @@ export class SelectionRuleEngine {
     warnings: MaterializationWarning[]
   ): { selection: Set<string>; capped: boolean } {
     if (selection.size <= rule.maxCount) {
-      return { selection, capped: false };
+      return { capped: false, selection };
     }
 
     warnings.push({
@@ -611,7 +611,7 @@ export class SelectionRuleEngine {
         selectedPaths = paths.slice(0, rule.maxCount);
     }
 
-    return { selection: new Set(selectedPaths), capped: true };
+    return { capped: true, selection: new Set(selectedPaths) };
   }
 
   /**

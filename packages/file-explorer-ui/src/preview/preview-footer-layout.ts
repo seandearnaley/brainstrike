@@ -5,12 +5,12 @@ export type PreviewFooterMode = (typeof PREVIEW_FOOTER_MODES)[number];
 export const PREVIEW_FOOTER_HEIGHTS = {
   // Height when collapsed — just the header bar with resize handle and buttons.
   collapsed: 30,
-  // Slight undershoot while dragging keeps the resize handle usable before snapping to compact mode.
-  min: 120,
   compact: 160,
   default: 228,
   expanded: 400,
   max: 540,
+  // Slight undershoot while dragging keeps the resize handle usable before snapping to compact mode.
+  min: 120,
   resizeStep: 8,
 } as const;
 

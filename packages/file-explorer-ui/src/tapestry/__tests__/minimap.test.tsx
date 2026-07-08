@@ -7,46 +7,46 @@ import { getTapestryRenderMetrics } from '../utils';
 
 const createFile = (): FileTapestry => {
   const range: TapestryRange = {
-    id: 'range-1',
-    startLine: 2,
-    endLine: 6,
-    isActive: true,
     color: '#ef4444',
+    endLine: 6,
+    id: 'range-1',
+    isActive: true,
+    startLine: 2,
   };
 
   return {
-    id: 'file-1',
     compositeKey: 'file-1',
-    rootFolderId: 'root',
-    path: '/src/App.tsx',
-    name: 'App.tsx',
-    language: 'tsx',
-    type: 'TSX',
-    size: 1024,
-    tokens: 1200,
-    totalLines: 10,
-    structure: Array.from({ length: 10 }, () => ({
-      indent: 0,
-      width: 40,
-      isEmpty: false,
-    })),
     content: Array.from({ length: 10 }, (_, index) => `line-${index}`),
     contentStatus: 'ready',
+    id: 'file-1',
+    language: 'tsx',
+    name: 'App.tsx',
+    path: '/src/App.tsx',
+    rootFolderId: 'root',
     selections: [range],
+    size: 1024,
+    structure: Array.from({ length: 10 }, () => ({
+      indent: 0,
+      isEmpty: false,
+      width: 40,
+    })),
+    tokens: 1200,
+    totalLines: 10,
+    type: 'TSX',
   };
 };
 
 const createRect = (overrides: Partial<DOMRect> = {}): DOMRect =>
   ({
-    top: 100,
+    bottom: 120,
+    height: 20,
     left: 0,
     right: 100,
-    bottom: 120,
+    toJSON: () => '',
+    top: 100,
     width: 100,
-    height: 20,
     x: 0,
     y: 100,
-    toJSON: () => '',
     ...overrides,
   }) as DOMRect;
 

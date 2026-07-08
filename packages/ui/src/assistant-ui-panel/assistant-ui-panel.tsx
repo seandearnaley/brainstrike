@@ -829,15 +829,15 @@ const LocalRuntimeChat: FC<
         ...(onStreamActivity ? { onActivity: onStreamActivity } : {}),
         ...(onUsage ? { onUsage } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
-        onLoadingProgress: (progress: LocalModelLoadingState) => {
-          onLoadingStateChange(progress);
-        },
         onError: (error: Error) => {
           onLoadingStateChange({
-            stage: 'error',
-            progress: 0,
             message: error.message,
+            progress: 0,
+            stage: 'error',
           });
+        },
+        onLoadingProgress: (progress: LocalModelLoadingState) => {
+          onLoadingStateChange(progress);
         },
       }),
     [
@@ -988,8 +988,8 @@ const DataStreamRuntimeChat: FC<
         data: {
           ...(requestData ?? {}),
           ...(preparedRequestData ?? {}),
-          provider: selectedProvider,
           model: modelName,
+          provider: selectedProvider,
         },
       };
     },
@@ -1175,9 +1175,9 @@ const ChatThreadUI: FC<{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
             AssistantMessage,
             /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            UserMessage,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
             EditComposer,
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            UserMessage,
           }}
         />
       </ThreadPrimitive.Viewport>
@@ -1568,10 +1568,10 @@ const BranchPicker: FC<{ className?: string }> = ({ className }) => (
 );
 
 const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
-  hosted: 'Hosted',
-  gateway: 'Gateway',
-  local: 'Local',
   browser: 'Browser',
+  gateway: 'Gateway',
+  hosted: 'Hosted',
+  local: 'Local',
 };
 
 interface ProviderModelOption {
@@ -1630,17 +1630,17 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
         .map((group) => {
           const providers = group.providers
             .map((provider) => ({
-              provider,
               models: provider.models.filter((model) => model.enabled),
+              provider,
             }))
             .filter((entry) => entry.models.length > 0);
           if (providers.length === 0) {
             return null;
           }
           return {
-            runtime: group.runtime,
             label: group.label ?? RUNTIME_LABELS[group.runtime],
             providers,
+            runtime: group.runtime,
           };
         })
         .filter((group): group is NormalizedProviderGroup => group !== null),
@@ -1652,10 +1652,10 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
       normalizedGroups.flatMap((group) =>
         group.providers.flatMap((entry) =>
           entry.models.map((model) => ({
-            value: `${entry.provider.id}::${model.id}`,
-            provider: entry.provider,
-            model,
             groupLabel: group.label,
+            model,
+            provider: entry.provider,
+            value: `${entry.provider.id}::${model.id}`,
           }))
         )
       ),

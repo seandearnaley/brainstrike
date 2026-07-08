@@ -22,8 +22,8 @@ function hnswParams(): { m: number; ef: number } {
   const m = Number(process.env['HNSW_M'] || '16');
   const ef = Number(process.env['HNSW_EF_CONSTRUCTION'] || '64');
   return {
-    m: Number.isFinite(m) && m > 0 ? Math.floor(m) : 16,
     ef: Number.isFinite(ef) && ef > 0 ? Math.floor(ef) : 64,
+    m: Number.isFinite(m) && m > 0 ? Math.floor(m) : 16,
   };
 }
 

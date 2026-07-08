@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
   error: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
@@ -22,26 +22,26 @@ vi.mock('@brainstrike/utils/logger', () => ({
 
 // Mock localStorage
 const mockLocalStorage = {
-  data: new Map<string, string>(),
-  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) ?? null),
-  setItem: vi.fn((key: string, value: string) => {
-    mockLocalStorage.data.set(key, value);
-  }),
-  removeItem: vi.fn((key: string) => {
-    mockLocalStorage.data.delete(key);
-  }),
   clear: vi.fn(() => {
     mockLocalStorage.data.clear();
   }),
-  length: 0,
+  data: new Map<string, string>(),
+  getItem: vi.fn((key: string) => mockLocalStorage.data.get(key) ?? null),
   key: vi.fn(() => null),
+  length: 0,
+  removeItem: vi.fn((key: string) => {
+    mockLocalStorage.data.delete(key);
+  }),
+  setItem: vi.fn((key: string, value: string) => {
+    mockLocalStorage.data.set(key, value);
+  }),
 };
 
 // Add localStorage to global
 Object.defineProperty(global, 'localStorage', {
+  configurable: true,
   value: mockLocalStorage,
   writable: true,
-  configurable: true,
 });
 
 const mockStorageAdapter: StorageAdapter = {

@@ -12,7 +12,10 @@ describe('spawn command helpers', () => {
   });
 
   it('quotes Windows shell arguments that contain spaces', () => {
-    assert.equal(quoteWindowsShellArg('--grep=Database Persistence'), '"--grep=Database Persistence"');
+    assert.equal(
+      quoteWindowsShellArg('--grep=Database Persistence'),
+      '"--grep=Database Persistence"'
+    );
     assert.deepEqual(
       createSpawnInvocation(
         'pnpm',

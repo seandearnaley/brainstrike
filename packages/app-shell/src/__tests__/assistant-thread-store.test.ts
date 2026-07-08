@@ -9,26 +9,26 @@ const workspaceId = '/tmp/workspace-a';
 
 function makeThread(id: string, updatedAt: string): AssistantMemoryThread {
   return {
+    createdAt: new Date('2026-04-22T09:00:00Z'),
     id,
     resourceId: workspaceId,
     title: id,
-    createdAt: new Date('2026-04-22T09:00:00Z'),
     updatedAt: new Date(updatedAt),
   };
 }
 
 function makeCuratedThread(): AssistantMemoryThread {
   return {
+    createdAt: new Date('2026-04-22T09:00:00Z'),
     id: 'thread-curated',
+    metadata: {
+      color: 'blue',
+      icon: 'message',
+      model: 'gpt-5.2',
+      provider: 'openai',
+    },
     resourceId: workspaceId,
     title: 'Curated thread',
-    metadata: {
-      provider: 'openai',
-      model: 'gpt-5.2',
-      icon: 'message',
-      color: 'blue',
-    },
-    createdAt: new Date('2026-04-22T09:00:00Z'),
     updatedAt: new Date('2026-04-22T10:00:00Z'),
   };
 }
@@ -43,21 +43,21 @@ function createRepository(
     appendThreadRunEvent: vi.fn(),
     completeThreadRun: vi.fn(),
     createThread: vi.fn(async (resourceId: string) => ({
+      createdAt: new Date('2026-04-22T12:00:00Z'),
       id: 'thread-created',
       resourceId,
       title: 'New Thread',
-      createdAt: new Date('2026-04-22T12:00:00Z'),
       updatedAt: new Date('2026-04-22T12:00:00Z'),
     })),
     createThreadRun: vi.fn(),
-    getThreadCumulativeUsage: vi.fn(async () => null),
-    getCrossRootUsage: vi.fn(async () => []),
-    recordRunUsage: vi.fn(),
     deleteThread: vi.fn(),
+    getCrossRootUsage: vi.fn(async () => []),
+    getThreadCumulativeUsage: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(async () => threads),
+    recordRunUsage: vi.fn(),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
   };
@@ -168,29 +168,29 @@ describe('useAssistantThreadStore tab sessions', () => {
 
     store.openThreadTab(workspaceId, 'thread-a');
     store.setThreadDraftRuntime('thread-a', {
-      provider: 'openai',
       model: 'gpt-5.2',
       modelSettings: { maxOutputTokens: 512 },
+      provider: 'openai',
       providerOptions: { openai: { reasoningEffort: 'high' } },
     });
     store.openThreadTab(workspaceId, 'thread-b');
     store.setThreadDraftRuntime('thread-b', {
-      provider: 'anthropic',
       model: 'claude-sonnet-4-6',
       modelSettings: { maxOutputTokens: 1024 },
+      provider: 'anthropic',
     });
 
     expect(useAssistantThreadStore.getState().draftRuntimeByThreadId).toEqual({
       'thread-a': {
-        provider: 'openai',
         model: 'gpt-5.2',
         modelSettings: { maxOutputTokens: 512 },
+        provider: 'openai',
         providerOptions: { openai: { reasoningEffort: 'high' } },
       },
       'thread-b': {
-        provider: 'anthropic',
         model: 'claude-sonnet-4-6',
         modelSettings: { maxOutputTokens: 1024 },
+        provider: 'anthropic',
       },
     });
   });
@@ -202,21 +202,21 @@ describe('useAssistantThreadStore tab sessions', () => {
     await useAssistantThreadStore
       .getState()
       .updateThreadMetadata(repository, workspaceId, 'thread-curated', {
-        icon: 'bug',
         color: 'rose',
+        icon: 'bug',
       });
 
     expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-curated', {
-      icon: 'bug',
       color: 'rose',
+      icon: 'bug',
     });
     expect(
       useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
     ).toEqual({
-      provider: 'openai',
-      model: 'gpt-5.2',
-      icon: 'bug',
       color: 'rose',
+      icon: 'bug',
+      model: 'gpt-5.2',
+      provider: 'openai',
     });
   });
 
@@ -262,10 +262,10 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(
       useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
     ).toEqual({
-      provider: 'openai',
-      model: 'gpt-5.2',
-      icon: 'plan',
       color: 'rose',
+      icon: 'plan',
+      model: 'gpt-5.2',
+      provider: 'openai',
     });
   });
 });

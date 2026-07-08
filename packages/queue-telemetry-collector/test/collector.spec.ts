@@ -8,12 +8,12 @@ async function postJson(
   headers: Record<string, string> = {}
 ) {
   const response = await fetch(endpoint, {
-    method: 'POST',
+    body: JSON.stringify(body),
     headers: {
       'content-type': 'application/json',
       ...headers,
     },
-    body: JSON.stringify(body),
+    method: 'POST',
   });
   return response;
 }
@@ -41,17 +41,17 @@ describe('createQueueTelemetryCollector', () => {
     expect(endpoint).not.toBeNull();
 
     const payload = {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId: 'task-1',
+          timestamp: Date.now(),
         },
       ],
       metadata: { sessionId: 'abc' },
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     };
 
     const response = await postJson(endpoint as string, payload);
@@ -86,10 +86,10 @@ describe('createQueueTelemetryCollector', () => {
     expect(endpoint).not.toBeNull();
 
     const invalidPayload = {
-      runtime: 'node',
-      sentAt: new Date().toISOString(),
       events: [],
       metadata: 'not-an-object',
+      runtime: 'node',
+      sentAt: new Date().toISOString(),
     };
     const invalidResponse = await postJson(endpoint as string, invalidPayload);
     expect(invalidResponse.status).toBe(400);
@@ -97,17 +97,17 @@ describe('createQueueTelemetryCollector', () => {
     expect(invalidBody.error).toContain('Invalid runtime');
 
     const validResponse = await postJson(endpoint as string, {
-      runtime: 'electron-renderer',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'complete',
           taskId: 'task-1',
+          timestamp: Date.now(),
         },
       ],
       metadata: 'ignored',
+      runtime: 'electron-renderer',
+      sentAt: new Date().toISOString(),
     });
     expect(validResponse.status).toBe(204);
     const batch = await collector?.nextBatch({ timeoutMs: 200 });
@@ -122,16 +122,16 @@ describe('createQueueTelemetryCollector', () => {
     await collector.start();
 
     const response = await postJson(collector.getEndpoint() as string, {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId: 'task-observed',
+          timestamp: Date.now(),
         },
       ],
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     });
 
     expect(response.status).toBe(204);
@@ -147,16 +147,16 @@ describe('createQueueTelemetryCollector', () => {
     const endpoint = collector.getEndpoint() as string;
 
     const payload = {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'error',
           taskId: 'task-2',
+          timestamp: Date.now(),
         },
       ],
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     };
 
     const unauthorized = await postJson(endpoint, payload);
@@ -179,25 +179,25 @@ describe('createQueueTelemetryCollector', () => {
     const endpoint = collector.getEndpoint() as string;
 
     const wrongPath = await postJson(`${endpoint}-extra`, {
+      events: [],
       runtime: 'browser',
       sentAt: new Date().toISOString(),
-      events: [],
     });
     expect(wrongPath.status).toBe(404);
 
     const badJson = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: '{bad json',
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
     });
     expect(badJson.status).toBe(400);
     const body = await badJson.json();
     expect(body.error).toBe('Invalid JSON payload');
 
     const badEvents = await postJson(endpoint, {
+      events: [{ timestamp: 'not-a-number' }],
       runtime: 'browser',
       sentAt: new Date().toISOString(),
-      events: [{ timestamp: 'not-a-number' }],
     });
     expect(badEvents.status).toBe(400);
     const badEventBody = await badEvents.json();
@@ -210,17 +210,17 @@ describe('createQueueTelemetryCollector', () => {
     const endpoint = collector.getEndpoint() as string;
 
     const arrayPayload = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: '[]',
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
     });
     expect(arrayPayload.status).toBe(400);
     await expect(arrayPayload.json()).resolves.toEqual({ error: 'Payload must be an object' });
 
     const nonStringSentAt = await postJson(endpoint, {
+      events: [],
       runtime: 'browser',
       sentAt: 123,
-      events: [],
     });
     expect(nonStringSentAt.status).toBe(400);
     await expect(nonStringSentAt.json()).resolves.toEqual({
@@ -228,9 +228,9 @@ describe('createQueueTelemetryCollector', () => {
     });
 
     const invalidDateSentAt = await postJson(endpoint, {
+      events: [],
       runtime: 'browser',
       sentAt: 'not-a-date',
-      events: [],
     });
     expect(invalidDateSentAt.status).toBe(400);
     await expect(invalidDateSentAt.json()).resolves.toEqual({
@@ -238,9 +238,9 @@ describe('createQueueTelemetryCollector', () => {
     });
 
     const nonObjectEvent = await postJson(endpoint, {
+      events: [null],
       runtime: 'browser',
       sentAt: new Date().toISOString(),
-      events: [null],
     });
     expect(nonObjectEvent.status).toBe(400);
     await expect(nonObjectEvent.json()).resolves.toEqual({
@@ -254,9 +254,9 @@ describe('createQueueTelemetryCollector', () => {
     const endpoint = collector.getEndpoint() as string;
 
     const response = await postJson(endpoint, {
+      events: [],
       runtime: 'browser',
       sentAt: new Date().toISOString(),
-      events: [],
     });
 
     expect(response.status).toBe(413);
@@ -281,16 +281,16 @@ describe('createQueueTelemetryCollector', () => {
     const pending = collector.nextBatch({ timeoutMs: 300 });
 
     const response = await postJson(endpoint, {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId: 'task-late',
+          timestamp: Date.now(),
         },
       ],
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     });
     expect(response.status).toBe(204);
 
@@ -301,38 +301,38 @@ describe('createQueueTelemetryCollector', () => {
 
   it('trims stored batches to the configured maximum', async () => {
     collector = createQueueTelemetryCollector({
-      path: '/telemetry/',
       maxStoredBatches: 1,
+      path: '/telemetry/',
     });
     await collector.start();
     const endpoint = collector.getEndpoint();
     expect(endpoint).toMatch(/\/telemetry$/);
 
     const first = await postJson(endpoint as string, {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId: 'first',
+          timestamp: Date.now(),
         },
       ],
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     });
     expect(first.status).toBe(204);
 
     const second = await postJson(endpoint as string, {
-      runtime: 'browser',
-      sentAt: new Date().toISOString(),
       events: [
         {
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'complete',
           taskId: 'second',
+          timestamp: Date.now(),
         },
       ],
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
     });
     expect(second.status).toBe(204);
 

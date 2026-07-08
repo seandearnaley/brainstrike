@@ -27,11 +27,11 @@ export const ASSISTANT_DETAIL_LEVEL_META: Record<
   { description: string; label: string }
 > = {
   compact: { description: 'Tool calls only', label: 'Compact' },
-  standard: { description: 'Tool calls + result summaries', label: 'Standard' },
   developer: {
     description: 'Memory/context activity + raw tool I/O',
     label: 'Developer',
   },
+  standard: { description: 'Tool calls + result summaries', label: 'Standard' },
 };
 
 export interface ToolDisplayPolicy {
@@ -56,8 +56,8 @@ export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDispl
     return {
       defaultExpanded: true,
       showDetailsExpander: true,
-      showResultSummary: true,
       showRawIo: true,
+      showResultSummary: true,
     };
   }
 
@@ -66,8 +66,8 @@ export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDispl
     return {
       defaultExpanded: false,
       showDetailsExpander: false,
-      showResultSummary: false,
       showRawIo: false,
+      showResultSummary: false,
     };
   }
 
@@ -75,8 +75,8 @@ export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDispl
   return {
     defaultExpanded: false,
     showDetailsExpander: true,
-    showResultSummary: true,
     showRawIo: false,
+    showResultSummary: true,
   };
 }
 

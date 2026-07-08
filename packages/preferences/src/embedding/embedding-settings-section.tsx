@@ -51,31 +51,31 @@ interface ModelPreset {
 
 const MODEL_PRESETS: readonly ModelPreset[] = [
   {
-    id: 'high-accuracy',
-    name: 'High Accuracy',
+    badge: '1024D',
     description: 'Best performance for semantic search and retrieval (Voyage AI)',
-    provider: 'voyage',
-    modelId: 'voyage-3',
-    badge: '1024D',
     icon: '🎯',
+    id: 'high-accuracy',
+    modelId: 'voyage-3',
+    name: 'High Accuracy',
+    provider: 'voyage',
   },
   {
-    id: 'cost-optimized',
-    name: 'Cost Optimized',
-    description: 'Balanced performance and cost-effectiveness (OpenAI)',
-    provider: 'openai',
-    modelId: 'text-embedding-3-small',
     badge: '1536D',
+    description: 'Balanced performance and cost-effectiveness (OpenAI)',
     icon: '💰',
+    id: 'cost-optimized',
+    modelId: 'text-embedding-3-small',
+    name: 'Cost Optimized',
+    provider: 'openai',
   },
   {
-    id: 'multilingual',
-    name: 'Multilingual',
-    description: 'Optimized for 100+ languages and cross-lingual search (Cohere)',
-    provider: 'cohere',
-    modelId: 'embed-multilingual-v3.0',
     badge: '1024D',
+    description: 'Optimized for 100+ languages and cross-lingual search (Cohere)',
     icon: '🌍',
+    id: 'multilingual',
+    modelId: 'embed-multilingual-v3.0',
+    name: 'Multilingual',
+    provider: 'cohere',
   },
 ] as const;
 
@@ -86,18 +86,18 @@ interface CodeChunkRow {
 }
 
 const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
-  { key: 'typescript', label: 'TypeScript', extensions: 'ts, tsx, mts, cts' },
-  { key: 'javascript', label: 'JavaScript', extensions: 'js, jsx, mjs, cjs' },
-  { key: 'python', label: 'Python', extensions: 'py' },
-  { key: 'rust', label: 'Rust', extensions: 'rs' },
-  { key: 'go', label: 'Go', extensions: 'go' },
-  { key: 'java', label: 'Java', extensions: 'java' },
-  { key: 'csharp', label: 'C#', extensions: 'cs' },
-  { key: 'cpp', label: 'C / C++', extensions: 'c, cc, cpp, h, hpp' },
-  { key: 'ruby', label: 'Ruby', extensions: 'rb' },
-  { key: 'php', label: 'PHP', extensions: 'php' },
-  { key: 'swift', label: 'Swift', extensions: 'swift' },
-  { key: 'kotlin', label: 'Kotlin', extensions: 'kt, kts' },
+  { extensions: 'ts, tsx, mts, cts', key: 'typescript', label: 'TypeScript' },
+  { extensions: 'js, jsx, mjs, cjs', key: 'javascript', label: 'JavaScript' },
+  { extensions: 'py', key: 'python', label: 'Python' },
+  { extensions: 'rs', key: 'rust', label: 'Rust' },
+  { extensions: 'go', key: 'go', label: 'Go' },
+  { extensions: 'java', key: 'java', label: 'Java' },
+  { extensions: 'cs', key: 'csharp', label: 'C#' },
+  { extensions: 'c, cc, cpp, h, hpp', key: 'cpp', label: 'C / C++' },
+  { extensions: 'rb', key: 'ruby', label: 'Ruby' },
+  { extensions: 'php', key: 'php', label: 'PHP' },
+  { extensions: 'swift', key: 'swift', label: 'Swift' },
+  { extensions: 'kt, kts', key: 'kotlin', label: 'Kotlin' },
 ] as const;
 
 interface NormalizedEmbeddingModel {
@@ -123,12 +123,12 @@ const HOSTED_PROVIDER_METADATA: Record<
   HostedEmbeddingProviderId,
   { readonly displayName: string; readonly runtime: 'hosted' }
 > = {
-  openai: { displayName: 'OpenAI', runtime: 'hosted' },
-  google: { displayName: 'Google', runtime: 'hosted' },
   cohere: { displayName: 'Cohere', runtime: 'hosted' },
-  voyage: { displayName: 'Voyage', runtime: 'hosted' },
-  ollama: { displayName: 'Ollama', runtime: 'hosted' },
+  google: { displayName: 'Google', runtime: 'hosted' },
   lmstudio: { displayName: 'LM Studio', runtime: 'hosted' },
+  ollama: { displayName: 'Ollama', runtime: 'hosted' },
+  openai: { displayName: 'OpenAI', runtime: 'hosted' },
+  voyage: { displayName: 'Voyage', runtime: 'hosted' },
 };
 
 const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
@@ -145,8 +145,8 @@ const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
   LocalRuntimeId,
   { readonly displayName: string; readonly runtime: 'hosted' }
 > = {
-  ollama: HOSTED_PROVIDER_METADATA.ollama,
   lmstudio: HOSTED_PROVIDER_METADATA.lmstudio,
+  ollama: HOSTED_PROVIDER_METADATA.ollama,
 } as const;
 
 function isRuntimeHostedProvider(
@@ -192,12 +192,12 @@ function buildLocalProvider(
     .map<NormalizedEmbeddingModel>((model) => {
       const dimensions = resolveLocalModelDimensions(model);
       const baseModel: NormalizedEmbeddingModel = {
-        id: model.id,
-        label: model.name ?? model.id,
         dimensions,
-        supportsStandardDimension: dimensions === STANDARD_EMBEDDING_DIMENSION,
-        supportsCustomDimensions: false,
+        id: model.id,
         isDefault: false,
+        label: model.name ?? model.id,
+        supportsCustomDimensions: false,
+        supportsStandardDimension: dimensions === STANDARD_EMBEDDING_DIMENSION,
       };
 
       const description = model.description ?? model.tagline;
@@ -213,10 +213,10 @@ function buildLocalProvider(
     .sort((a, b) => defaultCollator.compare(a.label, b.label));
 
   return {
-    id: 'local',
     displayName: getLocalProviderDisplayName(providers),
-    runtime: 'browser',
+    id: 'local',
     models: localModels,
+    runtime: 'browser',
     ...(pending ? { pending: true } : {}),
   };
 }
@@ -228,12 +228,12 @@ function toNormalizedHostedProvider(
   const normalizedModels = models
     .map<NormalizedEmbeddingModel>((model) => {
       const baseModel: NormalizedEmbeddingModel = {
-        id: model.id,
-        label: model.label ?? model.id,
         dimensions: model.defaultDimension ?? STANDARD_EMBEDDING_DIMENSION,
-        supportsStandardDimension: model.supportsStandardDimension ?? false,
-        supportsCustomDimensions: model.supportsCustomDimensions ?? false,
+        id: model.id,
         isDefault: Boolean(model.default),
+        label: model.label ?? model.id,
+        supportsCustomDimensions: model.supportsCustomDimensions ?? false,
+        supportsStandardDimension: model.supportsStandardDimension ?? false,
       };
       let enrichedModel: NormalizedEmbeddingModel = baseModel;
       if ('availableDimensions' in model) {
@@ -256,20 +256,20 @@ function toNormalizedHostedProvider(
     .sort((a, b) => defaultCollator.compare(a.label, b.label));
 
   return {
-    id: definition.id as HostedEmbeddingProviderId,
     displayName: definition.displayName,
-    runtime: definition.runtime === 'browser' ? 'browser' : 'hosted',
+    id: definition.id as HostedEmbeddingProviderId,
     models: normalizedModels,
+    runtime: definition.runtime === 'browser' ? 'browser' : 'hosted',
   };
 }
 
 function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmbeddingProvider {
   return {
-    id,
     displayName: HOSTED_PROVIDER_METADATA[id].displayName,
-    runtime: HOSTED_PROVIDER_METADATA[id].runtime,
+    id,
     models: [],
     pending: true,
+    runtime: HOSTED_PROVIDER_METADATA[id].runtime,
   };
 }
 
@@ -306,13 +306,13 @@ function toNormalizedRuntimeProvider(
             }
 
             return {
+              dimensions,
               id: model.modelId,
               label: model.displayName,
-              dimensions,
+              supportsCustomDimensions: false,
               supportsStandardDimension: hasKnownDimensions
                 ? knownDimensions.includes(STANDARD_EMBEDDING_DIMENSION)
                 : dimensions === STANDARD_EMBEDDING_DIMENSION,
-              supportsCustomDimensions: false,
               ...(hasKnownDimensions ? { availableDimensions: knownDimensions } : {}),
               ...(descriptionParts.length > 0 ? { description: descriptionParts.join(' • ') } : {}),
               isDefault: false,
@@ -329,10 +329,10 @@ function toNormalizedRuntimeProvider(
     : [];
 
   return {
-    id: providerId,
     displayName: providerMetadata.displayName,
-    runtime: providerMetadata.runtime,
+    id: providerId,
     models,
+    runtime: providerMetadata.runtime,
   };
 }
 
@@ -357,10 +357,10 @@ function buildEmbeddingProviders(
         return runtimeCatalogLoading
           ? placeholderHostedProvider(providerId)
           : {
-              id: providerId,
               displayName: HOSTED_PROVIDER_METADATA[providerId].displayName,
-              runtime: HOSTED_PROVIDER_METADATA[providerId].runtime,
+              id: providerId,
               models: [],
+              runtime: HOSTED_PROVIDER_METADATA[providerId].runtime,
             };
       }
       return toNormalizedRuntimeProvider(providerId, state);
@@ -524,8 +524,8 @@ export function EmbeddingSettings() {
     isLoading: runtimeCatalogLoading,
     error: runtimeCatalogError,
   } = useLocalRuntimeEmbeddingModelCatalog({
-    verifyEmbeddingDimensions: true,
     maxVerificationModels: 8,
+    verifyEmbeddingDimensions: true,
   });
   const localPending = isLoading && !hasLoaded && models.length === 0;
   const providers = useMemo(
@@ -640,9 +640,9 @@ export function EmbeddingSettings() {
             ) : null}
             {providers.map((provider) =>
               renderProviderSection({
-                provider,
                 enabledModelsByProvider,
                 normalizedSearch,
+                provider,
                 setModelEnabled,
                 setProviderModelsEnabled,
               })

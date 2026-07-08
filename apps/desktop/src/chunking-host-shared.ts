@@ -18,11 +18,11 @@ import {
 export const CHUNKING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('chunking-host');
 export const CHUNKING_HOST_LIFECYCLE_CHANNELS = CHUNKING_HOST_RUNTIME.lifecycleChannels;
 const CHUNKING_HOST_CHANNELS = CHUNKING_HOST_RUNTIME.createScopedChannels({
-  request: 'request',
+  chunkBatch: 'chunk-batch',
+  chunkFile: 'chunk-file',
   progress: 'progress',
   reportResponse: 'report-response',
-  chunkFile: 'chunk-file',
-  chunkBatch: 'chunk-batch',
+  request: 'request',
 });
 export const CHUNKING_HOST_STATUS_EVENT = CHUNKING_HOST_LIFECYCLE_CHANNELS.statusEvent;
 export const CHUNKING_HOST_REQUEST_EVENT = CHUNKING_HOST_CHANNELS.request;
@@ -177,10 +177,10 @@ function assertFilePayload(value: unknown, fieldName: string): ChunkingHostFileP
     throw new Error(`${fieldName}.filePath must be a non-empty string.`);
   }
   return {
-    fileRecordId: candidate['fileRecordId'],
     content: candidate['content'],
     fileName: candidate['fileName'],
     filePath: candidate['filePath'],
+    fileRecordId: candidate['fileRecordId'],
   };
 }
 
@@ -359,8 +359,8 @@ function assertChunkProgressPayload(
     throw new Error('Chunking host progress payload is invalid.');
   }
   return {
-    fileRecordId: payload['fileRecordId'],
     chunksCreated: payload['chunksCreated'],
+    fileRecordId: payload['fileRecordId'],
     ...(typeof payload['currentIndex'] === 'number'
       ? { currentIndex: payload['currentIndex'] }
       : {}),
@@ -387,8 +387,8 @@ function assertChunkFileErrorPayload(
     throw new Error('Chunking host file-error payload is invalid.');
   }
   return {
-    fileRecordId: payload['fileRecordId'],
     errorMessage: payload['errorMessage'],
+    fileRecordId: payload['fileRecordId'],
   };
 }
 
@@ -473,23 +473,23 @@ function assertChunkingHostProgressReport(
     case 'chunk':
       return {
         ...envelopeBase,
-        type: 'progress',
         channel: envelopeBase.channel,
         payload: assertChunkProgressPayload(payload),
+        type: 'progress',
       };
     case 'chunk-file-complete':
       return {
         ...envelopeBase,
-        type: 'progress',
         channel: envelopeBase.channel,
         payload: assertChunkFileCompletePayload(payload),
+        type: 'progress',
       };
     case 'chunk-file-error':
       return {
         ...envelopeBase,
-        type: 'progress',
         channel: envelopeBase.channel,
         payload: assertChunkFileErrorPayload(payload),
+        type: 'progress',
       };
     default:
       throw new Error('Chunking host progress report has invalid channel.');
@@ -504,16 +504,16 @@ function assertChunkingHostResultReport(
     case 'chunk-result':
       return {
         ...envelopeBase,
-        type: 'result',
         channel: envelopeBase.channel,
         payload: assertChunkResultPayload(payload),
+        type: 'result',
       };
     case 'chunk-batch-complete':
       return {
         ...envelopeBase,
-        type: 'result',
         channel: envelopeBase.channel,
         payload: assertChunkBatchCompletePayload(payload),
+        type: 'result',
       };
     default:
       throw new Error('Chunking host result report has invalid channel.');
@@ -533,9 +533,9 @@ export function assertChunkingHostResponseReport(value: unknown): ChunkingHostRe
     case 'error':
       return {
         ...envelopeBase,
-        type: 'error',
         channel: 'chunk-error',
         payload: createChunkingHostErrorPayload(payload),
+        type: 'error',
       } satisfies Extract<ChunkingHostResponseReport, { type: 'error' }>;
     default:
       throw new Error('Chunking host response report has invalid envelope type.');

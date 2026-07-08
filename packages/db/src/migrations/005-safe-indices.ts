@@ -5,7 +5,14 @@ import type { Migration } from './migration-runner';
  * Phase 0 of DB modernization - safety net & correctness hardening
  */
 export const migration005SafeIndices: Migration = {
-  version: 5,
+  down: `
+    -- Remove all indices created in this migration
+    DROP INDEX IF EXISTS idx_file_chunks_unique_position;
+    DROP INDEX IF EXISTS idx_file_chunks_content_hash;
+    DROP INDEX IF EXISTS idx_file_chunks_file_record_id;
+    DROP INDEX IF EXISTS idx_file_chunks_type;
+    DROP INDEX IF EXISTS idx_file_chunks_file_type;
+  `,
   name: 'safe_indices',
   up: `
     -- Add uniqueness constraint on file_record_id and chunk_index
@@ -29,12 +36,5 @@ export const migration005SafeIndices: Migration = {
     CREATE INDEX IF NOT EXISTS idx_file_chunks_file_type 
     ON file_chunks(file_record_id, chunk_type);
   `,
-  down: `
-    -- Remove all indices created in this migration
-    DROP INDEX IF EXISTS idx_file_chunks_unique_position;
-    DROP INDEX IF EXISTS idx_file_chunks_content_hash;
-    DROP INDEX IF EXISTS idx_file_chunks_file_record_id;
-    DROP INDEX IF EXISTS idx_file_chunks_type;
-    DROP INDEX IF EXISTS idx_file_chunks_file_type;
-  `,
+  version: 5,
 };

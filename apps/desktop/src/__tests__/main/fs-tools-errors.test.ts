@@ -7,10 +7,10 @@ const realpathMock = vi.fn();
 
 vi.mock('node:fs/promises', () => ({
   default: {
-    readdir: (...args: unknown[]) => readdirMock(...args),
-    stat: (...args: unknown[]) => statMock(...args),
     open: (...args: unknown[]) => openMock(...args),
+    readdir: (...args: unknown[]) => readdirMock(...args),
     realpath: (...args: unknown[]) => realpathMock(...args),
+    stat: (...args: unknown[]) => statMock(...args),
   },
 }));
 
@@ -18,8 +18,8 @@ const resolvePathWithinRootMock = vi.fn();
 const isPathInsideRootMock = vi.fn(() => true);
 
 vi.mock('../../mcp/paths', () => ({
-  resolvePathWithinRoot: (...args: unknown[]) => resolvePathWithinRootMock(...args),
   isPathInsideRoot: (...args: unknown[]) => isPathInsideRootMock(...args),
+  resolvePathWithinRoot: (...args: unknown[]) => resolvePathWithinRootMock(...args),
 }));
 
 import {
@@ -36,7 +36,7 @@ describe('mcp fs-tools error branches', () => {
   });
 
   it('returns error when list path is invalid', async () => {
-    resolvePathWithinRootMock.mockResolvedValue({ ok: false, error: 'invalid path' });
+    resolvePathWithinRootMock.mockResolvedValue({ error: 'invalid path', ok: false });
 
     const result = await handleFilesystemList({ path: '../bad' }, '/root');
     expect(result).toEqual({ error: 'invalid path' });
@@ -55,26 +55,26 @@ describe('mcp fs-tools error branches', () => {
     resolvePathWithinRootMock.mockResolvedValue({ ok: true, path: '/root/file.txt' });
     statMock.mockResolvedValue({ isDirectory: () => false, size: 4 });
     openMock.mockResolvedValue({
+      close: vi.fn(async () => {}),
       read: vi.fn(async (buffer: Buffer) => {
         buffer.write('hi', 0, 'utf8');
-        return { bytesRead: 2, buffer };
+        return { buffer, bytesRead: 2 };
       }),
-      close: vi.fn(async () => {}),
     });
 
-    const result = await handleFilesystemRead({ path: 'file.txt', maxBytes: 8 }, '/root');
+    const result = await handleFilesystemRead({ maxBytes: 8, path: 'file.txt' }, '/root');
 
     expect(result).toEqual({
+      content: 'hi',
+      encoding: 'utf8',
       path: '/root/file.txt',
       size: 4,
-      encoding: 'utf8',
-      content: 'hi',
       truncated: true,
     });
   });
 
   it('returns error when search root is invalid', async () => {
-    resolvePathWithinRootMock.mockResolvedValue({ ok: false, error: 'invalid root' });
+    resolvePathWithinRootMock.mockResolvedValue({ error: 'invalid root', ok: false });
 
     const result = await handleFilesystemSearch({ query: 'x' }, '/root');
     expect(result).toEqual({ error: 'invalid root' });
@@ -84,7 +84,7 @@ describe('mcp fs-tools error branches', () => {
     resolvePathWithinRootMock.mockResolvedValue({ ok: true, path: '/root' });
     readdirMock.mockRejectedValueOnce(new Error('nope'));
 
-    const result = await handleFilesystemSearch({ query: 'x', maxDepth: 1 }, '/root');
+    const result = await handleFilesystemSearch({ maxDepth: 1, query: 'x' }, '/root');
     expect(result).toEqual([]);
   });
 });

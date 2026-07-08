@@ -34,26 +34,26 @@ describe('collection indexing stats', () => {
       query: vi.fn(async () => ({
         rows: [
           {
+            chunkCount: '9',
+            dirty: 'f',
+            embeddedChunkCount: '4',
             embeddingSetId: 'set-1',
             fileCount: '3',
-            chunkCount: '9',
-            embeddedChunkCount: '4',
-            pendingChunkCount: '5',
-            dirty: 'f',
             lastRefreshedAt: '2026-04-26T00:00:00.000Z',
+            pendingChunkCount: '5',
           },
         ],
       })),
     };
 
     await expect(getCollectionIndexingStats(db, 'set-1')).resolves.toEqual({
+      chunkCount: 9,
+      dirty: false,
+      embeddedChunkCount: 4,
       embeddingSetId: 'set-1',
       fileCount: 3,
-      chunkCount: 9,
-      embeddedChunkCount: 4,
-      pendingChunkCount: 5,
-      dirty: false,
       lastRefreshedAt: '2026-04-26T00:00:00.000Z',
+      pendingChunkCount: 5,
     });
   });
 
@@ -62,13 +62,13 @@ describe('collection indexing stats', () => {
       query: vi.fn(async () => ({
         rows: [
           {
+            chunkCount: 2,
+            dirty: false,
+            embeddedChunkCount: 1,
             embeddingSetId: 'set-1',
             fileCount: 1,
-            chunkCount: 2,
-            embeddedChunkCount: 1,
-            pendingChunkCount: 1,
-            dirty: false,
             lastRefreshedAt: '2026-04-26T00:00:00.000Z',
+            pendingChunkCount: 1,
           },
         ],
       })),
@@ -141,12 +141,12 @@ describe('collection indexing stats', () => {
 
       expect(stats).toEqual([
         expect.objectContaining({
+          chunkCount: 2,
+          dirty: false,
+          embeddedChunkCount: 1,
           embeddingSetId,
           fileCount: 1,
-          chunkCount: 2,
-          embeddedChunkCount: 1,
           pendingChunkCount: 1,
-          dirty: false,
         }),
       ]);
     } finally {

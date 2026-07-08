@@ -271,9 +271,9 @@ function buildEmptyResult(
       directoriesCompleted: 0,
       directoriesDiscovered: 0,
       directoriesReadFromAdapter: 0,
+      durationMs: timer.elapsed(),
       filesMatched: 0,
       filesVisited: 0,
-      durationMs: timer.elapsed(),
       limitReached,
       mode,
     },
@@ -712,6 +712,10 @@ function createAsyncScanQueue(settledResults: ScanResult[]): AsyncScanQueue {
   };
 
   return {
+    close: () => {
+      closed = true;
+      flushClosedWaiters();
+    },
     push: (result) => {
       const waiter = waiters.shift();
       if (waiter) {
@@ -719,10 +723,6 @@ function createAsyncScanQueue(settledResults: ScanResult[]): AsyncScanQueue {
         return;
       }
       settledResults.push(result);
-    },
-    close: () => {
-      closed = true;
-      flushClosedWaiters();
     },
     takeNext: async (): Promise<ScanResult | undefined> => {
       if (settledResults.length > 0) {
@@ -748,14 +748,14 @@ function buildQueryResult(args: {
   const { durationMs, exceededBudget, mode, roots, state } = args;
 
   logger.info('recursive selection query complete', {
-    roots: roots.length,
-    mode,
-    matchedFiles: state.fileNodes.length,
     directoriesCompleted: state.directoriesCompleted,
     directoriesReadFromAdapter: state.directoriesReadFromAdapter,
-    limitReached: state.limitReached,
     durationMs: Math.round(durationMs),
     exceededBudget,
+    limitReached: state.limitReached,
+    matchedFiles: state.fileNodes.length,
+    mode,
+    roots: roots.length,
   });
 
   return {

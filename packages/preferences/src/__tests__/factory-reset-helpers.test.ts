@@ -48,9 +48,9 @@ describe('FALLBACK_INDEXED_DB_NAMES engine versioning', () => {
 function createDeleteDatabaseMock() {
   return vi.fn((_name: string) => {
     const request: FakeRequest = {
-      onsuccess: null,
-      onerror: null,
       onblocked: null,
+      onerror: null,
+      onsuccess: null,
     };
 
     queueMicrotask(() => {
@@ -74,8 +74,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
 
     deleteDatabaseMock = createDeleteDatabaseMock();
     cachesMock = {
-      keys: vi.fn(async () => []),
       delete: vi.fn(async () => true),
+      keys: vi.fn(async () => []),
     } as unknown as CacheStorage;
 
     Object.defineProperty(globalWindow, 'indexedDB', {
@@ -126,8 +126,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
-        deleteDatabase: deleteDatabaseMock,
         databases: databasesMock,
+        deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
 
@@ -142,8 +142,8 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     Object.defineProperty(globalWindow, 'indexedDB', {
       configurable: true,
       value: {
-        deleteDatabase: deleteDatabaseMock,
         databases: databasesMock,
+        deleteDatabase: deleteDatabaseMock,
       } as unknown as IDBFactory,
     });
 
@@ -264,8 +264,8 @@ describe('clearPersistentUiState OPFS-AHP handling', () => {
     Object.defineProperty(globalWindow, 'caches', {
       configurable: true,
       value: {
-        keys: vi.fn(async () => []),
         delete: vi.fn(async () => true),
+        keys: vi.fn(async () => []),
       } as unknown as CacheStorage,
     });
 

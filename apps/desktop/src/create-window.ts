@@ -120,14 +120,14 @@ async function connectToDevServer(win: BrowserWindow) {
       );
       await win.loadURL(DESKTOP_DEV_RENDERER_URL);
       startupLogger.info(
-        { attempt, url: DESKTOP_DEV_RENDERER_URL, elapsedMs: Date.now() - attemptStart },
+        { attempt, elapsedMs: Date.now() - attemptStart, url: DESKTOP_DEV_RENDERER_URL },
         'Desktop renderer connection established'
       );
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       startupLogger.warn(
-        { attempt, url: DESKTOP_DEV_RENDERER_URL, message },
+        { attempt, message, url: DESKTOP_DEV_RENDERER_URL },
         'Desktop renderer connection attempt failed'
       );
       lastError = error;
@@ -167,9 +167,9 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   startupLogger.debug(
     {
       distRoot,
-      rendererPath,
       hasBuiltRenderer,
       isPackaged: app.isPackaged,
+      rendererPath,
     },
     'Loading renderer'
   );
@@ -200,7 +200,6 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
     if (shouldAutoOpenDevTools()) {
       win.webContents.openDevTools();
     }
-    return;
   } catch (error) {
     // CRITICAL: Never fall back to file:// in non-packaged mode.
     // Loading production renderer during local dev repeatedly breaks module workers.
@@ -250,29 +249,29 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   const enableSandbox = !isTestMode;
 
   const win = new BrowserWindow({
-    width: bounds.width,
     height: bounds.height,
+    width: bounds.width,
     ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
-    minWidth: 800,
-    minHeight: 600,
+    backgroundColor: '#0b1020',
     fullscreen: isFullScreen,
+    minHeight: 600,
+    minWidth: 800,
+    show: false,
+    titleBarStyle: 'default',
     webPreferences: {
-      preload: path.join(resolveDistRoot(), 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: enableSandbox,
-      webSecurity: true,
       allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      safeDialogs: true,
-      navigateOnDragDrop: false,
       // Keep Chromium's normal background throttling on the visible UI.
       // Long-running embedding work belongs in the hidden renderer host.
       backgroundThrottling: true,
+      contextIsolation: true,
+      experimentalFeatures: false,
+      navigateOnDragDrop: false,
+      nodeIntegration: false,
+      preload: path.join(resolveDistRoot(), 'preload.js'),
+      safeDialogs: true,
+      sandbox: enableSandbox,
+      webSecurity: true,
     },
-    titleBarStyle: 'default',
-    backgroundColor: '#0b1020',
-    show: false,
     ...(isTestMode
       ? {
           focusable: false,
@@ -283,8 +282,8 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   assignWindowRole(win, 'visible-ui');
 
   logStartupPhase('browser-window-created', {
-    isTestMode,
     isPackaged: app.isPackaged,
+    isTestMode,
   });
 
   win.webContents.on(
@@ -294,8 +293,8 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         return;
       }
       pendingMainFrameNavigation = {
-        url: navigationUrl,
         isInPlace,
+        url: navigationUrl,
       };
     }
   );
@@ -321,8 +320,8 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         logStartupPhase('did-start-loading', {
           reloadReason: 'top-level-navigation',
           reloadSource: 'unknown',
-          windowRole: getWindowRole(win) ?? 'visible-ui',
           url: pendingMainFrameNavigation.url,
+          windowRole: getWindowRole(win) ?? 'visible-ui',
         });
       } else {
         startupLogger.trace(
@@ -415,9 +414,9 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
       startupLogger.error(
         {
-          reason: details.reason,
-          exitCode: details.exitCode,
           elapsedMs: Date.now() - startupStartedAt,
+          exitCode: details.exitCode,
+          reason: details.reason,
           windowRole: getWindowRole(win) ?? 'visible-ui',
         },
         'Renderer process gone'
@@ -460,9 +459,9 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         // or a 3-second fallback timer for when the window already has focus.
         startupLogger.info(
           {
-            reason: details.reason,
-            exitCode: details.exitCode,
             crashCountInWindow,
+            exitCode: details.exitCode,
+            reason: details.reason,
             windowRole: getWindowRole(win) ?? 'visible-ui',
           },
           'Renderer crashed; deferring recovery (immediate reload causes main-thread freeze)'

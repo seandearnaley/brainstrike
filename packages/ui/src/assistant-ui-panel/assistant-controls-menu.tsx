@@ -202,9 +202,9 @@ export const ControlsMenu: FC<ControlsMenuProps> = ({
       }
       groups.set(key, {
         id: key,
+        items: [item],
         label: item.group,
         source: item.source,
-        items: [item],
       });
     }
 

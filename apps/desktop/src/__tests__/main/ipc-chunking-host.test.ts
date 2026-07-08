@@ -47,12 +47,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -65,26 +65,26 @@ describe('chunking host IPC handlers', () => {
     reportListener(
       { sender: { id: 42 } },
       {
-        type: 'progress',
         channel: 'chunk',
+        payload: {
+          chunksCreated: 3,
+          fileRecordId: 'file-1',
+        },
         requestId: 'request-1',
         runtimeId: 'chunking-host:runtime-1',
-        payload: {
-          fileRecordId: 'file-1',
-          chunksCreated: 3,
-        },
+        type: 'progress',
       }
     );
 
     expect(manager.acceptResponseReport).toHaveBeenCalledWith(42, {
-      type: 'progress',
       channel: 'chunk',
+      payload: {
+        chunksCreated: 3,
+        fileRecordId: 'file-1',
+      },
       requestId: 'request-1',
       runtimeId: 'chunking-host:runtime-1',
-      payload: {
-        fileRecordId: 'file-1',
-        chunksCreated: 3,
-      },
+      type: 'progress',
     });
   });
 
@@ -92,12 +92,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -111,23 +111,23 @@ describe('chunking host IPC handlers', () => {
       reportListener(
         { sender: { id: 42 } },
         {
-          type: 'result',
           channel: 'chunk-batch-complete',
-          requestId: 'request-1',
-          runtimeId: 'chunking-host:runtime-1',
           payload: {
             results: [
               {
-                type: 'result',
-                id: 'chunk-1',
-                fileRecordId: '',
                 chunks: [],
+                fileRecordId: '',
+                id: 'chunk-1',
                 skipped: false,
                 strategyUsed: 'sentence',
                 totalTokens: 1,
+                type: 'result',
               },
             ],
           },
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          type: 'result',
         }
       )
     ).toThrow(
@@ -140,12 +140,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -159,11 +159,11 @@ describe('chunking host IPC handlers', () => {
       reportListener(
         { sender: { id: 42 } },
         {
-          type: 'bogus',
           channel: 'chunk',
+          payload: {},
           requestId: 'request-1',
           runtimeId: 'chunking-host:runtime-1',
-          payload: {},
+          type: 'bogus',
         }
       )
     ).toThrow('Chunking host response report must include a valid runtime envelope type.');
@@ -174,12 +174,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -192,12 +192,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -210,24 +210,24 @@ describe('chunking host IPC handlers', () => {
     await chunkFileHandler(
       { sender: { id: 42 } },
       {
-        kind: 'chunk-file',
-        requestId: 'request-1',
-        fileRecordId: 'file-1',
+        content: 'const demo = true;',
         fileName: 'demo.ts',
         filePath: '/demo.ts',
-        content: 'const demo = true;',
+        fileRecordId: 'file-1',
+        kind: 'chunk-file',
         options: {},
+        requestId: 'request-1',
       }
     );
 
     expect(manager.chunkFile).toHaveBeenCalledWith(42, {
-      kind: 'chunk-file',
-      requestId: 'request-1',
-      fileRecordId: 'file-1',
+      content: 'const demo = true;',
       fileName: 'demo.ts',
       filePath: '/demo.ts',
-      content: 'const demo = true;',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
       options: {},
+      requestId: 'request-1',
     });
   });
 
@@ -235,12 +235,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -254,10 +254,10 @@ describe('chunking host IPC handlers', () => {
       chunkBatchHandler(
         { sender: { id: 42 } },
         {
-          kind: 'chunk-file',
-          requestId: 'request-1',
           files: [],
+          kind: 'chunk-file',
           options: {},
+          requestId: 'request-1',
         }
       )
     ).rejects.toThrow('Chunking host chunk-batch request must declare kind="chunk-batch".');
@@ -268,12 +268,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     registerChunkingHostIpcHandlers(manager as never);
@@ -287,16 +287,16 @@ describe('chunking host IPC handlers', () => {
       chunkFileHandler(
         { sender: { id: 42 } },
         {
-          kind: 'chunk-file',
-          requestId: 'request-2',
-          fileRecordId: 'file-1',
+          content: 'const demo = true;',
           fileName: 'demo.ts',
           filePath: '/demo.ts',
-          content: 'const demo = true;',
+          fileRecordId: 'file-1',
+          kind: 'chunk-file',
           options: {
             maxTokens: 0,
             overlap: Number.POSITIVE_INFINITY,
           },
+          requestId: 'request-2',
         }
       )
     ).rejects.toThrow(
@@ -309,12 +309,12 @@ describe('chunking host IPC handlers', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
       reset: vi.fn(),
       stop: vi.fn(),
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
     };
 
     const unregister = registerChunkingHostIpcHandlers(manager as never);

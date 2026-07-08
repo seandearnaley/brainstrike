@@ -31,8 +31,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -46,9 +46,9 @@ describe('database IPC embedding backfill handlers', () => {
         onProgress(128, 450);
         onProgress(450, 450);
         return {
+          failed: 0,
           queued: 450,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -73,27 +73,27 @@ describe('database IPC embedding backfill handlers', () => {
       })
     );
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      current: 0,
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       source: 'manual',
       stage: 'backfill',
-      current: 0,
       total: 450,
     });
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      current: 450,
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       source: 'manual',
       stage: 'backfill',
-      current: 450,
       total: 450,
     });
     expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      current: 450,
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       source: 'manual',
       stage: 'complete',
-      current: 450,
       total: 450,
     });
     expect(result).toEqual({
@@ -110,8 +110,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     mockDb.query.mockResolvedValue({ rows: [] });
@@ -119,9 +119,9 @@ describe('database IPC embedding backfill handlers', () => {
       async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
         await db.query('SELECT manual_backfill_queue_refill', []);
         return {
+          failed: 0,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -152,8 +152,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     mockDb.query.mockResolvedValue({ rows: [] });
@@ -161,9 +161,9 @@ describe('database IPC embedding backfill handlers', () => {
       async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
         await db.query('SELECT background_backfill_query', []);
         return {
+          failed: 0,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -206,8 +206,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, '   ')).rejects.toThrow(
@@ -225,8 +225,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, '../secret')).rejects.toThrow(
@@ -247,8 +247,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => true),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -260,9 +260,9 @@ describe('database IPC embedding backfill handlers', () => {
       ) => {
         onProgress(32, 450);
         return {
+          failed: 0,
           queued: 450,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -285,14 +285,14 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockResolvedValueOnce({
+      failed: 0,
       queued: 8,
       running: 0,
-      failed: 0,
       succeeded: 8,
     });
 
@@ -317,8 +317,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
@@ -338,8 +338,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
@@ -359,8 +359,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
@@ -380,8 +380,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
@@ -400,8 +400,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '0';
@@ -411,9 +411,9 @@ describe('database IPC embedding backfill handlers', () => {
 
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD');
     enqueueEmbeddingBackfillMock.mockResolvedValueOnce({
+      failed: 0,
       queued: 1,
       running: 0,
-      failed: 0,
       succeeded: 1,
     });
 
@@ -435,8 +435,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -450,9 +450,9 @@ describe('database IPC embedding backfill handlers', () => {
         await options.onDrainTick?.(1);
         await options.onDrainTick?.(1);
         return {
+          failed: 0,
           queued: 2,
           running: 0,
-          failed: 0,
           succeeded: 2,
         };
       }
@@ -475,8 +475,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -489,9 +489,9 @@ describe('database IPC embedding backfill handlers', () => {
       ) => {
         await options.onDrainTick?.(1);
         return {
+          failed: 0,
           queued: 1,
           running: 0,
-          failed: 0,
           succeeded: 1,
         };
       }
@@ -517,8 +517,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -534,9 +534,9 @@ describe('database IPC embedding backfill handlers', () => {
         await cancelHandler({} as unknown);
         await options.assertCanContinue?.();
         return {
+          failed: 99,
           queued: 99,
           running: 99,
-          failed: 99,
           succeeded: 99,
         };
       }
@@ -566,10 +566,10 @@ describe('database IPC embedding backfill handlers', () => {
         await new Promise((resolve) => {
           resolveReset = () =>
             resolve({
-              state: 'running' as const,
               active: false,
               lastError: null,
               runtimeId: 'embedding-host-runtime',
+              state: 'running' as const,
             });
         })
     );
@@ -577,8 +577,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -596,10 +596,10 @@ describe('database IPC embedding backfill handlers', () => {
           throw new Error('Missing maintenance callbacks');
         }
         embeddingHostGetStatusMock.mockReturnValue({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host-runtime',
+          state: 'stopped',
         });
         const maintenancePromise = options.onDrainTick(2);
         expect(() => {
@@ -608,15 +608,15 @@ describe('database IPC embedding backfill handlers', () => {
         resolveReset?.();
         await maintenancePromise;
         embeddingHostGetStatusMock.mockReturnValue({
-          state: 'running',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host-runtime',
+          state: 'running',
         });
         return {
+          failed: 0,
           queued: 2,
           running: 0,
-          failed: 0,
           succeeded: 2,
         };
       }
@@ -637,8 +637,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -650,16 +650,16 @@ describe('database IPC embedding backfill handlers', () => {
         options: { assertCanContinue?: () => void | Promise<void> }
       ) => {
         embeddingHostGetStatusMock.mockReturnValue({
-          state: 'stopped',
           active: false,
           lastError: null,
           runtimeId: 'embedding-host-runtime',
+          state: 'stopped',
         });
         await options.assertCanContinue?.();
         return {
+          failed: 0,
           queued: 0,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -679,13 +679,13 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
+      once: vi.fn(),
       send: vi
         .fn()
         .mockImplementationOnce(() => {
           throw new Error('Render frame was disposed before WebFrameMain could be accessed');
         })
         .mockImplementation(() => undefined),
-      once: vi.fn(),
     };
 
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
@@ -699,9 +699,9 @@ describe('database IPC embedding backfill handlers', () => {
         onProgress(128, 450);
         onProgress(450, 450);
         return {
+          failed: 0,
           queued: 450,
           running: 0,
-          failed: 0,
           succeeded: 0,
         };
       }
@@ -722,16 +722,16 @@ describe('database IPC embedding backfill handlers', () => {
     }
 
     embeddingHostEnsureStartedMock.mockResolvedValueOnce({
-      state: 'error',
       active: false,
       lastError: 'host failed to start',
+      state: 'error',
     });
 
     const sender = {
       id: 44,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow('host failed to start');
@@ -755,8 +755,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 45,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     const first = handler({ sender } as unknown, 'set-a');
@@ -784,8 +784,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 46,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     const request = { embeddingSetId: 'set-a', source: 'background-indexing' };
@@ -832,8 +832,8 @@ describe('database IPC embedding backfill handlers', () => {
     const sender = {
       id: 46,
       isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
       once: vi.fn(),
+      send: vi.fn(),
     };
 
     const first = handler({ sender } as unknown, 'set-a');

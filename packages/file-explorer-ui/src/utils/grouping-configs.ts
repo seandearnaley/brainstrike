@@ -12,17 +12,17 @@ export type GroupBandFunction<T = unknown> = (item: T) => string;
 
 // Size threshold constants (in bytes)
 export const SIZE_THRESHOLDS = {
-  small: 1024, // 1 KB
-  medium: 10_240, // 10 KB
   large: 102_400, // 100 KB
+  medium: 10_240, // 10 KB
+  small: 1024, // 1 KB
   veryLarge: 1_048_576, // 1 MB
 } as const;
 
 // Token threshold constants
 export const TOKEN_THRESHOLDS = {
-  small: 100,
-  medium: 500,
   large: 1000,
+  medium: 500,
+  small: 100,
   veryLarge: 5000,
 } as const;
 
@@ -74,30 +74,25 @@ const groupingCollator = defaultCollator;
 
 // Predefined grouping configurations
 export const GROUPING_CONFIGS = {
-  none: {
-    id: 'none',
-    label: 'No Grouping',
-    groupBy: () => 'all',
-  },
   directory: {
-    id: 'directory',
-    label: 'By Directory',
-    groupBy: (item: TableRowData) =>
-      getDirectoryGroupKey({
-        filePath: item.path,
-        rootFolderId: item.rootFolderId,
-        rootPath: item.rootPath,
-        rootDisplayName: item.rootDisplayName,
-      }),
-    getGroupLabel: (groupKey: GroupKey) =>
-      getDirectoryGroupDisplayName({
-        groupKey: String(groupKey),
-      }),
     getDisambiguatedGroupLabel: (groupKey: GroupKey) =>
       getDirectoryGroupDisplayName({
         groupKey: String(groupKey),
         useCanonicalRootLabel: true,
       }),
+    getGroupLabel: (groupKey: GroupKey) =>
+      getDirectoryGroupDisplayName({
+        groupKey: String(groupKey),
+      }),
+    groupBy: (item: TableRowData) =>
+      getDirectoryGroupKey({
+        filePath: item.path,
+        rootDisplayName: item.rootDisplayName,
+        rootFolderId: item.rootFolderId,
+        rootPath: item.rootPath,
+      }),
+    id: 'directory',
+    label: 'By Directory',
     sortGroupedData: (a: GroupedData<TableRowData>, b: GroupedData<TableRowData>) => {
       const primaryComparison = groupingCollator.compare(a.groupLabel, b.groupLabel);
 
@@ -117,25 +112,28 @@ export const GROUPING_CONFIGS = {
       );
     },
   },
+  fileType: {
+    groupBy: (item: TableRowData) => item.type,
+    id: 'fileType',
+    label: 'By File Type',
+    sortGroups: (a: GroupKey, b: GroupKey) => groupingCollator.compare(String(a), String(b)),
+  },
+  none: {
+    groupBy: () => 'all',
+    id: 'none',
+    label: 'No Grouping',
+  },
   rootFolder: {
-    id: 'rootFolder',
-    label: 'By Root Folder',
-    groupBy: (item: TableRowData) => item.rootFolderId,
     // Storage v5: groupKey is a RootId UUID — label from the rows' descriptor
     // displayName; the path-derived fallback only serves legacy path ids.
     getGroupLabel: (groupKey: GroupKey, items?: TableRowData[]) =>
       items?.[0]?.rootDisplayName ?? getRootFolderDisplayName(String(groupKey)),
-    sortGroups: (a: GroupKey, b: GroupKey) => groupingCollator.compare(String(a), String(b)),
-  },
-  fileType: {
-    id: 'fileType',
-    label: 'By File Type',
-    groupBy: (item: TableRowData) => item.type,
+    groupBy: (item: TableRowData) => item.rootFolderId,
+    id: 'rootFolder',
+    label: 'By Root Folder',
     sortGroups: (a: GroupKey, b: GroupKey) => groupingCollator.compare(String(a), String(b)),
   },
   sizeSteps: {
-    id: 'sizeSteps',
-    label: 'By Size Range',
     groupBy: (item: TableRowData) => {
       const size = item.size || 0;
       if (size === 0) {
@@ -155,6 +153,8 @@ export const GROUPING_CONFIGS = {
       }
       return 'Huge (> 1 MB)';
     },
+    id: 'sizeSteps',
+    label: 'By Size Range',
     sortGroups: (a: GroupKey, b: GroupKey) => {
       const order = [
         'Unknown',
@@ -168,8 +168,6 @@ export const GROUPING_CONFIGS = {
     },
   },
   tokenSteps: {
-    id: 'tokenSteps',
-    label: 'By Token Range',
     groupBy: (item: TableRowData) => {
       const tokens = item.tokens || 0;
       if (tokens === 0) {
@@ -189,6 +187,8 @@ export const GROUPING_CONFIGS = {
       }
       return 'Huge (> 5K)';
     },
+    id: 'tokenSteps',
+    label: 'By Token Range',
     sortGroups: (a: GroupKey, b: GroupKey) => {
       const order = [
         'Unknown',
@@ -211,12 +211,12 @@ export function groupData<T extends { tokens?: number; size?: number }>(
   if (config.id === 'none') {
     return [
       {
+        count: data.length,
         groupKey: 'all',
         groupLabel: 'All Files',
         items: data,
-        count: data.length,
-        totalTokens: data.reduce((sum, item) => sum + (item.tokens || 0), 0),
         totalSize: data.reduce((sum, item) => sum + (item.size || 0), 0),
+        totalTokens: data.reduce((sum, item) => sum + (item.tokens || 0), 0),
       },
     ];
   }
@@ -232,12 +232,12 @@ export function groupData<T extends { tokens?: number; size?: number }>(
   }
 
   const result: GroupedData<T>[] = Array.from(groups.entries()).map(([groupKey, items]) => ({
+    count: items.length,
     groupKey,
     groupLabel: config.getGroupLabel ? config.getGroupLabel(groupKey, items) : String(groupKey),
     items,
-    count: items.length,
-    totalTokens: items.reduce((sum, item) => sum + (item.tokens || 0), 0),
     totalSize: items.reduce((sum, item) => sum + (item.size || 0), 0),
+    totalTokens: items.reduce((sum, item) => sum + (item.tokens || 0), 0),
   }));
 
   if (config.getDisambiguatedGroupLabel) {

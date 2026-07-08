@@ -31,8 +31,8 @@ const STATUS_LABELS: Record<DisplayStatus, string> = {
 };
 
 const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
-  running: <CircleDashed className="size-4 text-muted-foreground" />,
   error: <AlertCircle className="size-4 text-destructive" />,
+  running: <CircleDashed className="size-4 text-muted-foreground" />,
   success: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
   unknown: <CheckCircle className="size-4 text-muted-foreground" />,
 };

@@ -108,15 +108,15 @@ interface MockFileHandleType {
 // Common mock implementations
 export const mockFileHandle: MockFileHandleType = {
   getFile: vi.fn().mockResolvedValue({
-    text: vi.fn().mockResolvedValue('test content'),
-    size: 100,
-    lastModified: Date.now(),
     arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+    lastModified: Date.now(),
+    size: 100,
+    text: vi.fn().mockResolvedValue('test content'),
     type: 'text/plain',
   }),
+  isSameEntry: vi.fn().mockResolvedValue(true),
   kind: 'file' as const,
   name: 'test.txt',
-  isSameEntry: vi.fn().mockResolvedValue(true),
   queryPermission: vi.fn().mockResolvedValue('granted' as const),
   requestPermission: vi.fn().mockResolvedValue('granted' as const),
 };
@@ -128,16 +128,16 @@ export const mockDirectoryHandle = {
 
 export function createMockFileHandle(name: string, content = 'test content'): MockFileHandleType {
   return {
-    kind: 'file',
-    name,
     getFile: vi.fn().mockResolvedValue({
-      text: vi.fn().mockResolvedValue(content),
-      size: 100,
-      lastModified: Date.now(),
       arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      lastModified: Date.now(),
+      size: 100,
+      text: vi.fn().mockResolvedValue(content),
       type: 'text/plain',
     }),
     isSameEntry: vi.fn().mockResolvedValue(true),
+    kind: 'file',
+    name,
     queryPermission: vi.fn().mockResolvedValue('granted' as const),
     requestPermission: vi.fn().mockResolvedValue('granted' as const),
   };
@@ -145,12 +145,12 @@ export function createMockFileHandle(name: string, content = 'test content'): Mo
 
 export function createMockDirectoryHandle(name: string, entries: FileSystemHandle[] = []) {
   return {
-    kind: 'directory',
-    name,
     async *entries() {
       for (const entry of entries) {
         yield entry;
       }
     },
+    kind: 'directory',
+    name,
   } as unknown as FileSystemDirectoryHandle;
 }

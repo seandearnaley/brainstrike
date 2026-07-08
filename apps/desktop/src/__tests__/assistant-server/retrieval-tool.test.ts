@@ -48,21 +48,21 @@ vi.mock('@brainstrike/agent', async () => {
     ) {
       const totalTokens = chunks.length;
       return {
-        totalTokens,
         budget: this.budgetTokens,
-        remainingTokens: Math.max(this.budgetTokens - totalTokens, 0),
-        skipped: 0,
         chunks: chunks.map((chunk, index) => ({
           ...chunk,
           rank: index + 1,
           tokenCount: 1,
           ...(chunk.startLine !== undefined && chunk.endLine !== undefined
-            ? { lineRange: { start: chunk.startLine, end: chunk.endLine } }
+            ? { lineRange: { end: chunk.endLine, start: chunk.startLine } }
             : {}),
           ...(chunk.startOffset !== undefined && chunk.endOffset !== undefined
-            ? { offsets: { start: chunk.startOffset, end: chunk.endOffset } }
+            ? { offsets: { end: chunk.endOffset, start: chunk.startOffset } }
             : {}),
         })),
+        remainingTokens: Math.max(this.budgetTokens - totalTokens, 0),
+        skipped: 0,
+        totalTokens,
       };
     }
   }
@@ -73,18 +73,17 @@ vi.mock('@brainstrike/agent', async () => {
     hasWorkspaceIndexRuntimeStatus: actual.hasWorkspaceIndexRuntimeStatus,
     normalizeOptionalText: actual.normalizeOptionalText,
     normalizeWorkspaceIndexText: actual.normalizeWorkspaceIndexText,
-    resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
     QueryEmbeddingSpaceInputSchema: {
       parse: (input: unknown) => input,
     },
     RetrievalContextInputSchema: {
       parse: (input: unknown) => input,
     },
+    resolveWorkspaceIndexEmbeddingSetId: actual.resolveWorkspaceIndexEmbeddingSetId,
   };
 });
 
 vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   FileChunkRepository: class {
     searchSimilar(
       embedding: number[],
@@ -104,6 +103,7 @@ vi.mock('@brainstrike/db', () => ({
       return findByIdsMock(ids);
     }
   },
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
 }));
 
 vi.mock('@brainstrike/embeddings/provider-core', () => ({
@@ -117,39 +117,39 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
       return embedMock();
     }
   },
+  hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
+  isHostedProvider: (provider: string) =>
+    ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
+  isLocalProviderType: (provider: string) => ['local', 'transformers'].includes(provider),
   OpenAIEmbeddingProvider: class {
     embed() {
       return embedMock();
     }
   },
+  parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
+  resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
   VoyageEmbeddingProvider: class {
     embed() {
       return embedMock();
     }
   },
-  hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
-  isHostedProvider: (provider: string) =>
-    ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
-  isLocalProviderType: (provider: string) => ['local', 'transformers'].includes(provider),
-  parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
-  resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
 }));
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: () => ({
-    warn: loggerWarn,
+    debug: vi.fn(),
     error: loggerError,
     info: vi.fn(),
-    debug: vi.fn(),
+    warn: loggerWarn,
   }),
 }));
 
 vi.mock('@brainstrike/utils/logger', () => ({
   createLogger: () => ({
-    warn: loggerWarn,
+    debug: vi.fn(),
     error: loggerError,
     info: vi.fn(),
-    debug: vi.fn(),
+    warn: loggerWarn,
   }),
 }));
 
@@ -183,32 +183,32 @@ describe('retrieval-tool', () => {
     embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
     findByIdsMock.mockResolvedValue([
       {
+        createdAt: new Date().toISOString(),
         id: 'file-1',
         name: 'file.ts',
         path: '/repo/file.ts',
-        tokenCount: 42,
         size: 123,
-        createdAt: new Date().toISOString(),
+        tokenCount: 42,
         updatedAt: new Date().toISOString(),
       },
     ]);
     searchSimilarMock.mockResolvedValue([
       {
         chunk: {
-          id: 'chunk-1',
-          content: 'Hello world',
-          tokenCount: 4,
           chunkIndex: 0,
-          startLine: 10,
-          endLine: 12,
-          startOffset: 120,
-          endOffset: 155,
           chunkType: 'code',
-          fileRecordId: 'file-1',
+          content: 'Hello world',
           embeddingSetId: 'set-1',
+          endLine: 12,
+          endOffset: 155,
+          fileRecordId: 'file-1',
+          id: 'chunk-1',
+          startLine: 10,
+          startOffset: 120,
+          tokenCount: 4,
         },
-        similarity: 0.9,
         rank: 1,
+        similarity: 0.9,
       },
     ]);
 
@@ -217,10 +217,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'openai:text-embedding-3-small',
-              modelId: 'text-embedding-3-small',
               dimensions: 2,
               distance: null,
+              modelId: 'text-embedding-3-small',
+              modelKey: 'openai:text-embedding-3-small',
             },
           ],
         };
@@ -237,15 +237,15 @@ describe('retrieval-tool', () => {
   it('retrieves and packs context with inline file paths', async () => {
     const tool = createRetrievalTool({
       embeddingSetId: 'set-1',
-      tokenBudget: 10,
       selectionFilePaths: ['/repo/file.ts'],
+      tokenBudget: 10,
     });
 
     const result = await tool.execute({
       context: {
-        query: '  Hello  ',
         embeddingSetId: 'set-1',
         filePaths: ['/repo/file.ts'],
+        query: '  Hello  ',
       },
     });
 
@@ -258,15 +258,15 @@ describe('retrieval-tool', () => {
     expect(result.context).toContain('Hello world');
     expect(result.chunkContentIncludedInContext).toBe(true);
     expect(result.chunks[0]).not.toHaveProperty('content');
-    expect(result.chunks[0]?.lineRange).toEqual({ start: 10, end: 12 });
-    expect(result.chunks[0]?.offsets).toEqual({ start: 120, end: 155 });
+    expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
+    expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
     expect(result.selectionSnapshotId).toBeUndefined();
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
-      limit: 20,
-      threshold: 0.3,
       embeddingSetId: 'set-1',
       filePaths: ['/repo/file.ts'],
+      limit: 20,
+      threshold: 0.3,
     });
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
   });
@@ -289,9 +289,9 @@ describe('retrieval-tool', () => {
       'workspace-index-set',
     ]);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      embeddingSetId: 'workspace-index-set',
       limit: 20,
       threshold: 0.3,
-      embeddingSetId: 'workspace-index-set',
     });
   });
 
@@ -305,8 +305,8 @@ describe('retrieval-tool', () => {
 
     const result = await tool.execute({
       context: {
-        query: 'Where is assistant retrieval wired?',
         embeddingSetId: 'model-supplied-set',
+        query: 'Where is assistant retrieval wired?',
       },
     });
 
@@ -315,9 +315,9 @@ describe('retrieval-tool', () => {
       'model-supplied-set',
     ]);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      embeddingSetId: 'model-supplied-set',
       limit: 20,
       threshold: 0.3,
-      embeddingSetId: 'model-supplied-set',
     });
   });
 
@@ -330,8 +330,8 @@ describe('retrieval-tool', () => {
 
     const result = await tool.execute({
       context: {
-        query: 'Where is assistant retrieval wired?',
         embeddingSetId: 'explicit-set',
+        query: 'Where is assistant retrieval wired?',
       },
     });
 
@@ -340,17 +340,17 @@ describe('retrieval-tool', () => {
       'explicit-set',
     ]);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      embeddingSetId: 'explicit-set',
       limit: 20,
       threshold: 0.3,
-      embeddingSetId: 'explicit-set',
     });
   });
 
   it('lets queryEmbeddingSpace input override active runtime context', async () => {
     const result = await runQueryEmbeddingSpace(
       {
-        query: 'Where is assistant retrieval wired?',
         embeddingSetId: 'explicit-set',
+        query: 'Where is assistant retrieval wired?',
       },
       {
         embeddingSetId: 'active-set',
@@ -365,27 +365,27 @@ describe('retrieval-tool', () => {
       'explicit-set',
     ]);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      embeddingSetId: 'explicit-set',
       limit: 20,
       threshold: 0.3,
-      embeddingSetId: 'explicit-set',
     });
   });
 
   it('returns structured workspace index status when the default workspace index is blocked', async () => {
     const tool = createRetrievalTool({
+      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexingPaused: false,
-      workspaceIndexStatusState: 'blocked',
-      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
       workspaceIndexQueueProgress: {
         failed: 1,
+        lastError: 'provider key unavailable',
         pending: 3,
         processed: 7,
         totalQueued: 11,
-        lastError: 'provider key unavailable',
       },
+      workspaceIndexStatusState: 'blocked',
     });
 
     const result = await tool.execute({
@@ -395,10 +395,10 @@ describe('retrieval-tool', () => {
     });
 
     expect(result).toEqual({
-      status: 'unavailable',
-      reason: 'workspace-index-blocked',
       message: 'Workspace Index is blocked: missing-provider-key.',
       query: 'Where is assistant retrieval wired?',
+      reason: 'workspace-index-blocked',
+      status: 'unavailable',
       workspaceIndex: {
         blockedReason: 'missing-provider-key',
         embeddingSetId: 'workspace-index-set',
@@ -426,10 +426,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'ollama::nomic-embed-text',
-              modelId: 'nomic-embed-text',
               dimensions: 2,
               distance: null,
+              modelId: 'nomic-embed-text',
+              modelKey: 'ollama::nomic-embed-text',
             },
           ],
         };
@@ -439,7 +439,7 @@ describe('retrieval-tool', () => {
 
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
-      context: { query: 'hello', embeddingSetId: 'set-1' },
+      context: { embeddingSetId: 'set-1', query: 'hello' },
     });
 
     expect(result.embeddingSetId).toBe('set-1');
@@ -454,10 +454,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'lmstudio::text-embedding-model',
-              modelId: 'text-embedding-model',
               dimensions: 2,
               distance: null,
+              modelId: 'text-embedding-model',
+              modelKey: 'lmstudio::text-embedding-model',
             },
           ],
         };
@@ -467,7 +467,7 @@ describe('retrieval-tool', () => {
 
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
-      context: { query: 'hello', embeddingSetId: 'set-1' },
+      context: { embeddingSetId: 'set-1', query: 'hello' },
     });
 
     expect(result.embeddingSetId).toBe('set-1');
@@ -481,10 +481,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-              modelId: 'Xenova/all-MiniLM-L6-v2',
               dimensions: 2,
               distance: null,
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
             },
           ],
         };
@@ -497,7 +497,7 @@ describe('retrieval-tool', () => {
       { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } }
     );
     const result = await tool.execute({
-      context: { query: 'where is database config', embeddingSetId: 'set-1' },
+      context: { embeddingSetId: 'set-1', query: 'where is database config' },
     });
 
     expect(result.embeddingSetId).toBe('set-1');
@@ -517,10 +517,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-              modelId: 'Xenova/all-MiniLM-L6-v2',
               dimensions: 2,
               distance: null,
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
             },
           ],
         };
@@ -532,7 +532,7 @@ describe('retrieval-tool', () => {
 
     await expect(
       tool.execute({
-        context: { query: 'where is database config', embeddingSetId: 'set-1' },
+        context: { embeddingSetId: 'set-1', query: 'where is database config' },
       })
     ).rejects.toThrow('Local embedding query host is unavailable.');
   });
@@ -544,18 +544,18 @@ describe('retrieval-tool', () => {
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
     const result = await tool.execute({
       context: {
-        query: 'query',
         embeddingSetId: 'set-1',
         filePaths,
+        query: 'query',
       },
     });
 
     expect(result.selectionSnapshotId).toBe(snapshotId);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
-      limit: 20,
-      threshold: 0.3,
       embeddingSetId: 'set-1',
+      limit: 20,
       selectionSnapshotId: snapshotId,
+      threshold: 0.3,
     });
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
   });
@@ -566,13 +566,13 @@ describe('retrieval-tool', () => {
 
     await expect(
       tool.execute({
-        context: { query: 'hello', embeddingSetId: 'set-1' },
+        context: { embeddingSetId: 'set-1', query: 'hello' },
       })
     ).rejects.toThrow('Embedding dimensions do not match the active set.');
 
     expect(loggerWarn).toHaveBeenCalledWith('Embedding dimension mismatch', {
-      expected: 2,
       actual: 1,
+      expected: 2,
     });
   });
 
@@ -581,7 +581,7 @@ describe('retrieval-tool', () => {
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     const result = await tool.execute({
-      context: { query: 'hello', embeddingSetId: 'set-1' },
+      context: { embeddingSetId: 'set-1', query: 'hello' },
     });
 
     expect(result.context).toBe('');
@@ -593,39 +593,39 @@ describe('retrieval-tool', () => {
     searchSimilarMock.mockResolvedValueOnce([
       {
         chunk: {
-          id: 'chunk-old',
-          content: 'Old chunk without range',
-          tokenCount: 2,
           chunkIndex: 0,
           chunkType: 'code',
-          fileRecordId: 'file-1',
+          content: 'Old chunk without range',
           embeddingSetId: 'set-1',
+          fileRecordId: 'file-1',
+          id: 'chunk-old',
+          tokenCount: 2,
         },
-        similarity: 0.91,
         rank: 1,
+        similarity: 0.91,
       },
       {
         chunk: {
-          id: 'chunk-new',
-          content: 'Line-aware chunk',
-          tokenCount: 3,
           chunkIndex: 1,
-          startLine: 20,
-          endLine: 21,
-          startOffset: 200,
-          endOffset: 230,
           chunkType: 'code',
-          fileRecordId: 'file-1',
+          content: 'Line-aware chunk',
           embeddingSetId: 'set-1',
+          endLine: 21,
+          endOffset: 230,
+          fileRecordId: 'file-1',
+          id: 'chunk-new',
+          startLine: 20,
+          startOffset: 200,
+          tokenCount: 3,
         },
-        similarity: 0.9,
         rank: 2,
+        similarity: 0.9,
       },
     ]);
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     const result = await tool.execute({
-      context: { query: 'hello', embeddingSetId: 'set-1' },
+      context: { embeddingSetId: 'set-1', query: 'hello' },
     });
 
     expect(result.context).toContain('Line-aware chunk');
@@ -646,22 +646,22 @@ describe('retrieval-tool', () => {
     searchSimilarMock.mockResolvedValueOnce([
       {
         chunk: {
-          id: 'chunk-old',
-          content: 'Old chunk without range',
-          tokenCount: 2,
           chunkIndex: 0,
           chunkType: 'code',
-          fileRecordId: 'file-1',
+          content: 'Old chunk without range',
           embeddingSetId: 'set-1',
+          fileRecordId: 'file-1',
+          id: 'chunk-old',
+          tokenCount: 2,
         },
-        similarity: 0.91,
         rank: 1,
+        similarity: 0.91,
       },
     ]);
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
-      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
     ).rejects.toThrow(
       'Retrieved chunks are missing source line metadata. Rebuild the embedding space.'
     );
@@ -671,11 +671,11 @@ describe('retrieval-tool', () => {
   });
 
   it('preserves the safe embedding-generation failure message', async () => {
-    embedMock.mockResolvedValueOnce({ ok: false, error: new Error('provider down') });
+    embedMock.mockResolvedValueOnce({ error: new Error('provider down'), ok: false });
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
-      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
     ).rejects.toThrow('Unable to generate query embeddings for retrieval.');
   });
 
@@ -688,10 +688,10 @@ describe('retrieval-tool', () => {
         return {
           rows: [
             {
-              modelKey: 'openai:text-embedding-3-small',
-              modelId: 'text-embedding-3-small',
               dimensions: 2,
               distance: null,
+              modelId: 'text-embedding-3-small',
+              modelKey: 'openai:text-embedding-3-small',
             },
           ],
         };
@@ -707,9 +707,9 @@ describe('retrieval-tool', () => {
 
     const result = await tool.execute({
       context: {
-        query: 'query',
         embeddingSetId: 'set-1',
         filePaths,
+        query: 'query',
       },
     });
 
@@ -722,8 +722,8 @@ describe('retrieval-tool', () => {
     await expect(
       tool.execute({
         context: {
-          query: 'hello',
           embeddingSetId: 'set-1',
+          query: 'hello',
           selectionSnapshotId: 'not-a-uuid',
         },
       })
@@ -737,9 +737,9 @@ describe('retrieval-tool', () => {
     await expect(
       tool.execute({
         context: {
-          query: 'hello',
           embeddingSetId: 'set-1',
           filePaths,
+          query: 'hello',
         },
       })
     ).rejects.toThrow('Selection exceeds retrieval limits.');
@@ -751,7 +751,7 @@ describe('retrieval-tool', () => {
 
     await expect(
       tool.execute({
-        context: { query: 'hello', embeddingSetId: 'set-1' },
+        context: { embeddingSetId: 'set-1', query: 'hello' },
       })
     ).rejects.toThrow('Unable to load embedding set metadata.');
   });
@@ -782,7 +782,7 @@ describe('retrieval-tool', () => {
 
     await expect(
       tool.execute({
-        context: { query: 'hello', embeddingSetId: 'set-1' },
+        context: { embeddingSetId: 'set-1', query: 'hello' },
       })
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
   });
@@ -796,12 +796,12 @@ describe('retrieval-tool', () => {
     try {
       await expect(
         tool.execute({
-          context: { query: 'hello', embeddingSetId: 'set-1' },
+          context: { embeddingSetId: 'set-1', query: 'hello' },
         })
       ).rejects.toThrow('Unable to retrieve context right now. Try again.');
       await expect(
         tool.execute({
-          context: { query: 'hello', embeddingSetId: 'set-1' },
+          context: { embeddingSetId: 'set-1', query: 'hello' },
         })
       ).rejects.not.toThrow('/private/workspace');
     } finally {
@@ -814,7 +814,7 @@ describe('retrieval-tool', () => {
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
-      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
 
     expect(loggerError).toHaveBeenCalledWith(
@@ -834,7 +834,7 @@ describe('retrieval-tool', () => {
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
-      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
     ).rejects.toThrow('Unable to load embedding set metadata.');
 
     expect(loggerError).toHaveBeenCalledWith(
@@ -851,8 +851,8 @@ describe('retrieval-tool', () => {
 describe('retrieval-tool multi-root', () => {
   const ROOTED_RUNTIME = {
     workspaceRoots: [
-      { rootId: 'root-a', displayName: 'ProjectA', path: '/work/ProjectA' },
-      { rootId: 'root-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+      { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'root-a' },
+      { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'root-b' },
     ],
   } as unknown as RuntimeData;
 
@@ -867,20 +867,20 @@ describe('retrieval-tool multi-root', () => {
     searchSimilarMock.mockResolvedValue([
       {
         chunk: {
-          id: 'chunk-1',
-          content: 'Hello world',
-          tokenCount: 4,
           chunkIndex: 0,
-          startLine: 10,
-          endLine: 12,
-          startOffset: 120,
-          endOffset: 155,
           chunkType: 'code',
-          fileRecordId: 'file-1',
+          content: 'Hello world',
           embeddingSetId: 'set-1',
+          endLine: 12,
+          endOffset: 155,
+          fileRecordId: 'file-1',
+          id: 'chunk-1',
+          startLine: 10,
+          startOffset: 120,
+          tokenCount: 4,
         },
-        similarity: 0.9,
         rank: 1,
+        similarity: 0.9,
       },
     ]);
     dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
@@ -888,10 +888,10 @@ describe('retrieval-tool multi-root', () => {
         return {
           rows: [
             {
-              modelKey: 'openai:text-embedding-3-small',
-              modelId: 'text-embedding-3-small',
               dimensions: 2,
               distance: null,
+              modelId: 'text-embedding-3-small',
+              modelKey: 'openai:text-embedding-3-small',
             },
           ],
         };
@@ -907,7 +907,7 @@ describe('retrieval-tool multi-root', () => {
 
   it('labels retrieved chunks and the context string with their workspace root', async () => {
     const result = await runQueryEmbeddingSpace(
-      { query: 'hello', embeddingSetId: 'set-1' },
+      { embeddingSetId: 'set-1', query: 'hello' },
       ROOTED_RUNTIME
     );
     if ('status' in result) {
@@ -920,7 +920,7 @@ describe('retrieval-tool multi-root', () => {
 
   it('scopes retrieval to the resolved root when `root` is provided', async () => {
     await runQueryEmbeddingSpace(
-      { query: 'hello', embeddingSetId: 'set-1', root: 'ProjectB' },
+      { embeddingSetId: 'set-1', query: 'hello', root: 'ProjectB' },
       ROOTED_RUNTIME
     );
     expect(searchSimilarMock).toHaveBeenCalledWith(
@@ -932,7 +932,7 @@ describe('retrieval-tool multi-root', () => {
   it('errors clearly when `root` names a folder that is not open', async () => {
     await expect(
       runQueryEmbeddingSpace(
-        { query: 'hello', embeddingSetId: 'set-1', root: 'Nope' },
+        { embeddingSetId: 'set-1', query: 'hello', root: 'Nope' },
         ROOTED_RUNTIME
       )
     ).rejects.toThrow(/no folder "Nope"/i);

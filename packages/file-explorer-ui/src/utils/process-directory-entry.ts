@@ -26,21 +26,21 @@ export async function processDirectoryEntry(
   const finalPath = getFinalPath(directoryHandle, entry, relativePath);
 
   const dirHandle: DirectoryHandle = {
-    path: finalPath,
-    name: entry.name,
-    kind: 'directory',
-    platform: directoryHandle.platform,
     _internal: entry.handle,
+    kind: 'directory',
+    name: entry.name,
+    path: finalPath,
+    platform: directoryHandle.platform,
   };
 
   const children = await readTree(dirHandle, rootHandle, relativePath, false, abortSignal);
 
   return {
     ...entry,
-    path: finalPath,
-    depth: calculatePathDepth(relativePath),
     children: sortFileNodes(children),
-    selectionState: 'unchecked',
+    depth: calculatePathDepth(relativePath),
+    path: finalPath,
     rootFolderId,
+    selectionState: 'unchecked',
   };
 }

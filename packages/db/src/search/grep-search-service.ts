@@ -17,7 +17,7 @@ import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.js';
 
 export interface GrepSearchRepository {
-  findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]>;
+  findGrepCandidates: (options: GrepCandidateOptions) => Promise<GrepCandidate[]>;
 }
 
 export interface GrepSearchOptions {
@@ -79,7 +79,7 @@ const MIN_PATTERN_LENGTH = 2;
  * match", never a forked weaker copy.
  */
 export interface LineMatcher {
-  matches(line: string): boolean;
+  matches: (line: string) => boolean;
 }
 
 function buildLiteralMatcher(pattern: string, caseSensitive: boolean): LineMatcher {
@@ -153,11 +153,11 @@ export function collectGrepMatchesInContent(args: {
       continue;
     }
     matches.push({
-      path: args.path,
+      after: lines.slice(index + 1, index + 1 + args.contextLines),
+      before: lines.slice(Math.max(0, index - args.contextLines), index),
       line: args.startLine + index,
       lineText,
-      before: lines.slice(Math.max(0, index - args.contextLines), index),
-      after: lines.slice(index + 1, index + 1 + args.contextLines),
+      path: args.path,
       ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
       ...(args.rootName === undefined ? {} : { rootName: args.rootName }),
     });
@@ -207,11 +207,11 @@ function processCandidate(
     accumulator.seen.add(key);
     accumulator.totalMatches += 1;
     accumulator.matches.push({
-      path: candidate.filePath,
+      after: lines.slice(index + 1, index + 1 + contextLines),
+      before: lines.slice(Math.max(0, index - contextLines), index),
       line: absoluteLine,
       lineText,
-      before: lines.slice(Math.max(0, index - contextLines), index),
-      after: lines.slice(index + 1, index + 1 + contextLines),
+      path: candidate.filePath,
       ...(candidate.rootId === undefined ? {} : { rootId: candidate.rootId }),
       ...(candidate.rootName === undefined ? {} : { rootName: candidate.rootName }),
     });
@@ -240,8 +240,8 @@ export class GrepSearchService {
     const likePattern = resolveLikePattern(pattern, isRegex);
 
     const candidateOptions: GrepCandidateOptions = {
-      likePattern,
       caseSensitive,
+      likePattern,
       limit: candidateLimit,
       ...(options.embeddingSetId === undefined ? {} : { embeddingSetId: options.embeddingSetId }),
       ...(options.filePaths === undefined ? {} : { filePaths: options.filePaths }),
@@ -272,12 +272,12 @@ export class GrepSearchService {
     const capped = accumulator.matches.slice(0, maxResults);
 
     return {
+      candidatesTruncated: candidates.length >= candidateLimit,
       matches: capped,
+      scanLimited: likePattern === null,
+      skippedMissingLineMetadata: accumulator.skippedMissingLineMetadata,
       totalMatches: accumulator.totalMatches,
       truncated: accumulator.totalMatches > capped.length,
-      scanLimited: likePattern === null,
-      candidatesTruncated: candidates.length >= candidateLimit,
-      skippedMissingLineMetadata: accumulator.skippedMissingLineMetadata,
     };
   }
 }

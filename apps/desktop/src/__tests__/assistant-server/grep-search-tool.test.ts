@@ -37,8 +37,8 @@ describe('grep search tool', () => {
   it('defaults to files mode: aggregated per-path summaries, no line content', async () => {
     queryMock.mockResolvedValue({
       rows: [
-        { content: 'needle one\nplain\nneedle two', start_line: 1, path: 'src/x.ts' },
-        { content: 'needle here', start_line: 40, path: 'src/y.ts' },
+        { content: 'needle one\nplain\nneedle two', path: 'src/x.ts', start_line: 1 },
+        { content: 'needle here', path: 'src/y.ts', start_line: 40 },
       ],
     });
     const result = await runGrepSearch({ pattern: 'needle' }, undefined);
@@ -46,8 +46,8 @@ describe('grep search tool', () => {
       throw new Error('expected files mode result');
     }
     expect(result.files).toEqual([
-      { path: 'src/x.ts', matchCount: 2, firstLine: 1, source: 'index' },
-      { path: 'src/y.ts', matchCount: 1, firstLine: 40, source: 'index' },
+      { firstLine: 1, matchCount: 2, path: 'src/x.ts', source: 'index' },
+      { firstLine: 40, matchCount: 1, path: 'src/y.ts', source: 'index' },
     ]);
     expect(result.totalFiles).toBe(2);
     expect(result.totalMatches).toBe(3);
@@ -59,19 +59,19 @@ describe('grep search tool', () => {
 
   it('returns path:line matches with context in content mode', async () => {
     queryMock.mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', start_line: 10, path: 'src/x.ts' }],
+      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
     });
-    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, undefined);
+    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }
     expect(result.matches).toEqual([
       {
-        path: 'src/x.ts',
+        after: ['omega'],
+        before: ['alpha'],
         line: 11,
         lineText: 'needle line',
-        before: ['alpha'],
-        after: ['omega'],
+        path: 'src/x.ts',
         source: 'index',
       },
     ]);
@@ -81,10 +81,10 @@ describe('grep search tool', () => {
   it('pages content matches with offset and emits a continuation hint', async () => {
     const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
     queryMock.mockResolvedValue({
-      rows: [{ content: lines, start_line: 1, path: 'src/x.ts' }],
+      rows: [{ content: lines, path: 'src/x.ts', start_line: 1 }],
     });
     const result = await runGrepSearch(
-      { pattern: 'needle', outputMode: 'content', contextLines: 0, maxResults: 2, offset: 2 },
+      { contextLines: 0, maxResults: 2, offset: 2, outputMode: 'content', pattern: 'needle' },
       undefined
     );
     if (result.outputMode !== 'content') {
@@ -100,8 +100,8 @@ describe('grep search tool', () => {
   it('self-bounds oversized files-mode output and steers toward content mode', async () => {
     const rows = Array.from({ length: 400 }, (_, i) => ({
       content: 'needle in a haystack of content',
-      start_line: 1,
       path: `packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`,
+      start_line: 1,
     }));
     queryMock.mockResolvedValue({ rows });
     const result = await runGrepSearch({ pattern: 'needle' }, undefined);
@@ -119,12 +119,12 @@ describe('grep search tool', () => {
     // One indexed line larger than the whole output budget (e.g. minified bundle).
     queryMock.mockResolvedValue({
       rows: [
-        { content: `${'x'.repeat(15_000)} needle`, start_line: 1, path: 'dist/bundle.min.js' },
-        { content: 'small needle line', start_line: 1, path: 'src/ok.ts' },
+        { content: `${'x'.repeat(15_000)} needle`, path: 'dist/bundle.min.js', start_line: 1 },
+        { content: 'small needle line', path: 'src/ok.ts', start_line: 1 },
       ],
     });
     const result = await runGrepSearch(
-      { pattern: 'needle', outputMode: 'content', contextLines: 0, maxResults: 1 },
+      { contextLines: 0, maxResults: 1, outputMode: 'content', pattern: 'needle' },
       undefined
     );
     if (result.outputMode !== 'content') {
@@ -140,10 +140,10 @@ describe('grep search tool', () => {
   it('makes the pagination cap terminal instead of repeating an unreachable offset', async () => {
     const lines = Array.from({ length: 2100 }, (_, i) => `needle ${i}`).join('\n');
     queryMock.mockResolvedValue({
-      rows: [{ content: lines, start_line: 1, path: 'src/big.ts' }],
+      rows: [{ content: lines, path: 'src/big.ts', start_line: 1 }],
     });
     const result = await runGrepSearch(
-      { pattern: 'needle', outputMode: 'content', contextLines: 0, offset: 2000 },
+      { contextLines: 0, offset: 2000, outputMode: 'content', pattern: 'needle' },
       undefined
     );
     if (result.outputMode !== 'content') {
@@ -170,7 +170,7 @@ describe('grep search tool', () => {
   });
 
   it('surfaces invalid-regex errors without coercion', async () => {
-    await expect(runGrepSearch({ pattern: '([', isRegex: true }, undefined)).rejects.toThrow(
+    await expect(runGrepSearch({ isRegex: true, pattern: '([' }, undefined)).rejects.toThrow(
       /Invalid regular expression pattern/
     );
     expect(queryMock).not.toHaveBeenCalled();
@@ -206,8 +206,8 @@ describe('grep search tool multi-root', () => {
 
   const TWO_ROOTS = {
     workspaceRoots: [
-      { rootId: 'db-root-a', displayName: 'ProjectA', path: '/work/ProjectA' },
-      { rootId: 'db-root-b', displayName: 'ProjectB', path: '/work/ProjectB' },
+      { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'db-root-a' },
+      { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'db-root-b' },
     ],
   } as unknown as RuntimeData;
 
@@ -216,17 +216,17 @@ describe('grep search tool multi-root', () => {
       rows: [
         {
           content: 'needle',
-          start_line: 1,
+          display_name: 'ProjectA',
           path: 'README.md',
           root_id: 'db-root-a',
-          display_name: 'ProjectA',
+          start_line: 1,
         },
         {
           content: 'needle',
-          start_line: 1,
+          display_name: 'ProjectB',
           path: 'README.md',
           root_id: 'db-root-b',
-          display_name: 'ProjectB',
+          start_line: 1,
         },
       ],
     });
@@ -246,14 +246,14 @@ describe('grep search tool multi-root', () => {
       rows: [
         {
           content: 'needle line',
-          start_line: 5,
+          display_name: 'ProjectA',
           path: 'src/x.ts',
           root_id: 'db-root-a',
-          display_name: 'ProjectA',
+          start_line: 5,
         },
       ],
     });
-    const result = await runGrepSearch({ pattern: 'needle', outputMode: 'content' }, TWO_ROOTS);
+    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, TWO_ROOTS);
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }

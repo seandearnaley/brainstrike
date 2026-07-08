@@ -38,10 +38,10 @@ function workspacePackages() {
   const out = [];
   const rootPkg = readRootPackageJson();
   out.push({
-    path: '.',
     name: rootPkg.name ?? 'root',
-    version: rootPkg.version ?? '',
+    path: '.',
     private: Boolean(rootPkg.private),
+    version: rootPkg.version ?? '',
   });
   for (const top of ['apps', 'packages']) {
     const topDir = path.join(root, top);
@@ -58,10 +58,10 @@ function workspacePackages() {
       }
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       out.push({
-        path: path.join(top, ent.name),
         name: pkg.name ?? '(unnamed)',
-        version: pkg.version ?? '',
+        path: path.join(top, ent.name),
         private: Boolean(pkg.private),
+        version: pkg.version ?? '',
       });
     }
   }
@@ -111,15 +111,15 @@ function main() {
     const outdated = current !== latest;
     const deps = [...new Set(dependentPackages.map((p) => p.name))].sort();
     rows.push({
-      name,
-      current,
-      wanted,
-      latest,
       bump: bumpKind(current, latest),
-      outdated,
-      isDeprecated: Boolean(isDeprecated),
+      current,
       dependencyType,
       dependents: deps,
+      isDeprecated: Boolean(isDeprecated),
+      latest,
+      name,
+      outdated,
+      wanted,
     });
   }
 

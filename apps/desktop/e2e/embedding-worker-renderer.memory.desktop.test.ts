@@ -106,13 +106,13 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     console.log(
       JSON.stringify({
-        type: 'desktop-visible-renderer-memory-diagnostic',
-        embeddingSetId: fixture.embeddingSetId,
         baseline,
+        embeddingSetId: fixture.embeddingSetId,
+        outcome,
+        queueStats,
         retained,
         retainedGrowthMB,
-        queueStats,
-        outcome,
+        type: 'desktop-visible-renderer-memory-diagnostic',
       })
     );
 
@@ -158,8 +158,8 @@ test.describe('Embedding Host Renderer - memory', () => {
     );
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: LARGE_BACKFILL_FILE_COUNT,
       chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
+      fileCount: LARGE_BACKFILL_FILE_COUNT,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'embedding-worker-20k-backfill-memory-diagnostic');
@@ -202,29 +202,29 @@ test.describe('Embedding Host Renderer - memory', () => {
         const hostProcess = getRuntimeSnapshot(sample.snapshot.process, 'embedding-host');
         return {
           hostHeapMB: Math.max(current.hostHeapMB, sample.snapshot.hostHeap.usedMB),
-          visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
-          mainRssMB: Math.max(current.mainRssMB, sample.snapshot.process.mainProcess.rssMB),
-          mainHeapMB: Math.max(current.mainHeapMB, sample.snapshot.process.mainProcess.heapUsedMB),
           hostPids: current.hostPids.concat(hostProcess.osProcessId),
+          mainHeapMB: Math.max(current.mainHeapMB, sample.snapshot.process.mainProcess.heapUsedMB),
+          mainRssMB: Math.max(current.mainRssMB, sample.snapshot.process.mainProcess.rssMB),
+          visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
         };
       },
       {
         hostHeapMB: baseline.hostHeap.usedMB,
-        visibleHeapMB: baseline.visibleHeap.usedMB,
-        mainRssMB: baseline.process.mainProcess.rssMB,
-        mainHeapMB: baseline.process.mainProcess.heapUsedMB,
         hostPids: [] as Array<number | null>,
+        mainHeapMB: baseline.process.mainProcess.heapUsedMB,
+        mainRssMB: baseline.process.mainProcess.rssMB,
+        visibleHeapMB: baseline.visibleHeap.usedMB,
       }
     );
 
     console.log(
       JSON.stringify({
-        type: 'desktop-large-backfill-memory-pressure',
-        fixture,
-        warmedBaseline,
         baseline,
+        fixture,
         peaks,
         samples,
+        type: 'desktop-large-backfill-memory-pressure',
+        warmedBaseline,
       })
     );
 
@@ -273,10 +273,10 @@ test.describe('Embedding Host Renderer - memory', () => {
     await forceRendererGarbageCollection(hostPage);
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: LARGE_COLLECTION_RENDER_FILE_COUNT,
+      chunkContentBytes: 1024,
       chunksPerFile: LARGE_COLLECTION_RENDER_CHUNKS_PER_FILE,
       fileContentBytes: 4096,
-      chunkContentBytes: 1024,
+      fileCount: LARGE_COLLECTION_RENDER_FILE_COUNT,
       persistActiveSet: false,
     });
 
@@ -319,10 +319,10 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     console.log(
       JSON.stringify({
-        type: 'desktop-visible-render-large-collection',
-        fixture,
         baseline,
+        fixture,
         selected,
+        type: 'desktop-visible-render-large-collection',
         visibleHeapGrowthMB,
         visibleWorkingSetGrowthMB,
       })
@@ -358,8 +358,8 @@ test.describe('Embedding Host Renderer - memory', () => {
     await forceRendererGarbageCollection(hostPage);
 
     const fixture = await createLargeCollectionListFixture(activeWindow, {
-      fileCount: LARGE_COLLECTION_LIST_FILE_COUNT,
       fileContentBytes: 1024,
+      fileCount: LARGE_COLLECTION_LIST_FILE_COUNT,
       persistActiveSet: false,
     });
 
@@ -434,10 +434,10 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     console.log(
       JSON.stringify({
-        type: 'desktop-visible-render-large-file-list',
-        fixture,
         baseline,
+        fixture,
         paged,
+        type: 'desktop-visible-render-large-file-list',
         visibleHeapGrowthMB,
         visibleWorkingSetGrowthMB,
       })
@@ -489,8 +489,8 @@ test.describe('Embedding Host Renderer - memory', () => {
     await setVectorDevicePreference(activeWindow, 'wasm');
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: 16,
       chunksPerFile: 8,
+      fileCount: 16,
       persistActiveSet: false,
     });
 
@@ -570,8 +570,8 @@ test.describe('Embedding Host Renderer - memory', () => {
       await setVectorDevicePreference(activeWindow, 'wasm');
 
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: 80,
         chunksPerFile: 8,
+        fileCount: 80,
         persistActiveSet: true,
       });
 
@@ -677,8 +677,8 @@ test.describe('Embedding Host Renderer - memory', () => {
       await setVectorDevicePreference(activeWindow, 'wasm');
 
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: 40,
         chunksPerFile: 6,
+        fileCount: 40,
         persistActiveSet: true,
       });
 
@@ -802,8 +802,8 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
       const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-        fileCount: LARGE_BACKFILL_CYCLE_FILE_COUNT,
         chunksPerFile: LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE,
+        fileCount: LARGE_BACKFILL_CYCLE_FILE_COUNT,
         persistActiveSet: false,
       });
 
@@ -853,11 +853,11 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     console.log(
       JSON.stringify({
-        type: 'desktop-repeat-backfill-idle-drift',
-        initialSnapshot,
         baseline,
         idleSnapshots,
+        initialSnapshot,
         referenceHostPid,
+        type: 'desktop-repeat-backfill-idle-drift',
       })
     );
 

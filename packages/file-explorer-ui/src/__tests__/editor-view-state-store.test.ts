@@ -14,7 +14,7 @@ describe('editor-view-state-store', () => {
     const key = 'root:/foo/baz.ts';
     const st = useEditorViewStateStore.getState();
     st.setSelection(key, 5, 10);
-    expect(st.getSelection(key)).toEqual({ start: 5, end: 10 });
+    expect(st.getSelection(key)).toEqual({ end: 10, start: 5 });
     st.clear(key);
     expect(useEditorViewStateStore.getState().getSelection(key)).toBeUndefined();
   });

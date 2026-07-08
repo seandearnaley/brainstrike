@@ -24,12 +24,12 @@ import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } 
  */
 export interface HybridSearchRepository {
   /** Full-text keyword search */
-  fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
+  fullTextSearch: (query: string, options: FTSSearchOptions) => Promise<FTSSearchResult[]>;
   /** Vector similarity search */
-  searchSimilar(
+  searchSimilar: (
     queryEmbedding: number[],
     options: ChunkSearchOptions
-  ): Promise<ChunkSearchResult[]>;
+  ) => Promise<ChunkSearchResult[]>;
 }
 
 /**
@@ -222,10 +222,10 @@ export class HybridSearchService {
     // large limits this avoids materializing thousands of full embeddings in the
     // renderer. A caller can opt back in via `includeEmbedding`.
     const vectorSearchOptions: ChunkSearchOptions = {
-      limit: vectorLimit,
-      threshold: vectorThreshold,
       embeddingSetId,
       includeEmbedding,
+      limit: vectorLimit,
+      threshold: vectorThreshold,
     };
     if (fileRecordId !== undefined) {
       vectorSearchOptions.fileRecordId = fileRecordId;
@@ -241,12 +241,12 @@ export class HybridSearchService {
     }
 
     const ftsSearchOptions: FTSSearchOptions = {
-      limit: ftsLimit,
-      threshold: ftsThreshold,
-      queryMode: ftsQueryMode,
-      language: ftsLanguage,
       includeEmbedding,
       includeHeadline,
+      language: ftsLanguage,
+      limit: ftsLimit,
+      queryMode: ftsQueryMode,
+      threshold: ftsThreshold,
     };
     if (fileRecordId !== undefined) {
       ftsSearchOptions.fileRecordId = fileRecordId;
@@ -294,16 +294,16 @@ export class HybridSearchService {
     const totalMs = performance.now() - startTime;
 
     return {
-      results,
       metadata: {
-        vectorResultCount: vectorResults.length,
         ftsResultCount: ftsResults.length,
-        fusedResultCount: fusedResults.length,
-        vectorSearchMs,
         ftsSearchMs,
+        fusedResultCount: fusedResults.length,
         fusionMs,
         totalMs,
+        vectorResultCount: vectorResults.length,
+        vectorSearchMs,
       },
+      results,
     };
   }
 
@@ -384,9 +384,9 @@ export class HybridSearchService {
 
       const result: HybridSearchResult = {
         chunk,
+        position: i + 1,
         rrfScore: fused.rrfScore,
         sourceCount: fused.sourceCount,
-        position: i + 1,
       };
 
       // Add vector similarity if available

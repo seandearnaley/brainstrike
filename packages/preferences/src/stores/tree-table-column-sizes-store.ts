@@ -134,11 +134,11 @@ function parsePersistedRaw(raw: string | null): { state: PersistedShape; version
 function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<PersistedShape> {
   return {
     getItem: async (name) => parsePersistedRaw(await storage.getItem(name)),
-    setItem: async (name, value) => {
-      await storage.setItem(name, JSON.stringify(value));
-    },
     removeItem: async (name) => {
       await storage.removeItem(name);
+    },
+    setItem: async (name, value) => {
+      await storage.setItem(name, JSON.stringify(value));
     },
   };
 }
@@ -173,7 +173,12 @@ function buildCreator(
   columnBounds: Record<string, ColumnSizeBounds>
 ): StateCreator<TreeTableColumnSizesStoreState, [['zustand/persist', unknown]], []> {
   return (set, _get) => ({
-    sizes: sanitizeColumnSizes({}, columnBounds),
+    reset: () => {
+      set({ sizes: sanitizeColumnSizes({}, columnBounds) });
+    },
+    setAll: (next) => {
+      set({ sizes: sanitizeColumnSizes(next, columnBounds) });
+    },
     setColumn: (columnId, width) => {
       const bounds = columnBounds[columnId];
       if (!bounds) {
@@ -189,12 +194,7 @@ function buildCreator(
         },
       }));
     },
-    setAll: (next) => {
-      set({ sizes: sanitizeColumnSizes(next, columnBounds) });
-    },
-    reset: () => {
-      set({ sizes: sanitizeColumnSizes({}, columnBounds) });
-    },
+    sizes: sanitizeColumnSizes({}, columnBounds),
   });
 }
 
@@ -203,21 +203,6 @@ function buildPersistOptions(
   storage: PersistStorage<PersistedShape>
 ): PersistOptions<TreeTableColumnSizesStoreState, PersistedShape> {
   return {
-    name: options.storeName,
-    version: options.version,
-    storage,
-    partialize: (state) => ({ sizes: state.sizes }),
-    migrate: (persisted, version) => {
-      // Persisted shape is already `{ sizes }`; route through resolveInitial
-      // so consumer-provided migrate hooks and sanitization run uniformly.
-      const initial = resolveInitialFromRaw({
-        raw: (persisted as PersistedShape | undefined)?.sizes ?? persisted,
-        version,
-        migrate: options.migrate,
-        columnBounds: options.columnBounds,
-      });
-      return { sizes: initial } as PersistedShape;
-    },
     merge: (persisted, current) => ({
       ...current,
       sizes: sanitizeColumnSizes(
@@ -225,6 +210,21 @@ function buildPersistOptions(
         options.columnBounds
       ),
     }),
+    migrate: (persisted, version) => {
+      // Persisted shape is already `{ sizes }`; route through resolveInitial
+      // so consumer-provided migrate hooks and sanitization run uniformly.
+      const initial = resolveInitialFromRaw({
+        columnBounds: options.columnBounds,
+        migrate: options.migrate,
+        raw: (persisted as PersistedShape | undefined)?.sizes ?? persisted,
+        version,
+      });
+      return { sizes: initial } as PersistedShape;
+    },
+    name: options.storeName,
+    partialize: (state) => ({ sizes: state.sizes }),
+    storage,
+    version: options.version,
   };
 }
 
@@ -241,8 +241,8 @@ function resolveStorageAdapter(
     // environments without browser storage (SSR / non-DOM tests).
     return {
       getItem: () => null,
-      setItem: () => undefined,
       removeItem: () => undefined,
+      setItem: () => undefined,
     };
   }
 }

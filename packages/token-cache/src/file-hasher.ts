@@ -149,8 +149,8 @@ export class FileHasher {
       return null;
     }
     return {
-      folderId: key.slice(0, separatorIndex),
       filePath: key.slice(separatorIndex + 2),
+      folderId: key.slice(0, separatorIndex),
     };
   }
 }

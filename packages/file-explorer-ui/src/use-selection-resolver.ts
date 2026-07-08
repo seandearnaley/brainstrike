@@ -277,9 +277,9 @@ export function useSelectionResolver(): SelectionResolverState {
         }
         setManifest(
           createErroredQuerySelectionManifest({
+            errorMessage: error instanceof Error ? error.message : String(error),
             fingerprint: descriptor.manifestFingerprint,
             snapshotId: descriptor.manifestSnapshotId,
-            errorMessage: error instanceof Error ? error.message : String(error),
           })
         );
       });

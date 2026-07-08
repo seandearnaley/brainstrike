@@ -45,28 +45,28 @@ describe('DatabaseWorkScheduler', () => {
         async () => {
           events.push('foreground-1');
         },
-        { priority: 'foreground', label: 'initial foreground' }
+        { label: 'initial foreground', priority: 'foreground' }
       );
 
       const background = scheduler.run(
         async () => {
           events.push('background');
         },
-        { priority: 'background', label: 'background import' }
+        { label: 'background import', priority: 'background' }
       );
 
       await Promise.resolve();
       expect(events).toEqual(['foreground-1']);
       expect(scheduler.getSnapshot()).toMatchObject({
-        queued: { background: 1, foreground: 0, normal: 0 },
         backgroundWaiting: true,
+        queued: { background: 1, foreground: 0, normal: 0 },
       });
 
       const foreground = scheduler.run(
         async () => {
           events.push('foreground-2');
         },
-        { priority: 'foreground', label: 'collection page' }
+        { label: 'collection page', priority: 'foreground' }
       );
 
       await foreground;
@@ -93,14 +93,14 @@ describe('DatabaseWorkScheduler', () => {
         async () => {
           events.push('normal');
         },
-        { priority: 'normal', label: 'collection count refresh' }
+        { label: 'collection count refresh', priority: 'normal' }
       );
 
       const background = scheduler.run(
         async () => {
           events.push('background');
         },
-        { priority: 'background', label: 'embedding claim' }
+        { label: 'embedding claim', priority: 'background' }
       );
 
       await background;
@@ -165,12 +165,12 @@ describe('DatabaseWorkScheduler', () => {
         async () => {
           throw expectedError;
         },
-        { priority: 'foreground', label: 'broken query' }
+        { label: 'broken query', priority: 'foreground' }
       )
     ).rejects.toBe(expectedError);
 
     await expect(
-      scheduler.run(async () => 'recovered', { priority: 'foreground', label: 'next query' })
+      scheduler.run(async () => 'recovered', { label: 'next query', priority: 'foreground' })
     ).resolves.toBe('recovered');
   });
 
@@ -178,17 +178,23 @@ describe('DatabaseWorkScheduler', () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
 
     await scheduler.run(async () => 'foreground', {
-      priority: 'foreground',
       label: 'collection search',
+      priority: 'foreground',
     });
     await scheduler.run(async () => 'background', {
-      priority: 'background',
       label: 'embedding claim',
+      priority: 'background',
     });
 
     expect(scheduler.getSnapshot()).toMatchObject({
-      queued: { background: 0, foreground: 0, normal: 0 },
       priorityStats: {
+        background: {
+          completed: 1,
+          lastCompletedLabel: 'embedding claim',
+          lastStartedLabel: 'embedding claim',
+          queued: 1,
+          started: 1,
+        },
         foreground: {
           completed: 1,
           lastCompletedLabel: 'collection search',
@@ -197,14 +203,8 @@ describe('DatabaseWorkScheduler', () => {
           started: 1,
         },
         normal: { completed: 0, queued: 0, started: 0 },
-        background: {
-          completed: 1,
-          lastCompletedLabel: 'embedding claim',
-          lastStartedLabel: 'embedding claim',
-          queued: 1,
-          started: 1,
-        },
       },
+      queued: { background: 0, foreground: 0, normal: 0 },
     });
   });
 
@@ -226,7 +226,7 @@ describe('DatabaseWorkScheduler', () => {
           await gate;
           now += serviceMs;
         },
-        { priority: 'background', label: `embedding batch ${index + 1}` }
+        { label: `embedding batch ${index + 1}`, priority: 'background' }
       );
       now = scheduledAt + waitMs;
       await run;
@@ -235,6 +235,8 @@ describe('DatabaseWorkScheduler', () => {
 
     expect(scheduler.getSnapshot().priorityStats.background).toMatchObject({
       completed: 4,
+      lastCompletedLabel: 'embedding batch 4',
+      lastStartedLabel: 'embedding batch 4',
       longestWaitMs: 40,
       serviceP50Ms: 11,
       serviceP95Ms: 17,
@@ -242,8 +244,6 @@ describe('DatabaseWorkScheduler', () => {
       totalWaitMs: 72,
       waitP50Ms: 9,
       waitP95Ms: 40,
-      lastCompletedLabel: 'embedding batch 4',
-      lastStartedLabel: 'embedding batch 4',
     });
   });
 
@@ -257,7 +257,7 @@ describe('DatabaseWorkScheduler', () => {
         async () => {
           now += 1;
         },
-        { priority: 'background', label: `embedding batch ${waitMs}` }
+        { label: `embedding batch ${waitMs}`, priority: 'background' }
       );
       now = scheduledAt + waitMs;
       await run;
@@ -283,13 +283,13 @@ describe('DatabaseWorkScheduler', () => {
           await new Promise<void>((resolve) => {
             releaseForeground = resolve;
           }),
-        { priority: 'foreground', label: 'hybrid search' }
+        { label: 'hybrid search', priority: 'foreground' }
       );
 
       await Promise.resolve();
       const background = scheduler.run(async () => 'background', {
-        priority: 'background',
         label: 'embedding claim',
+        priority: 'background',
       });
       await Promise.resolve();
 
@@ -319,10 +319,10 @@ describe('DatabaseWorkScheduler', () => {
     });
 
     const rawDb = {
+      exec: vi.fn(async (_sql: string, _params?: unknown[]) => undefined),
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
         rows: [] as T[],
       })),
-      exec: vi.fn(async (_sql: string, _params?: unknown[]) => undefined),
     };
 
     const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
@@ -341,10 +341,10 @@ describe('DatabaseWorkScheduler', () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const receiver = Symbol('receiver');
     const rawDb = {
-      receiver,
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
         rows: [] as T[],
       })),
+      receiver,
       syncToFs: vi.fn(async function (this: { readonly receiver: symbol }) {
         expect(this.receiver).toBe(receiver);
       }),
@@ -362,10 +362,10 @@ describe('DatabaseWorkScheduler', () => {
 
   it('passes database work options as the third query argument when no params are provided', async () => {
     const rawDb = {
+      exec: vi.fn(async (_sql: string, _params?: unknown[], _options?: unknown) => undefined),
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
         rows: [] as T[],
       })),
-      exec: vi.fn(async (_sql: string, _params?: unknown[], _options?: unknown) => undefined),
     };
 
     const background = createPriorityDbHandle(rawDb, 'background');
@@ -385,9 +385,6 @@ describe('DatabaseWorkScheduler', () => {
 
   it('applies priority work options to atomic chunk/job enqueue calls', async () => {
     const rawDb = {
-      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
-        rows: [] as T[],
-      })),
       insertChunksAndEnqueueEmbeddingJobs: vi.fn(
         async (
           _chunks: readonly unknown[],
@@ -396,6 +393,9 @@ describe('DatabaseWorkScheduler', () => {
           _workOptions?: unknown
         ) => undefined
       ),
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
     };
 
     const background = createPriorityDbHandle(rawDb, 'background') as typeof rawDb;
@@ -570,13 +570,13 @@ describe('DatabaseWorkScheduler', () => {
       unsubscribe: vi.fn(async () => undefined),
     };
     const rawDb = {
+      live: {
+        incrementalQuery: vi.fn(async () => liveHandle),
+        query: vi.fn(async () => liveHandle),
+      },
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
         rows: [] as T[],
       })),
-      live: {
-        query: vi.fn(async () => liveHandle),
-        incrementalQuery: vi.fn(async () => liveHandle),
-      },
     };
 
     const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
@@ -602,26 +602,26 @@ describe('DatabaseWorkScheduler', () => {
         unsubscribe: vi.fn(async () => undefined),
       };
       const rawDb = {
+        live: {
+          incrementalQuery: vi.fn(async () => liveHandle),
+          query: vi.fn(async () => liveHandle),
+        },
         query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
           rows: [] as T[],
         })),
-        live: {
-          query: vi.fn(async () => liveHandle),
-          incrementalQuery: vi.fn(async () => liveHandle),
-        },
       };
 
       await scheduler.run(
         async () => {
           events.push('foreground');
         },
-        { priority: 'foreground', label: 'user query' }
+        { label: 'user query', priority: 'foreground' }
       );
       const background = scheduler.run(
         async () => {
           events.push('background');
         },
-        { priority: 'background', label: 'workspace index' }
+        { label: 'workspace index', priority: 'background' }
       );
       const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
       const handle = await scheduled.live.query({ query: 'SELECT 1' });

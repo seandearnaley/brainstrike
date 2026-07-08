@@ -16,10 +16,10 @@ export interface PgliteQueryResult<
 }
 
 export interface PgliteDatabase {
-  exec(query: string): Promise<unknown>;
-  query<TRecord extends Record<string, unknown> = Record<string, unknown>>(
+  exec: (query: string) => Promise<unknown>;
+  query: <TRecord extends Record<string, unknown> = Record<string, unknown>>(
     query: string,
     values?: PgliteQueryValues
-  ): Promise<PgliteQueryResult<TRecord>>;
-  transaction?<T>(fn: (tx: PgliteDatabase) => Promise<T>): Promise<T>;
+  ) => Promise<PgliteQueryResult<TRecord>>;
+  transaction?: <T>(fn: (tx: PgliteDatabase) => Promise<T>) => Promise<T>;
 }

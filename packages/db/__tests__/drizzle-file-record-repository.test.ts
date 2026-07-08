@@ -25,7 +25,7 @@ describe('DrizzleFileRecordRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
 
     // Run migrations to set up schema
@@ -55,17 +55,17 @@ describe('DrizzleFileRecordRepository', () => {
     );
     const now = new Date().toISOString();
     await repository.createWithContent({
+      content: 'export const value = 1;',
+      contentHash: args.contentHash ?? 'hash-1',
+      createdAt: now,
+      embeddingSetId: args.embeddingSetId,
       id: args.id,
       name: 'index.ts',
       path: args.path,
-      size: 100,
-      createdAt: now,
-      updatedAt: now,
-      content: 'export const value = 1;',
-      contentHash: args.contentHash ?? 'hash-1',
-      tokenCount: 5,
       processedAt: now,
-      embeddingSetId: args.embeddingSetId,
+      size: 100,
+      tokenCount: 5,
+      updatedAt: now,
     });
     await client.query('UPDATE file_records SET root_id = $1 WHERE id = $2', [
       args.rootId,
@@ -81,11 +81,11 @@ describe('DrizzleFileRecordRepository', () => {
     it('should create a file record and find it by id', async () => {
       const now = new Date().toISOString();
       const record = {
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'test.ts',
         path: '/src/test.ts',
         size: 1024,
-        createdAt: now,
         updatedAt: now,
       };
 
@@ -102,16 +102,16 @@ describe('DrizzleFileRecordRepository', () => {
     it('should create with content and find by content hash', async () => {
       const now = new Date().toISOString();
       const record = {
+        content: 'const hello = "world";',
+        contentHash: 'abc123hash',
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000002',
         name: 'content.ts',
         path: '/src/content.ts',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
-        content: 'const hello = "world";',
-        contentHash: 'abc123hash',
-        tokenCount: 5,
         processedAt: now,
+        size: 100,
+        tokenCount: 5,
+        updatedAt: now,
       };
 
       await repository.createWithContent(record);
@@ -134,20 +134,20 @@ describe('DrizzleFileRecordRepository', () => {
       const now = new Date().toISOString();
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'file1.ts',
         path: '/src/file1.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000002',
         name: 'file2.ts',
         path: '/src/file2.ts',
         size: 200,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -160,25 +160,25 @@ describe('DrizzleFileRecordRepository', () => {
 
       // Record with content
       await repository.createWithContent({
+        content: 'const x = 1;',
+        contentHash: 'hash1',
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'with-content.ts',
         path: '/src/with-content.ts',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
-        content: 'const x = 1;',
-        contentHash: 'hash1',
-        tokenCount: 3,
         processedAt: now,
+        size: 100,
+        tokenCount: 3,
+        updatedAt: now,
       });
 
       // Record without content
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000002',
         name: 'no-content.ts',
         path: '/src/no-content.ts',
         size: 50,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -191,15 +191,15 @@ describe('DrizzleFileRecordRepository', () => {
   describe('managed cache identity', () => {
     it('should find a managed cache entry by collection, root id, and relative path', async () => {
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000011',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        id: '00000000-0000-0000-0000-000000000011',
         path: 'src/index.ts',
         rootId: 'root-a',
       });
       // Same relative path under a DIFFERENT root — must stay distinct.
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000012',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        id: '00000000-0000-0000-0000-000000000012',
         path: 'src/index.ts',
         rootId: 'root-b',
       });
@@ -215,20 +215,20 @@ describe('DrizzleFileRecordRepository', () => {
 
     it('should list managed cache entries across roots for a collection', async () => {
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000021',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        id: '00000000-0000-0000-0000-000000000021',
         path: 'src/index.ts',
         rootId: 'root-a',
       });
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000022',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        id: '00000000-0000-0000-0000-000000000022',
         path: 'src/index.ts',
         rootId: 'root-b',
       });
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000023',
         embeddingSetId: '00000000-0000-0000-0000-000000000202',
+        id: '00000000-0000-0000-0000-000000000023',
         path: 'src/index.ts',
         rootId: 'root-c',
       });
@@ -245,11 +245,11 @@ describe('DrizzleFileRecordRepository', () => {
 
     it('should list managed cache metadata without selecting content', async () => {
       await seedManagedCacheEntry({
-        id: '00000000-0000-0000-0000-000000000031',
+        contentHash: 'hash-1',
         embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        id: '00000000-0000-0000-0000-000000000031',
         path: 'src/index.ts',
         rootId: 'root-a',
-        contentHash: 'hash-1',
       });
 
       const entries = await repository.listManagedCacheEntryMetadata(
@@ -258,11 +258,11 @@ describe('DrizzleFileRecordRepository', () => {
 
       expect(entries).toEqual([
         expect.objectContaining({
-          fileRecordId: '00000000-0000-0000-0000-000000000031',
-          embeddingSetId: '00000000-0000-0000-0000-000000000101',
-          rootId: 'root-a',
-          relativePath: 'src/index.ts',
           contentHash: 'hash-1',
+          embeddingSetId: '00000000-0000-0000-0000-000000000101',
+          fileRecordId: '00000000-0000-0000-0000-000000000031',
+          relativePath: 'src/index.ts',
+          rootId: 'root-a',
         }),
       ]);
     });
@@ -273,16 +273,16 @@ describe('DrizzleFileRecordRepository', () => {
       const now = new Date().toISOString();
       for (const suffix of ['a', 'b', 'c']) {
         await repository.createWithContent({
+          content: `export const ${suffix} = 1;`,
+          contentHash: `hash-${suffix}`,
+          createdAt: now,
+          embeddingSetId: '00000000-0000-0000-0000-000000000101',
           id: `00000000-0000-0000-0000-00000000004${suffix}`,
           name: `${suffix}.ts`,
           path: `src/${suffix}.ts`,
           size: 10,
-          createdAt: now,
-          updatedAt: now,
-          content: `export const ${suffix} = 1;`,
-          contentHash: `hash-${suffix}`,
           tokenCount: 5,
-          embeddingSetId: '00000000-0000-0000-0000-000000000101',
+          updatedAt: now,
         });
       }
       // Stamp the managed-cache identity (root_id) — createWithContent doesn't
@@ -339,11 +339,11 @@ describe('DrizzleFileRecordRepository', () => {
     it('should update file record fields', async () => {
       const now = new Date().toISOString();
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'original.ts',
         path: '/src/original.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -360,11 +360,11 @@ describe('DrizzleFileRecordRepository', () => {
     it('should update content via updateContent', async () => {
       const now = new Date().toISOString();
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'file.ts',
         path: '/src/file.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -385,11 +385,11 @@ describe('DrizzleFileRecordRepository', () => {
     it('rejects null bytes in content updates before PGlite', async () => {
       const now = new Date().toISOString();
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000099',
         name: 'file.ts',
         path: '/src/file.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -408,11 +408,11 @@ describe('DrizzleFileRecordRepository', () => {
     it('should delete a file record', async () => {
       const now = new Date().toISOString();
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'to-delete.ts',
         path: '/src/to-delete.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -429,11 +429,11 @@ describe('DrizzleFileRecordRepository', () => {
       expect(await repository.count()).toBe(0);
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'file1.ts',
         path: '/src/file1.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -444,25 +444,25 @@ describe('DrizzleFileRecordRepository', () => {
       const now = new Date().toISOString();
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'no-content.ts',
         path: '/src/no-content.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
       await repository.createWithContent({
+        content: 'const x = 1;',
+        contentHash: 'hash1',
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000002',
         name: 'with-content.ts',
         path: '/src/with-content.ts',
-        size: 100,
-        createdAt: now,
-        updatedAt: now,
-        content: 'const x = 1;',
-        contentHash: 'hash1',
-        tokenCount: 3,
         processedAt: now,
+        size: 100,
+        tokenCount: 3,
+        updatedAt: now,
       });
 
       expect(await repository.count()).toBe(2);
@@ -473,9 +473,9 @@ describe('DrizzleFileRecordRepository', () => {
   describe('bulkImport', () => {
     it('should import multiple files', async () => {
       const requests = [
-        { name: 'file1.ts', path: '/src/file1.ts', size: 100, content: 'const a = 1;' },
-        { name: 'file2.ts', path: '/src/file2.ts', size: 200, content: 'const b = 2;' },
-        { name: 'file3.ts', path: '/src/file3.ts', size: 300, content: 'const c = 3;' },
+        { content: 'const a = 1;', name: 'file1.ts', path: '/src/file1.ts', size: 100 },
+        { content: 'const b = 2;', name: 'file2.ts', path: '/src/file2.ts', size: 200 },
+        { content: 'const c = 3;', name: 'file3.ts', path: '/src/file3.ts', size: 300 },
       ];
 
       const results = await repository.bulkImport(requests);
@@ -487,12 +487,12 @@ describe('DrizzleFileRecordRepository', () => {
 
     it('reports null-byte content as batch errors before records reach PGlite', async () => {
       const results = await repository.bulkImport([
-        { name: 'clean.ts', path: '/src/clean.ts', size: 10, content: 'const clean = true;' },
+        { content: 'const clean = true;', name: 'clean.ts', path: '/src/clean.ts', size: 10 },
         {
+          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
           name: 'late-null.ts',
           path: '/src/late-null.ts',
           size: 620,
-          content: `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`,
         },
       ]);
 
@@ -506,8 +506,8 @@ describe('DrizzleFileRecordRepository', () => {
     it('should detect duplicates by content hash', async () => {
       const content = 'const same = true;';
       const requests = [
-        { name: 'file1.ts', path: '/src/file1.ts', size: 100, content },
-        { name: 'file2.ts', path: '/src/file2.ts', size: 100, content }, // Same content
+        { content, name: 'file1.ts', path: '/src/file1.ts', size: 100 },
+        { content, name: 'file2.ts', path: '/src/file2.ts', size: 100 }, // Same content
       ];
 
       const results = await repository.bulkImport(requests);
@@ -523,20 +523,20 @@ describe('DrizzleFileRecordRepository', () => {
       const now = new Date().toISOString();
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000001',
         name: 'file1.ts',
         path: '/src/file1.ts',
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
 
       await repository.create({
+        createdAt: now,
         id: '00000000-0000-0000-0000-000000000002',
         name: 'file2.ts',
         path: '/src/file2.ts',
         size: 200,
-        createdAt: now,
         updatedAt: now,
       });
 
@@ -566,11 +566,11 @@ describe('DrizzleFileRecordRepository', () => {
       }
       const now = new Date().toISOString();
       await repository.create({
+        createdAt: now,
         id: args.id,
         name: args.name,
         path: args.path,
         size: 100,
-        createdAt: now,
         updatedAt: now,
       });
       if (args.rootId) {
@@ -586,22 +586,22 @@ describe('DrizzleFileRecordRepository', () => {
         id: 'r1',
         name: 'readme.md',
         path: 'docs/readme.md',
-        rootId: 'root-a',
         rootDisplayName: 'Alpha',
+        rootId: 'root-a',
       });
       await seedFile({
         id: 'r2',
         name: 'read-stream.ts',
         path: 'src/read-stream.ts',
-        rootId: 'root-a',
         rootDisplayName: 'Alpha',
+        rootId: 'root-a',
       });
       await seedFile({
         id: 'r3',
         name: 'unrelated.ts',
         path: 'src/unrelated.ts',
-        rootId: 'root-a',
         rootDisplayName: 'Alpha',
+        rootId: 'root-a',
       });
 
       const results = await repository.findByNameSubstring('read', 50);
@@ -620,15 +620,15 @@ describe('DrizzleFileRecordRepository', () => {
         id: 'a-index',
         name: 'index.ts',
         path: 'src/index.ts',
-        rootId: 'root-a',
         rootDisplayName: 'Alpha',
+        rootId: 'root-a',
       });
       await seedFile({
         id: 'b-index',
         name: 'index.ts',
         path: 'src/index.ts',
-        rootId: 'root-b',
         rootDisplayName: 'Beta',
+        rootId: 'root-b',
       });
 
       const results = await repository.findByNameSubstring('index', 50);
@@ -692,15 +692,15 @@ describe('DrizzleFileRecordRepository', () => {
         id: 'q1',
         name: 'query.ts',
         path: 'src/query.ts',
-        rootId: 'root-a',
         rootDisplayName: 'Alpha',
+        rootId: 'root-a',
       });
       await seedFile({
         id: 'q2',
         name: 'query-builder.ts',
         path: 'src/query-builder.ts',
-        rootId: 'root-b',
         rootDisplayName: 'Beta',
+        rootId: 'root-b',
       });
       await seedFile({ id: 'q3', name: 'unmatched.ts', path: 'src/unmatched.ts' });
 

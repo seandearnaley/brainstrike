@@ -169,9 +169,9 @@ describe('parseDedupeKey', () => {
     const result = parseDedupeKey('file:abc123hash:set-uuid-456');
 
     expect(result).toEqual({
-      type: 'file',
       contentHash: 'abc123hash',
       embeddingSetId: 'set-uuid-456',
+      type: 'file',
     });
   });
 
@@ -179,9 +179,9 @@ describe('parseDedupeKey', () => {
     const result = parseDedupeKey('file:abc123hash:__default__');
 
     expect(result).toEqual({
-      type: 'file',
       contentHash: 'abc123hash',
       embeddingSetId: null,
+      type: 'file',
     });
   });
 
@@ -189,9 +189,9 @@ describe('parseDedupeKey', () => {
     const result = parseDedupeKey('chunk:file-uuid-123:5');
 
     expect(result).toEqual({
-      type: 'chunk',
-      fileId: 'file-uuid-123',
       chunkIndex: 5,
+      fileId: 'file-uuid-123',
+      type: 'chunk',
     });
   });
 
@@ -199,10 +199,10 @@ describe('parseDedupeKey', () => {
     const result = parseDedupeKey('embed:chunk-uuid:set-uuid:text-embedding-3-small');
 
     expect(result).toEqual({
-      type: 'embed',
       chunkId: 'chunk-uuid',
       embeddingSetId: 'set-uuid',
       modelKey: 'text-embedding-3-small',
+      type: 'embed',
     });
   });
 
@@ -347,28 +347,28 @@ describe('Dedupe Invariants', () => {
     const fileKey = buildFileDedupeKey('hash123', 'set456');
     const parsedFile = parseDedupeKey(fileKey);
     expect(parsedFile).toEqual({
-      type: 'file',
       contentHash: 'hash123',
       embeddingSetId: 'set456',
+      type: 'file',
     });
 
     // Chunk key roundtrip
     const chunkKey = buildChunkDedupeKey('file789', 42);
     const parsedChunk = parseDedupeKey(chunkKey);
     expect(parsedChunk).toEqual({
-      type: 'chunk',
-      fileId: 'file789',
       chunkIndex: 42,
+      fileId: 'file789',
+      type: 'chunk',
     });
 
     // Embed key roundtrip
     const embedKey = buildEmbedJobDedupeKey('chunk-abc', 'set-def', 'model-ghi');
     const parsedEmbed = parseDedupeKey(embedKey);
     expect(parsedEmbed).toEqual({
-      type: 'embed',
       chunkId: 'chunk-abc',
       embeddingSetId: 'set-def',
       modelKey: 'model-ghi',
+      type: 'embed',
     });
   });
 });

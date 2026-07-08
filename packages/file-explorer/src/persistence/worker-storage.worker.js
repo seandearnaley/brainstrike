@@ -9,11 +9,11 @@ function handleSaveOperation(data) {
 
   self.postMessage({
     id: data.id,
-    type: 'storage_request',
-    operation: 'setItem',
     key: data.key,
-    value: serialized,
+    operation: 'setItem',
     opId,
+    type: 'storage_request',
+    value: serialized,
   });
 }
 
@@ -25,9 +25,9 @@ function handleLoadOperation(data) {
 
   self.postMessage({
     id: data.id,
-    type: 'storage_request',
-    operation: 'getItem',
     key: data.key,
+    operation: 'getItem',
+    type: 'storage_request',
   });
 }
 
@@ -39,9 +39,9 @@ function handleRemoveOperation(data) {
 
   self.postMessage({
     id: data.id,
-    type: 'storage_request',
-    operation: 'removeItem',
     key: data.key,
+    operation: 'removeItem',
+    type: 'storage_request',
   });
 }
 
@@ -62,8 +62,8 @@ function handleStorageResponse(data) {
 
   self.postMessage({
     id: data.id,
-    type: 'success',
     result,
+    type: 'success',
   });
 }
 
@@ -89,9 +89,9 @@ self.addEventListener('message', async (event) => {
     }
   } catch (error) {
     self.postMessage({
+      error: error instanceof Error ? error.message : 'Unknown error',
       id: data.id,
       type: 'error',
-      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createLocalLanguageModelMock = vi.fn((modelId: string, settings?: unknown) => ({
-  specificationVersion: 'v2',
-  provider: 'local',
   modelId,
+  provider: 'local',
   settings,
+  specificationVersion: 'v2',
 }));
 
 vi.mock('../providers/local', () => ({

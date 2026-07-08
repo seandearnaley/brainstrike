@@ -49,9 +49,72 @@ const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 
 export default defineConfig({
-  root: __dirname,
   base: './', // Use relative paths for Electron
+  build: {
+    assetsInlineLimit: 0,
+    emptyOutDir: true,
+    outDir: 'dist/renderer',
+    rolldownOptions: {
+      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+      },
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name(moduleId: string): string | null {
+                return resolveVendorChunk(moduleId) ?? null;
+              },
+            },
+          ],
+        },
+      },
+    },
+    target: 'esnext',
+  },
   cacheDir: path.resolve(__dirname, '.vite'),
+  define: {
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
+    // Force PGlite to resolve browser implementation in renderer
+    'process.versions': 'undefined',
+  },
+  optimizeDeps: {
+    entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
+    exclude: [
+      ...getHeavyRuntimeOptimizeDepsExclude(),
+      '@electric-sql/pglite',
+      // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
+      // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
+      '@electric-sql/pglite-pgvector',
+      '@brainstrike/types',
+      '@brainstrike/hooks',
+      '@brainstrike/ui',
+      '@brainstrike/utils',
+      '@brainstrike/utils/workspace-indexing-qos',
+      '@brainstrike/file-explorer',
+      '@brainstrike/file-explorer-hooks',
+      '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-tree-worker',
+      '@brainstrike/file-system',
+      '@brainstrike/storage',
+      '@brainstrike/app-shell',
+      '@brainstrike/workers',
+      '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
+      '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
+      '@brainstrike/db-explorer', // Uses file-import which has worker
+      '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
+      '@brainstrike/token-cache',
+      '@brainstrike/token-cache/cache-runtime',
+      '@brainstrike/token-cache/background-indexer',
+      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
+    ],
+    include: [
+      ...getCoreAppOptimizeDepsInclude(),
+      ...getAssistantOptimizeDepsInclude(),
+      ...getDatabaseOptimizeDepsInclude(),
+    ],
+  },
   plugins: [
     fullReloadOnCompilerHotspots(),
     wasm(),
@@ -67,7 +130,7 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         // PGlite WASM (existing).
-        ...(wasmPath ? [{ src: wasmPath, dest: 'assets' }] : []),
+        ...(wasmPath ? [{ dest: 'assets', src: wasmPath }] : []),
         // Tree-sitter grammar files (Phase 4 of #998). Vendored under
         // packages/chunking-worker/grammars/, copied to dist/renderer/
         // assets/grammars/. The chunking worker fetches them at runtime
@@ -76,31 +139,8 @@ export default defineConfig({
       ],
     }),
   ],
-  build: {
-    outDir: 'dist/renderer',
-    emptyOutDir: true,
-    target: 'esnext',
-    assetsInlineLimit: 0,
-    rolldownOptions: {
-      input: {
-        main: path.resolve(__dirname, 'index.html'),
-      },
-      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
-      output: {
-        codeSplitting: {
-          groups: [
-            {
-              name(moduleId: string): string | null {
-                return resolveVendorChunk(moduleId) ?? null;
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
+  publicDir: 'public',
   resolve: {
-    dedupe: ['react', 'react-dom'],
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
       // Stylesheets
@@ -357,53 +397,13 @@ export default defineConfig({
       // Fallback for relative import inside pglite dist
       { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
     ],
+    dedupe: ['react', 'react-dom'],
   },
-  worker: {
-    format: 'es',
-    plugins: () => [wasm(), topLevelAwait()],
-  },
-  optimizeDeps: {
-    entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
-    exclude: [
-      ...getHeavyRuntimeOptimizeDepsExclude(),
-      '@electric-sql/pglite',
-      // Split pgvector package ships its WASM/tar via import.meta.url; prebundling
-      // into .vite/deps breaks that relative asset URL, so exclude like core PGlite.
-      '@electric-sql/pglite-pgvector',
-      '@brainstrike/types',
-      '@brainstrike/hooks',
-      '@brainstrike/ui',
-      '@brainstrike/utils',
-      '@brainstrike/utils/workspace-indexing-qos',
-      '@brainstrike/file-explorer',
-      '@brainstrike/file-explorer-hooks',
-      '@brainstrike/file-explorer-ui',
-      '@brainstrike/file-tree-worker',
-      '@brainstrike/file-system',
-      '@brainstrike/storage',
-      '@brainstrike/app-shell',
-      '@brainstrike/workers',
-      '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
-      '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
-      '@brainstrike/db-explorer', // Uses file-import which has worker
-      '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
-      '@brainstrike/token-cache',
-      '@brainstrike/token-cache/cache-runtime',
-      '@brainstrike/token-cache/background-indexer',
-      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
-    ],
-    include: [
-      ...getCoreAppOptimizeDepsInclude(),
-      ...getAssistantOptimizeDepsInclude(),
-      ...getDatabaseOptimizeDepsInclude(),
-    ],
-  },
-  define: {
-    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
-    // Force PGlite to resolve browser implementation in renderer
-    'process.versions': 'undefined',
-  },
+  root: __dirname,
   server: {
+    headers: {
+      'Content-Security-Policy': getDevCSP(),
+    },
     // CRITICAL: keep desktop renderer dev URL deterministic and isolated from the
     // web app's default/fallback dev-server ports. Repo-root `pnpm run dev` starts
     // both apps, so desktop must not share the web port neighborhood.
@@ -412,9 +412,9 @@ export default defineConfig({
     warmup: {
       clientFiles: ['./src/renderer/main.tsx'],
     },
-    headers: {
-      'Content-Security-Policy': getDevCSP(),
-    },
   },
-  publicDir: 'public',
+  worker: {
+    format: 'es',
+    plugins: () => [wasm(), topLevelAwait()],
+  },
 });

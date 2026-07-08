@@ -34,8 +34,8 @@ export function LogList({
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => parentRef.current,
     estimateSize: () => 40, // Reduced estimate for tighter packing
+    getScrollElement: () => parentRef.current,
     overscan: 20, // Increased overscan for smoother scrolling
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,

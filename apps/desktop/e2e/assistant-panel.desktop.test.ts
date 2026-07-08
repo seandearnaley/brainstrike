@@ -27,8 +27,8 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
-        timeout: 10_000,
         message: 'Initial assistant mount should not reload the visible renderer',
+        timeout: 10_000,
       })
       .toBe(initialTimeOrigin);
   });
@@ -67,8 +67,8 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
-        timeout: 5000,
         message: 'Opening the assistant should not reload the visible renderer',
+        timeout: 5000,
       })
       .toBe(initialTimeOrigin);
 

@@ -35,13 +35,7 @@ export function getTestDirectoryStructure(
 ): SerializableFileNode[] {
   return [
     {
-      name: 'mock-file1.txt',
-      path: `${rootPath}/mock-file1.txt`,
-      type: 'file',
-      size: 100,
       depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       handle: {
         id: 'mock-file-1',
         kind: 'file',
@@ -49,15 +43,15 @@ export function getTestDirectoryStructure(
         path: `${rootPath}/mock-file1.txt`,
         platform: 'electron',
       },
+      name: 'mock-file1.txt',
+      path: `${rootPath}/mock-file1.txt`,
+      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      selectionState: 'unchecked',
+      size: 100,
+      type: 'file',
     },
     {
-      name: 'mock-file2.ts',
-      path: `${rootPath}/mock-file2.ts`,
-      type: 'file',
-      size: 250,
       depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       handle: {
         id: 'mock-file-2',
         kind: 'file',
@@ -65,14 +59,16 @@ export function getTestDirectoryStructure(
         path: `${rootPath}/mock-file2.ts`,
         platform: 'electron',
       },
+      name: 'mock-file2.ts',
+      path: `${rootPath}/mock-file2.ts`,
+      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      selectionState: 'unchecked',
+      size: 250,
+      type: 'file',
     },
     {
-      name: 'mock-subfolder',
-      path: `${rootPath}/mock-subfolder`,
-      type: 'directory',
+      children: [],
       depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       handle: {
         id: 'mock-subfolder',
         kind: 'directory',
@@ -80,7 +76,11 @@ export function getTestDirectoryStructure(
         path: `${rootPath}/mock-subfolder`,
         platform: 'electron',
       },
-      children: [],
+      name: 'mock-subfolder',
+      path: `${rootPath}/mock-subfolder`,
+      rootFolderId: TEST_DIRECTORY_HANDLE_ID,
+      selectionState: 'unchecked',
+      type: 'directory',
     },
   ];
 }

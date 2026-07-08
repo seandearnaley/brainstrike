@@ -44,7 +44,7 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
         JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
       );
     },
-    { rootPath, rootId: ROOT_ID }
+    { rootId: ROOT_ID, rootPath }
   );
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'p4-terminal-seed-root');
@@ -80,7 +80,7 @@ async function runInShell(page: Page, command: string): Promise<void> {
 
 test.afterAll(() => {
   for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   }
 });
 

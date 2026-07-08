@@ -34,15 +34,15 @@ describe('logging-preferences-store', () => {
     expect(store.hasHydrated).toBe(false);
 
     const initial = createDefaultLoggingPreferences({
-      level: LogLevel.DEBUG,
       consoleLevel: LogLevel.WARN,
       file: {
-        enabled: true,
-        destination: '/tmp/brain.log',
-        level: LogLevel.ERROR,
         append: true,
+        destination: '/tmp/brain.log',
+        enabled: true,
+        level: LogLevel.ERROR,
         mkdir: true,
       },
+      level: LogLevel.DEBUG,
     });
 
     store.setPreferences(initial);
@@ -52,8 +52,8 @@ describe('logging-preferences-store', () => {
     expect(afterSet.preferences.file.destination).toBe('/tmp/brain.log');
 
     store.updatePreferences({
-      includeTimestamp: true,
       file: { level: LogLevel.FATAL },
+      includeTimestamp: true,
       redactPaths: ['/foo'],
     });
 
@@ -75,9 +75,9 @@ describe('logging-preferences-store', () => {
     expect(next.hasHydrated).toBe(true);
     expect(next.preferences).toEqual(
       createDefaultLoggingPreferences({
-        level: LogLevel.INFO,
         consoleLevel: LogLevel.INFO,
         includeTimestamp: false,
+        level: LogLevel.INFO,
       })
     );
   });
@@ -104,8 +104,8 @@ describe('logging-preferences-store', () => {
 
     useLoggingPreferencesStore.getState().setPreferences(
       createDefaultLoggingPreferences({
-        level: LogLevel.DEBUG,
         consoleLevel: LogLevel.WARN,
+        level: LogLevel.DEBUG,
       })
     );
 

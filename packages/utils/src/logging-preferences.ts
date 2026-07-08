@@ -27,18 +27,18 @@ export function createDefaultLoggingPreferences(
   overrides?: Partial<LoggingPreferences>
 ): LoggingPreferences {
   const defaults: LoggingPreferences = {
-    level: LogLevel.INFO,
-    consoleLevel: LogLevel.INFO,
-    includeTimestamp: false,
     consoleEnabled: true,
-    redactPaths: [],
+    consoleLevel: LogLevel.INFO,
     file: {
-      enabled: false,
-      destination: null,
-      level: LogLevel.INFO,
       append: true,
+      destination: null,
+      enabled: false,
+      level: LogLevel.INFO,
       mkdir: true,
     },
+    includeTimestamp: false,
+    level: LogLevel.INFO,
+    redactPaths: [],
   };
 
   if (!overrides) {
@@ -48,11 +48,11 @@ export function createDefaultLoggingPreferences(
   const merged: LoggingPreferences = {
     ...defaults,
     ...overrides,
-    redactPaths: overrides.redactPaths ?? defaults.redactPaths,
     file: {
       ...defaults.file,
       ...(overrides.file ?? {}),
     },
+    redactPaths: overrides.redactPaths ?? defaults.redactPaths,
   };
 
   return merged;
@@ -89,10 +89,10 @@ function buildFileConfig(
   }
 
   return {
-    enabled: true,
-    destination,
-    level: preferences.file.level,
     append: preferences.file.append,
+    destination,
+    enabled: true,
+    level: preferences.file.level,
     mkdir: preferences.file.mkdir,
   };
 }
@@ -107,9 +107,9 @@ export function applyLoggingPreferences(
   additionalConfig?: Pick<LoggerConfig, 'baseBindings'>
 ): void {
   const config: LoggerConfig = {
-    level: preferences.level,
-    includeTimestamp: preferences.includeTimestamp,
     console: buildConsoleConfig(preferences),
+    includeTimestamp: preferences.includeTimestamp,
+    level: preferences.level,
     redactPaths: normalizeRedactPaths(preferences.redactPaths),
   };
 

@@ -17,13 +17,13 @@ describe('VectorStatusWithDialog', () => {
     const mockQueueAdapter = {
       add: vi.fn(),
       addBulk: vi.fn(),
-      onProgress: vi.fn(() => () => {}),
-      pause: vi.fn(),
-      resume: vi.fn(),
       cancel: vi.fn(),
       drain: vi.fn(),
       isPaused: false,
       isProcessing: false,
+      onProgress: vi.fn(() => () => {}),
+      pause: vi.fn(),
+      resume: vi.fn(),
     };
     const { rerender } = render(<VectorStatusWithDialog queueAdapter={mockQueueAdapter} />);
     expect(screen.getByTestId('vector-status-with-db')).toBeInTheDocument();

@@ -26,7 +26,7 @@ describe('Drizzle Migration Runner', () => {
 
   beforeEach(async () => {
     db = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
   });
 
@@ -142,13 +142,13 @@ describe('Drizzle Migration Runner', () => {
       `);
 
         expect(presets.rows).toEqual([
-          { name: 'TypeScript/JavaScript', is_default: true },
-          { name: 'All Code', is_default: true },
-          { name: 'Documentation', is_default: true },
-          { name: 'Config Files', is_default: true },
-          { name: 'Styles', is_default: true },
-          { name: 'Tests', is_default: true },
-          { name: 'All Files', is_default: true },
+          { is_default: true, name: 'TypeScript/JavaScript' },
+          { is_default: true, name: 'All Code' },
+          { is_default: true, name: 'Documentation' },
+          { is_default: true, name: 'Config Files' },
+          { is_default: true, name: 'Styles' },
+          { is_default: true, name: 'Tests' },
+          { is_default: true, name: 'All Files' },
         ]);
       },
       MIGRATION_RUN_TIMEOUT_MS
@@ -362,8 +362,8 @@ describe('Drizzle Migration Runner', () => {
         const onComplete = vi.fn();
 
         await runMigrations(db, {
-          onMigrationStart: onStart,
           onMigrationComplete: onComplete,
+          onMigrationStart: onStart,
         });
 
         expect(onStart).toHaveBeenCalled();

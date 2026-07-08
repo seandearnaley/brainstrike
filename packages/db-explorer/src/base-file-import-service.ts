@@ -64,11 +64,11 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
     async readFile(node) {
       const platform: Platform = (node.handle as { platform?: Platform })?.platform ?? 'web';
       return adapter.readFile({
-        path: node.path,
-        name: node.name,
-        kind: 'file',
-        platform,
         _internal: node.handle,
+        kind: 'file',
+        name: node.name,
+        path: node.path,
+        platform,
       });
     },
     async readFileBySelection(folderId, path) {
@@ -95,12 +95,12 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
 
       const file = await fileHandle.getFile();
       const content = await adapter.readFile({
-        path,
-        name,
+        _internal: fileHandle,
         kind: 'file',
+        name,
+        path,
         platform: 'web',
         rootFolderId: folderId,
-        _internal: fileHandle,
       });
 
       return {
@@ -128,8 +128,8 @@ function createDependencies(
     : null;
 
   return {
-    repository: repositoryPort,
     fileSystem: createFileSystemPort(adapter),
+    repository: repositoryPort,
   };
 }
 
@@ -185,8 +185,8 @@ export function useFileImportService(
 
       try {
         const context: FileImportContext = embeddingSetId
-          ? { selectedFilePaths, fileTree, fileContents, embeddingSetId }
-          : { selectedFilePaths, fileTree, fileContents };
+          ? { embeddingSetId, fileContents, fileTree, selectedFilePaths }
+          : { fileContents, fileTree, selectedFilePaths };
 
         const outcome = await runFileImport(dependencies, context, { onProgress: handleProgress });
 

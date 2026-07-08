@@ -12,11 +12,11 @@ afterEach(() => {
 });
 
 const fileTarget: ContextTarget = {
+  absolutePath: '/abs/src/main.ts',
+  entryType: 'file',
   kind: 'file-entry',
   name: 'main.ts',
   relativePath: 'src/main.ts',
-  absolutePath: '/abs/src/main.ts',
-  entryType: 'file',
   rootFolderId: 'root-1',
 };
 
@@ -41,8 +41,8 @@ describe('createAppCommandRegistry', () => {
   it('composes global commands with bridged feature actions', () => {
     const parts = desktopParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {}, openSettings: () => {}, toggleTheme: () => {} },
+      parts,
       target: fileTarget,
     });
     const ctx = buildAppCommandContext({ parts, target: fileTarget });
@@ -59,8 +59,8 @@ describe('createAppCommandRegistry', () => {
   it('gates a desktop-only bridged command out under a web capability set', () => {
     const parts = webParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: fileTarget,
     });
     const ctx = buildAppCommandContext({ parts, target: fileTarget });
@@ -75,8 +75,8 @@ describe('createAppCommandRegistry', () => {
   it('includes the desktop-only bridged command under a desktop capability set', () => {
     const parts = desktopParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: fileTarget,
     });
     const ctx = buildAppCommandContext({ parts, target: fileTarget });
@@ -86,16 +86,16 @@ describe('createAppCommandRegistry', () => {
   it('keeps palette.quickOpen hidden until a handler is supplied (no fake no-op)', () => {
     const parts = webParts();
     const registry = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: null,
     });
     const ctx = buildAppCommandContext({ parts, target: null });
     expect(idsFor(registry, ctx)).not.toContain('palette.quickOpen');
 
     const wired = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {}, openQuickOpen: () => {} },
+      parts,
       target: null,
     });
     expect(idsFor(wired, ctx)).toContain('palette.quickOpen');
@@ -106,8 +106,8 @@ describe('createAppCommandRegistry', () => {
 
     // No target captured at open → no file-bound bridged commands.
     const targetless = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: null,
     });
     const targetlessCtx = buildAppCommandContext({ parts, target: null });
@@ -119,8 +119,8 @@ describe('createAppCommandRegistry', () => {
 
     // Rebuilding with the file target now surfaces the file-bound commands.
     const withTarget = createAppCommandRegistry({
-      parts,
       handlers: { newThread: () => {} },
+      parts,
       target: fileTarget,
     });
     const withTargetCtx = buildAppCommandContext({ parts, target: fileTarget });
@@ -136,8 +136,8 @@ describe('createAppCommandRegistry', () => {
       services: { clipboard: { writeText } },
     };
     const registry = createAppCommandRegistry({
-      parts,
       handlers: {},
+      parts,
       target: fileTarget,
     });
     const ctx = buildAppCommandContext({ parts, target: fileTarget });

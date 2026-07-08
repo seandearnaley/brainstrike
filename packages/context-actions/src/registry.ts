@@ -54,8 +54,8 @@ export function createActionRegistry({
   ): GroupedActions[] {
     const usable = [...actions, ...localActions].filter((action) => isUsable(action, target));
     return GROUP_ORDER.map((group) => ({
-      group,
       actions: usable.filter((action) => action.group === group),
+      group,
     })).filter((grouped) => grouped.actions.length > 0);
   }
 

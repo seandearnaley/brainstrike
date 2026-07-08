@@ -120,12 +120,6 @@ export function useCollectionBrowserColumns({
   const baseColumns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(
     () => [
       {
-        id: 'name',
-        header: 'Name',
-        defaultWidth: 320,
-        minWidth: 150,
-        maxWidth: 800,
-        sortable: true,
         accessorFn: (node) => getNodeDisplayInfo(node.type, node.data).displayName.toLowerCase(),
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
@@ -165,20 +159,14 @@ export function useCollectionBrowserColumns({
             </TooltipProvider>
           );
         },
+        defaultWidth: 320,
+        header: 'Name',
+        id: 'name',
+        maxWidth: 800,
+        minWidth: 150,
+        sortable: true,
       },
       {
-        id: 'status',
-        header: (
-          <>
-            <span className="sr-only">Status</span>
-            <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
-          </>
-        ),
-        headerContentClassName: 'justify-center',
-        width: 44,
-        minWidth: 44,
-        maxWidth: 44,
-        sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
@@ -199,14 +187,20 @@ export function useCollectionBrowserColumns({
           }
           return null;
         },
+        header: (
+          <>
+            <span className="sr-only">Status</span>
+            <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
+          </>
+        ),
+        headerContentClassName: 'justify-center',
+        id: 'status',
+        maxWidth: 44,
+        minWidth: 44,
+        sortable: true,
+        width: 44,
       },
       {
-        id: 'size',
-        header: 'Size',
-        defaultWidth: 120,
-        minWidth: 72,
-        maxWidth: 240,
-        sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
@@ -255,14 +249,14 @@ export function useCollectionBrowserColumns({
           }
           return null;
         },
+        defaultWidth: 120,
+        header: 'Size',
+        id: 'size',
+        maxWidth: 240,
+        minWidth: 72,
+        sortable: true,
       },
       {
-        id: 'meta',
-        header: 'Info',
-        defaultWidth: 220,
-        minWidth: 100,
-        maxWidth: 600,
-        sortable: false,
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'collection') {
@@ -290,6 +284,12 @@ export function useCollectionBrowserColumns({
           }
           return null;
         },
+        defaultWidth: 220,
+        header: 'Info',
+        id: 'meta',
+        maxWidth: 600,
+        minWidth: 100,
+        sortable: false,
       },
     ],
     [showScoreColumn]
@@ -297,12 +297,6 @@ export function useCollectionBrowserColumns({
 
   const scoreColumn: TreeTableColumn<BrowserNodeData> = React.useMemo(
     () => ({
-      id: 'score',
-      header: 'Score',
-      defaultWidth: 160,
-      minWidth: 100,
-      maxWidth: 320,
-      sortable: true,
       accessorFn: (node) => similarityScores.get(node.id) ?? 0,
       cell: ({ node }) => {
         const score = similarityScores.get(node.id);
@@ -332,6 +326,12 @@ export function useCollectionBrowserColumns({
           </div>
         );
       },
+      defaultWidth: 160,
+      header: 'Score',
+      id: 'score',
+      maxWidth: 320,
+      minWidth: 100,
+      sortable: true,
     }),
     [similarityScores, semanticMatchIds]
   );

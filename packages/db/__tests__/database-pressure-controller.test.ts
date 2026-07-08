@@ -38,14 +38,14 @@ describe('DatabasePressureController', () => {
           await new Promise<void>((resolve) => {
             releaseForeground = resolve;
           }),
-        { priority: 'foreground', label: 'hybrid search' }
+        { label: 'hybrid search', priority: 'foreground' }
       );
       await Promise.resolve();
 
       const controller = createDatabasePressureController({
-        scheduler,
         now: () => now,
         pollMs: 5,
+        scheduler,
       });
       const permit = controller.waitForBackgroundPermit({ label: 'embedding claim' });
       await Promise.resolve();
@@ -90,7 +90,6 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: 10_000,
       lastForegroundAt: 10_000,
-      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         foreground: {
@@ -100,6 +99,7 @@ describe('DatabasePressureController', () => {
           serviceP95Ms: 120,
         },
       },
+      snapshotAt: now,
     });
 
     const controller = createDatabasePressureController({
@@ -152,7 +152,6 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: 10_000,
       lastNormalAt: 10_000,
-      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         normal: {
@@ -162,6 +161,7 @@ describe('DatabasePressureController', () => {
           serviceP95Ms: 120,
         },
       },
+      snapshotAt: now,
     });
 
     const controller = createDatabasePressureController({
@@ -247,7 +247,6 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: now,
       lastForegroundAt: 9000,
-      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         background: {
@@ -262,6 +261,7 @@ describe('DatabasePressureController', () => {
           serviceP95Ms: 120,
         },
       },
+      snapshotAt: now,
     });
 
     const controller = createDatabasePressureController({
@@ -307,11 +307,11 @@ describe('DatabasePressureController', () => {
           await new Promise<void>((resolve) => {
             releaseForeground = resolve;
           }),
-        { priority: 'foreground', label: 'collection page' }
+        { label: 'collection page', priority: 'foreground' }
       );
       await Promise.resolve();
 
-      const controller = createDatabasePressureController({ scheduler, pollMs: 5 });
+      const controller = createDatabasePressureController({ pollMs: 5, scheduler });
       const abortController = new AbortController();
       const permit = controller.waitForBackgroundPermit({
         label: 'embedding claim',

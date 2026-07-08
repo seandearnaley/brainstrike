@@ -23,8 +23,8 @@ describe('Brainstrike DB client contract', () => {
 
   it('reports missing capabilities instead of treating partial clients as compatible', () => {
     const partialClient = {
-      query: async () => ({ rows: [] }),
       exec: async () => undefined,
+      query: async () => ({ rows: [] }),
     };
 
     expect(getMissingBrainstrikeDbClientCapabilities(partialClient)).toEqual([
@@ -35,26 +35,26 @@ describe('Brainstrike DB client contract', () => {
 
   it('accepts a complete structural client', () => {
     const txClient: BrainstrikeDbTransactionClient = {
-      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
       exec: async () => undefined,
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
     };
 
     const completeClient = {
       ...txClient,
-      transaction: async <TResult>(
-        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
-      ) => callback(txClient),
+      close: async () => undefined,
+      diagnostics: async () => ({ ok: true }),
       live: {
         query: async <TRecord = unknown>() => ({
+          dispose: async () => undefined,
           initialResults: { rows: [] as readonly TRecord[] },
           refresh: async () => undefined,
           subscribe: () => () => undefined,
-          dispose: async () => undefined,
         }),
       },
-      diagnostics: async () => ({ ok: true }),
       reset: async () => undefined,
-      close: async () => undefined,
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ) => callback(txClient),
     } satisfies BrainstrikeDbClient;
 
     expect(getMissingBrainstrikeDbClientCapabilities(completeClient)).toEqual([]);
@@ -62,23 +62,23 @@ describe('Brainstrike DB client contract', () => {
 
   it('reports missing host lifecycle capabilities separately from query execution', () => {
     const executionClient: BrainstrikeDbClient = {
-      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
       exec: async () => undefined,
+      live: {
+        query: async <TRecord = unknown>() => ({
+          dispose: async () => undefined,
+          initialResults: { rows: [] as readonly TRecord[] },
+          refresh: async () => undefined,
+          subscribe: () => () => undefined,
+        }),
+      },
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
       transaction: async <TResult>(
         callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
       ) =>
         callback({
-          query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
           exec: async () => undefined,
+          query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
         }),
-      live: {
-        query: async <TRecord = unknown>() => ({
-          initialResults: { rows: [] as readonly TRecord[] },
-          refresh: async () => undefined,
-          subscribe: () => () => undefined,
-          dispose: async () => undefined,
-        }),
-      },
     };
 
     expect(getMissingBrainstrikeDbRuntimeHostCapabilities(executionClient)).toEqual([
@@ -90,9 +90,9 @@ describe('Brainstrike DB client contract', () => {
 
   it('accepts a runtime host that owns diagnostics, reset, and close without query methods', () => {
     const runtimeHost = {
+      close: async () => undefined,
       diagnostics: async () => ({ ok: true }),
       reset: async () => undefined,
-      close: async () => undefined,
     } satisfies BrainstrikeDbRuntimeHost;
 
     expect(getMissingBrainstrikeDbRuntimeHostCapabilities(runtimeHost)).toEqual([]);

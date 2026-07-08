@@ -17,32 +17,32 @@ import type { ChunkingWorkerPort } from '../chunking-worker-port';
 function createMockPortableChunk(overrides: Partial<PortableChunk> = {}): PortableChunk {
   return {
     chunkIndex: 0,
+    chunkSize: 20,
+    chunkType: 'sentence',
     content: '# Title\ncontent here',
     contentHash: 'hash-1',
-    tokenCount: 5,
-    chunkType: 'sentence',
-    chunkSize: 20,
-    startLine: 1,
     endLine: 2,
-    startOffset: 0,
     endOffset: 20,
+    startLine: 1,
+    startOffset: 0,
+    tokenCount: 5,
     ...overrides,
   };
 }
 
 function createMockChunkingWorkerPort(): ChunkingWorkerPort {
   return {
-    transportKind: 'local-worker',
-    isReady: vi.fn().mockReturnValue(true),
-    terminate: vi.fn(),
+    chunkBatch: vi.fn().mockResolvedValue([]),
     chunkFile: vi.fn().mockResolvedValue({
-      fileRecordId: 'file-1',
       chunks: [createMockPortableChunk()],
+      fileRecordId: 'file-1',
+      skipped: false,
       strategyUsed: 'sentence',
       totalTokens: 5,
-      skipped: false,
     }),
-    chunkBatch: vi.fn().mockResolvedValue([]),
+    isReady: vi.fn().mockReturnValue(true),
+    terminate: vi.fn(),
+    transportKind: 'local-worker',
   };
 }
 
@@ -64,20 +64,20 @@ describe('Chunking producer enqueues jobs', () => {
     // Create a file record with content
     const fileId = generateUUID();
     const record: FileRecord = {
+      content: '# Title\ncontent here',
+      contentHash: 'hash123',
+      createdAt: now,
       id: fileId,
       name: 'test.md',
       path: '/test.md',
-      size: 12,
-      createdAt: now,
-      updatedAt: now,
-      content: '# Title\ncontent here',
-      contentHash: 'hash123',
-      tokenCount: 3,
       processedAt: now,
+      size: 12,
+      tokenCount: 3,
+      updatedAt: now,
     };
     await fileRepo.createWithContent(record);
 
-    const importResults: FileImportResult[] = [{ id: fileId, imported: true, existed: false }];
+    const importResults: FileImportResult[] = [{ existed: false, id: fileId, imported: true }];
 
     const jobQueue = new JobQueue(db);
     const enqueuedIds: string[] = [];
@@ -87,29 +87,29 @@ describe('Chunking producer enqueues jobs', () => {
     const results = await processChunking(
       importResults,
       {
-        repository: fileRepo as unknown as ReturnType<
-          typeof import('@brainstrike/db').useFileRecordRepository
-        >,
         chunkRepository: chunkRepo as unknown as ReturnType<
           typeof import('@brainstrike/db').useFileChunkRepository
         >,
+        repository: fileRepo as unknown as ReturnType<
+          typeof import('@brainstrike/db').useFileRecordRepository
+        >,
       },
       {
-        updateProgress: () => null,
-        embedQueueEnabled: true,
         chunkingWorkerPort: mockWorkerPort,
+        embedQueueEnabled: true,
         enqueueJobsForChunks: async (chunks, fileRecordId) => {
           for (const ch of chunks) {
             const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
             const job = await jobQueue.enqueue({
-              queue: 'embeddings',
-              jobType: 'embed_chunk',
-              payload: { chunkId: ch.id, fileRecordId, embeddingSetId: ch.embeddingSetId ?? null },
               dedupeKey,
+              jobType: 'embed_chunk',
+              payload: { chunkId: ch.id, embeddingSetId: ch.embeddingSetId ?? null, fileRecordId },
+              queue: 'embeddings',
             });
             enqueuedIds.push(job.id);
           }
         },
+        updateProgress: () => null,
       }
     );
 

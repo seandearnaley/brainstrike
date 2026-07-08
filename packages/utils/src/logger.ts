@@ -166,15 +166,15 @@ const logListeners = new Set<LogListener>();
 
 function createDefaultConfig(): InternalLoggerConfig {
   return {
-    enableInProduction: false,
-    includeTimestamp: false,
-    scopeKey: 'scope',
     baseBindings: {},
     console: {
       enabled: true,
       options: {},
     },
     customTransports: [],
+    enableInProduction: false,
+    includeTimestamp: false,
+    scopeKey: 'scope',
   };
 }
 
@@ -255,10 +255,10 @@ function mergeFileConfig(
 
   const baseOptions = previous ? { ...previous.options } : {};
   const resolved: NormalizedFileConfig = {
-    enabled: next.enabled ?? previous?.enabled ?? true,
-    destination: next.destination,
-    mkdir: next.mkdir ?? previous?.mkdir ?? true,
     append: next.append ?? previous?.append ?? true,
+    destination: next.destination,
+    enabled: next.enabled ?? previous?.enabled ?? true,
+    mkdir: next.mkdir ?? previous?.mkdir ?? true,
     options: next.options ? { ...baseOptions, ...next.options } : baseOptions,
   };
 
@@ -292,12 +292,12 @@ type BrowserConsoleMethodName = 'debug' | 'error' | 'info' | 'trace' | 'warn';
 const BROWSER_CONSOLE_METHOD_BY_LEVEL: Readonly<
   Record<LogMethodName | 'fatal', BrowserConsoleMethodName>
 > = {
-  trace: 'trace',
   debug: 'debug',
-  info: 'info',
-  warn: 'warn',
   error: 'error',
   fatal: 'error',
+  info: 'info',
+  trace: 'trace',
+  warn: 'warn',
 };
 
 function sanitizeBrowserConsoleValue(
@@ -316,8 +316,8 @@ function sanitizeBrowserConsoleValue(
 
   if (value instanceof Error) {
     return {
-      name: value.name,
       message: value.message,
+      name: value.name,
       stack: value.stack,
     };
   }
@@ -438,12 +438,12 @@ function createBrowserWrite(
   };
 
   return {
-    trace: writeMethod('trace'),
     debug: writeMethod('debug'),
-    info: writeMethod('info'),
-    warn: writeMethod('warn'),
     error: writeMethod('error'),
     fatal: writeMethod('fatal'),
+    info: writeMethod('info'),
+    trace: writeMethod('trace'),
+    warn: writeMethod('warn'),
   };
 }
 
@@ -469,21 +469,21 @@ function ensureRootLogger(): PinoLogger {
 function createRootLogger(): PinoLogger {
   const resolvedLevel = currentLevel;
   const baseOptions: LoggerOptions = {
-    level: resolvedLevel,
     base: resolveBaseBindings(internalConfig),
-    timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
+    level: resolvedLevel,
     serializers: {
-      err: pino.stdSerializers.err,
-      req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res,
       // Redact sensitive fields
       apiKey: () => '[REDACTED]',
-      password: () => '[REDACTED]',
-      token: () => '[REDACTED]',
-      secret: () => '[REDACTED]',
       authorization: () => '[REDACTED]',
       cookie: () => '[REDACTED]',
+      err: pino.stdSerializers.err,
+      password: () => '[REDACTED]',
+      req: pino.stdSerializers.req,
+      res: pino.stdSerializers.res,
+      secret: () => '[REDACTED]',
+      token: () => '[REDACTED]',
     },
+    timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
   };
 
   if (internalConfig.redactPaths) {
@@ -550,9 +550,9 @@ function buildTransportTargets(level: LogLevel): TransportTargetOptions<Record<s
   for (const transportConfig of internalConfig.customTransports) {
     const options = transportConfig.options ? { ...transportConfig.options } : {};
     targets.push({
-      target: transportConfig.target,
       level: transportConfig.level ?? level,
       options,
+      target: transportConfig.target,
     });
   }
 
@@ -572,9 +572,9 @@ function createConsoleTransportTarget(
   }
 
   return {
-    target: consoleConfig.target ?? 'pino/file',
     level: consoleConfig.level ?? level,
     options,
+    target: consoleConfig.target ?? 'pino/file',
   };
 }
 
@@ -583,14 +583,14 @@ function createFileTransportTarget(
 ): TransportTargetOptions<Record<string, unknown>> {
   const fileConfig = internalConfig.file as NormalizedFileConfig;
   return {
-    target: 'pino/file',
     level: fileConfig.level ?? level,
     options: {
+      append: fileConfig.append,
       destination: fileConfig.destination,
       mkdir: fileConfig.mkdir,
-      append: fileConfig.append,
       ...fileConfig.options,
     },
+    target: 'pino/file',
   };
 }
 
@@ -634,10 +634,10 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
   const message = resolveLogRecordMessage(args);
   const argsCopy = [...args];
   const record: LogRecord = {
-    level,
-    timestamp: Date.now(),
     args: argsCopy,
     bindings,
+    level,
+    timestamp: Date.now(),
     ...(scope ? { scope } : {}),
     ...(message ? { message } : {}),
   };
@@ -811,12 +811,12 @@ export function createLogger(scope: string): ScopedLogger {
   }
 
   const logger: ScopedLogger = {
-    trace: (...args: unknown[]) => logInternal(LogLevel.TRACE, scope, args),
     debug: (...args: unknown[]) => logInternal(LogLevel.DEBUG, scope, args),
-    info: (...args: unknown[]) => logInternal(LogLevel.INFO, scope, args),
-    warn: (...args: unknown[]) => logInternal(LogLevel.WARN, scope, args),
     error: (...args: unknown[]) => logInternal(LogLevel.ERROR, scope, args),
     fatal: (...args: unknown[]) => logInternal(LogLevel.FATAL, scope, args),
+    info: (...args: unknown[]) => logInternal(LogLevel.INFO, scope, args),
+    trace: (...args: unknown[]) => logInternal(LogLevel.TRACE, scope, args),
+    warn: (...args: unknown[]) => logInternal(LogLevel.WARN, scope, args),
   };
 
   loggerCache.set(scope, logger);
@@ -831,9 +831,9 @@ export function addLogListener(listener: LogListener): () => void {
 }
 
 export const __loggerTesting = {
+  createBrowserWrite,
   formatBrowserConsoleMessage,
   sanitizeBrowserConsoleValue,
-  createBrowserWrite,
 };
 
 export const log = debug;

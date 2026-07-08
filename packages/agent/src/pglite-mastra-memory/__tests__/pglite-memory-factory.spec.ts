@@ -37,15 +37,15 @@ describe('createPgliteMastraMemory', () => {
       memorySettings: {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'anthropic/claude-haiku-4-5',
-          scope: 'resource',
           messageTokens: 18_000,
+          modelTarget: 'anthropic/claude-haiku-4-5',
           observationTokens: 36_000,
           retrievalMode: 'messages',
+          scope: 'resource',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
           messageRange: 2,
           scope: 'resource',
           topK: 5,
@@ -58,10 +58,10 @@ describe('createPgliteMastraMemory', () => {
       options: {
         observationalMemory: {
           model: 'anthropic/claude-haiku-4-5',
-          scope: 'resource',
-          retrieval: { scope: 'resource' },
           observation: { messageTokens: 18_000 },
           reflection: { observationTokens: 36_000 },
+          retrieval: { scope: 'resource' },
+          scope: 'resource',
         },
         semanticRecall: false,
       },
@@ -75,15 +75,15 @@ describe('createPgliteMastraMemory', () => {
         memorySettings: {
           observationalMemory: {
             enabled: true,
-            modelTarget: 'openai/gpt-5.4-mini',
-            scope: 'thread',
             messageTokens: 30_000,
+            modelTarget: 'openai/gpt-5.4-mini',
             observationTokens: 40_000,
             retrievalMode: 'vector',
+            scope: 'thread',
           },
           semanticRecall: {
-            enabled: true,
             embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: true,
             messageRange: 2,
             scope: 'resource',
             topK: 5,
@@ -103,8 +103,8 @@ describe('createPgliteMastraMemory', () => {
 
   it('passes runtime memory options and concrete observational model into Mastra Memory', async () => {
     const observationalMemoryModel = {
-      provider: 'openai',
       modelId: 'gpt-5.4-mini',
+      provider: 'openai',
     } as unknown as MastraModelConfig;
 
     await createPgliteMastraMemory({
@@ -116,15 +116,15 @@ describe('createPgliteMastraMemory', () => {
       memorySettings: {
         observationalMemory: {
           enabled: true,
-          modelTarget: 'openai/gpt-5.4-mini',
-          scope: 'thread',
           messageTokens: 30_000,
+          modelTarget: 'openai/gpt-5.4-mini',
           observationTokens: 40_000,
           retrievalMode: 'off',
+          scope: 'thread',
         },
         semanticRecall: {
-          enabled: false,
           embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
           messageRange: 2,
           scope: 'resource',
           topK: 5,
@@ -136,10 +136,10 @@ describe('createPgliteMastraMemory', () => {
     expect(memoryConstructorCalls[0]).toMatchObject({
       options: {
         lastMessages: 8,
-        workingMemory: { enabled: false },
         observationalMemory: {
           model: observationalMemoryModel,
         },
+        workingMemory: { enabled: false },
       },
     });
   });
@@ -164,15 +164,15 @@ describe('createPgliteMastraMemory', () => {
         memorySettings: {
           observationalMemory: {
             enabled: true,
-            modelTarget: 'openai/gpt-5.4-mini',
-            scope: 'thread',
             messageTokens: 30_000,
+            modelTarget: 'openai/gpt-5.4-mini',
             observationTokens: 40_000,
             retrievalMode: 'vector',
+            scope: 'thread',
           },
           semanticRecall: {
-            enabled: false,
             embeddingModelTarget: 'openai/text-embedding-3-small',
+            enabled: false,
             messageRange: 2,
             scope: 'resource',
             topK: 5,

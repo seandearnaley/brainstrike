@@ -50,19 +50,19 @@ describe('content_tsvector generated column (integration)', () => {
 
     const repo = new FileChunkRepository(db);
     const chunk: FileChunkInsert = {
-      id: 'c1',
-      fileRecordId: 'f1',
       chunkIndex: 0,
+      chunkSize: 43,
+      chunkType: 'text',
       content: 'the quick brown fox jumps over the lazy dog',
       contentHash: 'h1',
-      tokenCount: 9,
-      chunkType: 'text',
-      chunkSize: 43,
-      startLine: 1,
-      endLine: 1,
-      startOffset: 0,
-      endOffset: 43,
       createdAt: now,
+      endLine: 1,
+      endOffset: 43,
+      fileRecordId: 'f1',
+      id: 'c1',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 9,
       updatedAt: now,
     };
     await repo.insertMany([chunk]);
@@ -85,7 +85,7 @@ describe('content_tsvector generated column (integration)', () => {
   // manifest to make the column STORED-generated AND (re)create the GIN index, with a
   // working end-to-end full-text-search round-trip.
   it('makes content_tsvector generated + GIN-indexed + searchable via the drizzle runMigrations (production) path', async () => {
-    const client = new PGlite({ extensions: { vector, pg_trgm: pgTrgm } });
+    const client = new PGlite({ extensions: { pg_trgm: pgTrgm, vector } });
     const migrationResult = await runMigrations(client);
     if (!migrationResult.success) {
       throw new Error(`Migrations failed: ${migrationResult.error}`);

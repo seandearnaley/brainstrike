@@ -27,7 +27,7 @@ function renderTimeline(data: Record<string, unknown>) {
 }
 
 function runEventPart(event: Record<string, unknown>) {
-  return { name: ASSISTANT_RUN_EVENT_DATA_NAME, data: event };
+  return { data: event, name: ASSISTANT_RUN_EVENT_DATA_NAME };
 }
 
 describe('getMatchingCompletedKind', () => {
@@ -89,7 +89,7 @@ describe('resolveAssistantRunEventStatus', () => {
       timestamp: '2026-06-05T00:00:01.000Z',
     };
     const messages = [
-      { role: 'assistant', parts: [runEventPart(started), runEventPart(finished)] },
+      { parts: [runEventPart(started), runEventPart(finished)], role: 'assistant' },
     ];
     expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('completed');
   });
@@ -109,11 +109,11 @@ describe('resolveAssistantRunEventRenderPlan', () => {
     };
     const messages = [
       {
-        role: 'assistant',
         parts: [
-          { type: 'tool-call', toolCallId: 'call-1', toolName: 'brainstrike.grepSearch' },
+          { toolCallId: 'call-1', toolName: 'brainstrike.grepSearch', type: 'tool-call' },
           runEventPart(started),
         ],
+        role: 'assistant',
       },
     ];
     expect(resolveAssistantRunEventRenderPlan(messages, started).hidden).toBe(true);
@@ -128,7 +128,7 @@ describe('resolveAssistantRunEventRenderPlan', () => {
       status: 'running',
       timestamp: ts,
     };
-    const messages = [{ role: 'assistant', parts: [runEventPart(started)] }];
+    const messages = [{ parts: [runEventPart(started)], role: 'assistant' }];
     expect(resolveAssistantRunEventRenderPlan(messages, started)).toEqual({
       hidden: false,
       repeatCount: 1,
@@ -143,7 +143,7 @@ describe('resolveAssistantRunEventRenderPlan', () => {
       status: 'running',
       timestamp: ts,
     };
-    const runningMessages = [{ role: 'assistant', parts: [runEventPart(started)] }];
+    const runningMessages = [{ parts: [runEventPart(started)], role: 'assistant' }];
     expect(resolveAssistantRunEventRenderPlan(runningMessages, started).hidden).toBe(false);
 
     const completed = {
@@ -154,7 +154,7 @@ describe('resolveAssistantRunEventRenderPlan', () => {
       timestamp: ts,
     };
     const finishedMessages = [
-      { role: 'assistant', parts: [runEventPart(started), runEventPart(completed)] },
+      { parts: [runEventPart(started), runEventPart(completed)], role: 'assistant' },
     ];
     expect(resolveAssistantRunEventRenderPlan(finishedMessages, started).hidden).toBe(true);
     expect(resolveAssistantRunEventRenderPlan(finishedMessages, completed).hidden).toBe(false);
@@ -172,8 +172,8 @@ describe('resolveAssistantRunEventRenderPlan', () => {
     const third = { ...first, id: 'm3' };
     const messages = [
       {
-        role: 'assistant',
         parts: [runEventPart(first), runEventPart(second), runEventPart(third)],
+        role: 'assistant',
       },
     ];
     expect(resolveAssistantRunEventRenderPlan(messages, first)).toEqual({
@@ -186,15 +186,15 @@ describe('resolveAssistantRunEventRenderPlan', () => {
 
   it('does not collapse rows with different details', () => {
     const first = {
+      detail: '3 notes',
       id: 'm1',
       kind: 'memory.working.loaded',
       label: 'Observational memory read',
-      detail: '3 notes',
       status: 'info',
       timestamp: ts,
     };
-    const second = { ...first, id: 'm2', detail: '5 notes' };
-    const messages = [{ role: 'assistant', parts: [runEventPart(first), runEventPart(second)] }];
+    const second = { ...first, detail: '5 notes', id: 'm2' };
+    const messages = [{ parts: [runEventPart(first), runEventPart(second)], role: 'assistant' }];
     expect(resolveAssistantRunEventRenderPlan(messages, first)).toEqual({
       hidden: false,
       repeatCount: 1,

@@ -43,34 +43,34 @@ describe('ConnectedPromptManager', () => {
     mockUseModelRegistryStore.mockReturnValue({
       models: [
         {
-          id: 'model-1',
-          providerId: 'openai',
-          name: 'GPT-4',
+          capabilities: { chat: true },
           description: 'OpenAI GPT-4',
-          capabilities: { chat: true },
+          id: 'model-1',
           isEnabled: true,
-        },
-        {
-          id: 'model-2',
+          name: 'GPT-4',
           providerId: 'openai',
-          name: 'GPT-3.5',
-          description: 'OpenAI GPT-3.5',
-          capabilities: { chat: true },
-          isEnabled: false,
         },
         {
-          id: 'model-3',
-          providerId: 'anthropic',
-          name: 'Claude',
-          description: 'Anthropic Claude',
           capabilities: { chat: true },
+          description: 'OpenAI GPT-3.5',
+          id: 'model-2',
+          isEnabled: false,
+          name: 'GPT-3.5',
+          providerId: 'openai',
+        },
+        {
+          capabilities: { chat: true },
+          description: 'Anthropic Claude',
+          id: 'model-3',
           isEnabled: true,
+          name: 'Claude',
+          providerId: 'anthropic',
         },
       ],
       providers: [
-        { id: 'openai', name: 'OpenAI', isEnabled: true },
-        { id: 'anthropic', name: 'Anthropic', isEnabled: true },
-        { id: 'disabled-provider', name: 'Disabled', isEnabled: false },
+        { id: 'openai', isEnabled: true, name: 'OpenAI' },
+        { id: 'anthropic', isEnabled: true, name: 'Anthropic' },
+        { id: 'disabled-provider', isEnabled: false, name: 'Disabled' },
       ],
     });
 
@@ -98,13 +98,13 @@ describe('ConnectedPromptManager', () => {
     mockUseModelRegistryStore.mockReturnValue({
       models: [
         {
-          id: 'model-1',
-          providerId: 'openai',
-          name: 'GPT-4',
-          description: 'OpenAI GPT-4',
           capabilities: { chat: true },
-          isEnabled: true,
+          description: 'OpenAI GPT-4',
           extraField: 'should-not-be-passed',
+          id: 'model-1',
+          isEnabled: true,
+          name: 'GPT-4',
+          providerId: 'openai',
         },
       ],
       providers: [],
@@ -116,11 +116,11 @@ describe('ConnectedPromptManager', () => {
       expect.objectContaining({
         availableModels: [
           {
-            id: 'model-1',
-            providerId: 'openai',
-            name: 'GPT-4',
-            description: 'OpenAI GPT-4',
             capabilities: { chat: true },
+            description: 'OpenAI GPT-4',
+            id: 'model-1',
+            name: 'GPT-4',
+            providerId: 'openai',
           },
         ],
       })

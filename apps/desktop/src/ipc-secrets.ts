@@ -93,9 +93,9 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
         return await secrets.saveKey(provider, value);
       } catch (err) {
         if (err instanceof Error && err.message === 'encryption_unavailable') {
-          return { ok: false, error: 'encryption_unavailable' } as const;
+          return { error: 'encryption_unavailable', ok: false } as const;
         }
-        return { ok: false, error: 'unknown_error' } as const;
+        return { error: 'unknown_error', ok: false } as const;
       }
     }
   );
@@ -163,8 +163,8 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
     async (_event, confirmationToken?: string) => {
       if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
         return {
-          success: false,
           message: 'Unauthorized: Invalid confirmation token',
+          success: false,
         };
       }
 
@@ -178,8 +178,8 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
         return { success: result };
       } catch (error) {
         return {
-          success: false,
           message: error instanceof Error ? error.message : String(error),
+          success: false,
         };
       }
     }

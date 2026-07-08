@@ -19,9 +19,9 @@ export const CREATE_EMBEDDING_SET_TOOL_ID = 'brainstrike.createEmbeddingSet' as 
  * Safe error messages that can be shown to users.
  */
 export const EMBEDDING_SETS_ERROR_MESSAGES = {
-  listFailed: 'Failed to list embedding sets. Please try again.',
   createFailed: 'Failed to create embedding set. Please try again.',
   invalidModelKey: 'The specified model key is not valid.',
+  listFailed: 'Failed to list embedding sets. Please try again.',
   modelNotFound: 'The specified embedding model was not found.',
   setAlreadyExists: 'An embedding set with this configuration already exists.',
 } as const;
@@ -144,8 +144,8 @@ async function runListEmbeddingSets(
 
   // Build result with only defined properties (exactOptionalPropertyTypes compliance)
   const result: ListEmbeddingSetsToolResult = {
-    sets,
     count: sets.length,
+    sets,
   };
 
   if (input.includeStats && deps.getCoverageStats) {
@@ -177,8 +177,8 @@ async function runCreateEmbeddingSet(
 
   return {
     created,
-    set,
     message,
+    set,
   };
 }
 
@@ -214,11 +214,9 @@ interface CreateMastraTool {
  */
 export function createListEmbeddingSetsTool(deps: EmbeddingSetsToolDependencies): ListMastraTool {
   return {
-    id: LIST_EMBEDDING_SETS_TOOL_ID,
     description:
       'List all available embedding collections. ' +
       'Shows model configuration, dimensions, and optionally coverage statistics.',
-    inputSchema: ListEmbeddingSetsInputSchema,
     execute: async (context: ToolContext<ListEmbeddingSetsInput>) => {
       try {
         return await runListEmbeddingSets(context.context, deps);
@@ -231,6 +229,8 @@ export function createListEmbeddingSetsTool(deps: EmbeddingSetsToolDependencies)
         );
       }
     },
+    id: LIST_EMBEDDING_SETS_TOOL_ID,
+    inputSchema: ListEmbeddingSetsInputSchema,
   };
 }
 
@@ -249,11 +249,9 @@ export function createCreateEmbeddingSetTool(
   deps: EmbeddingSetsToolDependencies
 ): CreateMastraTool {
   return {
-    id: CREATE_EMBEDDING_SET_TOOL_ID,
     description:
       'Create a new embedding collection for storing document vectors. ' +
       'Requires approval before execution. Returns the created set or existing set if duplicate.',
-    inputSchema: CreateEmbeddingSetInputSchema,
     execute: async (context: ToolContext<CreateEmbeddingSetInput>) => {
       try {
         return await runCreateEmbeddingSet(context.context, deps);
@@ -266,6 +264,8 @@ export function createCreateEmbeddingSetTool(
         );
       }
     },
+    id: CREATE_EMBEDDING_SET_TOOL_ID,
+    inputSchema: CreateEmbeddingSetInputSchema,
   };
 }
 

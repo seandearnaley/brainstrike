@@ -3,7 +3,10 @@ import type { Migration } from './migration-runner';
 // Migration 018: Add selection snapshot tables for retrieval scoping
 
 export const migration018SelectionSnapshots: Migration = {
-  version: 18,
+  down: `
+    DROP TABLE IF EXISTS selection_snapshot_files;
+    DROP TABLE IF EXISTS selection_snapshots;
+  `,
   name: 'selection_snapshots',
   up: `
     CREATE TABLE IF NOT EXISTS selection_snapshots (
@@ -29,8 +32,5 @@ export const migration018SelectionSnapshots: Migration = {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_selection_snapshot_files_unique
       ON selection_snapshot_files (snapshot_id, file_path);
   `,
-  down: `
-    DROP TABLE IF EXISTS selection_snapshot_files;
-    DROP TABLE IF EXISTS selection_snapshots;
-  `,
+  version: 18,
 };

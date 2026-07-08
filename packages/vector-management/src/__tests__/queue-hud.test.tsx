@@ -83,11 +83,11 @@ describe('QueueHud', () => {
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({
+      failed: 1,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
       queued: 5,
       running: 2,
-      failed: 1,
       succeeded: 10,
-      nextRunnableAt: '2025-01-01T00:00:00Z',
     });
 
     render(<QueueHud />);
@@ -121,7 +121,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
+    setStoreStats({ failed: 3, queued: 0, running: 0, succeeded: 0 });
 
     render(<QueueHud />);
 
@@ -140,7 +140,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 5 });
+    setStoreStats({ failed: 0, queued: 0, running: 0, succeeded: 5 });
 
     render(<QueueHud />);
 
@@ -162,7 +162,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
+    setStoreStats({ failed: 3, queued: 0, running: 0, succeeded: 0 });
 
     let resolveRequeue!: (value: number) => void;
     const requeuePromise = new Promise<number>((resolve) => {
@@ -196,7 +196,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 0 });
+    setStoreStats({ failed: 0, queued: 0, running: 0, succeeded: 0 });
 
     render(<QueueHud />);
 
@@ -207,7 +207,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 2, running: 1, failed: 3, succeeded: 4 });
+    setStoreStats({ failed: 3, queued: 2, running: 1, succeeded: 4 });
 
     renderStatusBar();
 
@@ -231,11 +231,11 @@ describe('QueueHud', () => {
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
     setStoreStats({
+      failed: 0,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
       queued: 2,
       running: 1,
-      failed: 0,
       succeeded: 4,
-      nextRunnableAt: '2025-01-01T00:00:00Z',
     });
 
     renderStatusBar();
@@ -259,7 +259,7 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    setStoreStats({ queued: 0, running: 0, failed: 2, succeeded: 0 });
+    setStoreStats({ failed: 2, queued: 0, running: 0, succeeded: 0 });
 
     renderStatusBar();
 

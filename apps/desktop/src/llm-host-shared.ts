@@ -21,12 +21,12 @@ import {
 export const LLM_HOST_RUNTIME = createBackgroundRuntimeDescriptor('llm-host');
 export const LLM_HOST_LIFECYCLE_CHANNELS = LLM_HOST_RUNTIME.lifecycleChannels;
 const LLM_HOST_CHANNELS = LLM_HOST_RUNTIME.createScopedChannels({
-  request: 'request',
-  progress: 'progress',
-  reportResponse: 'report-response',
-  reportProgress: 'report-progress',
   cancel: 'cancel',
   generate: 'generate',
+  progress: 'progress',
+  reportProgress: 'report-progress',
+  reportResponse: 'report-response',
+  request: 'request',
   warmup: 'warmup',
 });
 
@@ -162,21 +162,21 @@ function assertToolCall(value: unknown, index: number): LocalLlmToolCall {
 
   const functionPayload = toolCall['function'] as Record<string, unknown>;
   return {
+    function: {
+      arguments: assertNonEmptyString(
+        functionPayload['arguments'],
+        `Llm host generate payload.messages[${index}].toolCalls function.arguments must be a non-empty string.`
+      ),
+      name: assertNonEmptyString(
+        functionPayload['name'],
+        `Llm host generate payload.messages[${index}].toolCalls function.name must be a non-empty string.`
+      ),
+    },
     id: assertNonEmptyString(
       toolCall['id'],
       `Llm host generate payload.messages[${index}].toolCalls entries must include a non-empty id.`
     ),
     type: 'function',
-    function: {
-      name: assertNonEmptyString(
-        functionPayload['name'],
-        `Llm host generate payload.messages[${index}].toolCalls function.name must be a non-empty string.`
-      ),
-      arguments: assertNonEmptyString(
-        functionPayload['arguments'],
-        `Llm host generate payload.messages[${index}].toolCalls function.arguments must be a non-empty string.`
-      ),
-    },
   };
 }
 
@@ -296,11 +296,11 @@ function assertLocalLlmMessages(value: unknown): LocalLlmMessage[] {
 
     return assertMessageContent(
       {
-        role: assertMessageRole(message['role'], index),
         content: assertString(
           message['content'],
           `Llm host generate payload.messages[${index}].content must be a string.`
         ),
+        role: assertMessageRole(message['role'], index),
         ...(name ? { name } : {}),
         ...(toolCallId ? { toolCallId } : {}),
         ...(toolCalls ? { toolCalls } : {}),
@@ -326,12 +326,12 @@ export function assertLlmHostWarmupPayload(value: unknown): LlmHostWarmupRequest
     'Llm host warmup payload.clientRequestId must be a non-empty string.'
   );
   return {
+    clientRequestId,
     kind: 'warmup',
     modelId: assertNonEmptyString(
       payload['modelId'],
       'Llm host warmup payload.modelId must be a non-empty string.'
     ),
-    clientRequestId,
   };
 }
 
@@ -355,13 +355,13 @@ export function assertLlmHostGeneratePayload(value: unknown): LlmHostGenerateReq
     'Llm host generate payload.clientRequestId must be a non-empty string.'
   );
   return {
+    clientRequestId,
     kind: 'generate',
+    messages: assertLocalLlmMessages(payload['messages']),
     modelId: assertNonEmptyString(
       payload['modelId'],
       'Llm host generate payload.modelId must be a non-empty string.'
     ),
-    messages: assertLocalLlmMessages(payload['messages']),
-    clientRequestId,
     ...(options ? { options: options as LocalLlmGenerationOptions } : {}),
   };
 }
@@ -391,9 +391,9 @@ export function normalizeLlmHostWarmupIpcPayload(
 ): LlmHostWarmupRequestPayload {
   if (typeof value === 'string') {
     return assertLlmHostWarmupPayload({
+      clientRequestId: createClientRequestId(),
       kind: 'warmup',
       modelId: value,
-      clientRequestId: createClientRequestId(),
     });
   }
 
@@ -434,7 +434,7 @@ function assertResponseReportBase(value: unknown): {
   }
 
   return {
-    type: report['type'],
+    payload: payload as Record<string, unknown>,
     requestId: assertNonEmptyString(
       report['requestId'],
       'Llm host response report.requestId must be a non-empty string.'
@@ -443,7 +443,7 @@ function assertResponseReportBase(value: unknown): {
       report['runtimeId'],
       'Llm host response report.runtimeId must be a non-empty string.'
     ),
-    payload: payload as Record<string, unknown>,
+    type: report['type'],
   };
 }
 
@@ -462,10 +462,7 @@ function createProgressReport(
   payload: Record<string, unknown>
 ): LlmHostProgressReport {
   return {
-    type: 'progress',
     channel: 'llm-progress',
-    requestId,
-    runtimeId,
     payload: {
       kind: assertLlmHostProgressKind(payload['kind']),
       ...(typeof payload['clientRequestId'] === 'string'
@@ -479,6 +476,9 @@ function createProgressReport(
         : {}),
       ...(typeof payload['text'] === 'string' ? { text: payload['text'] } : {}),
     },
+    requestId,
+    runtimeId,
+    type: 'progress',
   };
 }
 
@@ -492,13 +492,13 @@ function createResultReport(
   }
 
   return {
-    type: 'result',
     channel: 'llm-result',
-    requestId,
-    runtimeId,
     payload: {
       result: (payload as { result: LocalLlmGenerationResult | null }).result,
     },
+    requestId,
+    runtimeId,
+    type: 'result',
   };
 }
 
@@ -517,10 +517,7 @@ function createErrorReport(
       : 'Error';
 
   return {
-    type: 'error',
     channel: 'llm-error',
-    requestId,
-    runtimeId,
     payload: {
       errorMessage,
       message: typeof payload['message'] === 'string' ? payload['message'] : errorMessage,
@@ -530,6 +527,9 @@ function createErrorReport(
         : {}),
       name: errorName,
     },
+    requestId,
+    runtimeId,
+    type: 'error',
   };
 }
 
@@ -568,21 +568,21 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
 
   if (kind === 'warmup') {
     return {
-      type: 'request',
       channel: 'llm',
+      payload: assertLlmHostWarmupPayload(payload),
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
-      payload: assertLlmHostWarmupPayload(payload),
+      type: 'request',
     };
   }
 
   if (kind === 'cancel') {
     return {
-      type: 'request',
       channel: 'llm',
+      payload: assertLlmHostCancelPayload(payload),
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
-      payload: assertLlmHostCancelPayload(payload),
+      type: 'request',
     };
   }
 
@@ -591,11 +591,11 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
   }
 
   return {
-    type: 'request',
     channel: 'llm',
+    payload: assertLlmHostGeneratePayload(payload),
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: assertLlmHostGeneratePayload(payload),
+    type: 'request',
   };
 }
 
@@ -604,13 +604,13 @@ export function createLlmHostResultReport(
   result: LocalLlmGenerationResult | null
 ): LlmHostResultReport {
   return {
-    type: 'result',
     channel: 'llm-result',
-    requestId: request.requestId,
-    runtimeId: request.runtimeId,
     payload: {
       result,
     },
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'result',
   };
 }
 
@@ -619,11 +619,11 @@ export function createLlmHostProgressReport(
   payload: LlmHostProgressPayload
 ): LlmHostProgressReport {
   return {
-    type: 'progress',
     channel: 'llm-progress',
+    payload,
     requestId: request.requestId,
     runtimeId: request.runtimeId,
-    payload,
+    type: 'progress',
   };
 }
 
@@ -634,15 +634,15 @@ export function createLlmHostErrorReport(
 ): LlmHostErrorReport {
   const serialized = serializeRuntimeError(error);
   return {
-    type: 'error',
     channel: 'llm-error',
-    requestId: request.requestId,
-    runtimeId: request.runtimeId,
     payload: {
       ...serialized,
       errorMessage: serialized.message,
       ...(serialized.stack ? { errorStack: serialized.stack } : {}),
       ...(details ? { errorDetails: details } : {}),
     },
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'error',
   };
 }

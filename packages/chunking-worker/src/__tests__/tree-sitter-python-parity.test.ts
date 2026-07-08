@@ -218,8 +218,8 @@ async function treeSitterChunkStarts(source: string): Promise<number[]> {
  */
 async function recursiveChunkStarts(source: string, maxChars: number): Promise<number[]> {
   const splitter = new RecursiveTextSplitter({
-    chunkSize: maxChars,
     chunkOverlap: 0,
+    chunkSize: maxChars,
     separators: ['\n\n', '\n', ' ', ''],
   });
   const chunks = await splitter.splitText(source);

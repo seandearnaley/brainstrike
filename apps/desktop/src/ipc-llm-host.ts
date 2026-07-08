@@ -23,16 +23,16 @@ import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-backgr
 
 export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void {
   const unregisterLifecycle = registerBackgroundRuntimeLifecycleIpcHandlers<LlmHostStatusReport>({
-    manager,
     assertStatus: LLM_HOST_STATUS_ADAPTER.assertStatus,
     channels: {
       ensureStarted: LLM_HOST_ENSURE_STARTED_CHANNEL,
-      stop: LLM_HOST_STOP_CHANNEL,
-      reset: LLM_HOST_RESET_CHANNEL,
       getStatus: LLM_HOST_GET_STATUS_CHANNEL,
       reportStatus: LLM_HOST_REPORT_STATUS_CHANNEL,
+      reset: LLM_HOST_RESET_CHANNEL,
+      stop: LLM_HOST_STOP_CHANNEL,
     },
     domain: 'llm-host',
+    manager,
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 

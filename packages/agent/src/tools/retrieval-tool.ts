@@ -39,20 +39,20 @@ const CHARS_PER_TOKEN_ESTIMATE = 4;
  * Safe error messages that can be shown to users without leaking internal details.
  */
 export const RETRIEVAL_ERROR_MESSAGES = {
-  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
-  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
-  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
-  unsupportedProvider:
-    'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
-  missingApiKey: 'No API key configured for the embedding provider.',
-  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
-  invalidSelectionFilePaths: 'Selection file paths are invalid.',
-  selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
+  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
+  invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
+  missingApiKey: 'No API key configured for the embedding provider.',
+  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
+  selectionTooLarge: 'Selection exceeds retrieval limits.',
+  unsupportedProvider:
+    'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
 } as const;
 
 export const SAFE_ERROR_MESSAGES = new Set<string>(Object.values(RETRIEVAL_ERROR_MESSAGES));
@@ -292,22 +292,22 @@ function toContextChunks(
     }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     const chunk: ContextPackerChunk = {
-      id: result.chunk.id,
-      content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
-      startLine: result.chunk.startLine,
+      content: result.chunk.content,
       endLine: result.chunk.endLine,
-      startOffset: result.chunk.startOffset,
       endOffset: result.chunk.endOffset,
-      score: result.similarity,
+      id: result.chunk.id,
       metadata: {
-        fileRecordId: result.chunk.fileRecordId,
-        embeddingSetId: result.chunk.embeddingSetId,
         chunkType: result.chunk.chunkType,
-        rank: result.rank,
+        embeddingSetId: result.chunk.embeddingSetId,
+        fileRecordId: result.chunk.fileRecordId,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        rank: result.rank,
       },
+      score: result.similarity,
+      startLine: result.chunk.startLine,
+      startOffset: result.chunk.startOffset,
+      tokenCount: result.chunk.tokenCount ?? null,
     };
     if (fileInfo?.path !== undefined) {
       chunk.filePath = fileInfo.path;
@@ -362,10 +362,10 @@ function buildContextWithCoverageNote(
   fileMap: Map<string, FileRecordInfo>
 ): string {
   const coverageNote = formatRetrievalCoverageNote({
-    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
-    skippedSourceRangeChunks,
-    skippedForTokenBudget: packed.skippedForTokenBudget,
     affectedFilePaths: buildAffectedFilePaths(skippedSourceRangeChunks, fileMap),
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedForTokenBudget: packed.skippedForTokenBudget,
+    skippedSourceRangeChunks,
   });
   if (!coverageNote) {
     return contextText;
@@ -427,7 +427,7 @@ async function runRetrieval(
     throw new Error(RETRIEVAL_ERROR_MESSAGES.missingEmbeddingSet);
   }
 
-  deps.logger?.debug('Starting retrieval', { query: query.slice(0, 100), embeddingSetId });
+  deps.logger?.debug('Starting retrieval', { embeddingSetId, query: query.slice(0, 100) });
 
   // Resolve embedding set metadata
   const embeddingSet = await deps.resolveEmbeddingSet(embeddingSetId);
@@ -436,8 +436,8 @@ async function runRetrieval(
   const embedding = await deps.generateQueryEmbedding(embeddingSet, query);
   if (embedding.length !== embeddingSet.dimensions) {
     deps.logger?.warn('Embedding dimension mismatch', {
-      expected: embeddingSet.dimensions,
       actual: embedding.length,
+      expected: embeddingSet.dimensions,
     });
     throw new Error(RETRIEVAL_ERROR_MESSAGES.embeddingDimensionMismatch);
   }
@@ -488,27 +488,27 @@ async function runRetrieval(
   );
 
   deps.logger?.debug('Context packed', {
-    totalTokens: packed.totalTokens,
     budget: packed.budget,
+    chunksIncluded: packed.chunks.length,
     skipped: packed.skipped,
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
-    chunksIncluded: packed.chunks.length,
+    totalTokens: packed.totalTokens,
   });
 
   return {
-    query,
-    embeddingSetId,
-    limit,
-    threshold,
-    totalTokens: packed.totalTokens,
     budget: packed.budget,
-    remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped + skippedSourceRangeChunks.length,
-    context: contextText,
     chunkContentIncludedInContext: packed.chunks.length > 0,
     chunks: stripChunkContent(packed.chunks),
+    context: contextText,
+    embeddingSetId,
+    limit,
+    query,
+    remainingTokens: packed.remainingTokens,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     skippedSourceRangeChunks,
+    threshold,
+    totalTokens: packed.totalTokens,
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   };
 }
@@ -531,10 +531,8 @@ export function createRetrievalTool(
   deps: RetrievalToolDependencies
 ): MastraTools[string] {
   return {
-    id: RETRIEVAL_TOOL_ID,
     description:
       'Retrieve and pack relevant project context from the active embedding set. Use for codebase questions.',
-    inputSchema: RetrievalContextInputSchema,
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
         return await runRetrieval(context.context, runtimeData, deps);
@@ -542,6 +540,8 @@ export function createRetrievalTool(
         handleRetrievalError(error, deps.logger);
       }
     },
+    id: RETRIEVAL_TOOL_ID,
+    inputSchema: RetrievalContextInputSchema,
   };
 }
 

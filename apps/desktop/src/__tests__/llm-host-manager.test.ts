@@ -71,7 +71,7 @@ import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 
 type TestableLlmHostManager = LlmHostManager & {
-  acceptResponseReport(
+  acceptResponseReport: (
     senderId: number,
     report: {
       channel: string;
@@ -80,7 +80,7 @@ type TestableLlmHostManager = LlmHostManager & {
       runtimeId: string;
       type: string;
     }
-  ): void;
+  ) => void;
   pendingRequests: Map<string, unknown>;
   preCancelledRequestIds: Set<string>;
 };
@@ -89,9 +89,9 @@ describe('LlmHostManager', () => {
   function createRequester(id = 101): WebContents {
     return {
       id,
-      send: vi.fn(),
       once: vi.fn(),
       removeListener: vi.fn(),
+      send: vi.fn(),
     } as unknown as WebContents;
   }
 
@@ -130,14 +130,14 @@ describe('LlmHostManager', () => {
 
     await vi.advanceTimersByTimeAsync(59_000);
     manager.acceptResponseReport(71, {
-      type: 'progress',
       channel: 'llm-progress',
-      requestId: '101:req-progress',
-      runtimeId: 'llm-host-runtime',
       payload: {
         kind: 'stage',
         message: 'still working',
       },
+      requestId: '101:req-progress',
+      runtimeId: 'llm-host-runtime',
+      type: 'progress',
     });
 
     await vi.advanceTimersByTimeAsync(59_000);
@@ -152,13 +152,13 @@ describe('LlmHostManager', () => {
     );
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: '101:req-progress',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: { text: 'done' },
       },
+      requestId: '101:req-progress',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
 
     await expect(requestPromise).resolves.toEqual({ text: 'done' });
@@ -266,26 +266,26 @@ describe('LlmHostManager', () => {
     for (let round = 0; round < 3; round += 1) {
       await vi.advanceTimersByTimeAsync(4 * 60_000);
       manager.acceptResponseReport(71, {
-        type: 'progress',
         channel: 'llm-progress',
-        requestId: '111:req-long-generation',
-        runtimeId: 'llm-host-runtime',
         payload: {
           kind: 'text',
           text: `cumulative output after round ${round}`,
         },
+        requestId: '111:req-long-generation',
+        runtimeId: 'llm-host-runtime',
+        type: 'progress',
       });
     }
     expect(manager.pendingRequests.has('111:req-long-generation')).toBe(true);
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: '111:req-long-generation',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: { text: 'done after 12 minutes' },
       },
+      requestId: '111:req-long-generation',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
     await expect(requestPromise).resolves.toEqual({ text: 'done after 12 minutes' });
   });
@@ -308,11 +308,11 @@ describe('LlmHostManager', () => {
 
     await vi.advanceTimersByTimeAsync(59_000);
     manager.acceptResponseReport(71, {
-      type: 'progress',
       channel: 'llm-progress',
+      payload: { kind: 'stage', message: 'one last sign of life' },
       requestId: '112:req-wedged',
       runtimeId: 'llm-host-runtime',
-      payload: { kind: 'stage', message: 'one last sign of life' },
+      type: 'progress',
     });
 
     // Silence for the full window after the last progress: the host is wedged.
@@ -335,13 +335,13 @@ describe('LlmHostManager', () => {
     expect(manager.pendingRequests.size).toBe(1);
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: [...manager.pendingRequests.keys()][0] ?? 'missing',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: null,
       },
+      requestId: [...manager.pendingRequests.keys()][0] ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
 
     await expect(warmupPromise).resolves.toBeUndefined();
@@ -360,13 +360,13 @@ describe('LlmHostManager', () => {
     expect(requestId?.startsWith('401:')).toBe(true);
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: requestId ?? 'missing',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: null,
       },
+      requestId: requestId ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
 
     await expect(warmupPromise).resolves.toBeUndefined();
@@ -398,13 +398,13 @@ describe('LlmHostManager', () => {
     expect(manager.pendingRequests.has('201:duplicate-id')).toBe(true);
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: '201:duplicate-id',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: { text: 'done' },
       },
+      requestId: '201:duplicate-id',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
 
     await expect(firstRequest).resolves.toEqual({ text: 'done' });
@@ -436,22 +436,22 @@ describe('LlmHostManager', () => {
     });
 
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: '301:same-id',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: { text: 'A' },
       },
+      requestId: '301:same-id',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
     manager.acceptResponseReport(71, {
-      type: 'result',
       channel: 'llm-result',
-      requestId: '302:same-id',
-      runtimeId: 'llm-host-runtime',
       payload: {
         result: { text: 'B' },
       },
+      requestId: '302:same-id',
+      runtimeId: 'llm-host-runtime',
+      type: 'result',
     });
 
     await expect(requestA).resolves.toEqual({ text: 'A' });
@@ -491,14 +491,14 @@ describe('LlmHostManager', () => {
 
     await vi.advanceTimersByTimeAsync(59_000);
     manager.acceptResponseReport(71, {
-      type: 'progress',
       channel: 'llm-progress',
-      requestId: 'req-timeout',
-      runtimeId: 'llm-host-runtime',
       payload: {
         kind: 'stage',
         message: 'still working',
       },
+      requestId: 'req-timeout',
+      runtimeId: 'llm-host-runtime',
+      type: 'progress',
     });
 
     await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
@@ -661,15 +661,15 @@ describe('LlmHostManager', () => {
     });
 
     manager.acceptResponseReport(71, {
-      type: 'error',
       channel: 'llm-error',
-      requestId: '801:engine-fault',
-      runtimeId: 'llm-host-runtime',
       payload: {
+        errorDetails: { engineReset: true, stage: 'generate-response' },
         errorMessage:
           'failed to call OrtRun() — the local model engine was reset; the next message will reload the model.',
-        errorDetails: { engineReset: true, stage: 'generate-response' },
       },
+      requestId: '801:engine-fault',
+      runtimeId: 'llm-host-runtime',
+      type: 'error',
     });
 
     await expect(observedRejection).resolves.toBeInstanceOf(Error);
@@ -705,14 +705,14 @@ describe('LlmHostManager', () => {
     });
 
     manager.acceptResponseReport(71, {
-      type: 'error',
       channel: 'llm-error',
+      payload: {
+        errorDetails: { stage: 'generate-response' },
+        errorMessage: 'Tool arguments failed validation.',
+      },
       requestId: '802:plain-failure',
       runtimeId: 'llm-host-runtime',
-      payload: {
-        errorMessage: 'Tool arguments failed validation.',
-        errorDetails: { stage: 'generate-response' },
-      },
+      type: 'error',
     });
 
     await expect(observedRejection).resolves.toBeInstanceOf(Error);
@@ -733,7 +733,7 @@ describe('LlmHostManager', () => {
         expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(1);
       });
       const generatePromise = manager.generateForMain({
-        messages: [{ role: 'user', content: 'hi' }],
+        messages: [{ content: 'hi', role: 'user' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       });
       await vi.waitFor(() => {
@@ -753,17 +753,17 @@ describe('LlmHostManager', () => {
 
       for (const requestId of [...manager.pendingRequests.keys()]) {
         manager.acceptResponseReport(71, {
-          type: 'result',
           channel: 'llm-result',
-          requestId,
-          runtimeId: 'llm-host-runtime',
           payload: {
             result: {
-              text: 'ok',
               finishReason: 'stop',
-              usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+              text: 'ok',
+              usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
             },
           },
+          requestId,
+          runtimeId: 'llm-host-runtime',
+          type: 'result',
         });
       }
       await expect(warmupPromise).resolves.toBeUndefined();
@@ -776,7 +776,7 @@ describe('LlmHostManager', () => {
 
       const requestPromise = manager.generateForMain(
         {
-          messages: [{ role: 'user', content: 'hi' }],
+          messages: [{ content: 'hi', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
           options: {},
         },
@@ -790,24 +790,24 @@ describe('LlmHostManager', () => {
       expect(requestId?.startsWith('main:')).toBe(true);
 
       manager.acceptResponseReport(71, {
-        type: 'progress',
         channel: 'llm-progress',
+        payload: { kind: 'text', text: 'partial answer' },
         requestId: requestId ?? 'missing',
         runtimeId: 'llm-host-runtime',
-        payload: { kind: 'text', text: 'partial answer' },
+        type: 'progress',
       });
       manager.acceptResponseReport(71, {
-        type: 'result',
         channel: 'llm-result',
-        requestId: requestId ?? 'missing',
-        runtimeId: 'llm-host-runtime',
         payload: {
           result: {
-            text: 'final answer',
             finishReason: 'stop',
-            usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+            text: 'final answer',
+            usage: { completionTokens: 2, promptTokens: 4, totalTokens: 6 },
           },
         },
+        requestId: requestId ?? 'missing',
+        runtimeId: 'llm-host-runtime',
+        type: 'result',
       });
 
       await expect(requestPromise).resolves.toMatchObject({ text: 'final answer' });
@@ -820,7 +820,7 @@ describe('LlmHostManager', () => {
 
       const requestPromise = manager.generateForMain(
         {
-          messages: [{ role: 'user', content: 'hi' }],
+          messages: [{ content: 'hi', role: 'user' }],
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
           options: {},
         },
@@ -858,7 +858,7 @@ describe('LlmHostManager', () => {
       await expect(
         manager.generateForMain(
           {
-            messages: [{ role: 'user', content: 'hi' }],
+            messages: [{ content: 'hi', role: 'user' }],
             modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
           },
           { signal: abortController.signal }
@@ -871,7 +871,7 @@ describe('LlmHostManager', () => {
       const manager = new LlmHostManager() as TestableLlmHostManager;
 
       const requestPromise = manager.generateForMain({
-        messages: [{ role: 'user', content: 'hi' }],
+        messages: [{ content: 'hi', role: 'user' }],
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       });
       const observedRejection = requestPromise.then(
@@ -885,11 +885,11 @@ describe('LlmHostManager', () => {
       const [requestId] = [...manager.pendingRequests.keys()];
 
       manager.acceptResponseReport(71, {
-        type: 'result',
         channel: 'llm-result',
+        payload: { result: null },
         requestId: requestId ?? 'missing',
         runtimeId: 'llm-host-runtime',
-        payload: { result: null },
+        type: 'result',
       });
 
       await expect(observedRejection).resolves.toMatchObject({
@@ -910,32 +910,32 @@ describe('LlmHostManager', () => {
       const [requestId] = [...manager.pendingRequests.keys()];
 
       manager.acceptResponseReport(71, {
-        type: 'progress',
         channel: 'llm-progress',
+        payload: {
+          file: 'model.onnx',
+          kind: 'loading',
+          message: 'Downloading model',
+          progress: 42,
+        },
         requestId: requestId ?? 'missing',
         runtimeId: 'llm-host-runtime',
-        payload: {
-          kind: 'loading',
-          progress: 42,
-          message: 'Downloading model',
-          file: 'model.onnx',
-        },
+        type: 'progress',
       });
 
       expect(mockVisibleWindow.webContents.send).toHaveBeenCalledWith(
         expect.stringContaining('progress'),
         expect.objectContaining({
-          type: 'progress',
           payload: expect.objectContaining({ kind: 'loading', progress: 42 }),
+          type: 'progress',
         })
       );
 
       manager.acceptResponseReport(71, {
-        type: 'result',
         channel: 'llm-result',
+        payload: { result: null },
         requestId: requestId ?? 'missing',
         runtimeId: 'llm-host-runtime',
-        payload: { result: null },
+        type: 'result',
       });
       await expect(warmupPromise).resolves.toBeUndefined();
 
@@ -965,22 +965,22 @@ describe('LlmHostManager', () => {
         expect(manager.pendingRequests.size).toBe(1);
       });
       manager.acceptResponseReport(71, {
-        type: 'progress',
         channel: 'llm-progress',
+        payload: { kind: 'loading', progress: 10 },
         requestId: '101:req-renderer-progress',
         runtimeId: 'llm-host-runtime',
-        payload: { kind: 'loading', progress: 10 },
+        type: 'progress',
       });
 
       // Renderer callers already receive progress over their own IPC channel.
       expect(mockVisibleWindow.webContents.send).not.toHaveBeenCalled();
 
       manager.acceptResponseReport(71, {
-        type: 'result',
         channel: 'llm-result',
+        payload: { result: { text: 'done' } },
         requestId: '101:req-renderer-progress',
         runtimeId: 'llm-host-runtime',
-        payload: { result: { text: 'done' } },
+        type: 'result',
       });
       await expect(requestPromise).resolves.toEqual({ text: 'done' });
     });
@@ -997,11 +997,11 @@ describe('LlmHostManager', () => {
       expect(requestId?.startsWith('main:')).toBe(true);
 
       manager.acceptResponseReport(71, {
-        type: 'result',
         channel: 'llm-result',
+        payload: { result: null },
         requestId: requestId ?? 'missing',
         runtimeId: 'llm-host-runtime',
-        payload: { result: null },
+        type: 'result',
       });
 
       await expect(warmupPromise).resolves.toBeUndefined();

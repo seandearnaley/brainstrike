@@ -142,18 +142,18 @@ export const saveFolderState = (
   snapshotModel = materializeSnapshotSelection(state, folderId, ownKeys, snapshotModel);
 
   const folderState: FolderState = {
-    selectedFilePaths: ownKeys,
-    selectionModel: snapshotModel,
-    expandedDirectoryPaths: state.expandedDirectoryPaths,
-    includeFilters: state.includeFilters,
     excludeFilters: state.excludeFilters,
-    useRegex: state.useRegex,
-    includeProjectTree: state.includeProjectTree,
-    tokenBudget: state.tokenBudget,
+    expandedDirectoryPaths: state.expandedDirectoryPaths,
     folderSummaryThreshold: state.folderSummaryThreshold,
-    maxSelectionCount: state.maxSelectionCount,
+    includeFilters: state.includeFilters,
+    includeProjectTree: state.includeProjectTree,
     lastAccessed: now,
     lastActiveTab: state.lastActiveTab || 'files',
+    maxSelectionCount: state.maxSelectionCount,
+    selectedFilePaths: ownKeys,
+    selectionModel: snapshotModel,
+    tokenBudget: state.tokenBudget,
+    useRegex: state.useRegex,
     viewFilterPresetId: state.viewFilterPresetId,
   };
 
@@ -175,8 +175,8 @@ export const saveFolderState = (
         selectedFilePaths: merged,
         selectionModel: {
           ...base.selectionModel,
-          mode: 'explicit',
           explicitPaths: new Set(merged),
+          mode: 'explicit',
         },
       },
     };
@@ -236,18 +236,18 @@ export const createNewFolderState = (
   const now = typeof stateOrNow === 'number' ? stateOrNow : maybeNow;
 
   return {
+    excludeFilters: state ? [...state.excludeFilters] : [],
+    expandedDirectoryPaths: new Set<string>(),
+    folderSummaryThreshold: state?.folderSummaryThreshold ?? DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+    includeFilters: state ? [...state.includeFilters] : [],
+    includeProjectTree: state?.includeProjectTree ?? true,
+    lastAccessed: now,
+    lastActiveTab: state?.lastActiveTab ?? 'files',
+    maxSelectionCount: state?.maxSelectionCount ?? DEFAULT_MAX_SELECTION_COUNT,
     selectedFilePaths: new Set<string>(),
     selectionModel: createEmptySelectionModel(),
-    expandedDirectoryPaths: new Set<string>(),
-    includeFilters: state ? [...state.includeFilters] : [],
-    excludeFilters: state ? [...state.excludeFilters] : [],
-    useRegex: state?.useRegex ?? false,
-    includeProjectTree: state?.includeProjectTree ?? true,
     tokenBudget: state?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    folderSummaryThreshold: state?.folderSummaryThreshold ?? DEFAULT_FOLDER_SUMMARY_THRESHOLD,
-    maxSelectionCount: state?.maxSelectionCount ?? DEFAULT_MAX_SELECTION_COUNT,
-    lastActiveTab: state?.lastActiveTab ?? 'files',
-    lastAccessed: now,
+    useRegex: state?.useRegex ?? false,
     viewFilterPresetId: state?.viewFilterPresetId ?? null,
   };
 };

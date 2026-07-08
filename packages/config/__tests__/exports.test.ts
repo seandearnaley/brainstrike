@@ -12,8 +12,8 @@ describe('biome configuration', () => {
   it('has linter enabled and extends ultracite presets', () => {
     expect(biome.linter?.enabled).toBe(true);
     // Now using Ultracite presets instead of recommended rules
-    expect(biome.extends).toContain('ultracite/core');
-    expect(biome.extends).toContain('ultracite/react');
+    expect(biome.extends).toContain('ultracite/biome/core');
+    expect(biome.extends).toContain('ultracite/biome/react');
   });
 
   it('includes node_modules in ignore list', () => {

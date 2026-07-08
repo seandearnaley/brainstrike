@@ -289,8 +289,8 @@ function runRipgrep(args: {
       buildRipgrepArgs(args),
       {
         cwd: args.canonicalRootPath,
-        timeout: RIPGREP_TIMEOUT_MS,
         maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
+        timeout: RIPGREP_TIMEOUT_MS,
         windowsHide: true,
       },
       (error, stdout) => {
@@ -456,21 +456,21 @@ async function matchCandidate(
     content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
   } catch (error) {
     logger.debug('live grep: unreadable candidate skipped', {
-      path: candidate.relativePath,
       error,
+      path: candidate.relativePath,
     });
     return [];
   }
   return collectGrepMatchesInContent({
     content,
-    matcher,
     contextLines,
+    matcher,
     // The indexed path reports root-relative paths without a leading slash; mirror
     // that so live + indexed matches dedupe on identical (rootId, path, line) keys.
     path: candidate.relativePath,
-    startLine: 1,
     rootId: candidate.rootId,
     rootName: candidate.rootName,
+    startLine: 1,
   });
 }
 
@@ -480,7 +480,6 @@ async function collectJsWalkCandidates(
 ): Promise<{ candidates: LiveCandidate[]; scanLimited: boolean }> {
   const candidates: LiveCandidate[] = [];
   const { scanLimited } = await walkWorkspaceRoot({
-    root,
     includeIgnored: false,
     onFile: ({ relativePath, absolutePath }) => {
       candidates.push({
@@ -490,6 +489,7 @@ async function collectJsWalkCandidates(
         rootName: root.displayName,
       });
     },
+    root,
   });
   return { candidates, scanLimited };
 }
@@ -513,10 +513,10 @@ async function collectRipgrepCandidates(args: {
   filePathAllow: ReadonlySet<string> | null;
 }): Promise<{ candidates: LiveCandidate[]; prefilterTruncated: boolean; capHit: boolean }> {
   const run = await runRipgrep({
-    ripgrepPath: args.ripgrepPath,
     canonicalRootPath: args.canonicalRootPath,
-    prefilterLiteral: args.prefilterLiteral,
     caseSensitive: args.caseSensitive,
+    prefilterLiteral: args.prefilterLiteral,
+    ripgrepPath: args.ripgrepPath,
   });
   const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
   const candidates: LiveCandidate[] = [];
@@ -539,16 +539,16 @@ async function collectRipgrepCandidates(args: {
       break;
     }
     const candidate = await resolveCandidate({
-      relativePath,
       canonicalRootPath: args.canonicalRootPath,
-      root: args.root,
       policy,
+      relativePath,
+      root: args.root,
     });
     if (candidate) {
       candidates.push(candidate);
     }
   }
-  return { candidates, prefilterTruncated: run.truncated, capHit };
+  return { candidates, capHit, prefilterTruncated: run.truncated };
 }
 
 export interface LiveGrepOptions {
@@ -630,8 +630,8 @@ async function gatherRootCandidates(args: {
     canonicalRootPath = await fsPromises.realpath(root.path);
   } catch (error) {
     logger.warn('live grep: root is not accessible', {
-      rootId: root.rootId,
       error: redactErrorForLog(error),
+      rootId: root.rootId,
     });
     return;
   }
@@ -644,14 +644,14 @@ async function gatherRootCandidates(args: {
   if (ripgrepPath !== null && prefilterLiteral !== null && !state.degradedToWalk) {
     try {
       const { candidates, prefilterTruncated, capHit } = await collectRipgrepCandidates({
-        ripgrepPath,
-        root,
         canonicalRootPath,
-        prefilterLiteral,
         caseSensitive,
+        filePathAllow,
         // Remaining global budget so per-root resolve never overshoots the cap.
         maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
-        filePathAllow,
+        prefilterLiteral,
+        ripgrepPath,
+        root,
       });
       state.candidates.push(...candidates);
       state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
@@ -678,7 +678,7 @@ export async function runLiveGrep(
   matcher: LineMatcher
 ): Promise<LiveGrepResult> {
   if (options.roots.length === 0) {
-    return { matches: [], engine: 'skipped', truncated: false };
+    return { engine: 'skipped', matches: [], truncated: false };
   }
 
   const filePathAllow =
@@ -694,39 +694,39 @@ export async function runLiveGrep(
   // path's `scanLimited` case). A null literal means rg cannot soundly prefilter
   // a regex, so the live pass takes the bounded JS walk for every root instead.
   const prefilterLiteral = resolveRipgrepPrefilterLiteral({
-    pattern: options.pattern,
     isRegex: options.isRegex,
+    pattern: options.pattern,
   });
   const regexNoLiteralPrefilter = options.isRegex && prefilterLiteral === null;
   // rg actually runs only when it is present AND a safe superset literal exists.
   const rgUsed = rgPresent && !regexNoLiteralPrefilter;
   const state: CandidateGatherState = {
     anyRootAccessible: false,
-    candidates: [],
     candidateCapHit: false,
-    degradeReason: null,
+    candidates: [],
     degradedToWalk: false,
+    degradeReason: null,
     prefilterTruncated: false,
     scanLimited: false,
   };
 
   for (const root of options.roots) {
     await gatherRootCandidates({
-      root,
-      ripgrepPath,
-      prefilterLiteral,
       caseSensitive: options.caseSensitive,
-      state,
       filePathAllow,
+      prefilterLiteral,
+      ripgrepPath,
+      root,
+      state,
     });
   }
 
   if (!state.anyRootAccessible) {
     return {
-      matches: [],
       engine: 'skipped',
-      truncated: false,
+      matches: [],
       note: 'No workspace root was readable on disk for the live pass.',
+      truncated: false,
     };
   }
 
@@ -752,19 +752,19 @@ export async function runLiveGrep(
 
   const truncated = state.prefilterTruncated || state.scanLimited || candidateTruncated;
   const note = buildLiveNote({
-    rgPresent,
-    rgUsed,
-    regexNoLiteralPrefilter,
+    candidateTruncated,
     degradedToWalk: state.degradedToWalk,
     degradeReason: state.degradeReason,
-    scanLimited: state.scanLimited,
-    candidateTruncated,
     prefilterTruncated: state.prefilterTruncated,
+    regexNoLiteralPrefilter,
+    rgPresent,
+    rgUsed,
+    scanLimited: state.scanLimited,
   });
 
   return {
-    matches,
     engine,
+    matches,
     truncated,
     ...(note ? { note } : {}),
   };

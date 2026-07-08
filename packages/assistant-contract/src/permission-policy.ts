@@ -106,10 +106,10 @@ export type PerToolPermissionOverrides = Record<string, PermissionDecision>;
  * posture the permission engine ships with.
  */
 export const DEFAULT_PERMISSION_POLICIES: PermissionPolicies = {
-  read: 'allow',
   edit: 'ask',
   execute: 'ask',
   mcp: 'allow',
+  read: 'allow',
 };
 
 /**

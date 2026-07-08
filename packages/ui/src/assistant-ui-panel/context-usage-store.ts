@@ -21,7 +21,11 @@ interface ContextUsageState {
 }
 
 export const useContextUsageStore = create<ContextUsageState>((set) => ({
-  usageByThread: {},
+  clearThread: (threadId) =>
+    set((state) => {
+      const { [threadId]: _removed, ...rest } = state.usageByThread;
+      return { usageByThread: rest };
+    }),
   recordUsage: (threadId, usage) => {
     const isUsable =
       usage.inputTokens >= 0 &&
@@ -34,11 +38,7 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
       usageByThread: { ...state.usageByThread, [threadId]: usage },
     }));
   },
-  clearThread: (threadId) =>
-    set((state) => {
-      const { [threadId]: _removed, ...rest } = state.usageByThread;
-      return { usageByThread: rest };
-    }),
+  usageByThread: {},
 }));
 
 /**

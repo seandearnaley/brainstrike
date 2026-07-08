@@ -4,10 +4,10 @@ import type { EnhancedImportResult } from '../types';
 import { useImportFlow } from '../use-import-flow';
 
 const importServiceReturn = {
+  chunkRepository: { findAll: vi.fn() },
   importFiles: vi.fn().mockResolvedValue(undefined),
   isImporting: false,
   progress: null,
-  chunkRepository: { findAll: vi.fn() },
 };
 
 let latestOptions: {
@@ -42,13 +42,13 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 
 const baseSettings = {
-  enableChunking: true,
   chunkingStrategy: 'sentence' as const,
   chunkingStrategyExplicit: false,
-  chunkSize: 512,
   chunkOverlap: 0,
-  tokenTrueSizing: true,
+  chunkSize: 512,
   chunkTokenLimit: 4096,
+  enableChunking: true,
+  tokenTrueSizing: true,
 };
 
 beforeEach(() => {
@@ -68,8 +68,8 @@ describe('useImportFlow', () => {
     const { result } = renderHook(() =>
       useImportFlow({
         importSettings: baseSettings,
-        toast,
         resolveActiveCollectionId: () => 'set-1',
+        toast,
       })
     );
 
@@ -89,8 +89,8 @@ describe('useImportFlow', () => {
     const { result } = renderHook(() =>
       useImportFlow({
         importSettings: baseSettings,
-        toast,
         resolveActiveCollectionId: () => 'set-1',
+        toast,
       })
     );
 
@@ -116,8 +116,8 @@ describe('useImportFlow', () => {
     const { result } = renderHook(() =>
       useImportFlow({
         importSettings: baseSettings,
-        toast,
         resolveActiveCollectionId: () => 'set-1',
+        toast,
       })
     );
 
@@ -142,17 +142,17 @@ describe('useImportFlow', () => {
     const { result } = renderHook(() =>
       useImportFlow({
         importSettings: baseSettings,
-        toast,
-        onImportComplete,
         onChunkRepositoryChange,
+        onImportComplete,
         resolveActiveCollectionId: () => 'set-1',
+        toast,
       })
     );
 
     await act(async () => {
       latestOptions.onProgress?.();
       await latestOptions.onComplete?.([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 } as EnhancedImportResult,
+        { chunksCreated: 1, existed: false, id: '1', imported: true } as EnhancedImportResult,
       ]);
       await Promise.resolve();
     });
@@ -177,8 +177,8 @@ describe('useImportFlow', () => {
       ({ onImportComplete }: { onImportComplete?: (results: EnhancedImportResult[]) => void }) =>
         useImportFlow({
           importSettings: baseSettings,
-          toast,
           resolveActiveCollectionId: () => 'set-1',
+          toast,
           ...(onImportComplete ? { onImportComplete } : {}),
         }),
       {
@@ -190,7 +190,7 @@ describe('useImportFlow', () => {
 
     await act(async () => {
       await latestOptions.onComplete?.([
-        { id: '1', imported: true, existed: false, chunksCreated: 1 } as EnhancedImportResult,
+        { chunksCreated: 1, existed: false, id: '1', imported: true } as EnhancedImportResult,
       ]);
     });
 
@@ -202,14 +202,14 @@ describe('useImportFlow', () => {
     const toast = vi.fn();
     renderHook(() =>
       useImportFlow({
-        importSettings: { ...baseSettings, tokenTrueSizing: false, chunkTokenLimit: 8192 },
-        toast,
+        importSettings: { ...baseSettings, chunkTokenLimit: 8192, tokenTrueSizing: false },
         resolveActiveCollectionId: () => 'set-1',
+        toast,
       })
     );
 
     expect(latestOptions).toEqual(
-      expect.objectContaining({ tokenTrueSizing: false, chunkTokenLimit: 8192 })
+      expect.objectContaining({ chunkTokenLimit: 8192, tokenTrueSizing: false })
     );
   });
 
@@ -219,7 +219,7 @@ describe('useImportFlow', () => {
     const resolver = vi.fn(() => null);
 
     const { result } = renderHook(() =>
-      useImportFlow({ importSettings: baseSettings, toast, resolveActiveCollectionId: resolver })
+      useImportFlow({ importSettings: baseSettings, resolveActiveCollectionId: resolver, toast })
     );
 
     await act(async () => {

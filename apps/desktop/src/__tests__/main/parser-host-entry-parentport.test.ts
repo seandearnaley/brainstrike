@@ -121,7 +121,7 @@ describe('parser-host-entry parentPort wiring', () => {
     const { listeners, parentPort } = installParentPortMock();
     await import('../../parser-host-entry');
 
-    listeners[0]?.({ requestId: 'bad', content: 123 /* not a string */ });
+    listeners[0]?.({ content: 123, /* not a string */ requestId: 'bad' });
     await flushMicrotasks();
 
     expect(parentPort.postMessage).toHaveBeenCalledTimes(1);
@@ -133,7 +133,7 @@ describe('parser-host-entry parentPort wiring', () => {
     const { listeners, parentPort } = installParentPortMock();
     await import('../../parser-host-entry');
 
-    listeners[0]?.({ requestId: 'preserved-id', content: 123 });
+    listeners[0]?.({ content: 123, requestId: 'preserved-id' });
     await flushMicrotasks();
 
     const sent = parentPort.postMessage.mock.calls[0]?.[0] as ParserHostParseResponse;

@@ -47,6 +47,6 @@ describe('clipboard IPC handlers', () => {
     });
     const handlers = createClipboardIpcHandlers({ clipboard });
     const result = handlers.writeText('hello');
-    expect(result).toEqual({ ok: false, error: 'clipboard locked' });
+    expect(result).toEqual({ error: 'clipboard locked', ok: false });
   });
 });

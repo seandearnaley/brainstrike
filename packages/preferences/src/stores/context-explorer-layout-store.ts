@@ -21,10 +21,10 @@ const DEFAULT_STATE: Omit<
   ContextExplorerLayoutStoreState,
   'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setState'
 > = {
-  sizes: [25, 20, 20],
+  showConsole: false,
   showLeftPanel: false,
   showRightPanel: true,
-  showConsole: false,
+  sizes: [25, 20, 20],
 };
 
 // Note: STORE_NAME is intentionally frozen at '.v1' to prevent orphaning persisted layout
@@ -51,11 +51,11 @@ const creator: StateCreator<ContextExplorerLayoutStoreState, [['zustand/persist'
     };
     set(next);
   },
+  setState: (next: Partial<ContextExplorerLayoutStoreState>) => set(next),
+  toggleConsole: () => set({ showConsole: !get().showConsole }),
 
   toggleLeft: () => set({ showLeftPanel: !get().showLeftPanel }),
   toggleRight: () => set({ showRightPanel: !get().showRightPanel }),
-  toggleConsole: () => set({ showConsole: !get().showConsole }),
-  setState: (next: Partial<ContextExplorerLayoutStoreState>) => set(next),
 });
 
 type PersistedContextExplorerLayoutState = Pick<
@@ -120,11 +120,11 @@ function createAdapterPersistStorage(
 ): PersistStorage<PersistedContextExplorerLayoutState> {
   return {
     getItem: async (name: string) => parsePersistedPanelState(await storage.getItem(name)),
-    setItem: async (name: string, value) => {
-      await storage.setItem(name, JSON.stringify(value));
-    },
     removeItem: async (name: string) => {
       await storage.removeItem(name);
+    },
+    setItem: async (name: string, value) => {
+      await storage.setItem(name, JSON.stringify(value));
     },
   };
 }
@@ -171,11 +171,11 @@ function createFallbackPersistStorage(): PersistStorage<PersistedContextExplorer
 
   return {
     getItem: (name: string) => parsePersistedPanelState(readRaw(name)),
-    setItem: (name: string, value) => {
-      writeRaw(name, JSON.stringify(value));
-    },
     removeItem: (name: string) => {
       removeRaw(name);
+    },
+    setItem: (name: string, value) => {
+      writeRaw(name, JSON.stringify(value));
     },
   };
 }
@@ -184,15 +184,6 @@ function persistOptions(
   storage: PersistStorage<PersistedContextExplorerLayoutState>
 ): PersistOptions<ContextExplorerLayoutStoreState, PersistedContextExplorerLayoutState> {
   return {
-    name: STORE_NAME,
-    version: STORE_VERSION,
-    storage,
-    partialize: (state): PersistedContextExplorerLayoutState => ({
-      sizes: state.sizes,
-      showLeftPanel: state.showLeftPanel,
-      showRightPanel: state.showRightPanel,
-      showConsole: state.showConsole,
-    }),
     migrate: (persistedState, version) => {
       let state = persistedState as PersistedContextExplorerLayoutState;
 
@@ -200,15 +191,24 @@ function persistOptions(
         const sizes = state.sizes || [25, 20, 20];
         state = {
           ...state,
-          sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
           // Missing v1 visibility flags are treated as a default layout, not as user intent.
           showLeftPanel: state.showRightPanel ?? false,
           showRightPanel: state.showLeftPanel ?? true,
+          sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
         };
       }
 
       return state;
     },
+    name: STORE_NAME,
+    partialize: (state): PersistedContextExplorerLayoutState => ({
+      showConsole: state.showConsole,
+      showLeftPanel: state.showLeftPanel,
+      showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
+    }),
+    storage,
+    version: STORE_VERSION,
   };
 }
 

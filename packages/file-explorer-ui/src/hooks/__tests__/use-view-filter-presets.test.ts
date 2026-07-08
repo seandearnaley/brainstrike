@@ -9,11 +9,11 @@ const mockCreate = vi.fn();
 const mockUpdate = vi.fn();
 const mockDelete = vi.fn();
 const mockRepository = {
-  findAll: mockFindAll,
   create: mockCreate,
-  update: mockUpdate,
   delete: mockDelete,
+  findAll: mockFindAll,
   findById: vi.fn(),
+  update: mockUpdate,
 };
 let mockDbInitializing = false;
 let mockDbProviderError: Error | null = null;
@@ -25,7 +25,7 @@ vi.mock('@brainstrike/db', () => ({
   useDbInitializing: vi.fn(() => mockDbInitializing),
   useDbProviderError: vi.fn(() => mockDbProviderError),
   useDrizzleDb: vi.fn(() => null),
-  useDrizzleLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
+  useDrizzleLiveQuery: vi.fn(() => ({ error: null, loading: false, refresh: vi.fn(), rows: [] })),
   useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
   viewFilterPresets: {},
 }));
@@ -33,9 +33,9 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/utils', () => ({
   createLogger: vi.fn(() => ({
     debug: vi.fn(),
+    error: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
   })),
 }));
 
@@ -44,30 +44,30 @@ import { useViewFilterPresets } from '../use-view-filter-presets';
 
 const mockPresets: ViewFilterPreset[] = [
   {
-    id: 'preset-1',
-    name: 'Source Files',
-    description: 'TypeScript and JavaScript files',
-    icon: 'file-code',
-    includes: ['*.ts', '*.tsx'],
-    excludes: ['node_modules'],
-    useRegex: false,
-    isDefault: true,
-    sortOrder: 0,
     createdAt: new Date(),
+    description: 'TypeScript and JavaScript files',
+    excludes: ['node_modules'],
+    icon: 'file-code',
+    id: 'preset-1',
+    includes: ['*.ts', '*.tsx'],
+    isDefault: true,
+    name: 'Source Files',
+    sortOrder: 0,
     updatedAt: new Date(),
+    useRegex: false,
   },
   {
-    id: 'preset-2',
-    name: 'Documentation',
-    description: 'Markdown files',
-    icon: 'file-text',
-    includes: ['*.md'],
-    excludes: [],
-    useRegex: false,
-    isDefault: false,
-    sortOrder: 1,
     createdAt: new Date(),
+    description: 'Markdown files',
+    excludes: [],
+    icon: 'file-text',
+    id: 'preset-2',
+    includes: ['*.md'],
+    isDefault: false,
+    name: 'Documentation',
+    sortOrder: 1,
     updatedAt: new Date(),
+    useRegex: false,
   },
 ];
 
@@ -103,15 +103,15 @@ describe('useViewFilterPresets', () => {
     });
 
     const newPreset = await result.current.createPreset({
-      name: 'New Preset',
-      includes: ['*.js'],
       excludes: [],
+      includes: ['*.js'],
+      name: 'New Preset',
     });
 
     expect(mockCreate).toHaveBeenCalledWith({
-      name: 'New Preset',
-      includes: ['*.js'],
       excludes: [],
+      includes: ['*.js'],
+      name: 'New Preset',
     });
     expect(newPreset).toEqual(mockPresets[0]);
   });
@@ -274,13 +274,13 @@ describe('useViewFilterPresets', () => {
       } as unknown as ReturnType<typeof useDrizzleDb>);
 
       vi.mocked(useDrizzleLiveQuery).mockReturnValue({
+        error: null,
+        loading: false,
+        refresh: vi.fn(),
         rows: mockPresets.map((p) => ({
           ...p,
           icon: p.icon,
         })) as unknown as Record<string, unknown>[],
-        loading: false,
-        error: null,
-        refresh: vi.fn(),
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -301,10 +301,10 @@ describe('useViewFilterPresets', () => {
       } as unknown as ReturnType<typeof useDrizzleDb>);
 
       vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        rows: null as unknown as Record<string, unknown>[],
-        loading: false,
         error: null,
+        loading: false,
         refresh: vi.fn(),
+        rows: null as unknown as Record<string, unknown>[],
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -323,10 +323,10 @@ describe('useViewFilterPresets', () => {
       } as unknown as ReturnType<typeof useDrizzleDb>);
 
       vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        rows: [],
-        loading: true,
         error: null,
+        loading: true,
         refresh: vi.fn(),
+        rows: [],
       });
 
       const { result } = renderHook(() => useViewFilterPresets());
@@ -347,10 +347,10 @@ describe('useViewFilterPresets', () => {
       } as unknown as ReturnType<typeof useDrizzleDb>);
 
       vi.mocked(useDrizzleLiveQuery).mockReturnValue({
-        rows: [],
-        loading: false,
         error: testError,
+        loading: false,
         refresh: vi.fn(),
+        rows: [],
       });
 
       const { result } = renderHook(() => useViewFilterPresets());

@@ -34,8 +34,11 @@ const GEMMA4_E2B_TEXT_ARTIFACTS = [
 
 const LOCAL_LLM_MODEL_SPECS: readonly LocalLlmModelSpec[] = [
   {
-    modelId: GEMMA4_E2B_MODEL_ID,
+    artifacts: {
+      text: GEMMA4_E2B_TEXT_ARTIFACTS,
+    },
     family: 'gemma4',
+    modelId: GEMMA4_E2B_MODEL_ID,
     quantization: 'q4f16',
     remoteRevision: GEMMA4_E2B_REVISION,
     requiredDevice: 'webgpu',
@@ -43,9 +46,6 @@ const LOCAL_LLM_MODEL_SPECS: readonly LocalLlmModelSpec[] = [
     supportsTools: true,
     textOnly: true,
     totalSizeBytes: 3900 * 1024 * 1024,
-    artifacts: {
-      text: GEMMA4_E2B_TEXT_ARTIFACTS,
-    },
   },
 ];
 

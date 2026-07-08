@@ -7,17 +7,17 @@ function createTestDbRow(
 ): Record<string, unknown> {
   const now = new Date().toISOString();
   return {
-    id: `preset-${Math.random().toString(36).slice(2)}`,
-    name: 'Test Preset',
-    description: 'A test preset',
-    icon: 'file',
-    includes: ['*.ts'],
-    excludes: ['node_modules'],
-    use_regex: false,
-    is_default: false,
-    sort_order: 0,
     created_at: now,
+    description: 'A test preset',
+    excludes: ['node_modules'],
+    icon: 'file',
+    id: `preset-${Math.random().toString(36).slice(2)}`,
+    includes: ['*.ts'],
+    is_default: false,
+    name: 'Test Preset',
+    sort_order: 0,
     updated_at: now,
+    use_regex: false,
     ...overrides,
   };
 }
@@ -37,18 +37,18 @@ function createValidDbRow(overrides: Partial<Record<string, unknown>> = {}): {
 } {
   const now = new Date().toISOString();
   return {
-    id: (overrides.id as string) ?? `preset-${Math.random().toString(36).slice(2)}`,
-    name: (overrides.name as string) ?? 'Test Preset',
+    created_at: (overrides.created_at as string) ?? now,
     description:
       'description' in overrides ? (overrides.description as string | null) : 'A test preset',
-    icon: (overrides.icon as string) ?? 'file',
-    includes: (overrides.includes as string[]) ?? ['*.ts'],
     excludes: (overrides.excludes as string[]) ?? ['node_modules'],
-    use_regex: (overrides.use_regex as boolean) ?? false,
+    icon: (overrides.icon as string) ?? 'file',
+    id: (overrides.id as string) ?? `preset-${Math.random().toString(36).slice(2)}`,
+    includes: (overrides.includes as string[]) ?? ['*.ts'],
     is_default: (overrides.is_default as boolean) ?? false,
+    name: (overrides.name as string) ?? 'Test Preset',
     sort_order: (overrides.sort_order as number) ?? 0,
-    created_at: (overrides.created_at as string) ?? now,
     updated_at: (overrides.updated_at as string) ?? now,
+    use_regex: (overrides.use_regex as boolean) ?? false,
   };
 }
 
@@ -60,7 +60,7 @@ describe('ElectronViewFilterPresetsRepository', () => {
   beforeEach(() => {
     query = vi.fn().mockResolvedValue({ rows: [] });
     exec = vi.fn().mockResolvedValue(undefined);
-    repo = new ElectronViewFilterPresetsRepository({ query, exec });
+    repo = new ElectronViewFilterPresetsRepository({ exec, query });
   });
 
   describe('findAll', () => {
@@ -144,20 +144,20 @@ describe('ElectronViewFilterPresetsRepository', () => {
   describe('create', () => {
     it('creates preset with all fields', async () => {
       const input: CreateViewFilterPresetInput = {
-        name: 'New Preset',
         description: 'Description',
+        excludes: ['node_modules'],
         icon: 'file-code',
         includes: ['*.ts', '*.tsx'],
-        excludes: ['node_modules'],
+        name: 'New Preset',
         useRegex: false,
       };
 
       const returnedRow = createValidDbRow({
-        name: input.name,
         description: input.description,
+        excludes: input.excludes,
         icon: input.icon,
         includes: input.includes,
-        excludes: input.excludes,
+        name: input.name,
         use_regex: input.useRegex,
       });
 
@@ -172,17 +172,17 @@ describe('ElectronViewFilterPresetsRepository', () => {
 
     it('creates preset with default values for optional fields', async () => {
       const input: CreateViewFilterPresetInput = {
-        name: 'Minimal Preset',
-        includes: ['*.ts'],
         excludes: [],
+        includes: ['*.ts'],
+        name: 'Minimal Preset',
       };
 
       const returnedRow = createValidDbRow({
-        name: input.name,
         description: null,
+        excludes: input.excludes,
         icon: 'file',
         includes: input.includes,
-        excludes: input.excludes,
+        name: input.name,
         use_regex: false,
       });
 
@@ -198,9 +198,9 @@ describe('ElectronViewFilterPresetsRepository', () => {
 
     it('throws error when insert fails', async () => {
       const input: CreateViewFilterPresetInput = {
-        name: 'Fail Preset',
-        includes: [],
         excludes: [],
+        includes: [],
+        name: 'Fail Preset',
       };
 
       query.mockResolvedValueOnce({ rows: [{ max_sort: 0 }] });
@@ -211,9 +211,9 @@ describe('ElectronViewFilterPresetsRepository', () => {
 
     it('throws error when insert returns invalid row', async () => {
       const input: CreateViewFilterPresetInput = {
-        name: 'Invalid Return',
-        includes: [],
         excludes: [],
+        includes: [],
+        name: 'Invalid Return',
       };
 
       query.mockResolvedValueOnce({ rows: [{ max_sort: 0 }] });
@@ -240,27 +240,27 @@ describe('ElectronViewFilterPresetsRepository', () => {
     it('updates multiple fields', async () => {
       const existingRow = createValidDbRow({ id: 'preset-123' });
       const updatedRow = createValidDbRow({
-        id: 'preset-123',
-        name: 'New Name',
         description: 'New Description',
-        icon: 'file-text',
-        includes: ['*.md'],
         excludes: ['dist'],
-        use_regex: true,
+        icon: 'file-text',
+        id: 'preset-123',
+        includes: ['*.md'],
+        name: 'New Name',
         sort_order: 5,
+        use_regex: true,
       });
 
       query.mockResolvedValueOnce({ rows: [existingRow] });
       query.mockResolvedValueOnce({ rows: [updatedRow] });
 
       const result = await repo.update('preset-123', {
-        name: 'New Name',
         description: 'New Description',
+        excludes: ['dist'],
         icon: 'file-text',
         includes: ['*.md'],
-        excludes: ['dist'],
-        useRegex: true,
+        name: 'New Name',
         sortOrder: 5,
+        useRegex: true,
       });
 
       expect(result).not.toBeNull();
@@ -422,11 +422,11 @@ describe('ElectronViewFilterPresetsRepository', () => {
   describe('fromRow transformation', () => {
     it('correctly transforms snake_case to camelCase', async () => {
       const row = createValidDbRow({
-        use_regex: true,
+        created_at: '2024-01-01T00:00:00.000Z',
         is_default: true,
         sort_order: 5,
-        created_at: '2024-01-01T00:00:00.000Z',
         updated_at: '2024-01-02T00:00:00.000Z',
+        use_regex: true,
       });
       query.mockResolvedValueOnce({ rows: [row] });
 
@@ -444,7 +444,7 @@ describe('ElectronViewFilterPresetsRepository', () => {
     it('handles null arrays with empty array fallback', async () => {
       // The type guard requires arrays, so empty arrays represent the "null coalesced" case
       // This tests the ?? [] fallback in fromRow
-      const validRow = createValidDbRow({ includes: [], excludes: [] });
+      const validRow = createValidDbRow({ excludes: [], includes: [] });
       query.mockResolvedValueOnce({ rows: [validRow] });
 
       const result = await repo.findAll();

@@ -32,13 +32,13 @@ async function writeViaElectronBridge(
     const bridgeError =
       typeof result?.error === 'string' && result.error.length > 0 ? result.error : null;
     return {
-      ok: false,
       error: bridgeError ?? 'Desktop clipboard bridge rejected the write',
+      ok: false,
     };
   } catch (error) {
     return {
-      ok: false,
       error: error instanceof Error ? error.message : 'Desktop clipboard bridge threw',
+      ok: false,
     };
   }
 }
@@ -49,8 +49,8 @@ async function writeViaNavigatorClipboard(text: string): Promise<ActionOutcome> 
     return { ok: true };
   } catch (error) {
     return {
-      ok: false,
       error: error instanceof Error ? error.message : 'Clipboard write failed',
+      ok: false,
     };
   }
 }
@@ -67,7 +67,7 @@ export function createClipboardService(): ClipboardService {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         return await writeViaNavigatorClipboard(text);
       }
-      return { ok: false, error: 'No clipboard available in this environment' };
+      return { error: 'No clipboard available in this environment', ok: false };
     },
   };
 }

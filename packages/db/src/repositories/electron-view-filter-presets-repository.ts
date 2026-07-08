@@ -287,17 +287,17 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
    */
   private fromRow(row: DbRow): ViewFilterPreset {
     return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      icon: row.icon as ViewFilterPreset['icon'],
-      includes: row.includes,
-      excludes: row.excludes,
-      useRegex: row.use_regex,
-      isDefault: row.is_default,
-      sortOrder: row.sort_order,
       createdAt: new Date(row.created_at),
+      description: row.description,
+      excludes: row.excludes,
+      icon: row.icon as ViewFilterPreset['icon'],
+      id: row.id,
+      includes: row.includes,
+      isDefault: row.is_default,
+      name: row.name,
+      sortOrder: row.sort_order,
       updatedAt: new Date(row.updated_at),
+      useRegex: row.use_regex,
     };
   }
 }

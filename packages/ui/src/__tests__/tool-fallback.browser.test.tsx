@@ -6,15 +6,15 @@ import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
 import { TooltipProvider } from '../tooltip';
 
 const baseProps = {
-  type: 'tool-call' as const,
-  toolCallId: 'browser-tool-call',
-  toolName: 'browser.echo',
+  addResult: () => {},
   args: { text: 'hello' },
   argsText: '{"text":"hello"}',
-  status: { type: 'complete' as const },
-  addResult: () => {},
-  resume: () => {},
   respondToApproval: () => {},
+  resume: () => {},
+  status: { type: 'complete' as const },
+  toolCallId: 'browser-tool-call',
+  toolName: 'browser.echo',
+  type: 'tool-call' as const,
 };
 
 describe('ToolFallback browser behavior', () => {

@@ -6,7 +6,13 @@ import type { Migration } from './migration-runner';
  * class indexed column so file replace/delete work stays bounded.
  */
 export const migration042JobQueueChunkId: Migration = {
-  version: 42,
+  down: `
+    DROP INDEX IF EXISTS idx_job_queue_active_embed_chunk_id;
+    --> statement-breakpoint
+
+    ALTER TABLE job_queue
+      DROP COLUMN IF EXISTS chunk_id;
+  `,
   name: 'job_queue_chunk_id',
   up: `
     ALTER TABLE job_queue
@@ -26,11 +32,5 @@ export const migration042JobQueueChunkId: Migration = {
         AND chunk_id IS NOT NULL
         AND state IN ('queued','running');
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_job_queue_active_embed_chunk_id;
-    --> statement-breakpoint
-
-    ALTER TABLE job_queue
-      DROP COLUMN IF EXISTS chunk_id;
-  `,
+  version: 42,
 };

@@ -28,8 +28,8 @@ vi.mock('@assistant-ui/react-markdown', () => ({
           | ((props: { language?: string; code?: string }) => React.ReactNode)
           | undefined
       )?.({
-        language: 'typescript',
         code: 'const answer = 42;',
+        language: 'typescript',
       })}
     </div>
   ),
@@ -144,7 +144,7 @@ describe('MarkdownText', () => {
   });
 
   it('falls back to web clipboard when the Electron bridge write fails', async () => {
-    const electronWriteText = vi.fn().mockResolvedValue({ ok: false, error: 'write failed' });
+    const electronWriteText = vi.fn().mockResolvedValue({ error: 'write failed', ok: false });
     (window as unknown as { clipboard?: { writeText: (text: string) => unknown } }).clipboard = {
       writeText: electronWriteText,
     };

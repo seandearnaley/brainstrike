@@ -13,11 +13,11 @@ describe('tab-manager-store migration', () => {
 
   it('migrates from legacy key fileEditorTabs.v1 to tab-manager.v1 (compositeKey-based ids)', async () => {
     const legacy = {
-      tabs: [
-        { id: 'a', path: '/src/a.ts', compositeKey: 'a' },
-        { id: 'b', path: '/src/b.ts', compositeKey: 'b' },
-      ],
       activeTabId: 'a',
+      tabs: [
+        { compositeKey: 'a', id: 'a', path: '/src/a.ts' },
+        { compositeKey: 'b', id: 'b', path: '/src/b.ts' },
+      ],
     };
     // Seed legacy storage
     localStorage.setItem('fileEditorTabs.v1', JSON.stringify(legacy));
@@ -31,7 +31,7 @@ describe('tab-manager-store migration', () => {
     const state = useTabManagerStore.getState();
     expect(state.activeTabId).toBe('a');
     expect(
-      state.tabs.map((t) => ({ id: t.id, path: t.path, compositeKey: t.compositeKey }))
+      state.tabs.map((t) => ({ compositeKey: t.compositeKey, id: t.id, path: t.path }))
     ).toEqual(legacy.tabs);
 
     // New key should exist; old key removed
@@ -47,25 +47,25 @@ describe('tab-manager-store migration', () => {
     // This test pins the round-trip through both layers — the existing tests above
     // cover each layer in isolation.
     const legacyV1 = {
+      activeTabId: 'root-folder-xyz:folderA|@|src/index.ts',
       tabs: [
         {
+          compositeKey: 'folderA|@|src/index.ts',
           id: 'root-folder-abc:folderA|@|src/index.ts',
           path: 'src/index.ts',
-          compositeKey: 'folderA|@|src/index.ts',
         },
         // Same compositeKey under a different rootFolderId — exercises the v1→v2 dedupe.
         {
+          compositeKey: 'folderA|@|src/index.ts',
           id: 'root-folder-xyz:folderA|@|src/index.ts',
           path: 'src/index.ts',
-          compositeKey: 'folderA|@|src/index.ts',
         },
         {
+          compositeKey: 'folderA|@|src/app.ts',
           id: 'root-folder-abc:folderA|@|src/app.ts',
           path: 'src/app.ts',
-          compositeKey: 'folderA|@|src/app.ts',
         },
       ],
-      activeTabId: 'root-folder-xyz:folderA|@|src/index.ts',
     };
     localStorage.setItem('fileEditorTabs.v1', JSON.stringify(legacyV1));
 
@@ -88,19 +88,19 @@ describe('tab-manager-store migration', () => {
   it('v1 → v2: collapses prefixed tabIds (`<root>:<compositeKey>`) to compositeKey', async () => {
     const v1 = {
       state: {
+        activeTabId: 'root-folder-abc:folderA|@|src/index.ts',
         tabs: [
           {
+            compositeKey: 'folderA|@|src/index.ts',
             id: 'root-folder-abc:folderA|@|src/index.ts',
             path: 'src/index.ts',
-            compositeKey: 'folderA|@|src/index.ts',
           },
           {
+            compositeKey: 'folderA|@|src/app.ts',
             id: 'root-folder-abc:folderA|@|src/app.ts',
             path: 'src/app.ts',
-            compositeKey: 'folderA|@|src/app.ts',
           },
         ],
-        activeTabId: 'root-folder-abc:folderA|@|src/index.ts',
       },
       version: 1,
     };

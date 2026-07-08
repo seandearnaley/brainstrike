@@ -25,7 +25,7 @@ async function getItemFromWorker(
       return JSON.parse(value);
     } catch (error) {
       if (shouldLog) {
-        logger.error('Invalid JSON from worker storage; ignoring value', { name, error });
+        logger.error('Invalid JSON from worker storage; ignoring value', { error, name });
       }
       return null;
     }
@@ -46,13 +46,13 @@ async function getItemFromStorage(
     return JSON.parse(value);
   } catch (error) {
     if (shouldLog) {
-      logger.error('Invalid JSON from storage adapter; clearing value', { name, error });
+      logger.error('Invalid JSON from storage adapter; clearing value', { error, name });
     }
     try {
       await storageAdapter.removeItem(name);
     } catch (removeError) {
       if (shouldLog) {
-        logger.error('Failed to remove invalid storage entry', { name, error: removeError });
+        logger.error('Failed to remove invalid storage entry', { error: removeError, name });
       }
     }
     return null;
@@ -111,7 +111,7 @@ async function setItemWithWorker(
       if (shouldLog) {
         logger.error('Error setting item in storage:', fallbackError);
       }
-      return { success: false, message: getErrorMessage(fallbackError), error: fallbackError };
+      return { error: fallbackError, message: getErrorMessage(fallbackError), success: false };
     }
   }
 }
@@ -125,7 +125,7 @@ async function setItemWithStorage(
     await storageAdapter.setItem(name, JSON.stringify(value));
     return { success: true };
   } catch (error) {
-    return { success: false, message: getErrorMessage(error), error };
+    return { error, message: getErrorMessage(error), success: false };
   }
 }
 
@@ -142,6 +142,17 @@ export function createStorageWrapper(
       }
       return await getItemWithStorageOnly(storageAdapter, name, shouldLog);
     },
+    removeItem: async (name: string) => {
+      try {
+        await storageAdapter.removeItem(name);
+        return { success: true };
+      } catch (error) {
+        if (shouldLog) {
+          logger.error('Error removing item from storage:', error);
+        }
+        return { error, message: getErrorMessage(error), success: false };
+      }
+    },
     setItem: async (name: string, value: unknown) => {
       if (useWorker && workerStorage) {
         return await setItemWithWorker(workerStorage, storageAdapter, name, value, shouldLog);
@@ -151,17 +162,6 @@ export function createStorageWrapper(
         logger.error('Error setting item in storage:', result.error);
       }
       return result;
-    },
-    removeItem: async (name: string) => {
-      try {
-        await storageAdapter.removeItem(name);
-        return { success: true };
-      } catch (error) {
-        if (shouldLog) {
-          logger.error('Error removing item from storage:', error);
-        }
-        return { success: false, message: getErrorMessage(error), error };
-      }
     },
   };
 }

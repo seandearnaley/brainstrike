@@ -27,30 +27,7 @@ function getCSPDirectives(env: Environment): CSPDirectives {
   const isDev = env === 'development';
 
   return {
-    'default-src': isDev ? ["'self'", 'http://localhost:*', 'ws://localhost:*'] : ["'self'"],
-
-    'script-src': isDev
-      ? [
-          "'self'",
-          "'unsafe-inline'",
-          "'unsafe-eval'",
-          'http://localhost:*',
-          'https://cdn.jsdelivr.net',
-          'blob:', // Allow blob URLs for ONNX.js WASM loading
-        ]
-      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'blob:'],
-
-    'worker-src': ["'self'", 'blob:'],
-
-    'style-src': isDev
-      ? ["'self'", "'unsafe-inline'", 'http://localhost:*']
-      : ["'self'", "'unsafe-inline'"],
-
-    'img-src': isDev
-      ? ["'self'", 'data:', 'blob:', 'http://localhost:*']
-      : ["'self'", 'data:', 'blob:'],
-
-    'font-src': isDev ? ["'self'", 'data:', 'http://localhost:*'] : ["'self'", 'data:'],
+    'base-uri': ["'self'"],
 
     'connect-src': isDev
       ? [
@@ -64,11 +41,34 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           'https://cdn.jsdelivr.net',
         ]
       : ["'self'", 'https://huggingface.co', 'https://*.hf.co', 'https://cdn.jsdelivr.net'],
+    'default-src': isDev ? ["'self'", 'http://localhost:*', 'ws://localhost:*'] : ["'self'"],
 
-    'object-src': ["'none'"],
-    'base-uri': ["'self'"],
+    'font-src': isDev ? ["'self'", 'data:', 'http://localhost:*'] : ["'self'", 'data:'],
     'form-action': ["'self'"],
     'frame-ancestors': ["'none'"],
+
+    'img-src': isDev
+      ? ["'self'", 'data:', 'blob:', 'http://localhost:*']
+      : ["'self'", 'data:', 'blob:'],
+
+    'object-src': ["'none'"],
+
+    'script-src': isDev
+      ? [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'http://localhost:*',
+          'https://cdn.jsdelivr.net',
+          'blob:', // Allow blob URLs for ONNX.js WASM loading
+        ]
+      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'blob:'],
+
+    'style-src': isDev
+      ? ["'self'", "'unsafe-inline'", 'http://localhost:*']
+      : ["'self'", "'unsafe-inline'"],
+
+    'worker-src': ["'self'", 'blob:'],
   };
 }
 

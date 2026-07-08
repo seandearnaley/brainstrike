@@ -80,8 +80,8 @@ function classifyExecError(
   }
   return {
     exitCode,
-    stdout,
     stderr,
+    stdout,
     timedOut: failureReason === 'timeout',
     ...(failureReason ? { failureReason } : {}),
   };
@@ -94,18 +94,18 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
       [...args],
       {
         cwd,
-        timeout: timeoutMs,
-        maxBuffer: GIT_MAX_BUFFER_BYTES,
-        signal,
         // Discourage interactive credential prompts that would hang a push/pull
         // in a headless main process; surface an auth error instead of blocking.
         env: {
           ...process.env,
           // biome-ignore lint/style/useNamingConvention: standard git env var names (must be uppercase).
-          GIT_TERMINAL_PROMPT: '0',
-          // biome-ignore lint/style/useNamingConvention: standard git env var names (must be uppercase).
           GIT_OPTIONAL_LOCKS: '0',
+          // biome-ignore lint/style/useNamingConvention: standard git env var names (must be uppercase).
+          GIT_TERMINAL_PROMPT: '0',
         },
+        maxBuffer: GIT_MAX_BUFFER_BYTES,
+        signal,
+        timeout: timeoutMs,
       },
       (error, stdout, stderr) => {
         // Default `execFile` encoding is utf8, so the streams are strings. On a
@@ -114,7 +114,7 @@ export const execFileGitRunner: GitCommandRunner = ({ args, cwd, signal, timeout
           resolve(classifyExecError(error, stdout, stderr));
           return;
         }
-        resolve({ exitCode: 0, stdout, stderr, timedOut: false });
+        resolve({ exitCode: 0, stderr, stdout, timedOut: false });
       }
     );
   });
@@ -161,12 +161,14 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       return await op(service);
     } catch (error) {
       logger.error('Unexpected git handler failure', { error });
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { error: error instanceof Error ? error.message : String(error), ok: false };
     }
   }
 
   return {
-    status: (rootId: unknown) => withService(rootId, (service) => service.status()),
+    aheadBehind: (rootId: unknown) => withService(rootId, (service) => service.aheadBehind()),
+    commit: (rootId: unknown, params: { message: string }) =>
+      withService(rootId, (service) => service.commit({ message: params?.message })),
     diff: (
       rootId: unknown,
       params: { path?: string; staged?: boolean; untracked?: boolean } = {}
@@ -174,15 +176,13 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       withService(rootId, (service) =>
         service.diff({ path: params.path, staged: params.staged, untracked: params.untracked })
       ),
+    pull: (rootId: unknown) => withService(rootId, (service) => service.pull()),
+    push: (rootId: unknown) => withService(rootId, (service) => service.push()),
     stage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.stage({ path: params.path })),
+    status: (rootId: unknown) => withService(rootId, (service) => service.status()),
     unstage: (rootId: unknown, params: { path?: string } = {}) =>
       withService(rootId, (service) => service.unstage({ path: params.path })),
-    commit: (rootId: unknown, params: { message: string }) =>
-      withService(rootId, (service) => service.commit({ message: params?.message })),
-    aheadBehind: (rootId: unknown) => withService(rootId, (service) => service.aheadBehind()),
-    push: (rootId: unknown) => withService(rootId, (service) => service.push()),
-    pull: (rootId: unknown) => withService(rootId, (service) => service.pull()),
   };
 }
 

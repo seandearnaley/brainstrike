@@ -17,16 +17,16 @@ import {
 
 // Mock adapter info for testing
 const mockAdapterInfo: WebGPUAdapterInfo = {
-  vendor: 'nvidia',
   architecture: 'ampere',
   description: 'NVIDIA GeForce RTX 3080',
-  isFallbackAdapter: false,
   features: ['texture-compression-bc'],
+  isFallbackAdapter: false,
   limits: {
     maxBufferSize: 2_147_483_647,
     maxComputeWorkgroupsPerDimension: 65_535,
     maxStorageBufferBindingSize: 2_147_483_647,
   },
+  vendor: 'nvidia',
 };
 
 describe('device-detection', () => {
@@ -44,17 +44,17 @@ describe('device-detection', () => {
   describe('detectDeviceCapabilities', () => {
     it('detects WebGPU when adapter is available', async () => {
       const mockAdapter = {
-        isFallbackAdapter: false,
         features: new Set(['texture-compression-bc']),
+        isFallbackAdapter: false,
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 2_147_483_647,
         },
         requestAdapterInfo: vi.fn().mockResolvedValue({
-          vendor: 'nvidia',
           architecture: 'ampere',
           description: 'NVIDIA GeForce RTX 3080',
+          vendor: 'nvidia',
         }),
       };
 
@@ -76,13 +76,13 @@ describe('device-detection', () => {
 
     it('detects WebGPU when adapter info is exposed as a standard property', async () => {
       const mockAdapter = {
-        isFallbackAdapter: false,
         features: new Set(['shader-f16']),
         info: {
-          vendor: 'apple',
           architecture: 'apple-gpu',
           description: 'Apple GPU',
+          vendor: 'apple',
         },
+        isFallbackAdapter: false,
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
@@ -147,17 +147,17 @@ describe('device-detection', () => {
 
     it('recommends WASM when WebGPU uses fallback adapter', async () => {
       const mockFallbackAdapter = {
-        isFallbackAdapter: true,
         features: new Set([]),
+        isFallbackAdapter: true,
         limits: {
           maxBufferSize: 1_073_741_824,
           maxComputeWorkgroupsPerDimension: 65_535,
           maxStorageBufferBindingSize: 1_073_741_824,
         },
         requestAdapterInfo: vi.fn().mockResolvedValue({
-          vendor: 'mesa',
           architecture: 'software',
           description: 'llvmpipe (software)',
+          vendor: 'mesa',
         }),
       };
 
@@ -177,8 +177,8 @@ describe('device-detection', () => {
 
     it('caches detection results', async () => {
       const mockAdapter = {
-        isFallbackAdapter: false,
         features: new Set([]),
+        isFallbackAdapter: false,
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
@@ -186,7 +186,7 @@ describe('device-detection', () => {
         },
         requestAdapterInfo: vi
           .fn()
-          .mockResolvedValue({ vendor: 'test', architecture: '', description: 'Test GPU' }),
+          .mockResolvedValue({ architecture: '', description: 'Test GPU', vendor: 'test' }),
       };
 
       vi.stubGlobal('navigator', {
@@ -205,8 +205,8 @@ describe('device-detection', () => {
 
     it('refreshes cache when forceRefresh is true', async () => {
       const mockAdapter = {
-        isFallbackAdapter: false,
         features: new Set([]),
+        isFallbackAdapter: false,
         limits: {
           maxBufferSize: 2_147_483_647,
           maxComputeWorkgroupsPerDimension: 65_535,
@@ -214,7 +214,7 @@ describe('device-detection', () => {
         },
         requestAdapterInfo: vi
           .fn()
-          .mockResolvedValue({ vendor: 'test', architecture: '', description: 'Test GPU' }),
+          .mockResolvedValue({ architecture: '', description: 'Test GPU', vendor: 'test' }),
       };
 
       vi.stubGlobal('navigator', {
@@ -345,15 +345,15 @@ describe('device-detection', () => {
   describe('formatDeviceCapabilitiesSummary', () => {
     it('formats capabilities with WebGPU available', () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: true,
+        detectedAt: Date.now(),
+        recommendationReason: 'WebGPU acceleration available',
+        recommendedDevice: 'webgpu',
+        wasmAvailable: true,
         webgpuAdapterAvailable: true,
         webgpuAdapterInfo: mockAdapterInfo,
+        webgpuApiPresent: true,
         webgpuUnavailableReason: null,
-        wasmAvailable: true,
         webWorkersAvailable: true,
-        recommendedDevice: 'webgpu',
-        recommendationReason: 'WebGPU acceleration available',
-        detectedAt: Date.now(),
       };
 
       const summary = formatDeviceCapabilitiesSummary(caps);
@@ -367,15 +367,15 @@ describe('device-detection', () => {
 
     it('formats capabilities with WebGPU unavailable', () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: false,
+        detectedAt: Date.now(),
+        recommendationReason: 'WASM fallback',
+        recommendedDevice: 'wasm',
+        wasmAvailable: true,
         webgpuAdapterAvailable: false,
         webgpuAdapterInfo: null,
+        webgpuApiPresent: false,
         webgpuUnavailableReason: 'WebGPU API not available',
-        wasmAvailable: true,
         webWorkersAvailable: true,
-        recommendedDevice: 'wasm',
-        recommendationReason: 'WASM fallback',
-        detectedAt: Date.now(),
       };
 
       const summary = formatDeviceCapabilitiesSummary(caps);
@@ -387,15 +387,15 @@ describe('device-detection', () => {
 
     it('shows warning for fallback adapter', () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: true,
-        webgpuAdapterAvailable: true,
-        webgpuAdapterInfo: { ...mockAdapterInfo, isFallbackAdapter: true, description: 'llvmpipe' },
-        webgpuUnavailableReason: null,
-        wasmAvailable: true,
-        webWorkersAvailable: true,
-        recommendedDevice: 'wasm',
-        recommendationReason: 'Software fallback',
         detectedAt: Date.now(),
+        recommendationReason: 'Software fallback',
+        recommendedDevice: 'wasm',
+        wasmAvailable: true,
+        webgpuAdapterAvailable: true,
+        webgpuAdapterInfo: { ...mockAdapterInfo, description: 'llvmpipe', isFallbackAdapter: true },
+        webgpuApiPresent: true,
+        webgpuUnavailableReason: null,
+        webWorkersAvailable: true,
       };
 
       const summary = formatDeviceCapabilitiesSummary(caps);
@@ -407,15 +407,15 @@ describe('device-detection', () => {
   describe('validateDeviceOrThrow', () => {
     it('passes for available WebGPU', async () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: true,
+        detectedAt: Date.now(),
+        recommendationReason: 'WebGPU available',
+        recommendedDevice: 'webgpu',
+        wasmAvailable: true,
         webgpuAdapterAvailable: true,
         webgpuAdapterInfo: mockAdapterInfo,
+        webgpuApiPresent: true,
         webgpuUnavailableReason: null,
-        wasmAvailable: true,
         webWorkersAvailable: true,
-        recommendedDevice: 'webgpu',
-        recommendationReason: 'WebGPU available',
-        detectedAt: Date.now(),
       };
 
       await expect(validateDeviceOrThrow('webgpu', caps)).resolves.toBeUndefined();
@@ -423,15 +423,15 @@ describe('device-detection', () => {
 
     it('throws for unavailable WebGPU with helpful message', async () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: false,
+        detectedAt: Date.now(),
+        recommendationReason: 'WASM fallback',
+        recommendedDevice: 'wasm',
+        wasmAvailable: true,
         webgpuAdapterAvailable: false,
         webgpuAdapterInfo: null,
+        webgpuApiPresent: false,
         webgpuUnavailableReason: 'WebGPU API not available',
-        wasmAvailable: true,
         webWorkersAvailable: true,
-        recommendedDevice: 'wasm',
-        recommendationReason: 'WASM fallback',
-        detectedAt: Date.now(),
       };
 
       await expect(validateDeviceOrThrow('webgpu', caps)).rejects.toThrow(
@@ -443,15 +443,15 @@ describe('device-detection', () => {
 
     it('passes for available WASM', async () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: false,
+        detectedAt: Date.now(),
+        recommendationReason: 'WASM fallback',
+        recommendedDevice: 'wasm',
+        wasmAvailable: true,
         webgpuAdapterAvailable: false,
         webgpuAdapterInfo: null,
+        webgpuApiPresent: false,
         webgpuUnavailableReason: null,
-        wasmAvailable: true,
         webWorkersAvailable: true,
-        recommendedDevice: 'wasm',
-        recommendationReason: 'WASM fallback',
-        detectedAt: Date.now(),
       };
 
       await expect(validateDeviceOrThrow('wasm', caps)).resolves.toBeUndefined();
@@ -459,15 +459,15 @@ describe('device-detection', () => {
 
     it('throws for unavailable WASM', async () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: false,
+        detectedAt: Date.now(),
+        recommendationReason: 'No options',
+        recommendedDevice: 'wasm',
+        wasmAvailable: false,
         webgpuAdapterAvailable: false,
         webgpuAdapterInfo: null,
+        webgpuApiPresent: false,
         webgpuUnavailableReason: null,
-        wasmAvailable: false,
         webWorkersAvailable: true,
-        recommendedDevice: 'wasm',
-        recommendationReason: 'No options',
-        detectedAt: Date.now(),
       };
 
       await expect(validateDeviceOrThrow('wasm', caps)).rejects.toThrow(/WebAssembly Unavailable/);
@@ -475,15 +475,15 @@ describe('device-detection', () => {
 
     it('throws when Web Workers unavailable', async () => {
       const caps: DeviceCapabilities = {
-        webgpuApiPresent: true,
+        detectedAt: Date.now(),
+        recommendationReason: 'WebGPU available',
+        recommendedDevice: 'webgpu',
+        wasmAvailable: true,
         webgpuAdapterAvailable: true,
         webgpuAdapterInfo: mockAdapterInfo,
+        webgpuApiPresent: true,
         webgpuUnavailableReason: null,
-        wasmAvailable: true,
         webWorkersAvailable: false,
-        recommendedDevice: 'webgpu',
-        recommendationReason: 'WebGPU available',
-        detectedAt: Date.now(),
       };
 
       await expect(validateDeviceOrThrow('webgpu', caps)).rejects.toThrow(/Web Workers/);

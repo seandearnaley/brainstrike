@@ -48,13 +48,13 @@ describe('local runtime desktop host helpers', () => {
 
     handleDesktopProgressEvent(
       {
-        type: 'progress',
-        requestId: 'host-request',
         payload: {
           clientRequestId: 'other-request',
           kind: 'text',
           text: 'ignored',
         },
+        requestId: 'host-request',
+        type: 'progress',
       },
       'request-1',
       onLoadingProgress,
@@ -63,8 +63,6 @@ describe('local runtime desktop host helpers', () => {
     );
     handleDesktopProgressEvent(
       {
-        type: 'progress',
-        requestId: 'host-request',
         payload: {
           clientRequestId: 'request-1',
           file: 'model.onnx',
@@ -72,6 +70,8 @@ describe('local runtime desktop host helpers', () => {
           message: 'Downloading model',
           progress: 42,
         },
+        requestId: 'host-request',
+        type: 'progress',
       },
       'request-1',
       onLoadingProgress,
@@ -80,13 +80,13 @@ describe('local runtime desktop host helpers', () => {
     );
     handleDesktopProgressEvent(
       {
-        type: 'progress',
-        requestId: 'host-request',
         payload: {
           clientRequestId: 'request-1',
           kind: 'stage',
           message: 'reasoning',
         },
+        requestId: 'host-request',
+        type: 'progress',
       },
       'request-1',
       onLoadingProgress,
@@ -95,13 +95,13 @@ describe('local runtime desktop host helpers', () => {
     );
     handleDesktopProgressEvent(
       {
-        type: 'progress',
-        requestId: 'host-request',
         payload: {
           clientRequestId: 'request-1',
           kind: 'reasoning',
           reasoningText: 'Plan answer.',
         },
+        requestId: 'host-request',
+        type: 'progress',
       },
       'request-1',
       onLoadingProgress,
@@ -110,13 +110,13 @@ describe('local runtime desktop host helpers', () => {
     );
     handleDesktopProgressEvent(
       {
-        type: 'progress',
-        requestId: 'host-request',
         payload: {
           clientRequestId: 'request-1',
           kind: 'text',
           text: 'Final answer.',
         },
+        requestId: 'host-request',
+        type: 'progress',
       },
       'request-1',
       onLoadingProgress,
@@ -125,15 +125,15 @@ describe('local runtime desktop host helpers', () => {
     );
 
     expect(onLoadingProgress).toHaveBeenNthCalledWith(1, {
-      stage: 'loading',
-      progress: 42,
-      message: 'Downloading model',
       file: 'model.onnx',
+      message: 'Downloading model',
+      progress: 42,
+      stage: 'loading',
     });
     expect(onLoadingProgress).toHaveBeenNthCalledWith(2, {
-      stage: 'generating',
-      progress: 0,
       message: 'Thinking...',
+      progress: 0,
+      stage: 'generating',
     });
     expect(onReasoningSnapshot).toHaveBeenCalledWith('Plan answer.');
     expect(onTextSnapshot).toHaveBeenCalledWith('Final answer.');

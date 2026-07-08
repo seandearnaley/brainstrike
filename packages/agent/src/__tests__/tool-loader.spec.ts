@@ -18,47 +18,47 @@ describe('ToolLoader', () => {
     // Register test tools across all tiers
     registry.registerNativeTools([
       {
-        id: 'critical.tool1',
+        category: 'retrieval',
         description: 'Critical tool 1',
-        category: 'retrieval',
-        loadingTier: 'critical',
         estimatedTokens: 100,
-      },
-      {
-        id: 'critical.tool2',
-        description: 'Critical tool 2',
-        category: 'retrieval',
+        id: 'critical.tool1',
         loadingTier: 'critical',
+      },
+      {
+        category: 'retrieval',
+        description: 'Critical tool 2',
         estimatedTokens: 150,
+        id: 'critical.tool2',
+        loadingTier: 'critical',
       },
       {
-        id: 'conditional.tool1',
+        category: 'action',
         description: 'Conditional tool 1',
-        category: 'action',
-        loadingTier: 'conditional',
         estimatedTokens: 200,
-      },
-      {
-        id: 'conditional.tool2',
-        description: 'Conditional tool 2',
-        category: 'analysis',
+        id: 'conditional.tool1',
         loadingTier: 'conditional',
-        estimatedTokens: 250,
       },
       {
-        id: 'deferred.tool1',
-        description: 'Deferred tool 1',
+        category: 'analysis',
+        description: 'Conditional tool 2',
+        estimatedTokens: 250,
+        id: 'conditional.tool2',
+        loadingTier: 'conditional',
+      },
+      {
         category: 'action',
-        loadingTier: 'deferred',
+        description: 'Deferred tool 1',
         estimatedTokens: 300,
+        id: 'deferred.tool1',
+        loadingTier: 'deferred',
         requiresApproval: true,
       },
       {
-        id: 'deferred.tool2',
-        description: 'Deferred tool 2',
         category: 'configuration',
-        loadingTier: 'deferred',
+        description: 'Deferred tool 2',
         estimatedTokens: 100,
+        id: 'deferred.tool2',
+        loadingTier: 'deferred',
       },
     ]);
   });
@@ -182,8 +182,8 @@ describe('ToolLoader', () => {
     it('respects max tokens limit', () => {
       const loader = createToolLoader(registry);
       const result = loader.loadOnDemand({
-        toolIds: ['deferred.tool1', 'deferred.tool2'],
         maxTokens: 150, // Only fits tool2 (100 tokens), not tool1 (300 tokens)
+        toolIds: ['deferred.tool1', 'deferred.tool2'],
       });
 
       // Since tool1 comes first and is 300 tokens, it won't fit
@@ -247,9 +247,9 @@ describe('ToolLoader', () => {
       loader.loadTools({ loadTiers: ['critical'] });
 
       const allTools = {
+        'conditional.tool1': { id: 'conditional.tool1' },
         'critical.tool1': { id: 'critical.tool1' },
         'critical.tool2': { id: 'critical.tool2' },
-        'conditional.tool1': { id: 'conditional.tool1' },
       };
 
       const filtered = loader.filterToLoaded(allTools as never);
@@ -298,10 +298,10 @@ describe('loadToolsForAgent', () => {
     const registry = createUnifiedToolRegistry();
     registry.registerNativeTools([
       {
-        id: 'test.tool1',
         description: 'Test tool 1',
-        loadingTier: 'critical',
         estimatedTokens: 100,
+        id: 'test.tool1',
+        loadingTier: 'critical',
       },
     ]);
 

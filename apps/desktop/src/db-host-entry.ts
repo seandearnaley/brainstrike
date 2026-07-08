@@ -159,16 +159,16 @@ function summarizeRequestForDiagnostics(envelope: DbHostRequestEnvelope): Record
     case 'maintenance:exec':
       return {
         ...base,
-        sqlPreview: createQueryPreview(request.sql),
         paramsCount: getParamsCount(request.params),
+        sqlPreview: createQueryPreview(request.sql),
       };
     case 'transaction:query':
     case 'transaction:exec':
       return {
         ...base,
-        transactionId: request.transactionId,
-        sqlPreview: createQueryPreview(request.sql),
         paramsCount: getParamsCount(request.params),
+        sqlPreview: createQueryPreview(request.sql),
+        transactionId: request.transactionId,
       };
     case 'transaction:commit':
     case 'transaction:rollback':
@@ -180,8 +180,8 @@ function summarizeRequestForDiagnostics(envelope: DbHostRequestEnvelope): Record
     case 'live:start':
       return {
         ...base,
-        payloadQueryPreview: createQueryPreview(request.payload.query),
         paramsCount: getParamsCount(request.payload.params),
+        payloadQueryPreview: createQueryPreview(request.payload.query),
       };
     case 'live:refresh':
     case 'live:stop':
@@ -369,15 +369,15 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
   const handle =
     request.payload.mode === 'incremental'
       ? await db.live.incrementalQuery?.({
-          query,
-          params: params ?? null,
           key: request.payload.key ?? '',
+          params: params ?? null,
+          query,
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),
         })
       : await db.live.query?.({
-          query,
           params: params ?? null,
+          query,
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),
         });
@@ -387,8 +387,8 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
   handle.subscribe(listener);
   liveQueries.set(liveId, { handle, listener });
   const result: DbHostLiveStartResult = {
-    liveId,
     initialResults: handle.initialResults,
+    liveId,
   };
   return result;
 }

@@ -40,12 +40,12 @@ const {
     return toolIds;
   });
 
-  const getStats = vi.fn(() => ({ total: 2, enabled: 1, disabled: 1, servers: 1 }));
+  const getStats = vi.fn(() => ({ disabled: 1, enabled: 1, servers: 1, total: 2 }));
   // Mock registered tools that match the preference IDs being tested
   const getAllTools = vi.fn(() => ({
     'mock-server': [
-      { id: 'server.tool.enable', enabled: true },
-      { id: 'server.tool.disable', enabled: false },
+      { enabled: true, id: 'server.tool.enable' },
+      { enabled: false, id: 'server.tool.disable' },
     ],
   }));
   const getEnabledTools = vi.fn(() => ({}));
@@ -56,27 +56,27 @@ const {
   const loadPreferences = vi.fn(async () => {
     order.push('load-preferences');
     return {
-      enabledTools: ['server.tool.enable'],
       disabledTools: ['server.tool.disable'],
-      version: 1,
+      enabledTools: ['server.tool.enable'],
       lastUpdated: 0,
+      version: 1,
     };
   });
 
   const savePreferences = vi.fn();
 
   const loadConfig = vi.fn(async () => ({
-    path: '/mock/config.json',
-    exists: true,
     config: {
       servers: [
         {
+          command: 'bin/mock',
           name: 'mock-server',
           transport: 'stdio',
-          command: 'bin/mock',
         },
       ],
     },
+    exists: true,
+    path: '/mock/config.json',
   }));
 
   const watchConfig = vi.fn(async () => ({ close: vi.fn() }));
@@ -86,18 +86,18 @@ const {
   const listTools = vi.fn(async () => {
     order.push('list-tools');
     return {
-      'server.tool.enable': { description: 'Enabled tool' },
       'server.tool.disable': { description: 'Disabled tool' },
+      'server.tool.enable': { description: 'Enabled tool' },
     };
   });
 
   const discoveryClient = {
-    name: 'mock-server',
-    transport: 'stdio' as const,
+    callTool: vi.fn(),
     dispose: vi.fn(),
     listTools,
+    name: 'mock-server',
     supportsTool: vi.fn(() => false),
-    callTool: vi.fn(),
+    transport: 'stdio' as const,
   };
 
   const initClients = vi.fn(() => {
@@ -107,7 +107,6 @@ const {
     if (serverName === 'mock-server') {
       return discoveryClient;
     }
-    return;
   });
   const disposeClients = vi.fn();
 
@@ -117,73 +116,73 @@ const {
 
   return {
     callOrder: order,
-    registerToolsMock: register,
-    disableToolsMock: disable,
-    enableToolsMock: enable,
-    getStatsMock: getStats,
-    getAllToolsMock: getAllTools,
-    getEnabledToolsMock: getEnabledTools,
-    enableServerToolsMock: enableServerTools,
     disableServerToolsMock: disableServerTools,
-    resetToolsMock: reset,
-    loadToolPreferencesMock: loadPreferences,
-    saveToolPreferencesMock: savePreferences,
-    loadMcpConfigMock: loadConfig,
-    watchMcpConfigMock: watchConfig,
-    getMcpConfigPathMock: getConfigPath,
-    setCustomMcpConfigPathMock: setCustomConfigPath,
-    initClientsMock: initClients,
-    getClientMock: getClient,
-    listToolsMock: listTools,
+    disableToolsMock: disable,
     disposeClientsMock: disposeClients,
-    ipcHandleMock: ipcHandle,
-    showOpenDialogMock: showOpenDialog,
+    enableServerToolsMock: enableServerTools,
+    enableToolsMock: enable,
+    getAllToolsMock: getAllTools,
+    getClientMock: getClient,
+    getEnabledToolsMock: getEnabledTools,
+    getMcpConfigPathMock: getConfigPath,
     getPathMock: getPath,
+    getStatsMock: getStats,
+    initClientsMock: initClients,
+    ipcHandleMock: ipcHandle,
+    listToolsMock: listTools,
+    loadMcpConfigMock: loadConfig,
+    loadToolPreferencesMock: loadPreferences,
+    registerToolsMock: register,
+    resetToolsMock: reset,
+    saveToolPreferencesMock: savePreferences,
+    setCustomMcpConfigPathMock: setCustomConfigPath,
+    showOpenDialogMock: showOpenDialog,
+    watchMcpConfigMock: watchConfig,
   };
 });
 
 vi.mock('@brainstrike/agent', () => ({
   __esModule: true,
   loadToolPreferences: loadToolPreferencesMock,
-  saveToolPreferences: saveToolPreferencesMock,
   mcpToolRegistry: {
-    register: registerToolsMock,
-    getStats: getStatsMock,
-    getAllTools: getAllToolsMock,
-    getEnabledTools: getEnabledToolsMock,
-    enableTools: enableToolsMock,
+    clear: vi.fn(), // New method used for stale preferences fix
+    disableServerTools: disableServerToolsMock,
     disableTools: disableToolsMock,
     enableServerTools: enableServerToolsMock,
-    disableServerTools: disableServerToolsMock,
+    enableTools: enableToolsMock,
+    getAllTools: getAllToolsMock,
+    getEnabledTools: getEnabledToolsMock,
+    getStats: getStatsMock,
+    register: registerToolsMock,
     reset: resetToolsMock,
-    clear: vi.fn(), // New method used for stale preferences fix
   },
+  saveToolPreferences: saveToolPreferencesMock,
 }));
 
 vi.mock('../../mcp-loader', () => ({
   __esModule: true,
   getDefaultMcpConfigTemplate: () => '{\n  "servers": []\n}',
-  loadMcpConfig: loadMcpConfigMock,
-  watchMcpConfig: watchMcpConfigMock,
   getMcpConfigPath: getMcpConfigPathMock,
-  setCustomMcpConfigPath: setCustomMcpConfigPathMock,
+  loadMcpConfig: loadMcpConfigMock,
   readMcpConfigText: vi.fn(),
+  setCustomMcpConfigPath: setCustomMcpConfigPathMock,
+  watchMcpConfig: watchMcpConfigMock,
   writeMcpConfigText: vi.fn(),
 }));
 
 vi.mock('../../mcp', () => ({
   __esModule: true,
-  initClients: initClientsMock,
-  getClient: getClientMock,
   disposeClients: disposeClientsMock,
+  getClient: getClientMock,
+  initClients: initClientsMock,
 }));
 
 vi.mock('electron', () => ({
   __esModule: true,
-  ipcMain: { handle: ipcHandleMock },
-  dialog: { showOpenDialog: showOpenDialogMock },
-  BrowserWindow: { getAllWindows: vi.fn(() => []) },
   app: { getPath: getPathMock },
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
+  dialog: { showOpenDialog: showOpenDialogMock },
+  ipcMain: { handle: ipcHandleMock },
 }));
 
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
@@ -236,25 +235,22 @@ describe('ipc-mcp tool preference loading', () => {
 
   it('discovers tools for the filesystem MCP server', async () => {
     loadMcpConfigMock.mockResolvedValueOnce({
-      path: '/mock/config.json',
-      exists: true,
       config: {
         servers: [
           {
             args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            command: 'npx',
             name: 'filesystem',
             transport: 'stdio',
-            command: 'npx',
           },
         ],
       },
+      exists: true,
+      path: '/mock/config.json',
     });
     getClientMock.mockReturnValueOnce({
-      name: 'filesystem',
-      transport: 'stdio',
-      dispose: vi.fn(),
-      supportsTool: vi.fn(() => false),
       callTool: vi.fn(),
+      dispose: vi.fn(),
       listTools: vi.fn(async () => ({
         'filesystem.list_directory': {
           description: 'Get a detailed listing of files and directories.',
@@ -269,6 +265,9 @@ describe('ipc-mcp tool preference loading', () => {
           inputSchema: { type: 'filesystem.search_files.schema' },
         },
       })),
+      name: 'filesystem',
+      supportsTool: vi.fn(() => false),
+      transport: 'stdio',
     });
 
     registerMcpIpcHandlers();
@@ -298,15 +297,15 @@ describe('ipc-mcp tool preference loading', () => {
 
   it('discards legacy sanitized preference ids instead of applying them', async () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
-      enabledTools: ['filesystem_read_file'],
       disabledTools: ['filesystem_list_directory'],
-      version: 1,
+      enabledTools: ['filesystem_read_file'],
       lastUpdated: 0,
+      version: 1,
     });
     getAllToolsMock.mockReturnValueOnce({
       filesystem: [
-        { id: 'filesystem.read_file', enabled: true },
-        { id: 'filesystem.list_directory', enabled: true },
+        { enabled: true, id: 'filesystem.read_file' },
+        { enabled: true, id: 'filesystem.list_directory' },
       ],
     });
 
@@ -319,24 +318,24 @@ describe('ipc-mcp tool preference loading', () => {
     expect(saveToolPreferencesMock).toHaveBeenCalledWith(
       'mock-user-data',
       expect.objectContaining({
-        enabledTools: [],
         disabledTools: [],
+        enabledTools: [],
       })
     );
   });
 
   it('still applies valid preferences when persisting cleaned ids fails', async () => {
     loadToolPreferencesMock.mockResolvedValueOnce({
-      enabledTools: ['server.tool.enable', 'filesystem_read_file'],
       disabledTools: ['server.tool.disable', 'filesystem_list_directory'],
-      version: 1,
+      enabledTools: ['server.tool.enable', 'filesystem_read_file'],
       lastUpdated: 0,
+      version: 1,
     });
     saveToolPreferencesMock.mockRejectedValueOnce(new Error('disk full'));
     getAllToolsMock.mockReturnValueOnce({
       'mock-server': [
-        { id: 'server.tool.enable', enabled: true },
-        { id: 'server.tool.disable', enabled: false },
+        { enabled: true, id: 'server.tool.enable' },
+        { enabled: false, id: 'server.tool.disable' },
       ],
     });
 

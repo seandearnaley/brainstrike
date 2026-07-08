@@ -75,9 +75,6 @@ function createProcessor(): FileContentProcessor {
 
 function createChunkingWorkerPort(): ChunkingWorkerPort {
   return {
-    isReady: () => true,
-    transportKind: 'local-worker',
-    terminate: () => {},
     async chunkBatch() {
       throw new Error('chunkBatch should not be used by this path.');
     },
@@ -103,6 +100,9 @@ function createChunkingWorkerPort(): ChunkingWorkerPort {
         type: 'result',
       };
     },
+    isReady: () => true,
+    terminate: () => {},
+    transportKind: 'local-worker',
   };
 }
 
@@ -141,14 +141,24 @@ describe('workspace collection sync large import verification', () => {
     const changes = Array.from({ length: VALID_FILE_COUNT + 1 }, (_, index) => makeChange(index));
     const fileRecordRepository = new FileRecordRepository(db);
     const chunkRepository = new FileChunkRepository(db);
+    const chunkRepositoryPort: Parameters<typeof runRootFolderCacheImport>[0]['chunkRepository'] = {
+      deleteByFileRecordId: chunkRepository.deleteByFileRecordId.bind(chunkRepository),
+      insertMany: chunkRepository.insertMany.bind(chunkRepository),
+      insertManyWithTx: (transaction, chunks) =>
+        chunkRepository.insertManyWithTx(
+          transaction as Parameters<FileChunkRepository['insertManyWithTx']>[0],
+          chunks
+        ),
+      update: chunkRepository.update.bind(chunkRepository),
+    };
     const progressErrors: Array<{ error: string; file: string }> = [];
 
     await runRootFolderCacheImport({
-      applyManagedCacheBatch: (args) => applyManagedCacheBatch(db!, args),
       abortSignal: new AbortController().signal,
+      applyManagedCacheBatch: (args) => applyManagedCacheBatch(db!, args),
       changes,
-      chunkRepository,
       chunkingWorkerPort: createChunkingWorkerPort(),
+      chunkRepository: chunkRepositoryPort,
       collection,
       db: db as Parameters<typeof runRootFolderCacheImport>[0]['db'],
       fileContentProcessor: createProcessor(),

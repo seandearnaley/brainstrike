@@ -20,7 +20,7 @@ describe('buildFileMentionAdapter', () => {
     const adapter = buildFileMentionAdapter(FILES, vi.fn());
     const items = adapter.search?.('') ?? [];
     expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({ id: 'r1::src/app.ts', type: 'file', label: 'app.ts' });
+    expect(items[0]).toMatchObject({ id: 'r1::src/app.ts', label: 'app.ts', type: 'file' });
   });
 
   it('notifies the query callback when search() is called (drives async load)', async () => {
@@ -52,7 +52,7 @@ describe('directive serialization parity (contract <-> server parser)', () => {
     const adapter = buildFileMentionAdapter(FILES, vi.fn());
     const items = adapter.search?.('') ?? [];
     for (const item of items) {
-      const directive = serializeFileMentionDirective({ label: item.label, id: item.id });
+      const directive = serializeFileMentionDirective({ id: item.id, label: item.label });
       const parsed = parseFileMentionDirectives(`see ${directive}`);
       expect(parsed).toHaveLength(1);
       expect(parsed[0]).toMatchObject({ id: item.id, label: item.label });

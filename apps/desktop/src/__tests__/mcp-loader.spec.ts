@@ -4,11 +4,11 @@ vi.mock(
   'electron',
   () =>
     ({
+      app: { getPath: () => '/tmp' },
       safeStorage: {
         decryptString: (buf: Buffer) => `dec:${buf.toString('utf-8')}`,
         isEncryptionAvailable: () => true,
       },
-      app: { getPath: () => '/tmp' },
     }) as unknown as typeof import('electron')
 );
 

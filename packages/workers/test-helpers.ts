@@ -34,9 +34,9 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     return {
-      path: 'mock-root',
-      name: 'mock-root',
       kind: 'directory',
+      name: 'mock-root',
+      path: 'mock-root',
       platform: 'web',
     };
   }

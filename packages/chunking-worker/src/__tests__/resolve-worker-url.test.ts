@@ -66,8 +66,8 @@ describe('resolveChunkingWorkerUrl', () => {
     expect(CHUNKING_CONFIG.maxChunkableSize).toBeGreaterThan(0);
 
     const result = await chunkContent('const value = 1;', {
-      strategy: 'recursive',
       fileName: 'example.ts',
+      strategy: 'recursive',
     });
 
     expect(result.skipped).toBe(false);

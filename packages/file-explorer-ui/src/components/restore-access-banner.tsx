@@ -20,9 +20,9 @@ function pendingTitle(count: number): string {
 }
 
 const variantDescription: Record<RestoreAccessBannerVariant, string> = {
+  denied: 'You can try again later or choose a different folder to continue.',
   pending:
     'Your browser can remember the folder, but access needs confirmation before we can reopen it.',
-  denied: 'You can try again later or choose a different folder to continue.',
   stale: 'The folder may have been moved or deleted. Choose another folder to continue working.',
 };
 

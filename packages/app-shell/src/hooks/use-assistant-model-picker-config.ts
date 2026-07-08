@@ -27,10 +27,10 @@ interface UseAssistantModelPickerConfigResult {
 }
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  hosted: 'Hosted',
-  gateway: 'Gateway',
-  local: 'Local',
   browser: 'Browser',
+  gateway: 'Gateway',
+  hosted: 'Hosted',
+  local: 'Local',
 };
 
 const runtimeOrder: readonly ProviderRuntime[] = ['hosted', 'gateway', 'local', 'browser'];
@@ -45,9 +45,9 @@ export function useAssistantModelPickerConfig({
 
     runtimeOrder.forEach((runtime) => {
       groups.set(runtime, {
-        runtime,
         label: RUNTIME_LABELS[runtime] ?? runtime,
         providers: [],
+        runtime,
       });
     });
 
@@ -57,12 +57,12 @@ export function useAssistantModelPickerConfig({
       const modelDefinitions = getProviderLlmModels(providerId);
 
       const models = modelDefinitions.map((model: LlmProviderModelDefinition) => ({
+        default: Boolean(model.default),
+        enabled: isModelEnabled(providerId, model.id),
         id: model.id,
         label: model.label ?? model.id,
-        type: 'llm' as const,
-        enabled: isModelEnabled(providerId, model.id),
-        default: Boolean(model.default),
         supportsStreaming: Boolean(model.supportsStreaming),
+        type: 'llm' as const,
       }));
 
       const group = groups.get(runtime);
@@ -71,14 +71,14 @@ export function useAssistantModelPickerConfig({
       }
 
       group.providers.push({
-        id: providerId,
-        name: definition.displayName,
-        runtime,
         capabilities: {
           ...definition.capabilities,
           supportsStandardEmbeddingDimension: supportsStandardEmbeddingDimension(providerId),
         },
+        id: providerId,
         models,
+        name: definition.displayName,
+        runtime,
       });
     }
 
@@ -94,9 +94,9 @@ export function useAssistantModelPickerConfig({
       configuredProviders.map((providerId) => {
         const definition = getProviderDefinition(providerId);
         return {
+          icon: null,
           id: providerId,
           name: definition.displayName,
-          icon: null,
         };
       }),
     [configuredProviders]
@@ -114,15 +114,15 @@ export function useAssistantModelPickerConfig({
         }
 
         models.push({
-          id: model.id,
-          providerId,
-          name: model.label ?? model.id,
-          description: null,
-          contextWindow: model.contextWindow,
           capabilities: {
-            type: 'llm',
             streaming: model.supportsStreaming ?? false,
+            type: 'llm',
           },
+          contextWindow: model.contextWindow,
+          description: null,
+          id: model.id,
+          name: model.label ?? model.id,
+          providerId,
         });
       }
     }

@@ -125,8 +125,8 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
         return;
       }
       toast({
-        title: 'Factory Reset Failed',
         description: String(err),
+        title: 'Factory Reset Failed',
         variant: 'destructive',
       });
       setRunning(false);

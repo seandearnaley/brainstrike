@@ -143,12 +143,12 @@ describe('logging API contract', () => {
 
   it('validates buffered renderer log records in the shared logging contract', () => {
     const record = {
-      level: LogLevel.INFO,
-      timestamp: Date.now(),
       args: ['renderer log'],
       bindings: { runtime: 'electron-renderer' },
+      level: LogLevel.INFO,
       message: 'renderer log',
       scope: 'Renderer',
+      timestamp: Date.now(),
     } satisfies LogRecord;
 
     expect(assertBufferedLogRecord(record)).toEqual(record);

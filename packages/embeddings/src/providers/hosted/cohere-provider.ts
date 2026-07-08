@@ -29,24 +29,24 @@ interface CohereEmbeddingResponse {
 
 const COHERE_MODELS: Record<string, ModelConfig> = {
   'embed-english-v3.0': {
+    description: 'English-optimized with input_type support',
+    dimensions: 1024,
     id: 'embed-english-v3.0',
     name: 'Cohere Embed English v3',
-    dimensions: 1024,
-    quantized: false,
-    description: 'English-optimized with input_type support',
-    tags: ['cohere', 'hosted', 'embedding'],
     origin: 'Cohere',
+    quantized: false,
     size: 'hosted',
+    tags: ['cohere', 'hosted', 'embedding'],
   },
   'embed-multilingual-v3.0': {
+    description: '100+ languages with cross-lingual search',
+    dimensions: 1024,
     id: 'embed-multilingual-v3.0',
     name: 'Cohere Embed Multilingual v3',
-    dimensions: 1024,
-    quantized: false,
-    description: '100+ languages with cross-lingual search',
-    tags: ['cohere', 'hosted', 'embedding'],
     origin: 'Cohere',
+    quantized: false,
     size: 'hosted',
+    tags: ['cohere', 'hosted', 'embedding'],
   },
 };
 
@@ -102,11 +102,11 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     return {
-      providerId: 'cohere',
-      modelKey: modelId,
       dimensions: modelConfig.dimensions,
-      distance: DEFAULT_DISTANCE_METRIC,
       displayName: modelConfig.name,
+      distance: DEFAULT_DISTANCE_METRIC,
+      modelKey: modelId,
+      providerId: 'cohere',
       ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
     };
   }
@@ -116,57 +116,57 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (!apiKey) {
       return {
-        ok: false,
         error: {
-          type: 'missing_api_key',
           provider: 'cohere',
+          type: 'missing_api_key',
         },
+        ok: false,
       };
     }
 
     if (!this.fetchImpl) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'cohere',
           originalError: new Error('Fetch implementation not available'),
+          provider: 'cohere',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
 
     try {
       const fetchImpl = this.fetchImpl.bind(globalThis);
       const response = await fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
-          Authorization: `Bearer ${apiKey}`,
-        },
         body: JSON.stringify({
-          model: this.modelId,
-          texts: [input.text],
-          // biome-ignore lint/style/useNamingConvention: Cohere API expects snake_case key
-          input_type: this.inputType,
           // biome-ignore lint/style/useNamingConvention: Cohere API expects snake_case key
           embedding_types: ['float'],
+          // biome-ignore lint/style/useNamingConvention: Cohere API expects snake_case key
+          input_type: this.inputType,
+          model: this.modelId,
+          texts: [input.text],
         }),
+        headers: {
+          // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       });
 
       if (!response.ok) {
         if (response.status === 429) {
           const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
           const rateLimitError: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
-            type: 'rate_limit_exceeded',
             provider: 'cohere',
+            type: 'rate_limit_exceeded',
           };
           if (retryAfter !== undefined) {
             rateLimitError.retryAfter = retryAfter;
           }
           return {
-            ok: false,
             error: rateLimitError,
+            ok: false,
           };
         }
 
@@ -176,13 +176,13 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
           `Cohere embeddings request failed with status ${response.status}`;
 
         return {
-          ok: false,
           error: {
-            type: 'api_error',
+            message,
             provider: 'cohere',
             statusCode: response.status,
-            message,
+            type: 'api_error',
           },
+          ok: false,
         };
       }
 
@@ -191,13 +191,13 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
 
       if (!Array.isArray(embedding)) {
         return {
-          ok: false,
           error: {
-            type: 'api_error',
+            message: 'Cohere response did not include an embedding array.',
             provider: 'cohere',
             statusCode: response.status,
-            message: 'Cohere response did not include an embedding array.',
+            type: 'api_error',
           },
+          ok: false,
         };
       }
 
@@ -209,8 +209,8 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
       }
 
       const output: EmbeddingOutput = {
-        embedding,
         dimensions: embedding.length,
+        embedding,
         modelId: input.modelId,
         provider: 'cohere',
       };
@@ -218,12 +218,12 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
       return { ok: true, value: output };
     } catch (error) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'cohere',
           originalError: error instanceof Error ? error : new Error(String(error)),
+          provider: 'cohere',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
   }
@@ -236,13 +236,13 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (actualDimensions !== expectedDimensions) {
       return {
-        ok: false,
         error: {
-          type: 'dimension_mismatch',
           expected: expectedDimensions,
-          received: actualDimensions,
           modelId: this.modelId,
+          received: actualDimensions,
+          type: 'dimension_mismatch',
         },
+        ok: false,
       };
     }
 

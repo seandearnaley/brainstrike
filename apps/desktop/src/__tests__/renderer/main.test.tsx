@@ -7,8 +7,8 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     <div data-testid="adapters-provider">{children}</div>
   ),
   useAdapters: () => ({
-    storageAdapter: {},
     fileSystemAdapter: {},
+    storageAdapter: {},
   }),
 }));
 
@@ -23,8 +23,8 @@ const mockRender = vi.fn();
 const mockCreateRoot = vi.fn(() => ({ render: mockRender }));
 
 vi.mock('react-dom/client', () => ({
-  default: { createRoot: mockCreateRoot },
   createRoot: mockCreateRoot,
+  default: { createRoot: mockCreateRoot },
 }));
 
 // Mock page components used in main.tsx

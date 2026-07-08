@@ -3,10 +3,10 @@ import type { TableRowData } from '../../utils/grouping-configs';
 import { buildTapestryFileBase } from '../tapestry-adapter';
 
 const baseItem: TableRowData = {
-  id: 'file-a',
   compositeKey: 'folder-a|@|src/file-a.ts',
-  rootFolderId: 'folder-a',
+  id: 'file-a',
   path: 'src/file-a.ts',
+  rootFolderId: 'folder-a',
   type: 'ts',
 };
 
@@ -19,9 +19,9 @@ describe('buildTapestryFileBase', () => {
     };
 
     const file = buildTapestryFileBase({
-      item,
       content: undefined,
       isLoading: false,
+      item,
     });
 
     expect(file.totalLines).toBe(100);
@@ -36,9 +36,9 @@ describe('buildTapestryFileBase', () => {
     };
 
     const file = buildTapestryFileBase({
-      item,
       content: undefined,
       isLoading: false,
+      item,
     });
 
     expect(file.totalLines).toBe(200);
@@ -53,9 +53,9 @@ describe('buildTapestryFileBase', () => {
     };
 
     const file = buildTapestryFileBase({
-      item,
       content: 'line 1\nline 2\nline 3',
       isLoading: false,
+      item,
     });
 
     expect(file.totalLines).toBe(3);

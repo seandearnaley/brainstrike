@@ -7,45 +7,45 @@ import type { Category, Prompt, PromptFilter } from '../types';
 const mocks = vi.hoisted(() => {
   const prompts: Prompt[] = [
     {
-      id: 'prompt-1',
-      title: 'Existing prompt',
-      content: 'Existing prompt content',
       categoryId: 'general',
-      tags: ['existing'],
+      content: 'Existing prompt content',
+      createdAt: 1,
+      id: 'prompt-1',
+      isFavorite: false,
       modelSettings: {
+        frequencyPenalty: 0.1,
+        maxTokens: 2048,
         model: 'openai:gpt-4o-mini',
+        presencePenalty: 0.2,
         temperature: 0.4,
         topP: 0.8,
-        maxTokens: 2048,
-        frequencyPenalty: 0.1,
-        presencePenalty: 0.2,
       },
-      revisions: [],
       rating: 3,
-      isFavorite: false,
-      createdAt: 1,
+      revisions: [],
+      tags: ['existing'],
+      title: 'Existing prompt',
       updatedAt: 2,
     },
   ];
   const categories: Category[] = [
-    { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
+    { color: '#64748b', icon: 'Box', id: 'general', name: 'General' },
   ];
-  const filter: PromptFilter = { search: '', tags: [], favoritesOnly: false };
+  const filter: PromptFilter = { favoritesOnly: false, search: '', tags: [] };
 
   return {
+    clipboardWriteText: vi.fn(),
     store: {
-      prompts,
-      categories,
-      filter,
-      setFilter: vi.fn(),
       addPrompt: vi.fn(),
       addRevision: vi.fn(),
-      updatePrompt: vi.fn(),
+      categories,
       deletePrompt: vi.fn(),
+      filter,
+      prompts,
+      setFilter: vi.fn(),
       toggleFavorite: vi.fn(),
+      updatePrompt: vi.fn(),
     },
     toast: vi.fn(),
-    clipboardWriteText: vi.fn(),
   };
 });
 
@@ -126,12 +126,12 @@ vi.mock('../components/prompt-editor', () => ({
         <button
           onClick={() =>
             onSave({
-              title: 'Created prompt',
-              content: 'Created content',
               categoryId: 'general',
-              tags: ['new'],
+              content: 'Created content',
               modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.5, topP: 1 },
               site: 'https://example.com',
+              tags: ['new'],
+              title: 'Created prompt',
             })
           }
           type="button"
@@ -144,15 +144,15 @@ vi.mock('../components/prompt-editor', () => ({
         <button
           onClick={() =>
             onSave({
-              title: 'Edited prompt title',
               modelSettings: {
+                frequencyPenalty: 0.1,
+                maxTokens: 2048,
                 model: 'openai:gpt-4o-mini',
+                presencePenalty: 0.2,
                 temperature: 0.4,
                 topP: 0.8,
-                maxTokens: 2048,
-                frequencyPenalty: 0.1,
-                presencePenalty: 0.2,
               },
+              title: 'Edited prompt title',
             })
           }
           type="button"
@@ -163,12 +163,12 @@ vi.mock('../components/prompt-editor', () => ({
           onClick={() =>
             onSave({
               modelSettings: {
+                frequencyPenalty: 0.1,
+                maxTokens: 2048,
                 model: 'openai:gpt-4o-mini',
+                presencePenalty: 0.9,
                 temperature: 0.4,
                 topP: 0.8,
-                maxTokens: 2048,
-                frequencyPenalty: 0.1,
-                presencePenalty: 0.9,
               },
             })
           }
@@ -262,10 +262,10 @@ describe('PromptManager', () => {
     fireEvent.click(screen.getByText('mock-save-create'));
     expect(mocks.store.addPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Created prompt',
-        content: 'Created content',
         categoryId: 'general',
+        content: 'Created content',
         isFavorite: false,
+        title: 'Created prompt',
       })
     );
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Prompt created' }));
@@ -288,12 +288,12 @@ describe('PromptManager', () => {
       expect.objectContaining({
         content: 'Existing prompt content',
         modelSettings: {
+          frequencyPenalty: 0.1,
+          maxTokens: 2048,
           model: 'openai:gpt-4o-mini',
+          presencePenalty: 0.2,
           temperature: 0.4,
           topP: 0.8,
-          maxTokens: 2048,
-          frequencyPenalty: 0.1,
-          presencePenalty: 0.2,
         },
         note: 'Before edit',
       })
@@ -337,8 +337,8 @@ describe('PromptManager', () => {
     expect(mocks.store.updatePrompt).toHaveBeenCalledWith(
       'prompt-1',
       expect.objectContaining({
-        title: 'Edited prompt title',
         modelSettings: mocks.store.prompts[0]?.modelSettings,
+        title: 'Edited prompt title',
       })
     );
 

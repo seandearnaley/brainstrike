@@ -85,10 +85,10 @@ describe('glob pattern security (ReDoS prevention)', () => {
   describe('Zod schema integration', () => {
     it('should reject glob-include rules with dangerous patterns', () => {
       const dangerousRule = {
-        id: 'dangerous',
-        type: 'glob-include' as const,
-        patterns: ['**/**/**/**/**/**/*.ts'], // 6 globstars - exceeds limit
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'dangerous',
+        patterns: ['**/**/**/**/**/**/*.ts'], // 6 globstars - exceeds limit
+        type: 'glob-include' as const,
       };
 
       const result = validateSelectionRule(dangerousRule);
@@ -97,10 +97,10 @@ describe('glob pattern security (ReDoS prevention)', () => {
 
     it('should reject glob-exclude rules with dangerous patterns', () => {
       const dangerousRule = {
-        id: 'dangerous',
-        type: 'glob-exclude' as const,
-        patterns: ['a'.repeat(300)], // exceeds length limit
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'dangerous',
+        patterns: ['a'.repeat(300)], // exceeds length limit
+        type: 'glob-exclude' as const,
       };
 
       const result = validateSelectionRule(dangerousRule);
@@ -109,10 +109,10 @@ describe('glob pattern security (ReDoS prevention)', () => {
 
     it('should accept safe glob patterns in rules', () => {
       const safeRule = {
-        id: 'safe',
-        type: 'glob-include' as const,
-        patterns: ['**/*.ts', 'src/**/*.tsx', '*.{ts,tsx,js}'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'safe',
+        patterns: ['**/*.ts', 'src/**/*.tsx', '*.{ts,tsx,js}'],
+        type: 'glob-include' as const,
       };
 
       const result = validateSelectionRule(safeRule);
@@ -122,10 +122,10 @@ describe('glob pattern security (ReDoS prevention)', () => {
     it('should reject rules with too many patterns', () => {
       const tooManyPatterns = Array.from({ length: 55 }, (_, i) => `pattern${i}/*.ts`);
       const rule = {
-        id: 'too-many',
-        type: 'glob-include' as const,
-        patterns: tooManyPatterns,
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'too-many',
+        patterns: tooManyPatterns,
+        type: 'glob-include' as const,
       };
 
       const result = validateSelectionRule(rule);
@@ -136,32 +136,32 @@ describe('glob pattern security (ReDoS prevention)', () => {
 
 describe('validation', () => {
   const validExplicitRule: ExplicitRule = {
-    id: 'rule-1',
-    type: 'explicit',
-    paths: ['src/index.ts'],
     createdAt: '2026-01-02T00:00:00.000Z',
+    id: 'rule-1',
+    paths: ['src/index.ts'],
+    type: 'explicit',
   };
 
   const validGlobIncludeRule: GlobIncludeRule = {
-    id: 'rule-2',
-    type: 'glob-include',
-    patterns: ['**/*.ts'],
     createdAt: '2026-01-02T00:00:00.000Z',
+    id: 'rule-2',
+    patterns: ['**/*.ts'],
+    type: 'glob-include',
   };
 
   const validRootIncludeRule: RootIncludeRule = {
-    id: 'rule-3',
-    type: 'root-include',
-    roots: ['src'],
     createdAt: '2026-01-02T00:00:00.000Z',
+    id: 'rule-3',
+    roots: ['src'],
+    type: 'root-include',
   };
 
   const validCapRule: CapRule = {
+    createdAt: '2026-01-02T00:00:00.000Z',
     id: 'rule-4',
-    type: 'cap',
     maxCount: 50,
     strategy: 'first',
-    createdAt: '2026-01-02T00:00:00.000Z',
+    type: 'cap',
   };
 
   describe('validateSelectionRule', () => {
@@ -195,10 +195,10 @@ describe('validation', () => {
     it('should accept optional fields', () => {
       const ruleWithOptionals = {
         ...validExplicitRule,
-        label: 'My explicit rule',
         enabled: true,
-        priority: 10,
+        label: 'My explicit rule',
         mode: 'include' as const,
+        priority: 10,
       };
 
       const result = validateSelectionRule(ruleWithOptionals);
@@ -358,10 +358,10 @@ describe('validation', () => {
 
     it('should accept root-exclude rule with multiple roots', () => {
       const ruleWithMultipleRoots = {
-        id: 'root-exclude-multi',
-        type: 'root-exclude' as const,
-        roots: ['node_modules', 'dist', '.git'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'root-exclude-multi',
+        roots: ['node_modules', 'dist', '.git'],
+        type: 'root-exclude' as const,
       };
 
       const result = validateSelectionRule(ruleWithMultipleRoots);
@@ -370,10 +370,10 @@ describe('validation', () => {
 
     it('should accept glob-exclude rule with multiple patterns', () => {
       const ruleWithMultiplePatterns = {
-        id: 'glob-exclude-multi',
-        type: 'glob-exclude' as const,
-        patterns: ['**/*.test.ts', '**/*.spec.ts', '**/__mocks__/**'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'glob-exclude-multi',
+        patterns: ['**/*.test.ts', '**/*.spec.ts', '**/__mocks__/**'],
+        type: 'glob-exclude' as const,
       };
 
       const result = validateSelectionRule(ruleWithMultiplePatterns);
@@ -383,13 +383,13 @@ describe('validation', () => {
 
   describe('validateSelectionRuleSet', () => {
     const validRuleSet = {
-      version: 1,
       folderId: 'folder-123',
-      rules: [validExplicitRule, validGlobIncludeRule],
       metadata: {
         createdAt: '2026-01-02T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
       },
+      rules: [validExplicitRule, validGlobIncludeRule],
+      version: 1,
     };
 
     it('should return success for valid rule set', () => {
@@ -415,8 +415,8 @@ describe('validation', () => {
         ...validRuleSet,
         metadata: {
           ...validRuleSet.metadata,
-          migratedFrom: 'explicit-set' as const,
           description: 'Test rule set',
+          migratedFrom: 'explicit-set' as const,
         },
       };
 
@@ -493,13 +493,13 @@ describe('validation', () => {
 
   describe('parseSelectionRuleSet', () => {
     const validRuleSet = {
-      version: 1,
       folderId: 'folder-123',
-      rules: [],
       metadata: {
         createdAt: '2026-01-02T00:00:00.000Z',
         updatedAt: '2026-01-02T00:00:00.000Z',
       },
+      rules: [],
+      version: 1,
     };
 
     it('should return parsed rule set for valid input', () => {
@@ -515,27 +515,27 @@ describe('validation', () => {
   describe('Zod schemas', () => {
     it('should correctly discriminate rule types in union', () => {
       const explicitRule = {
-        id: 'explicit-test',
-        type: 'explicit',
-        paths: ['test.ts'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'explicit-test',
+        paths: ['test.ts'],
+        type: 'explicit',
       } as const;
 
       const globRule = {
-        id: 'glob-test',
-        type: 'glob-include',
-        patterns: ['*.ts'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'glob-test',
+        patterns: ['*.ts'],
+        type: 'glob-include',
       } as const;
 
       expect(SelectionRuleSchema.safeParse(explicitRule).success).toBe(true);
       expect(SelectionRuleSchema.safeParse(globRule).success).toBe(true);
 
       const invalidMix = {
-        id: 'invalid-test',
-        type: 'explicit',
-        patterns: ['*.ts'],
         createdAt: '2026-01-02T00:00:00.000Z',
+        id: 'invalid-test',
+        patterns: ['*.ts'],
+        type: 'explicit',
       } as const;
 
       expect(SelectionRuleSchema.safeParse(invalidMix).success).toBe(false);

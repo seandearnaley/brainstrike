@@ -13,16 +13,16 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 // Mock the adapters
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({
-    storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-      clear: vi.fn(),
-      getAllKeys: vi.fn(),
-    },
     fileSystemAdapter: {
       readDirectory: vi.fn(),
       readFile: vi.fn(),
+    },
+    storageAdapter: {
+      clear: vi.fn(),
+      getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     },
   })),
 }));
@@ -30,11 +30,11 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 // Mock the storage adapter
 vi.mock('@brainstrike/storage', () => ({
   createStorageAdapter: vi.fn(() => ({
-    getItem: vi.fn(),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
     clear: vi.fn(),
     getAllKeys: vi.fn(),
+    getItem: vi.fn(),
+    removeItem: vi.fn(),
+    setItem: vi.fn(),
   })),
 }));
 

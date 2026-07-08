@@ -12,15 +12,6 @@ const {
 } = vi.hoisted(() => {
   const state = { active: false };
   return {
-    ensureStartedMock: vi.fn(async () => ({
-      transportKind: 'local-worker' as const,
-      chunkFile: vi.fn(),
-      chunkBatch: vi.fn(),
-      isReady: vi.fn(() => true),
-      terminate: vi.fn(),
-    })),
-    runEnhancedImportMock: vi.fn(),
-    mockUsePGliteDatabase: vi.fn(() => null),
     bulkOperationState: state,
     createBulkOperationContextMock: vi.fn(() => ({
       enter: vi.fn(() => {
@@ -31,6 +22,15 @@ const {
       }),
       isActive: vi.fn(() => state.active),
     })),
+    ensureStartedMock: vi.fn(async () => ({
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
+      isReady: vi.fn(() => true),
+      terminate: vi.fn(),
+      transportKind: 'local-worker' as const,
+    })),
+    mockUsePGliteDatabase: vi.fn(() => null),
+    runEnhancedImportMock: vi.fn(),
   };
 });
 
@@ -45,53 +45,53 @@ vi.mock('../base-file-import-service', () => ({
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  getChunkingPreset: vi.fn(() => ({
-    id: 'balanced',
-    strategy: 'auto',
-    chunkSize: 256,
-    chunkOverlap: 50,
-    tokenLimit: 4096,
-    label: 'Balanced',
-    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
-    isDefault: true,
-  })),
-  useFileRecordRepository: () => ({
-    findById: vi.fn(),
-    update: vi.fn(),
-  }),
-  useFileChunkRepository: () => ({
-    insertMany: vi.fn(),
-    update: vi.fn(),
-  }),
-  usePGliteDatabase: mockUsePGliteDatabase,
-  useClearAllData: () => null,
   CHUNKING_CONFIG: {
+    chunkPreviewLength: 50,
     defaultMaxTokens: 1000,
     defaultOverlap: 200,
     embeddingInitializationDelay: 100,
     embeddingProcessingDelay: 10,
-    chunkPreviewLength: 50,
   },
+  getChunkingPreset: vi.fn(() => ({
+    chunkOverlap: 50,
+    chunkSize: 256,
+    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
+    id: 'balanced',
+    isDefault: true,
+    label: 'Balanced',
+    strategy: 'auto',
+    tokenLimit: 4096,
+  })),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useClearAllData: () => null,
   useDbProviderError: () => null,
   useFactoryReset: () => null,
-  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
+  useFileChunkRepository: () => ({
+    insertMany: vi.fn(),
+    update: vi.fn(),
+  }),
+  useFileRecordRepository: () => ({
+    findById: vi.fn(),
+    update: vi.fn(),
+  }),
+  usePGliteDatabase: mockUsePGliteDatabase,
+  usePGliteLiveQuery: () => ({ error: null, loading: false, refresh: vi.fn(), rows: [] }),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return {
     ...actual,
+    createBulkOperationContext: createBulkOperationContextMock,
+    createLogger: vi.fn(() => ({
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    })),
     fileExplorer: {
       getFileExtension: vi.fn(() => 'ts'),
     },
-    createLogger: vi.fn(() => ({
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-    })),
-    createBulkOperationContext: createBulkOperationContextMock,
   };
 });
 
@@ -101,11 +101,11 @@ vi.mock('@brainstrike/utils/bulk-operation-context', () => ({
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   useChunkingWorkerContext: vi.fn().mockReturnValue({
-    port: null,
-    isReady: false,
-    isProcessing: false,
-    error: null,
     ensureStarted: ensureStartedMock,
+    error: null,
+    isProcessing: false,
+    isReady: false,
+    port: null,
     reinitialize: vi.fn(),
   }),
 }));
@@ -125,7 +125,7 @@ function createDeferred<T>(): {
     resolve = promiseResolve;
     reject = promiseReject;
   });
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 describe('useEnhancedFileImportService', () => {
@@ -139,10 +139,10 @@ describe('useEnhancedFileImportService', () => {
     ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
-        selectedFilePaths: params.request.selectedFilePaths,
-        fileTree: params.request.fileTree,
         fileContents: params.request.fileContents,
+        fileTree: params.request.fileTree,
         onProgress: () => {},
+        selectedFilePaths: params.request.selectedFilePaths,
       });
       return baseResults.map((result: { id: string; imported: boolean; existed: boolean }) => ({
         ...result,
@@ -163,10 +163,10 @@ describe('useEnhancedFileImportService', () => {
 
     it('should accept options parameter', () => {
       const options = {
-        onProgress: vi.fn(),
+        enableChunking: true,
         onComplete: vi.fn(),
         onError: vi.fn(),
-        enableChunking: true,
+        onProgress: vi.fn(),
       };
 
       const { result } = renderHook(() => useEnhancedFileImportService(options));
@@ -260,13 +260,13 @@ describe('useEnhancedFileImportService', () => {
         progress: null,
       });
       runEnhancedImportMock.mockResolvedValueOnce([
-        { id: 'file1', imported: true, existed: false, chunksCreated: 0 },
+        { chunksCreated: 0, existed: false, id: 'file1', imported: true },
       ]);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
-          onComplete,
           enableChunking: false,
+          onComplete,
         })
       );
 
@@ -278,8 +278,8 @@ describe('useEnhancedFileImportService', () => {
 
       expect(onComplete).toHaveBeenCalledWith([
         expect.objectContaining({
-          id: 'file1',
           chunksCreated: 0,
+          id: 'file1',
         }),
       ]);
     });
@@ -296,13 +296,13 @@ describe('useEnhancedFileImportService', () => {
       });
 
       runEnhancedImportMock.mockResolvedValueOnce([
-        { id: 'file1', imported: true, existed: false, chunksCreated: 3 },
+        { chunksCreated: 3, existed: false, id: 'file1', imported: true },
       ]);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
-          onComplete,
           enableChunking: true,
+          onComplete,
         })
       );
 
@@ -331,14 +331,14 @@ describe('useEnhancedFileImportService', () => {
       });
 
       runEnhancedImportMock.mockResolvedValueOnce([
-        { id: 'file1', imported: true, existed: false, chunksCreated: 0 },
+        { chunksCreated: 0, existed: false, id: 'file1', imported: true },
       ]);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
+          chunkTokenLimit: 2048,
           enableChunking: true,
           tokenTrueSizing: false,
-          chunkTokenLimit: 2048,
         })
       );
 
@@ -352,8 +352,8 @@ describe('useEnhancedFileImportService', () => {
         expect.objectContaining({
           chunking: expect.objectContaining({
             enabled: true,
-            tokenTrueSizing: false,
             tokenLimit: 2048,
+            tokenTrueSizing: false,
           }),
         })
       );
@@ -363,7 +363,7 @@ describe('useEnhancedFileImportService', () => {
       const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
       mockUsePGliteDatabase.mockReturnValue({ query: dbQuery } as never);
       runEnhancedImportMock.mockResolvedValueOnce([
-        { id: 'file-assign', imported: true, existed: false, chunksCreated: 2 },
+        { chunksCreated: 2, existed: false, id: 'file-assign', imported: true },
       ]);
 
       const { result } = renderHook(() =>
@@ -388,7 +388,7 @@ describe('useEnhancedFileImportService', () => {
 
     it('does not keep the import bulk context active during completion callbacks', async () => {
       runEnhancedImportMock.mockResolvedValueOnce([
-        { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+        { chunksCreated: 1, existed: false, id: 'file1', imported: true },
       ]);
       let completionSawBulkActive: boolean | null = null;
       const onComplete = vi.fn(async () => {
@@ -397,8 +397,8 @@ describe('useEnhancedFileImportService', () => {
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
-          onComplete,
           enableChunking: true,
+          onComplete,
         })
       );
 
@@ -416,7 +416,7 @@ describe('useEnhancedFileImportService', () => {
       const onComplete = vi.fn();
       runEnhancedImportMock.mockImplementationOnce(async (params) => {
         params.embedding.onResolvedTargetSetId('resolved-set');
-        return [{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }];
+        return [{ chunksCreated: 1, existed: false, id: 'file1', imported: true }];
       });
 
       const { result } = renderHook(() => useEnhancedFileImportService({ onComplete }));
@@ -441,11 +441,11 @@ describe('useEnhancedFileImportService', () => {
       ensureStartedMock.mockImplementationOnce(async () => {
         externalAbort.abort();
         return {
-          transportKind: 'local-worker' as const,
-          chunkFile: vi.fn(),
           chunkBatch: vi.fn(),
+          chunkFile: vi.fn(),
           isReady: vi.fn(() => true),
           terminate: vi.fn(),
+          transportKind: 'local-worker' as const,
         };
       });
 
@@ -476,7 +476,7 @@ describe('useEnhancedFileImportService', () => {
       const onComplete = vi.fn();
       runEnhancedImportMock.mockImplementationOnce(async () => {
         externalAbort.abort();
-        return [{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }];
+        return [{ chunksCreated: 1, existed: false, id: 'file1', imported: true }];
       });
 
       const { result } = renderHook(() =>
@@ -523,7 +523,7 @@ describe('useEnhancedFileImportService', () => {
         result.current.cancelImport();
       });
 
-      importResult.resolve([{ id: 'file1', imported: true, existed: false, chunksCreated: 1 }]);
+      importResult.resolve([{ chunksCreated: 1, existed: false, id: 'file1', imported: true }]);
 
       await act(async () => {
         await importPromise;
@@ -539,7 +539,7 @@ describe('useEnhancedFileImportService', () => {
       vi.useFakeTimers();
       try {
         runEnhancedImportMock.mockResolvedValueOnce([
-          { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: 'file1', imported: true },
         ]);
 
         const embeddingQueue = {
@@ -555,29 +555,29 @@ describe('useEnhancedFileImportService', () => {
         });
 
         const detailA = {
-          queue: 'embeddings',
           chunkId: 'chunk-a',
-          status: 'completed',
-          model: 'local:test',
           embeddingSetId: 'set-1',
+          failed: 0,
+          lastError: null,
+          model: 'local:test',
           pending: 3,
           processed: 11,
-          failed: 0,
+          queue: 'embeddings',
+          status: 'completed',
           totalQueued: 14,
-          lastError: null,
         } as const;
 
         const detailB = {
-          queue: 'embeddings',
           chunkId: 'chunk-b',
-          status: 'completed',
-          model: 'local:test',
           embeddingSetId: 'set-1',
+          failed: 0,
+          lastError: null,
+          model: 'local:test',
           pending: 2,
           processed: 12,
-          failed: 0,
+          queue: 'embeddings',
+          status: 'completed',
           totalQueued: 14,
-          lastError: null,
         } as const;
 
         act(() => {
@@ -597,16 +597,16 @@ describe('useEnhancedFileImportService', () => {
         });
 
         expect(result.current.progress?.queueProgress).toMatchObject({
-          pending: 2,
-          processed: 12,
           failed: 0,
-          totalQueued: 14,
           lastError: null,
           lastEvent: {
             chunkId: 'chunk-b',
-            status: 'completed',
             model: 'local:test',
+            status: 'completed',
           },
+          pending: 2,
+          processed: 12,
+          totalQueued: 14,
         });
       } finally {
         vi.useRealTimers();
@@ -617,7 +617,7 @@ describe('useEnhancedFileImportService', () => {
       vi.useFakeTimers();
       try {
         runEnhancedImportMock.mockResolvedValueOnce([
-          { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+          { chunksCreated: 1, existed: false, id: 'file1', imported: true },
         ]);
 
         const embeddingQueue = {
@@ -633,29 +633,29 @@ describe('useEnhancedFileImportService', () => {
         });
 
         const inFlight = {
-          queue: 'embeddings',
           chunkId: 'chunk-in-flight',
-          status: 'completed',
-          model: 'local:test',
           embeddingSetId: 'set-1',
+          failed: 0,
+          lastError: null,
+          model: 'local:test',
           pending: 5,
           processed: 20,
-          failed: 0,
+          queue: 'embeddings',
+          status: 'completed',
           totalQueued: 25,
-          lastError: null,
         } as const;
 
         const drained = {
-          queue: 'embeddings',
           chunkId: 'chunk-final',
-          status: 'completed',
-          model: 'local:test',
           embeddingSetId: 'set-1',
+          failed: 0,
+          lastError: null,
+          model: 'local:test',
           pending: 0,
           processed: 25,
-          failed: 0,
+          queue: 'embeddings',
+          status: 'completed',
           totalQueued: 25,
-          lastError: null,
         } as const;
 
         act(() => {
@@ -668,16 +668,16 @@ describe('useEnhancedFileImportService', () => {
         });
 
         expect(result.current.progress?.queueProgress).toMatchObject({
-          pending: 0,
-          processed: 25,
           failed: 0,
-          totalQueued: 25,
           lastError: null,
           lastEvent: {
             chunkId: 'chunk-final',
-            status: 'completed',
             model: 'local:test',
+            status: 'completed',
           },
+          pending: 0,
+          processed: 25,
+          totalQueued: 25,
         });
       } finally {
         vi.useRealTimers();

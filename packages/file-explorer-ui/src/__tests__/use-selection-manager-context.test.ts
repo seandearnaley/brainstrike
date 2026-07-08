@@ -22,29 +22,29 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 const defaultSelectionModel = {
-  mode: 'explicit' as const,
   explicitPaths: new Set<string>(),
-  ruleSetJson: null,
-  materializedPaths: null,
   materializedAt: null,
+  materializedPaths: null,
+  mode: 'explicit' as const,
   queryDescriptor: null,
+  ruleSetJson: null,
 };
 
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
   const setSelectedFiles = vi.fn();
   const setFolderSelection = vi.fn();
   const mockState = {
-    selectedFilePaths: new Set<string>(),
-    maxSelectionCount: 10,
-    setSelectedFiles,
-    setFolderSelection,
-    setQuerySelectionManifest: vi.fn(),
-    selectionModel: defaultSelectionModel,
-    querySelectionManifest: null,
-    currentFolderId: 'root',
     // Multi-root (Phase 6 union): defaults keep single-root tests unchanged.
     activeRootIds: [] as string[],
+    currentFolderId: 'root',
     folderStates: {} as Record<string, { selectedFilePaths: Set<string> }>,
+    maxSelectionCount: 10,
+    querySelectionManifest: null,
+    selectedFilePaths: new Set<string>(),
+    selectionModel: defaultSelectionModel,
+    setFolderSelection,
+    setQuerySelectionManifest: vi.fn(),
+    setSelectedFiles,
     ...overrides,
   };
   const mockStore = Object.assign(
@@ -52,9 +52,9 @@ function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
     { getState: () => mockState }
   );
   return {
-    store: mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>,
-    setSelectedFiles,
     setFolderSelection,
+    setSelectedFiles,
+    store: mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>,
   };
 }
 
@@ -91,12 +91,12 @@ describe('useSelectionManager', () => {
     const { store } = createMockStore({
       currentFolderId: 'my-folder',
       selectionModel: {
-        mode: 'rules' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: '{}',
-        materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
         materializedAt: new Date().toISOString(),
+        materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
+        mode: 'rules' as const,
         queryDescriptor: null,
+        ruleSetJson: '{}',
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -115,12 +115,12 @@ describe('useSelectionManager', () => {
     const { store } = createMockStore({
       selectedFilePaths,
       selectionModel: {
-        mode: 'rules' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: '{}',
-        materializedPaths: null,
         materializedAt: null,
+        materializedPaths: null,
+        mode: 'rules' as const,
         queryDescriptor: null,
+        ruleSetJson: '{}',
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -133,15 +133,15 @@ describe('useSelectionManager', () => {
   it('falls back to selectedFilePaths when in rules mode without currentFolderId', () => {
     const selectedFilePaths = new Set(['fallback|@|/file.ts']);
     const { store } = createMockStore({
-      selectedFilePaths,
       currentFolderId: null,
+      selectedFilePaths,
       selectionModel: {
-        mode: 'rules' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: '{}',
-        materializedPaths: new Set(['/src/file.ts']),
         materializedAt: new Date().toISOString(),
+        materializedPaths: new Set(['/src/file.ts']),
+        mode: 'rules' as const,
         queryDescriptor: null,
+        ruleSetJson: '{}',
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -154,36 +154,36 @@ describe('useSelectionManager', () => {
   it('uses the exact query manifest in query mode and exposes the canonical selected count', () => {
     const { store } = createMockStore({
       currentFolderId: 'my-folder',
-      selectedFilePaths: new Set(),
       querySelectionManifest: {
-        filePaths: ['/src/index.ts', '/src/utils.ts'],
-        pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
         directoryCounts: new Map([['/src', 2]]),
+        errorMessage: null,
+        filePaths: ['/src/index.ts', '/src/utils.ts'],
         fingerprint: 'query-fingerprint',
+        pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
         snapshotId: 'snapshot-1',
         status: 'ready' as const,
-        errorMessage: null,
       },
+      selectedFilePaths: new Set(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set(['/src/index.ts']),
         materializedAt: new Date().toISOString(),
+        materializedPaths: new Set(['/src/index.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'my-folder',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'my-folder',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'query-fingerprint',
           manifestSnapshotId: 'snapshot-1',
-          useRegex: false,
+          rootPath: null,
           totalSelectedCount: 2,
+          useRegex: false,
         },
+        ruleSetJson: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -204,28 +204,28 @@ describe('useSelectionManager', () => {
   it('uses the stored materialized paths while a query manifest snapshot is still loading', () => {
     const { store } = createMockStore({
       currentFolderId: 'my-folder',
-      selectedFilePaths: new Set(),
       querySelectionManifest: null,
+      selectedFilePaths: new Set(),
       selectionModel: {
-        mode: 'query' as const,
         explicitPaths: new Set<string>(),
-        ruleSetJson: null,
-        materializedPaths: new Set(['/src/index.ts']),
         materializedAt: new Date().toISOString(),
+        materializedPaths: new Set(['/src/index.ts']),
+        mode: 'query' as const,
         queryDescriptor: {
-          kind: 'recursive-select-all' as const,
-          folderId: 'my-folder',
-          rootPath: null,
           coveredDirectoryPaths: ['/src'],
-          includeFilters: ['**/*.ts'],
-          excludeFilters: [],
-          includedPaths: [],
           excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'my-folder',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
           manifestFingerprint: 'query-fingerprint',
           manifestSnapshotId: 'snapshot-1',
-          useRegex: false,
+          rootPath: null,
           totalSelectedCount: 600,
+          useRegex: false,
         },
+        ruleSetJson: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -246,15 +246,15 @@ describe('useSelectionManager', () => {
 
     function createTwoRootStore() {
       return createMockStore({
-        currentFolderId: ROOT_A,
-        selectedFilePaths: new Set([KEY_A]),
         activeRootIds: [ROOT_A, ROOT_B],
+        currentFolderId: ROOT_A,
         folderStates: {
           // A's folderState is a STALE snapshot while A is focused — the
           // top-level set is its live value; the union must NOT read it.
           [ROOT_A]: { selectedFilePaths: new Set([`${ROOT_A}|@|stale.ts`]) },
           [ROOT_B]: { selectedFilePaths: new Set([KEY_B]) },
         },
+        selectedFilePaths: new Set([KEY_A]),
       });
     }
 
@@ -274,10 +274,10 @@ describe('useSelectionManager', () => {
     it('keeps set identity when no other root has selections (memo stability)', () => {
       const selectedFilePaths = new Set([KEY_A]);
       const { store } = createMockStore({
-        currentFolderId: ROOT_A,
-        selectedFilePaths,
         activeRootIds: [ROOT_A, ROOT_B],
+        currentFolderId: ROOT_A,
         folderStates: { [ROOT_B]: { selectedFilePaths: new Set<string>() } },
+        selectedFilePaths,
       });
       vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 

@@ -18,8 +18,8 @@ export const QUEUE_STATUS_TOOL_ID = 'brainstrike.queueStatus' as const;
  * Safe error messages that can be shown to users.
  */
 export const QUEUE_STATUS_ERROR_MESSAGES = {
-  fetchFailed: 'Failed to fetch queue status. Please try again.',
   embeddingSetNotFound: 'The specified embedding set was not found.',
+  fetchFailed: 'Failed to fetch queue status. Please try again.',
 } as const;
 
 export const SAFE_QUEUE_STATUS_ERRORS = new Set<string>(Object.values(QUEUE_STATUS_ERROR_MESSAGES));
@@ -184,12 +184,12 @@ async function runQueueStatus(
   // Transform coverage data
   const coverage: CoverageStats | null = snapshot.coverage
     ? {
-        total: snapshot.coverage.total,
-        withEmbeddings: snapshot.coverage.withSet,
         coveragePercent:
           snapshot.coverage.total > 0
             ? (snapshot.coverage.withSet / snapshot.coverage.total) * 100
             : 0,
+        total: snapshot.coverage.total,
+        withEmbeddings: snapshot.coverage.withSet,
       }
     : null;
 
@@ -203,20 +203,20 @@ async function runQueueStatus(
   );
 
   deps.logger?.debug('Queue status fetched', {
+    coverage: coverage?.coveragePercent,
     embeddingSetId,
     isProcessing,
-    coverage: coverage?.coveragePercent,
   });
 
   return {
-    embeddingSetId,
     coverage,
-    queueCounts: snapshot.queueCounts,
-    throughput: snapshot.throughput,
+    embeddingSetId,
+    isProcessing,
     lastError: snapshot.lastError,
     latency: snapshot.latency,
-    isProcessing,
+    queueCounts: snapshot.queueCounts,
     statusSummary,
+    throughput: snapshot.throughput,
   };
 }
 
@@ -242,11 +242,9 @@ interface MastraTool {
  */
 export function createQueueStatusTool(deps: QueueStatusToolDependencies): MastraTool {
   return {
-    id: QUEUE_STATUS_TOOL_ID,
     description:
       'Check embedding queue status, coverage statistics, and processing health. ' +
       'Shows how many chunks are embedded, queue activity, and any errors.',
-    inputSchema: QueueStatusInputSchema,
     execute: async (context: ToolContext<QueueStatusInput>) => {
       try {
         return await runQueueStatus(context.context, deps);
@@ -259,6 +257,8 @@ export function createQueueStatusTool(deps: QueueStatusToolDependencies): Mastra
         );
       }
     },
+    id: QUEUE_STATUS_TOOL_ID,
+    inputSchema: QueueStatusInputSchema,
   };
 }
 

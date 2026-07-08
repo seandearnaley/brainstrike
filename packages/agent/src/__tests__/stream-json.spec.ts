@@ -8,12 +8,12 @@ describe('toJsonSafe', () => {
     (error as Error & { extra?: string }).extra = 'details';
 
     const source = {
-      date: new Date('2024-01-01T00:00:00Z'),
       buffer: Buffer.from('data'),
-      typed: new Uint8Array([1, 2, 3]),
+      date: new Date('2024-01-01T00:00:00Z'),
+      error,
       map: new Map([['key', { nested: true }]]),
       set: new Set([1, 2, 3]),
-      error,
+      typed: new Uint8Array([1, 2, 3]),
     };
 
     const result = toJsonSafe(source) as Record<string, unknown>;
@@ -23,7 +23,7 @@ describe('toJsonSafe', () => {
     expect(result['typed']).toMatchObject({ __type: 'Uint8Array' });
     expect(result['map']).toEqual({ __type: 'Map', entries: { key: { nested: true } } });
     expect(result['set']).toEqual({ __type: 'Set', values: [1, 2, 3] });
-    expect(result['error']).toMatchObject({ name: 'Error', message: 'boom', extra: 'details' });
+    expect(result['error']).toMatchObject({ extra: 'details', message: 'boom', name: 'Error' });
   });
 
   it('returns circular references as [Circular]', () => {
@@ -38,13 +38,13 @@ describe('toJsonSafe', () => {
 describe('sanitizeStreamChunk', () => {
   it('clones payloads and usage fields without mutating the original chunk', () => {
     const originalPayload = { map: new Map([['foo', 'bar']]) };
-    const usage = { promptTokens: 1n, completionTokens: 2n };
+    const usage = { completionTokens: 2n, promptTokens: 1n };
 
     const chunk: StreamChunk = {
-      type: 'tool-event',
       name: 'example',
-      status: 'success',
       payload: originalPayload,
+      status: 'success',
+      type: 'tool-event',
       usage,
     } as StreamChunk;
 
@@ -56,8 +56,8 @@ describe('sanitizeStreamChunk', () => {
       map: { __type: 'Map', entries: { foo: 'bar' } },
     });
     expect(sanitizedRecord['usage']).toEqual({
-      promptTokens: '1',
       completionTokens: '2',
+      promptTokens: '1',
     });
 
     // Original structures remain untouched.

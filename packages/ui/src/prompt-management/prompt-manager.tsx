@@ -41,8 +41,8 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
     if (confirm('Are you sure you want to delete this prompt?')) {
       deletePrompt(id);
       toast({
-        title: 'Prompt deleted',
         description: 'The prompt has been permanently removed.',
+        title: 'Prompt deleted',
         variant: 'destructive',
       });
     }
@@ -51,8 +51,8 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
     toast({
-      title: 'Copied to clipboard',
       description: 'Prompt content copied successfully.',
+      title: 'Copied to clipboard',
     });
   };
 
@@ -77,8 +77,8 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
 
       updatePrompt(editingPromptId, promptUpdate);
       toast({
-        title: 'Prompt updated',
         description: 'Your changes have been saved.',
+        title: 'Prompt updated',
       });
     } else {
       // Ensure we have the required fields for a new prompt
@@ -91,27 +91,27 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
         )
       ) {
         toast({
-          title: 'Error',
           description: 'Please fill in all required fields.',
+          title: 'Error',
           variant: 'destructive',
         });
         return;
       }
 
       addPrompt({
-        title: promptUpdate.title,
-        content: promptUpdate.content,
         categoryId: promptUpdate.categoryId,
-        tags: promptUpdate.tags || [],
+        content: promptUpdate.content,
         modelSettings: promptUpdate.modelSettings,
         rating: 0,
+        tags: promptUpdate.tags || [],
+        title: promptUpdate.title,
         ...(promptUpdate.site ? { site: promptUpdate.site } : {}),
         isFavorite: false,
       });
 
       toast({
-        title: 'Prompt created',
         description: 'New prompt has been added to your collection.',
+        title: 'Prompt created',
       });
     }
     setEditingPromptId(null);

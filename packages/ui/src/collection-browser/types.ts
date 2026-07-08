@@ -101,10 +101,10 @@ export interface CollectionBrowserFilters {
  * Default filter state
  */
 export const DEFAULT_FILTERS: CollectionBrowserFilters = {
-  searchQuery: '',
-  nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
   embeddingStatus: 'all',
+  nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
   searchMatchesOnly: false,
+  searchQuery: '',
 };
 
 /**
@@ -147,33 +147,33 @@ export interface NodeTypeConfig {
  * Configuration for each node type
  */
 export const NODE_TYPE_CONFIG: Record<CollectionNodeType, NodeTypeConfig> = {
-  collection: {
-    type: 'collection',
-    label: 'Collection',
-    pluralLabel: 'Collections',
-    icon: 'FolderOpen',
-    color: 'text-blue-500',
-  },
-  file: {
-    type: 'file',
-    label: 'File',
-    pluralLabel: 'Files',
-    icon: 'File',
-    color: 'text-green-500',
-  },
   chunk: {
-    type: 'chunk',
+    color: 'text-orange-500',
+    icon: 'FileText',
     label: 'Chunk',
     pluralLabel: 'Chunks',
-    icon: 'FileText',
-    color: 'text-orange-500',
+    type: 'chunk',
+  },
+  collection: {
+    color: 'text-blue-500',
+    icon: 'FolderOpen',
+    label: 'Collection',
+    pluralLabel: 'Collections',
+    type: 'collection',
   },
   embedding: {
-    type: 'embedding',
+    color: 'text-purple-500',
+    icon: 'Sparkles',
     label: 'Embedding',
     pluralLabel: 'Embeddings',
-    icon: 'Sparkles',
-    color: 'text-purple-500',
+    type: 'embedding',
+  },
+  file: {
+    color: 'text-green-500',
+    icon: 'File',
+    label: 'File',
+    pluralLabel: 'Files',
+    type: 'file',
   },
 };
 
@@ -254,10 +254,10 @@ export interface SearchConfig {
  * Default search configuration
  */
 export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
-  threshold: 0.5,
-  resultLimit: 20,
   distanceMetric: 'cosine',
+  resultLimit: 20,
   retrievalMode: 'hybrid',
+  threshold: 0.5,
 };
 
 /**
@@ -439,39 +439,39 @@ export interface GroupHeaderData {
  */
 export const EMBEDDING_STATUS_CONFIG: Record<EmbeddingStatus | 'all', EmbeddingStatusConfig> = {
   all: {
-    status: 'all',
-    label: 'All Status',
-    icon: 'CircleDot',
     color: 'text-muted-foreground',
-  },
-  pending: {
-    status: 'pending',
-    label: 'Pending',
-    icon: 'Clock',
-    color: 'text-yellow-500',
-  },
-  processing: {
-    status: 'processing',
-    label: 'Processing',
-    icon: 'Loader2',
-    color: 'text-blue-500',
+    icon: 'CircleDot',
+    label: 'All Status',
+    status: 'all',
   },
   complete: {
-    status: 'complete',
-    label: 'Complete',
-    icon: 'CheckCircle',
     color: 'text-green-500',
+    icon: 'CheckCircle',
+    label: 'Complete',
+    status: 'complete',
   },
   failed: {
-    status: 'failed',
-    label: 'Failed',
-    icon: 'XCircle',
     color: 'text-red-500',
+    icon: 'XCircle',
+    label: 'Failed',
+    status: 'failed',
   },
   none: {
-    status: 'none',
-    label: 'No Embedding',
-    icon: 'Circle',
     color: 'text-muted-foreground',
+    icon: 'Circle',
+    label: 'No Embedding',
+    status: 'none',
+  },
+  pending: {
+    color: 'text-yellow-500',
+    icon: 'Clock',
+    label: 'Pending',
+    status: 'pending',
+  },
+  processing: {
+    color: 'text-blue-500',
+    icon: 'Loader2',
+    label: 'Processing',
+    status: 'processing',
   },
 };

@@ -16,16 +16,16 @@ describe('JobQueue Heartbeat', () => {
   it('should fail heartbeat if lease is lost/stolen (single)', async () => {
     // 1. Enqueue a job
     await jq.enqueue({
-      queue: 'heartbeat-test-queue',
       jobType: 'embed_chunk',
       payload: { data: 'foo' },
+      queue: 'heartbeat-test-queue',
     });
 
     // 2. Worker A claims the job
     const jobA = await jq.claim({
+      leaseMs: 1000,
       queue: 'heartbeat-test-queue',
       workerId: 'worker-A',
-      leaseMs: 1000,
     });
     expect(jobA).toBeDefined();
     if (!jobA) {
@@ -40,9 +40,9 @@ describe('JobQueue Heartbeat', () => {
 
     // 4. Worker B claims the job (stolen)
     const jobB = await jq.claim({
+      leaseMs: 1000,
       queue: 'heartbeat-test-queue',
       workerId: 'worker-B',
-      leaseMs: 1000,
     });
     expect(jobB).toBeDefined();
     expect(jobB?.id).toBe(jobA.id);
@@ -50,9 +50,9 @@ describe('JobQueue Heartbeat', () => {
 
     // 5. Worker A attempts to heartbeat
     const result = await jq.heartbeat({
+      extendMs: 1000,
       id: jobA.id,
       leaseToken: jobA.lease_token!,
-      extendMs: 1000,
     });
 
     // 6. Verify heartbeat failed (returned null)
@@ -70,10 +70,10 @@ describe('JobQueue Heartbeat', () => {
     it('should successfully heartbeat multiple jobs', async () => {
       // Enqueue 3 jobs
       for (let i = 0; i < 3; i++) {
-        await jq.enqueue({ queue: 'batch-test', jobType: 'embed_chunk', payload: { i } });
+        await jq.enqueue({ jobType: 'embed_chunk', payload: { i }, queue: 'batch-test' });
       }
 
-      const jobs = await jq.claimMany({ queue: 'batch-test', leaseMs: 10_000, limit: 3 });
+      const jobs = await jq.claimMany({ leaseMs: 10_000, limit: 3, queue: 'batch-test' });
       expect(jobs.length).toBe(3);
 
       const extendMs = 60_000;
@@ -93,10 +93,10 @@ describe('JobQueue Heartbeat', () => {
 
     it('should handle partial success (some leases invalid)', async () => {
       // Enqueue 2 jobs
-      await jq.enqueue({ queue: 'batch-partial', jobType: 'embed_chunk', payload: { id: 1 } });
-      await jq.enqueue({ queue: 'batch-partial', jobType: 'embed_chunk', payload: { id: 2 } });
+      await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 1 }, queue: 'batch-partial' });
+      await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 2 }, queue: 'batch-partial' });
 
-      const jobs = await jq.claimMany({ queue: 'batch-partial', leaseMs: 10_000, limit: 2 });
+      const jobs = await jq.claimMany({ leaseMs: 10_000, limit: 2, queue: 'batch-partial' });
       const [job1, job2] = jobs;
 
       // Invalidate job2 by changing its lease token in DB
@@ -118,8 +118,8 @@ describe('JobQueue Heartbeat', () => {
     });
 
     it('should return empty array if all leases are invalid', async () => {
-      await jq.enqueue({ queue: 'batch-fail', jobType: 'embed_chunk', payload: { id: 1 } });
-      const [job] = await jq.claimMany({ queue: 'batch-fail', leaseMs: 10_000 });
+      await jq.enqueue({ jobType: 'embed_chunk', payload: { id: 1 }, queue: 'batch-fail' });
+      const [job] = await jq.claimMany({ leaseMs: 10_000, queue: 'batch-fail' });
 
       const updated = await jq.heartbeatBatch([{ id: job.id, leaseToken: 'wrong-token' }], 60_000);
       expect(updated).toEqual([]);

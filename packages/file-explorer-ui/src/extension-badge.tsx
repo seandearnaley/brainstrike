@@ -11,13 +11,13 @@ interface ExtensionBadgeProps {
 }
 
 const sizeStyles: Record<ExtensionBadgeSize, { badge: string; label: string }> = {
-  default: {
-    badge: 'max-w-[5rem] px-2 py-0.5',
-    label: 'font-medium text-xs',
-  },
   compact: {
     badge: 'max-w-[4rem] px-1.5 py-0 leading-tight',
     label: 'font-medium text-[9px]',
+  },
+  default: {
+    badge: 'max-w-[5rem] px-2 py-0.5',
+    label: 'font-medium text-xs',
   },
 };
 
@@ -36,9 +36,9 @@ export const ExtensionBadge = React.memo(
         style={
           {
             '--extension-badge-bg': colors.light.bg,
-            '--extension-badge-text': colors.light.text,
             '--extension-badge-dark-bg': colors.dark.bg,
             '--extension-badge-dark-text': colors.dark.text,
+            '--extension-badge-text': colors.light.text,
             backgroundColor: 'var(--extension-badge-bg)',
             color: 'var(--extension-badge-text)',
           } as React.CSSProperties

@@ -50,10 +50,10 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
   },
   schemaDrift: [
     {
+      drizzleGeneratedManifestFinalTables: ['providers', 'models'],
+      drizzleSchemaTables: ['providers', 'models'],
       id: 'provider-model-catalog',
       productionTables: ['providers', 'models'],
-      drizzleSchemaTables: ['providers', 'models'],
-      drizzleGeneratedManifestFinalTables: ['providers', 'models'],
       status: 'schema-and-manifest-reconciled',
     },
   ],

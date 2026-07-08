@@ -180,12 +180,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
   persist(
     (set, get) => ({
       activeThreadIdByResourceId: {},
-      draftRuntimeByThreadId: {},
-      loadStateByResourceId: {},
-      openThreadIdsByResourceId: {},
-      selectedThreadByResourceId: {},
-      threadIdsByResourceId: {},
-      threadsByResourceId: {},
       closeThreadTab: (resourceId: string, threadId: string) => {
         set((state) => {
           const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
@@ -227,13 +221,13 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           set((state) => {
             const threads = mergeThread(state.threadsByResourceId[resourceId] ?? [], thread);
             return {
-              loadStateByResourceId: {
-                ...state.loadStateByResourceId,
-                [resourceId]: { status: 'ready' },
-              },
               activeThreadIdByResourceId: {
                 ...state.activeThreadIdByResourceId,
                 [resourceId]: thread.id,
+              },
+              loadStateByResourceId: {
+                ...state.loadStateByResourceId,
+                [resourceId]: { status: 'ready' },
               },
               openThreadIdsByResourceId: {
                 ...state.openThreadIdsByResourceId,
@@ -259,7 +253,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           set((state) => ({
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
-              [resourceId]: { status: 'error', error: message },
+              [resourceId]: { error: message, status: 'error' },
             },
           }));
           throw error;
@@ -317,6 +311,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           };
         });
       },
+      draftRuntimeByThreadId: {},
       ensureResourceThreads: async (
         repository: AssistantThreadRepository,
         resourceId: string
@@ -389,7 +384,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             set((state) => ({
               loadStateByResourceId: {
                 ...state.loadStateByResourceId,
-                [resourceId]: { status: 'error', error: message },
+                [resourceId]: { error: message, status: 'error' },
               },
             }));
             throw error;
@@ -401,6 +396,8 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         resourceThreadLoadPromises.set(resourceId, loadPromise);
         return loadPromise;
       },
+      loadStateByResourceId: {},
+      openThreadIdsByResourceId: {},
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
           activeThreadIdByResourceId: {
@@ -414,17 +411,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           selectedThreadByResourceId: {
             ...state.selectedThreadByResourceId,
             [resourceId]: threadId,
-          },
-        }));
-      },
-      selectThread: (resourceId: string, threadId: string) => {
-        get().openThreadTab(resourceId, threadId);
-      },
-      setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => {
-        set((state) => ({
-          draftRuntimeByThreadId: {
-            ...state.draftRuntimeByThreadId,
-            [threadId]: normalizeDraftRuntime(config),
           },
         }));
       },
@@ -447,6 +433,20 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
       },
+      selectedThreadByResourceId: {},
+      selectThread: (resourceId: string, threadId: string) => {
+        get().openThreadTab(resourceId, threadId);
+      },
+      setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => {
+        set((state) => ({
+          draftRuntimeByThreadId: {
+            ...state.draftRuntimeByThreadId,
+            [threadId]: normalizeDraftRuntime(config),
+          },
+        }));
+      },
+      threadIdsByResourceId: {},
+      threadsByResourceId: {},
       updateThreadMetadata: async (
         repository: AssistantThreadRepository,
         resourceId: string,

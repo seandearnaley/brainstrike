@@ -145,7 +145,7 @@ export function pruneStaleEngineUpgradeBackups(
     }
     try {
       if (now - statSync(full).mtimeMs > retentionMs) {
-        rmSync(full, { recursive: true, force: true });
+        rmSync(full, { force: true, recursive: true });
         pruned.push(full);
       }
     } catch {

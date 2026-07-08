@@ -7,38 +7,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock data
 const mockCollectionRows = [
   {
-    id: 'set-1',
-    modelKey: 'openai',
-    modelId: 'text-embedding-3-small',
+    category: null,
+    chunkCount: '100',
+    createdAt: '2024-01-01T00:00:00Z',
+    description: null,
     dimensions: 1536,
     distance: 'cosine',
-    createdAt: '2024-01-01T00:00:00Z',
-    name: 'Test Collection',
-    description: null,
-    tags: null,
-    category: null,
-    fileCount: '10',
-    chunkCount: '100',
     embeddingCount: '50',
+    fileCount: '10',
+    id: 'set-1',
+    modelId: 'text-embedding-3-small',
+    modelKey: 'openai',
+    name: 'Test Collection',
     systemRole: null,
+    tags: null,
   },
 ];
 
 const mockLiveQueryResult = {
-  rows: mockCollectionRows,
-  loading: false,
   error: null,
+  loading: false,
   refresh: vi.fn(),
+  rows: mockCollectionRows,
 };
 
 // Mock store state with proper typing
 const mockStoreState = {
-  isImporting: false,
-  isEmbeddingActive: false,
-  isEmbeddingQueueActive: false,
-  isJobQueueActive: false,
   activeEmbeddingSetId: null as string | null,
-  schemaVerified: true,
   cachedCollections: [] as Array<{
     id: string;
     modelKey: string;
@@ -55,26 +50,31 @@ const mockStoreState = {
     embeddingCount: number;
   }>,
   cachedFileData: null,
-  setIsImporting: vi.fn(),
-  setIsEmbeddingQueueActive: vi.fn(),
-  setIsJobQueueActive: vi.fn(),
+  isEmbeddingActive: false,
+  isEmbeddingQueueActive: false,
+  isImporting: false,
+  isJobQueueActive: false,
+  removeCachedCollection: vi.fn((collectionId: string) => {
+    mockStoreState.cachedCollections = mockStoreState.cachedCollections.filter(
+      (collection) => collection.id !== collectionId
+    );
+  }),
+  schemaVerified: true,
   setActiveEmbeddingSetId: vi.fn(),
   setCachedCollections: vi.fn((collections) => {
     mockStoreState.cachedCollections = collections;
   }),
+  setCachedFileData: vi.fn(),
+  setIsEmbeddingQueueActive: vi.fn(),
+  setIsImporting: vi.fn(),
+  setIsJobQueueActive: vi.fn(),
+  setSchemaVerified: vi.fn(),
   upsertCachedCollection: vi.fn((collection) => {
     mockStoreState.cachedCollections = [
       collection,
       ...mockStoreState.cachedCollections.filter((candidate) => candidate.id !== collection.id),
     ];
   }),
-  removeCachedCollection: vi.fn((collectionId: string) => {
-    mockStoreState.cachedCollections = mockStoreState.cachedCollections.filter(
-      (collection) => collection.id !== collectionId
-    );
-  }),
-  setCachedFileData: vi.fn(),
-  setSchemaVerified: vi.fn(),
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -128,8 +128,8 @@ describe('useCollections', () => {
 
       expect(usePGliteLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
-          mode: 'incremental',
           key: 'id',
+          mode: 'incremental',
         })
       );
     });
@@ -219,19 +219,19 @@ describe('useCollections', () => {
       mockStoreState.isImporting = true;
       mockStoreState.cachedCollections = [
         {
-          id: 'cached-1',
-          modelKey: 'cached',
-          modelId: 'cached-model',
+          category: null,
+          chunkCount: 50,
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
           dimensions: 768,
           distance: 'cosine' as const,
-          createdAt: '2024-01-01T00:00:00Z',
-          name: 'Cached Collection',
-          description: null,
-          tags: null,
-          category: null,
-          fileCount: 5,
-          chunkCount: 50,
           embeddingCount: 25,
+          fileCount: 5,
+          id: 'cached-1',
+          modelId: 'cached-model',
+          modelKey: 'cached',
+          name: 'Cached Collection',
+          tags: null,
         },
       ];
 
@@ -257,19 +257,19 @@ describe('useCollections', () => {
     it('prefers live collections over stale cached collections while loading', () => {
       mockStoreState.cachedCollections = [
         {
-          id: 'set-1',
-          modelKey: 'openai',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: 2,
+          createdAt: '2024-01-01T00:00:00Z',
+          description: 'stale',
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2024-01-01T00:00:00Z',
-          name: 'Stale Cached Name',
-          description: 'stale',
-          tags: null,
-          category: null,
-          fileCount: 1,
-          chunkCount: 2,
           embeddingCount: 3,
+          fileCount: 1,
+          id: 'set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai',
+          name: 'Stale Cached Name',
+          tags: null,
         },
       ];
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
@@ -281,11 +281,11 @@ describe('useCollections', () => {
 
       expect(result.current.collections).toEqual([
         expect.objectContaining({
-          id: 'set-1',
-          name: 'Test Collection',
-          fileCount: 10,
           chunkCount: 100,
           embeddingCount: 50,
+          fileCount: 10,
+          id: 'set-1',
+          name: 'Test Collection',
         }),
       ]);
     });
@@ -315,19 +315,19 @@ describe('useCollections', () => {
     it('does not rewrite the cached collection snapshot when the live rows already match', async () => {
       mockStoreState.cachedCollections = [
         {
-          id: 'set-1',
-          modelKey: 'openai',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: 100,
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2024-01-01T00:00:00Z',
-          name: 'Test Collection',
-          description: null,
-          tags: null,
-          category: null,
-          fileCount: 10,
-          chunkCount: 100,
           embeddingCount: 50,
+          fileCount: 10,
+          id: 'set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai',
+          name: 'Test Collection',
+          tags: null,
         },
       ];
 
@@ -372,7 +372,7 @@ describe('useCollections', () => {
       await act(async () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:queue-drained', {
-            detail: { queue: 'embeddings', embeddingSetId: 'set-1' },
+            detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
           })
         );
         await Promise.resolve();
@@ -398,23 +398,23 @@ describe('useCollections', () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
             detail: {
-              id: 'set-2',
-              reason: 'created',
               collection: {
-                id: 'set-2',
-                modelKey: 'openai',
-                modelId: 'text-embedding-3-small',
+                category: null,
+                chunkCount: 0,
+                createdAt: '2024-01-02T00:00:00Z',
+                description: null,
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2024-01-02T00:00:00Z',
-                name: 'Created Collection',
-                description: null,
-                tags: null,
-                category: null,
-                fileCount: 0,
-                chunkCount: 0,
                 embeddingCount: 0,
+                fileCount: 0,
+                id: 'set-2',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai',
+                name: 'Created Collection',
+                tags: null,
               },
+              id: 'set-2',
+              reason: 'created',
             },
           })
         );
@@ -490,23 +490,23 @@ describe('useCollections', () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
             detail: {
-              id: 'set-optimistic',
-              reason: 'created',
               collection: {
-                id: 'set-optimistic',
-                modelKey: 'openai',
-                modelId: 'text-embedding-3-small',
+                category: null,
+                chunkCount: 0,
+                createdAt: '2024-01-03T00:00:00Z',
+                description: null,
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2024-01-03T00:00:00Z',
-                name: 'Optimistic Collection',
-                description: null,
-                tags: null,
-                category: null,
-                fileCount: 0,
-                chunkCount: 0,
                 embeddingCount: 0,
+                fileCount: 0,
+                id: 'set-optimistic',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai',
+                name: 'Optimistic Collection',
+                tags: null,
               },
+              id: 'set-optimistic',
+              reason: 'created',
             },
           })
         );
@@ -539,23 +539,23 @@ describe('useCollections', () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
             detail: {
-              id: 'set-created',
-              reason: 'created',
               collection: {
-                id: 'set-created',
-                modelKey: 'openai',
-                modelId: 'text-embedding-3-small',
+                category: null,
+                chunkCount: 0,
+                createdAt: '2024-01-05T00:00:00Z',
+                description: null,
                 dimensions: 1536,
                 distance: 'cosine',
-                createdAt: '2024-01-05T00:00:00Z',
-                name: 'Created Without Tab Switch',
-                description: null,
-                tags: null,
-                category: null,
-                fileCount: 0,
-                chunkCount: 0,
                 embeddingCount: 0,
+                fileCount: 0,
+                id: 'set-created',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai',
+                name: 'Created Without Tab Switch',
+                tags: null,
               },
+              id: 'set-created',
+              reason: 'created',
             },
           })
         );
@@ -574,19 +574,19 @@ describe('useCollections', () => {
     it('does not resurface a deleted collection from stale live-query rows before refresh catches up', async () => {
       mockStoreState.cachedCollections = [
         {
-          id: 'set-1',
-          modelKey: 'openai',
-          modelId: 'text-embedding-3-small',
+          category: null,
+          chunkCount: 100,
+          createdAt: '2024-01-01T00:00:00Z',
+          description: null,
           dimensions: 1536,
           distance: 'cosine',
-          createdAt: '2024-01-01T00:00:00Z',
-          name: 'Test Collection',
-          description: null,
-          tags: null,
-          category: null,
-          fileCount: 10,
-          chunkCount: 100,
           embeddingCount: 50,
+          fileCount: 10,
+          id: 'set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai',
+          name: 'Test Collection',
+          tags: null,
         },
       ];
       mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
@@ -636,8 +636,8 @@ describe('useCollections', () => {
         expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({
-              id: 'set-1',
               fileCount: 10,
+              id: 'set-1',
             }),
           ])
         );
@@ -702,8 +702,8 @@ describe('useCollections', () => {
         rows: [
           {
             ...mockCollectionRows[0],
-            fileCount: null as unknown as string,
             chunkCount: undefined as unknown as string,
+            fileCount: null as unknown as string,
           },
         ],
       });

@@ -131,17 +131,17 @@ export class LocalLanguageModel implements LanguageModelV2 {
     return {
       content: buildV2ContentFromResult(result),
       finishReason: mapFinishReason(result.finishReason),
-      usage: buildV2UsageFromResult(result),
-      warnings,
       request: {
         body: {
-          messages,
           maxNewTokens: generateOptions.maxNewTokens,
+          messages,
           temperature: generateOptions.temperature,
-          topP: generateOptions.topP,
           topK: generateOptions.topK,
+          topP: generateOptions.topP,
         },
       },
+      usage: buildV2UsageFromResult(result),
+      warnings,
     };
   }
 
@@ -187,18 +187,18 @@ export class LocalLanguageModel implements LanguageModelV2 {
     for (const item of result.content) {
       if (item.type === 'reasoning') {
         const reasoningId = generateStreamPartId();
-        parts.push({ type: 'reasoning-start', id: reasoningId });
+        parts.push({ id: reasoningId, type: 'reasoning-start' });
         for (const delta of segmentTextForStream(item.text)) {
-          parts.push({ type: 'reasoning-delta', id: reasoningId, delta });
+          parts.push({ delta, id: reasoningId, type: 'reasoning-delta' });
         }
-        parts.push({ type: 'reasoning-end', id: reasoningId });
+        parts.push({ id: reasoningId, type: 'reasoning-end' });
       } else if (item.type === 'text') {
         const textId = generateStreamPartId();
-        parts.push({ type: 'text-start', id: textId });
+        parts.push({ id: textId, type: 'text-start' });
         for (const delta of segmentTextForStream(item.text)) {
-          parts.push({ type: 'text-delta', id: textId, delta });
+          parts.push({ delta, id: textId, type: 'text-delta' });
         }
-        parts.push({ type: 'text-end', id: textId });
+        parts.push({ id: textId, type: 'text-end' });
       } else if (item.type === 'tool-call') {
         // For tool calls, we emit the complete tool call
         parts.push(item);
@@ -207,9 +207,9 @@ export class LocalLanguageModel implements LanguageModelV2 {
 
     // Add finish part
     parts.push({
+      finishReason: result.finishReason,
       type: 'finish',
       usage: result.usage,
-      finishReason: result.finishReason,
     });
 
     // Create a ReadableStream from the parts

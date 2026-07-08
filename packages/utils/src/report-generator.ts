@@ -128,10 +128,10 @@ function createFileNodeBase(
   return {
     ...node,
     depth,
-    selectionState: 'unchecked',
-    rootFolderId,
-    isSymbolicLink: false,
     isDepthTruncated: false,
+    isSymbolicLink: false,
+    rootFolderId,
+    selectionState: 'unchecked',
   };
 }
 
@@ -140,11 +140,11 @@ function createChildDirectoryHandle(
   parentHandle: DirectoryHandle
 ): DirectoryHandle {
   return {
-    path: node.path,
-    name: node.name,
-    kind: 'directory',
-    platform: parentHandle.platform,
     _internal: node.handle,
+    kind: 'directory',
+    name: node.name,
+    path: node.path,
+    platform: parentHandle.platform,
   };
 }
 
@@ -181,7 +181,7 @@ function clampRange(range: ContextLineRange, totalLines: number): ContextLineRan
   const maxStart = Math.max(safeTotalLines - 1, 0);
   const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
   const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
-  return { ...range, startLine, endLine };
+  return { ...range, endLine, startLine };
 }
 
 export function normalizeContextLineRanges(
@@ -297,9 +297,9 @@ function generateContextContent(
 ${Array.from(selectedFiles)
   .map((filePath) =>
     buildFileContextContent({
-      filePath,
       displayPath: formatContextFilePath(filePath, options.rootDisplayInfoById),
       fileContents,
+      filePath,
       ...(options.selectedLineRangesByFile
         ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
         : {}),
@@ -401,9 +401,9 @@ async function readFullFileTreeFromAdapter(
 
   const config: FileTreeProcessingConfig = {
     depth,
+    maxDepth,
     rootFolderId,
     visitedPaths: newVisitedPaths,
-    maxDepth,
   };
 
   try {
@@ -425,9 +425,9 @@ async function readFullFileTreeFromAdapter(
     return entries;
   } catch (error) {
     logger.warn('Failed to read directory contents, returning empty node list', {
-      path: directoryHandle.path,
       depth,
       error,
+      path: directoryHandle.path,
     });
     return [];
   }
@@ -442,10 +442,10 @@ function resolveProjectTreeFilterMode(
   const useViewFilters = options.projectTreeUsesViewFilters ?? false;
 
   if (!useViewFilters) {
-    return { includeFilters: [], excludeFilters: [], useRegex: false };
+    return { excludeFilters: [], includeFilters: [], useRegex: false };
   }
 
-  return { includeFilters, excludeFilters, useRegex };
+  return { excludeFilters, includeFilters, useRegex };
 }
 
 // Platform-agnostic version that works with our adapter pattern

@@ -7,16 +7,16 @@ import type { InlineConfig } from 'vitest/node';
 //   export default defineConfig({ test: { ...testBase, /* package overrides */ } });
 
 export const testBase: InlineConfig = {
-  globals: true,
-  mockReset: true,
-  restoreMocks: true,
   clearMocks: true,
-  testTimeout: 10_000,
-  hookTimeout: 15_000,
-  pool: 'threads',
-  // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-  maxWorkers: process.env['CI'] ? '50%' : '100%',
   // Default to happy-dom for React unit/integration tests; override per package if needed
   environment: 'happy-dom',
+  globals: true,
+  hookTimeout: 15_000,
+  // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+  maxWorkers: process.env['CI'] ? '50%' : '100%',
+  mockReset: true,
+  pool: 'threads',
+  restoreMocks: true,
   setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+  testTimeout: 10_000,
 };

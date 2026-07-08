@@ -82,7 +82,7 @@ export function computeCost(
     (usage.inputTokens * pricing.inputPerMTok + usage.outputTokens * pricing.outputPerMTok) /
     1_000_000;
 
-  return { available: true, usdAmount, provenance: 'exact-pricing' };
+  return { available: true, provenance: 'exact-pricing', usdAmount };
 }
 
 /**
@@ -100,9 +100,9 @@ export function formatUsdCost(amount: number): string {
   const minimumFractionDigits = 2;
   const maximumFractionDigits = amount !== 0 && Math.abs(amount) < 0.01 ? 6 : 2;
   return new Intl.NumberFormat('en-US', {
-    style: 'currency',
     currency: 'USD',
-    minimumFractionDigits,
     maximumFractionDigits,
+    minimumFractionDigits,
+    style: 'currency',
   }).format(amount);
 }

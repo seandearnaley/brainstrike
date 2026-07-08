@@ -39,10 +39,10 @@ export interface LocalLlmHostRequestOptions {
 }
 
 export interface LocalLlmHostClient {
-  generate(
+  generate: (
     request: LocalLlmHostGenerateRequest,
     options?: LocalLlmHostRequestOptions
-  ): Promise<LocalLlmGenerationResult>;
+  ) => Promise<LocalLlmGenerationResult>;
   /** Load (and download if needed) the model ahead of the first generation. */
-  warmup(modelId: string, options?: LocalLlmHostRequestOptions): Promise<void>;
+  warmup: (modelId: string, options?: LocalLlmHostRequestOptions) => Promise<void>;
 }

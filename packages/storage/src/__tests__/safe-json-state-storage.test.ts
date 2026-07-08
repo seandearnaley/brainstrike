@@ -39,8 +39,8 @@ describe('createSafeJsonStateStorage', () => {
   it('falls back to migrateOnGet when localStorage is empty', () => {
     const migrated = JSON.stringify({ migrated: true });
     const storage = createSafeJsonStateStorage({
-      scope: 'test',
       migrateOnGet: () => migrated,
+      scope: 'test',
     });
     expect(storage.getItem(KEY)).toBe(migrated);
   });
@@ -48,8 +48,8 @@ describe('createSafeJsonStateStorage', () => {
   it('persists a valid migrateOnGet result to the current key', () => {
     const migrated = JSON.stringify({ migrated: true });
     const storage = createSafeJsonStateStorage({
-      scope: 'test',
       migrateOnGet: () => migrated,
+      scope: 'test',
     });
     expect(storage.getItem(KEY)).toBe(migrated);
     expect(localStorage.getItem(KEY)).toBe(migrated);
@@ -63,8 +63,8 @@ describe('createSafeJsonStateStorage', () => {
     localStorage.setItem(KEY, '{not valid json');
     const migrated = JSON.stringify({ migrated: 'should-not-surface' });
     const storage = createSafeJsonStateStorage({
-      scope: 'test',
       migrateOnGet: () => migrated,
+      scope: 'test',
     });
     expect(storage.getItem(KEY)).toBeNull();
     // Current key was evicted by validateOrEvictJson
@@ -73,8 +73,8 @@ describe('createSafeJsonStateStorage', () => {
 
   it('drops a migrateOnGet result that is not valid JSON', () => {
     const storage = createSafeJsonStateStorage({
-      scope: 'test',
       migrateOnGet: () => 'not-json',
+      scope: 'test',
     });
     expect(storage.getItem(KEY)).toBeNull();
   });

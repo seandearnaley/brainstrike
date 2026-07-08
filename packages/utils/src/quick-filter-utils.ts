@@ -20,6 +20,6 @@ export function parseFilterString(filter: string): FilterPatterns {
       }
       return acc;
     },
-    { includes: [], excludes: [] } as FilterPatterns
+    { excludes: [], includes: [] } as FilterPatterns
   );
 }

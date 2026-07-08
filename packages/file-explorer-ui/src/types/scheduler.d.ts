@@ -10,14 +10,14 @@ interface Scheduler {
    *
    * @see https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask
    */
-  postTask?<T>(callback: () => T | Promise<T>, options?: SchedulerPostTaskOptions): Promise<T>;
+  postTask?: <T>(callback: () => T | Promise<T>, options?: SchedulerPostTaskOptions) => Promise<T>;
   /**
    * Yields control to the main thread, allowing the browser to run other tasks.
    * Returns a promise that resolves when it's the task's turn to run again.
    *
    * @see https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/yield
    */
-  yield?(): Promise<void>;
+  yield?: () => Promise<void>;
 }
 
 interface SchedulerPostTaskOptions {

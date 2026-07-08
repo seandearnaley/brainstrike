@@ -11,11 +11,11 @@ function createGroup(
   serverName?: string
 ): ToolGroup {
   return {
+    enabledCount: tools.filter((t) => t.enabled).length,
     id,
     label,
     source,
     tools,
-    enabledCount: tools.filter((t) => t.enabled).length,
     ...(serverName && { serverName }),
   };
 }

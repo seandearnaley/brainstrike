@@ -5,11 +5,11 @@ import { ElectronFileRecordRepository } from '../src/repositories/electron-file-
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
   return {
+    createdAt: overrides.createdAt ?? now,
     id: overrides.id ?? `id-${Math.random().toString(36).slice(2)}`,
     name: overrides.name ?? 'test.txt',
     path: overrides.path ?? '/tmp/test.txt',
     size: overrides.size ?? 1,
-    createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     ...overrides,
   };
@@ -23,7 +23,7 @@ describe('ElectronFileRecordRepository', () => {
   beforeEach(() => {
     query = vi.fn().mockResolvedValue({ rows: [] });
     exec = vi.fn().mockResolvedValue(undefined);
-    repo = new ElectronFileRecordRepository({ query, exec });
+    repo = new ElectronFileRecordRepository({ exec, query });
   });
 
   it('create uses correct SQL', async () => {
@@ -67,11 +67,11 @@ describe('ElectronFileRecordRepository', () => {
     query.mockResolvedValueOnce({
       rows: [
         {
+          created_at: record.createdAt,
           id: record.id,
           name: record.name,
           path: record.path,
           size: record.size,
-          created_at: record.createdAt,
           updated_at: record.updatedAt,
         },
       ],
@@ -87,19 +87,19 @@ describe('ElectronFileRecordRepository', () => {
     query.mockResolvedValueOnce({
       rows: [
         {
+          created_at: r1.createdAt,
           id: r1.id,
           name: r1.name,
           path: r1.path,
           size: r1.size,
-          created_at: r1.createdAt,
           updated_at: r1.updatedAt,
         },
         {
+          created_at: r2.createdAt,
           id: r2.id,
           name: r2.name,
           path: r2.path,
           size: r2.size,
-          created_at: r2.createdAt,
           updated_at: r2.updatedAt,
         },
       ],
@@ -115,19 +115,19 @@ describe('ElectronFileRecordRepository', () => {
     query.mockResolvedValueOnce({
       rows: [
         {
+          created_at: r1.createdAt,
           id: r1.id,
           name: r1.name,
           path: r1.path,
           size: r1.size,
-          created_at: r1.createdAt,
           updated_at: r1.updatedAt,
         },
         {
+          created_at: r2.createdAt,
           id: r2.id,
           name: r2.name,
           path: r2.path,
           size: r2.size,
-          created_at: r2.createdAt,
           updated_at: r2.updatedAt,
         },
       ],
@@ -143,7 +143,7 @@ describe('ElectronFileRecordRepository', () => {
   });
 
   it('update generates proper SQL', async () => {
-    await repo.update('123', { name: 'new', createdAt: 'd1' });
+    await repo.update('123', { createdAt: 'd1', name: 'new' });
     expect(query).toHaveBeenCalledWith(
       'UPDATE file_records SET name = $1, created_at = $2 WHERE id = $3',
       ['new', 'd1', '123']

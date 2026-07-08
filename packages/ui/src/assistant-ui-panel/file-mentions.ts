@@ -66,8 +66,8 @@ export function buildFileMentionAdapter(
 ): TriggerAdapter {
   const items: MentionTriggerItem[] = files.map((file) => ({
     id: file.id,
-    type: 'file',
     label: file.label,
+    type: 'file',
   }));
   return {
     categories() {

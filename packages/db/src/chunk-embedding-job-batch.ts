@@ -63,18 +63,18 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
       );
     }
     return {
-      queue: 'embeddings',
+      dedupeKey: buildDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
       jobType: 'embed_chunk',
       payload: {
         chunkId,
-        fileRecordId: args.fileRecordId,
+        dimensionParameter,
         embeddingSetId,
         expectedDimension: args.targetDimension,
+        fileRecordId: args.fileRecordId,
         modelKey,
         provider,
-        dimensionParameter,
       },
-      dedupeKey: buildDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
+      queue: 'embeddings',
     };
   });
 }

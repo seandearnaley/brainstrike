@@ -1,12 +1,9 @@
+import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import {
-  getRequiredOutputPaths,
-  shouldBuildDesktopDevDeps,
-} from '../ensure-desktop-dev-deps.mjs';
+import { getRequiredOutputPaths, shouldBuildDesktopDevDeps } from '../ensure-desktop-dev-deps.mjs';
 
 test('resolves desktop dev dependency outputs from the repository root', () => {
   const repoRoot = path.join(tmpdir(), 'brainstrike-root');

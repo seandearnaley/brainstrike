@@ -45,14 +45,14 @@ export async function runSlashCommand(
     outcome = await command.run(context);
   } catch (error) {
     outcome = {
-      ok: false,
       error: error instanceof Error ? error.message : 'Command failed unexpectedly',
+      ok: false,
     };
   }
   if (outcome.ok) {
     return;
   }
   const description = outcome.error ?? `"${command.label}" could not be completed.`;
-  deps.logger.error('Slash command failed', { id: command.id, description });
-  deps.toast({ variant: 'destructive', title: 'Command failed', description });
+  deps.logger.error('Slash command failed', { description, id: command.id });
+  deps.toast({ description, title: 'Command failed', variant: 'destructive' });
 }

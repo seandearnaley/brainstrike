@@ -15,14 +15,14 @@ describe('JobQueue', () => {
   it('enqueues and claims a job', async () => {
     const queue = new JobQueue(db);
     const job = await queue.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: { chunkId: 'c1' },
+      queue: 'embeddings',
     });
     expect(job.id).toBeTruthy();
     expect(job.state).toBe('queued');
 
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
     expect(claimed).not.toBeNull();
     expect(claimed?.id).toBe(job.id);
     expect(claimed?.state).toBe('running');
@@ -33,9 +33,9 @@ describe('JobQueue', () => {
     const queue = new JobQueue(db);
 
     const job = await queue.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: { chunkId: 'chunk-indexed-write' },
+      queue: 'embeddings',
     });
     expect(job.chunk_id).toBe('chunk-indexed-write');
 
@@ -45,23 +45,23 @@ describe('JobQueue', () => {
     );
     expect(result.rows).toEqual([{ chunk_id: 'chunk-indexed-write' }]);
 
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
     expect(claimed?.chunk_id).toBe('chunk-indexed-write');
   });
 
   it('heartbeat extends lease', async () => {
     const queue = new JobQueue(db);
-    const _job = await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 100 });
+    const _job = await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
+    const claimed = await queue.claim({ leaseMs: 100, queue: 'embeddings' });
     expect(claimed).not.toBeNull();
     const leaseToken = claimed?.lease_token as string;
 
     expect(claimed?.leasedUntil).toBeTruthy();
     const before = claimed?.leasedUntil as string;
     const hb = await queue.heartbeat({
+      extendMs: 2000,
       id: (claimed?.id as string) ?? '',
       leaseToken,
-      extendMs: 2000,
     });
     expect(hb).not.toBeNull();
     const after = hb?.leasedUntil as string;
@@ -70,8 +70,8 @@ describe('JobQueue', () => {
 
   it('complete transitions state to succeeded', async () => {
     const queue = new JobQueue(db);
-    await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 1000 });
+    await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
+    const claimed = await queue.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(claimed).not.toBeNull();
     const leaseToken = claimed?.lease_token as string;
     const done = await queue.complete({ id: (claimed?.id as string) ?? '', leaseToken });
@@ -81,15 +81,15 @@ describe('JobQueue', () => {
 
   it('fail requeues with backoff until max attempts then fails', async () => {
     const queue = new JobQueue(db, { maxAttempts: 3 });
-    await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: {} });
+    await queue.enqueue({ jobType: 'embed_chunk', payload: {}, queue: 'embeddings' });
 
     // First claim
-    let c = await queue.claim({ queue: 'embeddings', leaseMs: 1000 });
+    let c = await queue.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(c).not.toBeNull();
     let f = await queue.fail({
+      error: 'boom',
       id: (c?.id as string) ?? '',
       leaseToken: (c?.lease_token as string) ?? '',
-      error: 'boom',
     });
     expect(f).not.toBeNull();
     expect(f?.state).toBe('queued');
@@ -97,15 +97,15 @@ describe('JobQueue', () => {
 
     // Claim again using a future timestamp to bypass backoff scheduling
     c = await queue.claim({
-      queue: 'embeddings',
       leaseMs: 1000,
       now: new Date('2100-01-01').toISOString(),
+      queue: 'embeddings',
     });
     expect(c).not.toBeNull();
     f = await queue.fail({
+      error: 'boom2',
       id: (c?.id as string) ?? '',
       leaseToken: (c?.lease_token as string) ?? '',
-      error: 'boom2',
     });
     expect(f).not.toBeNull();
     expect(f?.state).toBe('queued');
@@ -113,15 +113,15 @@ describe('JobQueue', () => {
 
     // Final claim and fail to reach max
     c = await queue.claim({
-      queue: 'embeddings',
       leaseMs: 1000,
       now: new Date('2100-01-01').toISOString(),
+      queue: 'embeddings',
     });
     expect(c).not.toBeNull();
     f = await queue.fail({
+      error: 'boom3',
       id: (c?.id as string) ?? '',
       leaseToken: (c?.lease_token as string) ?? '',
-      error: 'boom3',
     });
     expect(f).not.toBeNull();
     expect(f?.state).toBe('failed');
@@ -131,21 +131,21 @@ describe('JobQueue', () => {
   it('dedupe prevents duplicate active jobs for same key', async () => {
     const queue = new JobQueue(db);
     const one = await queue.enqueue({
-      queue: 'embeddings',
+      dedupeKey: 'A:SET1:HASH1',
       jobType: 'embed_chunk',
       payload: { chunkId: 'A' },
-      dedupeKey: 'A:SET1:HASH1',
+      queue: 'embeddings',
     });
     const two = await queue.enqueue({
-      queue: 'embeddings',
+      dedupeKey: 'A:SET1:HASH1',
       jobType: 'embed_chunk',
       payload: { chunkId: 'A' },
-      dedupeKey: 'A:SET1:HASH1',
+      queue: 'embeddings',
     });
     expect(two.id).toBe(one.id);
 
     // Once first succeeds, second enqueue can create a fresh job
-    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 1000 });
+    const claimed = await queue.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(claimed?.id).toBe(one.id);
     await queue.complete({
       id: (claimed?.id as string) ?? '',
@@ -153,20 +153,20 @@ describe('JobQueue', () => {
     });
 
     const three = await queue.enqueue({
-      queue: 'embeddings',
+      dedupeKey: 'A:SET1:HASH1',
       jobType: 'embed_chunk',
       payload: { chunkId: 'A' },
-      dedupeKey: 'A:SET1:HASH1',
+      queue: 'embeddings',
     });
     expect(three.id).not.toBe(one.id);
   });
 
   it('claims different jobs for consecutive calls', async () => {
     const queue = new JobQueue(db);
-    await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: { chunkId: 'X' } });
-    await queue.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: { chunkId: 'Y' } });
-    const a = await queue.claim({ queue: 'embeddings', leaseMs: 1000 });
-    const b = await queue.claim({ queue: 'embeddings', leaseMs: 1000 });
+    await queue.enqueue({ jobType: 'embed_chunk', payload: { chunkId: 'X' }, queue: 'embeddings' });
+    await queue.enqueue({ jobType: 'embed_chunk', payload: { chunkId: 'Y' }, queue: 'embeddings' });
+    const a = await queue.claim({ leaseMs: 1000, queue: 'embeddings' });
+    const b = await queue.claim({ leaseMs: 1000, queue: 'embeddings' });
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     expect((a?.id as string) ?? '').not.toBe((b?.id as string) ?? '');

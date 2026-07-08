@@ -6,7 +6,7 @@ const logger = createLogger('AssistantWorkspaceRoots');
 
 /** Minimal DB surface for loading roots — structural so it is trivially mockable. */
 export interface WorkspaceRootsQueryable {
-  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
+  query: <T>(sql: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
 }
 
 interface RootRow {
@@ -25,7 +25,7 @@ function normalizeRoot(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot | null 
   const resolvedPath = path.resolve(rootPath);
   const displayName = root.displayName?.trim() || path.basename(resolvedPath) || resolvedPath;
   const rootId = root.rootId?.trim() || resolvedPath;
-  return { rootId, displayName, path: resolvedPath };
+  return { displayName, path: resolvedPath, rootId };
 }
 
 /**
@@ -45,7 +45,7 @@ export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtime
   const single = runtimeData?.workspaceRootPath?.trim();
   if (single && path.isAbsolute(single)) {
     const resolved = path.resolve(single);
-    return [{ rootId: resolved, displayName: path.basename(resolved) || resolved, path: resolved }];
+    return [{ displayName: path.basename(resolved) || resolved, path: resolved, rootId: resolved }];
   }
   return [];
 }
@@ -128,9 +128,9 @@ export async function loadWorkspaceRootsFromDatabase(
   return result.rows
     .map((row) =>
       normalizeRoot({
-        rootId: row.id,
         displayName: row.displayName ?? '',
         path: row.path ?? '',
+        rootId: row.id,
       })
     )
     .filter((root): root is RuntimeWorkspaceRoot => root !== null);

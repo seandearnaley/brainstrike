@@ -63,7 +63,10 @@ function createEvidence(overrides = {}) {
     fatalLogMatches: [],
     requiredDevice: 'webgpu',
     roots: ['/workspace/root'],
-    samples: [createSnapshot({ elapsedMs: 0, embedded: 0 }), createSnapshot({ elapsedMs: 10_000, embedded: 100 })],
+    samples: [
+      createSnapshot({ elapsedMs: 0, embedded: 0 }),
+      createSnapshot({ elapsedMs: 10_000, embedded: 100 }),
+    ],
     ...overrides,
   };
 }
@@ -120,9 +123,12 @@ test('analyzeWorkspaceIndexEvidence rejects fallback-applied runtime metadata', 
 test('analyzeWorkspaceIndexEvidence rejects fatal log matches', () => {
   assert.throws(
     () =>
-      analyzeWorkspaceIndexEvidence(createEvidence({ fatalLogMatches: ['DB host request timed out'] }), {
-        requireDevice: 'webgpu',
-      }),
+      analyzeWorkspaceIndexEvidence(
+        createEvidence({ fatalLogMatches: ['DB host request timed out'] }),
+        {
+          requireDevice: 'webgpu',
+        }
+      ),
     /fatal log patterns/
   );
 });

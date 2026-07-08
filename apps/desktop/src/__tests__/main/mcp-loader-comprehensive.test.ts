@@ -40,8 +40,8 @@ vi.mock('node:fs/promises', () => ({
   default: {
     mkdir: vi.fn(),
     readFile: vi.fn(),
-    writeFile: vi.fn(),
     unlink: vi.fn(),
+    writeFile: vi.fn(),
   },
 }));
 
@@ -89,11 +89,11 @@ describe('mcp-loader comprehensive tests', () => {
       const json = JSON.stringify({
         servers: [
           {
-            transport: 'stdio',
-            name: 'test-server',
-            command: 'node',
             args: ['server.js'],
+            command: 'node',
             env: { NODE_ENV: 'test' },
+            name: 'test-server',
+            transport: 'stdio',
           },
         ],
       });
@@ -101,11 +101,11 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(json);
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]).toMatchObject({
-        transport: 'stdio',
-        name: 'test-server',
-        command: 'node',
         args: ['server.js'],
+        command: 'node',
         env: { NODE_ENV: 'test' },
+        name: 'test-server',
+        transport: 'stdio',
       });
     });
 
@@ -113,10 +113,10 @@ describe('mcp-loader comprehensive tests', () => {
       const json = JSON.stringify({
         servers: [
           {
-            transport: 'sse',
-            name: 'sse-server',
-            url: 'https://api.example.com/sse',
             headers: { Authorization: 'Bearer token' },
+            name: 'sse-server',
+            transport: 'sse',
+            url: 'https://api.example.com/sse',
           },
         ],
       });
@@ -124,18 +124,18 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(json);
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]).toMatchObject({
-        transport: 'sse',
-        name: 'sse-server',
-        url: 'https://api.example.com/sse',
         headers: { Authorization: 'Bearer token' },
+        name: 'sse-server',
+        transport: 'sse',
+        url: 'https://api.example.com/sse',
       });
     });
 
     it('should parse multiple servers', () => {
       const json = JSON.stringify({
         servers: [
-          { transport: 'stdio', name: 'server1', command: 'cmd1' },
-          { transport: 'sse', name: 'server2', url: 'http://localhost' },
+          { command: 'cmd1', name: 'server1', transport: 'stdio' },
+          { name: 'server2', transport: 'sse', url: 'http://localhost' },
         ],
       });
 
@@ -146,10 +146,10 @@ describe('mcp-loader comprehensive tests', () => {
     it('should filter out invalid servers', () => {
       const json = JSON.stringify({
         servers: [
-          { transport: 'stdio', name: 'valid', command: 'cmd' },
-          { transport: 'invalid', name: 'invalid' },
+          { command: 'cmd', name: 'valid', transport: 'stdio' },
+          { name: 'invalid', transport: 'invalid' },
           { transport: 'stdio' }, // missing required fields
-          { transport: 'sse', name: 'partial' }, // missing url
+          { name: 'partial', transport: 'sse' }, // missing url
         ],
       });
 
@@ -175,7 +175,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should throw when all declared servers are invalid', () => {
       const json = JSON.stringify({
-        servers: [{ transport: 'stdio' }, { transport: 'sse', name: 'missing-url' }],
+        servers: [{ transport: 'stdio' }, { name: 'missing-url', transport: 'sse' }],
       });
 
       expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
@@ -188,26 +188,26 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should handle stdio server without optional fields', () => {
       const json = JSON.stringify({
-        servers: [{ transport: 'stdio', name: 'minimal', command: 'cmd' }],
+        servers: [{ command: 'cmd', name: 'minimal', transport: 'stdio' }],
       });
 
       const result = parseMcpConfig(json);
       expect(result.servers[0]).toEqual({
-        transport: 'stdio',
-        name: 'minimal',
         command: 'cmd',
+        name: 'minimal',
+        transport: 'stdio',
       });
     });
 
     it('should handle sse server without optional headers', () => {
       const json = JSON.stringify({
-        servers: [{ transport: 'sse', name: 'minimal-sse', url: 'http://example.com' }],
+        servers: [{ name: 'minimal-sse', transport: 'sse', url: 'http://example.com' }],
       });
 
       const result = parseMcpConfig(json);
       expect(result.servers[0]).toEqual({
-        transport: 'sse',
         name: 'minimal-sse',
+        transport: 'sse',
         url: 'http://example.com',
       });
     });
@@ -216,10 +216,10 @@ describe('mcp-loader comprehensive tests', () => {
       const json = JSON.stringify({
         servers: [
           {
-            transport: 'stdio',
-            name: 'test',
-            command: 'node',
             args: ['valid', 123, null, 'another'],
+            command: 'node',
+            name: 'test',
+            transport: 'stdio',
           },
         ],
       });
@@ -501,22 +501,22 @@ describe('mcp-loader comprehensive tests', () => {
       const config: McpConfig = {
         servers: [
           {
-            transport: 'sse',
-            name: 'test',
-            url: 'http://example.com',
             headers: {
               AuthorizationEncrypted: Buffer.from('Bearer token').toString('base64'),
             },
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
           },
         ],
       };
 
       const result = withDecryptedSecrets(config);
       expect(result.servers[0]).toMatchObject({
-        transport: 'sse',
-        name: 'test',
-        url: 'http://example.com',
         headers: { Authorization: 'Bearer token' },
+        name: 'test',
+        transport: 'sse',
+        url: 'http://example.com',
       });
     });
 
@@ -524,30 +524,30 @@ describe('mcp-loader comprehensive tests', () => {
       const config: McpConfig = {
         servers: [
           {
-            transport: 'stdio',
-            name: 'test',
             command: 'node',
             env: {
               API_KEYEncrypted: Buffer.from('secret').toString('base64'),
             },
+            name: 'test',
+            transport: 'stdio',
           },
         ],
       };
 
       const result = withDecryptedSecrets(config);
       expect(result.servers[0]).toMatchObject({
-        transport: 'stdio',
-        name: 'test',
         command: 'node',
         env: { API_KEY: 'secret' },
+        name: 'test',
+        transport: 'stdio',
       });
     });
 
     it('should handle servers without secrets', () => {
       const config: McpConfig = {
         servers: [
-          { transport: 'stdio', name: 'plain', command: 'cmd' },
-          { transport: 'sse', name: 'plain-sse', url: 'http://example.com' },
+          { command: 'cmd', name: 'plain', transport: 'stdio' },
+          { name: 'plain-sse', transport: 'sse', url: 'http://example.com' },
         ],
       };
 
@@ -559,10 +559,10 @@ describe('mcp-loader comprehensive tests', () => {
       const config: McpConfig = {
         servers: [
           {
-            transport: 'sse',
-            name: 'test',
-            url: 'http://example.com',
             headers: undefined,
+            name: 'test',
+            transport: 'sse',
+            url: 'http://example.com',
           } as McpServer,
         ],
       };
@@ -575,10 +575,10 @@ describe('mcp-loader comprehensive tests', () => {
       const config: McpConfig = {
         servers: [
           {
-            transport: 'stdio',
-            name: 'test',
             command: 'cmd',
             env: undefined,
+            name: 'test',
+            transport: 'stdio',
           } as McpServer,
         ],
       };
@@ -591,7 +591,7 @@ describe('mcp-loader comprehensive tests', () => {
   describe('loadMcpConfig', () => {
     it('should load and parse config successfully', async () => {
       const mockConfig = {
-        servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+        servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }],
       };
       mockedFsp.readFile.mockImplementation(async (path) => {
         if (path.toString().endsWith('mcp-custom-path.txt')) {
@@ -696,7 +696,7 @@ describe('mcp-loader comprehensive tests', () => {
     it('should setup watcher and call onChange on config changes', async () => {
       const onChange = vi.fn();
       const mockConfig = {
-        servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+        servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }],
       };
       mockedFsp.readFile.mockImplementation(async (path) => {
         if (path.toString().endsWith('mcp-custom-path.txt')) {
@@ -750,7 +750,7 @@ describe('mcp-loader comprehensive tests', () => {
           return '/custom/location/custom-mcp.json' as never;
         }
         return JSON.stringify({
-          servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+          servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }],
         }) as never;
       });
 
@@ -773,7 +773,7 @@ describe('mcp-loader comprehensive tests', () => {
     it('should debounce rapid changes', async () => {
       const onChange = vi.fn();
       const mockConfig = {
-        servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+        servers: [{ command: 'cmd', name: 'test', transport: 'stdio' }],
       };
       mockedFsp.readFile.mockImplementation(async (path) => {
         if (path.toString().endsWith('mcp-custom-path.txt')) {

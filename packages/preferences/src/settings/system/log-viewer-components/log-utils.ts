@@ -7,11 +7,11 @@ export function sortLogRecords(records: readonly LogRecord[]): LogRecord[] {
 export function formatLogTimestamp(timestamp: number): string {
   try {
     return new Date(timestamp).toLocaleTimeString([], {
-      hour12: false,
+      fractionalSecondDigits: 3,
       hour: '2-digit',
+      hour12: false,
       minute: '2-digit',
       second: '2-digit',
-      fractionalSecondDigits: 3,
     });
   } catch {
     return String(timestamp);

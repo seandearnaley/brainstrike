@@ -15,17 +15,17 @@ interface TokenMeterProps {
 }
 
 const SIZES = {
-  sm: { diameter: 48, stroke: 4, fontSize: 'text-[10px]', labelSize: 'text-[8px]' },
-  md: { diameter: 64, stroke: 5, fontSize: 'text-xs', labelSize: 'text-[9px]' },
-  lg: { diameter: 80, stroke: 6, fontSize: 'text-sm', labelSize: 'text-[10px]' },
+  lg: { diameter: 80, fontSize: 'text-sm', labelSize: 'text-[10px]', stroke: 6 },
+  md: { diameter: 64, fontSize: 'text-xs', labelSize: 'text-[9px]', stroke: 5 },
+  sm: { diameter: 48, fontSize: 'text-[10px]', labelSize: 'text-[8px]', stroke: 4 },
 } as const;
 
 /** Usage thresholds for color transitions (percentage of budget) */
 const USAGE_THRESHOLDS = {
-  /** Above this percentage: show warning (amber) */
-  warning: 90,
   /** Above this percentage: show caution (yellow) */
   caution: 75,
+  /** Above this percentage: show warning (amber) */
+  warning: 90,
 } as const;
 
 /**
@@ -87,12 +87,12 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
     }
 
     return {
-      selectedOffset: circumference - selectedLength,
-      treeOffset: circumference - treeLength,
-      selectedLength,
-      treeLength,
       bgClass: bg,
       ringClass: ring,
+      selectedLength,
+      selectedOffset: circumference - selectedLength,
+      treeLength,
+      treeOffset: circumference - treeLength,
     };
   }, [usedTokens, budget, selectedTokens, treeTokens, includeTree, isOverBudget, circumference]);
 
@@ -156,7 +156,7 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
             aria-valuenow={usedTokens}
             className={`relative flex-shrink-0 cursor-default rounded-full bg-gradient-to-br p-0.5 ring-1 ring-inset transition-all duration-300 ${bgClass} ${ringClass}`}
             role="meter"
-            style={{ width: config.diameter + 4, height: config.diameter + 4 }}
+            style={{ height: config.diameter + 4, width: config.diameter + 4 }}
           >
             <svg
               aria-hidden="true"

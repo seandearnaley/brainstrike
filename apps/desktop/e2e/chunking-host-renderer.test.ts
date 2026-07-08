@@ -236,22 +236,22 @@ test.describe('Chunking Host Renderer', () => {
       ).join(' ');
       try {
         const result = await api.chunkFile({
-          kind: 'chunk-file',
-          requestId: crypto.randomUUID(),
-          fileRecordId: 'chunking-host-large-request',
+          content: largeContent,
           fileName: 'large-import.txt',
           filePath: '/tmp/large-import.txt',
-          content: largeContent,
+          fileRecordId: 'chunking-host-large-request',
+          kind: 'chunk-file',
           options: {
-            strategy: 'sentence',
             forceStrategy: true,
+            strategy: 'sentence',
           },
+          requestId: crypto.randomUUID(),
         });
-        return { ok: true as const, chunkCount: result.chunks.length };
+        return { chunkCount: result.chunks.length, ok: true as const };
       } catch (error) {
         return {
-          ok: false as const,
           message: error instanceof Error ? error.message : String(error),
+          ok: false as const,
         };
       }
     });
@@ -273,16 +273,16 @@ test.describe('Chunking Host Renderer', () => {
 
     const oversizedContent = 'x'.repeat(600 * 1024);
     const oversizedOutcome = await chunkSentenceFile(window, {
-      kind: 'chunk-file',
-      requestId: crypto.randomUUID(),
-      fileRecordId: 'chunking-host-oversized-request',
+      content: oversizedContent,
       fileName: 'oversized-import.txt',
       filePath: '/tmp/oversized-import.txt',
-      content: oversizedContent,
+      fileRecordId: 'chunking-host-oversized-request',
+      kind: 'chunk-file',
       options: {
-        strategy: 'sentence',
         forceStrategy: true,
+        strategy: 'sentence',
       },
+      requestId: crypto.randomUUID(),
     }).then(
       (result) => ({
         ok: true as const,
@@ -290,8 +290,8 @@ test.describe('Chunking Host Renderer', () => {
         skipReason: result.skipReason ?? null,
       }),
       (error: unknown) => ({
-        ok: false as const,
         message: error instanceof Error ? error.message : String(error),
+        ok: false as const,
       })
     );
 
@@ -302,19 +302,19 @@ test.describe('Chunking Host Renderer', () => {
     }
 
     const followupOutcome = await chunkSentenceFile(window, {
-      kind: 'chunk-file',
-      requestId: crypto.randomUUID(),
-      fileRecordId: 'chunking-host-followup-request',
-      fileName: 'followup.txt',
-      filePath: '/tmp/followup.txt',
       content: Array.from(
         { length: 128 },
         (_, index) => `Follow-up line ${index + 1} after oversized request.`
       ).join('\n'),
+      fileName: 'followup.txt',
+      filePath: '/tmp/followup.txt',
+      fileRecordId: 'chunking-host-followup-request',
+      kind: 'chunk-file',
       options: {
-        strategy: 'sentence',
         forceStrategy: true,
+        strategy: 'sentence',
       },
+      requestId: crypto.randomUUID(),
     }).then((result) => result.chunks.length);
 
     expect(followupOutcome).toBeGreaterThan(0);
@@ -355,19 +355,19 @@ test.describe('Chunking Host Renderer', () => {
       }
 
       const result = await api.chunkFile({
-        kind: 'chunk-file',
-        requestId: crypto.randomUUID(),
-        fileRecordId: 'chunking-host-character-request',
-        fileName: 'structured-notes.txt',
-        filePath: '/tmp/structured-notes.txt',
         content: Array.from(
           { length: 256 },
           (_, index) => `Line ${index + 1}: deterministic chunking host test content.`
         ).join('\n'),
+        fileName: 'structured-notes.txt',
+        filePath: '/tmp/structured-notes.txt',
+        fileRecordId: 'chunking-host-character-request',
+        kind: 'chunk-file',
         options: {
-          strategy: 'character',
           forceStrategy: true,
+          strategy: 'character',
         },
+        requestId: crypto.randomUUID(),
       });
 
       return result.chunks.length;
@@ -414,34 +414,34 @@ test.describe('Chunking Host Renderer', () => {
 
       try {
         const result = await api.chunkFile({
-          kind: 'chunk-file',
-          requestId: crypto.randomUUID(),
-          fileRecordId: 'chunking-host-accurate-token-request',
-          fileName: 'accurate-token-host.txt',
-          filePath: '/tmp/accurate-token-host.txt',
           content: Array.from(
             { length: 128 },
             (_, index) => `Deterministic accurate token sizing line ${index + 1}.`
           ).join('\n'),
+          fileName: 'accurate-token-host.txt',
+          filePath: '/tmp/accurate-token-host.txt',
+          fileRecordId: 'chunking-host-accurate-token-request',
+          kind: 'chunk-file',
           options: {
-            strategy: 'sentence',
             forceStrategy: true,
+            strategy: 'sentence',
             tokenTrueSizing: true,
           },
+          requestId: crypto.randomUUID(),
         });
         return {
-          ok: true as const,
           chunkCount: result.chunks.length,
-          totalTokens: result.totalTokens,
           minTokenCount:
             result.chunks.length > 0
               ? Math.min(...result.chunks.map((chunk) => chunk.tokenCount))
               : 0,
+          ok: true as const,
+          totalTokens: result.totalTokens,
         };
       } catch (error) {
         return {
-          ok: false as const,
           message: error instanceof Error ? error.message : String(error),
+          ok: false as const,
         };
       }
     });

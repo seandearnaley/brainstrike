@@ -30,7 +30,7 @@ function createDeferred<T>() {
     reject = promiseReject;
   });
 
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 describe('logging-ipc', () => {
@@ -39,7 +39,6 @@ describe('logging-ipc', () => {
   });
 
   const basePreferences: LoggingPreferences = createDefaultLoggingPreferences({
-    redactPaths: ['token'],
     file: {
       append: true,
       destination: '/tmp/logs',
@@ -47,22 +46,23 @@ describe('logging-ipc', () => {
       level: 'info',
       mkdir: true,
     },
+    redactPaths: ['token'],
   });
 
   it('registers all logging IPC handlers', () => {
     const handlers = {
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     };
 
     registerLoggingIpcHandlers(handlers);
@@ -77,18 +77,18 @@ describe('logging-ipc', () => {
 
   it('returns a cleanup function that unregisters logging handlers', () => {
     const cleanup = registerLoggingIpcHandlers({
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     });
 
     cleanup();
@@ -106,18 +106,18 @@ describe('logging-ipc', () => {
 
   it('broadcasts updated preferences to window and webview contents', async () => {
     const handlers = {
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     };
 
     const windowContents = { getType: () => 'window', isDestroyed: () => false, send: vi.fn() };
@@ -158,18 +158,18 @@ describe('logging-ipc', () => {
 
   it('skips destroyed contents when broadcasting updated preferences', async () => {
     const handlers = {
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     };
 
     const destroyedContents = {
@@ -205,29 +205,29 @@ describe('logging-ipc', () => {
 
   it('skips unsupported WebContents types when broadcasting updated preferences', async () => {
     const handlers = {
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     };
 
     const workerContents = {
-      id: 42,
       getType: () => 'service-worker',
+      id: 42,
       isDestroyed: () => false,
       send: vi.fn(),
     };
     const liveContents = {
-      id: 43,
       getType: () => 'window',
+      id: 43,
       isDestroyed: () => false,
       send: vi.fn(),
     };
@@ -254,8 +254,8 @@ describe('logging-ipc', () => {
 
   it('clones logging settings payloads deeply', () => {
     const payload = {
-      preferences: basePreferences,
       capabilities: { canOpenDestination: true },
+      preferences: basePreferences,
     };
 
     const cloned = cloneLoggingSettingsPayload(payload);
@@ -289,20 +289,20 @@ describe('logging-ipc', () => {
         return { ...payload, preferences };
       })
       .mockImplementation(async (preferences: LoggingPreferences) => ({
-        preferences,
         capabilities: { canOpenDestination: true },
+        preferences,
       }));
 
     registerLoggingIpcHandlers({
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences,
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog: vi.fn(),
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences,
     });
 
     const setPreferencesHandler = vi
@@ -328,8 +328,8 @@ describe('logging-ipc', () => {
     expect(setPreferences).toHaveBeenCalledTimes(1);
 
     firstDeferred.resolve({
-      preferences: firstPreferences,
       capabilities: { canOpenDestination: true },
+      preferences: firstPreferences,
     });
     await firstCall;
     await secondCall;
@@ -343,18 +343,18 @@ describe('logging-ipc', () => {
     const ingestBufferedLog = vi.fn();
 
     registerLoggingIpcHandlers({
-      getState: () => ({
-        preferences: basePreferences,
-        capabilities: { canOpenDestination: true },
-      }),
-      setPreferences: (prefs: LoggingPreferences) => ({
-        preferences: prefs,
-        capabilities: { canOpenDestination: true },
-      }),
-      selectDestination: async () => '/tmp',
-      openDestination: async () => true,
       getBufferedLogs: () => [],
+      getState: () => ({
+        capabilities: { canOpenDestination: true },
+        preferences: basePreferences,
+      }),
       ingestBufferedLog,
+      openDestination: async () => true,
+      selectDestination: async () => '/tmp',
+      setPreferences: (prefs: LoggingPreferences) => ({
+        capabilities: { canOpenDestination: true },
+        preferences: prefs,
+      }),
     });
 
     const ingestHandler = vi
@@ -367,22 +367,22 @@ describe('logging-ipc', () => {
     ingestHandler(
       { sender: { id: 42 } },
       {
-        level: 'info',
-        timestamp: 123,
         args: ['forwarded', { ok: true }],
         bindings: { runtime: 'electron-renderer' },
+        level: 'info',
         message: 'forwarded',
         scope: 'ChunkingHostRuntime',
+        timestamp: 123,
       }
     );
 
     expect(ingestBufferedLog).toHaveBeenCalledWith(42, {
-      level: 'info',
-      timestamp: 123,
       args: ['forwarded', { ok: true }],
       bindings: { runtime: 'electron-renderer' },
+      level: 'info',
       message: 'forwarded',
       scope: 'ChunkingHostRuntime',
+      timestamp: 123,
     });
   });
 });

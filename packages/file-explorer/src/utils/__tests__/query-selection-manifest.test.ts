@@ -12,16 +12,16 @@ function createDescriptor(
   overrides: Partial<SelectionQueryDescriptor> = {}
 ): SelectionQueryDescriptor {
   return {
-    kind: 'recursive-select-all',
-    folderId: 'folder-1',
-    rootPath: null,
     coveredDirectoryPaths: ['/src'],
-    includeFilters: ['**/*.ts'],
-    excludeFilters: ['**/*.test.ts'],
-    includedPaths: [],
     excludedPaths: [],
+    excludeFilters: ['**/*.test.ts'],
+    folderId: 'folder-1',
+    includedPaths: [],
+    includeFilters: ['**/*.ts'],
+    kind: 'recursive-select-all',
     manifestFingerprint: 'fingerprint-1',
     manifestSnapshotId: 'snapshot-1',
+    rootPath: null,
     totalSelectedCount: 2,
     useRegex: false,
     ...overrides,
@@ -30,13 +30,13 @@ function createDescriptor(
 
 function createManifest(overrides: Partial<QuerySelectionManifest> = {}): QuerySelectionManifest {
   return {
-    filePaths: ['/src/index.ts', '/src/utils.ts'],
-    pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
     directoryCounts: new Map([['/src', 2]]),
+    errorMessage: null,
+    filePaths: ['/src/index.ts', '/src/utils.ts'],
     fingerprint: 'fingerprint-1',
+    pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
     snapshotId: 'snapshot-1',
     status: 'ready',
-    errorMessage: null,
     ...overrides,
   };
 }
@@ -45,11 +45,11 @@ describe('query-selection-manifest', () => {
   it('builds a stable fingerprint from query arguments', () => {
     expect(
       buildQuerySelectionFingerprint({
-        kind: 'recursive-folder',
-        folderId: 'folder-1',
-        rootPath: '/src',
-        includeFilters: ['**/*.ts'],
         excludeFilters: ['**/*.test.ts'],
+        folderId: 'folder-1',
+        includeFilters: ['**/*.ts'],
+        kind: 'recursive-folder',
+        rootPath: '/src',
         useRegex: false,
       })
     ).toBe(
@@ -66,19 +66,19 @@ describe('query-selection-manifest', () => {
 
   it('normalizes filter ordering when building fingerprints', () => {
     const first = buildQuerySelectionFingerprint({
-      kind: 'recursive-folder',
-      folderId: 'folder-1',
-      rootPath: '/src',
-      includeFilters: ['**/*.tsx', '**/*.ts'],
       excludeFilters: ['**/*.spec.ts', '**/*.test.ts'],
+      folderId: 'folder-1',
+      includeFilters: ['**/*.tsx', '**/*.ts'],
+      kind: 'recursive-folder',
+      rootPath: '/src',
       useRegex: false,
     });
     const second = buildQuerySelectionFingerprint({
-      kind: 'recursive-folder',
-      folderId: 'folder-1',
-      rootPath: '/src',
-      includeFilters: ['**/*.ts', '**/*.tsx'],
       excludeFilters: ['**/*.test.ts', '**/*.spec.ts'],
+      folderId: 'folder-1',
+      includeFilters: ['**/*.ts', '**/*.tsx'],
+      kind: 'recursive-folder',
+      rootPath: '/src',
       useRegex: false,
     });
 
@@ -121,9 +121,9 @@ describe('query-selection-manifest', () => {
       snapshotId: 'snapshot-loading',
     });
     const errored = createErroredQuerySelectionManifest({
+      errorMessage: 'snapshot missing',
       fingerprint: 'fp-error',
       snapshotId: 'snapshot-error',
-      errorMessage: 'snapshot missing',
     });
 
     expect(loading.status).toBe('loading');
@@ -160,8 +160,8 @@ describe('query-selection-manifest', () => {
   it('falls back to included paths when the manifest is missing or stale', () => {
     const descriptor = createDescriptor({
       includedPaths: ['/manual/a.ts', '/manual/a.ts', '/manual/b.ts'],
-      totalSelectedCount: 99,
       manifestFingerprint: 'expected-fingerprint',
+      totalSelectedCount: 99,
     });
 
     const missingResolved = resolveQuerySelection(descriptor, null);
@@ -186,8 +186,8 @@ describe('query-selection-manifest', () => {
 
   it('resolves manifest-backed selections with include and exclude overrides', () => {
     const descriptor = createDescriptor({
-      includedPaths: ['/manual/extra.ts'],
       excludedPaths: ['/src/index.ts'],
+      includedPaths: ['/manual/extra.ts'],
       totalSelectedCount: 2,
     });
 

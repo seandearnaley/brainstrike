@@ -44,7 +44,7 @@ export function useAssistantSlashCommands(): readonly SlashCommand[] {
 
   // Targetless: the composer captures no right-click target.
   const registry = useMemo(
-    () => createAppCommandRegistry({ parts, handlers, target: null }),
+    () => createAppCommandRegistry({ handlers, parts, target: null }),
     [parts, handlers]
   );
   const context = useMemo<CommandContext>(
@@ -59,7 +59,7 @@ export function useAssistantSlashCommands(): readonly SlashCommand[] {
   );
 
   const runCommand = useCallback(
-    (command: Command): Promise<void> => runSlashCommand(command, context, { toast, logger }),
+    (command: Command): Promise<void> => runSlashCommand(command, context, { logger, toast }),
     [context, toast]
   );
 

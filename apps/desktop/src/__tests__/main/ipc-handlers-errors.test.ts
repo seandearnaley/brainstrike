@@ -8,12 +8,12 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
 
 vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => '/Users/test/Documents') },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
       handlers.set(channel, listener);
     }),
   },
-  app: { getPath: vi.fn(() => '/Users/test/Documents') },
 }));
 
 import { registerIpcHandlers } from '../../ipc-handlers';
@@ -30,19 +30,19 @@ describe('ipc-handlers error branches', () => {
     process.env['NODE_ENV'] = 'development';
 
     fsAdapter = {
-      requestDirectoryAccess: vi.fn(),
+      exists: vi.fn(async () => true),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      exists: vi.fn(async () => true),
+      requestDirectoryAccess: vi.fn(),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
 
     storage = {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     } as unknown as ElectronStorageAdapter;
 
     store = {};

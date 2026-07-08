@@ -24,24 +24,24 @@ interface HasherMock {
 
 const createStoreMock = (): StoreMock => ({
   get: vi.fn(async () => null),
-  set: vi.fn(async () => {}),
-  getTotalTokens: vi.fn(async () => 0),
   getAllForFolder: vi.fn(async () => []),
+  getTotalTokens: vi.fn(async () => 0),
+  set: vi.fn(async () => {}),
 });
 
 const createHasherMock = (): HasherMock => ({
-  init: vi.fn(async () => {}),
   hashContent: vi.fn(async (content: string) => `hash:${content}`),
+  init: vi.fn(async () => {}),
 });
 
 const createWorkerPoolMock = (): WorkerPoolMock => ({
   exec: vi.fn(async (_method: string, args: unknown[]): Promise<TokenCountResult> => {
     const payload = args[0] as { id: string; content: string; mode: TokenCountingMode };
     return {
-      id: payload.id,
-      tokenCount: payload.content.length,
       contentHash: `hash:${payload.content}`,
+      id: payload.id,
       mode: payload.mode,
+      tokenCount: payload.content.length,
     };
   }),
 });
@@ -73,10 +73,10 @@ describe('useTokenCache', () => {
   const renderCacheHook = (countingMode: TokenCountingMode = 'accurate') =>
     renderHook(() =>
       useTokenCache({
-        store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
-        hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
         countingMode,
+        hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
+        store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
+        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
       })
     );
 
@@ -134,10 +134,10 @@ describe('useTokenCache', () => {
         new Promise((resolve) => {
           resolveExec = () =>
             resolve({
-              id: 'folder::file.txt',
-              tokenCount: 10,
               contentHash: 'hash:content',
+              id: 'folder::file.txt',
               mode: 'accurate',
+              tokenCount: 10,
             });
         })
     );
@@ -182,14 +182,14 @@ describe('useTokenCache', () => {
 
   it('uses persistent cache when hash matches and counting mode matches', async () => {
     const cachedEntry: TokenCacheEntry = {
-      folderId: 'folder',
-      filePath: 'file.txt',
       contentHash: 'hash:content',
+      countingMode: 'accurate',
+      filePath: 'file.txt',
       fileSize: 10,
+      folderId: 'folder',
+      modelEncoding: 'o200k_base',
       mtimeMs: null,
       tokenCount: 99,
-      countingMode: 'accurate',
-      modelEncoding: 'o200k_base',
     };
 
     store.get.mockResolvedValueOnce(cachedEntry);
@@ -221,11 +221,11 @@ describe('useTokenCache', () => {
     const onTokenResolved = vi.fn();
     const { result, rerender } = renderHook(() =>
       useTokenCache({
-        store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
-        hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
         countingMode: 'heuristic',
+        hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
         onTokenResolved,
+        store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
+        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
       })
     );
 
@@ -269,7 +269,7 @@ describe('useTokenCache', () => {
       expect.objectContaining({ id: `brainstrike copy 2::${normalizedPath}` }),
     ]);
     expect(store.set).toHaveBeenCalledWith(
-      expect.objectContaining({ folderId: 'brainstrike copy 2', filePath: normalizedPath })
+      expect.objectContaining({ filePath: normalizedPath, folderId: 'brainstrike copy 2' })
     );
   });
 
@@ -407,24 +407,24 @@ describe('useTokenCache', () => {
   it('preloadFolder populates hot cache only for matching counting mode', async () => {
     const entries: TokenCacheEntry[] = [
       {
-        folderId: 'folder',
-        filePath: 'a.ts',
-        tokenCount: 10,
         contentHash: 'hash:a',
-        fileSize: 1,
-        mtimeMs: null,
         countingMode: 'accurate',
+        filePath: 'a.ts',
+        fileSize: 1,
+        folderId: 'folder',
         modelEncoding: 'o200k_base',
+        mtimeMs: null,
+        tokenCount: 10,
       },
       {
-        folderId: 'folder',
-        filePath: 'b.ts',
-        tokenCount: 20,
         contentHash: 'hash:b',
-        fileSize: 1,
-        mtimeMs: null,
         countingMode: 'heuristic',
+        filePath: 'b.ts',
+        fileSize: 1,
+        folderId: 'folder',
         modelEncoding: null,
+        mtimeMs: null,
+        tokenCount: 20,
       },
     ];
     store.getAllForFolder.mockResolvedValueOnce(entries);
@@ -442,14 +442,14 @@ describe('useTokenCache', () => {
   it('increments cacheVersion when preload populates cache', async () => {
     store.getAllForFolder.mockResolvedValueOnce([
       {
-        folderId: 'folder',
-        filePath: 'a.ts',
-        tokenCount: 10,
         contentHash: 'hash:a',
-        fileSize: 1,
-        mtimeMs: null,
         countingMode: 'accurate',
+        filePath: 'a.ts',
+        fileSize: 1,
+        folderId: 'folder',
         modelEncoding: 'o200k_base',
+        mtimeMs: null,
+        tokenCount: 10,
       },
     ]);
 
@@ -470,10 +470,10 @@ describe('useTokenCache', () => {
     const { result, rerender } = renderHook(
       (mode: TokenCountingMode) =>
         useTokenCache({
-          store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
-          hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-          workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
           countingMode: mode,
+          hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
+          store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
+          workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
         }),
       { initialProps: 'heuristic' as TokenCountingMode }
     );
@@ -517,8 +517,8 @@ describe('useTokenCache', () => {
 
     await act(async () => {
       result.current.queueForCounting([
-        { folderId: 'folder', filePath: 'a.ts', content: 'aaa', fileSize: 3, mtimeMs: 100 },
-        { folderId: 'folder', filePath: 'b.ts', content: 'bbbb', fileSize: 4, mtimeMs: 200 },
+        { content: 'aaa', filePath: 'a.ts', fileSize: 3, folderId: 'folder', mtimeMs: 100 },
+        { content: 'bbbb', filePath: 'b.ts', fileSize: 4, folderId: 'folder', mtimeMs: 200 },
       ]);
     });
 
@@ -538,10 +538,10 @@ describe('useTokenCache', () => {
         new Promise((resolve) => {
           resolveExec = () =>
             resolve({
-              id: 'folder::file.txt',
-              tokenCount: 1,
               contentHash: 'hash:c',
+              id: 'folder::file.txt',
               mode: 'accurate',
+              tokenCount: 1,
             });
         })
     );
@@ -551,7 +551,7 @@ describe('useTokenCache', () => {
     expect(result.current.isAnyLoading).toBe(false);
 
     await act(async () => {
-      result.current.queueForCounting([{ folderId: 'folder', filePath: 'file.txt', content: 'c' }]);
+      result.current.queueForCounting([{ content: 'c', filePath: 'file.txt', folderId: 'folder' }]);
     });
 
     await flushMicrotasks();

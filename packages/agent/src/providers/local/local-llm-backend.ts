@@ -104,25 +104,25 @@ export class LocalLlmBackend {
 
     await this.dispose();
     const selectedDevice = resolveRequestedDevice(config.device);
-    this.status = { state: 'loading', progress: 0, message: 'Loading Gemma local model' };
+    this.status = { message: 'Loading Gemma local model', progress: 0, state: 'loading' };
     config.onProgress?.({
-      stage: 'loading',
-      progress: 0,
       message: 'Loading Gemma local model',
+      progress: 0,
+      stage: 'loading',
     });
 
     const engine = new Gemma4Engine(spec);
     await engine.initialize(selectedDevice, (progress) => {
       const percent = resolveProgressPercent(progress);
       this.status = {
-        state: 'loading',
-        progress: percent,
         message: `Loading ${progress.file ?? config.modelId}`,
+        progress: percent,
+        state: 'loading',
       };
       config.onProgress?.({
-        stage: 'loading',
-        progress: percent,
         message: `Loading ${progress.file ?? config.modelId}`,
+        progress: percent,
+        stage: 'loading',
         ...(progress.file ? { file: progress.file } : {}),
       });
     });
@@ -130,11 +130,11 @@ export class LocalLlmBackend {
     this.engine = engine;
     this.modelId = config.modelId;
     this.selectedDevice = selectedDevice;
-    this.status = { state: 'ready', device: selectedDevice };
+    this.status = { device: selectedDevice, state: 'ready' };
     config.onProgress?.({
-      stage: 'ready',
-      progress: 100,
       message: 'Model loaded',
+      progress: 100,
+      stage: 'ready',
     });
   }
 
@@ -176,8 +176,8 @@ export class LocalLlmBackend {
       }
       const result = await engine.generate(messages, options);
       return {
-        text: result.text,
         finishReason: result.toolCalls.length > 0 ? 'tool_calls' : 'stop',
+        text: result.text,
         ...(result.reasoningText ? { reasoningText: result.reasoningText } : {}),
         ...(result.toolCalls.length > 0 ? { toolCalls: result.toolCalls } : {}),
         usage: result.usage,
@@ -262,12 +262,12 @@ export class LocalLlmBackend {
     }
 
     return {
-      vendor: adapter.info.vendor,
       architecture: adapter.info.architecture,
-      device: adapter.info.device,
       description: adapter.info.description,
+      device: adapter.info.device,
       maxBufferSize: adapter.limits.maxBufferSize,
       maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      vendor: adapter.info.vendor,
     };
   }
 
@@ -291,8 +291,8 @@ export class LocalLlmBackend {
 
     if (options?.cacheDir) {
       logger.info('Ignoring browser cacheDir hint for local browser model download', {
-        modelId,
         cacheDir: options.cacheDir,
+        modelId,
       });
     }
 

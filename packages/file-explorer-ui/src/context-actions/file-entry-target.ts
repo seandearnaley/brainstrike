@@ -12,11 +12,11 @@ export function fileNodeToTarget(node: IFileNode): ContextTarget | null {
   }
   const absolute = isAbsolutePath(node.path) ? node.path : null;
   return {
+    absolutePath: absolute,
+    entryType: node.type,
     kind: 'file-entry',
     name: node.name,
     relativePath: absolute ? toRelativePath(node.path, node.rootFolderId) : node.path,
-    absolutePath: absolute,
-    entryType: node.type,
     rootFolderId: node.rootFolderId,
   };
 }

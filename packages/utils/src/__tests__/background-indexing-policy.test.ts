@@ -14,14 +14,14 @@ describe('background-indexing-policy', () => {
     expect(BACKGROUND_INDEXING_POLICY_OPTIONS).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          value: 'balanced',
           label: 'Balanced',
           recommended: true,
+          value: 'balanced',
         }),
         expect.objectContaining({
-          value: 'full-root',
           label: 'Full root',
           recommended: false,
+          value: 'full-root',
         }),
       ])
     );

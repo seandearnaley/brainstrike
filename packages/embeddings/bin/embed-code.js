@@ -35,7 +35,7 @@ async function main() {
 function requireOrExit(fn) {
   try {
     fn();
-  } catch (_err) {
+  } catch {
     process.exit(1);
   }
 }

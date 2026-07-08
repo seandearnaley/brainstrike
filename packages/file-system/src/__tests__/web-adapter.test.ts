@@ -7,28 +7,28 @@ import type { DirectoryHandle, FileHandle } from '../types';
 
 function createFile(name: string, content = 'data', lastModified = Date.now()) {
   return {
-    size: content.length,
     lastModified,
+    name,
+    size: content.length,
     async text() {
       return content;
     },
-    name,
   } as unknown as File;
 }
 
 const createHandleCache = (overrides: Partial<HandleCache> = {}): HandleCache => ({
-  storeRootHandle: vi.fn().mockResolvedValue(undefined),
-  getRootHandle: vi.fn().mockResolvedValue(null),
+  clear: vi.fn().mockResolvedValue(undefined),
   getAllRootHandles: vi.fn().mockResolvedValue([]),
+  getFileHandle: vi.fn().mockResolvedValue(null),
+  getLastRootHandleForRestore: vi.fn().mockResolvedValue(null),
+  getRootHandle: vi.fn().mockResolvedValue(null),
+  markHandleRestored: vi.fn().mockResolvedValue(undefined),
+  pruneOldHandles: vi.fn().mockResolvedValue(undefined),
+  removeFileHandle: vi.fn().mockResolvedValue(undefined),
   removeRootHandle: vi.fn().mockResolvedValue(undefined),
   restoreLastRootHandle: vi.fn().mockResolvedValue(null),
-  getLastRootHandleForRestore: vi.fn().mockResolvedValue(null),
-  markHandleRestored: vi.fn().mockResolvedValue(undefined),
   storeFileHandle: vi.fn().mockResolvedValue(undefined),
-  getFileHandle: vi.fn().mockResolvedValue(null),
-  removeFileHandle: vi.fn().mockResolvedValue(undefined),
-  clear: vi.fn().mockResolvedValue(undefined),
-  pruneOldHandles: vi.fn().mockResolvedValue(undefined),
+  storeRootHandle: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
@@ -43,9 +43,9 @@ describe('WebFileSystemAdapter', () => {
   describe('requestDirectoryAccess', () => {
     it('returns handle when showDirectoryPicker resolves', async () => {
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries: vi.fn(),
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       (
         window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
@@ -53,19 +53,19 @@ describe('WebFileSystemAdapter', () => {
 
       const handle = await adapter.requestDirectoryAccess();
       expect(handle).toEqual({
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       });
     });
 
     it('persists the directory handle for restore', async () => {
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries: vi.fn(),
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       (
         window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
@@ -86,9 +86,9 @@ describe('WebFileSystemAdapter', () => {
 
     it('requests persistent storage once and still returns the directory when persistence fails', async () => {
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries: vi.fn(),
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       (
         window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
@@ -98,7 +98,7 @@ describe('WebFileSystemAdapter', () => {
       const originalStorage = navigator.storage;
       Object.defineProperty(navigator, 'storage', {
         configurable: true,
-        value: { persisted, persist },
+        value: { persist, persisted },
       });
       const handleCache = createHandleCache();
       const adapter = new WebFileSystemAdapter({ handleCache });
@@ -141,30 +141,30 @@ describe('WebFileSystemAdapter', () => {
 
     it('supports includeMetadata: false (no size/lastModified on files)', async () => {
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'x', 1)),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'x', 1)),
       } as unknown as FileSystemFileHandle;
       const subHandle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'sub',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       async function* entries() {
         yield ['sub', subHandle];
         yield ['file.txt', fileHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       };
 
       const adapter = new WebFileSystemAdapter();
@@ -179,9 +179,9 @@ describe('WebFileSystemAdapter', () => {
       const makeFileHandle = (name: string) => {
         let getFileImpl: () => Promise<File>;
         const fileHandle = {
+          getFile: vi.fn(async () => getFileImpl()),
           kind: 'file' as const,
           name,
-          getFile: vi.fn(async () => getFileImpl()),
         } as unknown as FileSystemFileHandle;
         return {
           fileHandle,
@@ -213,22 +213,22 @@ describe('WebFileSystemAdapter', () => {
         }
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory' as const,
         entries,
+        kind: 'directory' as const,
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       };
 
       const adapter = new WebFileSystemAdapter();
       const concurrency = 2;
       vi.useFakeTimers();
-      const promise = adapter.readDirectory(handle, { includeMetadata: true, concurrency });
+      const promise = adapter.readDirectory(handle, { concurrency, includeMetadata: true });
       await vi.runAllTimersAsync();
       const list = await promise;
       vi.useRealTimers();
@@ -241,25 +241,25 @@ describe('WebFileSystemAdapter', () => {
     it('throws when directory handles are malformed', async () => {
       await expect(
         adapter.readDirectory({
-          path: '',
-          name: 'root',
-          kind: 'directory',
-          platform: 'web',
           _internal: {} as unknown as FileSystemDirectoryHandle,
+          kind: 'directory',
+          name: 'root',
+          path: '',
+          platform: 'web',
         })
       ).rejects.toThrow('Directory handle is missing its canonical path');
 
       await expect(
         adapter.readDirectory({
-          path: 'root',
-          name: 'root',
-          kind: 'directory',
-          platform: 'web',
           _internal: {} as unknown as FileSystemDirectoryHandle,
+          kind: 'directory',
+          name: 'root',
+          path: 'root',
+          platform: 'web',
         })
       ).rejects.toMatchObject({
-        name: 'AccessError',
         message: 'Invalid directory handle',
+        name: 'AccessError',
         path: 'root',
       });
     });
@@ -267,30 +267,30 @@ describe('WebFileSystemAdapter', () => {
     it('returns directory entries', async () => {
       const file = createFile('file.txt', 'hello', 123);
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const subHandle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'sub',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       async function* entries() {
         yield ['sub', subHandle];
         yield ['file.txt', fileHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       };
 
       const entriesList = await adapter.readDirectory(handle);
@@ -312,18 +312,18 @@ describe('WebFileSystemAdapter', () => {
 
     it('propagates errors from entries()', async () => {
       const dirHandle = {
-        name: 'bad',
-        kind: 'directory',
         entries: vi.fn().mockImplementation(() => {
           throw new Error('boom');
         }),
+        kind: 'directory',
+        name: 'bad',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'bad',
-        name: 'bad',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'bad',
+        path: 'bad',
+        platform: 'web',
       };
       await expect(adapter.readDirectory(handle)).rejects.toThrow('boom');
     });
@@ -332,30 +332,30 @@ describe('WebFileSystemAdapter', () => {
       const handleCache = createHandleCache();
       const adapter = new WebFileSystemAdapter({ handleCache });
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello', 123)),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello', 123)),
       } as unknown as FileSystemFileHandle;
       const subHandle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'sub',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       async function* entries() {
         yield ['sub', subHandle];
         yield ['file.txt', fileHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       };
 
       await adapter.readDirectory(handle);
@@ -365,30 +365,30 @@ describe('WebFileSystemAdapter', () => {
 
     it('drops file entries whose metadata cannot be read while preserving directories', async () => {
       const fileHandle = {
+        getFile: vi.fn().mockRejectedValue(new Error('metadata unavailable')),
         kind: 'file',
         name: 'broken.txt',
-        getFile: vi.fn().mockRejectedValue(new Error('metadata unavailable')),
       } as unknown as FileSystemFileHandle;
       const subHandle = {
+        entries: vi.fn(),
         kind: 'directory',
         name: 'sub',
-        entries: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       async function* entries() {
         yield ['broken.txt', fileHandle];
         yield ['sub', subHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const handle: DirectoryHandle = {
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       };
 
       const entriesList = await adapter.readDirectory(handle);
@@ -398,19 +398,19 @@ describe('WebFileSystemAdapter', () => {
 
     it('reads a file by path through the cached root directory handle', async () => {
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello world', 123)),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello world', 123)),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
 
       const handleCache = createHandleCache({
@@ -432,19 +432,19 @@ describe('WebFileSystemAdapter', () => {
 
     it('reads a root-relative file path through the active cached root directory handle', async () => {
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello world', 123)),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello world', 123)),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
 
       const handleCache = createHandleCache({
@@ -479,19 +479,19 @@ describe('WebFileSystemAdapter', () => {
   describe('resolveFileHandleByPath', () => {
     it('returns the leaf FileSystemFileHandle by walking the cached root handle', async () => {
       const fileHandle = {
+        getFile: vi.fn(),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn(),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
 
       const handleCache = createHandleCache({
@@ -511,19 +511,19 @@ describe('WebFileSystemAdapter', () => {
 
     it('caches the resolved file handle so future readFileByPath skips the walk', async () => {
       const fileHandle = {
+        getFile: vi.fn(),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn(),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
       const storeFileHandle = vi.fn().mockResolvedValue(undefined);
       const handleCache = createHandleCache({
@@ -549,9 +549,9 @@ describe('WebFileSystemAdapter', () => {
 
     it('throws AccessError when the path does not reference a file', async () => {
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn(),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn(),
       } as unknown as FileSystemDirectoryHandle;
       const handleCache = createHandleCache({
         getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
@@ -568,9 +568,9 @@ describe('WebFileSystemAdapter', () => {
 
     it('propagates underlying browser errors when an intermediate segment is missing', async () => {
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockRejectedValue(new Error('NotFoundError')),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockRejectedValue(new Error('NotFoundError')),
       } as unknown as FileSystemDirectoryHandle;
       const handleCache = createHandleCache({
         getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
@@ -585,19 +585,19 @@ describe('WebFileSystemAdapter', () => {
     it('readFileByPath delegates to resolveFileHandleByPath and reads the resolved file', async () => {
       const file = createFile('file.txt', 'hello world', 123);
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
 
       const handleCache = createHandleCache({
@@ -625,19 +625,19 @@ describe('WebFileSystemAdapter', () => {
       // never had its size cached during the lazy tree walk).
       const file = createFile('file.txt', 'hello world', 11);
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'file.txt',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const nestedDirHandle = {
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
         kind: 'directory',
         name: 'nested',
-        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
       } as unknown as FileSystemDirectoryHandle;
       const rootDirHandle = {
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
         kind: 'directory',
         name: 'root',
-        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
       } as unknown as FileSystemDirectoryHandle;
 
       const handleCache = createHandleCache({
@@ -649,7 +649,7 @@ describe('WebFileSystemAdapter', () => {
 
       const resolution = await adapter.resolveFileForIndexing('root/nested/file.txt');
 
-      expect(resolution).toEqual({ kind: 'handle', fileHandle, fileSize: 11 });
+      expect(resolution).toEqual({ fileHandle, fileSize: 11, kind: 'handle' });
       expect(resolveSpy).toHaveBeenCalledWith('root/nested/file.txt');
       expect(fileHandle.getFile).toHaveBeenCalledTimes(1);
     });
@@ -659,16 +659,16 @@ describe('WebFileSystemAdapter', () => {
     it('reads file content', async () => {
       const file = createFile('a.txt', 'text');
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'a.txt',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const handle: FileHandle = {
-        path: 'a.txt',
-        name: 'a.txt',
-        kind: 'file',
-        platform: 'web',
         _internal: fileHandle,
+        kind: 'file',
+        name: 'a.txt',
+        path: 'a.txt',
+        platform: 'web',
       };
       const text = await adapter.readFile(handle);
       expect(text).toBe('text');
@@ -677,17 +677,17 @@ describe('WebFileSystemAdapter', () => {
     it('caches file handles on read', async () => {
       const file = createFile('a.txt', 'text');
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'a.txt',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const handle: FileHandle = {
-        path: 'root/a.txt',
-        name: 'a.txt',
+        _internal: fileHandle,
         kind: 'file',
+        name: 'a.txt',
+        path: 'root/a.txt',
         platform: 'web',
         rootFolderId: 'root',
-        _internal: fileHandle,
       };
       const handleCache = createHandleCache();
       const adapter = new WebFileSystemAdapter({ handleCache });
@@ -699,32 +699,32 @@ describe('WebFileSystemAdapter', () => {
 
     it('propagates getFile errors', async () => {
       const fileHandle = {
+        getFile: vi.fn().mockRejectedValue(new Error('nope')),
         kind: 'file',
         name: 'fail.txt',
-        getFile: vi.fn().mockRejectedValue(new Error('nope')),
       } as unknown as FileSystemFileHandle;
       const handle: FileHandle = {
-        path: 'fail.txt',
-        name: 'fail.txt',
-        kind: 'file',
-        platform: 'web',
         _internal: fileHandle,
+        kind: 'file',
+        name: 'fail.txt',
+        path: 'fail.txt',
+        platform: 'web',
       };
       await expect(adapter.readFile(handle)).rejects.toThrow('nope');
     });
 
     it('throws AccessError when handle lacks a file implementation', async () => {
       const handle: FileHandle = {
-        path: 'missing',
-        name: 'missing',
-        kind: 'file',
-        platform: 'web',
         _internal: {} as unknown as FileSystemFileHandle,
+        kind: 'file',
+        name: 'missing',
+        path: 'missing',
+        platform: 'web',
       };
 
       await expect(adapter.readFile(handle)).rejects.toMatchObject({
-        name: 'AccessError',
         message: 'Invalid file handle',
+        name: 'AccessError',
         path: 'missing',
       });
     });
@@ -733,21 +733,21 @@ describe('WebFileSystemAdapter', () => {
       const largeContent = 'x'.repeat(1024 * 1024 + 1);
       const file = createFile('big.bin', largeContent);
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(file),
         kind: 'file',
         name: 'big.bin',
-        getFile: vi.fn().mockResolvedValue(file),
       } as unknown as FileSystemFileHandle;
       const handle: FileHandle = {
-        path: 'big.bin',
-        name: 'big.bin',
-        kind: 'file',
-        platform: 'web',
         _internal: fileHandle,
+        kind: 'file',
+        name: 'big.bin',
+        path: 'big.bin',
+        platform: 'web',
       };
 
       await expect(adapter.readFile(handle)).rejects.toMatchObject({
-        name: 'AccessError',
         message: expect.stringContaining('File too large'),
+        name: 'AccessError',
         path: 'big.bin',
       });
     });
@@ -769,19 +769,19 @@ describe('WebFileSystemAdapter', () => {
         yield ['file.txt', {} as FileSystemHandle];
       };
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
         queryPermission: vi.fn().mockResolvedValue('granted'),
       } as unknown as FileSystemDirectoryHandle;
       const handleCache = createHandleCache({
         getAllRootHandles: vi.fn().mockResolvedValue([
           {
             folderId: 'root',
-            name: 'root',
             handle: dirHandle,
-            storedAt: Date.now(),
             lastAccessedAt: Date.now(),
+            name: 'root',
+            storedAt: Date.now(),
           },
         ]),
       });
@@ -790,11 +790,11 @@ describe('WebFileSystemAdapter', () => {
       const restored = await adapter.restoreLastFolder();
 
       expect(restored).toEqual({
-        path: 'root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web',
         _internal: dirHandle,
+        kind: 'directory',
+        name: 'root',
+        path: 'root',
+        platform: 'web',
       });
     });
 
@@ -805,10 +805,10 @@ describe('WebFileSystemAdapter', () => {
         getAllRootHandles: vi.fn().mockResolvedValue([
           {
             folderId: 'oops',
-            name: 'oops',
             handle: invalidHandle,
-            storedAt: Date.now(),
             lastAccessedAt: Date.now(),
+            name: 'oops',
+            storedAt: Date.now(),
           },
         ]),
         removeRootHandle,
@@ -826,9 +826,9 @@ describe('WebFileSystemAdapter', () => {
         throw new Error('boom');
       });
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
         queryPermission: vi.fn().mockResolvedValue('granted'),
       } as unknown as FileSystemDirectoryHandle;
       const removeRootHandle = vi.fn().mockResolvedValue(undefined);
@@ -836,10 +836,10 @@ describe('WebFileSystemAdapter', () => {
         getAllRootHandles: vi.fn().mockResolvedValue([
           {
             folderId: 'root',
-            name: 'root',
             handle: dirHandle,
-            storedAt: Date.now(),
             lastAccessedAt: Date.now(),
+            name: 'root',
+            storedAt: Date.now(),
           },
         ]),
         removeRootHandle,
@@ -858,17 +858,17 @@ describe('WebFileSystemAdapter', () => {
       await expect(
         adapter.readDirectoryStreaming(
           {
-            path: 'root',
-            name: 'root',
-            kind: 'directory',
-            platform: 'web',
             _internal: {} as unknown as FileSystemDirectoryHandle,
+            kind: 'directory',
+            name: 'root',
+            path: 'root',
+            platform: 'web',
           },
           vi.fn()
         )
       ).rejects.toMatchObject({
-        name: 'AccessError',
         message: 'Invalid directory handle',
+        name: 'AccessError',
         path: 'root',
       });
     });
@@ -877,38 +877,38 @@ describe('WebFileSystemAdapter', () => {
       const handleCache = createHandleCache();
       const adapter = new WebFileSystemAdapter({ handleCache });
       const firstFileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('a.txt', 'aa', 10)),
         kind: 'file',
         name: 'a.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('a.txt', 'aa', 10)),
       } as unknown as FileSystemFileHandle;
       const secondFileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('b.txt', 'bbbb', 20)),
         kind: 'file',
         name: 'b.txt',
-        getFile: vi.fn().mockResolvedValue(createFile('b.txt', 'bbbb', 20)),
       } as unknown as FileSystemFileHandle;
       async function* entries() {
         yield ['a.txt', firstFileHandle];
         yield ['b.txt', secondFileHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const batches: Array<{ names: string[]; done: boolean; total: number }> = [];
 
       await adapter.readDirectoryStreaming(
         {
-          path: 'root',
-          name: 'root',
-          kind: 'directory',
-          platform: 'web',
           _internal: dirHandle,
+          kind: 'directory',
+          name: 'root',
+          path: 'root',
+          platform: 'web',
         },
         (batch, meta) => {
           batches.push({
-            names: batch.map((node) => node.name),
             done: meta.done,
+            names: batch.map((node) => node.name),
             total: meta.total,
           });
         },
@@ -916,8 +916,8 @@ describe('WebFileSystemAdapter', () => {
       );
 
       expect(batches).toEqual([
-        { names: ['a.txt', 'b.txt'], done: false, total: 2 },
-        { names: [], done: true, total: 2 },
+        { done: false, names: ['a.txt', 'b.txt'], total: 2 },
+        { done: true, names: [], total: 2 },
       ]);
       expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
         'root',
@@ -935,27 +935,27 @@ describe('WebFileSystemAdapter', () => {
       const handleCache = createHandleCache();
       const adapter = new WebFileSystemAdapter({ handleCache });
       const fileHandle = {
+        getFile: vi.fn().mockResolvedValue(createFile('main.ts', 'source', 10)),
         kind: 'file',
         name: 'main.ts',
-        getFile: vi.fn().mockResolvedValue(createFile('main.ts', 'source', 10)),
       } as unknown as FileSystemFileHandle;
       async function* entries() {
         yield ['main.ts', fileHandle];
       }
       const dirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const splitSpy = vi.spyOn(String.prototype, 'split');
 
       await adapter.readDirectoryStreaming(
         {
-          path: '//root//src',
-          name: 'root',
-          kind: 'directory',
-          platform: 'web',
           _internal: dirHandle,
+          kind: 'directory',
+          name: 'root',
+          path: '//root//src',
+          platform: 'web',
         },
         vi.fn(),
         { includeMetadata: true }
@@ -972,19 +972,19 @@ describe('WebFileSystemAdapter', () => {
     it('streams an empty final batch for empty directories and stops when aborted', async () => {
       async function* emptyEntries() {}
       const emptyDirHandle = {
-        name: 'empty',
-        kind: 'directory',
         entries: emptyEntries,
+        kind: 'directory',
+        name: 'empty',
       } as unknown as FileSystemDirectoryHandle;
       const emptyBatchSpy = vi.fn();
 
       await adapter.readDirectoryStreaming(
         {
-          path: 'empty',
-          name: 'empty',
-          kind: 'directory',
-          platform: 'web',
           _internal: emptyDirHandle,
+          kind: 'directory',
+          name: 'empty',
+          path: 'empty',
+          platform: 'web',
         },
         emptyBatchSpy
       );
@@ -993,28 +993,28 @@ describe('WebFileSystemAdapter', () => {
 
       const abortController = new AbortController();
       const fileHandle = {
+        getFile: vi.fn(),
         kind: 'file',
         name: 'skipped.txt',
-        getFile: vi.fn(),
       } as unknown as FileSystemFileHandle;
       async function* abortedEntries() {
         abortController.abort();
         yield ['skipped.txt', fileHandle];
       }
       const abortedDirHandle = {
-        name: 'root',
-        kind: 'directory',
         entries: abortedEntries,
+        kind: 'directory',
+        name: 'root',
       } as unknown as FileSystemDirectoryHandle;
       const abortedBatchSpy = vi.fn();
 
       await adapter.readDirectoryStreaming(
         {
-          path: 'root',
-          name: 'root',
-          kind: 'directory',
-          platform: 'web',
           _internal: abortedDirHandle,
+          kind: 'directory',
+          name: 'root',
+          path: 'root',
+          platform: 'web',
         },
         abortedBatchSpy,
         { signal: abortController.signal }
@@ -1100,19 +1100,19 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
   const makeDirHandleInternal = (name = 'project') =>
     ({
-      name,
-      kind: 'directory' as const,
       entries: vi.fn(),
+      kind: 'directory' as const,
+      name,
     }) as unknown as FileSystemDirectoryHandle;
 
   it('constructs a FileSystemObserver when available, observe() receives the internal handle and {recursive:true}, emitted records reach the callback mapped to FileSystemChange[]', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     let capturedObserver: StubFileSystemObserver | null = null;
@@ -1138,28 +1138,28 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
     // emit records and verify mapping
     capturedObserver!.emit([
       {
-        type: 'appeared',
         changedHandle: { kind: 'file', name: 'new-file.ts' } as unknown as FileSystemHandle,
         relativePathComponents: ['src', 'new-file.ts'],
+        type: 'appeared',
       },
       {
-        type: 'modified',
         changedHandle: { kind: 'file', name: 'existing.ts' } as unknown as FileSystemHandle,
         relativePathComponents: ['src', 'existing.ts'],
+        type: 'modified',
       },
       {
-        type: 'disappeared',
         changedHandle: { kind: 'directory', name: 'old-dir' } as unknown as FileSystemHandle,
         relativePathComponents: ['old-dir'],
+        type: 'disappeared',
       },
     ]);
 
     expect(callback).toHaveBeenCalledOnce();
     const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
     expect(changes).toEqual([
-      { type: 'added', path: 'project/src/new-file.ts', kind: 'file' },
-      { type: 'modified', path: 'project/src/existing.ts', kind: 'file' },
-      { type: 'removed', path: 'project/old-dir', kind: 'directory' },
+      { kind: 'file', path: 'project/src/new-file.ts', type: 'added' },
+      { kind: 'file', path: 'project/src/existing.ts', type: 'modified' },
+      { kind: 'directory', path: 'project/old-dir', type: 'removed' },
     ]);
 
     // disposer disconnects the observer
@@ -1173,11 +1173,11 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     const adapter = new WebFileSystemAdapter();
@@ -1198,11 +1198,11 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
   it('maps a moved record with relativePathMovedFrom to a removed+added pair', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     let capturedObserver: StubFileSystemObserver | null = null;
@@ -1219,29 +1219,29 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
     capturedObserver!.emit([
       {
-        type: 'moved',
         changedHandle: { kind: 'file', name: 'renamed.ts' } as unknown as FileSystemHandle,
         relativePathComponents: ['src', 'renamed.ts'],
         relativePathMovedFrom: ['src', 'original.ts'],
+        type: 'moved',
       },
     ]);
 
     expect(callback).toHaveBeenCalledOnce();
     const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
     expect(changes).toEqual([
-      { type: 'removed', path: 'project/src/original.ts', kind: 'file' },
-      { type: 'added', path: 'project/src/renamed.ts', kind: 'file' },
+      { kind: 'file', path: 'project/src/original.ts', type: 'removed' },
+      { kind: 'file', path: 'project/src/renamed.ts', type: 'added' },
     ]);
   });
 
   it('maps a moved record with null relativePathMovedFrom to only an added event', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     let capturedObserver: StubFileSystemObserver | null = null;
@@ -1258,26 +1258,26 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
     capturedObserver!.emit([
       {
-        type: 'moved',
         changedHandle: { kind: 'directory', name: 'moved-in' } as unknown as FileSystemHandle,
         relativePathComponents: ['moved-in'],
         relativePathMovedFrom: null,
+        type: 'moved',
       },
     ]);
 
     expect(callback).toHaveBeenCalledOnce();
     const [changes] = callback.mock.calls[0] as [import('@brainstrike/types').FileSystemChange[]];
-    expect(changes).toEqual([{ type: 'added', path: 'project/moved-in', kind: 'directory' }]);
+    expect(changes).toEqual([{ kind: 'directory', path: 'project/moved-in', type: 'added' }]);
   });
 
   it('logs a warn and disconnects when observe() returns a rejected promise (async failure path)', async () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     const warnRecords: Array<{ level: string; message: string | undefined }> = [];
@@ -1323,11 +1323,11 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
   it('falls back to a no-op disposer and logs a warn when observe() throws (e.g. permission revoked)', () => {
     const internalHandle = makeDirHandleInternal('project');
     const dirHandle: DirectoryHandle = {
-      path: 'project',
-      name: 'project',
-      kind: 'directory',
-      platform: 'web',
       _internal: internalHandle,
+      kind: 'directory',
+      name: 'project',
+      path: 'project',
+      platform: 'web',
     };
 
     const warnRecords: Array<{ level: string; message: string | undefined }> = [];
@@ -1369,9 +1369,9 @@ describe('watchDirectory (FileSystemObserver feature-detected)', () => {
 
 function makeDirHandle(name: string): FileSystemDirectoryHandle {
   return {
-    name,
-    kind: 'directory' as const,
     entries: vi.fn(),
+    kind: 'directory' as const,
+    name,
     queryPermission: vi.fn().mockResolvedValue('granted'),
   } as unknown as FileSystemDirectoryHandle;
 }
@@ -1403,15 +1403,15 @@ function setupAdapterWithStoredRoots(specs: StoredRootSpec[]): {
 } {
   const storedRoots: StoredRootHandle[] = specs.map((s) => ({
     folderId: s.folderId,
-    name: s.name,
     handle: {
-      name: s.name,
-      kind: 'directory' as const,
       entries: vi.fn(),
+      kind: 'directory' as const,
+      name: s.name,
       queryPermission: vi.fn().mockResolvedValue(s.permission),
     } as unknown as FileSystemDirectoryHandle,
-    storedAt: Date.now(),
     lastAccessedAt: Date.now(),
+    name: s.name,
+    storedAt: Date.now(),
   }));
 
   const handleCache = createHandleCache({
@@ -1478,28 +1478,28 @@ describe('multi-root API', () => {
     } {
       const records = new Map<string, StoredRootHandle>();
       const cache = createHandleCache({
+        getAllRootHandles: vi.fn(async () => Array.from(records.values())),
         storeRootHandle: vi.fn(async (folderId: string, handle: FileSystemDirectoryHandle) => {
           const existing = records.get(folderId);
           records.set(folderId, {
             folderId,
-            name: handle.name,
             handle,
-            storedAt: existing?.storedAt ?? Date.now(),
             lastAccessedAt: Date.now(),
+            name: handle.name,
+            storedAt: existing?.storedAt ?? Date.now(),
           });
         }),
-        getAllRootHandles: vi.fn(async () => Array.from(records.values())),
       });
       return { cache, records };
     }
 
     function makeSameEntryAwareDirHandle(name: string): FileSystemDirectoryHandle {
       const handle = {
-        name,
-        kind: 'directory' as const,
         entries: vi.fn(),
-        queryPermission: vi.fn().mockResolvedValue('granted'),
         isSameEntry: vi.fn(async (other: FileSystemHandle) => other === (handle as unknown)),
+        kind: 'directory' as const,
+        name,
+        queryPermission: vi.fn().mockResolvedValue('granted'),
       };
       return handle as unknown as FileSystemDirectoryHandle;
     }
@@ -1548,17 +1548,17 @@ describe('multi-root API', () => {
     it('skips a stale stored handle whose isSameEntry throws without failing addRoot', async () => {
       const { cache, records } = createStatefulHandleCache();
       const staleHandle = {
-        name: 'stale',
-        kind: 'directory' as const,
         entries: vi.fn(),
         isSameEntry: vi.fn().mockRejectedValue(new Error('InvalidStateError: handle is dead')),
+        kind: 'directory' as const,
+        name: 'stale',
       } as unknown as FileSystemDirectoryHandle;
       records.set('stale-root-id', {
         folderId: 'stale-root-id',
-        name: 'stale',
         handle: staleHandle,
-        storedAt: Date.now(),
         lastAccessedAt: Date.now(),
+        name: 'stale',
+        storedAt: Date.now(),
       });
 
       const dirHandle = makeSameEntryAwareDirHandle('fresh-project');

@@ -59,8 +59,8 @@ test.describe('Electron App Launch', () => {
           // Resize the window
           window.setBounds({
             ...bounds,
-            width: Math.max(800, bounds.width),
             height: Math.max(600, bounds.height),
+            width: Math.max(800, bounds.width),
           });
 
           return window.getBounds();

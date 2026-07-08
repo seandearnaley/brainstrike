@@ -25,14 +25,14 @@ describe('usePGliteLiveQuery Performance', () => {
     mockUnsubscribe = vi.fn();
     mockQuery = vi.fn().mockReturnValue({
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: mockSubscribe,
       unsubscribe: mockUnsubscribe,
-      refresh: vi.fn(),
     });
 
     mockLiveNamespace = {
-      query: mockQuery,
       incrementalQuery: mockQuery,
+      query: mockQuery,
     };
 
     (usePGliteDatabase as any).mockReturnValue({
@@ -48,8 +48,8 @@ describe('usePGliteLiveQuery Performance', () => {
 
   function TestComponent({ params, select }: { params?: unknown[]; select?: any }) {
     usePGliteLiveQuery({
-      query: 'SELECT * FROM test WHERE id = $1',
       params,
+      query: 'SELECT * FROM test WHERE id = $1',
       select,
     });
     return null;
@@ -88,8 +88,8 @@ describe('usePGliteLiveQuery Performance', () => {
 
     expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
         params: ['needle'],
+        query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
       })
     );
   });
@@ -97,8 +97,8 @@ describe('usePGliteLiveQuery Performance', () => {
 
 function PercentQueryComponent({ params, query }: { params?: unknown[]; query: string }) {
   usePGliteLiveQuery({
-    query,
     params,
+    query,
   });
   return null;
 }
@@ -131,10 +131,10 @@ describe('Electron Live Query', () => {
 
     mockUnsubscribe = vi.fn();
     mockBridge = {
+      onUpdate: vi.fn().mockReturnValue(mockUnsubscribe),
+      refresh: vi.fn().mockResolvedValue(undefined),
       start: vi.fn().mockResolvedValue({ id: 123, initialResults: { rows: [] } }),
       stop: vi.fn().mockResolvedValue(undefined),
-      refresh: vi.fn().mockResolvedValue(undefined),
-      onUpdate: vi.fn().mockReturnValue(mockUnsubscribe),
     };
 
     // Mock window.electronAPI
@@ -151,8 +151,8 @@ describe('Electron Live Query', () => {
 
   function TestComponent({ params }: { params?: unknown[] }) {
     usePGliteLiveQuery({
-      query: 'SELECT * FROM test',
       params,
+      query: 'SELECT * FROM test',
     });
     return null;
   }
@@ -164,8 +164,8 @@ describe('Electron Live Query', () => {
     await vi.waitFor(() => {
       expect(mockBridge.start).toHaveBeenCalledWith(
         expect.objectContaining({
-          query: 'SELECT * FROM test',
           params: [1],
+          query: 'SELECT * FROM test',
         })
       );
     });
@@ -182,8 +182,8 @@ describe('Electron Live Query', () => {
     await vi.waitFor(() => {
       expect(mockBridge.start).toHaveBeenCalledWith(
         expect.objectContaining({
-          query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
           params: ['needle'],
+          query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
         })
       );
     });
@@ -230,7 +230,7 @@ describe('PGliteWorker live query leader changes', () => {
         readonly query: typeof mockQuery;
       };
       readonly marker: 'worker-raw';
-      onLeaderChange(this: MockWorkerRaw, listener: () => void): () => void;
+      onLeaderChange: (this: MockWorkerRaw, listener: () => void) => () => void;
     }
 
     const raw: MockWorkerRaw = {
@@ -291,8 +291,8 @@ describe('Error Handling', () => {
     const mockFailingQuery = vi.fn().mockRejectedValue(new Error('Query failed'));
 
     const mockLiveNamespace = {
-      query: mockFailingQuery,
       incrementalQuery: mockFailingQuery,
+      query: mockFailingQuery,
     };
 
     (usePGliteDatabase as any).mockReturnValue({
@@ -325,16 +325,16 @@ describe('usePGliteLiveQuery clearOnDisable', () => {
     mockUnsubscribe = vi.fn();
     mockQuery = vi.fn().mockReturnValue({
       initialResults: { rows: [{ id: 1 }, { id: 2 }] },
+      refresh: vi.fn(),
       subscribe: mockSubscribe,
       unsubscribe: mockUnsubscribe,
-      refresh: vi.fn(),
     });
 
     (usePGliteDatabase as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       raw: {
         live: {
-          query: mockQuery,
           incrementalQuery: mockQuery,
+          query: mockQuery,
         },
       },
     });
@@ -348,9 +348,9 @@ describe('usePGliteLiveQuery clearOnDisable', () => {
     enabled: boolean;
   }) {
     const { rows } = usePGliteLiveQuery({
-      query: 'SELECT * FROM test',
-      enabled,
       clearOnDisable,
+      enabled,
+      query: 'SELECT * FROM test',
     });
     return <div>{rows.length}</div>;
   }
@@ -396,16 +396,16 @@ describe('useStableParams (JSON strategy - default)', () => {
     mockUnsubscribe = vi.fn();
     mockQuery = vi.fn().mockReturnValue({
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: mockSubscribe,
       unsubscribe: mockUnsubscribe,
-      refresh: vi.fn(),
     });
 
     (usePGliteDatabase as any).mockReturnValue({
       raw: {
         live: {
-          query: mockQuery,
           incrementalQuery: mockQuery,
+          query: mockQuery,
         },
       },
     });
@@ -423,9 +423,9 @@ describe('useStableParams (JSON strategy - default)', () => {
     params?: unknown[];
   }) {
     usePGliteLiveQuery({
-      query: 'SELECT * FROM test WHERE id = $1',
-      params,
       compareParams,
+      params,
+      query: 'SELECT * FROM test WHERE id = $1',
     });
     return null;
   }
@@ -627,16 +627,16 @@ describe('usePGliteLiveQuery cacheKey', () => {
     mockUnsubscribe = vi.fn();
     mockQuery = vi.fn().mockReturnValue({
       initialResults: { rows: [] },
+      refresh: vi.fn(),
       subscribe: mockSubscribe,
       unsubscribe: mockUnsubscribe,
-      refresh: vi.fn(),
     });
 
     (usePGliteDatabase as any).mockReturnValue({
       raw: {
         live: {
-          query: mockQuery,
           incrementalQuery: mockQuery,
+          query: mockQuery,
         },
       },
     });
@@ -649,8 +649,8 @@ describe('usePGliteLiveQuery cacheKey', () => {
   function CacheKeyComponent({ cacheKey, params }: { cacheKey?: string; params?: unknown[] }) {
     usePGliteLiveQuery({
       cacheKey,
-      query: 'SELECT * FROM test WHERE id = $1',
       params,
+      query: 'SELECT * FROM test WHERE id = $1',
     });
     return null;
   }

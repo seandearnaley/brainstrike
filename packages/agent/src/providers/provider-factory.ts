@@ -74,8 +74,8 @@ export function createProvider(
   ) as readonly SupportedProvider[];
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      detail: `Unsupported provider: ${provider}`,
       context: { provider, supportedProviders },
+      detail: `Unsupported provider: ${provider}`,
     });
   }
 
@@ -83,8 +83,8 @@ export function createProvider(
   const modelName = model ?? PROVIDER_DEFAULT_MODELS[validatedProvider];
   if (!modelName) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: `No default model configured for provider: ${provider}`,
       context: { provider },
+      detail: `No default model configured for provider: ${provider}`,
     });
   }
 
@@ -130,8 +130,8 @@ export function createProvider(
       const baseURL = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, ollamaOptions);
       const ollamaProvider = createOpenAI({
-        baseURL,
         apiKey: resolvedKey ?? 'ollama',
+        baseURL,
       });
       return ollamaProvider(modelName);
     }
@@ -147,8 +147,8 @@ export function createProvider(
       const baseURL = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, lmStudioOptions);
       const lmStudioProvider = createOpenAI({
-        baseURL,
         apiKey: resolvedKey ?? 'lmstudio',
+        baseURL,
       });
       return lmStudioProvider(modelName);
     }
@@ -173,8 +173,8 @@ export function createProvider(
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        detail: `Unsupported provider: ${provider}`,
         context: { provider, supportedProviders },
+        detail: `Unsupported provider: ${provider}`,
       });
   }
 }
@@ -196,8 +196,8 @@ export function createEmbeddingProvider(
   ) as readonly SupportedProvider[];
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      detail: `Unsupported embedding provider: ${provider}`,
       context: { provider, supportedProviders },
+      detail: `Unsupported embedding provider: ${provider}`,
     });
   }
 
@@ -228,14 +228,14 @@ export function createEmbeddingProvider(
     case 'lmstudio':
     case 'local':
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
         context: { provider, supportedProviders },
+        detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
       });
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        detail: `Unsupported embedding provider: ${provider}`,
         context: { provider, supportedProviders },
+        detail: `Unsupported embedding provider: ${provider}`,
       });
   }
 }

@@ -49,11 +49,11 @@ export function toMastraModelTarget(providerId: string, modelId: string): string
 
 function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOption {
   return {
+    label: `${provider.name} · ${model.name}`,
+    modelId: model.id,
     providerId: provider.id,
     providerName: provider.name,
-    modelId: model.id,
     target: toMastraModelTarget(provider.id, model.id),
-    label: `${provider.name} · ${model.name}`,
   };
 }
 

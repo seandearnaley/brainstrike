@@ -6,72 +6,72 @@ import { useAvailableModels, useAvailableProviders } from '../use-available-mode
 
 const mockModels: DbModel[] = [
   {
-    id: 'text-embedding-3-small',
-    providerId: 'openai',
-    name: 'Text Embedding 3 Small',
+    bestFor: null,
+    capabilities: { type: 'embedding' },
     description: 'OpenAI model',
-    tagline: null,
-    bestFor: null,
     icon: null,
-    sortOrder: 0,
+    id: 'text-embedding-3-small',
     isEnabled: true,
-    capabilities: { type: 'embedding' },
+    name: 'Text Embedding 3 Small',
     parameters: { pricePer1MTokens: 0.02 },
+    providerId: 'openai',
+    sortOrder: 0,
+    tagline: null,
   },
   {
-    id: 'bge-m3',
-    providerId: 'local',
-    name: 'BGE M3',
+    bestFor: null,
+    capabilities: { type: 'embedding' },
     description: 'Local model',
-    tagline: null,
-    bestFor: null,
     icon: null,
+    id: 'bge-m3',
+    isEnabled: true,
+    name: 'BGE M3',
+    parameters: {},
+    providerId: 'local',
     sortOrder: 1,
-    isEnabled: true,
-    capabilities: { type: 'embedding' },
-    parameters: {},
+    tagline: null,
   },
   {
+    bestFor: null,
+    capabilities: { type: 'embedding' },
+    description: '',
+    icon: null,
     id: 'disabled-model',
-    providerId: 'openai',
-    name: 'Disabled',
-    description: '',
-    tagline: null,
-    bestFor: null,
-    icon: null,
-    sortOrder: 2,
     isEnabled: false,
-    capabilities: { type: 'embedding' },
+    name: 'Disabled',
     parameters: {},
+    providerId: 'openai',
+    sortOrder: 2,
+    tagline: null,
   },
   {
-    id: 'chat-model',
-    providerId: 'openai',
-    name: 'Chat',
-    description: '',
-    tagline: null,
     bestFor: null,
-    icon: null,
-    sortOrder: 3,
-    isEnabled: true,
     capabilities: { type: 'chat' } as any,
+    description: '',
+    icon: null,
+    id: 'chat-model',
+    isEnabled: true,
+    name: 'Chat',
     parameters: {},
+    providerId: 'openai',
+    sortOrder: 3,
+    tagline: null,
   },
 ];
 
 const mockProviders: DbProvider[] = [
   {
-    id: 'openai',
-    name: 'OpenAI',
-    isEnabled: true,
     icon: 'openai-icon',
+    id: 'openai',
+    isEnabled: true,
+    name: 'OpenAI',
     sortOrder: 0,
   },
   {
-    id: 'disabled-provider',
-    name: 'Disabled',
-    isEnabled: false,
     icon: null,
+    id: 'disabled-provider',
+    isEnabled: false,
+    name: 'Disabled',
     sortOrder: 1,
   },
 ];
@@ -80,71 +80,71 @@ const runtimeCatalog: {
   ollama: LocalRuntimeModelCatalogState;
   lmstudio: LocalRuntimeModelCatalogState;
 } = {
-  ollama: {
-    state: 'loaded_non_empty',
-    runtime: 'ollama',
-    checkedAt: 100,
+  lmstudio: {
     availability: {
-      state: 'available',
+      checkedAt: 100,
+      message: 'Connection refused',
+      state: 'unavailable',
+    },
+    checkedAt: 100,
+    message: 'Connection refused',
+    runtime: 'lmstudio',
+    state: 'failed',
+  },
+  ollama: {
+    availability: {
       checkedAt: 100,
       endpoint: 'http://127.0.0.1:11434/v1/models',
       latencyMs: 8,
+      state: 'available',
     },
+    checkedAt: 100,
     endpoint: 'http://127.0.0.1:11434/v1/models',
-    source: 'openai_v1_models',
     freshness: 'live',
     models: [
       {
-        runtime: 'ollama',
-        providerId: 'ollama',
-        modelId: 'nomic-embed-text',
-        modelKey: 'ollama::nomic-embed-text',
-        displayName: 'Nomic Embed Text',
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
         capabilities: {
-          llm: false,
           embeddings: 'supported',
+          llm: false,
         },
         capabilitySource: 'inferred',
         dimensionsKnown: {
+          endpoint: 'http://127.0.0.1:11434/v1/embeddings',
           state: 'known',
           values: [768],
           verifiedAt: 99,
-          endpoint: 'http://127.0.0.1:11434/v1/embeddings',
         },
+        displayName: 'Nomic Embed Text',
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        freshness: 'live',
+        modelId: 'nomic-embed-text',
+        modelKey: 'ollama::nomic-embed-text',
+        providerId: 'ollama',
+        runtime: 'ollama',
+        source: 'openai_v1_models',
       },
       {
-        runtime: 'ollama',
-        providerId: 'ollama',
-        modelId: 'qwen2.5:7b',
-        modelKey: 'ollama::qwen2.5:7b',
-        displayName: 'qwen2.5:7b',
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
         capabilities: {
-          llm: true,
           embeddings: 'needs_verification',
+          llm: true,
         },
         capabilitySource: 'inferred',
         dimensionsKnown: {
           state: 'needs_verification',
         },
+        displayName: 'qwen2.5:7b',
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        freshness: 'live',
+        modelId: 'qwen2.5:7b',
+        modelKey: 'ollama::qwen2.5:7b',
+        providerId: 'ollama',
+        runtime: 'ollama',
+        source: 'openai_v1_models',
       },
     ],
-  },
-  lmstudio: {
-    state: 'failed',
-    runtime: 'lmstudio',
-    checkedAt: 100,
-    availability: {
-      state: 'unavailable',
-      checkedAt: 100,
-      message: 'Connection refused',
-    },
-    message: 'Connection refused',
+    runtime: 'ollama',
+    source: 'openai_v1_models',
+    state: 'loaded_non_empty',
   },
 };
 
@@ -154,21 +154,21 @@ describe('useAvailableModels', () => {
 
     expect(result.current).toHaveLength(2);
     expect(result.current[0]).toEqual({
+      capabilities: { type: 'embedding' },
+      description: 'OpenAI model',
       id: 'openai::text-embedding-3-small',
       modelId: 'text-embedding-3-small',
-      providerId: 'openai',
       name: 'Text Embedding 3 Small',
-      description: 'OpenAI model',
-      capabilities: { type: 'embedding' },
       pricePer1MTokensInput: 0.02,
+      providerId: 'openai',
     });
     expect(result.current[1]).toEqual({
+      capabilities: { type: 'embedding' },
+      description: 'Local model',
       id: 'local::bge-m3',
       modelId: 'bge-m3',
-      providerId: 'local',
       name: 'BGE M3',
-      description: 'Local model',
-      capabilities: { type: 'embedding' },
+      providerId: 'local',
     });
   });
 
@@ -176,12 +176,12 @@ describe('useAvailableModels', () => {
     const { result } = renderHook(() => useAvailableModels(mockModels, runtimeCatalog));
 
     expect(result.current).toContainEqual({
+      capabilities: { defaultDimension: 768, type: 'embedding' },
+      description: 'Nomic Embed Text • 768D • Local runtime',
       id: 'ollama::nomic-embed-text',
       modelId: 'nomic-embed-text',
-      providerId: 'ollama',
       name: 'nomic-embed-text',
-      description: 'Nomic Embed Text • 768D • Local runtime',
-      capabilities: { type: 'embedding', defaultDimension: 768 },
+      providerId: 'ollama',
     });
     expect(result.current.some((model) => model.id === 'ollama::qwen2.5:7b')).toBe(false);
   });
@@ -193,9 +193,9 @@ describe('useAvailableProviders', () => {
 
     expect(result.current).toHaveLength(1);
     expect(result.current[0]).toEqual({
+      icon: 'openai-icon',
       id: 'openai',
       name: 'OpenAI',
-      icon: 'openai-icon',
     });
   });
 
@@ -203,9 +203,9 @@ describe('useAvailableProviders', () => {
     const { result } = renderHook(() => useAvailableProviders(mockProviders, runtimeCatalog));
 
     expect(result.current).toContainEqual({
+      icon: null,
       id: 'ollama',
       name: 'Ollama',
-      icon: null,
     });
     expect(result.current.some((provider) => provider.id === 'lmstudio')).toBe(false);
   });

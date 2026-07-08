@@ -28,8 +28,8 @@ export function parseProviderModelKey<Provider extends string = string>(
       return null;
     }
     return {
-      provider: provider as Provider,
       modelId,
+      provider: provider as Provider,
     };
   }
 
@@ -41,8 +41,8 @@ export function parseProviderModelKey<Provider extends string = string>(
       return null;
     }
     return {
-      provider: provider as Provider,
       modelId,
+      provider: provider as Provider,
     };
   }
 
@@ -63,8 +63,8 @@ export function canonicalizeProviderModelKey<Provider extends string = string>(
     return null;
   }
   return {
-    provider,
-    modelId: rawModelId,
     composite: formatProviderModelKey(provider, rawModelId),
+    modelId: rawModelId,
+    provider,
   };
 }

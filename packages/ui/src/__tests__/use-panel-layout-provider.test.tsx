@@ -35,9 +35,9 @@ vi.mock('react-resizable-panels', () => {
 
   const Panel = ({ children, panelRef, ...props }: PanelProps) => {
     const handle = {
-      isCollapsed: vi.fn().mockReturnValue(false),
-      expand: vi.fn(),
       collapse: vi.fn(),
+      expand: vi.fn(),
+      isCollapsed: vi.fn().mockReturnValue(false),
     };
     useImperativeHandle(panelRef, () => handle);
     return (
@@ -58,10 +58,10 @@ function LayoutHarness() {
   return (
     <PanelLayoutProvider
       initialState={{
-        sizes: [30, 50, 20],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [30, 50, 20],
       }}
     >
       <IdeLayout

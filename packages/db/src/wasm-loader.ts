@@ -173,9 +173,9 @@ class WasmLoader {
     const db = normalizedDataDir
       ? new PGlite({
           dataDir: normalizedDataDir,
-          extensions: { vector, live, pg_trgm: pgTrgm },
+          extensions: { live, pg_trgm: pgTrgm, vector },
         })
-      : new PGlite({ extensions: { vector, live, pg_trgm: pgTrgm } });
+      : new PGlite({ extensions: { live, pg_trgm: pgTrgm, vector } });
 
     // Cache persisted databases only (not memory://)
     if (isIndexedDbPGliteDataDir(normalizedDataDir)) {

@@ -3,10 +3,10 @@ import { emitQueueTelemetry, initializeQueueTelemetrySink, type QueueTelemetryEv
 
 function createEvent(overrides: Partial<QueueTelemetryEvent> = {}): QueueTelemetryEvent {
   return {
-    timestamp: Date.now(),
     adapter: 'workerpool',
     event: 'enqueue',
     taskId: `task-${Math.random()}`,
+    timestamp: Date.now(),
     ...overrides,
   };
 }
@@ -40,18 +40,18 @@ describe('initializeQueueTelemetrySink', () => {
     globalThis.fetch = fetchMock;
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://telemetry.example.com/queue',
       enableInTest: true,
-      useSendBeacon: false,
+      endpoint: 'https://telemetry.example.com/queue',
       flushIntervalMs: 50,
       maxBatchSize: 50,
       metadata: { test: true },
+      useSendBeacon: false,
     });
 
     expect(sink).not.toBeNull();
 
     emitQueueTelemetry(createEvent({ event: 'enqueue' }));
-    emitQueueTelemetry(createEvent({ event: 'complete', elapsedMs: 123 }));
+    emitQueueTelemetry(createEvent({ elapsedMs: 123, event: 'complete' }));
 
     await vi.runAllTimersAsync();
 
@@ -70,16 +70,16 @@ describe('initializeQueueTelemetrySink', () => {
   it('prefers navigator.sendBeacon when available', async () => {
     const beaconMock = vi.fn().mockReturnValue(true);
     Object.defineProperty(globalThis, 'navigator', {
-      value: { sendBeacon: beaconMock } as unknown as Navigator,
       configurable: true,
+      value: { sendBeacon: beaconMock } as unknown as Navigator,
       writable: true,
     });
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://telemetry.example.com/queue',
       enableInTest: true,
+      endpoint: 'https://telemetry.example.com/queue',
       flushIntervalMs: 10,
     });
 
@@ -103,12 +103,12 @@ describe('initializeQueueTelemetrySink', () => {
     globalThis.fetch = fetchMock;
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://telemetry.example.com/queue',
       enableInTest: true,
-      useSendBeacon: false,
+      endpoint: 'https://telemetry.example.com/queue',
       flushIntervalMs: 5,
       maxBatchSize: 10,
       retryBaseDelayMs: 0,
+      useSendBeacon: false,
     });
 
     expect(sink).not.toBeNull();

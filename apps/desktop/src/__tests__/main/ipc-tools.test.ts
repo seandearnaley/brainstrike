@@ -16,9 +16,9 @@ vi.mock('@brainstrike/agent/client', () => ({
   NATIVE_TOOL_DEFAULTS: {
     'brainstrike.readWorkspaceContext': {
       category: 'retrieval',
+      estimatedTokens: 180,
       loadingTier: 'critical',
       requiresApproval: false,
-      estimatedTokens: 180,
     },
   },
 }));
@@ -80,9 +80,9 @@ describe('ipc-tools', () => {
     it('executes native tools via executeNativeTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(true);
       vi.mocked(executeNativeTool).mockResolvedValue({
-        success: true,
-        result: { data: 'test' },
         durationMs: 10,
+        result: { data: 'test' },
+        success: true,
       });
 
       const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
@@ -94,9 +94,9 @@ describe('ipc-tools', () => {
         path: '/README.md',
       });
       expect(result).toEqual({
-        success: true,
-        result: { data: 'test' },
         durationMs: 10,
+        result: { data: 'test' },
+        success: true,
       });
     });
 
@@ -104,8 +104,8 @@ describe('ipc-tools', () => {
       const result = await toolsExecuteHandler(mockEvent, '   ', {});
 
       expect(result).toMatchObject({
-        success: false,
         error: 'Invalid tool ID.',
+        success: false,
       });
     });
 
@@ -119,8 +119,8 @@ describe('ipc-tools', () => {
 
       expect(executeNativeTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: 'Tool input must be a JSON object.',
+        success: false,
       });
     });
 
@@ -143,8 +143,8 @@ describe('ipc-tools', () => {
 
       expect(executeNativeTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: expect.stringContaining('JSON-serializable'),
+        success: false,
       });
     });
 
@@ -158,8 +158,8 @@ describe('ipc-tools', () => {
       expect(isExecutableNativeTool).toHaveBeenCalledWith('mcp__server__tool');
       expect(callTool).toHaveBeenCalledWith('mcp__server__tool', { param: 'value' });
       expect(result).toMatchObject({
-        success: true,
         result: { mcpResult: 'success' },
+        success: true,
       });
     });
 
@@ -179,28 +179,28 @@ describe('ipc-tools', () => {
           path: '/README.md',
         },
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceIndexEmbeddingSetId: 'set-1',
           workspaceIndexingEnabled: true,
           workspaceIndexingMode: 'root-folder-cache',
           workspaceIndexingPaused: false,
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceIndexEmbeddingSetId: 'set-1',
           workspaceIndexingEnabled: true,
           workspaceIndexingMode: 'root-folder-cache',
           workspaceIndexingPaused: false,
+          workspaceRootPath: '/tmp/test-workspace',
         },
         { embeddingHostManager: undefined }
       );
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: true,
         result: { content: 'hello' },
+        success: true,
       });
     });
 
@@ -220,63 +220,63 @@ describe('ipc-tools', () => {
           tokenBudget: 500,
         },
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceContext: {
-            tokenBudget: 8192,
-            selectedSourceApproxTokens: 320,
-            selectedOutputApproxTokens: null,
-            useTapestryRanges: true,
-            includeProjectTree: false,
             files: [
               {
-                path: '/src/main.ts',
                 approxTokens: 200,
                 outputApproxTokens: 120,
+                path: '/src/main.ts',
                 ranges: [
                   {
-                    startLine: 4,
-                    endLine: 12,
                     approxTokens: 60,
+                    endLine: 12,
                     isActive: true,
+                    startLine: 4,
                   },
                 ],
               },
             ],
+            includeProjectTree: false,
+            selectedOutputApproxTokens: null,
+            selectedSourceApproxTokens: 320,
+            tokenBudget: 8192,
+            useTapestryRanges: true,
           },
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceContext: {
-            tokenBudget: 8192,
-            selectedSourceApproxTokens: 320,
-            selectedOutputApproxTokens: null,
-            useTapestryRanges: true,
-            includeProjectTree: false,
             files: [
               {
-                path: '/src/main.ts',
                 approxTokens: 200,
                 outputApproxTokens: 120,
+                path: '/src/main.ts',
                 ranges: [
                   {
-                    startLine: 4,
-                    endLine: 12,
                     approxTokens: 60,
+                    endLine: 12,
                     isActive: true,
+                    startLine: 4,
                   },
                 ],
               },
             ],
+            includeProjectTree: false,
+            selectedOutputApproxTokens: null,
+            selectedSourceApproxTokens: 320,
+            tokenBudget: 8192,
+            useTapestryRanges: true,
           },
+          workspaceRootPath: '/tmp/test-workspace',
         },
         { embeddingHostManager: undefined }
       );
       expect(result).toMatchObject({
-        success: true,
         result: { files: [] },
+        success: true,
       });
     });
 
@@ -298,14 +298,14 @@ describe('ipc-tools', () => {
             files: [
               {
                 path: 'src/notes.md',
-                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
                 rootDisplayName: 'docs',
+                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
               },
               {
                 path: 'src/other.md',
+                rootDisplayName: '',
                 // Malformed identities must be dropped, not forwarded.
                 rootId: 42,
-                rootDisplayName: '',
               },
             ],
           },
@@ -318,8 +318,8 @@ describe('ipc-tools', () => {
             files: [
               {
                 path: 'src/notes.md',
-                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
                 rootDisplayName: 'docs',
+                rootId: 'aaaaaaaa-0000-4000-8000-000000000001',
               },
               {
                 path: 'src/other.md',
@@ -345,26 +345,26 @@ describe('ipc-tools', () => {
         'brainstrike.listEmbeddingSpaces',
         {},
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceIndexEmbeddingSetId: 'set-1',
           workspaceIndexingEnabled: true,
           workspaceIndexingMode: 'unexpected-mode',
           workspaceIndexingPaused: false,
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceIndexEmbeddingSetId: 'set-1',
           workspaceIndexingEnabled: true,
           workspaceIndexingPaused: false,
+          workspaceRootPath: '/tmp/test-workspace',
         },
         { embeddingHostManager: undefined }
       );
       expect(result).toMatchObject({
-        success: true,
         result: { spaces: [] },
+        success: true,
       });
     });
 
@@ -384,15 +384,15 @@ describe('ipc-tools', () => {
           tokenBudget: 500,
         },
         {
-          workspaceRootPath: '/tmp/test-workspace',
           workspaceContext: {
             files: [
               {
                 path: '/src/main.ts',
-                ranges: [{ startLine: 12, endLine: 4 }],
+                ranges: [{ endLine: 4, startLine: 12 }],
               },
             ],
           },
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
@@ -403,8 +403,8 @@ describe('ipc-tools', () => {
         { embeddingHostManager: undefined }
       );
       expect(result).toMatchObject({
-        success: true,
         result: { files: [] },
+        success: true,
       });
     });
 
@@ -422,35 +422,35 @@ describe('ipc-tools', () => {
         'brainstrike.readWorkspaceContext',
         { tokenBudget: 500 },
         {
-          workspaceRootPath: '/tmp/test-workspace',
+          agentLoop: {
+            inputTokenLimit: 8192,
+            invalid: 99,
+            maxSteps: 12,
+          },
           enabledNativeToolIds: [
             ' brainstrike.readWorkspaceContext ',
             null,
             '',
             'brainstrike.unknownNativeTool',
           ],
-          agentLoop: {
-            maxSteps: 12,
-            inputTokenLimit: 8192,
-            invalid: 99,
-          },
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
         {
-          workspaceRootPath: '/tmp/test-workspace',
-          enabledNativeToolIds: ['brainstrike.readWorkspaceContext'],
           agentLoop: {
-            maxSteps: 12,
             inputTokenLimit: 8192,
+            maxSteps: 12,
           },
+          enabledNativeToolIds: ['brainstrike.readWorkspaceContext'],
+          workspaceRootPath: '/tmp/test-workspace',
         },
         { embeddingHostManager: undefined }
       );
       expect(result).toMatchObject({
-        success: true,
         result: { files: [] },
+        success: true,
       });
     });
 
@@ -468,15 +468,15 @@ describe('ipc-tools', () => {
         'brainstrike.readWorkspaceContext',
         { tokenBudget: 500 },
         {
-          workspaceRootPath: '/tmp/test-workspace',
           enabledNativeToolIds: [],
+          workspaceRootPath: '/tmp/test-workspace',
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
         {
-          workspaceRootPath: '/tmp/test-workspace',
           enabledNativeToolIds: [],
+          workspaceRootPath: '/tmp/test-workspace',
         },
         { embeddingHostManager: undefined }
       );
@@ -494,8 +494,8 @@ describe('ipc-tools', () => {
       expect(isNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: expect.stringContaining('requires database access'),
+        success: false,
       });
     });
 
@@ -507,8 +507,8 @@ describe('ipc-tools', () => {
       const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', {});
 
       expect(result).toMatchObject({
-        success: false,
         error: 'MCP server disconnected',
+        success: false,
       });
     });
 
@@ -534,8 +534,8 @@ describe('ipc-tools', () => {
       });
 
       expect(result).toMatchObject({
-        success: false,
         error: 'Native tool crashed',
+        success: false,
       });
     });
 
@@ -547,8 +547,8 @@ describe('ipc-tools', () => {
       const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {});
 
       expect(result).toMatchObject({
-        success: false,
         error: 'Tool execution failed',
+        success: false,
       });
     });
 
@@ -560,8 +560,8 @@ describe('ipc-tools', () => {
 
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: 'Tool input must be a JSON object.',
+        success: false,
       });
     });
 
@@ -575,8 +575,8 @@ describe('ipc-tools', () => {
 
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: expect.stringContaining('JSON-serializable'),
+        success: false,
       });
     });
 
@@ -590,8 +590,8 @@ describe('ipc-tools', () => {
 
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
-        success: false,
         error: expect.stringContaining('exceeds'),
+        success: false,
       });
     });
 
@@ -601,8 +601,8 @@ describe('ipc-tools', () => {
       vi.mocked(callTool).mockResolvedValue({});
 
       const complexInput = {
-        nested: { value: 123 },
         array: [1, 2, 3],
+        nested: { value: 123 },
         string: 'test',
       };
 

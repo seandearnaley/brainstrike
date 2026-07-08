@@ -88,8 +88,8 @@ describe('AssistantToolApprovalNotice', () => {
   it('shows the risk reason when the approval carries a riskCategory hint', () => {
     const approvalWithRisk: AssistantToolApprovalRequest = {
       ...baseApproval,
-      riskCategory: 'execute',
       policyDecision: 'ask',
+      riskCategory: 'execute',
     };
     render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
 
@@ -123,7 +123,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: [{ type: 'text', text: 'Approved workspace.writeFile.' }],
+        content: [{ text: 'Approved workspace.writeFile.', type: 'text' }],
         role: 'user',
         runConfig: {
           custom: {
@@ -149,7 +149,7 @@ describe('AssistantToolApprovalNotice', () => {
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: [{ type: 'text', text: 'Declined workspace.writeFile.' }],
+        content: [{ text: 'Declined workspace.writeFile.', type: 'text' }],
         role: 'user',
         runConfig: {
           custom: {

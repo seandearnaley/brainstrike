@@ -202,10 +202,10 @@ function buildTablePaginationProps({
   const tablePaginationProps: React.ComponentProps<typeof TablePagination> = {
     currentPage,
     onPageChange,
+    onPageSizeChange,
     pageSize,
     totalItems,
     totalPages,
-    onPageSizeChange,
   };
   if (paginationOptions?.pageInfo !== undefined) {
     tablePaginationProps.pageInfo = paginationOptions.pageInfo;
@@ -273,9 +273,9 @@ function renderTableHeader<T>({
               onClick={() => column.sortable && onSortClick(column.id)}
               role="columnheader"
               style={{
-                width: resolvedWidth ?? column.width,
-                minWidth: column.minWidth,
                 maxWidth: column.maxWidth,
+                minWidth: column.minWidth,
+                width: resolvedWidth ?? column.width,
               }}
             >
               <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
@@ -374,7 +374,7 @@ function TreeTableViewport({
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
-    <div className={cn('min-w-0', className)} ref={parentRef} style={{ maxHeight, height: '100%' }}>
+    <div className={cn('min-w-0', className)} ref={parentRef} style={{ height: '100%', maxHeight }}>
       {children}
     </div>
   );
@@ -435,10 +435,10 @@ function getCycleFallbackState(
   warnedCycleNodeIds: Set<string>
 ): CheckboxState {
   warnCycleOnce({
-    nodeId,
-    warnedNodeIds: warnedCycleNodeIds,
     // Cap warning memory instead of clearing it; avoids repeated warnings for the same IDs.
     maxWarnings: MAX_WARNED_CYCLE_NODE_IDS,
+    nodeId,
+    warnedNodeIds: warnedCycleNodeIds,
     warningMessage: `[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`,
   });
   // Cycles indicate malformed tree data; prefer a conservative visual state
@@ -633,12 +633,12 @@ export function TreeTable<T>({
 
     if (nodesArePreFlattened) {
       return flattenPreFlattenedTreeRows(nodesWithLoading, {
-        expandedIds,
-        selectedId,
-        multiSelectedIds,
-        highlightedIds,
         contextNodeIds,
+        expandedIds,
+        highlightedIds,
+        multiSelectedIds,
         rowIndexOffset: resolveRowIndexOffset(showHeader),
+        selectedId,
       });
     }
 
@@ -648,12 +648,12 @@ export function TreeTable<T>({
     return flattenTreeRecursive(
       rootsWithLoading,
       {
-        expandedIds,
-        selectedId,
-        multiSelectedIds,
-        highlightedIds,
         contextNodeIds,
+        expandedIds,
+        highlightedIds,
+        multiSelectedIds,
         rowIndexOffset: resolveRowIndexOffset(showHeader),
+        selectedId,
       },
       getChildrenWithLoading
     );
@@ -672,10 +672,10 @@ export function TreeTable<T>({
   const resolvedWindowingStrategy = React.useMemo(
     () =>
       resolveWindowingStrategy({
-        strategy: windowingStrategy,
+        autoPagedRowThreshold,
         autoWindowingContext,
         rowCount: rows.length,
-        autoPagedRowThreshold,
+        strategy: windowingStrategy,
       }),
     [windowingStrategy, autoWindowingContext, rows.length, autoPagedRowThreshold]
   );
@@ -690,8 +690,8 @@ export function TreeTable<T>({
 
   const { currentPage, totalPages, startIndex, endIndex, goToPage, resetToFirstPage } =
     usePagination({
-      totalItems: paginationTotalItems,
       pageSize,
+      totalItems: paginationTotalItems,
     });
 
   const totalRowCount = resolveTotalRowCount(rows.length, showHeader);
@@ -816,15 +816,15 @@ export function TreeTable<T>({
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
     count: isVirtualWindowing ? rows.length : 0,
-    getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const row = rows[index];
       return row ? getRowHeight(row.node) : 40;
     },
+    getScrollElement: () => parentRef.current,
+    observeElementRect: heightOnlyObserveRect,
     overscan,
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,
-    observeElementRect: heightOnlyObserveRect,
   });
 
   const scrollToNode = React.useCallback(
@@ -899,15 +899,15 @@ export function TreeTable<T>({
 
   // Setup keyboard navigation
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
-    rows,
-    rowIndexById: indexMap,
-    nodes,
-    getChildren,
     expandedIds,
-    onToggleExpand,
-    selectionMode,
+    getChildren,
     isTableFocused: true,
+    nodes,
     onScrollToNode: scrollToNode,
+    onToggleExpand,
+    rowIndexById: indexMap,
+    rows,
+    selectionMode,
   };
   if (selectedId !== undefined) {
     keyboardOptions.selectedId = selectedId;
@@ -931,20 +931,17 @@ export function TreeTable<T>({
     getRowClassName,
     measureRow,
   } = useTreeTableHandlers({
-    rows,
-    rowIndexById: indexMap,
-    nodeById,
     keyboard,
-    selectionMode,
-    selectedId,
     multiSelectedIds,
-    rowClassName,
-    sortState,
-    onSelect,
+    nodeById,
     onMultiSelectChange,
-    onSortChange,
-    onRowDoubleClick,
     onRowContextMenu,
+    onRowDoubleClick,
+    onSelect,
+    onSortChange,
+    rowClassName,
+    rowIndexById: indexMap,
+    rows,
     rowVirtualizer: {
       measureElement: (element) => {
         if (isVirtualWindowing && element) {
@@ -952,6 +949,9 @@ export function TreeTable<T>({
         }
       },
     },
+    selectedId,
+    selectionMode,
+    sortState,
   });
 
   const handlePaginationPageChange = React.useCallback(
@@ -993,11 +993,11 @@ export function TreeTable<T>({
       buildTablePaginationProps({
         currentPage,
         onPageChange: handlePaginationPageChange,
+        onPageSizeChange: handlePageSizeChange,
         pageSize,
+        paginationOptions: pagination,
         totalItems: rows.length,
         totalPages,
-        onPageSizeChange: handlePageSizeChange,
-        paginationOptions: pagination,
       }),
     [
       currentPage,
@@ -1012,14 +1012,14 @@ export function TreeTable<T>({
   const tableHeader = React.useMemo(
     () =>
       renderTableHeader({
-        showHeader,
         columns,
-        sortState,
-        onSortChange,
-        onSortClick: handleSortClick,
         getResolvedWidth: columnSizing.getWidth,
         isColumnResizable: columnSizing.isResizable,
         onResize: columnSizing.setWidth,
+        onSortChange,
+        onSortClick: handleSortClick,
+        showHeader,
+        sortState,
       }),
     [
       showHeader,

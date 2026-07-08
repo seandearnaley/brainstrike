@@ -4,21 +4,21 @@ import { TokenSummaryBar } from '../indexing/token-summary-bar';
 import type { TokenCountingState } from '../indexing/use-token-counting';
 
 const defaultTokenCounting: TokenCountingState = {
-  mode: 'accurate',
-  loading: false,
-  reason: null, // null indicates worker is loaded and ready
   countTokens: async () => 0,
+  loading: false,
+  mode: 'accurate',
+  reason: null, // null indicates worker is loaded and ready
 };
 
 describe('TokenSummaryBar', () => {
   const defaultProps = {
-    totalFiles: 10,
-    selectedTokens: 5000,
-    treeTokens: 1000,
-    includeTree: true,
     budget: 100_000,
+    includeTree: true,
     isOverBudget: false,
+    selectedTokens: 5000,
     tokenCounting: defaultTokenCounting,
+    totalFiles: 10,
+    treeTokens: 1000,
   };
 
   describe('BST-153: estimating state', () => {

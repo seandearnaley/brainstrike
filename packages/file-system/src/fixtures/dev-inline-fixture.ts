@@ -13,6 +13,19 @@ export const DEV_INLINE_FIXTURE: FixtureDefinition = {
   tree: {
     apps: {
       web: {
+        'index.html': `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mock App</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`,
         'package.json': `{
   "name": "@mock/web",
   "version": "0.1.0",
@@ -35,52 +48,7 @@ export const DEV_INLINE_FIXTURE: FixtureDefinition = {
   }
 }
 `,
-        'tsconfig.json': `{
-  "extends": "../../packages/config/tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src"]
-}
-`,
-        'vite.config.ts': `import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: { "@": "/src" },
-  },
-});
-`,
-        'index.html': `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mock App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-`,
         src: {
-          'main.tsx': `import React from "react";
-import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
-import App from "./App";
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
-`,
           'App.tsx': `import { Route, Routes } from "react-router-dom";
 import { Navbar } from "./components/Navbar";
 import { Dashboard } from "./pages/Dashboard";
@@ -328,26 +296,20 @@ export function useTheme() {
 }
 `,
           },
-          pages: {
-            'Home.tsx': `import { Button } from "../components/Button";
-import { useAuth } from "../hooks/useAuth";
+          'main.tsx': `import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App";
 
-export function Home() {
-  const { user, login } = useAuth();
-  return (
-    <div className="flex flex-col items-center gap-8 py-16">
-      <h1 className="text-4xl font-bold tracking-tight">Welcome to Mock App</h1>
-      {user ? (
-        <p className="text-muted-foreground">Hello, {user.name}!</p>
-      ) : (
-        <Button onClick={() => login("demo@example.com", "password")}>
-          Sign In
-        </Button>
-      )}
-    </div>
-  );
-}
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
 `,
+          pages: {
             'Dashboard.tsx': `import { useMemo } from "react";
 import { useAppStore } from "../stores/useAppStore";
 import { formatDate } from "@mock/utils";
@@ -370,6 +332,25 @@ export function Dashboard() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+`,
+            'Home.tsx': `import { Button } from "../components/Button";
+import { useAuth } from "../hooks/useAuth";
+
+export function Home() {
+  const { user, login } = useAuth();
+  return (
+    <div className="flex flex-col items-center gap-8 py-16">
+      <h1 className="text-4xl font-bold tracking-tight">Welcome to Mock App</h1>
+      {user ? (
+        <p className="text-muted-foreground">Hello, {user.name}!</p>
+      ) : (
+        <Button onClick={() => login("demo@example.com", "password")}>
+          Sign In
+        </Button>
+      )}
     </div>
   );
 }
@@ -456,8 +437,127 @@ export async function apiFetch<T>(
 `,
           },
         },
+        'tsconfig.json': `{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+`,
+        'vite.config.ts': `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: { "@": "/src" },
+  },
+});
+`,
       },
     },
+    'biome.json': `{
+  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
+  "organizeImports": { "enabled": true },
+  "linter": {
+    "enabled": true,
+    "rules": { "recommended": true }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  }
+}
+`,
+    docs: {
+      'api.md': `# API Reference
+
+## Authentication
+
+### POST /api/auth/login
+
+Authenticate a user with email and password.
+
+**Request body**
+
+\`\`\`json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+\`\`\`
+
+**Response**
+
+\`\`\`json
+{
+  "user": {
+    "id": "u_123",
+    "name": "Alice",
+    "email": "user@example.com",
+    "role": "member"
+  }
+}
+\`\`\`
+
+## Items
+
+### GET /api/items
+
+Returns a paginated list of items.
+
+| Query param | Type   | Description         |
+|-------------|--------|---------------------|
+| page        | number | Page number (1-based) |
+| limit       | number | Items per page (max 100) |
+`,
+      'getting-started.md': `# Getting Started
+
+## Prerequisites
+
+- Node.js >= 22
+- pnpm >= 9
+
+## Installation
+
+\`\`\`bash
+pnpm install
+\`\`\`
+
+## Development
+
+\`\`\`bash
+pnpm dev
+\`\`\`
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+## Testing
+
+\`\`\`bash
+pnpm test
+\`\`\`
+`,
+    },
+    'package.json': `{
+  "name": "mock-project",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "turbo": "2.0.0",
+    "typescript": "5.4.0"
+  }
+}
+`,
     packages: {
       config: {
         'tsconfig.base.json': `{
@@ -484,18 +584,6 @@ export async function apiFetch<T>(
 }
 `,
         src: {
-          'index.ts': `export type { User } from "./user";
-export type { Item, ApiError } from "./api";
-`,
-          'user.ts': `export interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatarUrl?: string;
-  role: "admin" | "member" | "viewer";
-  createdAt: Date;
-}
-`,
           'api.ts': `export interface Item {
   id: string;
   title: string;
@@ -510,156 +598,18 @@ export interface ApiError {
   details?: Record<string, unknown>;
 }
 `,
-        },
-      },
-      utils: {
-        'package.json': `{
-  "name": "@mock/utils",
-  "version": "0.1.0",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts"
+          'index.ts': `export type { User } from "./user";
+export type { Item, ApiError } from "./api";
+`,
+          'user.ts': `export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  role: "admin" | "member" | "viewer";
+  createdAt: Date;
 }
 `,
-        'tsconfig.json': `{
-  "extends": "../config/tsconfig.base.json",
-  "include": ["src"]
-}
-`,
-        src: {
-          'index.ts': `export { cn } from "./cn";
-export { capitalize, truncate, slugify } from "./string";
-export { formatDate, formatRelativeTime } from "./date";
-export { groupBy, unique, chunk } from "./array";
-`,
-          'cn.ts': `type ClassValue = string | undefined | null | false | ClassValue[];
-
-export function cn(...inputs: ClassValue[]): string {
-  return inputs
-    .flat(Infinity as 1)
-    .filter(Boolean)
-    .join(" ");
-}
-`,
-          'string.ts': `export function capitalize(value: string): string {
-  if (!value) return "";
-  return \`\${value[0]?.toUpperCase()}\${value.slice(1)}\`;
-}
-
-export function truncate(value: string, maxLength: number, suffix = "…"): string {
-  if (value.length <= maxLength) return value;
-  return value.slice(0, maxLength - suffix.length) + suffix;
-}
-
-export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-`,
-          'date.ts': `const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-});
-
-export function formatDate(date: Date): string {
-  return DATE_FORMATTER.format(date);
-}
-
-export function formatRelativeTime(date: Date): string {
-  const diff = Date.now() - date.getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return \`\${minutes}m ago\`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return \`\${hours}h ago\`;
-  return formatDate(date);
-}
-`,
-          'array.ts': `export function groupBy<T>(
-  items: T[],
-  keyFn: (item: T) => string
-): Record<string, T[]> {
-  const result: Record<string, T[]> = {};
-  for (const item of items) {
-    const key = keyFn(item);
-    (result[key] ??= []).push(item);
-  }
-  return result;
-}
-
-export function unique<T>(items: T[]): T[] {
-  return [...new Set(items)];
-}
-
-export function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-}
-`,
-          __tests__: {
-            'string.test.ts': `import { describe, expect, it } from "vitest";
-import { capitalize, truncate, slugify } from "../string";
-
-describe("capitalize", () => {
-  it("uppercases the first character", () => {
-    expect(capitalize("hello")).toBe("Hello");
-  });
-  it("returns empty string for empty input", () => {
-    expect(capitalize("")).toBe("");
-  });
-});
-
-describe("truncate", () => {
-  it("returns the value unchanged when short enough", () => {
-    expect(truncate("hi", 10)).toBe("hi");
-  });
-  it("truncates and appends suffix", () => {
-    expect(truncate("hello world", 8)).toBe("hello w…");
-  });
-});
-
-describe("slugify", () => {
-  it("converts a phrase to a kebab slug", () => {
-    expect(slugify("Hello World!")).toBe("hello-world");
-  });
-});
-`,
-            'array.test.ts': `import { describe, expect, it } from "vitest";
-import { groupBy, unique, chunk } from "../array";
-
-describe("groupBy", () => {
-  it("groups items by a key function", () => {
-    const items = [
-      { type: "a", val: 1 },
-      { type: "b", val: 2 },
-      { type: "a", val: 3 },
-    ];
-    expect(groupBy(items, (i) => i.type)).toEqual({
-      a: [{ type: "a", val: 1 }, { type: "a", val: 3 }],
-      b: [{ type: "b", val: 2 }],
-    });
-  });
-});
-
-describe("unique", () => {
-  it("deduplicates primitive values", () => {
-    expect(unique([1, 2, 2, 3])).toEqual([1, 2, 3]);
-  });
-});
-
-describe("chunk", () => {
-  it("splits an array into fixed-size chunks", () => {
-    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
-  });
-});
-`,
-          },
         },
       },
       ui: {
@@ -673,16 +623,7 @@ describe("chunk", () => {
   }
 }
 `,
-        'tsconfig.json': `{
-  "extends": "../config/tsconfig.base.json",
-  "include": ["src"]
-}
-`,
         src: {
-          'index.ts': `export { Badge } from "./components/Badge";
-export { Card, CardHeader, CardContent, CardFooter } from "./components/Card";
-export { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
-`,
           components: {
             'Badge.tsx': `import { cn } from "@mock/utils";
 
@@ -796,95 +737,168 @@ export function TooltipContent({
 }
 `,
           },
+          'index.ts': `export { Badge } from "./components/Badge";
+export { Card, CardHeader, CardContent, CardFooter } from "./components/Card";
+export { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
+`,
         },
+        'tsconfig.json': `{
+  "extends": "../config/tsconfig.base.json",
+  "include": ["src"]
+}
+`,
+      },
+      utils: {
+        'package.json': `{
+  "name": "@mock/utils",
+  "version": "0.1.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
+}
+`,
+        src: {
+          __tests__: {
+            'array.test.ts': `import { describe, expect, it } from "vitest";
+import { groupBy, unique, chunk } from "../array";
+
+describe("groupBy", () => {
+  it("groups items by a key function", () => {
+    const items = [
+      { type: "a", val: 1 },
+      { type: "b", val: 2 },
+      { type: "a", val: 3 },
+    ];
+    expect(groupBy(items, (i) => i.type)).toEqual({
+      a: [{ type: "a", val: 1 }, { type: "a", val: 3 }],
+      b: [{ type: "b", val: 2 }],
+    });
+  });
+});
+
+describe("unique", () => {
+  it("deduplicates primitive values", () => {
+    expect(unique([1, 2, 2, 3])).toEqual([1, 2, 3]);
+  });
+});
+
+describe("chunk", () => {
+  it("splits an array into fixed-size chunks", () => {
+    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+});
+`,
+            'string.test.ts': `import { describe, expect, it } from "vitest";
+import { capitalize, truncate, slugify } from "../string";
+
+describe("capitalize", () => {
+  it("uppercases the first character", () => {
+    expect(capitalize("hello")).toBe("Hello");
+  });
+  it("returns empty string for empty input", () => {
+    expect(capitalize("")).toBe("");
+  });
+});
+
+describe("truncate", () => {
+  it("returns the value unchanged when short enough", () => {
+    expect(truncate("hi", 10)).toBe("hi");
+  });
+  it("truncates and appends suffix", () => {
+    expect(truncate("hello world", 8)).toBe("hello w…");
+  });
+});
+
+describe("slugify", () => {
+  it("converts a phrase to a kebab slug", () => {
+    expect(slugify("Hello World!")).toBe("hello-world");
+  });
+});
+`,
+          },
+          'array.ts': `export function groupBy<T>(
+  items: T[],
+  keyFn: (item: T) => string
+): Record<string, T[]> {
+  const result: Record<string, T[]> = {};
+  for (const item of items) {
+    const key = keyFn(item);
+    (result[key] ??= []).push(item);
+  }
+  return result;
+}
+
+export function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+export function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+`,
+          'cn.ts': `type ClassValue = string | undefined | null | false | ClassValue[];
+
+export function cn(...inputs: ClassValue[]): string {
+  return inputs
+    .flat(Infinity as 1)
+    .filter(Boolean)
+    .join(" ");
+}
+`,
+          'date.ts': `const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+
+export function formatDate(date: Date): string {
+  return DATE_FORMATTER.format(date);
+}
+
+export function formatRelativeTime(date: Date): string {
+  const diff = Date.now() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return \`\${minutes}m ago\`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return \`\${hours}h ago\`;
+  return formatDate(date);
+}
+`,
+          'index.ts': `export { cn } from "./cn";
+export { capitalize, truncate, slugify } from "./string";
+export { formatDate, formatRelativeTime } from "./date";
+export { groupBy, unique, chunk } from "./array";
+`,
+          'string.ts': `export function capitalize(value: string): string {
+  if (!value) return "";
+  return \`\${value[0]?.toUpperCase()}\${value.slice(1)}\`;
+}
+
+export function truncate(value: string, maxLength: number, suffix = "…"): string {
+  if (value.length <= maxLength) return value;
+  return value.slice(0, maxLength - suffix.length) + suffix;
+}
+
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+`,
+        },
+        'tsconfig.json': `{
+  "extends": "../config/tsconfig.base.json",
+  "include": ["src"]
+}
+`,
       },
     },
-    docs: {
-      'getting-started.md': `# Getting Started
-
-## Prerequisites
-
-- Node.js >= 22
-- pnpm >= 9
-
-## Installation
-
-\`\`\`bash
-pnpm install
-\`\`\`
-
-## Development
-
-\`\`\`bash
-pnpm dev
-\`\`\`
-
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-## Testing
-
-\`\`\`bash
-pnpm test
-\`\`\`
-`,
-      'api.md': `# API Reference
-
-## Authentication
-
-### POST /api/auth/login
-
-Authenticate a user with email and password.
-
-**Request body**
-
-\`\`\`json
-{
-  "email": "user@example.com",
-  "password": "secret"
-}
-\`\`\`
-
-**Response**
-
-\`\`\`json
-{
-  "user": {
-    "id": "u_123",
-    "name": "Alice",
-    "email": "user@example.com",
-    "role": "member"
-  }
-}
-\`\`\`
-
-## Items
-
-### GET /api/items
-
-Returns a paginated list of items.
-
-| Query param | Type   | Description         |
-|-------------|--------|---------------------|
-| page        | number | Page number (1-based) |
-| limit       | number | Items per page (max 100) |
-`,
-    },
-    'package.json': `{
-  "name": "mock-project",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "test": "turbo run test",
-    "lint": "biome check ."
-  },
-  "devDependencies": {
-    "turbo": "2.0.0",
-    "typescript": "5.4.0"
-  }
-}
-`,
     'README.md': `# Mock Project
 
 A mock monorepo fixture used for Brainstrike development and testing.
@@ -905,6 +919,11 @@ mock-project/
 └── docs/            — Documentation
 \`\`\`
 `,
+    'tsconfig.json': `{
+  "extends": "./packages/config/tsconfig.base.json",
+  "include": []
+}
+`,
     'turbo.json': `{
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
@@ -922,25 +941,6 @@ mock-project/
     "lint": {
       "outputs": []
     }
-  }
-}
-`,
-    'tsconfig.json': `{
-  "extends": "./packages/config/tsconfig.base.json",
-  "include": []
-}
-`,
-    'biome.json': `{
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
-  "organizeImports": { "enabled": true },
-  "linter": {
-    "enabled": true,
-    "rules": { "recommended": true }
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2
   }
 }
 `,

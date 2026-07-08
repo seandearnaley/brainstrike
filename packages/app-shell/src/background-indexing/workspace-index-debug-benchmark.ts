@@ -170,8 +170,13 @@ function createChunkingBenchmarkRequest(
 ): WorkspaceIndexChunkingHostBatchRequest {
   const normalizedStartedAt = startedAt.replace(/[^0-9A-Za-z]/g, '');
   return {
+    files: Array.from({ length: fileCount }, (_value, index) => ({
+      content: createChunkingBenchmarkContent(index),
+      fileName: `chunking-ceiling-${index}.md`,
+      filePath: `/__brainstrike_debug__/chunking-ceiling-${index}.md`,
+      fileRecordId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}-file-${index}`,
+    })),
     kind: 'chunk-batch',
-    requestId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}`,
     options: {
       allowLargeFiles: true,
       forceStrategy: true,
@@ -181,12 +186,7 @@ function createChunkingBenchmarkRequest(
       requestedStrategy: 'recursive',
       tokenTrueSizing: true,
     },
-    files: Array.from({ length: fileCount }, (_value, index) => ({
-      content: createChunkingBenchmarkContent(index),
-      fileName: `chunking-ceiling-${index}.md`,
-      filePath: `/__brainstrike_debug__/chunking-ceiling-${index}.md`,
-      fileRecordId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}-file-${index}`,
-    })),
+    requestId: `${CHUNKING_SYNTHETIC_ID_PREFIX}-${normalizedStartedAt}`,
   };
 }
 
@@ -426,17 +426,17 @@ function createImportBenchmarkChanges(
     return {
       mode: 'import' as const,
       record: {
-        id: recordId,
-        name: `import-ceiling-${index}.md`,
-        path: `import-ceiling-${index}.md`,
-        size: content.length,
-        mtimeMs: Date.parse(now) + index,
-        createdAt: now,
-        updatedAt: now,
-        processedAt: now,
         content,
         contentHash: `${recordId}:content`,
+        createdAt: now,
+        id: recordId,
+        mtimeMs: Date.parse(now) + index,
+        name: `import-ceiling-${index}.md`,
+        path: `import-ceiling-${index}.md`,
+        processedAt: now,
+        size: content.length,
         tokenCount: 32,
+        updatedAt: now,
       },
     };
   });
@@ -448,9 +448,6 @@ function createImportBenchmarkSetupStatements(
 ): WorkspaceIndexElectronTransactionStatement[] {
   return [
     {
-      sql: `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
-            VALUES ($1, $2, $3, 0, 'cosine', $4, $5, $6, $7, false)
-            ON CONFLICT (id) DO NOTHING`,
       params: [
         ids.embeddingSetId,
         'debug:import-ceiling',
@@ -460,17 +457,20 @@ function createImportBenchmarkSetupStatements(
         'Synthetic rows for measuring managed-cache import apply.',
         'debug',
       ],
+      sql: `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
+            VALUES ($1, $2, $3, 0, 'cosine', $4, $5, $6, $7, false)
+            ON CONFLICT (id) DO NOTHING`,
     },
     {
-      sql: `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
-            VALUES ($1, 'path', $2, $3, 'live', $4, $4)
-            ON CONFLICT (id) DO NOTHING`,
       params: [
         ids.rootId,
         'Workspace Index import benchmark',
         `/__brainstrike_debug__/${ids.rootId}`,
         now,
       ],
+      sql: `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
+            VALUES ($1, 'path', $2, $3, 'live', $4, $4)
+            ON CONFLICT (id) DO NOTHING`,
     },
   ];
 }
@@ -480,16 +480,16 @@ function createImportBenchmarkCleanupStatements(
 ): WorkspaceIndexElectronTransactionStatement[] {
   return [
     {
-      sql: 'DELETE FROM roots WHERE id = $1',
       params: [ids.rootId],
+      sql: 'DELETE FROM roots WHERE id = $1',
     },
     {
+      params: [ids.embeddingSetId],
       sql: 'DELETE FROM collection_indexing_stats WHERE embedding_set_id = $1',
-      params: [ids.embeddingSetId],
     },
     {
-      sql: 'DELETE FROM embedding_sets WHERE id = $1',
       params: [ids.embeddingSetId],
+      sql: 'DELETE FROM embedding_sets WHERE id = $1',
     },
   ];
 }
@@ -679,9 +679,6 @@ function createDbCompletionBenchmarkStatements(
     completionResultIndex,
     statements: [
       {
-        sql: `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
-              VALUES ($1, $2, $3, $4, 'cosine', $5, $6, $7, $8, false)
-              ON CONFLICT (id) DO NOTHING`,
         params: [
           ids.embeddingSetId,
           'debug:db-completion-ceiling',
@@ -692,26 +689,22 @@ function createDbCompletionBenchmarkStatements(
           'Synthetic rows for measuring DB-host embedding completion.',
           'debug',
         ],
+        sql: `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, category, allow_duplicates)
+              VALUES ($1, $2, $3, $4, 'cosine', $5, $6, $7, $8, false)
+              ON CONFLICT (id) DO NOTHING`,
       },
       {
-        sql: `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
-              VALUES ($1, 'path', $2, $3, 'live', $4, $4)
-              ON CONFLICT (id) DO NOTHING`,
         params: [
           ids.rootId,
           'Workspace Index DB completion benchmark',
           `/__brainstrike_debug__/${ids.rootId}`,
           now,
         ],
+        sql: `INSERT INTO roots (id, kind, display_name, path, status, created_at, last_verified_at)
+              VALUES ($1, 'path', $2, $3, 'live', $4, $4)
+              ON CONFLICT (id) DO NOTHING`,
       },
       {
-        sql: `INSERT INTO file_records (
-                id, name, path, root_id, size, mtime_ms, created_at, updated_at, content,
-                content_hash, token_count, processed_at, embedding_set_id, chunks_processed_at,
-                chunks_count, chunking_strategy
-              )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $7, $11, $7, $12, $13)
-              ON CONFLICT (id) DO NOTHING`,
         params: [
           ids.fileRecordId,
           'db-completion-ceiling.txt',
@@ -727,26 +720,42 @@ function createDbCompletionBenchmarkStatements(
           ids.chunkIds.length,
           'sentence',
         ],
+        sql: `INSERT INTO file_records (
+                id, name, path, root_id, size, mtime_ms, created_at, updated_at, content,
+                content_hash, token_count, processed_at, embedding_set_id, chunks_processed_at,
+                chunks_count, chunking_strategy
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $7, $11, $7, $12, $13)
+              ON CONFLICT (id) DO NOTHING`,
       },
       {
+        params: chunkValues,
         sql: `INSERT INTO file_chunks (
                 id, file_record_id, chunk_index, content, content_hash, token_count,
                 chunk_type, chunk_size, start_line, end_line, start_offset, end_offset,
                 embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
               )
               VALUES ${buildPlaceholders(ids.chunkIds.length, chunkColumnCount)}`,
-        params: chunkValues,
       },
       {
+        params: jobValues,
         sql: `INSERT INTO job_queue (
                 id, queue, job_type, payload, state, run_at, attempts, max_attempts,
                 backoff_ms, lease_token, leased_until, worker_id, dedupe_key,
                 embedding_set_id, created_at, updated_at
               )
               VALUES ${buildPlaceholders(ids.jobIds.length, jobColumnCount)}`,
-        params: jobValues,
       },
       {
+        params: [
+          now,
+          ids.jobIds,
+          ids.leaseTokens,
+          ids.chunkIds,
+          embeddingStrings,
+          ids.chunkIds.map(() => ids.embeddingSetId),
+          embeddingHashes,
+        ],
         sql: `WITH input AS (
                 SELECT *
                   FROM unnest(
@@ -804,27 +813,18 @@ function createDbCompletionBenchmarkStatements(
                  RETURNING j.*
               )
               SELECT * FROM completed_jobs`,
-        params: [
-          now,
-          ids.jobIds,
-          ids.leaseTokens,
-          ids.chunkIds,
-          embeddingStrings,
-          ids.chunkIds.map(() => ids.embeddingSetId),
-          embeddingHashes,
-        ],
       },
       {
-        sql: 'DELETE FROM job_queue WHERE id = ANY($1::text[])',
         params: [ids.jobIds],
+        sql: 'DELETE FROM job_queue WHERE id = ANY($1::text[])',
       },
       {
-        sql: 'DELETE FROM roots WHERE id = $1',
         params: [ids.rootId],
+        sql: 'DELETE FROM roots WHERE id = $1',
       },
       {
-        sql: 'DELETE FROM embedding_sets WHERE id = $1',
         params: [ids.embeddingSetId],
+        sql: 'DELETE FROM embedding_sets WHERE id = $1',
       },
     ],
   };
@@ -1023,9 +1023,9 @@ async function runImportCeilingBenchmark({
   let elapsedMs = 0;
   try {
     await applyManagedCacheBatch({
+      changes,
       embeddingSetId: ids.embeddingSetId,
       rootId: ids.rootId,
-      changes,
     });
     completedFileCount = fileCount;
     elapsedMs = Math.max(0, nowMs() - startedMs);

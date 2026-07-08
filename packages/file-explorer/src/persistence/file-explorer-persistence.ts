@@ -77,22 +77,11 @@ export const createPersistOptions = (
   }
 
   return {
-    name: FILE_EXPLORER_STORAGE_KEY,
-    version: FILE_EXPLORER_STORAGE_VERSION,
-
-    storage: createStorageWrapper(
-      storageAdapter,
-      useWorker,
-      workerStorage,
-      shouldLog
-    ) as PersistStorage<SerializedState>,
-
-    partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
-
-    migrate: (rawPersistedState, version) => migrateState(rawPersistedState, version, shouldLog),
-
     merge: (persisted, current) =>
       mergeState(persisted as SerializedState | null, current, shouldLog),
+
+    migrate: (rawPersistedState, version) => migrateState(rawPersistedState, version, shouldLog),
+    name: FILE_EXPLORER_STORAGE_KEY,
 
     onRehydrateStorage: () => (state, error) => {
       if (!shouldLog) {
@@ -113,5 +102,15 @@ export const createPersistOptions = (
         state.currentFolderId
       );
     },
+
+    partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
+
+    storage: createStorageWrapper(
+      storageAdapter,
+      useWorker,
+      workerStorage,
+      shouldLog
+    ) as PersistStorage<SerializedState>,
+    version: FILE_EXPLORER_STORAGE_VERSION,
   };
 };

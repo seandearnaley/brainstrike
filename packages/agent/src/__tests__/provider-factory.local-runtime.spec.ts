@@ -6,8 +6,8 @@ const capturedOpenAiCalls: OpenAiProviderCall[] = [];
 const fakeProvider = vi.fn(
   (modelId: string) =>
     ({
-      specificationVersion: 'v2',
       modelId,
+      specificationVersion: 'v2',
     }) as unknown
 );
 
@@ -34,8 +34,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     // OpenAI SDK's `OPENAI_API_KEY` env-var fallback so we never leak a real
     // OpenAI key to a (potentially remote) Ollama host.
     expect(capturedOpenAiCalls[0]).toEqual({
-      baseURL: 'http://127.0.0.1:11434/v1',
       apiKey: 'ollama',
+      baseURL: 'http://127.0.0.1:11434/v1',
     });
   });
 
@@ -46,8 +46,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
 
     expect(capturedOpenAiCalls).toHaveLength(1);
     expect(capturedOpenAiCalls[0]).toEqual({
-      baseURL: 'http://127.0.0.1:1234/v1',
       apiKey: 'lmstudio',
+      baseURL: 'http://127.0.0.1:1234/v1',
     });
   });
 
@@ -57,15 +57,15 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     createProvider('ollama', undefined, 'qwen3:latest', {
       providerOptions: {
         ollama: {
-          baseUrl: 'https://gpu.lan:11434/v1/',
           apiToken: 'tok_abc',
+          baseUrl: 'https://gpu.lan:11434/v1/',
         },
       },
     });
 
     expect(capturedOpenAiCalls[0]).toEqual({
-      baseURL: 'https://gpu.lan:11434/v1',
       apiKey: 'tok_abc',
+      baseURL: 'https://gpu.lan:11434/v1',
     });
   });
 
@@ -79,8 +79,8 @@ describe('provider-factory local-runtime endpoint overrides', () => {
     });
 
     expect(capturedOpenAiCalls[0]).toEqual({
-      baseURL: 'http://127.0.0.1:1234/v1',
       apiKey: 'from-arg',
+      baseURL: 'http://127.0.0.1:1234/v1',
     });
   });
 

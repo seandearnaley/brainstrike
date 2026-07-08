@@ -60,7 +60,7 @@ export class AssistantDataStreamSession {
     const { resumeFromEventId, headers } = options;
     const startIndex = this.resolveStartIndex(resumeFromEventId);
     if (STREAM_DEBUG_ENABLED && resumeFromEventId) {
-      debugLog('resume', { session: this.id, resumeFromEventId, startIndex });
+      debugLog('resume', { resumeFromEventId, session: this.id, startIndex });
     }
 
     const responseHeaders = new Headers();
@@ -78,6 +78,13 @@ export class AssistantDataStreamSession {
     }
 
     const stream = new ReadableStream<Uint8Array>({
+      cancel: () => {
+        // Called when client cancels response stream (e.g., user stops generation)
+        // Sets abort flag to stop source consumption in consumeSource() loop
+        // This prevents backend from continuing to process after client disconnects
+        this.aborted = true;
+        this.cancelAllListeners();
+      },
       start: (controller) => {
         const subscription = new SessionSubscription(this, controller, startIndex);
         this.listeners.add(subscription);
@@ -86,16 +93,9 @@ export class AssistantDataStreamSession {
           queueMicrotask(() => subscription.close());
         }
       },
-      cancel: () => {
-        // Called when client cancels response stream (e.g., user stops generation)
-        // Sets abort flag to stop source consumption in consumeSource() loop
-        // This prevents backend from continuing to process after client disconnects
-        this.aborted = true;
-        this.cancelAllListeners();
-      },
     });
 
-    return new Response(stream, { status: 200, headers: responseHeaders });
+    return new Response(stream, { headers: responseHeaders, status: 200 });
   }
 
   removeSubscription(subscription: SessionSubscription): void {
@@ -188,13 +188,13 @@ export class AssistantDataStreamSession {
     const id = `${this.id}:${this.sequence}`;
     const payload = encodeChunk(chunk);
     const stored: StoredChunk = {
-      sequence: this.sequence,
-      payload,
       chunk,
+      payload,
+      sequence: this.sequence,
     };
     this.sequence += 1;
     this.events.push(stored);
-    debugLog('emit', { id, code: chunk.code, value: chunk.value });
+    debugLog('emit', { code: chunk.code, id, value: chunk.value });
     for (const listener of this.listeners) {
       listener.pushImmediate(stored);
     }

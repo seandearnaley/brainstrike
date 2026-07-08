@@ -83,21 +83,21 @@ const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ERROR_MESSAGES = {
-  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
-  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
-  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
-  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
-  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
-  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
-  missingApiKey: 'No API key configured for the embedding provider.',
-  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
-  invalidSelectionFilePaths: 'Selection file paths are invalid.',
-  selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
+  invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
+  invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
+  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
+  missingApiKey: 'No API key configured for the embedding provider.',
+  missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
+  missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   missingSourceRange:
     'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
+  selectionTooLarge: 'Selection exceeds retrieval limits.',
+  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
 } as const;
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
@@ -277,46 +277,46 @@ function createHostedProvider(
   switch (provider) {
     case 'openai':
       return new OpenAIEmbeddingProvider({
-        provider: 'openai',
         modelId,
+        provider: 'openai',
         targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
       });
     case 'ollama':
       return new OpenAIEmbeddingProvider({
-        provider: 'ollama',
-        modelId,
-        targetDimensions: dimensions,
         endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+        modelId,
+        provider: 'ollama',
+        targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
-        requiresApiKey: false,
         includeDimensions: false,
+        requiresApiKey: false,
       });
     case 'lmstudio':
       return new OpenAIEmbeddingProvider({
-        provider: 'lmstudio',
-        modelId,
-        targetDimensions: dimensions,
         endpoint: 'http://localhost:1234/v1/embeddings',
+        modelId,
+        provider: 'lmstudio',
+        targetDimensions: dimensions,
         ...(apiKey ? { apiKey } : {}),
-        requiresApiKey: false,
         includeDimensions: false,
+        requiresApiKey: false,
       });
     case 'google':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new GoogleEmbeddingProvider({ modelId, outputDimensions: dimensions, apiKey });
+      return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
     case 'cohere':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new CohereEmbeddingProvider({ modelId, inputType: 'search_query', apiKey });
+      return new CohereEmbeddingProvider({ apiKey, inputType: 'search_query', modelId });
     case 'voyage':
       if (!apiKey) {
         throw new Error(ERROR_MESSAGES.missingApiKey);
       }
-      return new VoyageEmbeddingProvider({ modelId, inputType: 'query', apiKey });
+      return new VoyageEmbeddingProvider({ apiKey, inputType: 'query', modelId });
     default:
       throw new Error(ERROR_MESSAGES.unsupportedProvider);
   }
@@ -465,24 +465,24 @@ function toContextChunks(
       });
     }
     const chunk: ContextPackerChunk = {
-      id: result.chunk.id,
-      content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
-      startLine: result.chunk.startLine,
+      content: result.chunk.content,
       endLine: result.chunk.endLine,
-      startOffset: result.chunk.startOffset,
       endOffset: result.chunk.endOffset,
-      score: result.similarity,
+      id: result.chunk.id,
       metadata: {
-        fileRecordId: result.chunk.fileRecordId,
-        embeddingSetId: result.chunk.embeddingSetId,
         chunkType: result.chunk.chunkType,
-        rank: result.rank,
+        embeddingSetId: result.chunk.embeddingSetId,
+        fileRecordId: result.chunk.fileRecordId,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
+        rank: result.rank,
         rootId: fileInfo?.rootId ?? undefined,
         rootName: fileInfo?.rootName ?? undefined,
       },
+      score: result.similarity,
+      startLine: result.chunk.startLine,
+      startOffset: result.chunk.startOffset,
+      tokenCount: result.chunk.tokenCount ?? null,
     };
     if (fileInfo?.path !== undefined) {
       chunk.filePath = fileInfo.path;
@@ -540,9 +540,9 @@ async function buildFileRecordMap(
       id: record.id,
       name: record.name,
       path: record.path,
-      tokenCount: record.tokenCount ?? null,
       rootId: label?.rootId ?? null,
       rootName: label?.rootName ?? null,
+      tokenCount: record.tokenCount ?? null,
     });
   }
   return map;
@@ -559,9 +559,9 @@ async function generateQueryEmbedding(
     throw new Error(ERROR_MESSAGES.missingApiKey);
   }
   const hostedProvider = createHostedProvider(provider, modelId, dimensions, apiKey);
-  const result = await hostedProvider.embed({ text: query, modelId });
+  const result = await hostedProvider.embed({ modelId, text: query });
   if (!result.ok) {
-    logger.warn('Embedding provider returned error', { provider, error: result.error });
+    logger.warn('Embedding provider returned error', { error: result.error, provider });
     throw new Error(ERROR_MESSAGES.embeddingFailed);
   }
   return result.value.embedding;
@@ -611,7 +611,7 @@ function assertEmbeddingDimensions(expected: number, actual: number): void {
   if (expected === actual) {
     return;
   }
-  logger.warn('Embedding dimension mismatch', { expected, actual });
+  logger.warn('Embedding dimension mismatch', { actual, expected });
   throw new Error(ERROR_MESSAGES.embeddingDimensionMismatch);
 }
 
@@ -663,9 +663,9 @@ async function searchForChunks(
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
 
   return chunkRepository.searchSimilar(embedding, {
+    embeddingSetId,
     limit,
     threshold,
-    embeddingSetId,
     ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
     ...(selection.selectionSnapshotId
       ? { selectionSnapshotId: selection.selectionSnapshotId }
@@ -722,7 +722,7 @@ async function packRetrievedContext(
   const packed = packer.pack(chunkInputs);
   const contextText = formatContext(packed.chunks);
 
-  return { packed, contextText, skippedSourceRangeChunks };
+  return { contextText, packed, skippedSourceRangeChunks };
 }
 
 async function runRetrieval(
@@ -767,19 +767,19 @@ async function runRetrieval(
   );
 
   return {
-    query,
-    embeddingSetId,
-    limit: input.limit ?? DEFAULT_LIMIT,
-    threshold: input.threshold ?? DEFAULT_THRESHOLD,
-    totalTokens: packed.totalTokens,
     budget: packed.budget,
-    remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped + skippedSourceRangeChunks.length,
-    context: contextText,
     chunkContentIncludedInContext: packed.chunks.length > 0,
     chunks: stripChunkContent(packed.chunks),
+    context: contextText,
+    embeddingSetId,
+    limit: input.limit ?? DEFAULT_LIMIT,
+    query,
+    remainingTokens: packed.remainingTokens,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     skippedSourceRangeChunks,
+    threshold: input.threshold ?? DEFAULT_THRESHOLD,
+    totalTokens: packed.totalTokens,
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),
@@ -800,10 +800,8 @@ export function createRetrievalTool(
   dependencies: RetrievalToolDependencies = {}
 ): MastraTools[string] {
   return {
-    id: TOOL_ID,
     description:
       'Retrieve and pack relevant project context from the active embedding set. Use for codebase questions.',
-    inputSchema: RetrievalContextInputSchema,
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
         return await runRetrieval(context.context, runtimeData, dependencies);
@@ -811,6 +809,8 @@ export function createRetrievalTool(
         handleRetrievalError(error);
       }
     },
+    id: TOOL_ID,
+    inputSchema: RetrievalContextInputSchema,
   };
 }
 
@@ -848,10 +848,8 @@ export function createQueryEmbeddingSpaceTool(
   dependencies: RetrievalToolDependencies = {}
 ): MastraTools[string] {
   return {
-    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
     description:
       'Query semantic workspace context. Omit embeddingSetId for Workspace Index codebase searches; provide embeddingSetId only for a specific non-default embedding space. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
-    inputSchema: QueryEmbeddingSpaceInputSchema,
     execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
       const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
       try {
@@ -860,6 +858,8 @@ export function createQueryEmbeddingSpaceTool(
         handleRetrievalError(error);
       }
     },
+    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+    inputSchema: QueryEmbeddingSpaceInputSchema,
   };
 }
 

@@ -17,27 +17,27 @@ vi.mock('@brainstrike/utils/env-utils', () => ({
 
 vi.mock('@brainstrike/utils/create-debounce', () => ({
   createDebounce: vi.fn((fn: (...args: unknown[]) => void, _ms: number) => ({
-    run: vi.fn((state: unknown) => fn(state)),
     flush: vi.fn(() => Promise.resolve()),
+    run: vi.fn((state: unknown) => fn(state)),
   })),
 }));
 
 // Mock localStorage
 const localStorageMock = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
   clear: vi.fn(),
+  getItem: vi.fn(),
+  removeItem: vi.fn(),
+  setItem: vi.fn(),
 };
 
 Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
   configurable: true,
+  value: localStorageMock,
 });
 
 const electronAPIMock = {
+  loadLayout: vi.fn().mockResolvedValue({ data: null, success: true }),
   saveLayout: vi.fn().mockResolvedValue({ success: true }),
-  loadLayout: vi.fn().mockResolvedValue({ success: true, data: null }),
 };
 
 // Mock window.addEventListener and removeEventListener
@@ -45,12 +45,12 @@ const mockAddEventListener = vi.fn();
 const mockRemoveEventListener = vi.fn();
 
 Object.defineProperty(window, 'addEventListener', {
-  value: mockAddEventListener,
   configurable: true,
+  value: mockAddEventListener,
 });
 Object.defineProperty(window, 'removeEventListener', {
-  value: mockRemoveEventListener,
   configurable: true,
+  value: mockRemoveEventListener,
 });
 
 describe('usePanelPersistence', () => {
@@ -99,10 +99,10 @@ describe('usePanelPersistence', () => {
 
   it('should initialize with stored values when available', async () => {
     const storedData = {
-      sizes: [25, 35],
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
+      sizes: [25, 35],
     };
     localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
 
@@ -116,10 +116,10 @@ describe('usePanelPersistence', () => {
 
   it('should normalize invalid sizes', async () => {
     const storedData = {
-      sizes: [60, 60], // Total 120%, should be normalized to 100%
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
+      sizes: [60, 60], // Total 120%, should be normalized to 100%
     };
     localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
 
@@ -133,10 +133,10 @@ describe('usePanelPersistence', () => {
 
   it('should not normalize sizes when total is less than 100%', async () => {
     const storedData = {
-      sizes: [25, 35], // Total 60%, should not normalize
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
+      sizes: [25, 35], // Total 60%, should not normalize
     };
     localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
 
@@ -150,10 +150,10 @@ describe('usePanelPersistence', () => {
 
   it('should handle zero total sizes', async () => {
     const storedData = {
-      sizes: [0, 0], // Total 0%, should default to equal distribution
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
+      sizes: [0, 0], // Total 0%, should default to equal distribution
     };
     localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
 
@@ -186,10 +186,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [25, 35],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [25, 35],
       })
     );
   });
@@ -214,10 +214,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [50, 50],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [50, 50],
       })
     );
   });
@@ -240,10 +240,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [20, 30],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [20, 30],
       })
     );
   });
@@ -276,10 +276,10 @@ describe('usePanelPersistence', () => {
     });
 
     expect(electronAPIMock.saveLayout).toHaveBeenCalledWith({
-      sizes: [25, 35],
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
+      sizes: [25, 35],
     });
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
   });
@@ -289,12 +289,12 @@ describe('usePanelPersistence', () => {
   // Mock interactions with timers create complex timing scenarios that are difficult to test reliably.
   it.skip('should load from Electron API on mount', async () => {
     const electronData = {
-      sizes: [30, 40],
       showConsole: true,
       showLeftPanel: false,
       showRightPanel: true,
+      sizes: [30, 40],
     };
-    electronAPIMock.loadLayout.mockResolvedValue({ success: true, data: electronData });
+    electronAPIMock.loadLayout.mockResolvedValue({ data: electronData, success: true });
     (window as { electronAPI?: unknown }).electronAPI = electronAPIMock;
 
     const { result } = renderHook(() =>
@@ -398,10 +398,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [25, 35],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [25, 35],
       })
     );
 
@@ -482,10 +482,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [25, 35],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
+        sizes: [25, 35],
       })
     );
     const removeCall = mockRemoveEventListener.mock.calls.find(
@@ -509,10 +509,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [20, 30],
         showConsole: true,
         showLeftPanel: false,
         showRightPanel: false,
+        sizes: [20, 30],
       })
     );
   });
@@ -532,10 +532,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
-        sizes: [20, 30],
         showConsole: true,
         showLeftPanel: true,
         showRightPanel: true,
+        sizes: [20, 30],
       })
     );
   });

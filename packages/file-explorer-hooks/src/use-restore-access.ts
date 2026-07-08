@@ -122,11 +122,11 @@ interface LoadStoredHandlesOptions {
 /** Convert a raw FileSystemDirectoryHandle to our DirectoryHandle type */
 function toDirectoryHandle(rawHandle: FileSystemDirectoryHandle): DirectoryHandle {
   return {
-    path: rawHandle.name,
-    name: rawHandle.name,
-    kind: 'directory',
-    platform: 'web',
     _internal: rawHandle,
+    kind: 'directory',
+    name: rawHandle.name,
+    path: rawHandle.name,
+    platform: 'web',
   };
 }
 
@@ -151,8 +151,8 @@ async function loadHandlesNewMethod(
     setPendingRestore({
       folderId: result.folderId,
       name: result.name,
-      rawHandle: result.handle,
       permissionState: result.permissionState,
+      rawHandle: result.handle,
     });
 
     const allHandles = await handleCache.getAllRootHandles?.();
@@ -250,8 +250,8 @@ async function processRejectedPermission(
     return true;
   }
   logger.warn('beginRestore: permission request failed', {
-    errorName: error.name,
     error: error.message,
+    errorName: error.name,
     folderId,
   });
   return true;
@@ -309,8 +309,8 @@ async function runMultiRootBurst({
   // DRAIN: await all settled results
   const rawResults = await Promise.allSettled(permissionTasks.map((t) => t.promise));
   const taskResults = permissionTasks.map((task, i) => ({
-    task,
     result: rawResults[i] as PromiseSettledResult<PermissionState>,
+    task,
   }));
 
   const granted: DirectoryHandle[] = [...alreadyGranted];
@@ -397,8 +397,8 @@ async function requestPermissionAndRestore(
 
     // Other errors - log and show stale banner
     logger.warn('beginRestore: permission request failed', {
-      errorName,
       error: errorMessage,
+      errorName,
     });
     return { handle: null, showDenied: false, showStale: true };
   }
@@ -611,7 +611,9 @@ export function useRestoreAccess(): RestoreAccessState {
     const allStored = await handleCache?.getAllRootHandles?.();
     const rawHandlesFromCache = (allStored ?? []).filter(
       (h): h is HandleWithRaw =>
-        h.handle != null && typeof h.handle.requestPermission === 'function'
+        h.handle !== null &&
+        h.handle !== undefined &&
+        typeof h.handle.requestPermission === 'function'
     );
 
     if (rawHandlesFromCache.length > 0) {
@@ -640,9 +642,9 @@ export function useRestoreAccess(): RestoreAccessState {
         alreadyGranted,
         handleCache,
         needsPrompt,
+        setPendingRestore,
         setShowDeniedBanner,
         setShowStaleBanner,
-        setPendingRestore,
       });
     }
 
@@ -687,14 +689,14 @@ export function useRestoreAccess(): RestoreAccessState {
   }, [clearLocalRestoreState, handleCache]);
 
   return {
+    beginRestore,
+    chooseDifferentFolder,
+    clearStoredHandles,
+    dismissRestore,
     isCheckingStoredHandles,
     pendingRestore,
     showDeniedBanner,
     showStaleBanner,
     storedFolders,
-    beginRestore,
-    dismissRestore,
-    chooseDifferentFolder,
-    clearStoredHandles,
   };
 }

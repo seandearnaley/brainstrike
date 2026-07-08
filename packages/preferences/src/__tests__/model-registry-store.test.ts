@@ -16,39 +16,39 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   return {
     ...actual,
     createLogger: () => ({
-      info: vi.fn(),
-      error: vi.fn(),
-      warn: vi.fn(),
       debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
     }),
   };
 });
 
 const createMockProvider = (overrides: Partial<DbProvider> = {}): DbProvider => ({
-  id: 'test-provider',
-  name: 'Test Provider',
   icon: null,
+  id: 'test-provider',
   isEnabled: true,
+  name: 'Test Provider',
   sortOrder: 0,
   ...overrides,
 });
 
 const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
-  id: 'test-model',
-  providerId: 'test-provider',
-  name: 'Test Model',
-  description: 'A test model',
-  tagline: 'Test tagline',
   bestFor: ['testing'],
-  icon: null,
-  isEnabled: true,
   capabilities: {
-    type: 'embedding',
-    streaming: false,
     defaultDimension: 768,
+    streaming: false,
+    type: 'embedding',
   },
+  description: 'A test model',
+  icon: null,
+  id: 'test-model',
+  isEnabled: true,
+  name: 'Test Model',
   parameters: null,
+  providerId: 'test-provider',
   sortOrder: 0,
+  tagline: 'Test tagline',
   ...overrides,
 });
 
@@ -179,21 +179,21 @@ describe('model-registry-store', () => {
 
     it('fetches providers and models from database', async () => {
       const mockProviderRows = [
-        { id: 'openai', name: 'OpenAI', icon: null, is_enabled: 1, sort_order: 0 },
+        { icon: null, id: 'openai', is_enabled: 1, name: 'OpenAI', sort_order: 0 },
       ];
       const mockModelRows = [
         {
-          id: 'gpt-5.2',
-          provider_id: 'openai',
-          name: 'GPT-5.2',
-          description: 'Advanced LLM',
-          tagline: 'Most capable',
           best_for: JSON.stringify(['chat', 'code']),
+          capabilities: JSON.stringify({ streaming: true, type: 'llm' }),
+          description: 'Advanced LLM',
           icon: null,
+          id: 'gpt-5.2',
           is_enabled: 1,
-          capabilities: JSON.stringify({ type: 'llm', streaming: true }),
+          name: 'GPT-5.2',
           parameters: null,
+          provider_id: 'openai',
           sort_order: 0,
+          tagline: 'Most capable',
         },
       ];
 
@@ -232,21 +232,21 @@ describe('model-registry-store', () => {
 
     it('parses JSON fields correctly', async () => {
       const mockProviderRows = [
-        { id: 'test', name: 'Test', icon: null, is_enabled: true, sort_order: 0 },
+        { icon: null, id: 'test', is_enabled: true, name: 'Test', sort_order: 0 },
       ];
       const mockModelRows = [
         {
-          id: 'model-1',
-          provider_id: 'test',
-          name: 'Test Model',
-          description: 'Test',
-          tagline: null,
           best_for: ['tag1', 'tag2'], // Already parsed object
+          capabilities: { defaultDimension: 384, type: 'embedding' }, // Already parsed
+          description: 'Test',
           icon: null,
+          id: 'model-1',
           is_enabled: true,
-          capabilities: { type: 'embedding', defaultDimension: 384 }, // Already parsed
+          name: 'Test Model',
           parameters: { size: '100MB' }, // Already parsed
+          provider_id: 'test',
           sort_order: 0,
+          tagline: null,
         },
       ];
 
@@ -282,21 +282,21 @@ describe('model-registry-store', () => {
       });
 
       const mockProviderRows = [
-        { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+        { icon: null, id: 'local', is_enabled: true, name: 'Local', sort_order: 0 },
       ];
       const mockModelRows = [
         {
-          id: 'local-model',
-          provider_id: 'local',
-          name: 'Local Model',
-          description: 'Local model',
-          tagline: null,
           best_for: null,
-          icon: null,
-          is_enabled: true,
           capabilities: JSON.stringify({ type: 'embedding' }),
+          description: 'Local model',
+          icon: null,
+          id: 'local-model',
+          is_enabled: true,
+          name: 'Local Model',
           parameters: null,
+          provider_id: 'local',
           sort_order: 0,
+          tagline: null,
         },
       ];
 
@@ -322,26 +322,26 @@ describe('model-registry-store', () => {
         };
 
         useModelRegistryStore.setState({
-          modelCacheDir: '/cache',
           downloadedModels: { 'local-model': true },
+          modelCacheDir: '/cache',
         });
 
         const mockProviderRows = [
-          { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+          { icon: null, id: 'local', is_enabled: true, name: 'Local', sort_order: 0 },
         ];
         const mockModelRows = [
           {
-            id: 'local-model',
-            provider_id: 'local',
-            name: 'Local Model',
-            description: 'Local model',
-            tagline: null,
             best_for: null,
-            icon: null,
-            is_enabled: true,
             capabilities: JSON.stringify({ type: 'embedding' }),
+            description: 'Local model',
+            icon: null,
+            id: 'local-model',
+            is_enabled: true,
+            name: 'Local Model',
             parameters: null,
+            provider_id: 'local',
             sort_order: 0,
+            tagline: null,
           },
         ];
 
@@ -552,15 +552,15 @@ describe('model-registry-store', () => {
     it('resets all state to initial values', () => {
       // Set some state
       useModelRegistryStore.setState({
-        providers: [createMockProvider()],
-        models: [createMockModel()],
-        isLoading: true,
+        downloadedModels: { 'model-1': true },
+        downloadProgress: { 'model-1': 50 },
         error: 'Some error',
         hasLoaded: true,
-        modelCacheDir: '/custom/path',
-        downloadProgress: { 'model-1': 50 },
         isDownloading: { 'model-1': true },
-        downloadedModels: { 'model-1': true },
+        isLoading: true,
+        modelCacheDir: '/custom/path',
+        models: [createMockModel()],
+        providers: [createMockProvider()],
       });
 
       // Reset

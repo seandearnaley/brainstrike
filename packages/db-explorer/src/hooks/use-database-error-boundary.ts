@@ -47,11 +47,11 @@ export function useDatabaseErrorBoundary({
   // Helper function to categorize errors
   const categorizeError = useCallback(
     (errorMessage: string): ErrorCategories => ({
-      isNetworkError: errorMessage.includes('network') || errorMessage.includes('connection'),
       isAuthError: errorMessage.includes('Unauthorized') || errorMessage.includes('permission'),
-      isValidationError: errorMessage.includes('Invalid') || errorMessage.includes('required'),
-      isTransactionError: errorMessage.includes('Transaction failed'),
       isDatabaseNotReady: errorMessage.includes('Database repositories not available'),
+      isNetworkError: errorMessage.includes('network') || errorMessage.includes('connection'),
+      isTransactionError: errorMessage.includes('Transaction failed'),
+      isValidationError: errorMessage.includes('Invalid') || errorMessage.includes('required'),
     }),
     []
   );
@@ -88,8 +88,8 @@ export function useDatabaseErrorBoundary({
       const userFriendlyMessage = getUserFriendlyMessage(errorMessage);
 
       toast({
-        title: errorTitle,
         description: userFriendlyMessage,
+        title: errorTitle,
         variant: 'destructive',
       });
 
@@ -103,8 +103,8 @@ export function useDatabaseErrorBoundary({
 
       if (process.env['NODE_ENV'] === 'development') {
         logger.error('Database operation failed', {
-          operation: operation.name || 'anonymous',
           error,
+          operation: operation.name || 'anonymous',
           stack: error instanceof Error ? error.stack : undefined,
         });
       }
@@ -135,8 +135,8 @@ export function useDatabaseErrorBoundary({
 
         if (showSuccessToast && successTitle) {
           toast({
-            title: successTitle,
             description: successMessage,
+            title: successTitle,
           });
         }
 
@@ -189,8 +189,8 @@ export function useDatabaseErrorBoundary({
     (name: string, error: unknown) => {
       const errorMessage = error instanceof Error ? error.message : fallbackMessage;
       toast({
-        title: 'Critical Operation Failed',
         description: `${name} failed: ${errorMessage}. Remaining operations were cancelled.`,
+        title: 'Critical Operation Failed',
         variant: 'destructive',
       });
     },
@@ -204,7 +204,7 @@ export function useDatabaseErrorBoundary({
       if (results[0] && isClearOperationResult(results[0])) {
         description = createClearOperationDescription(results[0], '. Data reloaded successfully');
       }
-      toast({ title: options.successTitle, description });
+      toast({ description, title: options.successTitle });
     },
     [toast, isClearOperationResult, createClearOperationDescription]
   );
@@ -231,7 +231,7 @@ export function useDatabaseErrorBoundary({
           ', but some data reload operations failed'
         );
       }
-      toast({ title: options.partialSuccessTitle, description, variant: 'default' });
+      toast({ description, title: options.partialSuccessTitle, variant: 'default' });
     },
     [toast, isClearOperationResult, createClearOperationDescription]
   );
@@ -239,8 +239,8 @@ export function useDatabaseErrorBoundary({
   // Helper function to show failure results
   const showFailureResults = useCallback(() => {
     toast({
-      title: 'All Operations Failed',
       description: 'None of the database operations completed successfully.',
+      title: 'All Operations Failed',
       variant: 'destructive',
     });
   }, [toast]);
@@ -275,15 +275,15 @@ export function useDatabaseErrorBoundary({
 
       if (!allSucceeded && failedCount < operations.length && options?.partialSuccessTitle) {
         showPartialSuccessResults({
-          results,
-          operations,
           failedCount,
+          operations,
           options: {
             partialSuccessTitle: options.partialSuccessTitle,
             ...(options.partialSuccessMessage && {
               partialSuccessMessage: options.partialSuccessMessage,
             }),
           },
+          results,
         });
         return;
       }
@@ -321,8 +321,8 @@ export function useDatabaseErrorBoundary({
 
             if (process.env['NODE_ENV'] === 'development') {
               logger.error('Database operation failed during batch execution', {
-                operation: name,
                 error,
+                operation: name,
               });
             }
 
@@ -335,14 +335,14 @@ export function useDatabaseErrorBoundary({
 
         const allSucceeded = failedCount === 0;
         showOperationResults({
-          results,
           allSucceeded,
           failedCount,
           operations,
+          results,
           ...(options && { options }),
         });
 
-        return { results, allSucceeded, failedCount };
+        return { allSucceeded, failedCount, results };
       } finally {
         setLoading(false);
       }
@@ -351,8 +351,8 @@ export function useDatabaseErrorBoundary({
   );
 
   return {
+    executeMultipleOperations,
     executeWithErrorBoundary,
     executeWithLoadingState,
-    executeMultipleOperations,
   };
 }

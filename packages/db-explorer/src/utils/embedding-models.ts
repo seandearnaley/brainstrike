@@ -94,13 +94,13 @@ export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
   const quantized = readQuantizedFlag(model.parameters);
 
   return {
+    description,
+    dimensions,
     id: model.id,
     name: model.name,
-    dimensions,
-    quantized,
-    description,
-    tags,
     origin: model.providerId,
+    quantized,
+    tags,
     ...(metadata.size ? { size: metadata.size } : {}),
     ...(metadata.contextWindow ? { contextWindow: metadata.contextWindow } : {}),
   };
@@ -156,7 +156,7 @@ export function resolveEmbeddingSetModelInfo(
   }
   const parsed = parseEmbeddingProviderModelKey(modelKey);
   if (parsed && isHostedProvider(parsed.provider)) {
-    return { modelKey, dimensions };
+    return { dimensions, modelKey };
   }
 
   const localModelId = parsed?.modelId ?? modelKey;
@@ -182,8 +182,8 @@ export function resolveEmbeddingSetModelInfo(
   }
 
   return {
-    modelKey: localConfig.id,
     dimensions: localConfig.dimensions,
     modelConfig: localConfig,
+    modelKey: localConfig.id,
   };
 }

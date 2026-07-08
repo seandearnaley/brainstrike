@@ -30,10 +30,10 @@ interface MaterializeFrame {
 
 function createBaseState(): NormalizedFileTreeState {
   return {
-    nodeByPath: new Map(),
     childPathsByPath: new Map(),
-    parentPathByPath: new Map(),
     descendantFileCountByPath: new Map(),
+    nodeByPath: new Map(),
+    parentPathByPath: new Map(),
     rootPaths: [],
   };
 }
@@ -357,13 +357,13 @@ function recomputeDescendantFileCountsFrom(
 
 function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   return {
-    rootPaths: [...state.rootPaths],
-    nodeByPath: new Map(state.nodeByPath),
     childPathsByPath: new Map(
       Array.from(state.childPathsByPath.entries(), ([path, childPaths]) => [path, [...childPaths]])
     ),
-    parentPathByPath: new Map(state.parentPathByPath),
     descendantFileCountByPath: new Map(state.descendantFileCountByPath),
+    nodeByPath: new Map(state.nodeByPath),
+    parentPathByPath: new Map(state.parentPathByPath),
+    rootPaths: [...state.rootPaths],
   };
 }
 
@@ -468,11 +468,11 @@ export function setNormalizedNodeLoadState(
     });
   }
   return {
-    rootPaths: state.rootPaths,
-    nodeByPath: nextNodeByPath,
     childPathsByPath: state.childPathsByPath,
-    parentPathByPath: state.parentPathByPath,
     descendantFileCountByPath: state.descendantFileCountByPath,
+    nodeByPath: nextNodeByPath,
+    parentPathByPath: state.parentPathByPath,
+    rootPaths: state.rootPaths,
   };
 }
 

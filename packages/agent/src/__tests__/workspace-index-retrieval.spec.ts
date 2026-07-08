@@ -46,11 +46,10 @@ describe('workspace-index retrieval helpers', () => {
 
   it('creates structured unavailable status from runtime fields', () => {
     const runtime: RuntimeData = {
+      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexEmbeddingSetId: 'workspace-index-set',
       workspaceIndexingEnabled: true,
       workspaceIndexingPaused: false,
-      workspaceIndexStatusState: 'blocked',
-      workspaceIndexBlockedReason: 'missing-provider-key',
       workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
       workspaceIndexQueueProgress: {
         failed: 1,
@@ -59,6 +58,7 @@ describe('workspace-index retrieval helpers', () => {
         processed: 7,
         totalQueued: 11,
       },
+      workspaceIndexStatusState: 'blocked',
     };
 
     expect(createWorkspaceIndexRetrievalStatus(runtime)).toEqual({

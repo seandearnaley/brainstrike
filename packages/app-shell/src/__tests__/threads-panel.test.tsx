@@ -9,8 +9,8 @@ const { dbMocks, fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   dbMocks: {
     database: undefined as unknown,
     deleteFailureThreadId: null as string | null,
-    initializing: false,
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+    initializing: false,
     metadataFailureThreadId: null as string | null,
     providerError: null as Error | null,
   },
@@ -41,8 +41,8 @@ function parseMetadataObject(value: unknown): Record<string, unknown> {
 }
 
 vi.mock('@brainstrike/db', () => ({
-  useDbInitializing: () => dbMocks.initializing,
   useDbInitializationStatus: () => dbMocks.initializationStatus,
+  useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
 }));
@@ -78,19 +78,19 @@ describe('ThreadsPanel', () => {
       0,
       threadRows.length,
       {
+        createdAt: new Date('2026-04-22T10:00:00Z'),
         id: 'thread-b',
+        metadata: JSON.stringify({ color: 'blue', icon: 'message' }),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Second thread',
-        metadata: JSON.stringify({ icon: 'message', color: 'blue' }),
-        createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
       {
+        createdAt: new Date('2026-04-22T09:00:00Z'),
         id: 'thread-a',
+        metadata: JSON.stringify({ color: 'emerald', icon: 'code' }),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'First thread',
-        metadata: JSON.stringify({ icon: 'code', color: 'emerald' }),
-        createdAt: new Date('2026-04-22T09:00:00Z'),
         updatedAt: new Date('2026-04-22T09:00:00Z'),
       }
     );
@@ -99,10 +99,10 @@ describe('ThreadsPanel', () => {
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('INSERT INTO mastra_threads')) {
         threadRows.unshift({
+          createdAt: params?.[4],
           id: String(params?.[0]),
           resourceId: String(params?.[1]),
           title: String(params?.[2]),
-          createdAt: params?.[4],
           updatedAt: params?.[5],
         });
       }
@@ -137,19 +137,19 @@ describe('ThreadsPanel', () => {
         return {
           rows: [
             {
-              id: 'run-1',
-              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-              threadId: 'thread-b',
-              provider: 'openai',
-              model: 'gpt-5.2',
-              modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
-              providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
-              runtimeKind: 'hosted',
-              status: 'completed',
-              error: null,
-              startedAt: new Date('2026-04-22T11:00:00Z'),
               completedAt: new Date('2026-04-22T11:00:10Z'),
               createdAt: new Date('2026-04-22T11:00:00Z'),
+              error: null,
+              id: 'run-1',
+              model: 'gpt-5.2',
+              modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+              provider: 'openai',
+              providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+              runtimeKind: 'hosted',
+              startedAt: new Date('2026-04-22T11:00:00Z'),
+              status: 'completed',
+              threadId: 'thread-b',
               updatedAt: new Date('2026-04-22T11:00:10Z'),
             },
           ],

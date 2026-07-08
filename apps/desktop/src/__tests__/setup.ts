@@ -4,42 +4,42 @@ import { vi } from 'vitest';
 // Mock Electron module for tests that transitively import window-state.ts
 vi.mock('electron', () => ({
   app: {
+    getAppPath: vi.fn(() => '/mock/app'),
+    getName: vi.fn(() => 'Brainstrike'),
+    getPath: vi.fn(() => '/mock/path'),
+    getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,
-    whenReady: vi.fn(() => Promise.resolve()),
     isReady: vi.fn(() => true),
     on: vi.fn(),
-    getAppPath: vi.fn(() => '/mock/app'),
-    getPath: vi.fn(() => '/mock/path'),
-    getName: vi.fn(() => 'Brainstrike'),
-    getVersion: vi.fn(() => '0.0.0-test'),
     quit: vi.fn(),
+    whenReady: vi.fn(() => Promise.resolve()),
   },
   BrowserWindow: vi.fn(),
+  contextBridge: { exposeInMainWorld: vi.fn() },
+  dialog: {
+    showMessageBox: vi.fn(async () => ({ response: 0 })),
+  },
   ipcMain: { handle: vi.fn(), on: vi.fn() },
   ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
-  contextBridge: { exposeInMainWorld: vi.fn() },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }]),
-    getPrimaryDisplay: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } })),
+  Menu: {
+    buildFromTemplate: vi.fn(),
+    setApplicationMenu: vi.fn(),
   },
   safeStorage: {
     decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
     encryptString: vi.fn((text: string) => Buffer.from(text)),
+    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
     isEncryptionAvailable: vi.fn(() => true),
     setUsePlainTextEncryption: vi.fn(),
-    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
+  },
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }]),
+    getPrimaryDisplay: vi.fn(() => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } })),
   },
   session: {
     defaultSession: {
       webRequest: { onHeadersReceived: vi.fn() },
     },
-  },
-  Menu: {
-    setApplicationMenu: vi.fn(),
-    buildFromTemplate: vi.fn(),
-  },
-  dialog: {
-    showMessageBox: vi.fn(async () => ({ response: 0 })),
   },
   shell: {
     openPath: vi.fn().mockResolvedValue(''),
@@ -61,13 +61,6 @@ vi.mock('electron-store', () => {
 
 // Mock Electron APIs
 const mockElectronAPI = {
-  storage: {
-    getItem: vi.fn().mockResolvedValue(null),
-    setItem: vi.fn().mockResolvedValue(undefined),
-    removeItem: vi.fn().mockResolvedValue(undefined),
-    clear: vi.fn().mockResolvedValue(undefined),
-    getAllKeys: vi.fn().mockResolvedValue([]),
-  },
   fileSystem: {
     addRoot: vi.fn().mockResolvedValue({
       displayName: 'mock-directory',
@@ -82,21 +75,28 @@ const mockElectronAPI = {
       persisted: true,
       rootId: 'mock-root-id',
     }),
-    requestDirectoryAccess: vi.fn().mockResolvedValue({
-      path: '/mock/path',
-      name: 'mock-directory',
-      kind: 'directory',
-      platform: 'electron',
-    }),
+    exists: vi.fn().mockResolvedValue(true),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
-    exists: vi.fn().mockResolvedValue(true),
+    requestDirectoryAccess: vi.fn().mockResolvedValue({
+      kind: 'directory',
+      name: 'mock-directory',
+      path: '/mock/path',
+      platform: 'electron',
+    }),
     restoreLastFolder: vi.fn().mockResolvedValue(null),
     restoreRoots: vi.fn().mockResolvedValue([]),
     saveLastFolder: vi.fn().mockResolvedValue(undefined),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
+  storage: {
+    clear: vi.fn().mockResolvedValue(undefined),
+    getAllKeys: vi.fn().mockResolvedValue([]),
+    getItem: vi.fn().mockResolvedValue(null),
+    removeItem: vi.fn().mockResolvedValue(undefined),
+    setItem: vi.fn().mockResolvedValue(undefined),
+  },
 };
 
 // Mock window.electronAPI
@@ -107,12 +107,12 @@ Object.defineProperty(window, 'electronAPI', {
 
 // Mock window.secrets
 const mockSecrets = {
-  saveKey: vi.fn().mockResolvedValue(true as const),
-  getKey: vi.fn().mockResolvedValue(null as string | null),
+  clearAll: vi.fn().mockResolvedValue({ success: true } as const),
   deleteKey: vi.fn().mockResolvedValue(true),
+  getKey: vi.fn().mockResolvedValue(null as string | null),
   list: vi.fn().mockResolvedValue([] as string[]),
   listStored: vi.fn().mockResolvedValue([] as string[]),
-  clearAll: vi.fn().mockResolvedValue({ success: true } as const),
+  saveKey: vi.fn().mockResolvedValue(true as const),
 };
 Object.defineProperty(window, 'secrets', {
   value: mockSecrets,
@@ -122,10 +122,10 @@ Object.defineProperty(window, 'secrets', {
 // Mock window.agent
 const mockAgent = {
   chat: vi.fn().mockResolvedValue([
-    { type: 'tool-event', name: 'plan', status: 'start' },
+    { name: 'plan', status: 'start', type: 'tool-event' },
     { type: 'text-delta', value: 'Hello' },
     { type: 'text-delta', value: ' world' },
-    { type: 'tool-event', name: 'plan', status: 'success' },
+    { name: 'plan', status: 'success', type: 'tool-event' },
   ]),
 };
 Object.defineProperty(window, 'agent', {
@@ -135,18 +135,18 @@ Object.defineProperty(window, 'agent', {
 
 Object.defineProperty(window, 'llmHost', {
   value: {
-    ensureStarted: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
-    stop: vi.fn().mockResolvedValue({ state: 'stopped', active: false, lastError: null }),
-    reset: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
-    getStatus: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
-    warmup: vi.fn().mockResolvedValue(undefined),
+    ensureStarted: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
     generate: vi.fn().mockResolvedValue(null),
-    reportStatus: vi.fn(),
-    reportProgress: vi.fn(),
-    reportResponse: vi.fn(),
-    onStatus: vi.fn(() => () => {}),
+    getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
     onProgress: vi.fn(() => () => {}),
     onRequest: vi.fn(() => () => {}),
+    onStatus: vi.fn(() => () => {}),
+    reportProgress: vi.fn(),
+    reportResponse: vi.fn(),
+    reportStatus: vi.fn(),
+    reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+    stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
+    warmup: vi.fn().mockResolvedValue(undefined),
   },
   writable: true,
 });
@@ -155,46 +155,46 @@ process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
 
 const mockProviderDefinitions = [
   {
-    id: 'openai',
+    capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'OpenAI',
-    runtime: 'hosted',
-    capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY'],
+    id: 'openai',
     models: [
-      { id: 'gpt-5.2', type: 'llm' as const, default: true, supportsStreaming: true },
+      { default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const },
       {
-        id: 'text-embedding-3-small',
-        type: 'embedding' as const,
         default: true,
         defaultDimension: 1536,
+        id: 'text-embedding-3-small',
         supportsStandardDimension: true,
+        type: 'embedding' as const,
       },
     ],
+    runtime: 'hosted',
   },
   {
-    id: 'anthropic',
+    capabilities: { embeddings: false, llm: true, streaming: true },
     displayName: 'Anthropic',
-    runtime: 'hosted',
-    capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-sonnet-4-6', type: 'llm' as const, default: true }],
+    id: 'anthropic',
+    models: [{ default: true, id: 'claude-sonnet-4-6', type: 'llm' as const }],
+    runtime: 'hosted',
   },
   {
-    id: 'google',
+    capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'Google AI Studio',
-    runtime: 'hosted',
-    capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
+    id: 'google',
     models: [
-      { id: 'gemini-3.5-flash', type: 'llm' as const, default: true },
+      { default: true, id: 'gemini-3.5-flash', type: 'llm' as const },
       {
-        id: 'gemini-embedding-001',
-        type: 'embedding' as const,
         default: true,
         defaultDimension: 3072,
+        id: 'gemini-embedding-001',
         supportsStandardDimension: true,
+        type: 'embedding' as const,
       },
     ],
+    runtime: 'hosted',
   },
 ] as const;
 
@@ -255,16 +255,16 @@ function cloneDefinition(definition: (typeof mockProviderDefinitions)[number]) {
 }
 
 const mockMcpToolRegistry = {
-  getAllTools: vi.fn(() => ({})),
-  getStats: vi.fn(() => ({ total: 0, enabled: 0, disabled: 0, servers: 0 })),
-  enableTools: vi.fn(),
+  clear: vi.fn(),
+  disableServerTools: vi.fn(),
   disableTools: vi.fn(),
   enableServerTools: vi.fn(),
-  disableServerTools: vi.fn(),
-  reset: vi.fn(),
-  register: vi.fn(),
-  clear: vi.fn(),
+  enableTools: vi.fn(),
+  getAllTools: vi.fn(() => ({})),
   getEnabledTools: vi.fn((tools: Record<string, unknown>) => tools),
+  getStats: vi.fn(() => ({ disabled: 0, enabled: 0, servers: 0, total: 0 })),
+  register: vi.fn(),
+  reset: vi.fn(),
   subscribe: vi.fn(() => () => {}),
 };
 
@@ -272,17 +272,17 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
-    streamMastraAgent: vi.fn(async function* () {
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
-    }),
-    loadToolPreferences: vi.fn().mockResolvedValue({}),
-    mcpToolRegistry: mockMcpToolRegistry,
     createMastraAgentRuntime: vi.fn(async () => ({
-      run: vi.fn(),
       dispose: vi.fn().mockResolvedValue(undefined),
+      run: vi.fn(),
     })),
     isSupportedProvider: (provider: string) =>
       mockProviderDefinitions.some((entry) => entry.id === provider),
+    loadToolPreferences: vi.fn().mockResolvedValue({}),
+    mcpToolRegistry: mockMcpToolRegistry,
+    streamMastraAgent: vi.fn(async function* () {
+      yield { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } };
+    }),
   };
 });
 
@@ -290,40 +290,40 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent/client')>();
   return {
     ...actual,
-    // Provider-related mocks
-    listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
-    providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
-    PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
-    PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
-    PROVIDER_MODELS: mockProviderModels,
-    PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
+    compareByLoadPriority: actual.compareByLoadPriority,
+    generateExampleInput: actual.generateExampleInput,
+    getCategoryInfo: actual.getCategoryInfo,
+    getNativeToolDefaults: actual.getNativeToolDefaults,
     getProviderDefaultModel: (provider: string) => mockProviderDefaults[provider as MockProviderId],
-    getProviderModels: (provider: string) => mockProviderModels[provider as MockProviderId] ?? [],
     getProviderDefinition: (provider: string) => ensureDefinition(provider),
     getProviderDisplayName: (provider: string) =>
       mockProviderDisplayNames[provider as MockProviderId] ?? provider,
     getProviderModelDefinitions: (provider: string) => ensureDefinition(provider).models,
+    getProviderModels: (provider: string) => mockProviderModels[provider as MockProviderId] ?? [],
+    getTierInfo: actual.getTierInfo,
+    getToolSchemaDisplay: actual.getToolSchemaDisplay,
+    isNativeTool: actual.isNativeTool,
+    isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
     listEmbeddingModels: (provider: string) =>
       mockEmbeddingModels[provider as MockProviderId] ?? [],
+    // Provider-related mocks
+    listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
+    // Tool-related exports (pass through from actual module)
+    NATIVE_TOOL_DEFAULTS: actual.NATIVE_TOOL_DEFAULTS,
+    // Schema display exports
+    NATIVE_TOOL_SCHEMAS: actual.NATIVE_TOOL_SCHEMAS,
+    PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
+    PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
+    PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
+    PROVIDER_MODELS: mockProviderModels,
+    providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
     supportsStandardEmbeddingDimension: (provider: string) =>
       (mockEmbeddingModels[provider as MockProviderId] ?? []).some(
         (model) => model.supportsStandardDimension
       ),
-    isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
-    // Tool-related exports (pass through from actual module)
-    NATIVE_TOOL_DEFAULTS: actual.NATIVE_TOOL_DEFAULTS,
-    TOOL_DESCRIPTIONS: actual.TOOL_DESCRIPTIONS,
     TOOL_CATEGORIES: actual.TOOL_CATEGORIES,
+    TOOL_DESCRIPTIONS: actual.TOOL_DESCRIPTIONS,
     TOOL_LOADING_TIERS: actual.TOOL_LOADING_TIERS,
-    getNativeToolDefaults: actual.getNativeToolDefaults,
-    isNativeTool: actual.isNativeTool,
-    getCategoryInfo: actual.getCategoryInfo,
-    getTierInfo: actual.getTierInfo,
-    compareByLoadPriority: actual.compareByLoadPriority,
-    // Schema display exports
-    NATIVE_TOOL_SCHEMAS: actual.NATIVE_TOOL_SCHEMAS,
-    getToolSchemaDisplay: actual.getToolSchemaDisplay,
-    generateExampleInput: actual.generateExampleInput,
   };
 });
 
@@ -343,14 +343,14 @@ vi.mock('@brainstrike/agent/local-llm', () => ({
 
     async generate(): Promise<Record<string, unknown>> {
       return {
-        text: '',
-        rawText: '',
-        promptText: '',
-        toolCalls: [],
         finishReason: 'stop',
+        promptText: '',
+        rawText: '',
+        text: '',
+        toolCalls: [],
         usage: {
-          promptTokens: 0,
           completionTokens: 0,
+          promptTokens: 0,
           totalTokens: 0,
         },
       };
@@ -365,11 +365,11 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useNavigate: () => vi.fn(),
-    useLocation: () => ({ pathname: '/' }),
     BrowserRouter: ({ children }: { children: React.ReactNode }) => children,
-    Routes: ({ children }: { children: React.ReactNode }) => children,
     Route: ({ children }: { children: React.ReactNode }) => children,
+    Routes: ({ children }: { children: React.ReactNode }) => children,
+    useLocation: () => ({ pathname: '/' }),
+    useNavigate: () => vi.fn(),
   };
 });
 

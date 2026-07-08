@@ -51,14 +51,14 @@ export function installMockWorkers(options?: { maxWorkers?: number }) {
   if (typeof window !== 'undefined') {
     Object.defineProperty(window, 'Worker', {
       configurable: true,
-      writable: true,
       value: MockWorker,
+      writable: true,
     });
   }
   Object.defineProperty(global, 'Worker', {
     configurable: true,
-    writable: true,
     value: MockWorker,
+    writable: true,
   });
 
   const teardown = () => {
@@ -69,14 +69,14 @@ export function installMockWorkers(options?: { maxWorkers?: number }) {
     if (typeof window !== 'undefined') {
       Object.defineProperty(window, 'Worker', {
         configurable: true,
-        writable: true,
         value: OriginalWindowWorker,
+        writable: true,
       });
     }
     Object.defineProperty(globalThis as object, 'Worker', {
       configurable: true,
-      writable: true,
       value: OriginalGlobalWorker,
+      writable: true,
     });
   };
 

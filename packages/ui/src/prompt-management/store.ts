@@ -27,10 +27,10 @@ interface PromptState {
 }
 
 const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
-  { id: 'coding', name: 'Coding', color: '#3b82f6', icon: 'Code' },
-  { id: 'writing', name: 'Writing', color: '#8b5cf6', icon: 'PenTool' },
-  { id: 'productivity', name: 'Productivity', color: '#10b981', icon: 'Zap' },
+  { color: '#64748b', icon: 'Box', id: 'general', name: 'General' },
+  { color: '#3b82f6', icon: 'Code', id: 'coding', name: 'Coding' },
+  { color: '#8b5cf6', icon: 'PenTool', id: 'writing', name: 'Writing' },
+  { color: '#10b981', icon: 'Zap', id: 'productivity', name: 'Productivity' },
 ];
 
 const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
@@ -38,51 +38,23 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 export const usePromptStore = create<PromptState>()(
   persist(
     (set, get) => ({
-      prompts: [],
-      categories: DEFAULT_CATEGORIES,
-      filter: {
-        search: '',
-        tags: [],
-        favoritesOnly: false,
+      addCategory: (categoryData) => {
+        const newCategory: Category = {
+          ...categoryData,
+          id: crypto.randomUUID(),
+        };
+        set((state) => ({ categories: [...state.categories, newCategory] }));
       },
-      selectedPromptId: null,
-      isSidebarOpen: true,
 
       addPrompt: (promptData) => {
         const newPrompt: Prompt = {
           ...promptData,
-          id: crypto.randomUUID(),
           createdAt: Date.now(),
-          updatedAt: Date.now(),
+          id: crypto.randomUUID(),
           revisions: [],
+          updatedAt: Date.now(),
         };
         set((state) => ({ prompts: [newPrompt, ...state.prompts] }));
-      },
-
-      updatePrompt: (id, updates) => {
-        set((state) => ({
-          prompts: state.prompts.map((p) =>
-            p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
-          ),
-        }));
-      },
-
-      deletePrompt: (id) => {
-        set((state) => ({
-          prompts: state.prompts.filter((p) => p.id !== id),
-          selectedPromptId: state.selectedPromptId === id ? null : state.selectedPromptId,
-        }));
-      },
-
-      ratePrompt: (id, rating) => {
-        get().updatePrompt(id, { rating });
-      },
-
-      toggleFavorite: (id) => {
-        const prompt = get().prompts.find((p) => p.id === id);
-        if (prompt) {
-          get().updatePrompt(id, { isFavorite: !prompt.isFavorite });
-        }
       },
 
       addRevision: (promptId, revisionData) => {
@@ -101,20 +73,7 @@ export const usePromptStore = create<PromptState>()(
           revisions: [newRevision, ...prompt.revisions],
         });
       },
-
-      addCategory: (categoryData) => {
-        const newCategory: Category = {
-          ...categoryData,
-          id: crypto.randomUUID(),
-        };
-        set((state) => ({ categories: [...state.categories, newCategory] }));
-      },
-
-      updateCategory: (id, updates) => {
-        set((state) => ({
-          categories: state.categories.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-        }));
-      },
+      categories: DEFAULT_CATEGORIES,
 
       deleteCategory: (id) => {
         set((state) => ({
@@ -126,6 +85,25 @@ export const usePromptStore = create<PromptState>()(
         }));
       },
 
+      deletePrompt: (id) => {
+        set((state) => ({
+          prompts: state.prompts.filter((p) => p.id !== id),
+          selectedPromptId: state.selectedPromptId === id ? null : state.selectedPromptId,
+        }));
+      },
+      filter: {
+        favoritesOnly: false,
+        search: '',
+        tags: [],
+      },
+      isSidebarOpen: true,
+      prompts: [],
+
+      ratePrompt: (id, rating) => {
+        get().updatePrompt(id, { rating });
+      },
+      selectedPromptId: null,
+
       setFilter: (filterUpdates) => {
         set((state) => ({
           filter: { ...state.filter, ...filterUpdates },
@@ -136,18 +114,39 @@ export const usePromptStore = create<PromptState>()(
         set({ selectedPromptId: id });
       },
 
+      toggleFavorite: (id) => {
+        const prompt = get().prompts.find((p) => p.id === id);
+        if (prompt) {
+          get().updatePrompt(id, { isFavorite: !prompt.isFavorite });
+        }
+      },
+
       toggleSidebar: () => {
         set((state) => ({ isSidebarOpen: !state.isSidebarOpen }));
+      },
+
+      updateCategory: (id, updates) => {
+        set((state) => ({
+          categories: state.categories.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+        }));
+      },
+
+      updatePrompt: (id, updates) => {
+        set((state) => ({
+          prompts: state.prompts.map((p) =>
+            p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
+          ),
+        }));
       },
     }),
     {
       name: 'brainstrike-prompt-store',
-      storage,
       partialize: (state) => ({
-        prompts: state.prompts,
         categories: state.categories,
         isSidebarOpen: state.isSidebarOpen,
+        prompts: state.prompts,
       }),
+      storage,
     }
   )
 );

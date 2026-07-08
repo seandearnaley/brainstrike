@@ -7,13 +7,13 @@ import { createUnifiedToolRegistry } from '../unified-registry';
 const createNativeTool = (
   overrides: Partial<NativeToolRegistrationOptions>
 ): NativeToolRegistrationOptions => ({
-  id: `tool.${overrides.id ?? 'test'}`,
-  description: overrides.description ?? 'Test tool',
   category: overrides.category,
-  loadingTier: overrides.loadingTier,
-  estimatedTokens: overrides.estimatedTokens,
-  requiresApproval: overrides.requiresApproval,
+  description: overrides.description ?? 'Test tool',
   enabled: overrides.enabled,
+  estimatedTokens: overrides.estimatedTokens,
+  id: `tool.${overrides.id ?? 'test'}`,
+  loadingTier: overrides.loadingTier,
+  requiresApproval: overrides.requiresApproval,
 });
 
 describe('ToolLoader', () => {
@@ -37,24 +37,24 @@ describe('ToolLoader', () => {
   it('uses budget manager selection for conditional tools', () => {
     const registry = createUnifiedToolRegistry();
     registry.registerNativeTools([
-      createNativeTool({ id: 'critical', loadingTier: 'critical', estimatedTokens: 10 }),
-      createNativeTool({ id: 'conditional-small', loadingTier: 'conditional', estimatedTokens: 5 }),
+      createNativeTool({ estimatedTokens: 10, id: 'critical', loadingTier: 'critical' }),
+      createNativeTool({ estimatedTokens: 5, id: 'conditional-small', loadingTier: 'conditional' }),
       createNativeTool({
+        estimatedTokens: 50,
         id: 'conditional-large',
         loadingTier: 'conditional',
-        estimatedTokens: 50,
       }),
     ]);
 
     const manager = new TokenBudgetManager({
-      contextWindowTokens: 100,
       allocation: {
-        systemPrompt: 0.2,
-        responseBuffer: 0.2,
-        criticalTools: 0.1,
         conditionalTools: 0.1,
         contextResults: 0.4,
+        criticalTools: 0.1,
+        responseBuffer: 0.2,
+        systemPrompt: 0.2,
       },
+      contextWindowTokens: 100,
     });
 
     const loader = createToolLoader(registry, manager);
@@ -69,14 +69,14 @@ describe('ToolLoader', () => {
   it('loads deferred tools on demand within token budget', () => {
     const registry = createUnifiedToolRegistry();
     registry.registerNativeTools([
-      createNativeTool({ id: 'deferred-small', loadingTier: 'deferred', estimatedTokens: 10 }),
-      createNativeTool({ id: 'deferred-large', loadingTier: 'deferred', estimatedTokens: 50 }),
+      createNativeTool({ estimatedTokens: 10, id: 'deferred-small', loadingTier: 'deferred' }),
+      createNativeTool({ estimatedTokens: 50, id: 'deferred-large', loadingTier: 'deferred' }),
     ]);
 
     const loader = createToolLoader(registry);
     const result = loader.loadOnDemand({
-      toolIds: ['tool.deferred-small', 'tool.deferred-large'],
       maxTokens: 20,
+      toolIds: ['tool.deferred-small', 'tool.deferred-large'],
     });
 
     expect(result.loaded.map((tool) => tool.id)).toEqual(['tool.deferred-small']);
@@ -87,16 +87,16 @@ describe('ToolLoader', () => {
     const registry = createUnifiedToolRegistry();
     registry.registerNativeTools([
       createNativeTool({
-        id: 'search.alpha',
         description: 'Alpha search',
+        id: 'search.alpha',
         loadingTier: 'conditional',
       }),
       createNativeTool({
-        id: 'search.beta',
         description: 'Beta search',
+        id: 'search.beta',
         loadingTier: 'conditional',
       }),
-      createNativeTool({ id: 'misc', description: 'Misc tool', loadingTier: 'deferred' }),
+      createNativeTool({ description: 'Misc tool', id: 'misc', loadingTier: 'deferred' }),
     ]);
 
     const loader = createToolLoader(registry);

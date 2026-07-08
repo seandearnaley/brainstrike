@@ -22,8 +22,8 @@ let capturedOnFileError: ((compositeKey: string, error: string) => void) | undef
 const indexFilesMock = vi.fn<(files: FileToIndex[]) => Promise<void>>(async () => {});
 const cancelIndexingMock = vi.fn();
 const mockBackgroundIndexer = {
-  indexFiles: indexFilesMock,
   cancelIndexing: cancelIndexingMock,
+  indexFiles: indexFilesMock,
   isIndexing: false,
   isReady: true,
   progress: null,
@@ -44,42 +44,42 @@ vi.mock('@brainstrike/token-cache/background-indexer', () => ({
 // Provide a minimal context value with the fields the integration hook reads.
 const createStoreMock = () =>
   ({
-    get: vi.fn(),
-    set: vi.fn(),
-    getBatch: vi.fn(async () => new Map()),
-    getAllForFolder: vi.fn(async () => []),
-    setBatch: vi.fn(async () => {}),
-    delete: vi.fn(async () => true),
-    clearFolder: vi.fn(async () => 0),
     clearAll: vi.fn(async () => 0),
-    getTotalTokens: vi.fn(async () => 0),
+    clearFolder: vi.fn(async () => 0),
+    delete: vi.fn(async () => true),
     findByCountingMode: vi.fn(async () => []),
+    get: vi.fn(),
+    getAllForFolder: vi.fn(async () => []),
+    getBatch: vi.fn(async () => new Map()),
+    getTotalTokens: vi.fn(async () => 0),
+    set: vi.fn(),
+    setBatch: vi.fn(async () => {}),
     vacuum: vi.fn(async () => {}),
   }) as unknown as TokenCacheContextValue['store'];
 
 const storeMock = createStoreMock();
 
 const createTokenCacheContext = (): TokenCacheContextValue => ({
-  isReady: true, // Deprecated - kept for backwards compatibility
-  isOperational: true, // Worker + hasher ready
-  isPersisted: true, // DB-backed storage available
-  persistenceMode: 'persistent',
-  isWorkerReady: true,
+  cacheVersion: 0,
+  clearHotCache: vi.fn(),
   countingMode: 'accurate',
   countTextTokens: vi.fn(async () => 0),
-  getTokenCount: vi.fn(),
   getFileSize: vi.fn(),
+  getTokenCount: vi.fn(),
   getTotalTokens: vi.fn(async () => 0),
-  isLoading: vi.fn(() => false),
-  isAnyLoading: false,
-  queueForCounting: vi.fn(),
-  preloadFolder: vi.fn(),
-  store: storeMock,
-  clearHotCache: vi.fn(),
   invalidate: vi.fn(),
-  updateHotCache: vi.fn(),
+  isAnyLoading: false,
+  isLoading: vi.fn(() => false),
+  isOperational: true, // Worker + hasher ready
+  isPersisted: true, // DB-backed storage available
+  isReady: true, // Deprecated - kept for backwards compatibility
+  isWorkerReady: true,
+  persistenceMode: 'persistent',
+  preloadFolder: vi.fn(),
+  queueForCounting: vi.fn(),
+  store: storeMock,
   updateFileSizeCache: vi.fn(),
-  cacheVersion: 0,
+  updateHotCache: vi.fn(),
 });
 
 const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext();
@@ -104,22 +104,22 @@ const fileRootCKey = encodeFileSelection('root', 'c.txt');
 
 const fileTreeRootA: IFileNode[] = [
   {
+    depth: 0,
+    handle: webHandle,
     name: 'a.txt',
     path: 'a.txt',
-    type: 'file',
-    handle: webHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'root',
+    selectionState: 'unchecked' as const,
+    type: 'file',
   },
   {
+    depth: 0,
+    handle: webHandle,
     name: 'b.txt',
     path: 'b.txt',
-    type: 'file',
-    handle: webHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'root',
+    selectionState: 'unchecked' as const,
+    type: 'file',
   },
 ];
 
@@ -129,25 +129,25 @@ const fileTreeRootA: IFileNode[] = [
 const fileTreeRootAWithC: IFileNode[] = [
   ...fileTreeRootA,
   {
+    depth: 0,
+    handle: webHandle,
     name: 'c.txt',
     path: 'c.txt',
-    type: 'file',
-    handle: webHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'root',
+    selectionState: 'unchecked' as const,
+    type: 'file',
   },
 ];
 
 const fileTreeRootB: IFileNode[] = [
   {
+    depth: 0,
+    handle: webHandle,
     name: 'c.txt',
     path: 'c.txt',
-    type: 'file',
-    handle: webHandle,
-    depth: 0,
-    selectionState: 'unchecked' as const,
     rootFolderId: 'other-root',
+    selectionState: 'unchecked' as const,
+    type: 'file',
   },
 ];
 
@@ -182,7 +182,7 @@ function createDeferredValue<T>(): DeferredValue<T> {
     resolve = innerResolve;
     reject = innerReject;
   });
-  return { promise, resolve, reject };
+  return { promise, reject, resolve };
 }
 
 function createElectronTree(fileCount: number): {
@@ -196,22 +196,22 @@ function createElectronTree(fileCount: number): {
     const path = `file-${index}.ts`;
     keys.push(encodeFileSelection('root', path));
     tree.push({
-      name: `file-${index}.ts`,
-      path,
-      type: 'file',
+      depth: 0,
       handle: {
         kind: 'file',
         name: `file-${index}.ts`,
         path: `/repo/${path}`,
         platform: 'electron',
       } as unknown as FileSystemFileHandle,
-      depth: 0,
-      selectionState: 'unchecked' as const,
+      name: `file-${index}.ts`,
+      path,
       rootFolderId: 'root',
+      selectionState: 'unchecked' as const,
+      type: 'file',
     });
   }
 
-  return { tree, keys };
+  return { keys, tree };
 }
 
 describe('useBackgroundTokenIndexerIntegration', () => {
@@ -233,8 +233,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles,
           onTokenResolved: vi.fn(),
+          selectedFiles,
         }),
       {
         initialProps: new Set([fileAKey, fileBKey]),
@@ -265,8 +265,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles,
           onTokenResolved: vi.fn(),
+          selectedFiles,
         }),
       {
         initialProps: mutableSelection,
@@ -307,8 +307,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootAWithC,
-          selectedFiles,
           onTokenResolved: vi.fn(),
+          selectedFiles,
         }),
       {
         initialProps: new Set([fileAKey, fileBKey]),
@@ -371,8 +371,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: [],
-        selectedFiles: new Set([fileAKey, fileBKey]),
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([fileAKey, fileBKey]),
       })
     );
 
@@ -398,8 +398,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: [],
-        selectedFiles: new Set([fileAKey]),
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([fileAKey]),
       })
     );
 
@@ -411,11 +411,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       (props: { tree: typeof fileTreeRootA | typeof fileTreeRootB; selected: Set<string> }) =>
         useBackgroundTokenIndexerIntegration({
           fileTree: props.tree,
-          selectedFiles: props.selected,
           onTokenResolved: vi.fn(),
+          selectedFiles: props.selected,
         }),
       {
-        initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+        initialProps: { selected: new Set([fileAKey]), tree: fileTreeRootA },
       }
     );
 
@@ -423,7 +423,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     indexFilesMock.mockClear();
 
-    rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+    rerender({ selected: new Set([fileCKey]), tree: fileTreeRootB });
     flushTimers();
 
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
@@ -434,8 +434,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: fileTreeRootA,
-        selectedFiles: new Set([fileAKey]),
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([fileAKey]),
       })
     );
 
@@ -470,8 +470,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     const { rerender } = renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: fileTreeRootA,
-        selectedFiles: selected,
         onTokenResolved: vi.fn(),
+        selectedFiles: selected,
       })
     );
 
@@ -494,8 +494,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -516,8 +516,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: onTokenResolvedSpy,
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -540,8 +540,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey, fileBKey]),
           onTokenResolved: onTokenResolvedSpy,
+          selectedFiles: new Set([fileAKey, fileBKey]),
         })
       );
 
@@ -570,8 +570,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set<string>(),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set<string>(),
         })
       );
 
@@ -585,8 +585,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -600,22 +600,22 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       // Create a tree where one file has no handle (simulates edge case)
       const treeWithMissingHandle = [
         {
+          depth: 0,
+          handle: webHandle,
           name: 'a.txt',
           path: 'a.txt',
-          type: 'file' as const,
-          handle: webHandle,
-          depth: 0,
-          selectionState: 'unchecked' as const,
           rootFolderId: 'root',
+          selectionState: 'unchecked' as const,
+          type: 'file' as const,
         },
         {
-          name: 'no-handle.txt',
-          path: 'no-handle.txt',
-          type: 'file' as const,
           // Intentionally omit handle to test edge case
           depth: 0,
-          selectionState: 'unchecked' as const,
+          name: 'no-handle.txt',
+          path: 'no-handle.txt',
           rootFolderId: 'root',
+          selectionState: 'unchecked' as const,
+          type: 'file' as const,
         },
       ] as IFileNode[];
 
@@ -624,8 +624,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: treeWithMissingHandle,
-          selectedFiles: new Set([fileAKey, noHandleKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey, noHandleKey]),
         })
       );
 
@@ -646,8 +646,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set([fileAKey, fileBKey]),
@@ -674,8 +674,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set([fileAKey, fileBKey]),
@@ -699,8 +699,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -725,21 +725,21 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const absoluteKey = encodeFileSelection('brainstrike copy 2', absolutePath);
       const treeWithAbsolutePath: IFileNode[] = [
         {
+          depth: 0,
+          handle: webHandle,
           name: 'merge-coverage.js',
           path: absolutePath,
-          type: 'file',
-          handle: webHandle,
-          depth: 0,
-          selectionState: 'unchecked' as const,
           rootFolderId: 'brainstrike copy 2',
+          selectionState: 'unchecked' as const,
+          type: 'file',
         },
       ];
 
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: treeWithAbsolutePath,
-          selectedFiles: new Set([absoluteKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([absoluteKey]),
         })
       );
 
@@ -754,21 +754,21 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const traversalKey = encodeFileSelection('project', traversalPath);
       const treeWithTraversalPath: IFileNode[] = [
         {
+          depth: 0,
+          handle: webHandle,
           name: 'secret.txt',
           path: traversalPath,
-          type: 'file',
-          handle: webHandle,
-          depth: 0,
-          selectionState: 'unchecked' as const,
           rootFolderId: 'project',
+          selectionState: 'unchecked' as const,
+          type: 'file',
         },
       ];
 
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: treeWithTraversalPath,
-          selectedFiles: new Set([traversalKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([traversalKey]),
         })
       );
 
@@ -803,10 +803,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          selectedFiles: new Set(),
           electronFileReader,
+          fileTree: [],
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set(),
         })
       );
 
@@ -880,10 +880,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          selectedFiles: new Set(),
           electronFileReader,
+          fileTree: [],
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set(),
         })
       );
 
@@ -927,8 +927,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -958,8 +958,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -979,16 +979,16 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Mock getBatch to return cached entries
       const cachedEntries = new Map([
-        ['a.txt', { tokenCount: 100, folderId: 'root', filePath: 'a.txt' }],
-        ['b.txt', { tokenCount: 200, folderId: 'root', filePath: 'b.txt' }],
+        ['a.txt', { filePath: 'a.txt', folderId: 'root', tokenCount: 100 }],
+        ['b.txt', { filePath: 'b.txt', folderId: 'root', tokenCount: 200 }],
       ]);
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(cachedEntries);
 
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey, fileBKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey, fileBKey]),
         })
       );
 
@@ -1012,8 +1012,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -1042,16 +1042,16 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       updateHotCacheSpy.mockClear();
 
       const cachedEntries = new Map([
-        ['a.txt', { tokenCount: 100, folderId: 'root', filePath: 'a.txt' }],
-        ['b.txt', { tokenCount: 200, folderId: 'root', filePath: 'b.txt' }],
+        ['a.txt', { filePath: 'a.txt', folderId: 'root', tokenCount: 100 }],
+        ['b.txt', { filePath: 'b.txt', folderId: 'root', tokenCount: 200 }],
       ]);
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(cachedEntries);
 
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey, fileBKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey, fileBKey]),
         })
       );
 
@@ -1073,8 +1073,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { rerender } = renderHook(() => {
         const result = useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: onTokenResolvedSpy,
+          selectedFiles: new Set([fileAKey]),
         });
         callbackCaptures.push(capturedOnFileIndexed);
         return result;
@@ -1101,8 +1101,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (props: { onTokenResolved: () => void }) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles: new Set([fileAKey]),
             onTokenResolved: props.onTokenResolved,
+            selectedFiles: new Set([fileAKey]),
           }),
         {
           initialProps: { onTokenResolved: onTokenResolvedSpy1 },
@@ -1134,8 +1134,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -1154,8 +1154,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey, fileBKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey, fileBKey]),
         })
       );
 
@@ -1178,8 +1178,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -1209,8 +1209,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
-          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
         })
       );
 
@@ -1236,8 +1236,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set<string>(),
@@ -1282,11 +1282,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (props: { tree: IFileNode[]; selected: Set<string> }) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: props.tree,
-            selectedFiles: props.selected,
             onTokenResolved: vi.fn(),
+            selectedFiles: props.selected,
           }),
         {
-          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+          initialProps: { selected: new Set([fileAKey]), tree: fileTreeRootA },
         }
       );
 
@@ -1296,7 +1296,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       indexFilesMock.mockClear();
 
       // Change tree to rootB
-      rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+      rerender({ selected: new Set([fileCKey]), tree: fileTreeRootB });
       flushTimers();
 
       // Map should now have 1 file (rootB has 1 file)
@@ -1311,8 +1311,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           // Start with empty selection
@@ -1349,11 +1349,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (props: { tree: IFileNode[]; selected: Set<string> }) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: props.tree,
-            selectedFiles: props.selected,
             onTokenResolved: vi.fn(),
+            selectedFiles: props.selected,
           }),
         {
-          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+          initialProps: { selected: new Set([fileAKey]), tree: fileTreeRootA },
         }
       );
 
@@ -1363,13 +1363,13 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       // Change tree while rebuild is pending - this should NOT reset the timer
       // (it should cancel and reschedule for the new tree)
       const newTree = [...fileTreeRootA];
-      rerender({ tree: newTree, selected: new Set([fileAKey]) });
+      rerender({ selected: new Set([fileAKey]), tree: newTree });
 
       // Advance partial time
       advanceTimers(200);
 
       // Change selection - should NOT reset debounce since scheduleRebuildIfNeeded is idempotent
-      rerender({ tree: newTree, selected: new Set([fileAKey, fileBKey]) });
+      rerender({ selected: new Set([fileAKey, fileBKey]), tree: newTree });
 
       // Finish the debounce
       flushTimers();
@@ -1388,8 +1388,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set<string>(),
@@ -1434,8 +1434,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: combinedTree,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set([fileAKey]), // Start with file from 'root' folder
@@ -1464,11 +1464,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (props: { tree: IFileNode[]; selected: Set<string> }) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: props.tree,
-            selectedFiles: props.selected,
             onTokenResolved: vi.fn(),
+            selectedFiles: props.selected,
           }),
         {
-          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+          initialProps: { selected: new Set([fileAKey]), tree: fileTreeRootA },
         }
       );
 
@@ -1479,7 +1479,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       preloadSpy.mockClear();
 
       // Change to different tree with different root - memo should be cleared
-      rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+      rerender({ selected: new Set([fileCKey]), tree: fileTreeRootB });
       flushTimers();
 
       expect(preloadSpy).toHaveBeenCalledTimes(1);
@@ -1487,7 +1487,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       preloadSpy.mockClear();
 
       // Change back to original tree - memo was cleared, so should preload again
-      rerender({ tree: fileTreeRootA, selected: new Set([fileAKey]) });
+      rerender({ selected: new Set([fileAKey]), tree: fileTreeRootA });
       flushTimers();
 
       expect(preloadSpy).toHaveBeenCalledTimes(1);
@@ -1505,8 +1505,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         (selectedFiles: Set<string>) =>
           useBackgroundTokenIndexerIntegration({
             fileTree: fileTreeRootA,
-            selectedFiles,
             onTokenResolved: vi.fn(),
+            selectedFiles,
           }),
         {
           initialProps: new Set<string>(),
@@ -1555,10 +1555,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
-        fileTree: [],
-        selectedFiles: new Set([deepFileKey]),
         electronFileReader,
+        fileTree: [],
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([deepFileKey]),
       })
     );
 
@@ -1608,10 +1608,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
-        fileTree: [],
-        selectedFiles: new Set([deepFileKey]),
         electronFileReader,
+        fileTree: [],
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([deepFileKey]),
       })
     );
 
@@ -1649,10 +1649,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     const { rerender } = renderHook(
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          selectedFiles,
           electronFileReader,
+          fileTree: [],
           onTokenResolved: vi.fn(),
+          selectedFiles,
         }),
       {
         initialProps: new Set([deepFileKey]),
@@ -1736,10 +1736,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
-        fileTree: [],
-        selectedFiles: new Set([deepFileKey]),
         electronFileReader,
+        fileTree: [],
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set([deepFileKey]),
       })
     );
 
@@ -1784,8 +1784,8 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: [],
-        selectedFiles: new Set(),
         onTokenResolved: vi.fn(),
+        selectedFiles: new Set(),
       })
     );
 

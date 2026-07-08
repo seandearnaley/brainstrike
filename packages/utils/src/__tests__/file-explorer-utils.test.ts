@@ -5,8 +5,8 @@ import { fileExplorer, memoizedFileExplorer } from '../file-explorer-utils';
 const buildSampleTree = () => {
   const fileA = createFileNode({ name: 'a.ts', path: '/root/a.ts' });
   const fileB = createFileNode({ name: 'b.ts', path: '/root/sub/b.ts' });
-  const subDir = createDirectoryNode({ name: 'sub', path: '/root/sub', children: [fileB] });
-  const root = createDirectoryNode({ name: 'root', path: '/root', children: [fileA, subDir] });
+  const subDir = createDirectoryNode({ children: [fileB], name: 'sub', path: '/root/sub' });
+  const root = createDirectoryNode({ children: [fileA, subDir], name: 'root', path: '/root' });
   return root;
 };
 
@@ -87,12 +87,12 @@ describe('file-explorer-utils', () => {
   it('generateFullFolderTreeText keeps root files while filtering directory children', () => {
     const readme = createFileNode({ name: 'README.md', path: '/README.md' });
     const root = createDirectoryNode({
-      name: 'root',
-      path: '/root',
       children: [
         createFileNode({ name: 'keep.ts', path: '/root/keep.ts' }),
         createFileNode({ name: 'skip.md', path: '/root/skip.md' }),
       ],
+      name: 'root',
+      path: '/root',
     });
 
     const text = fileExplorer.generateFullFolderTreeText([root, readme], ['**/*.ts'], [], false);

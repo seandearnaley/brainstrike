@@ -42,17 +42,17 @@ vi.mock('@brainstrike/ui', () => ({
 
 describe('ExportDropdown', () => {
   const mockExportHandlers = {
-    handleExportFiles: vi.fn(),
+    handleExportAll: vi.fn().mockResolvedValue(undefined),
     handleExportChunks: vi.fn(),
     handleExportEmbeddings: vi.fn(),
-    handleExportAll: vi.fn().mockResolvedValue(undefined),
+    handleExportFiles: vi.fn(),
   };
 
   const createProps = (overrides: Partial<ExportButtonsProps> = {}): ExportButtonsProps => ({
     counts: {
-      records: 0,
       chunks: 0,
       embeddings: 0,
+      records: 0,
     },
     exportHandlers: mockExportHandlers,
     ...overrides,
@@ -82,7 +82,7 @@ describe('ExportDropdown', () => {
 
   it('displays counts for each export type', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 5, chunks: 42, embeddings: 10 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 42, embeddings: 10, records: 5 } })} />
     );
     expect(screen.getByText('Files').closest('button')).toHaveTextContent('5');
     expect(screen.getByText('Chunks').closest('button')).toHaveTextContent('42');
@@ -91,7 +91,7 @@ describe('ExportDropdown', () => {
 
   it('disables Files menu item when no files exist', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 0, chunks: 5, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 5, embeddings: 0, records: 0 } })} />
     );
     const filesButton = screen.getByText('Files').closest('button');
     expect(filesButton).toBeDisabled();
@@ -99,7 +99,7 @@ describe('ExportDropdown', () => {
 
   it('disables Chunks menu item when no chunks exist', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 5, chunks: 0, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 0, embeddings: 0, records: 5 } })} />
     );
     const chunksButton = screen.getByText('Chunks').closest('button');
     expect(chunksButton).toBeDisabled();
@@ -107,7 +107,7 @@ describe('ExportDropdown', () => {
 
   it('disables Embeddings menu item when no embeddings exist', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 5, chunks: 5, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 5, embeddings: 0, records: 5 } })} />
     );
     const embeddingsButton = screen.getByText('Embeddings').closest('button');
     expect(embeddingsButton).toBeDisabled();
@@ -115,7 +115,7 @@ describe('ExportDropdown', () => {
 
   it('enables menu items when data exists', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 3, chunks: 10, embeddings: 5 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 10, embeddings: 5, records: 3 } })} />
     );
     const filesButton = screen.getByText('Files').closest('button');
     const chunksButton = screen.getByText('Chunks').closest('button');
@@ -128,7 +128,7 @@ describe('ExportDropdown', () => {
   it('calls handleExportFiles when Files is clicked', async () => {
     const user = userEvent.setup();
     render(
-      <ExportDropdown {...createProps({ counts: { records: 3, chunks: 0, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 0, embeddings: 0, records: 3 } })} />
     );
     await user.click(screen.getByText('Files'));
     expect(mockExportHandlers.handleExportFiles).toHaveBeenCalledTimes(1);
@@ -137,7 +137,7 @@ describe('ExportDropdown', () => {
   it('calls handleExportChunks when Chunks is clicked', async () => {
     const user = userEvent.setup();
     render(
-      <ExportDropdown {...createProps({ counts: { records: 0, chunks: 10, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 10, embeddings: 0, records: 0 } })} />
     );
     await user.click(screen.getByText('Chunks'));
     expect(mockExportHandlers.handleExportChunks).toHaveBeenCalledTimes(1);
@@ -146,7 +146,7 @@ describe('ExportDropdown', () => {
   it('calls handleExportEmbeddings when Embeddings is clicked', async () => {
     const user = userEvent.setup();
     render(
-      <ExportDropdown {...createProps({ counts: { records: 0, chunks: 0, embeddings: 5 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 0, embeddings: 5, records: 0 } })} />
     );
     await user.click(screen.getByText('Embeddings'));
     expect(mockExportHandlers.handleExportEmbeddings).toHaveBeenCalledTimes(1);
@@ -155,7 +155,7 @@ describe('ExportDropdown', () => {
   it('calls handleExportAll when All (ZIP) is clicked', async () => {
     const user = userEvent.setup();
     render(
-      <ExportDropdown {...createProps({ counts: { records: 5, chunks: 10, embeddings: 3 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 10, embeddings: 3, records: 5 } })} />
     );
     await user.click(screen.getByText('All (ZIP)'));
     expect(mockExportHandlers.handleExportAll).toHaveBeenCalledTimes(1);
@@ -163,7 +163,7 @@ describe('ExportDropdown', () => {
 
   it('disables the trigger button when no data exists', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 0, chunks: 0, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 0, embeddings: 0, records: 0 } })} />
     );
     const trigger = screen.getByText('Export').closest('button');
     expect(trigger).toBeDisabled();
@@ -171,7 +171,7 @@ describe('ExportDropdown', () => {
 
   it('enables the trigger button when files exist', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 0, embeddings: 0, records: 1 } })} />
     );
     const trigger = screen.getByText('Export').closest('button');
     expect(trigger).not.toBeDisabled();
@@ -179,7 +179,7 @@ describe('ExportDropdown', () => {
 
   it('enables the trigger button when chunks exist', () => {
     render(
-      <ExportDropdown {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
+      <ExportDropdown {...createProps({ counts: { chunks: 1, embeddings: 0, records: 0 } })} />
     );
     const trigger = screen.getByText('Export').closest('button');
     expect(trigger).not.toBeDisabled();

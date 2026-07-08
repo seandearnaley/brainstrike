@@ -96,7 +96,7 @@ function resolveLineRange(chunk: ContextPackerChunk): LineRange | undefined {
       `ContextPacker: invalid 1-based line range [${String(startLine)}, ${String(endLine)}] for chunk ${chunk.id}.`
     );
   }
-  return { start: startLine, end: endLine };
+  return { end: endLine, start: startLine };
 }
 
 function resolveTokenCount(
@@ -140,10 +140,10 @@ function buildPackedChunk(
   const offsets = resolveOffsets(chunk);
   const lineRange = resolveLineRange(chunk);
   const packed: PackedContextChunk = {
-    id: chunk.id,
     content: chunk.content,
-    tokenCount,
+    id: chunk.id,
     rank,
+    tokenCount,
   };
 
   if (chunk.filePath !== undefined) {
@@ -226,13 +226,13 @@ export class ContextPacker {
 
     const remainingTokens = Math.max(0, this.budgetTokens - totalTokens);
     return {
-      chunks: packed,
-      totalTokens,
       budget: this.budgetTokens,
+      chunks: packed,
       remainingTokens,
       skipped: skippedForMaxChunks + skippedForTokenBudget,
       skippedForMaxChunks,
       skippedForTokenBudget,
+      totalTokens,
     };
   }
 }

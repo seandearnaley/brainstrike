@@ -31,7 +31,7 @@ async function activateAppearanceThemeButton(
   label: 'Dark' | 'Light' | 'System'
 ): Promise<void> {
   const appearanceSection = await waitForAppearanceSection(page);
-  const themeButton = appearanceSection.getByRole('button', { name: label, exact: true });
+  const themeButton = appearanceSection.getByRole('button', { exact: true, name: label });
   await expect(themeButton).toBeVisible();
   await themeButton.dispatchEvent('click');
 }
@@ -56,13 +56,13 @@ test.describe('Theme Switching', () => {
     const appearanceSection = await waitForAppearanceSection(page);
     await expect(page.getByText('Theme', { exact: true })).toBeVisible();
     await expect(
-      appearanceSection.getByRole('button', { name: 'Light', exact: true })
+      appearanceSection.getByRole('button', { exact: true, name: 'Light' })
     ).toBeVisible();
     await expect(
-      appearanceSection.getByRole('button', { name: 'Dark', exact: true })
+      appearanceSection.getByRole('button', { exact: true, name: 'Dark' })
     ).toBeVisible();
     await expect(
-      appearanceSection.getByRole('button', { name: 'System', exact: true })
+      appearanceSection.getByRole('button', { exact: true, name: 'System' })
     ).toBeVisible();
 
     // Test switching to Dark theme
@@ -156,7 +156,7 @@ test.describe('Theme Switching', () => {
 
     // The system button should still be available and clickable
     await expect(
-      (await waitForAppearanceSection(page)).getByRole('button', { name: 'System', exact: true })
+      (await waitForAppearanceSection(page)).getByRole('button', { exact: true, name: 'System' })
     ).toBeVisible();
   });
 

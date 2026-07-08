@@ -11,10 +11,10 @@ import {
 const createFileNode = (
   overrides: Partial<IFileNode> & { name: string; path: string; rootFolderId: string }
 ): IFileNode => ({
-  type: 'file',
-  handle: {} as FileSystemFileHandle,
   depth: 0,
+  handle: {} as FileSystemFileHandle,
   selectionState: 'unchecked',
+  type: 'file',
   ...overrides,
 });
 
@@ -26,10 +26,10 @@ const createDirNode = (
     children?: IFileNode[];
   }
 ): IFileNode => ({
-  type: 'directory',
-  handle: {} as FileSystemDirectoryHandle,
   depth: 0,
+  handle: {} as FileSystemDirectoryHandle,
   selectionState: 'unchecked',
+  type: 'directory',
   ...overrides,
 });
 
@@ -51,15 +51,9 @@ describe('buildFileNodeCache', () => {
   it('builds cache from nested file tree', () => {
     const tree: IFileNode[] = [
       createDirNode({
-        name: 'src',
-        path: 'src',
-        rootFolderId: 'project',
         children: [
           createFileNode({ name: 'index.ts', path: 'src/index.ts', rootFolderId: 'project' }),
           createDirNode({
-            name: 'components',
-            path: 'src/components',
-            rootFolderId: 'project',
             children: [
               createFileNode({
                 name: 'Button.tsx',
@@ -67,8 +61,14 @@ describe('buildFileNodeCache', () => {
                 rootFolderId: 'project',
               }),
             ],
+            name: 'components',
+            path: 'src/components',
+            rootFolderId: 'project',
           }),
         ],
+        name: 'src',
+        path: 'src',
+        rootFolderId: 'project',
       }),
     ];
 
@@ -101,19 +101,10 @@ describe('buildFileNodeCache', () => {
   it('recursively processes deeply nested trees', () => {
     const tree: IFileNode[] = [
       createDirNode({
-        name: 'a',
-        path: 'a',
-        rootFolderId: 'root',
         children: [
           createDirNode({
-            name: 'b',
-            path: 'a/b',
-            rootFolderId: 'root',
             children: [
               createDirNode({
-                name: 'c',
-                path: 'a/b/c',
-                rootFolderId: 'root',
                 children: [
                   createFileNode({
                     name: 'deep.ts',
@@ -121,10 +112,19 @@ describe('buildFileNodeCache', () => {
                     rootFolderId: 'root',
                   }),
                 ],
+                name: 'c',
+                path: 'a/b/c',
+                rootFolderId: 'root',
               }),
             ],
+            name: 'b',
+            path: 'a/b',
+            rootFolderId: 'root',
           }),
         ],
+        name: 'a',
+        path: 'a',
+        rootFolderId: 'root',
       }),
     ];
 

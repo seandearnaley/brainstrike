@@ -33,9 +33,9 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('uses "job-queue" adapter for all events', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
 
       expect(events.length).toBeGreaterThan(0);
@@ -47,19 +47,19 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits enqueue event when job is created', async () => {
       const queue = new JobQueue(db);
       const job = await queue.enqueue({
-        queue: 'embeddings',
+        dedupeKey: 'test-key',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
-        dedupeKey: 'test-key',
+        queue: 'embeddings',
       });
 
       const enqueueEvent = events.find((e) => e.event === 'enqueue');
       expect(enqueueEvent).toBeDefined();
       expect(enqueueEvent?.taskId).toBe(job.id);
       expect(enqueueEvent?.metadata).toMatchObject({
-        queue: 'embeddings',
-        jobType: 'embed_chunk',
         dedupeKey: 'test-key',
+        jobType: 'embed_chunk',
+        queue: 'embeddings',
       });
     });
 
@@ -68,10 +68,10 @@ describe('JobQueue telemetry (BST-163)', () => {
 
       // First enqueue
       await queue.enqueue({
-        queue: 'embeddings',
+        dedupeKey: 'same-key',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
-        dedupeKey: 'same-key',
+        queue: 'embeddings',
       });
 
       const firstEnqueueCount = events.filter((e) => e.event === 'enqueue').length;
@@ -79,10 +79,10 @@ describe('JobQueue telemetry (BST-163)', () => {
 
       // Second enqueue with same dedupe key
       await queue.enqueue({
-        queue: 'embeddings',
+        dedupeKey: 'same-key',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
-        dedupeKey: 'same-key',
+        queue: 'embeddings',
       });
 
       const secondEnqueueCount = events.filter((e) => e.event === 'enqueue').length;
@@ -94,43 +94,43 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits start event when job is claimed', async () => {
       const queue = new JobQueue(db);
       const job = await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
 
       events = []; // Clear enqueue events
 
-      await queue.claim({ queue: 'embeddings', leaseMs: 5000, workerId: 'worker-1' });
+      await queue.claim({ leaseMs: 5000, queue: 'embeddings', workerId: 'worker-1' });
 
       const startEvent = events.find((e) => e.event === 'start');
       expect(startEvent).toBeDefined();
       expect(startEvent?.taskId).toBe(job.id);
       expect(startEvent?.metadata).toMatchObject({
-        queue: 'embeddings',
-        jobType: 'embed_chunk',
         attempt: 1,
-        workerId: 'worker-1',
+        jobType: 'embed_chunk',
         leaseMs: 5000,
+        queue: 'embeddings',
+        workerId: 'worker-1',
       });
     });
 
     it('emits start event for each job in claimMany', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c2' },
+        queue: 'embeddings',
       });
 
       events = []; // Clear enqueue events
 
-      const claimed = await queue.claimMany({ queue: 'embeddings', leaseMs: 5000, limit: 2 });
+      const claimed = await queue.claimMany({ leaseMs: 5000, limit: 2, queue: 'embeddings' });
 
       const startEvents = events.filter((e) => e.event === 'start');
       expect(startEvents.length).toBe(claimed.length);
@@ -142,11 +142,11 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits complete event with elapsed time', async () => {
       const queue = new JobQueue(db);
       const job = await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
-      const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
 
       events = []; // Clear previous events
 
@@ -161,8 +161,8 @@ describe('JobQueue telemetry (BST-163)', () => {
       expect(completeEvent?.elapsedMs).toBeDefined();
       expect(typeof completeEvent?.elapsedMs).toBe('number');
       expect(completeEvent?.metadata).toMatchObject({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
+        queue: 'embeddings',
       });
     });
   });
@@ -171,18 +171,18 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits error event with retry info for retriable failure', async () => {
       const queue = new JobQueue(db, { maxAttempts: 3 });
       const job = await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
-      const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
 
       events = []; // Clear previous events
 
       await queue.fail({
+        error: 'Test error message',
         id: claimed?.id ?? '',
         leaseToken: claimed?.lease_token ?? '',
-        error: 'Test error message',
       });
 
       const errorEvent = events.find((e) => e.event === 'error');
@@ -190,9 +190,9 @@ describe('JobQueue telemetry (BST-163)', () => {
       expect(errorEvent?.taskId).toBe(job.id);
       expect(errorEvent?.errorMessage).toBe('Test error message');
       expect(errorEvent?.metadata).toMatchObject({
-        queue: 'embeddings',
-        jobType: 'embed_chunk',
         attempts: 1,
+        jobType: 'embed_chunk',
+        queue: 'embeddings',
       });
       expect(errorEvent?.metadata?.retryAt).toBeDefined(); // Retry scheduled
     });
@@ -200,18 +200,18 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits error event with terminal flag for permanent failure', async () => {
       const queue = new JobQueue(db, { maxAttempts: 1 });
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
-      const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
 
       events = []; // Clear previous events
 
       await queue.fail({
+        error: 'Terminal failure',
         id: claimed?.id ?? '',
         leaseToken: claimed?.lease_token ?? '',
-        error: 'Terminal failure',
         terminal: true,
       });
 
@@ -226,9 +226,9 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits cancel event when job is canceled', async () => {
       const queue = new JobQueue(db);
       const job = await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
 
       events = []; // Clear enqueue event
@@ -239,8 +239,8 @@ describe('JobQueue telemetry (BST-163)', () => {
       expect(cancelEvent).toBeDefined();
       expect(cancelEvent?.taskId).toBe(job.id);
       expect(cancelEvent?.metadata).toMatchObject({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
+        queue: 'embeddings',
         reason: 'User requested cancellation',
       });
     });
@@ -248,14 +248,14 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('emits cancel events for all jobs in cancelMany', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c2' },
+        queue: 'embeddings',
       });
 
       events = []; // Clear enqueue events
@@ -284,11 +284,11 @@ describe('JobQueue telemetry (BST-163)', () => {
     it('events can be consumed by telemetry aggregator', async () => {
       const queue = new JobQueue(db);
       await queue.enqueue({
-        queue: 'embeddings',
         jobType: 'embed_chunk',
         payload: { chunkId: 'c1' },
+        queue: 'embeddings',
       });
-      const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+      const claimed = await queue.claim({ leaseMs: 5000, queue: 'embeddings' });
       await queue.complete({
         id: claimed?.id ?? '',
         leaseToken: claimed?.lease_token ?? '',

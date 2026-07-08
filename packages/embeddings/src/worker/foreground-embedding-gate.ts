@@ -18,10 +18,10 @@ interface ForegroundGateWaiter {
 }
 
 export interface ForegroundEmbeddingGate {
-  begin(): void;
-  end(): void;
-  isActive(): boolean;
-  waitUntilInactive(options?: { signal?: AbortSignal }): Promise<void>;
+  begin: () => void;
+  end: () => void;
+  isActive: () => boolean;
+  waitUntilInactive: (options?: { signal?: AbortSignal }) => Promise<void>;
 }
 
 export interface ForegroundEmbeddingGateOptions {
@@ -97,11 +97,11 @@ export function createForegroundEmbeddingGate(
           reject(new Error('Foreground embedding gate wait aborted'));
         };
         const waiter: ForegroundGateWaiter = {
-          resolve,
-          reject,
           cleanup: () => {
             signal?.removeEventListener('abort', onAbort);
           },
+          reject,
+          resolve,
         };
         waiters.add(waiter);
         signal?.addEventListener('abort', onAbort, { once: true });

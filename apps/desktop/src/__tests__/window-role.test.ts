@@ -23,11 +23,11 @@ function createFakeWindow(webContentsId: number): {
   let closedListener: (() => void) | null = null;
   const window: FakeWindow = {
     isDestroyed: () => false,
-    onceCallCount: 0,
     once: (_event: 'closed', listener: () => void) => {
       window.onceCallCount += 1;
       closedListener = listener;
     },
+    onceCallCount: 0,
     webContents: {
       id: webContentsId,
     },

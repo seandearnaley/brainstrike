@@ -38,13 +38,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   const actual = await importActual<typeof import('../providers/provider-factory')>();
   return {
     ...actual,
-    getDefaultModel: () => 'fake-model',
     createProvider: () => {
       if (!modelHolder.current) {
         throw new Error('test fake model was not configured');
       }
       return modelHolder.current;
     },
+    getDefaultModel: () => 'fake-model',
   };
 });
 
@@ -87,10 +87,6 @@ function createScriptedToolCallModel(args: {
   finalText: string;
 }): LanguageModelV2 {
   return {
-    specificationVersion: 'v2',
-    provider: 'fake',
-    modelId: 'fake-model',
-    supportedUrls: {},
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
       const promptHasToolResult =
@@ -100,10 +96,10 @@ function createScriptedToolCallModel(args: {
         return Promise.resolve({
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
-            { type: 'text-start', id },
-            { type: 'text-delta', id, delta: args.finalText },
-            { type: 'text-end', id },
-            { type: 'finish', finishReason: 'stop', usage: USAGE },
+            { id, type: 'text-start' },
+            { delta: args.finalText, id, type: 'text-delta' },
+            { id, type: 'text-end' },
+            { finishReason: 'stop', type: 'finish', usage: USAGE },
           ]),
         });
       }
@@ -111,15 +107,19 @@ function createScriptedToolCallModel(args: {
         stream: enqueue([
           { type: 'stream-start', warnings: [] },
           {
-            type: 'tool-call',
+            input: args.input,
             toolCallId: args.toolCallId,
             toolName: args.toolName,
-            input: args.input,
+            type: 'tool-call',
           },
-          { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+          { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
         ]),
       });
     },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
   };
 }
 
@@ -132,25 +132,25 @@ function makeNativeTools(executors: {
   const outputSchema = z.object({ ok: z.boolean() });
   return {
     [EDIT_TOOL_A]: createTool({
-      id: EDIT_TOOL_A,
       description: 'Edit-risk workspace mutator A.',
+      execute: executors.editA,
+      id: EDIT_TOOL_A,
       inputSchema,
       outputSchema,
-      execute: executors.editA,
     }),
     [EDIT_TOOL_B]: createTool({
-      id: EDIT_TOOL_B,
       description: 'Edit-risk workspace mutator B.',
+      execute: executors.editB,
+      id: EDIT_TOOL_B,
       inputSchema,
       outputSchema,
-      execute: executors.editB,
     }),
     [READ_TOOL]: createTool({
-      id: READ_TOOL,
       description: 'Read-risk workspace reader.',
+      execute: executors.read,
+      id: READ_TOOL,
       inputSchema,
       outputSchema,
-      execute: executors.read,
     }),
   };
 }
@@ -164,12 +164,12 @@ describe('resolveRequestPermissionPolicy', () => {
     expect(
       resolveRequestPermissionPolicy({
         enforce: false,
-        policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+        policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
       })
     ).toBeUndefined();
     expect(
       resolveRequestPermissionPolicy({
-        policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+        policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
       } as AssistantPermissionPolicyRequest)
     ).toBeUndefined();
   });
@@ -177,10 +177,10 @@ describe('resolveRequestPermissionPolicy', () => {
   it('builds a trusted snapshot with server-owned riskByTool + defaultRisk when enforce is true', () => {
     const snapshot = resolveRequestPermissionPolicy({
       enforce: true,
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
-      yolo: false,
-      sessionGrants: ['execute'],
       perToolOverrides: { 'brainstrike.tool': 'allow' },
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      sessionGrants: ['execute'],
+      yolo: false,
     });
 
     expect(snapshot).toBeDefined();
@@ -189,10 +189,10 @@ describe('resolveRequestPermissionPolicy', () => {
     }
     // Policy posture carried through verbatim...
     expect(snapshot.policies).toEqual({
-      read: 'allow',
       edit: 'deny',
       execute: 'ask',
       mcp: 'allow',
+      read: 'allow',
     });
     expect(snapshot.yolo).toBe(false);
     expect(snapshot.sessionGrants).toEqual(['execute']);
@@ -209,7 +209,7 @@ describe('resolveRequestPermissionPolicy', () => {
   it('omits sessionGrants / perToolOverrides keys when not provided', () => {
     const snapshot = resolveRequestPermissionPolicy({
       enforce: true,
-      policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' },
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
     });
     if (!snapshot) {
       expect.unreachable('snapshot must be defined when enforce is true');
@@ -226,17 +226,17 @@ describe('runtime gate fed by resolveRequestPermissionPolicy (real Mastra loop)'
     tools: Record<string, ReturnType<typeof createTool>>;
   }): Promise<StreamChunk[]> {
     modelHolder.current = createScriptedToolCallModel({
-      toolName: sanitizedName(args.toolName),
-      toolCallId: `call-${sanitizedName(args.toolName)}`,
-      input: JSON.stringify({ value: 'x' }),
       finalText: 'done',
+      input: JSON.stringify({ value: 'x' }),
+      toolCallId: `call-${sanitizedName(args.toolName)}`,
+      toolName: sanitizedName(args.toolName),
     });
     const iterator = await streamMastraAgent(
-      [{ id: 'u-1', role: 'user', parts: [{ type: 'text', text: 'go' }] }],
+      [{ id: 'u-1', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
       {
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          provider: 'openai',
           ...(args.permissionPolicy ? { permissionPolicy: args.permissionPolicy } : {}),
         },
         tools: args.tools,
@@ -256,7 +256,7 @@ describe('runtime gate fed by resolveRequestPermissionPolicy (real Mastra loop)'
 
     const permissionPolicy = resolveRequestPermissionPolicy({
       enforce: true,
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
       yolo: false,
     });
     expect(permissionPolicy).toBeDefined();
@@ -307,7 +307,7 @@ describe('runtime gate fed by resolveRequestPermissionPolicy (real Mastra loop)'
     // enforce:false → resolver returns undefined → runtime gets NO policy.
     const permissionPolicy = resolveRequestPermissionPolicy({
       enforce: false,
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
     });
     expect(permissionPolicy).toBeUndefined();
 

@@ -22,7 +22,19 @@ test.describe('Real-World Performance Validation', () => {
       // Track render frequency to detect re-render storms
       (window as any).__renderTracker = {
         count: 0,
+
+        getStats: () => ({
+          recentRenderStorm: (window as any).__renderTracker.renderTimes.filter(
+            (time: number) => Date.now() - time < 1000 // last second
+          ).length,
+          totalRenders: renderCount,
+        }),
         renderTimes: [],
+
+        reset: () => {
+          renderCount = 0;
+          (window as any).__renderTracker.renderTimes = [];
+        },
 
         trackRender: () => {
           const now = Date.now();
@@ -38,18 +50,6 @@ test.describe('Real-World Performance Validation', () => {
           if (recentRenders.length > 10) {
             console.warn('🚨 Detected render storm - possible missing shallow comparison');
           }
-        },
-
-        getStats: () => ({
-          totalRenders: renderCount,
-          recentRenderStorm: (window as any).__renderTracker.renderTimes.filter(
-            (time: number) => Date.now() - time < 1000 // last second
-          ).length,
-        }),
-
-        reset: () => {
-          renderCount = 0;
-          (window as any).__renderTracker.renderTimes = [];
         },
       };
 
@@ -89,7 +89,7 @@ test.describe('Real-World Performance Validation', () => {
       // Check for render storm
       const renderStats = await page.evaluate(
         () =>
-          (window as any).__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
+          (window as any).__renderTracker?.getStats() || { recentRenderStorm: 0, totalRenders: 0 }
       );
 
       const actionTime = performance.now() - startTime;
@@ -127,7 +127,7 @@ test.describe('Real-World Performance Validation', () => {
       const interactionTime = performance.now() - startTime;
       const renderStats = await page.evaluate(
         () =>
-          (window as any).__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
+          (window as any).__renderTracker?.getStats() || { recentRenderStorm: 0, totalRenders: 0 }
       );
 
       console.log(`⏱️  UI interactions completed in: ${interactionTime.toFixed(2)}ms`);
@@ -150,11 +150,11 @@ test.describe('Real-World Performance Validation', () => {
       await page.evaluate(() => {
         const memory = (performance as any).memory;
         if (!memory) {
-          return { used: 0, total: 0, usedMB: 0 };
+          return { total: 0, used: 0, usedMB: 0 };
         }
         return {
-          used: memory.usedJSHeapSize,
           total: memory.totalJSHeapSize,
+          used: memory.usedJSHeapSize,
           usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
         };
       });
@@ -260,14 +260,14 @@ test.describe('Real-World Performance Validation', () => {
     // Identify the largest one-time growth (e.g., first-time lazy import) and treat the
     // reading after it as the effective baseline for leak detection. This focuses the
     // assertion on sustained growth across interactions, not module initialization.
-    let largestJump = { size: 0, indexAfter: 0 };
+    let largestJump = { indexAfter: 0, size: 0 };
     for (let i = 1; i < memoryReadings.length; i++) {
       const curr = memoryReadings[i];
       const prev = memoryReadings[i - 1];
       if (curr && prev) {
         const delta = curr.used - prev.used;
         if (delta > largestJump.size) {
-          largestJump = { size: delta, indexAfter: i };
+          largestJump = { indexAfter: i, size: delta };
         }
       }
     }
@@ -427,17 +427,17 @@ test.describe('Real-World Performance Validation', () => {
 
     // Save performance results for tracking
     const performanceResults = {
-      timestamp: new Date().toISOString(),
-      pageLoadTime,
       avgInteractionTime,
-      maxInteractionTime,
-      interactionCount: interactionTimes.length,
       improvements: [
         'Shallow comparison fix implemented',
         'LRU cache for file contents implemented',
         'File size validation implemented',
         'Store subscription optimizations implemented',
       ],
+      interactionCount: interactionTimes.length,
+      maxInteractionTime,
+      pageLoadTime,
+      timestamp: new Date().toISOString(),
     };
 
     await page.evaluate((results) => {
@@ -467,19 +467,6 @@ test.describe('Real-World Performance Validation', () => {
       };
 
       return {
-        // Navigation timing with safe calculations
-        pageLoad: nav ? safeCalculation(nav.loadEventEnd, nav.fetchStart) : 0,
-        domContentLoaded: nav ? safeCalculation(nav.domContentLoadedEventEnd, nav.fetchStart) : 0,
-        firstPaint: nav ? safeCalculation(nav.responseStart, nav.fetchStart) : 0,
-
-        // Memory usage
-        memoryUsed: memory ? Math.round(memory.usedJSHeapSize / 1024 / 1024) : 0,
-        memoryTotal: memory ? Math.round(memory.totalJSHeapSize / 1024 / 1024) : 0,
-        memoryLimit: memory ? Math.round(memory.jsHeapSizeLimit / 1024 / 1024) : 0,
-
-        // Timestamp
-        timestamp: new Date().toISOString(),
-
         // Applied fixes
         appliedFixes: [
           'shallow_comparison_fix',
@@ -487,6 +474,18 @@ test.describe('Real-World Performance Validation', () => {
           'file_size_validation',
           'store_subscription_optimization',
         ],
+        domContentLoaded: nav ? safeCalculation(nav.domContentLoadedEventEnd, nav.fetchStart) : 0,
+        firstPaint: nav ? safeCalculation(nav.responseStart, nav.fetchStart) : 0,
+        memoryLimit: memory ? Math.round(memory.jsHeapSizeLimit / 1024 / 1024) : 0,
+        memoryTotal: memory ? Math.round(memory.totalJSHeapSize / 1024 / 1024) : 0,
+
+        // Memory usage
+        memoryUsed: memory ? Math.round(memory.usedJSHeapSize / 1024 / 1024) : 0,
+        // Navigation timing with safe calculations
+        pageLoad: nav ? safeCalculation(nav.loadEventEnd, nav.fetchStart) : 0,
+
+        // Timestamp
+        timestamp: new Date().toISOString(),
       };
     });
 

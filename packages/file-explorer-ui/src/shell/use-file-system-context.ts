@@ -49,30 +49,30 @@ function hasPersistApi(
 
 // Error message mappings for consistent user experience
 const ERROR_MESSAGES = {
-  permissionDenied:
-    'Permission denied: Unable to access the selected directory. Please check folder permissions and try again.',
   dialogFailed: 'Could not open the folder selection dialog. Please try again.',
-  directoryReadFailed:
-    'Cannot read the selected directory. Please ensure you have proper access permissions.',
   directoryAccessFailed:
     'Cannot access the selected directory. Please ensure you have proper access permissions.',
+  directoryReadFailed:
+    'Cannot read the selected directory. Please ensure you have proper access permissions.',
   genericError: 'An unexpected error occurred while selecting the directory.',
+  permissionDenied:
+    'Permission denied: Unable to access the selected directory. Please check folder permissions and try again.',
 } as const satisfies Record<string, string>;
 
 // Error mapping configuration
 const ERROR_PATTERNS = [
-  { pattern: /Permission denied/i, message: ERROR_MESSAGES.permissionDenied },
+  { message: ERROR_MESSAGES.permissionDenied, pattern: /Permission denied/i },
   {
-    pattern: /Unable to open directory selection dialog|Failed to open directory dialog/i,
     message: ERROR_MESSAGES.dialogFailed,
+    pattern: /Unable to open directory selection dialog|Failed to open directory dialog/i,
   },
   {
-    pattern: /Unable to read the selected directory/i,
     message: ERROR_MESSAGES.directoryReadFailed,
+    pattern: /Unable to read the selected directory/i,
   },
   {
-    pattern: /Cannot access selected directory/i,
     message: ERROR_MESSAGES.directoryAccessFailed,
+    pattern: /Cannot access selected directory/i,
   },
 ] as const satisfies ReadonlyArray<{ pattern: RegExp; message: string }>;
 
@@ -209,13 +209,13 @@ export function useFileSystemInstance() {
   );
 
   const coreApi = useCoreFileSystem({
-    setCurrentFolderId,
-    waitForHydration,
-    getPersistedCurrentFolderId,
     addActiveRoot,
+    getFolderAccessOrder,
+    getPersistedCurrentFolderId,
     removeActiveRoot,
     setActiveRoots,
-    getFolderAccessOrder,
+    setCurrentFolderId,
+    waitForHydration,
   });
 
   const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
@@ -369,10 +369,10 @@ export function useFileSystemInstance() {
   const watcherRoots = useMemo(
     () =>
       coreApi.rootDirectoryHandles.map((handle) => ({
+        handle,
         // Prefer the stamped handle.rootId — the path→id map collides for
         // same-named web roots.
         rootId: handle.rootId ?? coreApi.rootIdByPath.get(handle.path) ?? handle.path,
-        handle,
       })),
     [coreApi.rootDirectoryHandles, coreApi.rootIdByPath]
   );
@@ -442,9 +442,9 @@ export function useFileSystemInstance() {
         pendingRoot.changes.push(...changes);
       } else {
         pendingRoots.set(rootId, {
+          changes: [...changes],
           rootId,
           rootPath: watcherRoot.rootPath,
-          changes: [...changes],
         });
       }
 
@@ -455,9 +455,9 @@ export function useFileSystemInstance() {
         refreshTimerRef.current = null;
         prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
         const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
+          changes: root.changes,
           rootId: root.rootId,
           rootPath: root.rootPath,
-          changes: root.changes,
         }));
         pendingRefreshRootsRef.current.clear();
         if (roots.length === 0) {
@@ -465,9 +465,9 @@ export function useFileSystemInstance() {
         }
         window.dispatchEvent(
           createFileExplorerRefreshEvent({
-            source: 'watcher',
-            scope: 'incremental',
             roots,
+            scope: 'incremental',
+            source: 'watcher',
           })
         );
       }, 300);
@@ -490,8 +490,8 @@ export function useFileSystemInstance() {
 
   useFileSystemWatcher({
     adapter: fileSystemAdapter,
-    roots: watcherRoots,
     onChanges: handleWatcherChanges,
+    roots: watcherRoots,
   });
 
   // Memoize the return object with stable primitive/reference dependencies only
@@ -499,28 +499,28 @@ export function useFileSystemInstance() {
   // the actual data values change
   return useMemo(
     () => ({
-      rootDirectoryHandle: coreApi.rootDirectoryHandle,
-      /** All active root handles (multi-root, Phase 4+). */
-      rootDirectoryHandles: coreApi.rootDirectoryHandles,
-      isAccessLoading: coreApi.isAccessLoading,
-      selectRootDirectory,
-      isFileSystemAccessSupported,
-      clearRootDirectory,
-      setRootDirectoryHandle: setRootHandle,
-      setAccessLoading: coreApi.setAccessLoading,
       /** Add an additional root directory (multi-root, Phase 4+). */
       addRootDirectory: coreApi.addRootDirectory,
+      clearRootDirectory,
+      isAccessLoading: coreApi.isAccessLoading,
+      isFileSystemAccessSupported,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
       removeRootDirectory,
-      /** Switch focused root to the given path (multi-root, Phase 4+). */
-      setFocusedRoot: coreApi.setFocusedRoot,
+      rootDirectoryHandle: coreApi.rootDirectoryHandle,
+      /** All active root handles (multi-root, Phase 4+). */
+      rootDirectoryHandles: coreApi.rootDirectoryHandles,
       /**
        * Maps handle.path → RootId UUID (storage v5).
        * Consumers use this to resolve the durable identity for a given handle path.
        */
       rootIdByPath: coreApi.rootIdByPath,
+      selectRootDirectory,
+      setAccessLoading: coreApi.setAccessLoading,
+      /** Switch focused root to the given path (multi-root, Phase 4+). */
+      setFocusedRoot: coreApi.setFocusedRoot,
+      setRootDirectoryHandle: setRootHandle,
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope

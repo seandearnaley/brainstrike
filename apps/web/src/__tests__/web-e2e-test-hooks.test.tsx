@@ -74,9 +74,9 @@ describe('WebE2ETestHooks', () => {
         rows: [
           {
             id: 'thread-1',
+            metadata: { color: 'rose', icon: 'bug' },
             resourceId: 'workspace-a',
             title: 'Debug reload',
-            metadata: { icon: 'bug', color: 'rose' },
           },
         ],
       })
@@ -98,9 +98,9 @@ describe('WebE2ETestHooks', () => {
     await expect(window.__brainstrikeWebE2ETestHooks__?.readAssistantThreads()).resolves.toEqual([
       {
         id: 'thread-1',
+        metadata: { color: 'rose', icon: 'bug' },
         resourceId: 'workspace-a',
         title: 'Debug reload',
-        metadata: { icon: 'bug', color: 'rose' },
       },
     ]);
     await expect(window.__brainstrikeWebE2ETestHooks__?.readModelEnabled('model-1')).resolves.toBe(

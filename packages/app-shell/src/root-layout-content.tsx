@@ -158,9 +158,9 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
-  '/settings': 'settings',
-  '/prompts': 'prompts',
   '/git': 'git',
+  '/prompts': 'prompts',
+  '/settings': 'settings',
   '/terminal': 'terminal',
 };
 
@@ -211,10 +211,10 @@ function useDebouncedPanelLayoutChange(options: {
       }
       setStateRef.current({
         ...currentPanelState,
-        sizes: nextSizes,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
+        sizes: nextSizes,
       });
       return;
     }
@@ -226,21 +226,21 @@ function useDebouncedPanelLayoutChange(options: {
       sizeDebounceRef.current = null;
       setStateRef.current({
         ...currentPanelState,
-        sizes: nextSizes,
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
+        sizes: nextSizes,
       });
     }, 150);
   }, []);
 }
 
 const EXPLORER_RIGHT_PANEL_CHROME = {
-  title: 'Explorer',
-  showButtonLabel: 'Show explorer panel',
-  showButtonTestId: 'show-explorer-panel',
   hideButtonLabel: 'Hide explorer panel',
   hideButtonTestId: 'hide-explorer-panel',
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  title: 'Explorer',
 } as const;
 
 function ContextExplorerSurface({
@@ -253,10 +253,10 @@ function ContextExplorerSurface({
   const setState = useContextExplorerLayoutStore((state) => state.setState);
   const panelState = useContextExplorerLayoutStore(
     (state) => ({
-      sizes: state.sizes,
       showConsole: state.showConsole,
       showLeftPanel: state.showLeftPanel,
       showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
     }),
     shallow
   );
@@ -377,10 +377,10 @@ export function RootLayoutContent({
   );
   const panelState = usePanelLayoutStore(
     (state) => ({
-      sizes: state.sizes,
       showConsole: state.showConsole,
       showLeftPanel: state.showLeftPanel,
       showRightPanel: state.showRightPanel,
+      sizes: state.sizes,
     }),
     shallow
   );

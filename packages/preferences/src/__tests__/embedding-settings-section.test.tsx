@@ -30,68 +30,68 @@ const { mockUseLocalRuntimeEmbeddingModelCatalog, runtimeCatalogWithOllamaEmbedd
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     } = {
-      ollama: {
-        state: 'loaded_non_empty',
-        runtime: 'ollama',
-        checkedAt: 120,
-        availability: {
-          state: 'available',
-          checkedAt: 120,
-          endpoint: 'http://127.0.0.1:11434/v1/models',
-          latencyMs: 6,
-        },
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
-        freshness: 'live',
-        models: [
-          {
-            runtime: 'ollama',
-            providerId: 'ollama',
-            modelId: 'nomic-embed-text',
-            modelKey: 'ollama::nomic-embed-text',
-            displayName: 'Nomic Embed Text',
-            endpoint: 'http://127.0.0.1:11434/v1/models',
-            source: 'openai_v1_models',
-            freshness: 'live',
-            capabilities: {
-              llm: false,
-              embeddings: 'supported',
-            },
-            capabilitySource: 'inferred',
-            dimensionsKnown: {
-              state: 'known',
-              values: [768],
-              verifiedAt: 120,
-              endpoint: 'http://127.0.0.1:11434/v1/embeddings',
-            },
-          },
-        ],
-      },
       lmstudio: {
-        state: 'loaded_empty',
-        runtime: 'lmstudio',
-        checkedAt: 120,
         availability: {
-          state: 'available',
           checkedAt: 120,
           endpoint: 'http://localhost:1234/v1/models',
           latencyMs: 8,
+          state: 'available',
         },
+        checkedAt: 120,
         endpoint: 'http://localhost:1234/v1/models',
-        source: 'openai_v1_models',
         freshness: 'live',
         models: [],
+        runtime: 'lmstudio',
+        source: 'openai_v1_models',
+        state: 'loaded_empty',
+      },
+      ollama: {
+        availability: {
+          checkedAt: 120,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 6,
+          state: 'available',
+        },
+        checkedAt: 120,
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        freshness: 'live',
+        models: [
+          {
+            capabilities: {
+              embeddings: 'supported',
+              llm: false,
+            },
+            capabilitySource: 'inferred',
+            dimensionsKnown: {
+              endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+              state: 'known',
+              values: [768],
+              verifiedAt: 120,
+            },
+            displayName: 'Nomic Embed Text',
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            freshness: 'live',
+            modelId: 'nomic-embed-text',
+            modelKey: 'ollama::nomic-embed-text',
+            providerId: 'ollama',
+            runtime: 'ollama',
+            source: 'openai_v1_models',
+          },
+        ],
+        runtime: 'ollama',
+        source: 'openai_v1_models',
+        state: 'loaded_non_empty',
       },
     };
 
     return {
-      runtimeCatalogWithOllamaEmbedding: runtimeCatalog,
       mockUseLocalRuntimeEmbeddingModelCatalog: vi.fn<() => RuntimeCatalogHookResult>(() => ({
         catalog: null,
-        isLoading: false,
         error: null,
+        isLoading: false,
         refresh: vi.fn().mockResolvedValue(undefined),
       })),
+      runtimeCatalogWithOllamaEmbedding: runtimeCatalog,
     };
   }
 );
@@ -109,17 +109,17 @@ beforeAll(() => {
   elementPrototype.scrollIntoView = () => {};
   if (typeof window.matchMedia !== 'function') {
     Object.defineProperty(window, 'matchMedia', {
-      writable: true,
       value: () => ({
+        addEventListener: () => {},
+        addListener: () => {},
+        dispatchEvent: () => false,
         matches: false,
         media: '',
         onchange: null,
-        addListener: () => {},
-        removeListener: () => {},
-        addEventListener: () => {},
         removeEventListener: () => {},
-        dispatchEvent: () => false,
+        removeListener: () => {},
       }),
+      writable: true,
     });
   }
 });
@@ -130,37 +130,37 @@ describe('EmbeddingSettings', () => {
     __resetModelRegistryStoreForTests();
     mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
       catalog: null,
-      isLoading: false,
       error: null,
+      isLoading: false,
       refresh: vi.fn().mockResolvedValue(undefined),
     });
     const provider: DbProvider = {
-      id: 'transformers',
-      name: 'Local Models',
       icon: null,
+      id: 'transformers',
       isEnabled: true,
+      name: 'Local Models',
       sortOrder: 0,
     };
     const model: DbModel = {
-      id: 'jinaai/jina-embeddings-v2-base-code',
-      providerId: 'transformers',
-      name: 'Jina Code',
-      description: 'Code-aware embeddings',
-      tagline: null,
       bestFor: ['code'],
+      capabilities: { defaultDimension: 768, type: 'embedding' },
+      description: 'Code-aware embeddings',
       icon: null,
+      id: 'jinaai/jina-embeddings-v2-base-code',
       isEnabled: true,
-      capabilities: { type: 'embedding', defaultDimension: 768 },
+      name: 'Jina Code',
       parameters: { size: '~300MB' },
+      providerId: 'transformers',
       sortOrder: 0,
+      tagline: null,
     };
 
     useModelRegistryStore.setState({
-      providers: [provider],
-      models: [model],
-      isLoading: false,
       error: null,
       hasLoaded: true,
+      isLoading: false,
+      models: [model],
+      providers: [provider],
     });
   });
 
@@ -229,8 +229,8 @@ describe('EmbeddingSettings', () => {
   it('renders discovered Ollama embedding models from runtime catalog', () => {
     mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
       catalog: runtimeCatalogWithOllamaEmbedding,
-      isLoading: false,
       error: null,
+      isLoading: false,
       refresh: vi.fn().mockResolvedValue(undefined),
     });
 
@@ -254,30 +254,30 @@ describe('EmbeddingSettings', () => {
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     } = {
+      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
       ollama: {
         ...ollamaCatalog,
         models: [
           {
             ...baseModel,
+            displayName: 'Zeta Embedding',
             modelId: 'zeta-model',
             modelKey: 'ollama::zeta-model',
-            displayName: 'Zeta Embedding',
           },
           {
             ...baseModel,
+            displayName: 'Alpha Embedding',
             modelId: 'alpha-model',
             modelKey: 'ollama::alpha-model',
-            displayName: 'Alpha Embedding',
           },
         ],
       },
-      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
     };
 
     mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
       catalog: runtimeCatalogWithOutOfOrderLabels,
-      isLoading: false,
       error: null,
+      isLoading: false,
       refresh: vi.fn().mockResolvedValue(undefined),
     });
 
@@ -295,49 +295,49 @@ describe('EmbeddingSettings', () => {
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     } = {
+      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
       ollama: {
-        state: 'stale_cached',
-        runtime: 'ollama',
-        checkedAt: 120,
         availability: {
-          state: 'available',
           checkedAt: 120,
           endpoint: 'http://127.0.0.1:11434/v1/models',
           latencyMs: 6,
+          state: 'available',
         },
+        checkedAt: 120,
         endpoint: 'http://127.0.0.1:11434/v1/models',
-        source: 'openai_v1_models',
         freshness: 'stale_cached',
         lastSuccessfulAt: 100,
         message: 'Using cached runtime model list',
         models: [
           {
-            runtime: 'ollama',
-            providerId: 'ollama',
-            modelId: 'pending-model',
-            modelKey: 'ollama::pending-model',
-            displayName: 'Pending Dimensions',
-            endpoint: 'http://127.0.0.1:11434/v1/models',
-            source: 'openai_v1_models',
-            freshness: 'stale_cached',
             capabilities: {
-              llm: false,
               embeddings: 'needs_verification',
+              llm: false,
             },
             capabilitySource: 'inferred',
             dimensionsKnown: {
               state: 'needs_verification',
             },
+            displayName: 'Pending Dimensions',
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            freshness: 'stale_cached',
+            modelId: 'pending-model',
+            modelKey: 'ollama::pending-model',
+            providerId: 'ollama',
+            runtime: 'ollama',
+            source: 'openai_v1_models',
           },
         ],
+        runtime: 'ollama',
+        source: 'openai_v1_models',
+        state: 'stale_cached',
       },
-      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
     };
 
     mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
       catalog: staleCatalog,
-      isLoading: false,
       error: null,
+      isLoading: false,
       refresh: vi.fn().mockResolvedValue(undefined),
     });
 

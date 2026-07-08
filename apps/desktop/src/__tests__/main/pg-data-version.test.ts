@@ -33,7 +33,7 @@ describe('pg-data-version guard', () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { force: true, recursive: true });
   });
 
   function writePgVersion(major: string): void {
@@ -124,7 +124,7 @@ describe('pruneStaleEngineUpgradeBackups', () => {
   });
 
   afterEach(() => {
-    rmSync(appDataDir, { recursive: true, force: true });
+    rmSync(appDataDir, { force: true, recursive: true });
   });
 
   function makeBackup(name: string): string {

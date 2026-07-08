@@ -69,8 +69,8 @@ test.describe('Performance: Tree Rendering', () => {
 
       Object.defineProperty(window, 'ResizeObserver', {
         configurable: true,
-        writable: true,
         value: TrackingResizeObserver,
+        writable: true,
       });
 
       Object.defineProperty(window, '__brainstrikeResizeObserverTargets__', {
@@ -196,8 +196,8 @@ test.describe('Performance: Tree Rendering', () => {
         }
       });
       targetWindow.__brainstrikeExpandAllSpinnerObserver__.observe(button, {
-        attributes: true,
         attributeFilter: ['aria-label', 'disabled'],
+        attributes: true,
       });
     });
   };

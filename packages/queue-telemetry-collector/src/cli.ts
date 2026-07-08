@@ -36,9 +36,9 @@ export async function runQueueTelemetryCollectorCli(
 
   const collectorOptions: QueueTelemetryCollectorOptions = {
     host,
-    port,
-    path,
     maxBodyBytes,
+    path,
+    port,
     ...(apiKey ? { apiKey } : {}),
   };
 
@@ -47,8 +47,8 @@ export async function runQueueTelemetryCollectorCli(
   await collector.start();
   const endpoint = collector.getEndpoint();
   logger.info('Queue telemetry collector ready', {
-    endpoint,
     apiKeyProvided: Boolean(apiKey),
+    endpoint,
     maxBodyBytes,
   });
 

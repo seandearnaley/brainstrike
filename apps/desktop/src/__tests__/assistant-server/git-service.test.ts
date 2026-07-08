@@ -58,7 +58,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
-      await fsPromises.rm(root, { recursive: true, force: true });
+      await fsPromises.rm(root, { force: true, recursive: true });
     }
   }
 });
@@ -91,18 +91,18 @@ describe('parsePorcelainV2', () => {
       ].join('\n')
     );
     const byPath = new Map(parsed.files.map((f) => [f.path, f]));
-    expect(byPath.get('staged.txt')).toMatchObject({ staged: true, unstaged: false, status: 'A' });
+    expect(byPath.get('staged.txt')).toMatchObject({ staged: true, status: 'A', unstaged: false });
     expect(byPath.get('unstaged.txt')).toMatchObject({
       staged: false,
-      unstaged: true,
       status: 'M',
+      unstaged: true,
     });
     expect(byPath.get('renamed.txt')).toMatchObject({
-      staged: true,
       originalPath: 'original.txt',
+      staged: true,
       status: 'R',
     });
-    expect(byPath.get('untracked.txt')).toMatchObject({ untracked: true, status: '?' });
+    expect(byPath.get('untracked.txt')).toMatchObject({ status: '?', untracked: true });
     expect(parsed.clean).toBe(false);
   });
 
@@ -269,10 +269,10 @@ describe('git service — diff', () => {
     const overflowRunner: GitCommandRunner = () =>
       Promise.resolve({
         exitCode: null,
-        stdout: oversized,
-        stderr: '',
-        timedOut: false,
         failureReason: 'maxBuffer',
+        stderr: '',
+        stdout: oversized,
+        timedOut: false,
       } satisfies GitCommandRun);
     const service = createGitService({ cwd: '/tmp/whatever', run: overflowRunner });
     const result = await service.diff({});
@@ -393,10 +393,10 @@ describe('git service — git not installed', () => {
     const enoentRunner: GitCommandRunner = () =>
       Promise.resolve({
         exitCode: null,
-        stdout: '',
-        stderr: '',
-        timedOut: false,
         failureReason: 'notFound',
+        stderr: '',
+        stdout: '',
+        timedOut: false,
       } satisfies GitCommandRun);
     const service = createGitService({ cwd: '/tmp/whatever', run: enoentRunner });
     const result = await service.status();

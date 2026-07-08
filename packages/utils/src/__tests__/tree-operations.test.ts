@@ -67,14 +67,14 @@ describe('tree-operations', () => {
     it('finds descendants without treating shared prefixes as ancestors', () => {
       const tree: TestTreeNode[] = [
         createDirectoryNode({
+          children: [createFileNode({ path: '/root/com/legacy.ts' })],
           name: 'com',
           path: '/root/com',
-          children: [createFileNode({ path: '/root/com/legacy.ts' })],
         }),
         createDirectoryNode({
+          children: [createFileNode({ path: '/root/components/Button.tsx' })],
           name: 'components',
           path: '/root/components',
-          children: [createFileNode({ path: '/root/components/Button.tsx' })],
         }),
       ];
 
@@ -125,19 +125,19 @@ describe('tree-operations', () => {
   describe('updateNodeChildren', () => {
     it('does not clone sibling branches that only share a string prefix', () => {
       const untouchedPrefixBranch = createDirectoryNode({
+        children: [createFileNode({ path: '/root/com/legacy.ts' })],
         name: 'com',
         path: '/root/com',
-        children: [createFileNode({ path: '/root/com/legacy.ts' })],
       });
       const targetBranch = createDirectoryNode({
-        name: 'components',
-        path: '/root/components',
         children: [
           createDirectoryNode({
             name: 'nested',
             path: '/root/components/nested',
           }),
         ],
+        name: 'components',
+        path: '/root/components',
       });
       const tree: TestTreeNode[] = [untouchedPrefixBranch, targetBranch];
       const newChildren = [createFileNode({ path: '/root/components/nested/new.ts' })];
@@ -153,12 +153,12 @@ describe('tree-operations', () => {
   describe('setNodeLoadState', () => {
     it('updates the target node state immutably and replaces stale errors only when provided', () => {
       const target = createDirectoryNode({
-        path: '/root/dir/child',
         loadError: 'old error',
+        path: '/root/dir/child',
       });
       const parent = createDirectoryNode({
-        path: '/root/dir',
         children: [target],
+        path: '/root/dir',
       });
       const sibling = createDirectoryNode({ path: '/root/sibling' });
       const tree = [parent, sibling];
@@ -185,20 +185,20 @@ describe('tree-operations', () => {
     it('collects all directory paths and expanded loaded paths recursively', () => {
       const tree: TestTreeNode[] = [
         createDirectoryNode({
-          path: '/root/src',
-          loadState: 'loaded',
           children: [
             createDirectoryNode({
-              path: '/root/src/components',
-              loadState: 'loaded',
               children: [createFileNode({ path: '/root/src/components/button.tsx' })],
+              loadState: 'loaded',
+              path: '/root/src/components',
             }),
             createDirectoryNode({
-              path: '/root/src/pending',
-              loadState: 'unloaded',
               children: [createFileNode({ path: '/root/src/pending/hidden.ts' })],
+              loadState: 'unloaded',
+              path: '/root/src/pending',
             }),
           ],
+          loadState: 'loaded',
+          path: '/root/src',
         }),
         createFileNode({ path: '/root/readme.md' }),
       ];
@@ -221,10 +221,10 @@ describe('tree-operations', () => {
       const file = createFileNode();
 
       expect(resetDirectoryNode(directory)).toEqual({
+        loadState: 'unloaded',
         name: 'dir',
         path: '/root/dir',
         type: 'directory',
-        loadState: 'unloaded',
       });
       expect(resetDirectoryNode(file)).toBe(file);
     });

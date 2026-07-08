@@ -16,6 +16,7 @@ describe('tailwind configuration', () => {
     const plugin = () => {};
     const merged = {
       ...baseConfig,
+      plugins: [...(baseConfig.plugins ?? []), plugin],
       theme: {
         ...baseConfig.theme,
         extend: {
@@ -26,7 +27,6 @@ describe('tailwind configuration', () => {
           },
         },
       },
-      plugins: [...(baseConfig.plugins ?? []), plugin],
     };
 
     expect(merged.theme.extend.colors.brand).toBe('#fff');

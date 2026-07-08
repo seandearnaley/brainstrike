@@ -92,8 +92,8 @@ test.describe('File System Integration', () => {
     await expect(getContextExplorerFileExplorerPanel(window)).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
-        timeout: 10_000,
         message: 'Selecting a root folder should not reload the visible renderer',
+        timeout: 10_000,
       })
       .toBe(initialTimeOrigin);
   });

@@ -96,10 +96,10 @@ export function resolveRequestPermissionPolicy(
   }
 
   const snapshot: PermissionToolGateSnapshot = {
-    policies: request.policies ?? ({} as PermissionPolicies),
-    yolo: request.yolo ?? false,
-    riskByTool: buildNativeToolRiskMap(),
     defaultRisk: REQUEST_DEFAULT_RISK,
+    policies: request.policies ?? ({} as PermissionPolicies),
+    riskByTool: buildNativeToolRiskMap(),
+    yolo: request.yolo ?? false,
     ...(request.sessionGrants ? { sessionGrants: request.sessionGrants } : {}),
     ...(request.perToolOverrides ? { perToolOverrides: request.perToolOverrides } : {}),
   };

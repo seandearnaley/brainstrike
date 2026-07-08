@@ -144,12 +144,12 @@ function shouldSkipLoadRoot(
 ): { skip: boolean; reason?: string } {
   // Skip if expand-all is in progress for THIS root
   if (isExpandingAll && initializedRoot === rootPath) {
-    return { skip: true, reason: 'expand-all in progress for same root' };
+    return { reason: 'expand-all in progress for same root', skip: true };
   }
 
   // Skip if already initialized for this root
   if (initializedRoot === rootPath && fileTreeLength > 0) {
-    return { skip: true, reason: 'already initialized for this root' };
+    return { reason: 'already initialized for this root', skip: true };
   }
 
   return { skip: false };
@@ -168,9 +168,9 @@ function handleLoadRootNoHandle(
 ): void {
   setState((s) => ({
     ...s,
+    error: null,
     fileTree: [],
     isInitialLoading: false,
-    error: null,
   }));
   initializedRootRef.current = null;
 }
@@ -182,9 +182,9 @@ function createLoadRootPendingState(
   if (startedSharedRequest) {
     return {
       ...currentState,
-      isInitialLoading: true,
       error: null,
       fileTree: [],
+      isInitialLoading: true,
       loadingPaths: new Set(),
     };
   }
@@ -199,8 +199,8 @@ function createLoadRootPendingState(
 
   return {
     ...currentState,
-    isInitialLoading: true,
     error: null,
+    isInitialLoading: true,
     loadingPaths: new Set(),
   };
 }
@@ -255,9 +255,9 @@ function handleLoadRootSuccess(
   }
 
   setState({
+    error: null,
     fileTree: children,
     isInitialLoading: false,
-    error: null,
     loadingPaths: new Set(),
   });
 
@@ -292,8 +292,8 @@ function handleLoadRootError(
 
     setState((s) => ({
       ...s,
-      isInitialLoading: false,
       error: err instanceof Error ? err : new Error(String(err)),
+      isInitialLoading: false,
     }));
   }
 }
@@ -315,7 +315,7 @@ function loadRootChildren(args: {
   const loadKey = `${rootPath}::${rootFolderId ?? ''}`;
   const existingRequest = inFlightRootLoads.get(loadKey);
   if (existingRequest) {
-    logger.debug('loadRoot joined existing in-flight request', { rootPath, loadKey });
+    logger.debug('loadRoot joined existing in-flight request', { loadKey, rootPath });
     return {
       request: existingRequest,
       started: false,
@@ -777,9 +777,9 @@ export function useLazyFileTree(
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
+    error: null,
     fileTree: [],
     isInitialLoading: false,
-    error: null,
     loadingPaths: new Set(),
   });
 
@@ -869,8 +869,8 @@ export function useLazyFileTree(
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
     fileSystemAdapter,
-    onProgress: handleProgress,
     onError: handleWorkerError,
+    onProgress: handleProgress,
   });
 
   // Keep root handle ref in sync. The RootId is threaded alongside so that
@@ -912,8 +912,8 @@ export function useLazyFileTree(
     cancelLoadOperations: cancelAllLoading,
     fileSystemAdapter,
     getCurrentTree: () => materializeNormalizedFileTree(normalizedTreeRef.current),
-    onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
+    onTreeUpdate: handleTreeUpdate,
     ...filterTreeOption,
   };
 
@@ -973,15 +973,15 @@ export function useLazyFileTree(
       const rootLoadRequest = loadRootChildren({
         fileSystemAdapter,
         rootDirectoryHandle,
-        rootPath,
         rootFolderId: resolvedRootFolderId,
+        rootPath,
       });
 
       if (rootLoadRequest.started) {
         logger.debug('loadRoot running - will reinitialize worker', {
-          rootPath,
-          initializedRoot: initializedRootRef.current,
           fileTreeLength: fileTreeRef.current.length,
+          initializedRoot: initializedRootRef.current,
+          rootPath,
         });
 
         createAbortController(null);
@@ -1314,8 +1314,8 @@ export function useLazyFileTree(
         normalizedTreeRef,
         onNodesIndexedRef,
         result,
-        setState,
         setNormalizedTreeVersion,
+        setState,
       });
     },
     [
@@ -1482,8 +1482,8 @@ export function useLazyFileTree(
               onProgress,
               paths,
               port,
-              setState,
               setNormalizedTreeVersion,
+              setState,
               specificPathProgressRef,
             });
             return;
@@ -1529,8 +1529,8 @@ export function useLazyFileTree(
       // This prevents race condition where switching folders leaves new folder empty
       if (isExpandingAllRef.current && initializedRootRef.current !== rootDirectoryPath) {
         logger.debug('loadRoot: cancelling expand-all for different root', {
-          oldRoot: initializedRootRef.current,
           newRoot: rootDirectoryPath,
+          oldRoot: initializedRootRef.current,
         });
         cancelExpandAll();
       }
@@ -1547,9 +1547,9 @@ export function useLazyFileTree(
       normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
       setNormalizedTreeVersion((version) => version + 1);
       setState({
+        error: null,
         fileTree: [],
         isInitialLoading: false,
-        error: null,
         loadingPaths: new Set(),
       });
     }
@@ -1577,39 +1577,39 @@ export function useLazyFileTree(
   ]);
 
   return {
-    fileTree: state.fileTree,
-    isLoading: state.isInitialLoading || state.loadingPaths.size > 0,
-    error: state.error,
-    loadingPaths: state.loadingPaths,
-    loadRoot,
-    loadChildren,
-    needsLoading,
-    cancelLoading,
-    cancelChildLoading: handleCancelChildLoading,
-    refreshDirectory,
-    refreshTree,
-    expandAllProgressively,
-    cancelExpandAll,
-    isExpandingAll,
-    expandAllProgress,
-    loadSpecificPaths,
-    selectFolderRecursively,
-    cancelRecursiveSelect,
-    isLoadingForSelection,
-    loadingPathForSelection,
-    selectionLoadingProgress,
-    selectAllRecursively,
-    cancelSelectAll,
-    isLoadingForSelectAll,
-    selectAllLoadingProgress,
-    workerPortRef: portRef,
-    __internalNormalizedTreeRef: normalizedTreeRef,
-    __internalNormalizedTreeVersion: normalizedTreeVersion,
     __internalGetDescendantFileCount: (path: string) =>
       getNormalizedDescendantFileCount(normalizedTreeRef.current, path),
     __internalGetDescendantFilePaths: (path: string, maxCount?: number) =>
       listNormalizedDescendantFilePaths(normalizedTreeRef.current, path, maxCount),
     __internalMaterializeSubtree: (path: string) =>
       materializeNormalizedSubtree(normalizedTreeRef.current, path),
+    __internalNormalizedTreeRef: normalizedTreeRef,
+    __internalNormalizedTreeVersion: normalizedTreeVersion,
+    cancelChildLoading: handleCancelChildLoading,
+    cancelExpandAll,
+    cancelLoading,
+    cancelRecursiveSelect,
+    cancelSelectAll,
+    error: state.error,
+    expandAllProgress,
+    expandAllProgressively,
+    fileTree: state.fileTree,
+    isExpandingAll,
+    isLoading: state.isInitialLoading || state.loadingPaths.size > 0,
+    isLoadingForSelectAll,
+    isLoadingForSelection,
+    loadChildren,
+    loadingPathForSelection,
+    loadingPaths: state.loadingPaths,
+    loadRoot,
+    loadSpecificPaths,
+    needsLoading,
+    refreshDirectory,
+    refreshTree,
+    selectAllLoadingProgress,
+    selectAllRecursively,
+    selectFolderRecursively,
+    selectionLoadingProgress,
+    workerPortRef: portRef,
   };
 }

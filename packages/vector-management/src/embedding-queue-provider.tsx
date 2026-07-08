@@ -164,13 +164,13 @@ const INITIAL_METRICS: QueueMetrics = {
   active: 0,
   completed: 0,
   failed: 0,
-  totalEnqueued: 0,
   lastError: null,
-  progress: {},
-  throughputPerMinute: 0,
   latencyAvgMs: null,
   latencyP50Ms: null,
   latencyP95Ms: null,
+  progress: {},
+  throughputPerMinute: 0,
+  totalEnqueued: 0,
   windowErrorCount: 0,
 };
 
@@ -272,8 +272,8 @@ export function EmbeddingQueueProvider({
             ...prev.progress,
             [event.id]: {
               id: event.id,
-              progress: event.progress,
               phase: event.phase,
+              progress: event.progress,
             },
           },
         };
@@ -361,10 +361,10 @@ export function EmbeddingQueueProvider({
       }
       updateMetrics((prev) => ({
         ...prev,
-        throughputPerMinute: snapshot.throughputPerMinute,
         latencyAvgMs: snapshot.averageLatencyMs,
         latencyP50Ms: snapshot.latencyP50Ms,
         latencyP95Ms: snapshot.latencyP95Ms,
+        throughputPerMinute: snapshot.throughputPerMinute,
         windowErrorCount: snapshot.errorCount,
       }));
     });
@@ -429,7 +429,7 @@ export function EmbeddingQueueProvider({
   );
 
   const contextValue = useMemo<EmbeddingQueueContextValue | null>(
-    () => (instrumentedQueue ? { queue: instrumentedQueue.queue, metrics } : null),
+    () => (instrumentedQueue ? { metrics, queue: instrumentedQueue.queue } : null),
     [instrumentedQueue, metrics]
   );
 

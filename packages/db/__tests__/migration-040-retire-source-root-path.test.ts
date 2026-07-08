@@ -79,15 +79,15 @@ describe('migration 040: retire source_root_path', () => {
     await seedFileRecord({
       id: 'needs-backfill',
       path: 'src/index.ts',
-      sourceRootPath: '/Users/me/project/',
       rootId: null,
+      sourceRootPath: '/Users/me/project/',
     });
     // A row that already carries its root_id stays untouched.
     await seedFileRecord({
       id: 'already-mapped',
       path: 'src/app.ts',
-      sourceRootPath: '/Users/me/project',
       rootId: 'root-1',
+      sourceRootPath: '/Users/me/project',
     });
 
     await runner.up([getMigration040()]);
@@ -112,16 +112,16 @@ describe('migration 040: retire source_root_path', () => {
     await seedFileRecord({
       id: 'trailing-both',
       path: 'src/main.ts',
-      sourceRootPath: '/Users/me/trailing/',
       rootId: null,
+      sourceRootPath: '/Users/me/trailing/',
     });
     // Source has NO trailing separator while the root was stored WITH one —
     // only a symmetric trim resolves this.
     await seedFileRecord({
       id: 'trailing-root-only',
       path: 'src/other.ts',
-      sourceRootPath: '/Users/me/trailing',
       rootId: null,
+      sourceRootPath: '/Users/me/trailing',
     });
 
     await runner.up([getMigration040()]);
@@ -145,14 +145,14 @@ describe('migration 040: retire source_root_path', () => {
     await seedFileRecord({
       id: 'dup-bare-source',
       path: 'a.ts',
-      sourceRootPath: '/Users/me/dup',
       rootId: null,
+      sourceRootPath: '/Users/me/dup',
     });
     await seedFileRecord({
       id: 'dup-slash-source',
       path: 'b.ts',
-      sourceRootPath: '/Users/me/dup/',
       rootId: null,
+      sourceRootPath: '/Users/me/dup/',
     });
 
     await runner.up([getMigration040()]);

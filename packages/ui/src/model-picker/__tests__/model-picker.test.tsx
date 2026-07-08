@@ -23,7 +23,7 @@ const mockSetTheme = vi.fn();
 
 vi.mock('../../theme-provider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useTheme: () => ({ theme: mockTheme, setTheme: mockSetTheme }),
+  useTheme: () => ({ setTheme: mockSetTheme, theme: mockTheme }),
 }));
 
 const providers: ModelPickerProvider[] = [
@@ -32,18 +32,18 @@ const providers: ModelPickerProvider[] = [
 ];
 
 const models: ModelPickerModel[] = [
-  { id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai', capabilities: { type: 'llm' } },
+  { capabilities: { type: 'llm' }, id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai' },
   {
+    capabilities: { type: 'llm' },
     id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.6',
     providerId: 'anthropic',
-    capabilities: { type: 'llm' },
   },
   {
+    capabilities: { type: 'embedding' },
     id: 'text-embedding',
     name: 'Text Embedding',
     providerId: 'openai',
-    capabilities: { type: 'embedding' },
   },
 ];
 
@@ -216,8 +216,8 @@ describe('ModelPicker', () => {
     it('handles system theme with light preference', () => {
       mockTheme = 'system';
       const matchMedia = vi.fn().mockImplementation(() => ({
-        matches: false,
         addEventListener: vi.fn(),
+        matches: false,
         removeEventListener: vi.fn(),
       }));
       window.matchMedia = matchMedia;
@@ -229,8 +229,8 @@ describe('ModelPicker', () => {
     it('handles system theme with dark preference', () => {
       mockTheme = 'system';
       const matchMedia = vi.fn().mockImplementation(() => ({
-        matches: true,
         addEventListener: vi.fn(),
+        matches: true,
         removeEventListener: vi.fn(),
       }));
       window.matchMedia = matchMedia;
@@ -270,11 +270,11 @@ describe('ModelPicker', () => {
       );
       expect(renderTrigger).toHaveBeenCalledWith(
         expect.objectContaining({
-          value: 'gpt-5.2',
-          placeholder: 'Select',
           disabled: true,
           models,
+          placeholder: 'Select',
           providers,
+          value: 'gpt-5.2',
         })
       );
     });
@@ -310,22 +310,22 @@ describe('ModelPicker', () => {
     // Test data that mimics what ManageEmbeddingSetsDialog produces
     const localEmbeddingModels: ModelPickerModel[] = [
       {
+        capabilities: { defaultDimension: 384, type: 'embedding' },
         id: 'Xenova/all-MiniLM-L6-v2',
         name: 'all-MiniLM-L6-v2',
         providerId: 'local',
-        capabilities: { type: 'embedding', defaultDimension: 384 },
       },
       {
+        capabilities: { defaultDimension: 384, type: 'embedding' },
         id: 'Xenova/bge-small-en-v1.5',
         name: 'BGE Small',
         providerId: 'local',
-        capabilities: { type: 'embedding', defaultDimension: 384 },
       },
       {
+        capabilities: { defaultDimension: 1536, type: 'embedding' },
         id: 'openai::text-embedding-3-small',
         name: 'Text Embedding 3 Small',
         providerId: 'openai',
-        capabilities: { type: 'embedding', defaultDimension: 1536 },
       },
     ];
 

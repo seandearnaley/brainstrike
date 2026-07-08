@@ -229,7 +229,7 @@ describe('isAbortError', () => {
   });
 
   it('should return false for object with name property but not AbortError', () => {
-    const error = { name: 'CustomError', message: 'error' };
+    const error = { message: 'error', name: 'CustomError' };
     expect(isAbortError(error)).toBe(false);
   });
 });

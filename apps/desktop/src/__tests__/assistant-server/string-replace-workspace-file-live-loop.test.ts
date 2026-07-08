@@ -34,7 +34,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 
 function createScriptedHostClient(args: {
   path: string;
@@ -43,8 +43,6 @@ function createScriptedHostClient(args: {
 }): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
   const requests: LocalLlmHostGenerateRequest[] = [];
   return {
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
@@ -57,31 +55,33 @@ function createScriptedHostClient(args: {
         options.onProgress?.({ kind: 'text', text: 'Edited ' });
         options.onProgress?.({ kind: 'text', text: 'Edited the file.' });
         return Promise.resolve({
-          text: 'Edited the file.',
           finishReason: 'stop',
+          text: 'Edited the file.',
           usage: USAGE,
         });
       }
       return Promise.resolve({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: {
+              arguments: JSON.stringify({
+                newStr: args.newStr,
+                oldStr: args.oldStr,
+                path: args.path,
+              }),
+              name: 'brainstrike_stringReplaceWorkspaceFile',
+            },
             id: 'call-sr-1',
             type: 'function',
-            function: {
-              name: 'brainstrike_stringReplaceWorkspaceFile',
-              arguments: JSON.stringify({
-                path: args.path,
-                oldStr: args.oldStr,
-                newStr: args.newStr,
-              }),
-            },
           },
         ],
         usage: USAGE,
       });
     },
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -113,24 +113,24 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
       expect(editTool).toBeDefined();
 
       const hostClient = createScriptedHostClient({
-        path: targetPath,
-        oldStr: '  retries: 3,',
         newStr: '  retries: 5,',
+        oldStr: '  retries: 3,',
+        path: targetPath,
       });
 
       const iterator = await streamMastraAgent(
         [
           {
             id: 'u-edit',
+            parts: [{ text: 'bump retries to 5 in the config', type: 'text' }],
             role: 'user',
-            parts: [{ type: 'text', text: 'bump retries to 5 in the config' }],
           },
         ],
         {
           runtime: {
-            provider: 'local',
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
             localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
             providerOptions: { local: { thinking: { enabled: false } } },
           } as RuntimeData,
           tools: { 'brainstrike.stringReplaceWorkspaceFile': editTool },
@@ -165,7 +165,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
       expect(serialized).toContain('/src/config.ts');
       expect(serialized).toContain('"replaced":true');
     } finally {
-      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
 });

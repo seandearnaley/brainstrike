@@ -33,34 +33,34 @@ describe('useFileExplorerStore Actions Integration', () => {
 
   const getInitialState = (): FileExplorerState => ({
     ...DEFAULT_STATE, // Start with defaults
-    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files', // Ensure default
+    addMultipleSelectedFiles: vi.fn(),
+    addSelectedFile: vi.fn(),
+    clearAllFileContents: vi.fn(),
+    clearFileContents: vi.fn(),
+    clearSelectedFiles: vi.fn(),
+    collapseAllDirectories: vi.fn(),
     currentFolderId: null,
-    selectedFilePaths: new Set<string>(),
+    expandAllDirectories: vi.fn(),
     expandedDirectoryPaths: new Set<string>(),
     folderStates: {},
+    hydrateFolderState: vi.fn(),
+    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files', // Ensure default
+    removeMultipleSelectedFiles: vi.fn(),
+    removeSelectedFile: vi.fn(),
+    selectedFilePaths: new Set<string>(),
     // Add mock implementations for all actions
     setCurrentFolderId: vi.fn(),
-    hydrateFolderState: vi.fn(),
-    setSelectedFiles: vi.fn(),
-    addSelectedFile: vi.fn(),
-    removeSelectedFile: vi.fn(),
-    toggleSelectedFile: vi.fn(),
-    clearSelectedFiles: vi.fn(),
-    addMultipleSelectedFiles: vi.fn(),
-    removeMultipleSelectedFiles: vi.fn(),
     setExpandedPaths: vi.fn(),
-    toggleDirectoryExpansion: vi.fn(),
-    setFilters: vi.fn(),
-    setUseRegex: vi.fn(),
-    setIncludeProjectTree: vi.fn(),
-    setFolderSummaryThreshold: vi.fn(),
-    setMaxSelectionCount: vi.fn(),
-    setLastActiveTab: vi.fn(),
-    expandAllDirectories: vi.fn(),
-    collapseAllDirectories: vi.fn(),
     setFileContent: vi.fn(),
-    clearFileContents: vi.fn(),
-    clearAllFileContents: vi.fn(),
+    setFilters: vi.fn(),
+    setFolderSummaryThreshold: vi.fn(),
+    setIncludeProjectTree: vi.fn(),
+    setLastActiveTab: vi.fn(),
+    setMaxSelectionCount: vi.fn(),
+    setSelectedFiles: vi.fn(),
+    setUseRegex: vi.fn(),
+    toggleDirectoryExpansion: vi.fn(),
+    toggleSelectedFile: vi.fn(),
   });
 
   beforeEach(() => {
@@ -95,8 +95,8 @@ describe('useFileExplorerStore Actions Integration', () => {
 
     // Create the combined store object for testing
     store = {
-      setState: zustandStore.setState,
       getState: zustandStore.getState,
+      setState: zustandStore.setState,
       ...allActions,
     };
   });
@@ -405,14 +405,6 @@ describe('useFileExplorerStore Actions Integration', () => {
     // the others stop responding").
     it('focus switch MATERIALIZES a query-mode selection into the outgoing snapshot', () => {
       store.setState({
-        selectionModel: {
-          mode: 'query',
-          explicitPaths: new Set<string>(),
-          ruleSetJson: null,
-          materializedPaths: null,
-          materializedAt: null,
-          queryDescriptor: null,
-        },
         querySelectionManifest: {
           directoryCounts: new Map(),
           errorMessage: null,
@@ -421,6 +413,14 @@ describe('useFileExplorerStore Actions Integration', () => {
           pathSet: new Set(['/a/x.ts', '/a/y.ts']),
           snapshotId: null,
           status: 'ready',
+        },
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'query',
+          queryDescriptor: null,
+          ruleSetJson: null,
         },
       });
 
@@ -441,12 +441,12 @@ describe('useFileExplorerStore Actions Integration', () => {
       // selection (folderState.selectedFilePaths is the counts contract).
       store.setState({
         selectionModel: {
-          mode: 'rules',
           explicitPaths: new Set<string>(),
-          ruleSetJson: '{"include":["*.ts"]}',
-          materializedPaths: new Set(['src/a.ts', 'src/b.ts']),
           materializedAt: '2026-06-12T00:00:00Z',
+          materializedPaths: new Set(['src/a.ts', 'src/b.ts']),
+          mode: 'rules',
           queryDescriptor: null,
+          ruleSetJson: '{"include":["*.ts"]}',
         },
       });
 
@@ -469,12 +469,12 @@ describe('useFileExplorerStore Actions Integration', () => {
     it('refocusing a root with a rules snapshot restores the RULES model intact', () => {
       store.setState({
         selectionModel: {
-          mode: 'rules',
           explicitPaths: new Set<string>(),
-          ruleSetJson: '{"include":["*.ts"]}',
-          materializedPaths: new Set(['src/a.ts']),
           materializedAt: '2026-06-12T00:00:00Z',
+          materializedPaths: new Set(['src/a.ts']),
+          mode: 'rules',
           queryDescriptor: null,
+          ruleSetJson: '{"include":["*.ts"]}',
         },
       });
       store.setCurrentFolderId(ROOT_B);
@@ -498,12 +498,12 @@ describe('useFileExplorerStore Actions Integration', () => {
             ...createNewFolderState(),
             selectedFilePaths: new Set([keyB('x.ts')]),
             selectionModel: {
-              mode: 'query',
               explicitPaths: new Set<string>(),
-              ruleSetJson: null,
-              materializedPaths: null,
               materializedAt: null,
+              materializedPaths: null,
+              mode: 'query',
               queryDescriptor: null,
+              ruleSetJson: null,
             },
           },
         },
@@ -524,20 +524,20 @@ describe('useFileExplorerStore Actions Integration', () => {
     // clicked root.
     it('focus switch does NOT hydrate tokenBudget/includeProjectTree/folderSummaryThreshold/lastActiveTab', () => {
       store.setState({
-        tokenBudget: 150_000,
-        includeProjectTree: false,
-        folderSummaryThreshold: 42,
-        lastActiveTab: 'curated',
         folderStates: {
           ...store.getState().folderStates,
           [ROOT_B]: {
             ...createNewFolderState(),
-            tokenBudget: 1000,
-            includeProjectTree: true,
             folderSummaryThreshold: 7,
+            includeProjectTree: true,
             lastActiveTab: 'files',
+            tokenBudget: 1000,
           },
         },
+        folderSummaryThreshold: 42,
+        includeProjectTree: false,
+        lastActiveTab: 'curated',
+        tokenBudget: 150_000,
       });
 
       store.setCurrentFolderId(ROOT_B);
@@ -551,20 +551,20 @@ describe('useFileExplorerStore Actions Integration', () => {
 
     it('hydrateFolderState does NOT hydrate the workspace-global report/tab settings', () => {
       store.setState({
-        tokenBudget: 150_000,
-        includeProjectTree: false,
-        folderSummaryThreshold: 42,
-        lastActiveTab: 'curated',
         folderStates: {
           ...store.getState().folderStates,
           [ROOT_A]: {
             ...createNewFolderState(),
-            tokenBudget: 1000,
-            includeProjectTree: true,
             folderSummaryThreshold: 7,
+            includeProjectTree: true,
             lastActiveTab: 'files',
+            tokenBudget: 1000,
           },
         },
+        folderSummaryThreshold: 42,
+        includeProjectTree: false,
+        lastActiveTab: 'curated',
+        tokenBudget: 150_000,
       });
 
       store.hydrateFolderState(ROOT_A);
@@ -588,8 +588,8 @@ describe('useFileExplorerStore Actions Integration', () => {
           ...store.getState().folderStates,
           [ROOT_B]: {
             ...createNewFolderState(),
-            includeFilters: ['*.ts'],
             excludeFilters: ['node_modules'],
+            includeFilters: ['*.ts'],
             useRegex: true,
             viewFilterPresetId: 'stale-preset',
           },
@@ -663,8 +663,8 @@ describe('useFileExplorerStore Actions Integration', () => {
           ...store.getState().folderStates,
           [ROOT_B]: {
             ...createNewFolderState(),
-            selectedFilePaths: new Set([keyB('seed.ts')]),
             maxSelectionCount: 2,
+            selectedFilePaths: new Set([keyB('seed.ts')]),
           },
         },
       });

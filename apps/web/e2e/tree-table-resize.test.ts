@@ -149,13 +149,13 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     const startY = box.y + box.height / 2;
     await handle.dispatchEvent('pointerdown', {
       bubbles: true,
-      cancelable: true,
       button: 0,
-      pointerId: 1,
-      pointerType: 'mouse',
-      isPrimary: true,
+      cancelable: true,
       clientX: startX,
       clientY: startY,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: 'mouse',
     });
     // pointermove must hit the window listener, which is what the handle
     // installs after pointerdown. Dispatch from document.body so the event
@@ -165,11 +165,11 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
         const event = new PointerEvent('pointermove', {
           bubbles: true,
           cancelable: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
           clientX,
           clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
         });
         window.dispatchEvent(event);
       },
@@ -180,11 +180,11 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
         const event = new PointerEvent('pointerup', {
           bubbles: true,
           cancelable: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-          isPrimary: true,
           clientX,
           clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
         });
         window.dispatchEvent(event);
       },
@@ -212,7 +212,7 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     // The Name header is sortable — recording state before & after a handle click.
     // Clicking the handle itself should bubble nothing into the header onClick.
     const sortIndicatorBefore = await nameHeader.getAttribute('aria-sort');
-    await handle.click({ position: { x: 1, y: box.height / 2 }, force: true });
+    await handle.click({ force: true, position: { x: 1, y: box.height / 2 } });
     const sortIndicatorAfter = await nameHeader.getAttribute('aria-sort');
     expect(sortIndicatorAfter).toBe(sortIndicatorBefore);
 
@@ -242,15 +242,15 @@ test.describe('TreeTable column resize @stateful @web-collection-browser', () =>
     await setPersistedSizesRaw(
       page,
       JSON.stringify({
-        version: 1,
         state: {
           sizes: {
+            mystery: 9999,
             name: Number.NaN,
             size: 'not-a-number',
             status: -10,
-            mystery: 9999,
           },
         },
+        version: 1,
       })
     );
     await page.reload();

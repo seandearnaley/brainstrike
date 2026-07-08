@@ -109,8 +109,8 @@ function useQueueRetry(
       logger.error('Failed to retry embedding queue jobs', { error });
       const message = error instanceof Error ? error.message : String(error);
       toast({
-        title: 'Failed to retry jobs',
         description: message || 'Unable to retry failed embedding jobs.',
+        title: 'Failed to retry jobs',
         variant: 'destructive',
       });
     }
@@ -270,11 +270,11 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
   const durableStats = useVectorStatusUIStore((s) => s.durableQueueStats);
   const { busy, handleRetry } = useQueueRetry(jobQueue, toast);
   const metrics: QueueMetrics = durableStats ?? {
+    failed: 0,
+    nextRunnableAt: null,
     queued: 0,
     running: 0,
-    failed: 0,
     succeeded: 0,
-    nextRunnableAt: null,
   };
 
   if (!enabled) {

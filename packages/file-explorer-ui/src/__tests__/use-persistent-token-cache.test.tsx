@@ -19,10 +19,10 @@ const decodeFileSelection = (compositeKey: string): { folderId: string; path: st
 
 const createTokenCounting = () =>
   ({
+    countTokens: vi.fn(async (content: string) => content.length),
+    loading: false,
     mode: 'heuristic',
     reason: null,
-    loading: false,
-    countTokens: vi.fn(async (content: string) => content.length),
   }) as TokenCountingState;
 
 const flushMicrotasks = async () => {
@@ -60,36 +60,36 @@ describe('usePersistentTokenCache', () => {
   const renderCacheHook = () =>
     renderHook(() =>
       usePersistentTokenCache({
-        fileContents,
-        tokenCounting,
         decodeFileSelection,
+        fileContents,
         onTokenResolved,
+        tokenCounting,
       })
     );
 
   describe('with persistent cache available', () => {
     beforeEach(() => {
       mockContext = {
-        isReady: true, // Deprecated - kept for backwards compatibility
-        isOperational: true, // Worker + hasher ready
-        isPersisted: true, // DB-backed storage available
-        persistenceMode: 'persistent',
-        isWorkerReady: true,
+        cacheVersion: 3,
+        clearHotCache: vi.fn(),
         countingMode: 'accurate',
         countTextTokens: vi.fn(async () => 0),
-        cacheVersion: 3,
-        getTokenCount: vi.fn(() => 42),
         getFileSize: vi.fn(() => 1024),
+        getTokenCount: vi.fn(() => 42),
         getTotalTokens: vi.fn(async () => 0),
-        isLoading: vi.fn(() => false),
-        isAnyLoading: false,
-        queueForCounting: vi.fn(),
-        preloadFolder: vi.fn(async () => {}),
-        clearHotCache: vi.fn(),
         invalidate: vi.fn(),
-        updateHotCache: vi.fn(),
-        updateFileSizeCache: vi.fn(),
+        isAnyLoading: false,
+        isLoading: vi.fn(() => false),
+        isOperational: true, // Worker + hasher ready
+        isPersisted: true, // DB-backed storage available
+        isReady: true, // Deprecated - kept for backwards compatibility
+        isWorkerReady: true,
+        persistenceMode: 'persistent',
+        preloadFolder: vi.fn(async () => {}),
+        queueForCounting: vi.fn(),
         store: {} as TokenCacheContextValue['store'],
+        updateFileSizeCache: vi.fn(),
+        updateHotCache: vi.fn(),
       };
     });
 
@@ -153,8 +153,8 @@ describe('usePersistentTokenCache', () => {
           filePaths.map((filePath, index) => [
             filePath,
             {
-              folderId,
               filePath,
+              folderId,
               tokenCount: (index + 1) * 100,
             },
           ])
@@ -193,8 +193,8 @@ describe('usePersistentTokenCache', () => {
           filePaths.map((filePath) => [
             filePath,
             {
-              folderId,
               filePath,
+              folderId,
               tokenCount: 100,
             },
           ])
@@ -227,8 +227,8 @@ describe('usePersistentTokenCache', () => {
     it('does not fall back to strict in-memory counting while the shared cache is still booting', () => {
       mockContext = {
         ...mockContext!,
-        isOperational: false,
         isAnyLoading: true,
+        isOperational: false,
       };
 
       fileContents['folder::file.txt'] = 'hello';

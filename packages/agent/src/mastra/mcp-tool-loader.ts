@@ -330,8 +330,8 @@ async function fetchMcpToolsetsWithTimeout(
       reason,
       timeoutMs,
     });
-    return;
   }
+  return;
 }
 
 function logMcpToolsetErrors(errors: Record<string, string>, timeoutMs: number): void {

@@ -82,12 +82,12 @@ async function initializeSingleton(): Promise<void> {
           return;
         }
         const errorDetails = {
-          message: event.message || 'Unknown worker error (script may have failed to load)',
+          colno: event.colno || 0,
           filename: event.filename || 'unknown',
           lineno: event.lineno || 0,
-          colno: event.colno || 0,
-          workerUrl,
+          message: event.message || 'Unknown worker error (script may have failed to load)',
           timestamp: new Date().toISOString(),
+          workerUrl,
         };
         logger.error('Chunking worker error event', errorDetails);
         // Include full details in error message for debugging
@@ -125,10 +125,10 @@ async function initializeSingleton(): Promise<void> {
         if (!(singletonReady || singletonError)) {
           const errorDetails = {
             message: `Chunking worker failed to become ready within ${CHUNKING_WORKER_READY_TIMEOUT_MS / 1000} seconds`,
-            workerUrl,
-            workerExists: !!singletonWorker,
             portExists: !!singletonPort,
             timestamp: new Date().toISOString(),
+            workerExists: !!singletonWorker,
+            workerUrl,
           };
           logger.error('Chunking worker ready timeout', errorDetails);
           const detailedMessage =
@@ -225,19 +225,18 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
   const currentPort = singletonPort;
   const wrappedPort: ChunkingWorkerPort | null = currentPort
     ? {
-        transportKind: currentPort.transportKind,
-        chunkFile: async (...args) => {
-          setIsProcessing(true);
-          try {
-            return await currentPort.chunkFile(...args);
-          } finally {
-            setIsProcessing(false);
-          }
-        },
         chunkBatch: async (files, options, callbacks?: ChunkingBatchCallbacks) => {
           setIsProcessing(true);
           try {
             return await currentPort.chunkBatch(files, options, callbacks);
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        chunkFile: async (...args) => {
+          setIsProcessing(true);
+          try {
+            return await currentPort.chunkFile(...args);
           } finally {
             setIsProcessing(false);
           }
@@ -248,14 +247,15 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
           singletonPort = null;
           singletonReady = false;
         },
+        transportKind: currentPort.transportKind,
       }
     : null;
 
   return {
-    port: wrappedPort,
-    isReady: singletonReady,
-    isProcessing,
     error: singletonError,
+    isProcessing,
+    isReady: singletonReady,
+    port: wrappedPort,
     reinitialize,
   };
 }
@@ -319,5 +319,5 @@ export async function createStandaloneChunkingWorker(): Promise<{
     worker.terminate();
   };
 
-  return { port, waitForReady, terminate };
+  return { port, terminate, waitForReady };
 }

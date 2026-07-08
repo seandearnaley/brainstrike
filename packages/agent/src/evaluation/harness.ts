@@ -80,21 +80,21 @@ async function runTestCase(
     const executionTimeMs = performance.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    logger?.error('Test case failed', { id: testCase.id, error: errorMessage });
+    logger?.error('Test case failed', { error: errorMessage, id: testCase.id });
 
     return {
-      testCaseId: testCase.id,
-      query: testCase.query,
-      precisionAtK: Object.fromEntries(config.kValues.map((k) => [k, 0])),
-      recallAtK: Object.fromEntries(config.kValues.map((k) => [k, 0])),
-      mrr: 0,
-      retrievedCount: 0,
-      relevantFound: 0,
-      totalExpected: testCase.expectedFilePaths.length,
       allFound: false,
-      executionTimeMs,
-      retrievedResults: [],
       error: errorMessage,
+      executionTimeMs,
+      mrr: 0,
+      precisionAtK: Object.fromEntries(config.kValues.map((k) => [k, 0])),
+      query: testCase.query,
+      recallAtK: Object.fromEntries(config.kValues.map((k) => [k, 0])),
+      relevantFound: 0,
+      retrievedCount: 0,
+      retrievedResults: [],
+      testCaseId: testCase.id,
+      totalExpected: testCase.expectedFilePaths.length,
     };
   }
 }
@@ -128,9 +128,9 @@ export async function runEvaluationHarness(
 
   logger?.info('Starting evaluation', {
     dataset: dataset.name,
-    version: dataset.version,
-    testCases: dataset.testCases.length,
     kValues: config.kValues,
+    testCases: dataset.testCases.length,
+    version: dataset.version,
   });
 
   // Run all test cases with configurable concurrency
@@ -156,19 +156,19 @@ export async function runEvaluationHarness(
   const aggregatedMetrics = aggregateMetrics(testCaseResults, config.kValues);
 
   const report: EvaluationReport = {
+    aggregateMetrics: aggregatedMetrics,
     datasetName: dataset.name,
     datasetVersion: dataset.version,
-    timestamp: new Date().toISOString(),
-    aggregateMetrics: aggregatedMetrics,
-    testCaseResults,
     kValues: config.kValues,
+    testCaseResults,
+    timestamp: new Date().toISOString(),
   };
 
   logger?.info('Evaluation completed', {
-    totalMs: Date.now() - startTime,
     meanMrr: aggregatedMetrics.meanMrr.toFixed(3),
-    successRate: `${aggregatedMetrics.successfulEvaluations}/${aggregatedMetrics.totalTestCases}`,
     perfectRecallRate: `${(aggregatedMetrics.perfectRecallRate * 100).toFixed(1)}%`,
+    successRate: `${aggregatedMetrics.successfulEvaluations}/${aggregatedMetrics.totalTestCases}`,
+    totalMs: Date.now() - startTime,
   });
 
   return report;
@@ -243,18 +243,18 @@ export function formatReportJson(report: EvaluationReport): string {
         name: report.datasetName,
         version: report.datasetVersion,
       },
-      timestamp: report.timestamp,
-      summary: {
-        totalTestCases: report.aggregateMetrics.totalTestCases,
-        passed: report.aggregateMetrics.successfulEvaluations,
-        failed: report.aggregateMetrics.failedEvaluations,
-        perfectRecallRate: report.aggregateMetrics.perfectRecallRate,
-        meanMrr: report.aggregateMetrics.meanMrr,
-        avgExecutionTimeMs: report.aggregateMetrics.avgExecutionTimeMs,
-      },
+      kValues: report.kValues,
       precisionAtK: report.aggregateMetrics.meanPrecisionAtK,
       recallAtK: report.aggregateMetrics.meanRecallAtK,
-      kValues: report.kValues,
+      summary: {
+        avgExecutionTimeMs: report.aggregateMetrics.avgExecutionTimeMs,
+        failed: report.aggregateMetrics.failedEvaluations,
+        meanMrr: report.aggregateMetrics.meanMrr,
+        passed: report.aggregateMetrics.successfulEvaluations,
+        perfectRecallRate: report.aggregateMetrics.perfectRecallRate,
+        totalTestCases: report.aggregateMetrics.totalTestCases,
+      },
+      timestamp: report.timestamp,
     },
     null,
     2
@@ -355,5 +355,5 @@ export function meetsThresholds(
   failures.push(...checkAtKThresholds(m.meanPrecisionAtK, thresholds.minPrecisionAtK, 'P'));
   failures.push(...checkAtKThresholds(m.meanRecallAtK, thresholds.minRecallAtK, 'R'));
 
-  return { passed: failures.length === 0, failures };
+  return { failures, passed: failures.length === 0 };
 }

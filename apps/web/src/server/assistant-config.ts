@@ -29,7 +29,7 @@ export function resolveAssistantProviderConfig(): AssistantProviderConfig {
       return { apiKey: value, enabled: true, source: name };
     }
   }
-  return { enabled: false, disabledReason: 'missing_api_key' };
+  return { disabledReason: 'missing_api_key', enabled: false };
 }
 
 export function getAssistantApiKey(): string | undefined {

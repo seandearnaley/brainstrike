@@ -89,12 +89,12 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   const { storageAdapter } = useAdapters();
   const [isLoading, setIsLoading] = useState(true);
   const [preferences, setPreferences] = useState<PreviewPanelPreferences<T>>(() => ({
-    columnVisibility: options.defaultColumnVisibility,
-    sortField: options.defaultSortField,
-    sortDirection: options.defaultSortDirection,
-    groupingConfig: options.defaultGroupingConfig,
     collapsedGroups: [],
+    columnVisibility: options.defaultColumnVisibility,
+    groupingConfig: options.defaultGroupingConfig,
     pageSize: options.defaultPageSize,
+    sortDirection: options.defaultSortDirection,
+    sortField: options.defaultSortField,
   }));
 
   const lastSavedRef = useRef<PreviewPanelPreferences<T> | null>(null);
@@ -108,12 +108,12 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
         const parsed = JSON.parse(stored) as PreviewPanelPreferences<T>;
         // Validate and merge with defaults to handle schema changes
         const validated: PreviewPanelPreferences<T> = {
-          columnVisibility: { ...options.defaultColumnVisibility, ...parsed.columnVisibility },
-          sortField: parsed.sortField || options.defaultSortField,
-          sortDirection: parsed.sortDirection || options.defaultSortDirection,
-          groupingConfig: parsed.groupingConfig || options.defaultGroupingConfig,
           collapsedGroups: Array.isArray(parsed.collapsedGroups) ? parsed.collapsedGroups : [],
+          columnVisibility: { ...options.defaultColumnVisibility, ...parsed.columnVisibility },
+          groupingConfig: parsed.groupingConfig || options.defaultGroupingConfig,
           pageSize: parsed.pageSize || options.defaultPageSize,
+          sortDirection: parsed.sortDirection || options.defaultSortDirection,
+          sortField: parsed.sortField || options.defaultSortField,
         };
         return validated;
       }
@@ -173,12 +173,12 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   // Reset to defaults
   const resetPreferences = useCallback(() => {
     const defaultPreferences: PreviewPanelPreferences<T> = {
-      columnVisibility: options.defaultColumnVisibility,
-      sortField: options.defaultSortField,
-      sortDirection: options.defaultSortDirection,
-      groupingConfig: options.defaultGroupingConfig,
       collapsedGroups: [],
+      columnVisibility: options.defaultColumnVisibility,
+      groupingConfig: options.defaultGroupingConfig,
       pageSize: options.defaultPageSize,
+      sortDirection: options.defaultSortDirection,
+      sortField: options.defaultSortField,
     };
     setPreferences(defaultPreferences);
     persist(defaultPreferences);
@@ -227,9 +227,9 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   }, [flush]);
 
   return {
-    preferences,
-    updatePreferences,
-    resetPreferences,
     isLoading,
+    preferences,
+    resetPreferences,
+    updatePreferences,
   };
 }

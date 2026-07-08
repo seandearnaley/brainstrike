@@ -34,8 +34,8 @@ class MissingApiKeyError extends Error {
 }
 
 const DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS = {
-  ollama: 'http://127.0.0.1:11434/v1/embeddings',
   lmstudio: 'http://localhost:1234/v1/embeddings',
+  ollama: 'http://127.0.0.1:11434/v1/embeddings',
 } as const;
 
 /**
@@ -50,7 +50,6 @@ const DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS = {
  * Note: Using class with static members is intentional for Factory pattern
  * to maintain private state (instances Map) and provide clear namespace.
  */
-// biome-ignore lint/complexity/noStaticOnlyClass: Factory pattern with private state
 export class EmbeddingProviderFactory {
   /**
    * Cache of provider instances keyed by composite ID
@@ -102,22 +101,22 @@ export class EmbeddingProviderFactory {
       // Check if this is a missing API key error
       if (error instanceof MissingApiKeyError) {
         return {
-          ok: false,
           error: {
-            type: 'missing_api_key',
             provider: error.provider,
+            type: 'missing_api_key',
           },
+          ok: false,
         };
       }
 
       return {
-        ok: false,
         error: {
-          type: 'model_load_failed',
-          provider: config.provider as LocalProviderType,
           modelId: config.modelId,
+          provider: config.provider as LocalProviderType,
           reason: error instanceof Error ? error.message : String(error),
+          type: 'model_load_failed',
         },
+        ok: false,
       };
     }
   }
@@ -167,15 +166,15 @@ export class EmbeddingProviderFactory {
     switch (config.provider) {
       case 'openai':
         return new OpenAIEmbeddingProvider({
+          apiKey: requireApiKey('openai'),
           modelId: config.modelId,
           targetDimensions: config.dimensions,
-          apiKey: requireApiKey('openai'),
         });
 
       case 'google': {
         const options: { modelId: string; apiKey: string; outputDimensions?: number } = {
-          modelId: config.modelId,
           apiKey: requireApiKey('google'),
+          modelId: config.modelId,
         };
         if (config.outputDimensionality !== undefined) {
           options.outputDimensions = config.outputDimensionality;
@@ -189,8 +188,8 @@ export class EmbeddingProviderFactory {
           apiKey: string;
           inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
         } = {
-          modelId: config.modelId,
           apiKey: requireApiKey('cohere'),
+          modelId: config.modelId,
         };
         if (config.inputType !== undefined) {
           options.inputType = config.inputType;
@@ -200,8 +199,8 @@ export class EmbeddingProviderFactory {
 
       case 'voyage': {
         const options: { modelId: string; apiKey: string; inputType?: 'document' | 'query' } = {
-          modelId: config.modelId,
           apiKey: requireApiKey('voyage'),
+          modelId: config.modelId,
         };
         if (config.inputType !== undefined) {
           options.inputType = config.inputType;
@@ -213,13 +212,13 @@ export class EmbeddingProviderFactory {
         const endpoint =
           config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
         return new OpenAIEmbeddingProvider({
-          provider: config.provider,
-          modelId: config.modelId,
-          targetDimensions: config.dimensions,
           endpoint,
+          modelId: config.modelId,
+          provider: config.provider,
+          targetDimensions: config.dimensions,
           ...(apiKey ? { apiKey } : {}),
-          requiresApiKey: false,
           includeDimensions: false,
+          requiresApiKey: false,
         });
       }
 
@@ -318,12 +317,12 @@ export class EmbeddingProviderFactory {
       const provider = parts[0] ?? '';
       const modelId = parts[1] ?? '';
       const variant = parts[2] ?? 'default';
-      return { provider, modelId, variant };
+      return { modelId, provider, variant };
     });
 
     return {
-      size: EmbeddingProviderFactory.instances.size,
       providers,
+      size: EmbeddingProviderFactory.instances.size,
     };
   }
 

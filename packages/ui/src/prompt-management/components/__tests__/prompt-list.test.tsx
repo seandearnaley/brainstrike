@@ -38,35 +38,35 @@ vi.mock('../prompt-card', () => ({
 }));
 
 const categories: Category[] = [
-  { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
-  { id: 'coding', name: 'Coding', color: '#3b82f6', icon: 'Code' },
+  { color: '#64748b', icon: 'Box', id: 'general', name: 'General' },
+  { color: '#3b82f6', icon: 'Code', id: 'coding', name: 'Coding' },
 ];
 
 const prompts: Prompt[] = [
   {
-    id: 'p1',
-    title: 'Refactor helper',
-    content: 'Refactor this utility with strict typing.',
     categoryId: 'coding',
-    tags: ['typescript', 'refactor'],
-    modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.3, topP: 1 },
-    revisions: [],
-    rating: 5,
-    isFavorite: true,
+    content: 'Refactor this utility with strict typing.',
     createdAt: 1,
+    id: 'p1',
+    isFavorite: true,
+    modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.3, topP: 1 },
+    rating: 5,
+    revisions: [],
+    tags: ['typescript', 'refactor'],
+    title: 'Refactor helper',
     updatedAt: 2,
   },
   {
-    id: 'p2',
-    title: 'Email response',
-    content: 'Write a concise email response for customer support.',
     categoryId: 'missing-category',
-    tags: ['writing'],
-    modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.5, topP: 1 },
-    revisions: [],
-    rating: 4,
-    isFavorite: false,
+    content: 'Write a concise email response for customer support.',
     createdAt: 3,
+    id: 'p2',
+    isFavorite: false,
+    modelSettings: { model: 'openai:gpt-4o-mini', temperature: 0.5, topP: 1 },
+    rating: 4,
+    revisions: [],
+    tags: ['writing'],
+    title: 'Email response',
     updatedAt: 4,
   },
 ];
@@ -76,7 +76,7 @@ describe('PromptList', () => {
     render(
       <PromptList
         categories={categories}
-        filter={{ search: '', tags: [], favoritesOnly: false }}
+        filter={{ favoritesOnly: false, search: '', tags: [] }}
         onCopy={() => {}}
         onDelete={() => {}}
         onEdit={() => {}}
@@ -100,7 +100,7 @@ describe('PromptList', () => {
     const { rerender } = render(
       <PromptList
         categories={categories}
-        filter={{ search: 'refactor', tags: [], favoritesOnly: false }}
+        filter={{ favoritesOnly: false, search: 'refactor', tags: [] }}
         onCopy={onCopy}
         onDelete={onDelete}
         onEdit={onEdit}
@@ -125,7 +125,7 @@ describe('PromptList', () => {
     rerender(
       <PromptList
         categories={categories}
-        filter={{ search: '', categoryId: 'coding', tags: ['typescript'], favoritesOnly: true }}
+        filter={{ categoryId: 'coding', favoritesOnly: true, search: '', tags: ['typescript'] }}
         onCopy={onCopy}
         onDelete={onDelete}
         onEdit={onEdit}
@@ -139,7 +139,7 @@ describe('PromptList', () => {
     rerender(
       <PromptList
         categories={categories}
-        filter={{ search: '', tags: ['missing-tag'], favoritesOnly: false }}
+        filter={{ favoritesOnly: false, search: '', tags: ['missing-tag'] }}
         onCopy={onCopy}
         onDelete={onDelete}
         onEdit={onEdit}
@@ -154,7 +154,7 @@ describe('PromptList', () => {
     render(
       <PromptList
         categories={categories}
-        filter={{ search: 'email', tags: [], favoritesOnly: false }}
+        filter={{ favoritesOnly: false, search: 'email', tags: [] }}
         onCopy={() => {}}
         onDelete={() => {}}
         onEdit={() => {}}

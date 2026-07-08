@@ -78,7 +78,7 @@ function reconcileInFlightOnShrink(params: {
   const narrowedInFlight = !cancelBatch && inFlightRemoved > 0;
   // `remainingInFlight` is always `inFlight.size` here: when `cancelBatch` is
   // true, `inFlight.size === 0`, so no conditional is needed.
-  return { cancelBatch, narrowedInFlight, removedCount, remainingInFlight };
+  return { cancelBatch, narrowedInFlight, remainingInFlight, removedCount };
 }
 
 /**
@@ -129,10 +129,10 @@ export function handleSelectionShrink(params: {
     onPulse,
   } = params;
   const result = reconcileInFlightOnShrink({
-    previousSelectedFiles,
-    selectedFiles,
     inFlight,
     pendingNoHandle,
+    previousSelectedFiles,
+    selectedFiles,
   });
 
   if (result.cancelBatch) {
@@ -144,8 +144,8 @@ export function handleSelectionShrink(params: {
     cancelBatch();
     onPulse();
     logger.debug('Cleared in-flight queue due to full selection shrink', {
-      previousSize,
       nextSize: selectedFiles.size,
+      previousSize,
       removedCount: result.removedCount,
     });
     return;
@@ -154,10 +154,10 @@ export function handleSelectionShrink(params: {
   if (result.narrowedInFlight) {
     onPulse();
     logger.debug('Narrowed in-flight queue to still-selected files', {
-      previousSize,
       nextSize: selectedFiles.size,
-      removedCount: result.removedCount,
+      previousSize,
       remainingInFlight: result.remainingInFlight,
+      removedCount: result.removedCount,
     });
   }
 }

@@ -69,7 +69,7 @@ afterEach(async () => {
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
-      await fsPromises.rm(root, { recursive: true, force: true });
+      await fsPromises.rm(root, { force: true, recursive: true });
     }
   }
 });
@@ -84,7 +84,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     indexEmpty(); // index has NOTHING for this token
 
     const result = await runGrepSearch(
-      { pattern: 'FRESHLY_EDITED_TOKEN', outputMode: 'content' },
+      { outputMode: 'content', pattern: 'FRESHLY_EDITED_TOKEN' },
       singleRoot(root)
     );
     if (result.outputMode !== 'content') {
@@ -122,11 +122,11 @@ describe('grepSearch hybrid — merge / dedup / label', () => {
     const root = await makeWorkspace({ 'src/x.ts': 'shared NEEDLE here\n' });
     // The index ALSO has the exact same (path, line) — startLine 1 → line 1.
     queryMock.mockResolvedValue({
-      rows: [{ content: 'shared NEEDLE here', start_line: 1, path: 'src/x.ts' }],
+      rows: [{ content: 'shared NEEDLE here', path: 'src/x.ts', start_line: 1 }],
     });
 
     const result = await runGrepSearch(
-      { pattern: 'NEEDLE', outputMode: 'content' },
+      { outputMode: 'content', pattern: 'NEEDLE' },
       singleRoot(root)
     );
     if (result.outputMode !== 'content') {
@@ -145,11 +145,11 @@ describe('grepSearch hybrid — merge / dedup / label', () => {
     // disk for that token) reports a match — an index-only hit.
     const root = await makeWorkspace({ 'src/fresh.ts': 'TOKEN on disk\n' });
     queryMock.mockResolvedValue({
-      rows: [{ content: 'TOKEN in index', start_line: 7, path: 'src/stale.ts' }],
+      rows: [{ content: 'TOKEN in index', path: 'src/stale.ts', start_line: 7 }],
     });
 
     const result = await runGrepSearch(
-      { pattern: 'TOKEN', outputMode: 'content' },
+      { outputMode: 'content', pattern: 'TOKEN' },
       singleRoot(root)
     );
     if (result.outputMode !== 'content') {
@@ -181,7 +181,7 @@ describe('grepSearch hybrid — rg-absent fallback (non-silent)', () => {
 
     try {
       const result = await runGrepSearch(
-        { pattern: 'WALK_TOKEN', outputMode: 'content' },
+        { outputMode: 'content', pattern: 'WALK_TOKEN' },
         singleRoot(root)
       );
       if (result.outputMode !== 'content') {
@@ -212,7 +212,7 @@ describe('grepSearch hybrid — path containment (symlink escape)', () => {
     indexEmpty();
 
     const result = await runGrepSearch(
-      { pattern: 'SECRET_TOKEN', outputMode: 'content' },
+      { outputMode: 'content', pattern: 'SECRET_TOKEN' },
       singleRoot(root)
     );
     if (result.outputMode !== 'content') {

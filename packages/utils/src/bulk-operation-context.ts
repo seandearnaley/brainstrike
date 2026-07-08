@@ -59,14 +59,14 @@ interface BulkOperationState {
 // Global state for bulk operation context
 let globalState: BulkOperationState = {
   active: false,
-  previousLevel: null,
+  enterCount: 0,
   options: {
     level: LogLevel.WARN,
-    sampleRate: 0,
     onEnter: () => {},
     onExit: () => {},
+    sampleRate: 0,
   },
-  enterCount: 0,
+  previousLevel: null,
 };
 
 // Registered pause/resume callbacks (e.g., from LogBuffer)
@@ -136,9 +136,9 @@ export interface BulkOperationContext {
 export function createBulkOperationContext(options?: BulkOperationOptions): BulkOperationContext {
   const resolvedOptions: Required<BulkOperationOptions> = {
     level: options?.level ?? LogLevel.WARN,
-    sampleRate: options?.sampleRate ?? 0,
     onEnter: options?.onEnter ?? (() => {}),
     onExit: options?.onExit ?? (() => {}),
+    sampleRate: options?.sampleRate ?? 0,
   };
 
   return {
@@ -237,13 +237,13 @@ export function withBulkOperationSync<T>(fn: () => T, options?: BulkOperationOpt
 export function resetBulkOperationState(): void {
   globalState = {
     active: false,
-    previousLevel: null,
+    enterCount: 0,
     options: {
       level: LogLevel.WARN,
-      sampleRate: 0,
       onEnter: () => {},
       onExit: () => {},
+      sampleRate: 0,
     },
-    enterCount: 0,
+    previousLevel: null,
   };
 }

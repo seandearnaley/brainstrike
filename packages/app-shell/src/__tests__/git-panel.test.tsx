@@ -44,7 +44,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         data-testid="diff-view-stub"
       />
     ),
-    useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
+    useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
   };
 });
 
@@ -57,35 +57,35 @@ function ok<T>(value: T): GitResult<T> {
 
 function makeStatus(overrides: Partial<GitStatus> = {}): GitStatus {
   return {
-    isRepository: true,
-    branch: 'main',
-    upstream: 'origin/main',
     ahead: 2,
     behind: 1,
+    branch: 'main',
     clean: false,
     files: [
-      { path: 'staged.ts', status: 'M', staged: true, unstaged: false, untracked: false },
-      { path: 'unstaged.ts', status: 'M', staged: false, unstaged: true, untracked: false },
-      { path: 'new.ts', status: '?', staged: false, unstaged: false, untracked: true },
+      { path: 'staged.ts', staged: true, status: 'M', unstaged: false, untracked: false },
+      { path: 'unstaged.ts', staged: false, status: 'M', unstaged: true, untracked: false },
+      { path: 'new.ts', staged: false, status: '?', unstaged: false, untracked: true },
     ],
+    isRepository: true,
+    upstream: 'origin/main',
     ...overrides,
   };
 }
 
 function installBridge(bridge: Partial<GitBridge>): GitBridge {
   const full: GitBridge = {
-    status: vi.fn(async () => ok(makeStatus())),
-    diff: vi.fn(async () =>
-      ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
-    ),
-    stage: vi.fn(async () => ok(null)),
-    unstage: vi.fn(async () => ok(null)),
-    commit: vi.fn(async () => ok({ commit: 'abc1234', branch: 'main' })),
     aheadBehind: vi.fn(async () =>
       ok({ ahead: 2, behind: 1, hasUpstream: true, upstream: 'origin/main' })
     ),
-    push: vi.fn(async () => ok({ output: 'Everything up-to-date' })),
+    commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
+    diff: vi.fn(async () =>
+      ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
+    ),
     pull: vi.fn(async () => ok({ output: 'Already up to date.' })),
+    push: vi.fn(async () => ok({ output: 'Everything up-to-date' })),
+    stage: vi.fn(async () => ok(null)),
+    status: vi.fn(async () => ok(makeStatus())),
+    unstage: vi.fn(async () => ok(null)),
     ...bridge,
   };
   (window as unknown as { git?: GitBridge }).git = full;
@@ -329,7 +329,7 @@ describe('GitPanel', () => {
   it('shows a distinct error state (not "no textual changes") when the diff fails to load', async () => {
     const user = userEvent.setup();
     installBridge({
-      diff: vi.fn(async (): Promise<GitResult<never>> => ({ ok: false, error: 'diff boom' })),
+      diff: vi.fn(async (): Promise<GitResult<never>> => ({ error: 'diff boom', ok: false })),
     });
     render(<GitPanel />);
 
@@ -346,7 +346,7 @@ describe('GitPanel', () => {
   it('enables Push for a branch with NO upstream (so a new branch can set it)', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({
-      status: vi.fn(async () => ok(makeStatus({ upstream: null, ahead: null, behind: null }))),
+      status: vi.fn(async () => ok(makeStatus({ ahead: null, behind: null, upstream: null }))),
     });
     render(<GitPanel />);
 
@@ -365,8 +365,8 @@ describe('GitPanel', () => {
     installBridge({
       commit: vi.fn(
         async (): Promise<GitResult<{ branch: string | null; commit: string }>> => ({
-          ok: false,
           error: 'nothing to commit',
+          ok: false,
         })
       ),
     });
@@ -390,13 +390,13 @@ describe('GitPanel', () => {
       status: vi.fn(async () =>
         ok(
           makeStatus({
-            isRepository: false,
-            branch: null,
-            upstream: null,
             ahead: null,
             behind: null,
+            branch: null,
             clean: true,
             files: [],
+            isRepository: false,
+            upstream: null,
           })
         )
       ),
@@ -419,7 +419,7 @@ describe('GitPanel', () => {
   it('surfaces a status load error with a retry affordance', async () => {
     installBridge({
       status: vi.fn(
-        async (): Promise<GitResult<GitStatus>> => ({ ok: false, error: 'git exploded' })
+        async (): Promise<GitResult<GitStatus>> => ({ error: 'git exploded', ok: false })
       ),
     });
     render(<GitPanel />);

@@ -123,7 +123,7 @@ afterEach(async () => {
   while (createdDirs.length > 0) {
     const dir = createdDirs.pop();
     if (dir) {
-      await fsPromises.rm(dir, { recursive: true, force: true });
+      await fsPromises.rm(dir, { force: true, recursive: true });
     }
   }
 });
@@ -194,8 +194,8 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     const owner = new FakeWebContents(1);
 
     const created = await handlers.create(castOwner(owner), {
-      rootId: 'root-id',
       cols: 80,
+      rootId: 'root-id',
       rows: 24,
     });
     expect(created.ok).toBe(true);
@@ -207,20 +207,20 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     expect(liveTerminalCountForTest()).toBe(1);
 
     // Drive the shell: print a unique marker, then read it from the data stream.
-    const writeResult = handlers.write({ terminalId, data: 'echo HELLO_PTY_MARKER\r' }, owner.id);
+    const writeResult = handlers.write({ data: 'echo HELLO_PTY_MARKER\r', terminalId }, owner.id);
     expect(writeResult.ok).toBe(true);
 
     const sawMarker = await waitFor(() => owner.aggregatedData.includes('HELLO_PTY_MARKER'));
     expect(sawMarker).toBe(true);
 
     // Resize must not crash.
-    const resizeResult = handlers.resize({ terminalId, cols: 120, rows: 40 }, owner.id);
+    const resizeResult = handlers.resize({ cols: 120, rows: 40, terminalId }, owner.id);
     expect(resizeResult.ok).toBe(true);
 
     // Capture the shell pid via the registry-free route: ask the shell to print
     // its own pid, then assert that pid is dead after destroy.
     owner.dataEvents.length = 0;
-    handlers.write({ terminalId, data: 'echo PID=$$\r' }, owner.id);
+    handlers.write({ data: 'echo PID=$$\r', terminalId }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const match = owner.aggregatedData.match(/PID=(\d+)/);
     expect(match).not.toBeNull();
@@ -258,7 +258,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     // it ignore SIGHUP (so node-pty's leader SIGHUP can't reap it); disown +
     // job control put it in its OWN process group — the orphan the reviewer found.
     handlers.write(
-      { terminalId, data: 'nohup sleep 600 >/dev/null 2>&1 & C=$!; disown $C; echo CHILD=$C\r' },
+      { data: 'nohup sleep 600 >/dev/null 2>&1 & C=$!; disown $C; echo CHILD=$C\r', terminalId },
       owner.id
     );
     await waitFor(() => /CHILD=\d+/.test(owner.aggregatedData));
@@ -290,7 +290,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
 
     // Ask the shell to exit; the onExit handler should push terminal:exit and
     // drop the registry entry.
-    handlers.write({ terminalId, data: 'exit\r' }, owner.id);
+    handlers.write({ data: 'exit\r', terminalId }, owner.id);
 
     const exited = await waitFor(() => owner.exitEvents.length > 0);
     expect(exited).toBe(true);
@@ -303,12 +303,12 @@ describe('terminal IPC handlers — structured errors', () => {
   it('returns a structured error writing/resizing/destroying an unknown terminal', () => {
     const handlers = createTerminalIpcHandlers({ resolver: fakeResolver([]) });
 
-    const write = handlers.write({ terminalId: 'ghost', data: 'x' }, 1);
+    const write = handlers.write({ data: 'x', terminalId: 'ghost' }, 1);
     expect(write.ok).toBe(false);
     if (!write.ok) {
       expect(write.error).toMatch(/No live terminal/);
     }
-    const resize = handlers.resize({ terminalId: 'ghost', cols: 10, rows: 10 }, 1);
+    const resize = handlers.resize({ cols: 10, rows: 10, terminalId: 'ghost' }, 1);
     expect(resize.ok).toBe(false);
     const destroy = handlers.destroy({ terminalId: 'ghost' }, 1);
     expect(destroy.ok).toBe(false);
@@ -328,7 +328,7 @@ describe('terminal IPC handlers — structured errors', () => {
     const { terminalId } = created.value;
     handlers.destroy({ terminalId }, owner.id);
 
-    const write = handlers.write({ terminalId, data: 'echo nope\r' }, owner.id);
+    const write = handlers.write({ data: 'echo nope\r', terminalId }, owner.id);
     expect(write.ok).toBe(false);
     if (!write.ok) {
       expect(write.error).toMatch(/No live terminal/);
@@ -351,19 +351,19 @@ describe('terminal IPC handlers — structured errors', () => {
 
     // The attacker knows the id but does not own the terminal → all rejected,
     // with the SAME error as an unknown id (no existence oracle).
-    const write = handlers.write({ terminalId, data: 'echo pwned\r' }, attacker.id);
+    const write = handlers.write({ data: 'echo pwned\r', terminalId }, attacker.id);
     expect(write.ok).toBe(false);
     if (!write.ok) {
       expect(write.error).toMatch(/No live terminal/);
     }
-    const resize = handlers.resize({ terminalId, cols: 10, rows: 10 }, attacker.id);
+    const resize = handlers.resize({ cols: 10, rows: 10, terminalId }, attacker.id);
     expect(resize.ok).toBe(false);
     const destroy = handlers.destroy({ terminalId }, attacker.id);
     expect(destroy.ok).toBe(false);
 
     // The terminal is untouched and the OWNER can still drive + destroy it.
     expect(liveTerminalCountForTest()).toBe(1);
-    expect(handlers.write({ terminalId, data: 'echo ok\r' }, owner.id).ok).toBe(true);
+    expect(handlers.write({ data: 'echo ok\r', terminalId }, owner.id).ok).toBe(true);
     expect(handlers.destroy({ terminalId }, owner.id).ok).toBe(true);
     expect(liveTerminalCountForTest()).toBe(0);
   });
@@ -410,7 +410,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
       [ownerA, a],
       [ownerB, b],
     ] as const) {
-      handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' }, owner.id);
+      handlers.write({ data: 'echo PID=$$\r', terminalId: created.value.terminalId }, owner.id);
       await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
       const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
       expect(Number.isInteger(pid)).toBe(true);
@@ -439,7 +439,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
     if (!created.ok) {
       throw new Error('create failed');
     }
-    handlers.write({ terminalId: created.value.terminalId, data: 'echo PID=$$\r' }, owner.id);
+    handlers.write({ data: 'echo PID=$$\r', terminalId: created.value.terminalId }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
     expect(liveTerminalCountForTest()).toBe(1);

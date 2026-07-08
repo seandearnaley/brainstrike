@@ -9,8 +9,9 @@ test('shared DB lane manifest reports synthetic tests without unit lane ownershi
   const tests = ['known-db-test.test.ts', 'synthetic-new-db-test.test.ts'];
 
   assert.deepEqual(
-    buildDbUnitLaneMap(tests, [{ name: 'schema-migration', matches: [/^known-db-test\.test\.ts$/] }])
-      .failures,
+    buildDbUnitLaneMap(tests, [
+      { matches: [/^known-db-test\.test\.ts$/], name: 'schema-migration' },
+    ]).failures,
     ['synthetic-new-db-test.test.ts matched 0 DB test lanes: ']
   );
 });
@@ -20,7 +21,7 @@ test('coverage lanes report unit-owned tests without a coverage default', () => 
     buildDbCoverageLaneMap(['known-db-test.test.ts'], {
       coverageDefaultsByUnitLane: {},
       laneOrder: ['architecture'],
-      unitLaneDefinitions: [{ name: 'schema-migration', matches: [/^known-db-test\.test\.ts$/] }],
+      unitLaneDefinitions: [{ matches: [/^known-db-test\.test\.ts$/], name: 'schema-migration' }],
     }).failures,
     [
       'Test known-db-test.test.ts has no coverage default for DB unit lane schema-migration.',
@@ -35,7 +36,7 @@ test('coverage lanes reject default coverage targets outside laneOrder', () => {
       'schema-migration': 'migrationz',
     },
     laneOrder: ['migrations'],
-    unitLaneDefinitions: [{ name: 'schema-migration', matches: [/^migration-a\.test\.ts$/] }],
+    unitLaneDefinitions: [{ matches: [/^migration-a\.test\.ts$/], name: 'schema-migration' }],
   });
 
   assert.deepEqual(failures, [
@@ -55,7 +56,7 @@ test('coverage lanes reject coverage override keys outside laneOrder', () => {
       runtimee: ['worker-a.test.ts'],
     },
     laneOrder: ['architecture', 'runtime'],
-    unitLaneDefinitions: [{ name: 'integration', matches: [/^worker-a\.test\.ts$/] }],
+    unitLaneDefinitions: [{ matches: [/^worker-a\.test\.ts$/], name: 'integration' }],
   });
 
   assert.deepEqual(failures, [
@@ -64,10 +65,13 @@ test('coverage lanes reject coverage override keys outside laneOrder', () => {
     'Lane architecture has no tests.',
     'Lane runtime has no tests.',
   ]);
-  assert.deepEqual([...laneMap.entries()], [
-    ['architecture', []],
-    ['runtime', []],
-  ]);
+  assert.deepEqual(
+    [...laneMap.entries()],
+    [
+      ['architecture', []],
+      ['runtime', []],
+    ]
+  );
 });
 
 test('coverage lanes derive from unit lane ownership unless a coverage override is declared', () => {
@@ -83,17 +87,20 @@ test('coverage lanes derive from unit lane ownership unless a coverage override 
       },
       laneOrder: ['migrations', 'queue', 'runtime'],
       unitLaneDefinitions: [
-        { name: 'queue', matches: [/^queue-a\.test\.ts$/] },
-        { name: 'schema-migration', matches: [/^migration-a\.test\.ts$/] },
-        { name: 'integration', matches: [/^worker-a\.test\.ts$/] },
+        { matches: [/^queue-a\.test\.ts$/], name: 'queue' },
+        { matches: [/^migration-a\.test\.ts$/], name: 'schema-migration' },
+        { matches: [/^worker-a\.test\.ts$/], name: 'integration' },
       ],
     }
   );
 
   assert.deepEqual(failures, []);
-  assert.deepEqual([...laneMap.entries()], [
-    ['migrations', ['migration-a.test.ts']],
-    ['queue', ['queue-a.test.ts']],
-    ['runtime', ['worker-a.test.ts']],
-  ]);
+  assert.deepEqual(
+    [...laneMap.entries()],
+    [
+      ['migrations', ['migration-a.test.ts']],
+      ['queue', ['queue-a.test.ts']],
+      ['runtime', ['worker-a.test.ts']],
+    ]
+  );
 });

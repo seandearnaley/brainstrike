@@ -161,8 +161,8 @@ function tryNormalizeCachePath(folderId: string, filePath: string): string | nul
     return normalizeCachePath(folderId, filePath);
   } catch (error) {
     logger.warn('Rejected unsafe token cache file path before cache keying', {
-      folderId,
       filePath,
+      folderId,
       reason: formatErrorMessage(error),
     });
     return null;
@@ -294,22 +294,22 @@ export function useTokenCache({
         // Cache miss or stale - count in worker
         const result = (await workerPool.exec('countTokens', [
           {
-            id: key,
             content,
+            id: key,
             mode: countingMode,
           },
         ])) as TokenCountResult;
 
         // Store in persistent cache
         const entry: TokenCacheEntry = {
-          folderId,
-          filePath: normalizedFilePath,
           contentHash: result.contentHash,
+          countingMode,
+          filePath: normalizedFilePath,
           fileSize: fileSize ?? new Blob([content]).size,
+          folderId,
+          modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
           mtimeMs: mtimeMs ?? null,
           tokenCount: result.tokenCount,
-          countingMode,
-          modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
         };
 
         await store.set(entry);
@@ -321,7 +321,7 @@ export function useTokenCache({
         onTokenResolved?.(folderId, normalizedFilePath, result.tokenCount);
       } catch (error) {
         // Log error but don't crash - token count will show as loading
-        logger.error('Failed to count tokens', { folderId, filePath: normalizedFilePath, error });
+        logger.error('Failed to count tokens', { error, filePath: normalizedFilePath, folderId });
       } finally {
         pendingRequests.current.delete(key);
         setLoadingCount((c) => c - 1);
@@ -372,8 +372,8 @@ export function useTokenCache({
       const cached = hotCache.current.get(key);
       if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
         diagLogger.debug('token-cache diag: hot cache lookup', {
-          key,
           hit: cached !== undefined,
+          key,
           value: cached,
         });
       }
@@ -384,11 +384,11 @@ export function useTokenCache({
       // If content provided and not pending, queue for deferred loading
       // This avoids calling setState during render (React anti-pattern)
       if (content && !pendingRequests.current.has(key)) {
-        deferredLoadQueue.current.push({ folderId, filePath: normalizedFilePath, content });
+        deferredLoadQueue.current.push({ content, filePath: normalizedFilePath, folderId });
       }
 
       if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
-        diagLogger.debug('token-cache diag: cache miss', { key, hasContent: Boolean(content) });
+        diagLogger.debug('token-cache diag: cache miss', { hasContent: Boolean(content), key });
       }
 
       return null; // Loading
@@ -556,18 +556,18 @@ export function useTokenCache({
   // NOTE: version is included in deps to trigger consumer re-renders when cache updates
   return useMemo(
     () => ({
-      getTokenCount,
-      getFileSize,
-      getTotalTokens,
-      isLoading,
-      isAnyLoading: loadingCount > 0,
-      queueForCounting,
-      preloadFolder,
-      clearHotCache,
-      invalidate,
-      updateHotCache,
-      updateFileSizeCache,
       cacheVersion: version,
+      clearHotCache,
+      getFileSize,
+      getTokenCount,
+      getTotalTokens,
+      invalidate,
+      isAnyLoading: loadingCount > 0,
+      isLoading,
+      preloadFolder,
+      queueForCounting,
+      updateFileSizeCache,
+      updateHotCache,
     }),
     [
       getTokenCount,

@@ -24,7 +24,7 @@ describe('playwright-environment helpers', () => {
     Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
     Reflect.deleteProperty(process.env, 'CODEX_ENV');
 
-    expect(detectEnvironment()).toEqual({ isCodex: false, isGitHubActions: false, isCI: false });
+    expect(detectEnvironment()).toEqual({ isCI: false, isCodex: false, isGitHubActions: false });
 
     process.env['CI'] = '1';
     expect(detectEnvironment().isCI).toBe(true);
@@ -51,11 +51,11 @@ describe('playwright-environment helpers', () => {
   });
 
   it('computes worker count and retries per env', () => {
-    expect(getWorkerCount({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(1);
-    expect(getWorkerCount({ isCodex: false, isGitHubActions: true, isCI: true })).toBe(2);
-    expect(getWorkerCount({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(1);
-    expect(getRetryCount({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(1);
-    expect(getRetryCount({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
+    expect(getWorkerCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
+    expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: true })).toBe(2);
+    expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: false })).toBe(1);
+    expect(getRetryCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
+    expect(getRetryCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe(0);
   });
 
   it('keeps GitHub Actions on two workers without same-file parallelism', () => {
@@ -92,14 +92,14 @@ describe('playwright-environment helpers', () => {
   });
 
   it('keeps Playwright global timeout disabled in every environment', () => {
-    expect(getGlobalTimeout({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(0);
-    expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(0);
-    expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
+    expect(getGlobalTimeout({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(0);
+    expect(getGlobalTimeout({ isCI: true, isCodex: false, isGitHubActions: false })).toBe(0);
+    expect(getGlobalTimeout({ isCI: false, isCodex: false, isGitHubActions: false })).toBe(0);
   });
 
   it('CI launch args are empty locally and populated in CI', () => {
-    expect(getCILaunchArgs({ isCodex: false, isGitHubActions: false, isCI: false })).toEqual([]);
-    const args = getCILaunchArgs({ isCodex: true, isGitHubActions: false, isCI: true });
+    expect(getCILaunchArgs({ isCI: false, isCodex: false, isGitHubActions: false })).toEqual([]);
+    const args = getCILaunchArgs({ isCI: true, isCodex: true, isGitHubActions: false });
     expect(Array.isArray(args)).toBe(true);
     expect(args.length).toBeGreaterThan(0);
   });

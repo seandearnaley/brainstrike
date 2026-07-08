@@ -316,14 +316,14 @@ export interface ContentReader {
    *
    * @param compositeKeys - Array of composite keys to prefetch
    */
-  prefetchBatch?(compositeKeys: string[]): Promise<void>;
+  prefetchBatch?: (compositeKeys: string[]) => Promise<void>;
   /**
    * Read content for a single file path on-demand.
    *
    * @param compositeKey - The file's composite key (folderId:path format)
    * @returns File content as string, or null if file cannot be read
    */
-  readContent(compositeKey: string): Promise<string | null>;
+  readContent: (compositeKey: string) => Promise<string | null>;
 
   /**
    * Optional: release content after processing to allow GC.
@@ -331,7 +331,7 @@ export interface ContentReader {
    *
    * @param compositeKey - The file's composite key
    */
-  releaseContent?(compositeKey: string): void;
+  releaseContent?: (compositeKey: string) => void;
 }
 
 /**

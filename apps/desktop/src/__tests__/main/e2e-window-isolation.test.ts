@@ -15,8 +15,8 @@ const electronMockState = vi.hoisted(() => ({
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
-    whenReadyResolved: true,
     documentsPath: '/mock/userData',
+    whenReadyResolved: true,
   });
   Object.assign(app, {
     dock: { hide: vi.fn() },
@@ -44,23 +44,23 @@ vi.mock('electron', async () => {
   return {
     app,
     BrowserWindow,
-    Menu: {
-      buildFromTemplate: vi.fn(),
-      setApplicationMenu: vi.fn(),
+    clipboard: {
+      writeText: vi.fn(),
     },
     dialog: {
       showErrorBox: vi.fn(),
       showMessageBox: vi.fn(),
     },
     ipcMain,
+    Menu: {
+      buildFromTemplate: vi.fn(),
+      setApplicationMenu: vi.fn(),
+    },
     powerMonitor: {
       on: vi.fn(),
     },
     shell: {
       openExternal: vi.fn(),
-    },
-    clipboard: {
-      writeText: vi.fn(),
     },
   };
 });
@@ -83,22 +83,22 @@ vi.mock('@brainstrike/storage/electron', () => {
 
 vi.mock('../../assistant-server', () => ({
   startAssistantServer: vi.fn(async () => ({
-    url: 'http://127.0.0.1:0',
     stop: vi.fn(),
+    url: 'http://127.0.0.1:0',
   })),
 }));
 
 vi.mock('../../create-window', () => ({
   createWindow: vi.fn(async () => ({
-    on: vi.fn(),
+    getBounds: vi.fn(() => ({ height: 800, width: 1280, x: 0, y: 0 })),
+    getNormalBounds: vi.fn(() => ({ height: 800, width: 1280, x: 0, y: 0 })),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
-    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    on: vi.fn(),
     webContents: {
-      send: vi.fn(),
       reloadIgnoringCache: vi.fn(),
+      send: vi.fn(),
     },
   })),
   noteNextWindowReload: vi.fn(),

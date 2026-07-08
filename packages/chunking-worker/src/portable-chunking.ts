@@ -44,7 +44,7 @@ function auditFirstSuccessfulParse(adapterId: string): void {
     (globalThis as { window?: unknown }).window !== workerSelf
   ) {
     try {
-      workerSelf.postMessage({ type: 'log', level: 'info', message });
+      workerSelf.postMessage({ level: 'info', message, type: 'log' });
       return;
     } catch {
       // structured-clone or transport failure — fall through to console
@@ -123,28 +123,28 @@ const SKIP_CHUNKING_PATTERNS = [
 ];
 
 const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }> = [
-  { pattern: /\.vue$/i, language: 'javascript' },
-  { pattern: /\.svelte$/i, language: 'javascript' },
-  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
-  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
-  { pattern: /\.mm$/i, language: 'cpp' },
-  { pattern: /\.m$/i, language: 'cpp' },
+  { language: 'javascript', pattern: /\.vue$/i },
+  { language: 'javascript', pattern: /\.svelte$/i },
+  { language: 'typescript', pattern: /\.(ts|tsx|mts|cts)$/i },
+  { language: 'javascript', pattern: /\.(js|jsx|mjs|cjs)$/i },
+  { language: 'cpp', pattern: /\.mm$/i },
+  { language: 'cpp', pattern: /\.m$/i },
   // P2 fix from #1002 review: .pyi (Python stub files) also count as
   // Python source. Without this, the routing test for .pyi passes at the
   // selectAdapter level but the chunker's supportsAst gate (in chunkCode)
   // returns false for .pyi files because detectCodeLanguage returns null.
   // Net effect: .pyi files would silently bypass tree-sitter even when
   // the operator enables it.
-  { pattern: /\.pyi?$/i, language: 'python' },
-  { pattern: /\.rs$/i, language: 'rust' },
-  { pattern: /\.go$/i, language: 'go' },
-  { pattern: /\.(java|class)$/i, language: 'java' },
-  { pattern: /\.cs$/i, language: 'csharp' },
-  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
-  { pattern: /\.rb$/i, language: 'ruby' },
-  { pattern: /\.php$/i, language: 'php' },
-  { pattern: /\.swift$/i, language: 'swift' },
-  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
+  { language: 'python', pattern: /\.pyi?$/i },
+  { language: 'rust', pattern: /\.rs$/i },
+  { language: 'go', pattern: /\.go$/i },
+  { language: 'java', pattern: /\.(java|class)$/i },
+  { language: 'csharp', pattern: /\.cs$/i },
+  { language: 'cpp', pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i },
+  { language: 'ruby', pattern: /\.rb$/i },
+  { language: 'php', pattern: /\.php$/i },
+  { language: 'swift', pattern: /\.swift$/i },
+  { language: 'kotlin', pattern: /\.(kt|kts)$/i },
 ];
 
 const LARGE_STRUCTURED_PATTERNS = [
@@ -188,8 +188,8 @@ function shouldSkipChunking(
   for (const pattern of SKIP_CHUNKING_PATTERNS) {
     if (pattern.test(fileName)) {
       return {
-        skip: true,
         reason: `Lock file or dependency manifest: ${fileName}`,
+        skip: true,
       };
     }
   }
@@ -197,22 +197,22 @@ function shouldSkipChunking(
   // Zero-byte files are valid repository inputs. Skip them explicitly so the
   // worker never treats an empty accurate token count as a chunking failure.
   if (content.length === 0) {
-    return { skip: true, reason: 'Empty file content' };
+    return { reason: 'Empty file content', skip: true };
   }
 
   // Skip binary-like content early (NUL bytes in the first few KB)
   const probeWindow = content.slice(0, BINARY_DETECTION_PROBE_BYTES);
   if (probeWindow.includes('\u0000')) {
-    return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
+    return { reason: 'Binary content detected (NUL bytes present)', skip: true };
   }
 
   // Check content size
   if (!options.allowLargeFiles && content.length > CHUNKING_CONFIG.maxChunkableSize) {
     return {
-      skip: true,
       reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
         CHUNKING_CONFIG.maxChunkableSize / 1024
       )}KB)`,
+      skip: true,
     };
   }
 
@@ -225,8 +225,8 @@ function shouldSkipChunking(
     uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
   ) {
     return {
-      skip: true,
       reason: 'Highly repetitive content (likely generated file)',
+      skip: true,
     };
   }
 
@@ -655,9 +655,9 @@ function findAnchoredSourceRangeForChunkContent(
           return {
             exhaustedCandidateBudget: false,
             match: {
+              endOffset,
               matchKind: 'whitespace-normalized',
               startOffset: candidateOffset,
-              endOffset,
             },
           };
         }
@@ -678,9 +678,9 @@ function findSourceRangeForChunkContent(
   const exactStartOffset = content.indexOf(chunkContent, searchStart);
   if (exactStartOffset >= 0) {
     return {
+      endOffset: exactStartOffset + chunkContent.length,
       matchKind: 'exact',
       startOffset: exactStartOffset,
-      endOffset: exactStartOffset + chunkContent.length,
     };
   }
 
@@ -711,9 +711,9 @@ function findSourceRangeForChunkContent(
     const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
     if (endOffset !== null) {
       return {
+        endOffset,
         matchKind: 'whitespace-normalized',
         startOffset: candidateOffset,
-        endOffset,
       };
     }
 
@@ -749,14 +749,14 @@ function resolveSourceRanges(
     searchStart = Math.max(0, endOffset - overlapChars - 1);
 
     return {
-      startOffset,
+      endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
       endOffset,
       startLine: findLineForOffset(lineStarts, startOffset),
-      endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
+      startOffset,
     };
   });
 
-  return { ranges, fuzzyMatchedChunks };
+  return { fuzzyMatchedChunks, ranges };
 }
 
 async function computeCharsPerToken(
@@ -875,7 +875,7 @@ function collectTopLevelFunctionRanges(
     Number.isFinite(node.start) &&
     Number.isFinite(node.end)
   ) {
-    ranges.push({ start: Number(node.start), end: Number(node.end) });
+    ranges.push({ end: Number(node.end), start: Number(node.start) });
   }
 
   // Use push/pop pattern instead of creating new arrays on every call
@@ -984,9 +984,9 @@ async function splitCodeByFunctions(
     // quality cost to do so.
     // biome-ignore lint/suspicious/noConsole: visible signal for parser quality regression
     console.warn('[portable-chunking] AST parsing failed; falling back to recursive splitting', {
-      language,
       contentLength: content.length,
       error: err instanceof Error ? err.message : String(err),
+      language,
     });
     return null;
   }
@@ -1004,8 +1004,8 @@ async function splitCodeByFunctions(
   let cursor = 0;
 
   const recursiveChunker = new RecursiveTextSplitter({
-    chunkSize: maxChars,
     chunkOverlap: overlapChars,
+    chunkSize: maxChars,
     separators,
   });
 
@@ -1066,11 +1066,11 @@ export async function chunkContent(
   const skipResult = shouldSkipChunking(content, options);
   if (skipResult.skip) {
     const skippedResult: PortableChunkingResult = {
-      chunks: [],
-      totalTokens: 0,
       avgTokensPerChunk: 0,
-      strategyUsed: initialStrategy,
+      chunks: [],
       skipped: true,
+      strategyUsed: initialStrategy,
+      totalTokens: 0,
     };
     // Only include skipReason if defined (exactOptionalPropertyTypes compliance)
     if (skipResult.reason !== undefined) {
@@ -1118,9 +1118,9 @@ export async function chunkContent(
       } else {
         groups.push({
           pieces: splitTextByStrategy(block.text, {
-            strategy: 'markdown',
-            chunkSize: maxChars,
             chunkOverlap: overlapChars,
+            chunkSize: maxChars,
+            strategy: 'markdown',
           }),
           type: 'sentence',
         });
@@ -1145,8 +1145,8 @@ export async function chunkContent(
     const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
       const recursiveChunker = new RecursiveTextSplitter({
-        chunkSize: maxChars,
         chunkOverlap: overlapChars,
+        chunkSize: maxChars,
         separators: codeSeparators,
       });
       return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
@@ -1155,9 +1155,9 @@ export async function chunkContent(
     if (supportsAst) {
       const resolvedFileName = options.fileName ?? options.filePath;
       const pieces = await splitCodeByFunctions(content, {
+        language: codeLanguage,
         maxChars,
         overlapChars,
-        language: codeLanguage,
         separators: getCodeSeparators(options.separators),
         // Plumb fileName so selectAdapter(fileName) can extension-route
         // (e.g., .py → tree-sitter). For JS/TS the routing ignores
@@ -1180,9 +1180,9 @@ export async function chunkContent(
     return [
       {
         pieces: splitTextByStrategy(content, {
-          strategy: 'token',
-          chunkSize: maxChars,
           chunkOverlap: overlapChars,
+          chunkSize: maxChars,
+          strategy: 'token',
         }),
         type: 'text',
       },
@@ -1190,9 +1190,9 @@ export async function chunkContent(
   };
 
   const effectiveStrategy = resolveEffectiveChunkingStrategy({
+    isCode,
     requested: options.strategy,
     resolvedAutoStrategy: initialStrategy,
-    isCode,
   });
 
   let groups: ChunkGroup[] = [];
@@ -1210,9 +1210,9 @@ export async function chunkContent(
     groups = [
       {
         pieces: splitTextByStrategy(content, {
-          strategy: effectiveStrategy,
-          chunkSize: maxChars,
           chunkOverlap: overlapChars,
+          chunkSize: maxChars,
+          strategy: effectiveStrategy,
           ...(effectiveStrategy === 'recursive' && options.separators
             ? { separators: getCodeSeparators(options.separators) }
             : {}),
@@ -1233,8 +1233,8 @@ export async function chunkContent(
 
   // PERF: Reuse splitter instance for all oversized chunks
   const reSplitChunker = new RecursiveTextSplitter({
-    chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
     chunkOverlap: Math.min(overlapChars, Math.floor(maxChars / 10)),
+    chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
     separators: ['\n\n', '\n', '. ', ' ', ''],
   });
 
@@ -1268,18 +1268,18 @@ export async function chunkContent(
           // downstream budget enforcement depends on those numbers being
           // tight, not on a faster-but-loose char/4 heuristic.
           pendingChunks.push({
+            chunkType: 'text',
             content: subC,
             tokenCount: await countTokens(subC),
-            chunkType: 'text',
           });
         }
         continue;
       }
 
       pendingChunks.push({
+        chunkType: g.type,
         content: c,
         tokenCount,
-        chunkType: g.type,
       });
     }
   }
@@ -1311,15 +1311,15 @@ export async function chunkContent(
         // creates a gap; downstream diagnostics need to identify the dropped
         // candidate rather than renumbering the surviving chunks.
         chunkIndex: i + j,
+        chunkSize: effectiveMaxTokens,
+        chunkType: pending.chunkType,
         content: pending.content,
         contentHash: hashes[j] ?? '',
-        startLine: sourceRange.startLine,
         endLine: sourceRange.endLine,
-        startOffset: sourceRange.startOffset,
         endOffset: sourceRange.endOffset,
+        startLine: sourceRange.startLine,
+        startOffset: sourceRange.startOffset,
         tokenCount: pending.tokenCount,
-        chunkType: pending.chunkType,
-        chunkSize: effectiveMaxTokens,
       });
       totalTokens += pending.tokenCount;
     }
@@ -1338,22 +1338,22 @@ export async function chunkContent(
   }
   if (pendingChunks.length > 0 && chunks.length === 0) {
     return {
-      chunks,
-      totalTokens: 0,
       avgTokensPerChunk: 0,
-      strategyUsed: effectiveStrategy,
+      chunks,
       skipped: true,
       skipReason: 'source range resolution failed',
       sourceRangeSkippedChunks,
+      strategyUsed: effectiveStrategy,
+      totalTokens: 0,
     };
   }
 
   return {
-    chunks,
-    totalTokens,
     avgTokensPerChunk,
-    strategyUsed: effectiveStrategy,
+    chunks,
     skipped: false,
+    strategyUsed: effectiveStrategy,
+    totalTokens,
     ...(sourceRangeSkippedChunks > 0 ? { sourceRangeSkippedChunks } : {}),
   };
 }

@@ -16,10 +16,10 @@ function getRequestUrl(input: FetchMockInput): string {
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
-    status,
     headers: {
       'content-type': 'application/json',
     },
+    status,
   });
 }
 
@@ -44,8 +44,8 @@ describe('local-runtime-discovery', () => {
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
 
     expect(status).toMatchObject({
-      state: 'available',
       endpoint: 'http://127.0.0.1:11434/v1/models',
+      state: 'available',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -70,8 +70,8 @@ describe('local-runtime-discovery', () => {
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
 
     expect(status).toMatchObject({
-      state: 'available',
       endpoint: 'http://127.0.0.1:11434/api/version',
+      state: 'available',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -89,8 +89,8 @@ describe('local-runtime-discovery', () => {
     const status = await service.probeRuntime('lmstudio', { surface: 'desktop' });
 
     expect(status).toMatchObject({
-      state: 'auth_required',
       endpoint: 'http://127.0.0.1:1234/v1/models',
+      state: 'auth_required',
       status: 401,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -107,8 +107,8 @@ describe('local-runtime-discovery', () => {
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
 
     expect(status).toMatchObject({
-      state: 'incompatible',
       endpoint: 'http://127.0.0.1:11434/v1/models',
+      state: 'incompatible',
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -176,7 +176,7 @@ describe('local-runtime-discovery', () => {
     }
 
     nowMs = 20_000;
-    const second = await service.probeRuntime('ollama', { surface: 'desktop', force: true });
+    const second = await service.probeRuntime('ollama', { force: true, surface: 'desktop' });
 
     expect(second.state).toBe('stale');
     if (second.state !== 'stale') {
@@ -194,10 +194,10 @@ describe('local-runtime-discovery', () => {
       .mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:1234'));
 
     const service = new LocalRuntimeDiscoveryService({
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => nowMs,
       failureBaseBackoffMs: 2000,
       failureMaxBackoffMs: 10_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => nowMs,
     });
 
     const first = await service.probeRuntime('lmstudio', { surface: 'desktop' });
@@ -261,8 +261,8 @@ describe('local-runtime-discovery', () => {
     });
 
     const status = await service.probeRuntime('ollama', {
+      endpoint: { apiToken: 'tok_abc', baseUrl: 'https://gpu.lan:11434' },
       surface: 'desktop',
-      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_abc' },
     });
 
     expect(status.state).toBe('available');
@@ -290,8 +290,8 @@ describe('local-runtime-discovery', () => {
     await service.probeRuntime('ollama', { surface: 'desktop' });
     // Second call with a different baseUrl must bypass the fresh cache entry.
     const second = await service.probeRuntime('ollama', {
-      surface: 'desktop',
       endpoint: { baseUrl: 'http://remote.box:11434' },
+      surface: 'desktop',
     });
 
     expect(second.state).toBe('available');

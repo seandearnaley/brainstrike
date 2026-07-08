@@ -22,45 +22,45 @@ function createMockDb(overrides: Partial<HealthCheckDb> = {}): HealthCheckDb {
 
 function createHealthySummary(): SchemaHealthSummary {
   return {
-    healthy: true,
     checkedAt: new Date().toISOString(),
-    tables: [
-      { table: 'file_records', exists: true, rowCount: 10, issues: [] },
-      { table: 'file_chunks', exists: true, rowCount: 50, issues: [] },
-      { table: 'embedding_sets', exists: true, rowCount: 2, issues: [] },
-      { table: 'job_queue', exists: true, rowCount: 0, issues: [] },
-    ],
-    issues: [],
     corruption: {
-      orphanedChunks: 0,
-      stuckJobs: 0,
       invalidEmbeddingSetRefs: 0,
       invalidJobPayloads: 0,
+      orphanedChunks: 0,
+      stuckJobs: 0,
     },
+    healthy: true,
+    issues: [],
+    tables: [
+      { exists: true, issues: [], rowCount: 10, table: 'file_records' },
+      { exists: true, issues: [], rowCount: 50, table: 'file_chunks' },
+      { exists: true, issues: [], rowCount: 2, table: 'embedding_sets' },
+      { exists: true, issues: [], rowCount: 0, table: 'job_queue' },
+    ],
   };
 }
 
 function createUnhealthySummary(): SchemaHealthSummary {
   return {
-    healthy: false,
     checkedAt: new Date().toISOString(),
-    tables: [
-      { table: 'file_records', exists: true, rowCount: 10, issues: [] },
-      { table: 'file_chunks', exists: true, rowCount: 50, issues: [] },
-      { table: 'embedding_sets', exists: false, issues: ["Table 'embedding_sets' does not exist"] },
-      { table: 'job_queue', exists: true, rowCount: 5, issues: [] },
-    ],
+    corruption: {
+      invalidEmbeddingSetRefs: 0,
+      invalidJobPayloads: 0,
+      orphanedChunks: 5,
+      stuckJobs: 3,
+    },
+    healthy: false,
     issues: [
       "Table 'embedding_sets' does not exist",
       'Found 3 stuck jobs past lease expiry',
       'Found 5 orphaned chunks without file records',
     ],
-    corruption: {
-      orphanedChunks: 5,
-      stuckJobs: 3,
-      invalidEmbeddingSetRefs: 0,
-      invalidJobPayloads: 0,
-    },
+    tables: [
+      { exists: true, issues: [], rowCount: 10, table: 'file_records' },
+      { exists: true, issues: [], rowCount: 50, table: 'file_chunks' },
+      { exists: false, issues: ["Table 'embedding_sets' does not exist"], table: 'embedding_sets' },
+      { exists: true, issues: [], rowCount: 5, table: 'job_queue' },
+    ],
   };
 }
 
@@ -441,16 +441,16 @@ describe('hasRecoverableIssues', () => {
 
   it('returns false for only missing tables (not recoverable)', () => {
     const summary: SchemaHealthSummary = {
-      healthy: false,
       checkedAt: new Date().toISOString(),
-      tables: [{ table: 'file_records', exists: false, issues: ['missing'] }],
-      issues: ['missing table'],
       corruption: {
-        orphanedChunks: 0,
-        stuckJobs: 0,
         invalidEmbeddingSetRefs: 0,
         invalidJobPayloads: 0,
+        orphanedChunks: 0,
+        stuckJobs: 0,
       },
+      healthy: false,
+      issues: ['missing table'],
+      tables: [{ exists: false, issues: ['missing'], table: 'file_records' }],
     };
     expect(hasRecoverableIssues(summary)).toBe(false);
   });

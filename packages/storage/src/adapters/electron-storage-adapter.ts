@@ -84,8 +84,8 @@ export class ElectronStorageAdapter implements StorageAdapter {
     const userDataPath = app.getPath('userData');
     if (!this.isValidUserDataPath(userDataPath)) {
       logger.warn('Persistence disabled: userData path is invalid or equals cwd', {
-        userDataPath,
         cwd: process.cwd(),
+        userDataPath,
       });
       this.cache = {};
       return;
@@ -117,9 +117,9 @@ export class ElectronStorageAdapter implements StorageAdapter {
     } catch (error) {
       if (error instanceof PathTraversalError) {
         logger.error('Path traversal attempt rejected', {
+          resolvedPath: fullPath,
           storeFile,
           userDataPath,
-          resolvedPath: fullPath,
         });
       }
       throw error;
@@ -141,8 +141,8 @@ export class ElectronStorageAdapter implements StorageAdapter {
       this.cache = JSON.parse(data) as Record<string, string>;
     } catch (parseError) {
       logger.warn('Storage file corrupted or unreadable, starting with empty cache', {
-        storePath: this.storePath,
         error: parseError instanceof Error ? parseError.message : String(parseError),
+        storePath: this.storePath,
       });
       this.cache = {};
     }

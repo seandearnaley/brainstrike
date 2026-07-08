@@ -39,9 +39,9 @@ import { CONTEXT_EXPLORER_APP_ID, type WorkspaceApp } from './workspace-app';
 const logger = createLogger('WorkspaceTabHost');
 
 const CONTEXT_EXPLORER_APP: WorkspaceApp = {
+  icon: LayoutGrid,
   id: CONTEXT_EXPLORER_APP_ID,
   label: 'Context Explorer',
-  icon: LayoutGrid,
   render: () => <FileExplorerMiddlePanelBase />,
 };
 
@@ -183,8 +183,8 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         // but this catch ensures a rogue throw (e.g. from a future codepath) never
         // surfaces as an unhandled rejection through the caller's `void` invocation.
         logger.error('Tab selection failed', {
-          tabId,
           error: err instanceof Error ? err.message : String(err),
+          tabId,
         });
       }
     },
@@ -337,7 +337,6 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       if (selection.kind === 'file') {
         e.preventDefault();
         handleCloseFileTab(selection.tabId);
-        return;
       }
       // Electron + non-file selection (Context Explorer or another pinned app):
       // intentional no-op. We do NOT preventDefault, so the host (Electron's window

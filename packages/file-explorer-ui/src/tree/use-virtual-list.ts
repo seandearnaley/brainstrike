@@ -39,17 +39,17 @@ export function useVirtualList(
   // Default overscan of 5 provides smooth scrolling buffer
   const { overscan = 5 } = options;
   const containerRef = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState<VirtualRange>({ start: 0, end: 0 });
+  const [range, setRange] = useState<VirtualRange>({ end: 0, start: 0 });
   const [offset, setOffset] = useState(0);
 
   // Keep latest configuration in refs so listeners don't need re-binding.
-  const configRef = useRef({ itemCount, rowHeight, overscan });
-  configRef.current = { itemCount, rowHeight, overscan };
+  const configRef = useRef({ itemCount, overscan, rowHeight });
+  configRef.current = { itemCount, overscan, rowHeight };
 
   // Track pending RAF to avoid duplicate frames
   const rafIdRef = useRef<number | null>(null);
   // Track previous values to avoid unnecessary state updates
-  const prevRangeRef = useRef<VirtualRange>({ start: 0, end: 0 });
+  const prevRangeRef = useRef<VirtualRange>({ end: 0, start: 0 });
   const prevOffsetRef = useRef(0);
 
   const calculateRange = useCallback(() => {
@@ -61,7 +61,7 @@ export function useVirtualList(
     } = configRef.current;
 
     if (!container || currentItemCount <= 0 || currentRowHeight <= 0) {
-      const emptyRange: VirtualRange = { start: 0, end: -1 };
+      const emptyRange: VirtualRange = { end: -1, start: 0 };
       if (
         prevRangeRef.current.start !== emptyRange.start ||
         prevRangeRef.current.end !== emptyRange.end
@@ -90,7 +90,7 @@ export function useVirtualList(
 
     if (rangeChanged || offsetChanged) {
       if (rangeChanged) {
-        const nextRange: VirtualRange = { start, end };
+        const nextRange: VirtualRange = { end, start };
         prevRangeRef.current = nextRange;
         setRange(nextRange);
       }
@@ -158,5 +158,5 @@ export function useVirtualList(
 
   const totalHeight = itemCount * rowHeight;
 
-  return { containerRef, range, offset, totalHeight };
+  return { containerRef, offset, range, totalHeight };
 }

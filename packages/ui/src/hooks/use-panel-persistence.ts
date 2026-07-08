@@ -48,10 +48,10 @@ export function usePanelPersistence(
     ) => {
       const normalizedSizes = validateAndNormalizeSizes(newSizes);
       const updatedState: PanelPersistenceState = {
-        sizes: normalizedSizes,
         showConsole: newShowConsole ?? state.showConsole,
         showLeftPanel: newShowLeftPanel ?? state.showLeftPanel,
         showRightPanel: newShowRightPanel ?? state.showRightPanel,
+        sizes: normalizedSizes,
       };
       setState(updatedState);
       persist(updatedState);
@@ -72,12 +72,12 @@ export function usePanelPersistence(
   }, [state, saveLayout]);
 
   return {
-    sizes: state.sizes,
+    isHydrated,
+    saveLayout,
     showConsole: state.showConsole,
     showLeftPanel: state.showLeftPanel,
     showRightPanel: state.showRightPanel,
-    isHydrated,
-    saveLayout,
+    sizes: state.sizes,
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,

@@ -90,8 +90,8 @@ describe('token-utils-accurate-lite', () => {
     const free = vi.fn();
     const init = vi.fn(async () => {});
     const fetchMock = vi.fn(async (url: string) => ({
-      ok: true,
       arrayBuffer: async () => new TextEncoder().encode(url).buffer,
+      ok: true,
     }));
 
     mockBrowserGlobals();
@@ -117,8 +117,8 @@ describe('token-utils-accurate-lite', () => {
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
       default: {
         bpe_ranks: 'ranks',
-        special_tokens: { '<|endoftext|>': 1 },
         pat_str: 'pattern',
+        special_tokens: { '<|endoftext|>': 1 },
       },
     }));
 
@@ -164,8 +164,8 @@ describe('token-utils-accurate-lite', () => {
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
       default: {
         bpe_ranks: 'ranks',
-        special_tokens: { '<|endoftext|>': 1 },
         pat_str: 'pattern',
+        special_tokens: { '<|endoftext|>': 1 },
       },
     }));
 
@@ -199,8 +199,8 @@ describe('token-utils-accurate-lite', () => {
     vi.doMock(BROWSER_ENCODER_SPECIFIER, () => ({
       default: {
         bpe_ranks: 'ranks',
-        special_tokens: { '<|endoftext|>': 1 },
         pat_str: 'pattern',
+        special_tokens: { '<|endoftext|>': 1 },
       },
     }));
 

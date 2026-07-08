@@ -71,13 +71,13 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
-    databaseTabChunkingMode: 'local',
-    navigationItems: navigationConfig,
     contextExplorerPageContent: <ContextExplorerPageContent />,
-    settingsPageContent: <SettingsPageContent />,
-    promptsPageContent: <ConnectedPromptManager />,
+    databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
     loadLocalLlmBackend,
+    navigationItems: navigationConfig,
+    promptsPageContent: <ConnectedPromptManager />,
+    settingsPageContent: <SettingsPageContent />,
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 

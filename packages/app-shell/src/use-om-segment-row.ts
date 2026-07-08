@@ -85,27 +85,27 @@ export function useObservationalMemoryRow(
   input: UseObservationalMemoryRowInput
 ): UseObservationalMemoryRowResult {
   const lookupKey = buildObservationalMemoryLookupKey({
+    resourceId: input.resourceId,
     scope: input.scope,
     threadId: input.threadId,
-    resourceId: input.resourceId,
   });
   const enabled = input.hasDurableCapability && lookupKey !== null;
 
   const result = usePGliteLiveQuery<ObservationalMemoryRowQueryResult>({
     cacheKey: makeLiveQueryKey('om-row', lookupKey ?? ''),
-    query: OM_ROW_QUERY,
-    params: [lookupKey ?? ''],
-    enabled,
     // Drop stale rows the instant the query is disabled (thread closed / scope id
     // missing) so a prior thread's OM never leaks into another / no thread.
     clearOnDisable: true,
+    enabled,
+    params: [lookupKey ?? ''],
+    query: OM_ROW_QUERY,
   });
 
   return {
+    error: result.error,
+    loading: enabled && result.loading,
     // Belt-and-suspenders with clearOnDisable: never surface a row from a
     // disabled query even if the live layer has not cleared yet.
     row: enabled ? (result.rows[0] ?? null) : null,
-    loading: enabled && result.loading,
-    error: result.error,
   };
 }

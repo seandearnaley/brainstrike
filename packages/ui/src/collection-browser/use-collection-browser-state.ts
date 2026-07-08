@@ -24,19 +24,19 @@ import type {
 import { useCollectionTree } from './use-collection-tree';
 
 const COLUMN_TO_SORT_KEY: Record<string, CollectionSortKey> = {
-  name: 'name',
-  status: 'status',
-  size: 'size',
   meta: 'count',
+  name: 'name',
   score: 'score',
+  size: 'size',
+  status: 'status',
 };
 
 const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
-  name: 'name',
-  status: 'status',
-  size: 'size',
   count: 'meta',
+  name: 'name',
   score: 'score',
+  size: 'size',
+  status: 'status',
 };
 
 interface UseCollectionBrowserStateOptions {
@@ -142,11 +142,11 @@ export function useCollectionBrowserState({
     semanticExpandIds,
   } = useCollectionTree({
     data,
-    filters,
     expandedIds,
+    filters,
     ...(sortState ? { sortState } : {}),
     ...(shouldFilterToSemanticResults
-      ? { semanticResults: semanticResults ?? [], filterToSemanticResults: true }
+      ? { filterToSemanticResults: true, semanticResults: semanticResults ?? [] }
       : {}),
     ...(groupBy ? { groupBy } : {}),
   });
@@ -283,7 +283,7 @@ export function useCollectionBrowserState({
       } else {
         const sortKey = COLUMN_TO_SORT_KEY[columnId];
         if (sortKey) {
-          onSortChange({ key: sortKey, direction });
+          onSortChange({ direction, key: sortKey });
         }
       }
     },
@@ -304,27 +304,27 @@ export function useCollectionBrowserState({
   const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
 
   return {
-    nodes,
     columns: null,
-    filters,
-    selectedId,
-    multiSelectedIds,
     expandedIds,
-    isSemanticMode,
-    showScoreColumn,
+    filters,
+    handleClearSelection,
+    handleContextMenu,
+    handleDoubleClick,
+    handleMultiSelectChange,
+    handleSelect,
+    handleToggleExpand,
+    handleTreeTableSortChange,
     hasSemanticResults: !!hasSemanticResults,
     highlightedIds,
-    searchMatchIds,
-    semanticMatchIds,
-    similarityScores,
+    isSemanticMode,
+    multiSelectedIds,
+    nodes,
     nodeTypeMap,
+    searchMatchIds,
+    selectedId,
+    semanticMatchIds,
+    showScoreColumn,
+    similarityScores,
     treeTableSortState,
-    handleToggleExpand,
-    handleSelect,
-    handleMultiSelectChange,
-    handleClearSelection,
-    handleDoubleClick,
-    handleContextMenu,
-    handleTreeTableSortChange,
   };
 }

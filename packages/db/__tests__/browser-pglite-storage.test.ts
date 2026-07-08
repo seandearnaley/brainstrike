@@ -129,7 +129,6 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
     // delete the prefixed names. (Verified empirically against pglite 0.5.1.)
     const deleteDatabase = vi.fn();
     g.indexedDB = {
-      deleteDatabase,
       databases: () =>
         Promise.resolve([
           { name: '/pglite/app' }, // legacy unversioned (oldest) → reclaim
@@ -139,6 +138,7 @@ describe('reclaimLegacyBrowserPGliteStorage', () => {
           { name: '/pglite/appendix' }, // different base → keep
           { name: 'brainstrike-desktop' }, // non-pglite store (no /pglite/ prefix) → keep
         ]),
+      deleteDatabase,
     };
 
     await reclaimLegacyBrowserPGliteStorage('idb://app-pg18');

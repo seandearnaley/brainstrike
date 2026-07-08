@@ -79,9 +79,9 @@ export function useQueueHealthMetrics(
   const getWorkerHealth = useCallback((): WorkerHealthStatus | null => {
     if (embeddingQueueContext) {
       return {
-        state: 'ready',
-        isReady: true,
         error: null,
+        isReady: true,
+        state: 'ready',
       };
     }
     return null;
@@ -91,16 +91,16 @@ export function useQueueHealthMetrics(
     () => ({
       durableQueue: durableQueueStats ?? null,
       ephemeralQueue: getEphemeralMetrics(),
-      workerHealth: getWorkerHealth(),
       lastUpdated: Date.now(),
+      workerHealth: getWorkerHealth(),
     }),
     [durableQueueStats, getEphemeralMetrics, getWorkerHealth]
   );
 
   return {
-    metrics,
-    isLoading: false,
-    refresh: NOOP_REFRESH,
     error: null,
+    isLoading: false,
+    metrics,
+    refresh: NOOP_REFRESH,
   };
 }

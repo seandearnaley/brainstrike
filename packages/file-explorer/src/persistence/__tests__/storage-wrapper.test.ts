@@ -27,11 +27,11 @@ describe('StorageWrapper', () => {
 
     // Create a storage adapter that always throws errors
     errorStorage = {
-      getItem: vi.fn().mockRejectedValue(new Error('Get error')),
-      setItem: vi.fn().mockRejectedValue(new Error('Set error')),
-      removeItem: vi.fn().mockRejectedValue(new Error('Remove error')),
       clear: vi.fn().mockRejectedValue(new Error('Clear error')),
       getAllKeys: vi.fn().mockRejectedValue(new Error('GetAllKeys error')),
+      getItem: vi.fn().mockRejectedValue(new Error('Get error')),
+      removeItem: vi.fn().mockRejectedValue(new Error('Remove error')),
+      setItem: vi.fn().mockRejectedValue(new Error('Set error')),
     };
 
     mockWorkerStorage = {
@@ -123,7 +123,7 @@ describe('StorageWrapper', () => {
       expect(await mockStorage.getItem('bad-json')).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Invalid JSON from storage adapter; clearing value',
-        expect.objectContaining({ name: 'bad-json', error: expect.any(SyntaxError) })
+        expect.objectContaining({ error: expect.any(SyntaxError), name: 'bad-json' })
       );
     });
 
@@ -140,7 +140,7 @@ describe('StorageWrapper', () => {
       expect(result).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to remove invalid storage entry',
-        expect.objectContaining({ name: 'bad-json', error: expect.any(Error) })
+        expect.objectContaining({ error: expect.any(Error), name: 'bad-json' })
       );
     });
 
@@ -158,7 +158,7 @@ describe('StorageWrapper', () => {
       expect(result).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Invalid JSON from worker storage; ignoring value',
-        expect.objectContaining({ name: 'bad-json', error: expect.any(SyntaxError) })
+        expect.objectContaining({ error: expect.any(SyntaxError), name: 'bad-json' })
       );
     });
   });
@@ -246,9 +246,9 @@ describe('StorageWrapper', () => {
       const result = await wrapper.setItem('test-key', { ok: true });
 
       expect(result).toEqual({
-        success: false,
-        message: 'Set error',
         error: expect.any(Error),
+        message: 'Set error',
+        success: false,
       });
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error setting item in storage:',
@@ -372,11 +372,11 @@ describe('StorageWrapper', () => {
     it('should pass the actual error object to logger', async () => {
       const testError = new Error('Specific test error');
       const customErrorStorage: StorageAdapter = {
-        getItem: vi.fn().mockRejectedValue(testError),
-        setItem: vi.fn().mockRejectedValue(testError),
-        removeItem: vi.fn().mockRejectedValue(testError),
         clear: vi.fn().mockRejectedValue(testError),
         getAllKeys: vi.fn().mockRejectedValue(testError),
+        getItem: vi.fn().mockRejectedValue(testError),
+        removeItem: vi.fn().mockRejectedValue(testError),
+        setItem: vi.fn().mockRejectedValue(testError),
       };
 
       const wrapper = createStorageWrapper(customErrorStorage, false, null, true);

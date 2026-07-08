@@ -279,8 +279,6 @@ describe('runWorkspaceIndexStageBenchmark', () => {
     );
     expect(applyManagedCacheBatchMock).toHaveBeenCalledTimes(1);
     expect(applyManagedCacheBatchMock).toHaveBeenCalledWith({
-      embeddingSetId: expect.stringContaining('workspace-index-stage-import-ceiling'),
-      rootId: expect.stringContaining('workspace-index-stage-import-ceiling'),
       changes: [
         expect.objectContaining({
           mode: 'import',
@@ -297,6 +295,8 @@ describe('runWorkspaceIndexStageBenchmark', () => {
           }),
         }),
       ],
+      embeddingSetId: expect.stringContaining('workspace-index-stage-import-ceiling'),
+      rootId: expect.stringContaining('workspace-index-stage-import-ceiling'),
     });
     expect(result).toMatchObject({
       chunkCount: 2,

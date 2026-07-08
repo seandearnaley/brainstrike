@@ -91,10 +91,10 @@ interface ElectronLiveQueryRefreshPayload {
 }
 
 interface ElectronLiveBridge {
-  onUpdate(callback: (payload: ElectronLiveQueryUpdate<unknown>) => void): () => void;
-  refresh(payload: ElectronLiveQueryRefreshPayload): Promise<void>;
-  start<T>(options: ElectronLiveQueryStartOptions): Promise<ElectronLiveQueryStartResult<T>>;
-  stop(id: number): Promise<void>;
+  onUpdate: (callback: (payload: ElectronLiveQueryUpdate<unknown>) => void) => () => void;
+  refresh: (payload: ElectronLiveQueryRefreshPayload) => Promise<void>;
+  start: <T>(options: ElectronLiveQueryStartOptions) => Promise<ElectronLiveQueryStartResult<T>>;
+  stop: (id: number) => Promise<void>;
 }
 
 type LiveSource =
@@ -281,7 +281,7 @@ function resolveLiveSource(db: ReturnType<typeof usePGliteDatabase>): LiveSource
   }
   const bridge = getElectronLiveBridge();
   if (bridge) {
-    return { kind: 'electron', bridge };
+    return { bridge, kind: 'electron' };
   }
   return null;
 }
@@ -309,8 +309,8 @@ async function subscribeViaPGlite<T>(
       offset?: number;
       limit?: number;
     } = {
-      query: escapePGliteLiveQueryFormatPercents(options.query, params),
       params,
+      query: escapePGliteLiveQueryFormatPercents(options.query, params),
     };
     if (options.offset !== undefined) {
       queryOptions.offset = options.offset;
@@ -345,8 +345,8 @@ async function subscribeViaElectron<T>(
 ): Promise<LiveSubscription<T>> {
   const startPayload: ElectronLiveQueryStartOptions = {
     mode: options.mode,
-    query: escapePGliteLiveQueryFormatPercents(options.query, options.params),
     params: options.params ?? null,
+    query: escapePGliteLiveQueryFormatPercents(options.query, options.params),
   };
   if (options.key) {
     startPayload.key = options.key;
@@ -485,8 +485,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 
     const currentParams = effectiveParamsRef.current;
     const normalizedOptions: InternalLiveQueryOptions = {
-      query: options.query,
       mode,
+      query: options.query,
       ...(currentParams === undefined ? {} : { params: currentParams }),
       ...(options.offset === undefined ? {} : { offset: options.offset }),
       ...(options.limit === undefined ? {} : { limit: options.limit }),
@@ -545,10 +545,10 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 
   return useMemo(
     () => ({
-      rows,
-      loading,
       error,
+      loading,
       refresh,
+      rows,
     }),
     [rows, loading, error, refresh]
   );

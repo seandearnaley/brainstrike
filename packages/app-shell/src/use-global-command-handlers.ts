@@ -69,12 +69,12 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
       // faked no-op (the no-silent-fallbacks contract). Once the DB is ready a
       // re-render supplies the handler and the command appears.
       ...(newThread ? { newThread } : {}),
-      openSettings,
-      toggleTheme,
       // ⌘P quick-open is wired here in PR-6.3: opening the store flips the
       // QuickOpenHost's palette open. This un-gates the previously hidden
       // `palette.quickOpen` global command (it now has a real handler).
       openQuickOpen,
+      openSettings,
+      toggleTheme,
     }),
     [newThread, openSettings, toggleTheme, openQuickOpen]
   );

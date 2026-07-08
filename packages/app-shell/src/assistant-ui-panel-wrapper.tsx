@@ -132,7 +132,7 @@ export function resolveWriteBackFolderId(
   if (!clientRootId) {
     assistantSelectionWriteBackLogger.warn(
       'Selection write-back targets a root not open in this window; dropping (no client folder).',
-      { rootPath: payload.rootPath, rootId: payload.rootId }
+      { rootId: payload.rootId, rootPath: payload.rootPath }
     );
     return null;
   }
@@ -317,11 +317,11 @@ export function AssistantUiPanelWrapper({
   const enabledModelIds = useMemo(
     () =>
       buildEnabledModelIdSet({
-        shouldFallbackToPreferences,
         configuredProviders,
         enabledModelsByProvider,
-        registryEnabledModelIds,
         localRuntimeModels,
+        registryEnabledModelIds,
+        shouldFallbackToPreferences,
       }),
     [
       configuredProviders,
@@ -350,8 +350,8 @@ export function AssistantUiPanelWrapper({
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
   >(
     () => ({
-      ollama: toRuntimeProviderModels('ollama', localRuntimeModels),
       lmstudio: toRuntimeProviderModels('lmstudio', localRuntimeModels),
+      ollama: toRuntimeProviderModels('ollama', localRuntimeModels),
     }),
     [localRuntimeModels]
   );
@@ -490,8 +490,8 @@ export function AssistantUiPanelWrapper({
       return;
     }
     setThreadDraftRuntime(memoryThreadId, {
-      provider: selectedProvider,
       model: resolvedModelName,
+      provider: selectedProvider,
     });
   }, [
     draftRuntimeByThreadId,
@@ -729,12 +729,12 @@ export function AssistantUiPanelWrapper({
         const inputSchema = toLocalRuntimeInputSchema(toolId);
 
         return {
+          description: getToolDescription(toolId),
+          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+          group: 'Native Tools',
           id: toolId,
           label: formatToolLabel(toolId),
-          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
           source: 'native',
-          group: 'Native Tools',
-          description: getToolDescription(toolId),
           ...(inputSchema ? { inputSchema } : {}),
           isLocalRuntimeRunnable: true,
           ...(category ? { category } : {}),
@@ -773,8 +773,8 @@ export function AssistantUiPanelWrapper({
   const workspaceIndex = useMemo(
     () => ({
       blockedReason: workspaceIndexBlockedReason,
-      enabled: workspaceIndexingEnabled,
       embeddingSetId: workspaceIndexEmbeddingSetId,
+      enabled: workspaceIndexingEnabled,
       lastError: workspaceIndexLastError,
       mode: workspaceIndexingMode,
       paused: workspaceIndexingPaused,
@@ -834,10 +834,10 @@ export function AssistantUiPanelWrapper({
     }
     return buildPermissionToolGateSnapshotInput({
       enforce: permissionEnforce,
-      policies: permissionPolicies,
-      yolo: permissionYolo,
-      sessionGrants: permissionSessionGrants,
       perToolOverrides: permissionPerToolOverrides,
+      policies: permissionPolicies,
+      sessionGrants: permissionSessionGrants,
+      yolo: permissionYolo,
     });
   }, [
     localChatTransport,
@@ -1268,16 +1268,16 @@ export function AssistantUiPanelWrapper({
       }
       assistantThreadRepository
         .recordRunUsage({
-          threadId: selectedMemoryThreadId,
-          runId: runContext.runId,
+          inputTokens: usage.inputTokens,
+          model: runContext.model,
+          outputTokens: usage.outputTokens,
+          provider: runContext.provider,
           resourceId: memoryResourceId,
           // Request-start root (null when unattributed) — same snapshot source
           // as model/provider, so cost is attributable per workspace root.
           rootId: runContext.rootId,
-          model: runContext.model,
-          provider: runContext.provider,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
+          runId: runContext.runId,
+          threadId: selectedMemoryThreadId,
         })
         // Re-read the cumulative total from the write's OWN completion so the
         // SELECT provably follows the INSERT (not racing it on the PGlite queue).
@@ -1314,18 +1314,18 @@ export function AssistantUiPanelWrapper({
   const hasDurableOmCapability = hasDurableAssistantUsageCapability();
   const omRowResult = useObservationalMemoryRow({
     hasDurableCapability: hasDurableOmCapability,
+    resourceId: memoryResourceId,
     scope: observationalMemorySettings.scope,
     threadId: selectedMemoryThreadId,
-    resourceId: memoryResourceId,
   });
   const omSegment = useMemo<OmMeterState>(
     () =>
       resolveOmMeterState({
         hasDurableCapability: hasDurableOmCapability,
-        omEnabled: observationalMemorySettings.enabled,
         loading: omRowResult.loading,
-        row: omRowResult.row,
+        omEnabled: observationalMemorySettings.enabled,
         queryError: omRowResult.error,
+        row: omRowResult.row,
       }),
     [
       hasDurableOmCapability,

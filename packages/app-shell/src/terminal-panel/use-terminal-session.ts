@@ -19,8 +19,8 @@ const logger = createLogger('TerminalPanel');
 function warnBridgeRejection(op: string): (error: unknown) => void {
   return (error: unknown) => {
     logger.warn('terminal bridge call rejected', {
-      op,
       error: error instanceof Error ? error.message : String(error),
+      op,
     });
   };
 }
@@ -131,11 +131,11 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
     const term = new Terminal({
       convertEol: false,
       cursorBlink: true,
-      fontSize: 13,
       fontFamily:
         'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      theme: XTERM_THEME,
+      fontSize: 13,
       scrollback: 5000,
+      theme: XTERM_THEME,
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -149,7 +149,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
     }
 
     bridge
-      .create({ rootId: activeRootId, cols: term.cols, rows: term.rows })
+      .create({ cols: term.cols, rootId: activeRootId, rows: term.rows })
       .then((result) => {
         if (cancelled) {
           // Created after teardown: reap the orphan pty rather than leak it.
@@ -162,14 +162,14 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         }
         if (!result.ok) {
           setTagged({
-            sessionId,
-            rootId: activeRootId,
             outcome: { kind: 'error', message: result.error },
+            rootId: activeRootId,
+            sessionId,
           });
           logger.error('terminal create failed', { error: result.error });
           toast({
-            title: 'Terminal failed to start',
             description: result.error,
+            title: 'Terminal failed to start',
             variant: 'destructive',
           });
           return;
@@ -178,9 +178,9 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         terminalId = result.value.terminalId;
         const liveId = terminalId;
         setTagged({
-          sessionId,
+          outcome: { cwd: result.value.cwd, kind: 'ready' },
           rootId: activeRootId,
-          outcome: { kind: 'ready', cwd: result.value.cwd },
+          sessionId,
         });
 
         // pty output → surrogate-safe reassembly → xterm.
@@ -204,9 +204,9 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
             term.write(tail);
           }
           setTagged({
-            sessionId,
+            outcome: { exitCode: event.exitCode, kind: 'exited', signal: event.signal },
             rootId: activeRootId,
-            outcome: { kind: 'exited', exitCode: event.exitCode, signal: event.signal },
+            sessionId,
           });
         });
         disposers.push(offExit);
@@ -216,7 +216,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
         // as an unhandled rejection on this hot path.
         const onInput = term.onData((data: string) => {
           void bridge
-            .write({ terminalId: liveId, data })
+            .write({ data, terminalId: liveId })
             .then((writeResult) => {
               if (!writeResult.ok) {
                 logger.warn('terminal write failed', { error: writeResult.error });
@@ -236,7 +236,7 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
             return;
           }
           void bridge
-            .resize({ terminalId: liveId, cols: term.cols, rows: term.rows })
+            .resize({ cols: term.cols, rows: term.rows, terminalId: liveId })
             .catch(warnBridgeRejection('resize'));
         };
         const observer = new ResizeObserver(() => {
@@ -260,9 +260,9 @@ export function useTerminalSession(activeRootId: string | null): UseTerminalSess
           return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        setTagged({ sessionId, rootId: activeRootId, outcome: { kind: 'error', message } });
+        setTagged({ outcome: { kind: 'error', message }, rootId: activeRootId, sessionId });
         logger.error('terminal create threw', { error: message });
-        toast({ title: 'Terminal failed to start', description: message, variant: 'destructive' });
+        toast({ description: message, title: 'Terminal failed to start', variant: 'destructive' });
       });
 
     return () => {

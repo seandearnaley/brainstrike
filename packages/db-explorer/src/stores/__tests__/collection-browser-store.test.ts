@@ -119,15 +119,15 @@ describe('CollectionBrowserStore', () => {
   // ---------------------------------------------------------------------------
   describe('sort actions', () => {
     it('setSortState sets the sort state', () => {
-      useCollectionBrowserStore.getState().setSortState({ key: 'name', direction: 'asc' });
+      useCollectionBrowserStore.getState().setSortState({ direction: 'asc', key: 'name' });
       expect(useCollectionBrowserStore.getState().sortState).toEqual({
-        key: 'name',
         direction: 'asc',
+        key: 'name',
       });
     });
 
     it('setSortState can clear sort with null', () => {
-      useCollectionBrowserStore.getState().setSortState({ key: 'name', direction: 'asc' });
+      useCollectionBrowserStore.getState().setSortState({ direction: 'asc', key: 'name' });
       useCollectionBrowserStore.getState().setSortState(null);
       expect(useCollectionBrowserStore.getState().sortState).toBeNull();
     });
@@ -136,15 +136,15 @@ describe('CollectionBrowserStore', () => {
       // null -> asc
       useCollectionBrowserStore.getState().toggleSort('name');
       expect(useCollectionBrowserStore.getState().sortState).toEqual({
-        key: 'name',
         direction: 'asc',
+        key: 'name',
       });
 
       // asc -> desc
       useCollectionBrowserStore.getState().toggleSort('name');
       expect(useCollectionBrowserStore.getState().sortState).toEqual({
-        key: 'name',
         direction: 'desc',
+        key: 'name',
       });
 
       // desc -> null
@@ -155,15 +155,15 @@ describe('CollectionBrowserStore', () => {
     it('toggleSort resets when a different key is toggled', () => {
       useCollectionBrowserStore.getState().toggleSort('name');
       expect(useCollectionBrowserStore.getState().sortState).toEqual({
-        key: 'name',
         direction: 'asc',
+        key: 'name',
       });
 
       // Toggling a different key starts from null -> asc
       useCollectionBrowserStore.getState().toggleSort('size');
       expect(useCollectionBrowserStore.getState().sortState).toEqual({
-        key: 'size',
         direction: 'asc',
+        key: 'size',
       });
     });
   });
@@ -290,7 +290,7 @@ describe('CollectionBrowserStore', () => {
       const store = useCollectionBrowserStore.getState();
       store.setExpandedIds(['a']);
       store.setSelectedId('b');
-      store.setSortState({ key: 'name', direction: 'asc' });
+      store.setSortState({ direction: 'asc', key: 'name' });
       store.setInspectorCollapsed(true);
       store.setSearchQuery('query');
       store.setSearchMode('quick');
@@ -340,9 +340,9 @@ describe('CollectionBrowserStore', () => {
       const state = useCollectionBrowserStore.getState();
       const filters = collectionBrowserSelectors.filters(state);
       expect(filters).toEqual({
-        searchQuery: 'hello',
-        nodeTypes: ['file'],
         embeddingStatus: 'embedded',
+        nodeTypes: ['file'],
+        searchQuery: 'hello',
       });
     });
 
@@ -358,12 +358,12 @@ describe('CollectionBrowserStore', () => {
       const state = useCollectionBrowserStore.getState();
       const config = collectionBrowserSelectors.searchConfig(state);
       expect(config).toEqual({
-        threshold: 0.9,
-        resultLimit: 100,
         distanceMetric: 'l2',
-        retrievalMode: 'hybrid',
-        vectorWeight: 0.5,
         ftsWeight: 1.5,
+        resultLimit: 100,
+        retrievalMode: 'hybrid',
+        threshold: 0.9,
+        vectorWeight: 0.5,
       });
     });
 
@@ -371,7 +371,7 @@ describe('CollectionBrowserStore', () => {
       const store = useCollectionBrowserStore.getState();
       store.setExpandedIds(['x']);
       store.setSelectedId('y');
-      store.setSortState({ key: 'name', direction: 'desc' });
+      store.setSortState({ direction: 'desc', key: 'name' });
       store.setInspectorCollapsed(true);
       store.setInspectorWidth(40);
       store.setGroupBy('type');
@@ -383,8 +383,8 @@ describe('CollectionBrowserStore', () => {
       expect(collectionBrowserSelectors.expandedIds(state)).toEqual(['x']);
       expect(collectionBrowserSelectors.selectedId(state)).toBe('y');
       expect(collectionBrowserSelectors.sortState(state)).toEqual({
-        key: 'name',
         direction: 'desc',
+        key: 'name',
       });
       expect(collectionBrowserSelectors.isInspectorCollapsed(state)).toBe(true);
       expect(collectionBrowserSelectors.inspectorWidth(state)).toBe(40);

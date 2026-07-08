@@ -11,13 +11,13 @@ const { errorHolder } = vi.hoisted(() => ({
 
 vi.mock('@assistant-ui/react', () => ({
   ErrorPrimitive: {
+    Message: ({ ...props }: { className?: string }) =>
+      errorHolder.current === undefined ? null : <span {...props}>{errorHolder.current}</span>,
     Root: ({ children, ...props }: { children?: React.ReactNode; className?: string }) => (
       <div role="alert" {...props}>
         {children}
       </div>
     ),
-    Message: ({ ...props }: { className?: string }) =>
-      errorHolder.current === undefined ? null : <span {...props}>{errorHolder.current}</span>,
   },
 }));
 

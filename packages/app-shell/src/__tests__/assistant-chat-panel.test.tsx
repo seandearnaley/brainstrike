@@ -35,8 +35,8 @@ describe('AssistantChatPanel', () => {
 
   it('renders disabled callout with optional reason', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({
-      state: 'disabled',
       reason: 'no_provider',
+      state: 'disabled',
     });
 
     render(<AssistantChatPanel />);
@@ -46,7 +46,7 @@ describe('AssistantChatPanel', () => {
   });
 
   it('renders error callout when status fetch fails', () => {
-    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'error', message: 'boom' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({ message: 'boom', state: 'error' });
 
     render(<AssistantChatPanel />);
 

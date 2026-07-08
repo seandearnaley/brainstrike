@@ -309,9 +309,9 @@ function computeLoadedDirectoryCheckboxState(
     folderId,
     parentDirectoryPath: node.path,
     querySelectionManifest,
-    selectionModel,
     selectedDirectoryCounts,
     selectedFilePaths,
+    selectionModel,
   });
 
   if (loadedChildSelectionSummary?.allSelected) {
@@ -546,9 +546,9 @@ function computeDirectorySelectionState(
     folderId,
     parentDirectoryPath: node.path,
     querySelectionManifest,
-    selectionModel,
     selectedDirectoryCounts,
     selectedFilePaths,
+    selectionModel,
   });
 
   if (loadedChildSelectionSummary?.allSelected) {
@@ -659,9 +659,9 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
     options;
 
   return {
-    fileNode: node,
     directoryTotalFiles:
       node.type === 'directory' ? fileExplorer.getFolderFileCount(node).count : 0,
+    fileNode: node,
     hasUnloadedDirectoryChildren:
       node.type === 'directory' ? hasUnloadedDirectoryChildren(node) : false,
     immediateChildren: node.type === 'directory' ? (node.children ?? []) : [],
@@ -857,9 +857,9 @@ function addChildrenToStack(
       continue;
     }
     stack.push({
+      depth: depth + 1,
       node: child,
       parentId: node.path,
-      depth: depth + 1,
     });
   }
 }
@@ -917,13 +917,13 @@ export function buildRowsFromWorkerNodes(
         : 0
     );
     rows.push({
-      id: fileNode.path,
-      type: fileNode.type,
-      depth,
       data: rowData,
-      parentId,
+      depth,
       hasChildren: fileNode.type === 'directory',
+      id: fileNode.path,
       isLoading: rowData.isChildrenLoading,
+      parentId,
+      type: fileNode.type,
     });
 
     // Update parent stack for children; truncate stale entries from deeper subtrees
@@ -1051,13 +1051,13 @@ export function buildRowsFromNormalizedTree(
       allowedPaths
     );
     rows.push({
-      id: entry.node.path,
-      type: entry.node.type,
-      depth: entry.depth,
       data: rowData,
-      parentId: entry.parentId,
+      depth: entry.depth,
       hasChildren: entry.node.type === 'directory',
+      id: entry.node.path,
       isLoading: rowData.isChildrenLoading,
+      parentId: entry.parentId,
+      type: entry.node.type,
     });
 
     if (!shouldIncludeNormalizedChildren(entry.node, options.expandedDirectoryPaths)) {
@@ -1108,9 +1108,9 @@ export function buildFileTreeRows(
       continue;
     }
     stack.push({
+      depth: 0,
       node,
       parentId: null,
-      depth: 0,
     });
   }
 
@@ -1128,14 +1128,14 @@ export function buildFileTreeRows(
     const rowData = createTreeRowData(node, options);
 
     rows.push({
-      id: node.path,
-      type: node.type,
-      depth,
       data: rowData,
-      parentId,
+      depth,
       // Keep directory rows expandable even when children are currently unloaded.
       hasChildren: node.type === 'directory',
+      id: node.path,
       isLoading: rowData.isChildrenLoading,
+      parentId,
+      type: node.type,
     });
 
     // Only materialize expanded subtrees to avoid rematerializing collapsed descendants.

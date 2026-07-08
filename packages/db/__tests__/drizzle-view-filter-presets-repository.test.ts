@@ -15,7 +15,7 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
   beforeEach(async () => {
     client = new PGlite({
-      extensions: { vector, pg_trgm: pgTrgm },
+      extensions: { pg_trgm: pgTrgm, vector },
     });
     const migrationResult = await runMigrations(client);
     if (!migrationResult.success) {
@@ -31,15 +31,15 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
   it('finds defaults and sorts them by sort order', async () => {
     await db.insert(viewFilterPresets).values({
-      id: '00000000-0000-0000-0000-000000000103',
-      name: 'Custom',
       description: null,
-      icon: 'settings',
-      includes: ['*.json'],
       excludes: [],
-      useRegex: false,
+      icon: 'settings',
+      id: '00000000-0000-0000-0000-000000000103',
+      includes: ['*.json'],
       isDefault: false,
+      name: 'Custom',
       sortOrder: 8,
+      useRegex: false,
     });
 
     const defaults = await repository.getDefaults();
@@ -62,9 +62,9 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
   it('creates presets with defaults and increments sort order from existing rows', async () => {
     const created = await repository.create({
-      name: 'Custom Preset',
-      includes: ['*.ts'],
       excludes: ['dist'],
+      includes: ['*.ts'],
+      name: 'Custom Preset',
     });
 
     expect(created.description).toBeNull();
@@ -74,11 +74,11 @@ describe('DrizzleViewFilterPresetsRepository', () => {
     expect(created.sortOrder).toBe(8);
 
     const createdSecond = await repository.create({
-      name: 'Regex Preset',
-      includes: ['.*\\.test\\.ts$'],
-      excludes: [],
       description: 'Regex only',
+      excludes: [],
       icon: 'flask-conical',
+      includes: ['.*\\.test\\.ts$'],
+      name: 'Regex Preset',
       useRegex: true,
     });
 
@@ -97,17 +97,17 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
   it('updates only provided fields and keeps non-updated fields intact', async () => {
     const created = await repository.create({
-      name: 'Before Update',
       description: 'original',
+      excludes: ['node_modules'],
       icon: 'file-text',
       includes: ['*.md'],
-      excludes: ['node_modules'],
+      name: 'Before Update',
       useRegex: false,
     });
 
     const updated = await repository.update(created.id, {
-      name: 'After Update',
       includes: ['*.ts', '*.tsx'],
+      name: 'After Update',
       sortOrder: 42,
     });
 
@@ -125,15 +125,15 @@ describe('DrizzleViewFilterPresetsRepository', () => {
     const [firstDefault] = await db
       .insert(viewFilterPresets)
       .values({
-        id: '00000000-0000-0000-0000-000000000104',
-        name: 'Protected Default',
         description: null,
-        icon: 'shield',
-        includes: ['*'],
         excludes: [],
-        useRegex: false,
+        icon: 'shield',
+        id: '00000000-0000-0000-0000-000000000104',
+        includes: ['*'],
         isDefault: true,
+        name: 'Protected Default',
         sortOrder: 1,
+        useRegex: false,
       })
       .returning();
     if (!firstDefault) {
@@ -145,9 +145,9 @@ describe('DrizzleViewFilterPresetsRepository', () => {
     expect(await repository.delete('00000000-0000-0000-0000-000000000000')).toBe(false);
 
     const custom = await repository.create({
-      name: 'Delete Me',
-      includes: ['*'],
       excludes: [],
+      includes: ['*'],
+      name: 'Delete Me',
     });
     expect(await repository.delete(custom.id)).toBe(true);
     expect(await repository.getById(custom.id)).toBeNull();

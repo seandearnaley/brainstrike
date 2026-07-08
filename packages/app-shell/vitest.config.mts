@@ -6,19 +6,8 @@ import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./vitest.setup.ts'],
-    unstubGlobals: true,
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
-    // Coverage consolidated at root vitest.config.mts
+  define: {
+    'import.meta.url': JSON.stringify('file:///mock/url'),
   },
   resolve: {
     alias: [
@@ -188,12 +177,23 @@ export default defineConfig({
       },
     ],
   },
-  define: {
-    'import.meta.url': JSON.stringify('file:///mock/url'),
-  },
   server: {
     fs: {
       allow: ['.'],
     },
+  },
+  test: {
+    environment: 'jsdom',
+    exclude: ['**/node_modules/**', '**/dist/**'],
+    globals: true,
+    hookTimeout: 30_000,
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    pool: 'threads',
+    setupFiles: ['./vitest.setup.ts'],
+    testTimeout: 30_000,
+    unstubGlobals: true,
+    // Coverage consolidated at root vitest.config.mts
   },
 });

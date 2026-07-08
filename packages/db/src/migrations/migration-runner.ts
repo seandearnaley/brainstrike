@@ -274,9 +274,9 @@ export class MigrationRunner {
 
         if (storedChecksum !== currentChecksum) {
           this.logger.warn('Migration checksum mismatch', {
-            version: migration.version,
-            storedChecksum,
             currentChecksum,
+            storedChecksum,
+            version: migration.version,
           });
           return false;
         }

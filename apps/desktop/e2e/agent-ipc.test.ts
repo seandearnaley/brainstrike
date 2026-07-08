@@ -10,10 +10,10 @@ test.describe('Agent IPC', () => {
         async *streamMastraAgent() {
           yield { type: 'text-delta', value: 'Hello from mocked IPC agent.' };
           yield {
-            type: 'message-finish',
             finishReason: 'stop',
-            usage: { promptTokens: 1, completionTokens: 1 },
             path: [],
+            type: 'message-finish',
+            usage: { completionTokens: 1, promptTokens: 1 },
           };
         },
       };
@@ -22,7 +22,7 @@ test.describe('Agent IPC', () => {
 
   test('returns streamed chunks for a simple prompt', async ({ window }) => {
     const result = await window.evaluate(async () => {
-      const msgs = [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello world' }] }];
+      const msgs = [{ id: 'm1', parts: [{ text: 'hello world', type: 'text' }], role: 'user' }];
       const globals = window as unknown as {
         agent?: { chat?: (messages: typeof msgs, runtime?: unknown) => Promise<unknown[]> };
       };

@@ -50,18 +50,25 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 const THREAD_ICON_CONFIG = {
-  message: { label: 'Message', iconComponent: MessageSquare },
-  bug: { label: 'Bug', iconComponent: Bug },
-  code: { label: 'Code', iconComponent: Code2 },
-  rocket: { label: 'Rocket', iconComponent: Rocket },
-  research: { label: 'Research', iconComponent: Search },
-  plan: { label: 'Plan', iconComponent: ClipboardList },
+  bug: { iconComponent: Bug, label: 'Bug' },
+  code: { iconComponent: Code2, label: 'Code' },
+  message: { iconComponent: MessageSquare, label: 'Message' },
+  plan: { iconComponent: ClipboardList, label: 'Plan' },
+  research: { iconComponent: Search, label: 'Research' },
+  rocket: { iconComponent: Rocket, label: 'Rocket' },
 } satisfies Record<
   AssistantThreadIconId,
   { readonly iconComponent: LucideIcon; readonly label: string }
 >;
 
 const THREAD_COLOR_CONFIG = {
+  amber: {
+    accentClassName: 'bg-amber-500',
+    label: 'Amber',
+    markClassName:
+      'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+    selectedClassName: 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/20',
+  },
   blue: {
     accentClassName: 'bg-sky-500',
     label: 'Blue',
@@ -77,19 +84,19 @@ const THREAD_COLOR_CONFIG = {
     selectedClassName:
       'border-emerald-300 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/20',
   },
-  amber: {
-    accentClassName: 'bg-amber-500',
-    label: 'Amber',
-    markClassName:
-      'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-    selectedClassName: 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/20',
-  },
   rose: {
     accentClassName: 'bg-rose-500',
     label: 'Rose',
     markClassName:
       'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
     selectedClassName: 'border-rose-300 bg-rose-50/70 dark:border-rose-800 dark:bg-rose-950/20',
+  },
+  slate: {
+    accentClassName: 'bg-slate-500',
+    label: 'Slate',
+    markClassName:
+      'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
+    selectedClassName: 'border-slate-300 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/30',
   },
   violet: {
     accentClassName: 'bg-violet-500',
@@ -98,13 +105,6 @@ const THREAD_COLOR_CONFIG = {
       'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300',
     selectedClassName:
       'border-violet-300 bg-violet-50/70 dark:border-violet-800 dark:bg-violet-950/20',
-  },
-  slate: {
-    accentClassName: 'bg-slate-500',
-    label: 'Slate',
-    markClassName:
-      'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300',
-    selectedClassName: 'border-slate-300 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/30',
   },
 } satisfies Record<
   AssistantThreadColorId,

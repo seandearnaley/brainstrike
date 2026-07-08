@@ -59,7 +59,7 @@ export function CommandPaletteHost(): ReactElement | null {
   // Rebuild the registry + context with the captured open target. While closed,
   // openTarget is null, so this collapses to the targetless command set.
   const registry = useMemo(
-    () => createAppCommandRegistry({ parts, handlers, target: openTarget }),
+    () => createAppCommandRegistry({ handlers, parts, target: openTarget }),
     [parts, handlers, openTarget]
   );
   const context = useMemo(

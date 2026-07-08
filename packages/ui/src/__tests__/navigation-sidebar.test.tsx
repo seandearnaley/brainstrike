@@ -6,8 +6,8 @@ import { type NavigationItem, NavigationSidebar } from '../navigation-sidebar';
 import { TooltipProvider } from '../tooltip';
 
 const items: NavigationItem[] = [
-  { name: 'Context Explorer', icon: Folder, path: '/' },
-  { name: 'Settings', icon: Settings, path: '/settings' },
+  { icon: Folder, name: 'Context Explorer', path: '/' },
+  { icon: Settings, name: 'Settings', path: '/settings' },
 ];
 
 const renderSidebar = (

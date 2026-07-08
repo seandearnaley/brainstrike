@@ -37,12 +37,12 @@ describe('createFileNode', () => {
   it('creates a file node with default options', () => {
     const node = createFileNode();
     expect(node).toMatchObject({
+      depth: 0,
+      isVisible: true,
       name: 'test.txt',
       path: '/test.txt',
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'test-folder',
-      isVisible: true,
+      selectionState: 'unchecked',
       type: 'file',
     });
     expect(node.handle).toBeDefined();
@@ -52,21 +52,21 @@ describe('createFileNode', () => {
   it('creates a file node with custom options', () => {
     const customHandle = { kind: 'file' } as unknown as FileSystemFileHandle;
     const node = createFileNode({
+      depth: 2,
+      handle: customHandle,
+      isVisible: false,
       name: 'foo.txt',
       path: '/foo/foo.txt',
-      depth: 2,
-      selectionState: 'checked',
       rootFolderId: 'foo-folder',
-      isVisible: false,
-      handle: customHandle,
+      selectionState: 'checked',
     });
     expect(node).toMatchObject({
+      depth: 2,
+      isVisible: false,
       name: 'foo.txt',
       path: '/foo/foo.txt',
-      depth: 2,
-      selectionState: 'checked',
       rootFolderId: 'foo-folder',
-      isVisible: false,
+      selectionState: 'checked',
       type: 'file',
     });
     expect(node.handle).toBe(customHandle);
@@ -77,14 +77,14 @@ describe('createDirectoryNode', () => {
   it('creates a directory node with default options', () => {
     const node = createDirectoryNode();
     expect(node).toMatchObject({
+      children: [],
+      depth: 0,
+      isVisible: true,
       name: 'test-directory',
       path: '/test-directory',
-      depth: 0,
-      selectionState: 'unchecked',
       rootFolderId: 'test-folder',
-      isVisible: true,
+      selectionState: 'unchecked',
       type: 'directory',
-      children: [],
     });
     expect(node.handle).toBeDefined();
     expect((node.handle as { kind: string }).kind).toBe('directory');
@@ -93,21 +93,21 @@ describe('createDirectoryNode', () => {
   it('creates a directory node with custom options', () => {
     const children = [createFileNode({ name: 'child.txt' })];
     const node = createDirectoryNode({
+      children,
+      depth: 1,
+      isVisible: false,
       name: 'foo',
       path: '/foo',
-      depth: 1,
-      selectionState: 'checked',
       rootFolderId: 'foo-folder',
-      isVisible: false,
-      children,
+      selectionState: 'checked',
     });
     expect(node).toMatchObject({
+      depth: 1,
+      isVisible: false,
       name: 'foo',
       path: '/foo',
-      depth: 1,
-      selectionState: 'checked',
       rootFolderId: 'foo-folder',
-      isVisible: false,
+      selectionState: 'checked',
       type: 'directory',
     });
     expect(node.children).toBe(children);
@@ -154,10 +154,10 @@ describe('createFileTreeFromStructure', () => {
   it('converts a simple object into tree nodes', () => {
     const structure = {
       src: {
-        'index.ts': null,
         components: {
           'button.tsx': null,
         },
+        'index.ts': null,
       },
     };
 
@@ -294,19 +294,19 @@ describe('createNestedDirectoryStructure edge cases', () => {
 describe('generateLargeTree', () => {
   it('generates a deterministic bounded tree from a custom config', () => {
     const { tree, nodeCount } = generateLargeTree({
-      targetNodeCount: 20,
-      maxDepth: 3,
       filesPerDir: 2,
+      maxDepth: 3,
       subdirsPerDir: 2,
+      targetNodeCount: 20,
     });
 
     expect(tree).toHaveLength(1);
     const root = tree[0]!;
     expect(root).toMatchObject({
+      depth: 0,
       name: 'root',
       path: 'root',
       type: 'directory',
-      depth: 0,
     });
     expect(root.children?.filter((child) => child.type === 'file')).toHaveLength(2);
     expect(root.children?.filter((child) => child.type === 'directory')).toHaveLength(2);
@@ -319,10 +319,10 @@ describe('generateLargeTree', () => {
 
   it('respects maxDepth even when the target count is much larger', () => {
     const { tree, nodeCount } = generateLargeTree({
-      targetNodeCount: 10_000,
-      maxDepth: 1,
       filesPerDir: 3,
+      maxDepth: 1,
       subdirsPerDir: 10,
+      targetNodeCount: 10_000,
     });
 
     const flattened = flattenTreeForCount(tree);

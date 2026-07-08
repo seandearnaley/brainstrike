@@ -54,10 +54,10 @@ describe('tapestry utils', () => {
     expect(files[0]?.language).toBe('tsx');
     expect(files[0]?.totalLines).toBe(50);
     expect(files[0]?.selections[0]).toMatchObject({
-      id: firstUuid,
-      startLine: 0,
       endLine: 50,
+      id: firstUuid,
       isActive: true,
+      startLine: 0,
     });
     expect(files[0]?.content[0]).toMatch(/^\/\//);
   });

@@ -97,8 +97,8 @@ async function requestPermissionWithTimeout(
 ): Promise<PermissionState | 'timeout' | 'error'> {
   logger.debug('requestPermissionWithTimeout: starting', {
     handleName: handle.name,
-    timeoutMs,
     hasRequestPermission: typeof handle.requestPermission === 'function',
+    timeoutMs,
   });
 
   if (typeof handle.requestPermission !== 'function') {
@@ -127,8 +127,8 @@ async function requestPermissionWithTimeout(
 
     const result = await Promise.race([permissionPromise, timeoutPromise]);
     logger.debug('requestPermissionWithTimeout: completed', {
-      result,
       elapsedMs: Date.now() - startTime,
+      result,
     });
     return result;
   } catch (err) {
@@ -154,30 +154,30 @@ export interface RestoreHandleResult {
 }
 
 export interface HandleCache {
-  clear(): Promise<void>;
-  getAllRootHandles(): Promise<StoredRootHandle[]>;
-  getFileHandle(folderId: string, relativePath: string): Promise<FileSystemFileHandle | null>;
+  clear: () => Promise<void>;
+  getAllRootHandles: () => Promise<StoredRootHandle[]>;
+  getFileHandle: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
   /**
    * Get the last root handle for restore, including permission state.
    * Does NOT request permission - the caller should do that synchronously
    * in a user gesture handler to ensure Chrome doesn't block it.
    */
-  getLastRootHandleForRestore(): Promise<RestoreHandleResult | null>;
-  getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null>;
+  getLastRootHandleForRestore: () => Promise<RestoreHandleResult | null>;
+  getRootHandle: (folderId: string) => Promise<FileSystemDirectoryHandle | null>;
   /**
    * Mark a handle as successfully restored (updates lastAccessedAt).
    */
-  markHandleRestored(folderId: string): Promise<void>;
-  pruneOldHandles(maxAge?: number): Promise<void>;
-  removeFileHandle(folderId: string, relativePath: string): Promise<void>;
-  removeRootHandle(folderId: string): Promise<void>;
-  restoreLastRootHandle(): Promise<{ handle: FileSystemDirectoryHandle } | null>;
-  storeFileHandle(
+  markHandleRestored: (folderId: string) => Promise<void>;
+  pruneOldHandles: (maxAge?: number) => Promise<void>;
+  removeFileHandle: (folderId: string, relativePath: string) => Promise<void>;
+  removeRootHandle: (folderId: string) => Promise<void>;
+  restoreLastRootHandle: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
+  storeFileHandle: (
     folderId: string,
     relativePath: string,
     handle: FileSystemFileHandle
-  ): Promise<void>;
-  storeRootHandle(folderId: string, handle: FileSystemDirectoryHandle): Promise<void>;
+  ) => Promise<void>;
+  storeRootHandle: (folderId: string, handle: FileSystemDirectoryHandle) => Promise<void>;
 }
 
 // LRU cache configuration
@@ -253,8 +253,8 @@ export class WebHandleCache implements HandleCache {
       const timeSinceFailure = now() - this.lastDbFailureTime;
       if (timeSinceFailure < DB_RETRY_DELAY_MS) {
         logger.debug('getDb: skipping retry, cooling down', {
-          timeSinceFailure,
           retryDelayMs: DB_RETRY_DELAY_MS,
+          timeSinceFailure,
         });
         return null;
       }
@@ -319,9 +319,9 @@ export class WebHandleCache implements HandleCache {
 
     if (!(hasRootStore && hasFileStore)) {
       logger.warn('openDbWithRecovery: database is missing required stores, recreating', {
-        hasRootStore,
-        hasFileStore,
         existingStores: Array.from(db.objectStoreNames),
+        hasFileStore,
+        hasRootStore,
       });
 
       // Close the corrupted database
@@ -441,10 +441,10 @@ export class WebHandleCache implements HandleCache {
     const existing = this.memoryRootHandles.get(folderId);
     const record: StoredRootHandle = {
       folderId,
-      name: handle.name,
       handle,
-      storedAt: existing?.storedAt ?? timestamp,
       lastAccessedAt: timestamp,
+      name: handle.name,
+      storedAt: existing?.storedAt ?? timestamp,
     };
     await this.updateRootRecord(record);
     logger.debug('storeRootHandle completed', { folderId });
@@ -494,8 +494,8 @@ export class WebHandleCache implements HandleCache {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         logger.debug('fetchRootRecord: IndexedDB fetch failed, falling back to memory', {
-          folderId,
           error: errorMessage,
+          folderId,
         });
       }
     }
@@ -534,8 +534,8 @@ export class WebHandleCache implements HandleCache {
         const errorName = err instanceof Error ? err.name : 'Unknown';
         const errorStack = err instanceof Error ? err.stack : undefined;
         logger.warn('getAllRootHandles: IndexedDB fetch failed, falling back to memory', {
-          errorName,
           error: errorMessage,
+          errorName,
           stack: errorStack,
         });
       }
@@ -577,8 +577,8 @@ export class WebHandleCache implements HandleCache {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.warn('removeRootHandle: IndexedDB delete failed', {
-        folderId,
         error: errorMessage,
+        folderId,
       });
     }
   }
@@ -601,8 +601,8 @@ export class WebHandleCache implements HandleCache {
         const cursor = await index.openCursor(null, 'prev');
         record = cursor?.value ?? null;
         logger.debug('restoreLastRootHandle: fetched from IndexedDB', {
-          hasRecord: !!record,
           folderId: record?.folderId,
+          hasRecord: !!record,
         });
       } catch (err) {
         logger.warn('restoreLastRootHandle: IndexedDB fetch failed', { error: err });
@@ -684,8 +684,8 @@ export class WebHandleCache implements HandleCache {
         const cursor = await index.openCursor(null, 'prev');
         record = cursor?.value ?? null;
         logger.debug('getLastRootHandleForRestore: fetched from IndexedDB', {
-          hasRecord: !!record,
           folderId: record?.folderId,
+          hasRecord: !!record,
         });
       } catch (err) {
         logger.warn('getLastRootHandleForRestore: IndexedDB fetch failed', { error: err });
@@ -719,8 +719,8 @@ export class WebHandleCache implements HandleCache {
     }
 
     return {
-      handle: record.handle,
       folderId: record.folderId,
+      handle: record.handle,
       name: record.name,
       permissionState,
     };
@@ -768,10 +768,10 @@ export class WebHandleCache implements HandleCache {
     const path = this.buildFileKey(folderId, relativePath);
     const existing = this.memoryFileHandles.get(path);
     const record: StoredFileHandle = {
-      path,
-      name: handle.name,
-      handle,
       folderId,
+      handle,
+      name: handle.name,
+      path,
       storedAt: existing?.storedAt ?? timestamp,
     };
     await this.updateFileRecord(record);
@@ -800,8 +800,8 @@ export class WebHandleCache implements HandleCache {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         logger.debug('getFileHandle: IndexedDB fetch failed, falling back to memory', {
-          path,
           error: errorMessage,
+          path,
         });
       }
     }
@@ -832,8 +832,8 @@ export class WebHandleCache implements HandleCache {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.warn('removeFileHandle: IndexedDB delete failed', {
-        path,
         error: errorMessage,
+        path,
       });
     }
   }

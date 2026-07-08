@@ -145,33 +145,33 @@ export class ToolLoader {
       }
 
       logger.info('Tools loaded (no budget)', {
-        loaded: loadedTools.length,
         deferred: deferredTools.length,
+        loaded: loadedTools.length,
         tokensUsed,
       });
 
       return {
-        loadedTools,
         budgetSkippedTools: [],
-        deferredTools,
-        tokensUsed,
-        tokenBudget: Number.POSITIVE_INFINITY,
         byTier: {
-          critical: {
-            selectedTools: criticalTools,
-            skippedTools: [],
-            tokensUsed: criticalTools.reduce((sum, t) => sum + t.estimatedTokens, 0),
-            tokensRemaining: Number.POSITIVE_INFINITY,
-            budgetAvailable: Number.POSITIVE_INFINITY,
-          },
           conditional: {
+            budgetAvailable: Number.POSITIVE_INFINITY,
             selectedTools: conditionalTools,
             skippedTools: [],
-            tokensUsed: conditionalTools.reduce((sum, t) => sum + t.estimatedTokens, 0),
             tokensRemaining: Number.POSITIVE_INFINITY,
+            tokensUsed: conditionalTools.reduce((sum, t) => sum + t.estimatedTokens, 0),
+          },
+          critical: {
             budgetAvailable: Number.POSITIVE_INFINITY,
+            selectedTools: criticalTools,
+            skippedTools: [],
+            tokensRemaining: Number.POSITIVE_INFINITY,
+            tokensUsed: criticalTools.reduce((sum, t) => sum + t.estimatedTokens, 0),
           },
         },
+        deferredTools,
+        loadedTools,
+        tokenBudget: Number.POSITIVE_INFINITY,
+        tokensUsed,
       };
     }
 
@@ -209,23 +209,23 @@ export class ToolLoader {
     }
 
     logger.info('Tools loaded', {
+      deferred: deferredTools.length,
       loaded: loadedTools.length,
       skipped: budgetSkippedTools.length,
-      deferred: deferredTools.length,
-      tokensUsed,
       tokenBudget,
+      tokensUsed,
     });
 
     return {
-      loadedTools,
       budgetSkippedTools,
-      deferredTools,
-      tokensUsed,
-      tokenBudget,
       byTier: {
-        critical: criticalResult,
         conditional: conditionalResult,
+        critical: criticalResult,
       },
+      deferredTools,
+      loadedTools,
+      tokenBudget,
+      tokensUsed,
     };
   }
 
@@ -264,9 +264,9 @@ export class ToolLoader {
     }
 
     logger.debug('On-demand tools loaded', {
-      requested: toolIds.length,
       loaded: loaded.length,
       notFound: notFound.length,
+      requested: toolIds.length,
       tokensUsed,
     });
 
@@ -398,5 +398,5 @@ export function loadToolsForAgent(
     }
   }
 
-  return { tools, result };
+  return { result, tools };
 }

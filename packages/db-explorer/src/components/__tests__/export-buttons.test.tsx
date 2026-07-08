@@ -24,17 +24,17 @@ vi.mock('@brainstrike/ui', () => ({
 
 describe('ExportButtons', () => {
   const mockExportHandlers = {
-    handleExportFiles: vi.fn(),
+    handleExportAll: vi.fn().mockResolvedValue(undefined),
     handleExportChunks: vi.fn(),
     handleExportEmbeddings: vi.fn(),
-    handleExportAll: vi.fn().mockResolvedValue(undefined),
+    handleExportFiles: vi.fn(),
   };
 
   const createProps = (overrides: Partial<ExportButtonsProps> = {}): ExportButtonsProps => ({
     counts: {
-      records: 0,
       chunks: 0,
       embeddings: 0,
+      records: 0,
     },
     exportHandlers: mockExportHandlers,
     ...overrides,
@@ -62,7 +62,7 @@ describe('ExportButtons', () => {
 
   it('enables Files button when records exist', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 0, embeddings: 0, records: 1 } })} />
     );
 
     const filesButton = screen.getByText(/Files \(1\)/).closest('button');
@@ -78,7 +78,7 @@ describe('ExportButtons', () => {
 
   it('enables Chunks button when chunks exist', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 1, embeddings: 0, records: 0 } })} />
     );
 
     const chunksButton = screen.getByText(/Chunks \(1\)/).closest('button');
@@ -87,7 +87,7 @@ describe('ExportButtons', () => {
 
   it('disables Embeddings button when no chunks with embeddings exist', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 1, embeddings: 0, records: 0 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(0\)/).closest('button');
@@ -96,7 +96,7 @@ describe('ExportButtons', () => {
 
   it('enables Embeddings button when chunks with embeddings exist', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 1 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 1, embeddings: 1, records: 0 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(1\)/).closest('button');
@@ -112,7 +112,7 @@ describe('ExportButtons', () => {
 
   it('enables All (ZIP) button when records exist', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 0, embeddings: 0, records: 1 } })} />
     );
 
     const allButton = screen.getByText(/All \(ZIP\)/).closest('button');
@@ -121,7 +121,7 @@ describe('ExportButtons', () => {
 
   it('calls handleExportFiles when Files button is clicked', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 0, embeddings: 0, records: 1 } })} />
     );
 
     const filesButton = screen.getByText(/Files \(1\)/).closest('button');
@@ -132,7 +132,7 @@ describe('ExportButtons', () => {
 
   it('calls handleExportChunks when Chunks button is clicked', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 1, embeddings: 0, records: 0 } })} />
     );
 
     const chunksButton = screen.getByText(/Chunks \(1\)/).closest('button');
@@ -143,7 +143,7 @@ describe('ExportButtons', () => {
 
   it('calls handleExportEmbeddings when Embeddings button is clicked', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 1 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 1, embeddings: 1, records: 0 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(1\)/).closest('button');
@@ -154,7 +154,7 @@ describe('ExportButtons', () => {
 
   it('calls handleExportAll when All (ZIP) button is clicked', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 0, embeddings: 0, records: 1 } })} />
     );
 
     const allButton = screen.getByText(/All \(ZIP\)/).closest('button');
@@ -165,7 +165,7 @@ describe('ExportButtons', () => {
 
   it('displays correct counts for records and chunks', () => {
     render(
-      <ExportButtons {...createProps({ counts: { records: 2, chunks: 3, embeddings: 2 } })} />
+      <ExportButtons {...createProps({ counts: { chunks: 3, embeddings: 2, records: 2 } })} />
     );
 
     expect(screen.getByText(/Files \(2\)/)).toBeInTheDocument();

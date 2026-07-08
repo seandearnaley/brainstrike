@@ -176,7 +176,7 @@ export function decodeFileMentionId(id: string): { rootId: string; path: string 
   if (!(rootId && encodedPath)) {
     return null;
   }
-  return { rootId, path: decodeFileMentionPathSegment(encodedPath) };
+  return { path: decodeFileMentionPathSegment(encodedPath), rootId };
 }
 
 function decodeFileMentionIdForLabel(
@@ -192,7 +192,7 @@ function decodeFileMentionIdForLabel(
   if (!(rootId && encodedPath)) {
     return null;
   }
-  return { rootId, path: decodeFileMentionPathSegmentForLabel(encodedPath, label) };
+  return { path: decodeFileMentionPathSegmentForLabel(encodedPath, label), rootId };
 }
 
 /**
@@ -229,7 +229,7 @@ export function parseFileMentionDirectives(text: string): ParsedFileMention[] {
       const decoded = decodeFileMentionIdForLabel(id, label);
       if (decoded) {
         seen.add(id);
-        mentions.push({ label, id, rootId: decoded.rootId, path: decoded.path });
+        mentions.push({ id, label, path: decoded.path, rootId: decoded.rootId });
       }
     }
     match = DIRECTIVE_RE.exec(text);

@@ -9,15 +9,15 @@ import {
 // Mock chunk factory
 function createMockChunk(id: string, content: string): FileChunk {
   return {
-    id,
-    fileRecordId: 'file-1',
     chunkIndex: 0,
+    chunkSize: content.length,
+    chunkType: 'text',
     content,
     contentHash: `hash-${id}`,
-    tokenCount: content.split(' ').length,
-    chunkType: 'text',
-    chunkSize: content.length,
     createdAt: new Date().toISOString(),
+    fileRecordId: 'file-1',
+    id,
+    tokenCount: content.split(' ').length,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -26,8 +26,8 @@ function createMockChunk(id: string, content: string): FileChunk {
 function createVectorResult(id: string, content: string, similarity: number): ChunkSearchResult {
   return {
     chunk: createMockChunk(id, content),
-    similarity,
     rank: 0, // Will be set by position
+    similarity,
   };
 }
 
@@ -40,9 +40,9 @@ function createFTSResult(
 ): FTSSearchResult {
   return {
     chunk: createMockChunk(id, content),
-    rank,
-    position,
     headline: `...${content.slice(0, 50)}...`,
+    position,
+    rank,
   };
 }
 
@@ -55,8 +55,8 @@ describe('HybridSearchService', () => {
 
   beforeEach(() => {
     mockRepository = {
-      searchSimilar: vi.fn(),
       fullTextSearch: vi.fn(),
+      searchSimilar: vi.fn(),
     };
     service = new HybridSearchService(mockRepository as unknown as FileChunkRepository);
   });
@@ -244,8 +244,8 @@ describe('HybridSearchService', () => {
       // Higher vector weight should boost doc1's score
       const response = await service.search('test', [0.1], {
         embeddingSetId: 'test-set',
-        vectorWeight: 2.0,
         ftsWeight: 1.0,
+        vectorWeight: 2.0,
       });
 
       expect(response.results.length).toBe(2);
@@ -264,8 +264,8 @@ describe('HybridSearchService', () => {
       // Higher FTS weight should boost doc2's score
       const response = await service.search('test', [0.1], {
         embeddingSetId: 'test-set',
-        vectorWeight: 1.0,
         ftsWeight: 2.0,
+        vectorWeight: 1.0,
       });
 
       expect(response.results.length).toBe(2);
@@ -318,10 +318,10 @@ describe('HybridSearchService', () => {
       mockRepository.fullTextSearch.mockResolvedValue([]);
 
       await service.search('test', [0.1], {
-        embeddingSetId: 'test-set',
-        fileRecordId: 'file-123',
         chunkType: 'code',
+        embeddingSetId: 'test-set',
         filePaths: ['/src/test.ts'],
+        fileRecordId: 'file-123',
         selectionSnapshotId: 'snapshot-1',
       });
 
@@ -329,9 +329,9 @@ describe('HybridSearchService', () => {
       expect(mockRepository.searchSimilar).toHaveBeenCalledWith(
         [0.1],
         expect.objectContaining({
-          fileRecordId: 'file-123',
           chunkType: 'code',
           filePaths: ['/src/test.ts'],
+          fileRecordId: 'file-123',
           selectionSnapshotId: 'snapshot-1',
         })
       );
@@ -340,9 +340,9 @@ describe('HybridSearchService', () => {
       expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
         'test',
         expect.objectContaining({
-          fileRecordId: 'file-123',
           chunkType: 'code',
           filePaths: ['/src/test.ts'],
+          fileRecordId: 'file-123',
           selectionSnapshotId: 'snapshot-1',
         })
       );
@@ -354,15 +354,15 @@ describe('HybridSearchService', () => {
 
       await service.search('test', [0.1], {
         embeddingSetId: 'test-set',
-        ftsQueryMode: 'phrase',
         ftsLanguage: 'spanish',
+        ftsQueryMode: 'phrase',
       });
 
       expect(mockRepository.fullTextSearch).toHaveBeenCalledWith(
         'test',
         expect.objectContaining({
-          queryMode: 'phrase',
           language: 'spanish',
+          queryMode: 'phrase',
         })
       );
     });

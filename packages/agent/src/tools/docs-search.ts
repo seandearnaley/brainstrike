@@ -58,72 +58,72 @@ export interface DocSummaryResponse {
 const DEFAULT_DOCS_INDEX: readonly WebDocEntry[] = [
   {
     id: 'assistant-ui-integration',
-    title: 'Assistant UI Runtime Handoff (2025-09-14)',
-    summary:
-      'Archived handoff covering assistant runtime behavior and integration checkpoints for the 2025-09-14 implementation phase.',
-    url: '/archive/arch-logs/assistant-ui-runtime-handoff-2025-09-14',
-    tags: ['assistant-ui', 'runtime', 'handoff'],
     sections: [
       'Tracks runtime integration decisions and implementation notes for the assistant UI.',
       'Captures risks and follow-up tasks recorded at handoff time.',
       'Useful when debugging regressions tied to historical runtime integration changes.',
     ],
+    summary:
+      'Archived handoff covering assistant runtime behavior and integration checkpoints for the 2025-09-14 implementation phase.',
+    tags: ['assistant-ui', 'runtime', 'handoff'],
+    title: 'Assistant UI Runtime Handoff (2025-09-14)',
+    url: '/archive/arch-logs/assistant-ui-runtime-handoff-2025-09-14',
     versionIntroduced: '2025.09',
   },
   {
     id: 'web-tool-dispatcher',
-    title: 'Tool Execution IPC Bridge Plan (2026-02-02)',
-    summary:
-      'Plan for bridging tool execution over IPC with explicit contracts, safety boundaries, and implementation sequencing.',
-    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
-    tags: ['tools', 'ipc', 'planning'],
     sections: [
       'Defines the IPC bridge shape and expected request/response behavior.',
       'Documents sequencing for rollout and validation criteria.',
       'Focuses on safe tool execution boundaries between renderer and main process.',
     ],
+    summary:
+      'Plan for bridging tool execution over IPC with explicit contracts, safety boundaries, and implementation sequencing.',
+    tags: ['tools', 'ipc', 'planning'],
+    title: 'Tool Execution IPC Bridge Plan (2026-02-02)',
+    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
     versionIntroduced: '2025.09',
   },
   {
     id: 'desktop-safe-storage',
-    title: 'AI Tools Settings Implementation Plan (2026-02-01)',
-    summary:
-      'Implementation plan for AI tools settings, including provider configuration flow and supporting UI behavior.',
-    url: '/archive/plans/ai-tools-settings-implementation-2026-02-01',
-    tags: ['settings', 'ai-tools', 'planning'],
     sections: [
       'Covers settings model, persistence expectations, and UI control surface.',
       'Describes implementation milestones for provider/tool settings behavior.',
       'Useful for tracing why settings UX behaves as it does in current builds.',
     ],
+    summary:
+      'Implementation plan for AI tools settings, including provider configuration flow and supporting UI behavior.',
+    tags: ['settings', 'ai-tools', 'planning'],
+    title: 'AI Tools Settings Implementation Plan (2026-02-01)',
+    url: '/archive/plans/ai-tools-settings-implementation-2026-02-01',
     versionIntroduced: '2025.08',
   },
   {
     id: 'mcp-hot-reload',
-    title: 'MCP Client Duplicate Initialization Fix (2025-10-05)',
-    summary:
-      'Archive handoff describing a fix for duplicate MCP client initialization and related runtime stability issues.',
-    url: '/archive/cold/handoffs/20251005-112340-mcp-client-duplicate-initialization-fix',
-    tags: ['mcp', 'stability', 'handoff'],
     sections: [
       'Explains symptoms and root-cause analysis for duplicate MCP initialization.',
       'Documents mitigation and verification steps used during the fix.',
       'Helps diagnose similar MCP lifecycle regressions.',
     ],
+    summary:
+      'Archive handoff describing a fix for duplicate MCP client initialization and related runtime stability issues.',
+    tags: ['mcp', 'stability', 'handoff'],
+    title: 'MCP Client Duplicate Initialization Fix (2025-10-05)',
+    url: '/archive/cold/handoffs/20251005-112340-mcp-client-duplicate-initialization-fix',
     versionIntroduced: '2025.09',
   },
   {
     id: 'guardrails-and-telemetry',
-    title: 'Embedding Queue Telemetry Sink Handoff (2025-02-14)',
-    summary:
-      'Archived handoff for queue telemetry sink behavior, including event capture and operational expectations.',
-    url: '/archive/cold/handoffs/20250214-embedding-queue-telemetry-sink',
-    tags: ['queue', 'telemetry', 'handoff'],
     sections: [
       'Describes telemetry payload flow and sink integration details.',
       'Captures operational constraints and expected signal behavior.',
       'Useful when investigating queue metrics and telemetry regressions.',
     ],
+    summary:
+      'Archived handoff for queue telemetry sink behavior, including event capture and operational expectations.',
+    tags: ['queue', 'telemetry', 'handoff'],
+    title: 'Embedding Queue Telemetry Sink Handoff (2025-02-14)',
+    url: '/archive/cold/handoffs/20250214-embedding-queue-telemetry-sink',
     versionIntroduced: '2025.09',
   },
 ];
@@ -162,9 +162,9 @@ function indexDocs(entries: readonly WebDocEntry[]): {
     );
     return {
       ...entry,
-      tokens,
-      titleTokens,
       sentenceTokens,
+      titleTokens,
+      tokens,
     };
   });
   const map = new Map<string, IndexedDoc>(docs.map((doc) => [doc.id, doc]));
@@ -202,6 +202,7 @@ function tokenizeQuery(query: string): string[] {
 }
 
 export const searchDocsInputSchema = z.object({
+  limit: z.number().int().positive().max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
   query: z
     .string()
     .min(2, 'Query must be at least 2 characters')
@@ -209,7 +210,6 @@ export const searchDocsInputSchema = z.object({
     .transform((value) => value.trim())
     .refine((value) => !value.includes('\0'), 'Query cannot contain null bytes')
     .refine((value) => value.length >= 2, 'Query must be at least 2 characters'),
-  limit: z.number().int().positive().max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT),
 });
 
 export const docSummaryInputSchema = z.object({
@@ -227,11 +227,11 @@ export async function searchDocsExecute(
   const queryTokens = tokenizeQuery(query);
   if (queryTokens.length === 0) {
     return {
-      query,
       limit,
-      totalResults: 0,
-      tookMs: Date.now() - startedAt,
+      query,
       results: [],
+      tookMs: Date.now() - startedAt,
+      totalResults: 0,
     } satisfies SearchResponse;
   }
 
@@ -243,8 +243,8 @@ export async function searchDocsExecute(
     if (score > 0) {
       ranked.push({
         doc,
-        score,
         highlight: findHighlight(doc, queryTokens),
+        score,
       });
     }
   }
@@ -258,19 +258,19 @@ export async function searchDocsExecute(
 
   const top = ranked.slice(0, limit);
   return {
-    query,
     limit,
-    totalResults: ranked.length,
-    tookMs: Date.now() - startedAt,
+    query,
     results: top.map(({ doc, score, highlight }) => ({
-      id: doc.id,
-      title: doc.title,
-      summary: doc.summary,
-      url: doc.url,
       highlight,
-      tags: doc.tags,
+      id: doc.id,
       score,
+      summary: doc.summary,
+      tags: doc.tags,
+      title: doc.title,
+      url: doc.url,
     })),
+    tookMs: Date.now() - startedAt,
+    totalResults: ranked.length,
   } satisfies SearchResponse;
 }
 
@@ -293,11 +293,11 @@ export async function docSummaryExecute(
 
   const baseDoc = {
     id: doc.id,
-    title: doc.title,
-    summary: doc.summary,
-    url: doc.url,
-    tags: doc.tags,
     sections,
+    summary: doc.summary,
+    tags: doc.tags,
+    title: doc.title,
+    url: doc.url,
   };
 
   const docPayload = doc.versionIntroduced

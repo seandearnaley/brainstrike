@@ -3,20 +3,20 @@ import type { GroupedData, TableRowData } from '../grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from '../preview-pagination';
 
 const createRow = (id: string, path: string): TableRowData => ({
-  id,
   compositeKey: id,
+  id,
   path,
   rootFolderId: 'root',
   type: 'TS',
 });
 
 const createGroup = (groupKey: string, items: TableRowData[]): GroupedData<TableRowData> => ({
+  count: items.length,
   groupKey,
   groupLabel: groupKey,
   items,
-  count: items.length,
-  totalTokens: 0,
   totalSize: 0,
+  totalTokens: 0,
 });
 
 describe('getVisibleFilesOnPage', () => {

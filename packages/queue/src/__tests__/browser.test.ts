@@ -12,17 +12,17 @@ function createQueueAdapterStub(): QueueAdapter {
     add: vi.fn(
       async (_task: TaskPayload): Promise<QueueResult> => ({
         id: 'result',
-        type: 'result',
-        vectors: [new Float32Array([1, 2, 3])],
         metadata: {
-          model: 'local:test',
-          device: 'webgpu',
-          dtype: 'fp16',
           batchSize: 1,
+          device: 'webgpu',
+          dimensions: 3,
+          dtype: 'fp16',
           elapsedMs: 1,
           fallbackApplied: false,
-          dimensions: 3,
+          model: 'local:test',
         },
+        type: 'result',
+        vectors: [new Float32Array([1, 2, 3])],
       })
     ),
     addBulk: vi.fn(async () => []),
@@ -81,11 +81,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
     await expectPromiseToSettle(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     );
 
@@ -108,11 +108,11 @@ describe('createBrowserEmbeddingQueue', () => {
     await expect(
       expectPromiseToSettle(
         queue.add({
+          deviceHint: 'webgpu',
           id: 'task-1',
           kind: 'embed',
-          texts: ['hello'],
           model: 'local:test',
-          deviceHint: 'webgpu',
+          texts: ['hello'],
         })
       )
     ).rejects.toThrow('workerpool bootstrap failed');
@@ -120,11 +120,11 @@ describe('createBrowserEmbeddingQueue', () => {
     await expect(
       expectPromiseToSettle(
         queue.add({
+          deviceHint: 'webgpu',
           id: 'task-2',
           kind: 'embed',
-          texts: ['world'],
           model: 'local:test',
-          deviceHint: 'webgpu',
+          texts: ['world'],
         })
       )
     ).resolves.toMatchObject({ id: 'result', type: 'result' });
@@ -143,11 +143,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const addPromise = expectPromiseToSettle(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     );
     const cancelPromise = queue.cancel();
@@ -169,11 +169,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const addPromise = expectPromiseToSettle(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     );
     const drainPromise = queue.drain();
@@ -196,11 +196,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
     await expect(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     ).rejects.toThrow('workerpool bootstrap failed');
 
@@ -219,11 +219,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
     await expect(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     ).rejects.toThrow('workerpool bootstrap failed');
 
@@ -239,11 +239,11 @@ describe('createBrowserEmbeddingQueue', () => {
     await expect(queue.dispose?.()).resolves.toBeUndefined();
     await expect(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-after-dispose',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     ).rejects.toThrow('Adapter has been disposed');
 
@@ -259,11 +259,11 @@ describe('createBrowserEmbeddingQueue', () => {
     await queue.cancel();
     await expect(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-after-cancel',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     ).rejects.toThrow('Adapter has been canceled');
 
@@ -289,21 +289,21 @@ describe('createBrowserEmbeddingQueue', () => {
 
     await expect(
       queue.add({
+        deviceHint: 'webgpu',
         id: 'task-1',
         kind: 'embed',
-        texts: ['hello'],
         model: 'local:test',
-        deviceHint: 'webgpu',
+        texts: ['hello'],
       })
     ).rejects.toThrow('workerpool bootstrap failed');
 
     const off = queue.onProgress(listener);
     await queue.add({
+      deviceHint: 'webgpu',
       id: 'task-2',
       kind: 'embed',
-      texts: ['world'],
       model: 'local:test',
-      deviceHint: 'webgpu',
+      texts: ['world'],
     });
 
     expect(adapter.onProgress).toHaveBeenCalled();

@@ -64,10 +64,10 @@ describe('settings e2e test overrides', () => {
       localRuntime: {
         statuses: {
           ollama: {
-            state: 'available',
             checkedAt: 123,
             endpoint: 'http://127.0.0.1:11434/v1/models',
             latencyMs: 10,
+            state: 'available',
           },
         },
       },

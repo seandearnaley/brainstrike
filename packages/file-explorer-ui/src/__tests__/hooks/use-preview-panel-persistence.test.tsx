@@ -11,22 +11,22 @@ import {
 // Mock the file-explorer-hooks module
 const mockStorageAdapter = {
   getItem: vi.fn(),
-  setItem: vi.fn(),
   removeItem: vi.fn(),
+  setItem: vi.fn(),
 };
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
-    storageAdapter: mockStorageAdapter,
     fileSystemAdapter: {},
+    storageAdapter: mockStorageAdapter,
   }),
 }));
 
 // Mock createDebounce to execute immediately for testing
 vi.mock('@brainstrike/utils/create-debounce', () => ({
   createDebounce: (fn: (...args: unknown[]) => void, _ms: number) => ({
-    run: fn,
     flush: vi.fn().mockResolvedValue(undefined),
+    run: fn,
   }),
 }));
 
@@ -38,10 +38,10 @@ vi.mock('@brainstrike/utils/env-utils', () => ({
 // Mock logger
 vi.mock('@brainstrike/utils/logger', () => ({
   createLogger: () => ({
-    warn: vi.fn(),
+    debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
-    debug: vi.fn(),
+    warn: vi.fn(),
   }),
 }));
 
@@ -53,11 +53,11 @@ const createWrapper = () => {
 
 const defaultColumnVisibility: ColumnVisibility = {
   checkbox: true,
-  rootFolderId: true,
   path: true,
-  type: true,
-  tokens: true,
+  rootFolderId: true,
   size: true,
+  tokens: true,
+  type: true,
 };
 
 const makeColumnVisibility = (overrides: Partial<ColumnVisibility> = {}): ColumnVisibility => ({
@@ -71,12 +71,12 @@ describe('preferencesEqual', () => {
   const makePrefs = (
     overrides: Partial<PreviewPanelPreferences> = {}
   ): PreviewPanelPreferences => ({
-    columnVisibility: makeColumnVisibility(),
-    sortField: 'path',
-    sortDirection: 'asc',
-    groupingConfig: 'none',
     collapsedGroups: [],
+    columnVisibility: makeColumnVisibility(),
+    groupingConfig: 'none',
     pageSize: 25,
+    sortDirection: 'asc',
+    sortField: 'path',
     ...overrides,
   });
 
@@ -159,10 +159,10 @@ describe('preferencesEqual', () => {
 describe('usePreviewPanelPersistence', () => {
   const defaultOptions = {
     defaultColumnVisibility,
-    defaultSortField: 'path' as keyof Record<string, unknown>,
-    defaultSortDirection: 'asc' as const,
     defaultGroupingConfig: 'none',
     defaultPageSize: 25,
+    defaultSortDirection: 'asc' as const,
+    defaultSortField: 'path' as keyof Record<string, unknown>,
   };
 
   beforeEach(() => {
@@ -194,19 +194,19 @@ describe('usePreviewPanelPersistence', () => {
 
   it('should load stored preferences on mount', async () => {
     const storedPreferences: PreviewPanelPreferences = {
+      collapsedGroups: ['group1', 'group2'],
       columnVisibility: {
         checkbox: false,
-        rootFolderId: false,
         path: true,
-        type: true,
-        tokens: false,
+        rootFolderId: false,
         size: true,
+        tokens: false,
+        type: true,
       },
-      sortField: 'tokens',
-      sortDirection: 'desc',
       groupingConfig: 'folder',
-      collapsedGroups: ['group1', 'group2'],
       pageSize: 50,
+      sortDirection: 'desc',
+      sortField: 'tokens',
     };
 
     mockStorageAdapter.getItem.mockResolvedValue(JSON.stringify(storedPreferences));
@@ -263,19 +263,19 @@ describe('usePreviewPanelPersistence', () => {
 
   it('should reset preferences to defaults', async () => {
     const storedPreferences: PreviewPanelPreferences = {
+      collapsedGroups: ['group1'],
       columnVisibility: {
         checkbox: false,
-        rootFolderId: false,
         path: true,
-        type: true,
-        tokens: false,
+        rootFolderId: false,
         size: true,
+        tokens: false,
+        type: true,
       },
-      sortField: 'tokens',
-      sortDirection: 'desc',
       groupingConfig: 'folder',
-      collapsedGroups: ['group1'],
       pageSize: 50,
+      sortDirection: 'desc',
+      sortField: 'tokens',
     };
 
     mockStorageAdapter.getItem.mockResolvedValue(JSON.stringify(storedPreferences));
@@ -344,12 +344,12 @@ describe('usePreviewPanelPersistence', () => {
 
   it('should handle non-array collapsedGroups in stored data', async () => {
     const storedWithInvalidCollapsedGroups = {
-      columnVisibility: defaultOptions.defaultColumnVisibility,
-      sortField: 'path',
-      sortDirection: 'asc',
-      groupingConfig: 'none',
       collapsedGroups: 'not-an-array',
+      columnVisibility: defaultOptions.defaultColumnVisibility,
+      groupingConfig: 'none',
       pageSize: 25,
+      sortDirection: 'asc',
+      sortField: 'path',
     };
 
     mockStorageAdapter.getItem.mockResolvedValue(JSON.stringify(storedWithInvalidCollapsedGroups));
@@ -378,9 +378,9 @@ describe('usePreviewPanelPersistence', () => {
 
     act(() => {
       result.current.updatePreferences({
-        sortDirection: 'desc',
         groupingConfig: 'type',
         pageSize: 100,
+        sortDirection: 'desc',
       });
     });
 
@@ -459,11 +459,11 @@ describe('usePreviewPanelPersistence', () => {
 
     const newVisibility: ColumnVisibility = {
       checkbox: false,
-      rootFolderId: false,
       path: true,
-      type: false,
-      tokens: true,
+      rootFolderId: false,
       size: false,
+      tokens: true,
+      type: false,
     };
 
     act(() => {
@@ -544,12 +544,12 @@ describe('usePreviewPanelPersistence', () => {
 
   it('should use stored sortField falling back to default when empty', async () => {
     const storedWithEmptySort = {
-      columnVisibility: defaultOptions.defaultColumnVisibility,
-      sortField: '',
-      sortDirection: '',
-      groupingConfig: '',
       collapsedGroups: [],
+      columnVisibility: defaultOptions.defaultColumnVisibility,
+      groupingConfig: '',
       pageSize: 0,
+      sortDirection: '',
+      sortField: '',
     };
 
     mockStorageAdapter.getItem.mockResolvedValue(JSON.stringify(storedWithEmptySort));

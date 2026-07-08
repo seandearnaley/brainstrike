@@ -84,10 +84,10 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
 
     const secretsService: SecretsServiceMock = {
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
       deleteKey: vi.fn(),
+      getKey: vi.fn(),
       listProviders: vi.fn().mockResolvedValue(['anthropic', ' custom ']),
+      saveKey: vi.fn(),
     };
 
     const { getHandler } = await bootstrap(secretsService);
@@ -107,10 +107,10 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
 
     const secretsService: SecretsServiceMock = {
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
       deleteKey: vi.fn(),
+      getKey: vi.fn(),
       listProviders: vi.fn().mockResolvedValue(['anthropic', ' custom ']),
+      saveKey: vi.fn(),
     };
 
     const { getHandler } = await bootstrap(secretsService);
@@ -129,10 +129,10 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = 'sk-google';
 
     const secretsService: SecretsServiceMock = {
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
       deleteKey: vi.fn(),
+      getKey: vi.fn(),
       listProviders: vi.fn(),
+      saveKey: vi.fn(),
     };
 
     const { getHandler } = await bootstrap(secretsService);
@@ -160,11 +160,11 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['NODE_ENV'] = 'production';
 
     const secretsService: SecretsServiceMock = {
-      saveKey: vi.fn(),
-      getKey: vi.fn(),
-      deleteKey: vi.fn(),
-      listProviders: vi.fn().mockResolvedValue([]),
       clearAll: vi.fn().mockResolvedValue(true),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
     };
 
     const { getHandler } = await bootstrap(secretsService);
@@ -177,8 +177,8 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     expect(unauthorized).toEqual({
-      success: false,
       message: 'Unauthorized: Invalid confirmation token',
+      success: false,
     });
     expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
 

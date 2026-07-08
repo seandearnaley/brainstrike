@@ -180,9 +180,9 @@ export function resolveEmbeddingBackfillRequest(
   const source: EmbeddingBackfillSource =
     sourceCandidate === 'background-indexing' ? 'background-indexing' : 'manual';
   return {
+    gpuMemoryReclaimConfig: resolveGpuMemoryReclaimConfig(),
     hostManager: embeddingHostManager,
     normalizedEmbeddingSetId,
-    gpuMemoryReclaimConfig: resolveGpuMemoryReclaimConfig(),
     source,
   };
 }
@@ -234,11 +234,11 @@ function sendDesktopBackfillProgressToTarget(params: {
   }
   try {
     target.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      current,
       embeddingSetId: normalizedEmbeddingSetId,
       requestId,
       source,
       stage,
-      current,
       total,
       ...(message ? { message } : {}),
     });
@@ -363,9 +363,9 @@ export async function runDesktopEmbeddingBackfill(params: {
     hostManager
   );
   const inFlightState: EmbeddingBackfillInFlightState = {
-    requestId: backfillRequestId,
     progress: null,
     progressTargets: new Map(),
+    requestId: backfillRequestId,
     source,
   };
   registerDesktopBackfillProgressTarget(inFlightState, event);
@@ -558,8 +558,8 @@ export function getDesktopEmbeddingBackfillsInFlight(): Array<{
 }> {
   return Array.from(embeddingBackfillsInFlight.entries()).map(([embeddingSetId, backfill]) => ({
     embeddingSetId,
+    progress: backfill.progress,
     requestId: backfill.requestId,
     source: backfill.source,
-    progress: backfill.progress,
   }));
 }

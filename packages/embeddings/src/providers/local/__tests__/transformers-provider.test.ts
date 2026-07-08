@@ -29,18 +29,18 @@ function buildVector(seed: number, length: number): number[] {
 function createQueueResult(id: string, vectors: Float32Array[]): QueueResult {
   const dimensions = vectors[0]?.length ?? DEFAULT_EMBEDDING_DIMENSION;
   return {
-    type: 'result',
     id,
-    vectors,
     metadata: {
-      model: 'jinaai/jina-embeddings-v2-base-code',
-      device: 'wasm',
-      dtype: 'fp32',
       batchSize: vectors.length,
+      device: 'wasm',
+      dimensions,
+      dtype: 'fp32',
       elapsedMs: 1,
       fallbackApplied: false,
-      dimensions,
+      model: 'jinaai/jina-embeddings-v2-base-code',
     },
+    type: 'result',
+    vectors,
   };
 }
 
@@ -60,9 +60,6 @@ function createQueueStub() {
   const queue: QueueAdapter = {
     add,
     addBulk: vi.fn(async () => []),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
     cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
     get isPaused() {
@@ -71,9 +68,12 @@ function createQueueStub() {
     get isProcessing() {
       return false;
     },
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
 
-  return { queue, add };
+  return { add, queue };
 }
 
 describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
@@ -138,8 +138,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   describe('embedding generation', () => {
     slowTest('auto-initializes if not ready', async () => {
       const input: EmbeddingInput = {
-        text: 'hello world',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'hello world',
       };
 
       const result = await provider.embed(input);
@@ -159,8 +159,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'test embedding generation',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'test embedding generation',
       };
 
       const result = await provider.embed(input);
@@ -178,8 +178,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'consistent test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'consistent test',
       };
 
       const result1 = await provider.embed(input);
@@ -198,13 +198,13 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input1: EmbeddingInput = {
-        text: 'first text',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'first text',
       };
 
       const input2: EmbeddingInput = {
-        text: 'second text',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'second text',
       };
 
       const result1 = await provider.embed(input1);
@@ -223,8 +223,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: '',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: '',
       };
 
       const result = await provider.embed(input);
@@ -267,8 +267,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
-        text: 'validation test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'validation test',
       };
 
       const result = await provider.embed(input);
@@ -369,8 +369,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       const invalidProvider = new TransformersEmbeddingProvider('invalid-model-key');
 
       const input: EmbeddingInput = {
-        text: 'test',
         modelId: 'invalid-model-key',
+        text: 'test',
       };
 
       const result = await invalidProvider.embed(input);
@@ -397,8 +397,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       service.generateDocEmbedding = vi.fn().mockRejectedValue(new Error('Service error'));
 
       const input: EmbeddingInput = {
-        text: 'test',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
+        text: 'test',
       };
 
       const result = await provider.embed(input);

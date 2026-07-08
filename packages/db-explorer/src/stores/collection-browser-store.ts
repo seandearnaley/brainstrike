@@ -132,28 +132,28 @@ type PersistedCollectionBrowserData = Partial<CollectionBrowserData>;
  * Default values for the store
  */
 const DEFAULT_STATE: CollectionBrowserData = {
-  expandedIds: [],
-  selectedId: null,
-  sortState: null,
-  isInspectorCollapsed: false,
-  inspectorWidth: 25,
-  searchQuery: '',
-  nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   embeddingStatus: 'all',
-  // Semantic search defaults
-  searchMode: 'semantic',
-  semanticQuery: '',
-  searchConfigThreshold: 0.5,
-  searchConfigLimit: 20,
+  expandedIds: [],
+  groupBy: 'none',
+  inspectorWidth: 25,
+  isInspectorCollapsed: false,
+  multiSelectEnabled: false,
+  nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   searchConfigDistanceMetric: 'cosine',
+  searchConfigFtsWeight: 1.0,
+  searchConfigLimit: 20,
   // Hybrid search defaults
   searchConfigRetrievalMode: 'vector',
+  searchConfigThreshold: 0.5,
   searchConfigVectorWeight: 1.0,
-  searchConfigFtsWeight: 1.0,
+  // Semantic search defaults
+  searchMode: 'semantic',
   searchPanelExpanded: false,
-  groupBy: 'none',
+  searchQuery: '',
+  selectedId: null,
+  semanticQuery: '',
   showCheckbox: false,
-  multiSelectEnabled: false,
+  sortState: null,
 };
 
 /**
@@ -204,8 +204,13 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
       // Initial state
       ...DEFAULT_STATE,
 
-      // Expansion actions
-      setExpandedIds: (ids) => set({ expandedIds: ids }),
+      collapseAll: () => set({ expandedIds: [] }),
+
+      expandIds: (ids) => {
+        const { expandedIds } = get();
+        const idSet = new Set([...expandedIds, ...ids]);
+        set({ expandedIds: Array.from(idSet) });
+      },
       removeExpandedIds: (ids) => {
         const idsToRemove = new Set(ids);
         if (idsToRemove.size === 0) {
@@ -223,6 +228,54 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         }
       },
 
+      // Reset action
+      reset: () => set(DEFAULT_STATE),
+
+      setEmbeddingStatus: (status) => set({ embeddingStatus: status }),
+
+      // Expansion actions
+      setExpandedIds: (ids) => set({ expandedIds: ids }),
+
+      setGroupBy: (groupBy) => set({ groupBy }),
+
+      // Inspector actions
+      setInspectorCollapsed: (collapsed) => set({ isInspectorCollapsed: collapsed }),
+      setInspectorWidth: (width) => set({ inspectorWidth: width }),
+
+      setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
+
+      setNodeTypes: (types) => set({ nodeTypes: types }),
+
+      setSearchConfigDistanceMetric: (metric) => set({ searchConfigDistanceMetric: metric }),
+
+      setSearchConfigFtsWeight: (weight) => set({ searchConfigFtsWeight: weight }),
+
+      setSearchConfigLimit: (limit) => set({ searchConfigLimit: limit }),
+
+      setSearchConfigRetrievalMode: (mode) => set({ searchConfigRetrievalMode: mode }),
+
+      setSearchConfigThreshold: (threshold) => set({ searchConfigThreshold: threshold }),
+
+      setSearchConfigVectorWeight: (weight) => set({ searchConfigVectorWeight: weight }),
+
+      // Semantic search actions
+      setSearchMode: (mode) => set({ searchMode: mode }),
+
+      setSearchPanelExpanded: (expanded) => set({ searchPanelExpanded: expanded }),
+
+      // Filter actions
+      setSearchQuery: (query) => set({ searchQuery: query }),
+
+      // Selection actions
+      setSelectedId: (id) => set({ selectedId: id }),
+
+      setSemanticQuery: (query) => set({ semanticQuery: query }),
+
+      setShowCheckbox: (show) => set({ showCheckbox: show }),
+
+      // Sort actions
+      setSortState: (state) => set({ sortState: state }),
+
       toggleExpanded: (id) => {
         const { expandedIds } = get();
         const idSet = new Set(expandedIds);
@@ -233,41 +286,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         }
         set({ expandedIds: Array.from(idSet) });
       },
-
-      expandIds: (ids) => {
-        const { expandedIds } = get();
-        const idSet = new Set([...expandedIds, ...ids]);
-        set({ expandedIds: Array.from(idSet) });
-      },
-
-      collapseAll: () => set({ expandedIds: [] }),
-
-      // Selection actions
-      setSelectedId: (id) => set({ selectedId: id }),
-
-      // Sort actions
-      setSortState: (state) => set({ sortState: state }),
-
-      toggleSort: (key) => {
-        const { sortState } = get();
-        const currentDirection = sortState?.key === key ? sortState.direction : null;
-        const nextDirection = getNextSortDirection(currentDirection);
-
-        if (nextDirection === null) {
-          set({ sortState: null });
-        } else {
-          set({ sortState: { key, direction: nextDirection } });
-        }
-      },
-
-      // Inspector actions
-      setInspectorCollapsed: (collapsed) => set({ isInspectorCollapsed: collapsed }),
-      setInspectorWidth: (width) => set({ inspectorWidth: width }),
-
-      // Filter actions
-      setSearchQuery: (query) => set({ searchQuery: query }),
-
-      setNodeTypes: (types) => set({ nodeTypes: types }),
 
       toggleNodeType: (type) => {
         const { nodeTypes } = get();
@@ -280,64 +298,46 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         set({ nodeTypes: Array.from(typeSet) });
       },
 
-      setEmbeddingStatus: (status) => set({ embeddingStatus: status }),
+      toggleSort: (key) => {
+        const { sortState } = get();
+        const currentDirection = sortState?.key === key ? sortState.direction : null;
+        const nextDirection = getNextSortDirection(currentDirection);
 
-      // Semantic search actions
-      setSearchMode: (mode) => set({ searchMode: mode }),
-
-      setSemanticQuery: (query) => set({ semanticQuery: query }),
-
-      setSearchConfigThreshold: (threshold) => set({ searchConfigThreshold: threshold }),
-
-      setSearchConfigLimit: (limit) => set({ searchConfigLimit: limit }),
-
-      setSearchConfigDistanceMetric: (metric) => set({ searchConfigDistanceMetric: metric }),
-
-      setSearchConfigRetrievalMode: (mode) => set({ searchConfigRetrievalMode: mode }),
-
-      setSearchConfigVectorWeight: (weight) => set({ searchConfigVectorWeight: weight }),
-
-      setSearchConfigFtsWeight: (weight) => set({ searchConfigFtsWeight: weight }),
-
-      setSearchPanelExpanded: (expanded) => set({ searchPanelExpanded: expanded }),
-
-      setGroupBy: (groupBy) => set({ groupBy }),
-
-      setShowCheckbox: (show) => set({ showCheckbox: show }),
-
-      setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
-
-      // Reset action
-      reset: () => set(DEFAULT_STATE),
+        if (nextDirection === null) {
+          set({ sortState: null });
+        } else {
+          set({ sortState: { direction: nextDirection, key } });
+        }
+      },
     }),
     {
-      name: STORE_NAME,
-      version: STORE_VERSION,
-      storage,
       migrate: migratePersistedState,
+      name: STORE_NAME,
       partialize: (s) => ({
-        expandedIds: s.expandedIds,
-        selectedId: s.selectedId,
-        sortState: s.sortState,
-        isInspectorCollapsed: s.isInspectorCollapsed,
-        inspectorWidth: s.inspectorWidth,
-        searchQuery: s.searchQuery,
-        nodeTypes: s.nodeTypes,
         embeddingStatus: s.embeddingStatus,
-        // Semantic search state
-        searchMode: s.searchMode,
-        semanticQuery: s.semanticQuery,
-        searchConfigThreshold: s.searchConfigThreshold,
-        searchConfigLimit: s.searchConfigLimit,
-        searchConfigDistanceMetric: s.searchConfigDistanceMetric,
-        // Hybrid search state
-        searchConfigRetrievalMode: s.searchConfigRetrievalMode,
-        searchConfigVectorWeight: s.searchConfigVectorWeight,
-        searchConfigFtsWeight: s.searchConfigFtsWeight,
-        searchPanelExpanded: s.searchPanelExpanded,
+        expandedIds: s.expandedIds,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
+        inspectorWidth: s.inspectorWidth,
+        isInspectorCollapsed: s.isInspectorCollapsed,
+        nodeTypes: s.nodeTypes,
+        searchConfigDistanceMetric: s.searchConfigDistanceMetric,
+        searchConfigFtsWeight: s.searchConfigFtsWeight,
+        searchConfigLimit: s.searchConfigLimit,
+        // Hybrid search state
+        searchConfigRetrievalMode: s.searchConfigRetrievalMode,
+        searchConfigThreshold: s.searchConfigThreshold,
+        searchConfigVectorWeight: s.searchConfigVectorWeight,
+        // Semantic search state
+        searchMode: s.searchMode,
+        searchPanelExpanded: s.searchPanelExpanded,
+        searchQuery: s.searchQuery,
+        selectedId: s.selectedId,
+        semanticQuery: s.semanticQuery,
+        sortState: s.sortState,
       }),
+      storage,
+      version: STORE_VERSION,
     }
   )
 );
@@ -346,34 +346,34 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
  * Selectors for optimized component subscriptions
  */
 export const collectionBrowserSelectors = {
-  expandedIds: (s: CollectionBrowserStore) => s.expandedIds,
-  selectedId: (s: CollectionBrowserStore) => s.selectedId,
-  sortState: (s: CollectionBrowserStore) => s.sortState,
-  isInspectorCollapsed: (s: CollectionBrowserStore) => s.isInspectorCollapsed,
-  inspectorWidth: (s: CollectionBrowserStore) => s.inspectorWidth,
-  searchQuery: (s: CollectionBrowserStore) => s.searchQuery,
-  nodeTypes: (s: CollectionBrowserStore) => s.nodeTypes,
   embeddingStatus: (s: CollectionBrowserStore) => s.embeddingStatus,
+  expandedIds: (s: CollectionBrowserStore) => s.expandedIds,
   filters: (s: CollectionBrowserStore) => ({
-    searchQuery: s.searchQuery,
-    nodeTypes: s.nodeTypes,
     embeddingStatus: s.embeddingStatus,
+    nodeTypes: s.nodeTypes,
+    searchQuery: s.searchQuery,
+  }),
+  groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  inspectorWidth: (s: CollectionBrowserStore) => s.inspectorWidth,
+  isInspectorCollapsed: (s: CollectionBrowserStore) => s.isInspectorCollapsed,
+  multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
+  nodeTypes: (s: CollectionBrowserStore) => s.nodeTypes,
+  searchConfig: (s: CollectionBrowserStore) => ({
+    distanceMetric: s.searchConfigDistanceMetric,
+    ftsWeight: s.searchConfigFtsWeight,
+    resultLimit: s.searchConfigLimit,
+    retrievalMode: s.searchConfigRetrievalMode,
+    threshold: s.searchConfigThreshold,
+    vectorWeight: s.searchConfigVectorWeight,
   }),
   // Semantic search selectors
   searchMode: (s: CollectionBrowserStore) => s.searchMode,
-  semanticQuery: (s: CollectionBrowserStore) => s.semanticQuery,
-  searchConfig: (s: CollectionBrowserStore) => ({
-    threshold: s.searchConfigThreshold,
-    resultLimit: s.searchConfigLimit,
-    distanceMetric: s.searchConfigDistanceMetric,
-    retrievalMode: s.searchConfigRetrievalMode,
-    vectorWeight: s.searchConfigVectorWeight,
-    ftsWeight: s.searchConfigFtsWeight,
-  }),
   searchPanelExpanded: (s: CollectionBrowserStore) => s.searchPanelExpanded,
-  groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  searchQuery: (s: CollectionBrowserStore) => s.searchQuery,
+  selectedId: (s: CollectionBrowserStore) => s.selectedId,
+  semanticQuery: (s: CollectionBrowserStore) => s.semanticQuery,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
-  multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
+  sortState: (s: CollectionBrowserStore) => s.sortState,
 };
 
 /**

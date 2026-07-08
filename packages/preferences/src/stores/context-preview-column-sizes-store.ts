@@ -12,12 +12,12 @@ import {
 } from './tree-table-column-sizes-store';
 
 export const CONTEXT_PREVIEW_COLUMN_BOUNDS = {
-  checkbox: { defaultWidth: 32, minWidth: 32, maxWidth: 32 },
-  rootFolderId: { defaultWidth: 176, minWidth: 100, maxWidth: 360 },
-  path: { defaultWidth: 360, minWidth: 160, maxWidth: 900 },
-  type: { defaultWidth: 96, minWidth: 72, maxWidth: 180 },
-  tokens: { defaultWidth: 96, minWidth: 72, maxWidth: 180 },
-  size: { defaultWidth: 96, minWidth: 72, maxWidth: 180 },
+  checkbox: { defaultWidth: 32, maxWidth: 32, minWidth: 32 },
+  path: { defaultWidth: 360, maxWidth: 900, minWidth: 160 },
+  rootFolderId: { defaultWidth: 176, maxWidth: 360, minWidth: 100 },
+  size: { defaultWidth: 96, maxWidth: 180, minWidth: 72 },
+  tokens: { defaultWidth: 96, maxWidth: 180, minWidth: 72 },
+  type: { defaultWidth: 96, maxWidth: 180, minWidth: 72 },
 } as const;
 
 const STORE_NAME = 'context-preview-column-sizes.v1' as const;
@@ -25,9 +25,9 @@ const STORE_VERSION = 1 as const;
 const GLOBAL_KEY = '__brainstrike_context_preview_column_sizes_store__' as const;
 
 export const useContextPreviewColumnSizesStore = createSingletonColumnSizesStore(GLOBAL_KEY, {
+  columnBounds: CONTEXT_PREVIEW_COLUMN_BOUNDS,
   storeName: STORE_NAME,
   version: STORE_VERSION,
-  columnBounds: CONTEXT_PREVIEW_COLUMN_BOUNDS,
 });
 
 export type { TreeTableColumnSizesStoreState };

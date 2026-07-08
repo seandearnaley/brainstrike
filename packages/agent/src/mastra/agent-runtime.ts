@@ -166,8 +166,8 @@ function instantiateLanguageModel(
       error instanceof Error && error.message ? error.message : 'provider creation failed';
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       cause: error,
+      context: { model: modelName, provider },
       detail,
-      context: { provider, model: modelName },
     });
   }
 }
@@ -188,7 +188,7 @@ export function convertMessagesToMastra(
       }
     }
     if (textParts.length > 0) {
-      result.push({ role: message.role, content: textParts.join('\n\n') });
+      result.push({ content: textParts.join('\n\n'), role: message.role });
     }
   }
   return result;
@@ -223,7 +223,7 @@ function resolveAskToolsForRun(
   canSuspendForApproval: boolean
 ): ResolvedAskTools {
   if (gateResult.askToolIds.size === 0) {
-    return { tools: gateResult.tools, askTools: gateResult.askTools };
+    return { askTools: gateResult.askTools, tools: gateResult.tools };
   }
 
   if (!canSuspendForApproval) {
@@ -235,29 +235,29 @@ function resolveAskToolsForRun(
           "Tool gated to 'ask' but no storage to suspend for approval; omitting (fail-safe)",
           {
             code: 'permission_tool_gate_ask_omitted_no_storage',
+            riskCategory: meta?.riskCategory,
             sanitizedId,
             tool: meta?.originalName ?? sanitizedId,
-            riskCategory: meta?.riskCategory,
           }
         );
         continue;
       }
       reducedTools[sanitizedId] = tool;
     }
-    return { tools: reducedTools as ToolsInput, askTools: new Map() };
+    return { askTools: new Map(), tools: reducedTools as ToolsInput };
   }
 
   // Each ask tool carries the per-tool requireApproval flag and will suspend ONLY
   // when actually called. Logged so the gated tools are observable.
   logger.info('Permission policy requires per-call approval for ask tools', {
-    code: 'permission_tool_gate_require_approval',
     askToolCount: gateResult.askToolIds.size,
     askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
-      tool: meta.originalName,
       riskCategory: meta.riskCategory,
+      tool: meta.originalName,
     })),
+    code: 'permission_tool_gate_require_approval',
   });
-  return { tools: gateResult.tools, askTools: gateResult.askTools };
+  return { askTools: gateResult.askTools, tools: gateResult.tools };
 }
 
 export async function createMastraAgentRuntime(
@@ -298,11 +298,11 @@ export async function createMastraAgentRuntime(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
   const combinedTools = await collectCombinedTools({
-    sanitizedLocalTools,
     mcpClient,
     mcpConfig: mcpConfig ?? sanitizedRuntime.mcpConfig,
-    toolNameMap,
+    sanitizedLocalTools,
     timeoutOverrideMs: mcpTimeoutMs,
+    toolNameMap,
   });
   const resilienceConfig = resolveAssistantResilienceConfig();
   // Intentional global guard: every native and MCP tool execution shares this
@@ -352,9 +352,9 @@ export async function createMastraAgentRuntime(
       : buildDefaultInstructions(toolNameMap));
   const agent = new Agent({
     id: 'brainstrike-assistant',
-    name: 'Brainstrike Assistant',
     instructions: budgetNote ? `${resolvedInstructions}\n${budgetNote}` : resolvedInstructions,
     model: languageModel,
+    name: 'Brainstrike Assistant',
     tools: gatedTools,
     ...(memory ? { memory } : {}),
   });
@@ -398,8 +398,8 @@ function assertModernLanguageModel(
   // AI SDK v1 adapter can drop terminal/tool events, so fail explicitly instead
   // of silently falling back to the removed legacy stream path.
   throw createMastraAgentError('mastra_agent_unsupported_model_runtime', {
+    context: { model, provider, specificationVersion: spec },
     detail: `AI SDK v1 model runtime is not supported for Brainstrike chat streaming: ${provider}/${model}. Select a provider/model backed by the modern AI SDK v2 streaming runtime before retrying.`,
-    context: { provider, model, specificationVersion: spec },
   });
 }
 
@@ -454,37 +454,37 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
   const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
   return {
-    type: 'message-finish',
     finishReason: readFinishReason(part),
-    usage: { promptTokens, completionTokens },
     path: [],
+    type: 'message-finish',
+    usage: { completionTokens, promptTokens },
   };
 }
 
 function makeSyntheticFinishChunk(): StreamChunk {
   return {
-    type: 'message-finish',
     finishReason: 'other',
-    usage: { promptTokens: 0, completionTokens: 0 },
     path: [],
+    type: 'message-finish',
+    usage: { completionTokens: 0, promptTokens: 0 },
   };
 }
 
 function makeErrorFinishChunk(): StreamChunk {
   return {
-    type: 'message-finish',
     finishReason: 'error',
-    usage: { promptTokens: 0, completionTokens: 0 },
     path: [],
+    type: 'message-finish',
+    usage: { completionTokens: 0, promptTokens: 0 },
   };
 }
 
 function makeToolCallsFinishChunk(): StreamChunk {
   return {
-    type: 'message-finish',
     finishReason: 'tool-calls',
-    usage: { promptTokens: 0, completionTokens: 0 },
     path: [],
+    type: 'message-finish',
+    usage: { completionTokens: 0, promptTokens: 0 },
   };
 }
 
@@ -540,7 +540,6 @@ function makeRunEventChunk(
   timestamp?: string
 ): StreamChunk {
   return {
-    type: 'run-event',
     event: {
       id: `run-event-${generateUUID()}`,
       kind,
@@ -549,6 +548,7 @@ function makeRunEventChunk(
       timestamp: timestamp ?? new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     },
+    type: 'run-event',
   };
 }
 
@@ -737,8 +737,8 @@ function makeUnsupportedApprovalChunks(
   logger.warn('mastra tool approval pause requires unsupported client action', {
     code: 'mastra_agent_tool_action_required',
     eventType,
-    missingToolCallId,
     missingRunId,
+    missingToolCallId,
     ...(runId ? { runId } : {}),
     toolCallId,
     toolName,
@@ -746,9 +746,7 @@ function makeUnsupportedApprovalChunks(
 
   return [
     {
-      type: 'tool-event',
       name: toolName,
-      status: 'error',
       payload: {
         actionRequired: true,
         approvalRequired: !isSuspended,
@@ -764,6 +762,8 @@ function makeUnsupportedApprovalChunks(
         ...(suspendPayload === undefined ? {} : { suspendPayload }),
         suspended: isSuspended,
       },
+      status: 'error',
+      type: 'tool-event',
     },
     makeRunEventChunk('run.failed', 'failed', label, {
       actionRequired: true,
@@ -816,11 +816,11 @@ function makeApprovalRequiredChunks(
 
   return [
     {
-      type: 'tool-approval-required',
       runId,
       toolCallId,
       toolName,
-      ...(askMetadata ? { riskCategory: askMetadata.riskCategory, policyDecision: 'ask' } : {}),
+      type: 'tool-approval-required',
+      ...(askMetadata ? { policyDecision: 'ask', riskCategory: askMetadata.riskCategory } : {}),
       ...(args === undefined ? {} : { args }),
       ...(resumeSchema === undefined ? {} : { resumeSchema }),
     },
@@ -1080,8 +1080,8 @@ async function initializeMastraRuntime(
   try {
     const instance = await createMastraAgentRuntime({
       ...options,
-      runtime: runtimeResolution.runtime,
       resolved: runtimeResolution,
+      runtime: runtimeResolution.runtime,
     });
     const resolvedModel =
       options.model && options.model.length > 0
@@ -1089,11 +1089,11 @@ async function initializeMastraRuntime(
         : (getDefaultModel(runtimeResolution.provider) ?? '');
     logger.info('mastra runtime initialized', {
       code: 'mastra_agent_runtime_initialized',
-      provider: runtimeResolution.provider,
       // Empty string means the caller did not specify a model AND the
       // provider has no static default (e.g. local runtimes whose models are
       // discovered dynamically). This is a real failure mode worth logging.
       model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
+      provider: runtimeResolution.provider,
       toolCount: Object.keys(options.tools ?? {}).length,
     });
     return { runtime: instance, sanitizedNameMap: instance.toolNameMap };
@@ -1185,8 +1185,8 @@ function assertNoUnsupportedDirectStreamOptions(options: MastraAgentRuntimeOptio
   }
 
   throw createMastraAgentError('mastra_agent_unsupported_stream_option', {
-    detail: `Unsupported Mastra stream option(s): ${providedUnsupportedKeys.join(', ')}`,
     context: { unsupportedOptions: providedUnsupportedKeys },
+    detail: `Unsupported Mastra stream option(s): ${providedUnsupportedKeys.join(', ')}`,
   });
 }
 
@@ -1196,8 +1196,8 @@ function resolvePositiveIntegerOption(value: unknown, fieldName: string): number
   }
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      detail: `${fieldName} must be a positive finite number`,
       context: { fieldName, value },
+      detail: `${fieldName} must be a positive finite number`,
     });
   }
   return Math.floor(value);
@@ -1255,8 +1255,8 @@ function resolveMemoryOption(
     });
   }
   return {
-    thread: memoryContext.threadId,
     resource: memoryContext.resourceId,
+    thread: memoryContext.threadId,
     ...(memoryContext.memoryOptions ? { options: memoryContext.memoryOptions } : {}),
   };
 }
@@ -1483,8 +1483,8 @@ export async function streamMastraAgent(
   const requireToolApproval = options.requireToolApproval;
 
   return createStreamIteratorFromRuntime({
-    runtime,
     messages,
+    runtime,
     ...(options.memory ? { memory: options.memory } : {}),
     ...(requireToolApproval === undefined ? {} : { requireToolApproval }),
     ...(runtimeData ? { runtimeData } : {}),

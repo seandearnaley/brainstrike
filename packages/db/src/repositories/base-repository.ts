@@ -278,13 +278,12 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         const parsedSize = parseOptionalStatNumber(row['size']);
         return [
           {
-            fileRecordId,
-            embeddingSetId: rowEmbeddingSetId,
-            rootId,
-            relativePath,
             contentHash: contentHash ?? '',
+            embeddingSetId: rowEmbeddingSetId,
+            fileRecordId,
+            relativePath,
+            rootId,
             ...(typeof parsedSize === 'number' ? { size: parsedSize } : {}),
-            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
             chunksCount: parseOptionalStatNumber(row['chunks_count']),
             chunksProcessedAt:
               row['chunks_processed_at'] instanceof Date
@@ -292,6 +291,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
                 : typeof row['chunks_processed_at'] === 'string'
                   ? row['chunks_processed_at']
                   : null,
+            mtimeMs: parseOptionalStatNumber(row['mtime_ms']),
             updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
           } satisfies ManagedCacheEntryMetadata,
         ];
@@ -300,9 +300,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   async update(id: string, updates: FileRecordUpdate): Promise<void> {
     assertTextContentHasNoNullBytes(updates.content, 'File record content');
-    const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
-      ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
-    );
+    const fields = ALLOWED_UPDATE_FIELDS.filter((field) => Object.hasOwn(updates, field));
 
     if (fields.length === 0) {
       return;
@@ -398,8 +396,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const logBulkImport = logBulkImportInfo ? logger.info.bind(logger) : logger.debug.bind(logger);
 
     logBulkImport('Starting bulk import', {
-      totalFiles: requests.length,
       batchSize: BATCH_SIZE,
+      totalFiles: requests.length,
     });
 
     const results: FileImportResult[] = [];
@@ -410,9 +408,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       const batch = requests.slice(batchStart, batchEnd);
 
       logger.debug(`Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1}`, {
-        batchStart,
         batchEnd,
         batchSize: batch.length,
+        batchStart,
       });
 
       // Use transaction for atomicity within each batch (if supported)
@@ -427,18 +425,18 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         results.push(...batchResults);
       } catch (error) {
         logger.error('Batch processing failed, marking all files in batch as errors', {
-          batchStart,
           batchEnd,
+          batchStart,
           error: error instanceof Error ? error.message : String(error),
         });
 
         // Mark all files in failed batch as errors
         for (const _request of batch) {
           results.push({
+            error: `Batch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            existed: false,
             id: '',
             imported: false,
-            existed: false,
-            error: `Batch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           });
         }
       }
@@ -449,11 +447,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const errorCount = results.filter((r) => r.error).length;
 
     logBulkImport('Bulk import complete', {
-      totalFiles: requests.length,
-      successCount,
-      errorCount,
       durationMs: duration,
+      errorCount,
       filesPerSecond: (requests.length / (duration / 1000)).toFixed(2),
+      successCount,
+      totalFiles: requests.length,
     });
 
     onProgress?.(requests.length, requests.length);
@@ -472,9 +470,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
     // Step 1: Pre-compute all content hashes in parallel
     const hashPromises = batch.map(async (request, index) => ({
+      hash: await generateContentHash(request.content),
       index,
       request,
-      hash: await generateContentHash(request.content),
     }));
 
     const hashResults = await Promise.all(hashPromises);
@@ -495,9 +493,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
       if (existing) {
         results[index] = {
+          existed: true,
           id: existing.id,
           imported: false,
-          existed: true,
         };
         continue;
       }
@@ -507,16 +505,16 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       const id = generateUUID();
 
       const record: FileRecord = {
+        content: request.content,
+        contentHash: hash,
+        createdAt: now,
         id,
         name: request.name,
         path: request.path,
-        size: request.size,
-        createdAt: now,
-        updatedAt: now,
-        content: request.content,
-        contentHash: hash,
-        tokenCount,
         processedAt: now,
+        size: request.size,
+        tokenCount,
+        updatedAt: now,
       };
 
       // Add embedding_set_id if present on request
@@ -532,9 +530,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       }
 
       results[index] = {
+        existed: false,
         id,
         imported: true,
-        existed: false,
       };
     }
 
@@ -671,11 +669,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
    */
   protected fromRow(row: Record<string, unknown>): FileRecord {
     const record: FileRecord = {
+      createdAt: String(row['created_at']),
       id: String(row['id']),
       name: String(row['name']),
       path: String(row['path']),
       size: Number(row['size']),
-      createdAt: String(row['created_at']),
       updatedAt: String(row['updated_at']),
     };
 

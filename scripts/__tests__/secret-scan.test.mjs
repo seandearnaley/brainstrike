@@ -6,16 +6,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import {
-  filterAllowedFindings,
-  hashSecret,
-  scanFileList,
-  scanText,
-} from '../secret-scan.mjs';
+import { filterAllowedFindings, hashSecret, scanFileList, scanText } from '../secret-scan.mjs';
 
-const secretScanCliPath = fileURLToPath(
-  new URL('../secret-scan.mjs', import.meta.url)
-);
+const secretScanCliPath = fileURLToPath(new URL('../secret-scan.mjs', import.meta.url));
 
 function createGitFixture() {
   const cwd = mkdtempSync(join(tmpdir(), 'brainstrike-secret-scan-'));
@@ -154,11 +147,7 @@ test('--all skips tracked binary files before scanning contents', () => {
   try {
     writeFileSync(
       join(cwd, 'binary.dat'),
-      Buffer.from([
-        0,
-        ...Buffer.from('OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456'),
-        0,
-      ])
+      Buffer.from([0, ...Buffer.from('OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456'), 0])
     );
     spawnSync('git', ['add', 'binary.dat'], { cwd, encoding: 'utf8' });
 

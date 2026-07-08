@@ -21,7 +21,7 @@ function HookExposer({ onReady }: { onReady: (hooks: ExposedHooks) => void }) {
   const store = useFileExplorerStoreContext();
   const fs = useFileSystem();
   useEffect(() => {
-    onReady({ store, fs });
+    onReady({ fs, store });
   }, [onReady, store, fs]);
   return null;
 }

@@ -271,12 +271,12 @@ describe('readableStreamIterator', () => {
 
   it('gracefully handles reader.cancel errors', async () => {
     const stream = new ReadableStream<string>({
+      cancel() {
+        throw new Error('Cancel failed');
+      },
       start(controller) {
         controller.enqueue('value');
         controller.close();
-      },
-      cancel() {
-        throw new Error('Cancel failed');
       },
     });
 

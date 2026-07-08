@@ -28,20 +28,20 @@ interface RuntimeCardMeta {
 // here. No other file changes should be needed for the settings toggle.
 const RUNTIME_CARDS: readonly RuntimeCardMeta[] = [
   {
-    runtimeId: 'ollama',
-    providerId: 'ollama',
-    title: 'Ollama',
-    subtitle: 'Run open-weight models locally via the Ollama daemon.',
     defaultBaseUrl: 'http://127.0.0.1:11434',
     docsUrl: 'https://docs.ollama.com',
+    providerId: 'ollama',
+    runtimeId: 'ollama',
+    subtitle: 'Run open-weight models locally via the Ollama daemon.',
+    title: 'Ollama',
   },
   {
-    runtimeId: 'lmstudio',
-    providerId: 'lmstudio',
-    title: 'LM Studio',
-    subtitle: 'Run GGUF / MLX models via the LM Studio developer server.',
     defaultBaseUrl: 'http://127.0.0.1:1234',
     docsUrl: 'https://lmstudio.ai/docs/developer/core/server',
+    providerId: 'lmstudio',
+    runtimeId: 'lmstudio',
+    subtitle: 'Run GGUF / MLX models via the LM Studio developer server.',
+    title: 'LM Studio',
   },
 ];
 
@@ -69,40 +69,40 @@ function describeStatus(
   status: LocalRuntimeAvailabilityState | undefined
 ): StatusDescriptor {
   if (activation === 'off') {
-    return { tone: 'muted', label: 'Disabled' };
+    return { label: 'Disabled', tone: 'muted' };
   }
   if (!status) {
-    return { tone: 'info', label: 'Not checked yet' };
+    return { label: 'Not checked yet', tone: 'info' };
   }
   switch (status.state) {
     case 'available':
-      return { tone: 'success', label: 'Available', detail: status.endpoint };
+      return { detail: status.endpoint, label: 'Available', tone: 'success' };
     case 'stale':
       return {
-        tone: 'warning',
-        label: 'Stale',
         detail: `Last reachable at ${status.endpoint}`,
+        label: 'Stale',
+        tone: 'warning',
       };
     case 'checking':
-      return { tone: 'info', label: 'Probing…' };
+      return { label: 'Probing…', tone: 'info' };
     case 'auth_required':
       return {
-        tone: 'warning',
-        label: 'Auth required',
         detail: `${status.status} at ${status.endpoint}`,
+        label: 'Auth required',
+        tone: 'warning',
       };
     case 'blocked_web':
-      return { tone: 'warning', label: 'Blocked by browser', detail: status.message };
+      return { detail: status.message, label: 'Blocked by browser', tone: 'warning' };
     case 'incompatible':
-      return { tone: 'danger', label: 'Incompatible', detail: status.message };
+      return { detail: status.message, label: 'Incompatible', tone: 'danger' };
     case 'unavailable':
       return {
-        tone: 'muted',
         label: activation === 'on' ? 'Force-enabled (not reachable)' : 'Unavailable',
+        tone: 'muted',
         ...(status.message ? { detail: status.message } : {}),
       };
     default:
-      return { tone: 'muted', label: 'Unknown' };
+      return { label: 'Unknown', tone: 'muted' };
   }
 }
 
@@ -128,19 +128,19 @@ const ACTIVATION_OPTIONS: ReadonlyArray<{
   value: LocalRuntimeActivation;
 }> = [
   {
-    value: 'auto',
-    label: 'Auto',
     description: 'Available when detection succeeds on the configured host.',
+    label: 'Auto',
+    value: 'auto',
   },
   {
-    value: 'on',
-    label: 'On',
     description: 'Always offer the provider, even if detection fails.',
+    label: 'On',
+    value: 'on',
   },
   {
-    value: 'off',
-    label: 'Off',
     description: 'Hide the provider and skip probing.',
+    label: 'Off',
+    value: 'off',
   },
 ];
 
@@ -198,7 +198,7 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
         }
       })
       .catch((error) => {
-        logger.debug('Failed to read stored token', { providerId: card.providerId, error });
+        logger.debug('Failed to read stored token', { error, providerId: card.providerId });
       });
     return () => {
       cancelled = true;
@@ -232,7 +232,7 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
         if (options?.isStale?.() ?? false) {
           return;
         }
-        logger.error('Local runtime probe failed', { runtimeId: card.runtimeId, error });
+        logger.error('Local runtime probe failed', { error, runtimeId: card.runtimeId });
       } finally {
         // Guard the probing indicator too so a stale probe doesn't clear the
         // spinner a newer probe has already turned on.
@@ -327,8 +327,8 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
         setDraftToken('');
       } else {
         logger.error('Failed to save local runtime token', {
-          providerId: card.providerId,
           error: result.error,
+          providerId: card.providerId,
         });
       }
     } finally {

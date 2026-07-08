@@ -36,7 +36,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
-const USAGE = { promptTokens: 8, completionTokens: 4, totalTokens: 12 } as const;
+const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
 
 /**
  * Scripted host client: the first generation requests the write tool; once the
@@ -49,8 +49,6 @@ function createScriptedHostClient(args: {
 }): LocalLlmHostClient & { requests: LocalLlmHostGenerateRequest[] } {
   const requests: LocalLlmHostGenerateRequest[] = [];
   return {
-    requests,
-    warmup: vi.fn().mockResolvedValue(undefined),
     generate: (
       request: LocalLlmHostGenerateRequest,
       options: LocalLlmHostRequestOptions = {}
@@ -63,27 +61,29 @@ function createScriptedHostClient(args: {
         options.onProgress?.({ kind: 'text', text: 'Wrote ' });
         options.onProgress?.({ kind: 'text', text: 'Wrote the file.' });
         return Promise.resolve({
-          text: 'Wrote the file.',
           finishReason: 'stop',
+          text: 'Wrote the file.',
           usage: USAGE,
         });
       }
       return Promise.resolve({
-        text: '',
         finishReason: 'tool_calls',
+        text: '',
         toolCalls: [
           {
+            function: {
+              arguments: JSON.stringify({ content: args.content, path: args.path }),
+              name: 'brainstrike_writeWorkspaceFile',
+            },
             id: 'call-write-1',
             type: 'function',
-            function: {
-              name: 'brainstrike_writeWorkspaceFile',
-              arguments: JSON.stringify({ path: args.path, content: args.content }),
-            },
           },
         ],
         usage: USAGE,
       });
     },
+    requests,
+    warmup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -101,23 +101,23 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
       expect(writeTool).toBeDefined();
 
       const hostClient = createScriptedHostClient({
-        path: targetPath,
         content: targetContent,
+        path: targetPath,
       });
 
       const iterator = await streamMastraAgent(
         [
           {
             id: 'u-write',
+            parts: [{ text: 'create the generated output file', type: 'text' }],
             role: 'user',
-            parts: [{ type: 'text', text: 'create the generated output file' }],
           },
         ],
         {
           runtime: {
-            provider: 'local',
-            model: 'onnx-community/gemma-4-E2B-it-ONNX',
             localLlmHostClient: hostClient,
+            model: 'onnx-community/gemma-4-E2B-it-ONNX',
+            provider: 'local',
             providerOptions: { local: { thinking: { enabled: false } } },
           } as RuntimeData,
           // The REAL desktop write tool, sanitized name matches the model call.
@@ -156,7 +156,7 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
       expect(serialized).toContain('"created":true');
       expect(serialized).toContain(`"bytesWritten":${Buffer.byteLength(targetContent)}`);
     } finally {
-      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
 });

@@ -106,7 +106,7 @@ export interface PipelineController {
    * Triggers AbortSignal and unblocks all waiters.
    * @returns true if state changed, false if already canceled or invalid transition
    */
-  cancel(): boolean;
+  cancel: () => boolean;
 
   /**
    * Whether the pipeline can be paused.
@@ -128,21 +128,21 @@ export interface PipelineController {
    * Combines signal check and pause wait for convenience.
    * @throws AbortError if canceled
    */
-  checkAndWait(): Promise<void>;
+  checkAndWait: () => Promise<void>;
 
   /**
    * Mark the pipeline as complete. Transitions to complete state.
    * Should be called when all pipeline work finishes successfully.
    * @returns true if state changed, false if invalid transition
    */
-  complete(): boolean;
+  complete: () => boolean;
 
   /**
    * Mark the pipeline as errored. Transitions to error state.
    * @param error - Error message describing the failure
    * @returns true if state changed, false if invalid transition
    */
-  fail(error: string): boolean;
+  fail: (error: string) => boolean;
 
   /**
    * Whether the pipeline is currently paused.
@@ -159,7 +159,7 @@ export interface PipelineController {
    * Blocks new work but doesn't abort in-flight operations.
    * @returns true if state changed, false if already paused or invalid transition
    */
-  pause(): boolean;
+  pause: () => boolean;
 
   /**
    * Reset the pipeline to idle state.
@@ -167,14 +167,14 @@ export interface PipelineController {
    * Creates a fresh AbortController for the next run.
    * @returns true if state changed, false if not in terminal state
    */
-  reset(): boolean;
+  reset: () => boolean;
 
   /**
    * Resume a paused pipeline. Transitions from paused to running.
    * Unblocks waiters and allows new work to proceed.
    * @returns true if state changed, false if not paused
    */
-  resume(): boolean;
+  resume: () => boolean;
 
   /**
    * Get AbortSignal for cancellation.
@@ -186,7 +186,7 @@ export interface PipelineController {
    * Start the pipeline. Transitions from idle to running.
    * @returns true if state changed, false if already running or invalid transition
    */
-  start(): boolean;
+  start: () => boolean;
   /**
    * Get current pipeline state.
    */
@@ -198,7 +198,7 @@ export interface PipelineController {
    * Returns immediately if not paused.
    * Throws AbortError if canceled while waiting.
    */
-  waitIfPaused(): Promise<void>;
+  waitIfPaused: () => Promise<void>;
 }
 
 // =============================================================================
@@ -240,8 +240,8 @@ export function createPipelineController(
 
     if (onStateChange) {
       onStateChange(newState, previousState, {
-        timestamp: new Date().toISOString(),
         durationInPreviousStateMs,
+        timestamp: new Date().toISOString(),
         ...metadata,
       });
     }
@@ -343,7 +343,7 @@ export function createPipelineController(
     }
 
     return new Promise<void>((resolve, reject) => {
-      pauseWaiters.push({ resolve, reject });
+      pauseWaiters.push({ reject, resolve });
     });
   }
 
@@ -367,39 +367,39 @@ export function createPipelineController(
   // -------------------------------------------------------------------------
 
   return {
-    get state() {
-      return state;
-    },
-    get signal() {
-      return abortController.signal;
-    },
-    get isPaused() {
-      return state === 'paused';
-    },
-    get isRunning() {
+    get canCancel() {
       return state === 'running' || state === 'paused';
     },
-    get canStart() {
-      return state === 'idle';
-    },
+    cancel,
     get canPause() {
       return state === 'running';
     },
     get canResume() {
       return state === 'paused';
     },
-    get canCancel() {
-      return state === 'running' || state === 'paused';
+    get canStart() {
+      return state === 'idle';
     },
-    start,
-    pause,
-    resume,
-    cancel,
+    checkAndWait,
     complete,
     fail,
+    get isPaused() {
+      return state === 'paused';
+    },
+    get isRunning() {
+      return state === 'running' || state === 'paused';
+    },
+    pause,
     reset,
+    resume,
+    get signal() {
+      return abortController.signal;
+    },
+    start,
+    get state() {
+      return state;
+    },
     waitIfPaused,
-    checkAndWait,
   };
 }
 
@@ -435,12 +435,12 @@ export function isActiveState(state: PipelineState): boolean {
  */
 export function describeState(state: PipelineState): string {
   const descriptions: Record<PipelineState, string> = {
-    idle: 'Pipeline is idle and ready to start',
-    running: 'Pipeline is actively processing',
-    paused: 'Pipeline is paused, waiting to resume',
     canceled: 'Pipeline was canceled by user',
     complete: 'Pipeline completed successfully',
     error: 'Pipeline stopped due to an error',
+    idle: 'Pipeline is idle and ready to start',
+    paused: 'Pipeline is paused, waiting to resume',
+    running: 'Pipeline is actively processing',
   };
   return descriptions[state];
 }

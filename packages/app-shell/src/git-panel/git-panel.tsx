@@ -275,7 +275,7 @@ function useSelectedDiff(
         // `loadDiff` returns null ONLY on a bridge error (already toasted).
         setResolved(
           result
-            ? { key: requestKey, state: { kind: 'loaded', diff: result } }
+            ? { key: requestKey, state: { diff: result, kind: 'loaded' } }
             : { key: requestKey, state: { kind: 'failed' } }
         );
       }
@@ -305,7 +305,7 @@ function useSelectedDiff(
     [currentDiff]
   );
 
-  return { selected, handleSelect, diffState, parsedDiff };
+  return { diffState, handleSelect, parsedDiff, selected };
 }
 
 /**

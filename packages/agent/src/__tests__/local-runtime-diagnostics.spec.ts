@@ -70,8 +70,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 1000,
       logger: loggerMock,
+      now: () => 1000,
     });
 
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
@@ -84,10 +84,10 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     expect(loggerMock.warn).toHaveBeenCalled();
     const [, meta] = loggerMock.warn.mock.calls[0] ?? [];
     expect(meta).toMatchObject({
-      runtime: 'ollama',
       endpoint: expect.stringContaining('11434'),
-      state: 'unavailable',
       message: expect.stringContaining('Failed to fetch'),
+      runtime: 'ollama',
+      state: 'unavailable',
     });
   });
 
@@ -96,8 +96,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 1100,
       logger: loggerMock,
+      now: () => 1100,
     });
 
     const results = await Promise.all(
@@ -118,10 +118,10 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
 
     const service = new LocalRuntimeDiscoveryService({
-      fetchImpl: fetchMock as unknown as typeof fetch,
       failureBaseBackoffMs: 100,
-      now: () => nowMs,
+      fetchImpl: fetchMock as unknown as typeof fetch,
       logger: loggerMock,
+      now: () => nowMs,
     });
 
     await service.probeRuntime('ollama', { surface: 'desktop' });
@@ -145,8 +145,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 1300,
       logger: loggerMock,
+      now: () => 1300,
     });
 
     const status = await service.probeRuntime('ollama', {
@@ -163,8 +163,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'local runtime probe did not reach available state',
       expect.objectContaining({
-        runtime: 'ollama',
         message: expect.stringContaining('Failed to fetch'),
+        runtime: 'ollama',
       })
     );
   });
@@ -174,13 +174,13 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeModelCatalogService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 2000,
       logger: loggerMock,
+      now: () => 2000,
     });
 
     const result = await service.listRuntimeModels('ollama', {
-      surface: 'desktop',
       force: true,
+      surface: 'desktop',
     });
 
     // The probe itself succeeds (because the /api/version probe returns 503
@@ -196,8 +196,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeModelCatalogService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 2050,
       logger: loggerMock,
+      now: () => 2050,
     });
 
     const result = await service.listRuntimeModels('ollama', {
@@ -217,8 +217,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'local runtime model catalog failed',
       expect.objectContaining({
-        runtime: 'ollama',
         message: expect.stringContaining('Failed to fetch'),
+        runtime: 'ollama',
       })
     );
   });
@@ -228,15 +228,15 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeModelCatalogService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 2100,
       logger: loggerMock,
+      now: () => 2100,
     });
 
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
         service.listRuntimeModels('lmstudio', {
-          surface: 'desktop',
           force: true,
+          surface: 'desktop',
         })
       )
     );
@@ -260,8 +260,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 3000,
       logger: loggerMock,
+      now: () => 3000,
     });
 
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
@@ -272,8 +272,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     // New shape: the failure carries a `hint` the UI can render to explain
     // why the probe failed in Electron-renderer context specifically.
     expect(status).toMatchObject({
-      state: 'unavailable',
       hint: expect.stringMatching(/CORS|cross-origin|main process|OLLAMA_ORIGINS/i),
+      state: 'unavailable',
     });
   });
 
@@ -289,8 +289,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 3100,
       logger: loggerMock,
+      now: () => 3100,
     });
 
     const status = await service.probeRuntime('ollama', { surface: 'desktop' });
@@ -313,8 +313,8 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
 
     const service = new LocalRuntimeDiscoveryService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 3200,
       logger: loggerMock,
+      now: () => 3200,
     });
 
     const ollamaStatus = await service.probeRuntime('ollama', { surface: 'desktop' });

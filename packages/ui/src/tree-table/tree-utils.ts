@@ -18,9 +18,9 @@ import type {
  */
 const DEFAULT_ARIA: TreeRowAriaAttributes = {
   ariaLevel: 1,
-  ariaSetSize: 1,
   ariaPosInSet: 1,
   ariaRowIndex: 1,
+  ariaSetSize: 1,
 };
 
 /**
@@ -35,7 +35,7 @@ function computeSiblingAria<T>(
   for (let i = 0; i < siblings.length; i++) {
     const sibling = siblings[i];
     if (sibling) {
-      result.set(sibling.id, { setSize, posInSet: i + 1 });
+      result.set(sibling.id, { posInSet: i + 1, setSize });
     }
   }
   return result;
@@ -56,12 +56,12 @@ interface ResolvedFlattenOptions {
 
 function resolveOptions(options: FlattenOptions): ResolvedFlattenOptions {
   const resolved: ResolvedFlattenOptions = {
-    expandedIds: options.expandedIds,
-    selectedId: options.selectedId ?? null,
-    multiSelectedIds: options.multiSelectedIds ?? new Set<string>(),
-    highlightedIds: options.highlightedIds ?? new Set<string>(),
     contextNodeIds: options.contextNodeIds ?? new Set<string>(),
+    expandedIds: options.expandedIds,
+    highlightedIds: options.highlightedIds ?? new Set<string>(),
+    multiSelectedIds: options.multiSelectedIds ?? new Set<string>(),
     rowIndexOffset: options.rowIndexOffset ?? 2,
+    selectedId: options.selectedId ?? null,
   };
   if (options.filterFn) {
     resolved.filterFn = options.filterFn;
@@ -89,20 +89,20 @@ function appendRow<T>(
   const rowIndex = rows.length;
   const aria: TreeRowAriaAttributes = {
     ariaLevel: node.depth + 1,
-    ariaSetSize: siblingInfo?.setSize ?? 1,
     ariaPosInSet: siblingInfo?.posInSet ?? 1,
     ariaRowIndex: rowIndex + opts.rowIndexOffset,
+    ariaSetSize: siblingInfo?.setSize ?? 1,
   };
 
   const row: FlattenedRow<T> = {
-    node,
+    aria,
     index: rowIndex,
     isExpanded,
-    isSelected,
     isHighlighted,
-    matchesFilter,
     isInContext,
-    aria,
+    isSelected,
+    matchesFilter,
+    node,
   };
 
   indexMap.set(node.id, rows.length);
@@ -111,7 +111,7 @@ function appendRow<T>(
 }
 
 function buildResult<T>(rows: FlattenedRow<T>[], indexMap: Map<string, number>): FlattenResult<T> {
-  return { rows, indexMap, visibleCount: rows.length };
+  return { indexMap, rows, visibleCount: rows.length };
 }
 
 /**
@@ -574,7 +574,7 @@ export function filterTreeNodes<T>(
   }
 
   traverse(nodes, []);
-  return { matchingIds, ancestorIds };
+  return { ancestorIds, matchingIds };
 }
 
 /**

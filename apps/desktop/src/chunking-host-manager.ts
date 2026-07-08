@@ -63,26 +63,26 @@ export class ChunkingHostManager {
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
           CHUNKING_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
       onRenderProcessGone: ({ exitCode, message, reason }) => {
         logger.error(message, {
-          reason,
           exitCode,
+          reason,
           windowRole: 'chunking-host',
         });
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
           CHUNKING_HOST_STATUS_ADAPTER.createStatus({
-            state: 'error',
             active: false,
             lastError: message,
             runtimeId: this.getStatus().runtimeId,
+            state: 'error',
           })
         );
       },
@@ -112,10 +112,10 @@ export class ChunkingHostManager {
     this.rejectPendingRequests('Chunking host stopped while requests were in flight.');
     this.lifecycle.setStatus(
       CHUNKING_HOST_STATUS_ADAPTER.createStatus({
-        state: 'stopping',
         active: false,
         lastError: null,
         runtimeId: this.getStatus().runtimeId,
+        state: 'stopping',
       })
     );
 
@@ -180,27 +180,27 @@ export class ChunkingHostManager {
         kind === 'batch'
           ? {
               kind: 'batch',
-              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
-              requesterWebContentsId,
-              resolve: resolve as (results: unknown[]) => void,
               reject,
+              requesterWebContentsId,
+              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
+              resolve: resolve as (results: unknown[]) => void,
               timeoutId,
             }
           : {
               kind: 'file',
-              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
-              requesterWebContentsId,
-              resolve: resolve as (result: unknown) => void,
               reject,
+              requesterWebContentsId,
+              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
+              resolve: resolve as (result: unknown) => void,
               timeoutId,
             };
       this.pendingRequests.set(request.requestId, pendingRequest);
       const message: ChunkingHostRequest = {
-        type: 'request',
         channel: 'chunk',
+        payload: request,
         requestId: request.requestId,
         runtimeId: this.getStatus().runtimeId,
-        payload: request,
+        type: 'request',
       };
       try {
         hostWindow.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
@@ -228,10 +228,10 @@ export class ChunkingHostManager {
     }
     this.lifecycle.setStatus(
       CHUNKING_HOST_STATUS_ADAPTER.createStatus({
-        state: report.state,
         active: report.active,
         lastError: report.lastError,
         runtimeId: report.runtimeId,
+        state: report.state,
       })
     );
   }
@@ -243,10 +243,10 @@ export class ChunkingHostManager {
     }
     if (window.webContents.id !== senderId) {
       logger.warn('Rejected chunking host response report from unknown renderer', {
-        senderId,
-        requestId: report.requestId,
-        type: report.type,
         channel: report.channel,
+        requestId: report.requestId,
+        senderId,
+        type: report.type,
       });
       return;
     }
@@ -254,9 +254,9 @@ export class ChunkingHostManager {
     const pending = this.pendingRequests.get(report.requestId);
     if (!pending) {
       logger.warn('Received chunking host response for unknown request', {
+        channel: report.channel,
         requestId: report.requestId,
         type: report.type,
-        channel: report.channel,
       });
       return;
     }
@@ -328,9 +328,9 @@ export class ChunkingHostManager {
         : this.resolveRequesterWindow(pending.requesterWebContentsId);
     if (!targetWindow) {
       logger.trace('Dropped chunking progress for missing requester window', {
+        channel: progress.channel,
         requesterWebContentsId: pending.requesterWebContentsId,
         requestId: progress.requestId,
-        channel: progress.channel,
       });
       return;
     }
@@ -338,10 +338,10 @@ export class ChunkingHostManager {
       targetWindow.webContents.send(CHUNKING_HOST_PROGRESS_EVENT, progress);
     } catch (error) {
       logger.trace('Dropped chunking progress for unavailable requester window', {
-        requesterWebContentsId: pending.requesterWebContentsId,
-        requestId: progress.requestId,
         channel: progress.channel,
         error,
+        requesterWebContentsId: pending.requesterWebContentsId,
+        requestId: progress.requestId,
       });
     }
   }

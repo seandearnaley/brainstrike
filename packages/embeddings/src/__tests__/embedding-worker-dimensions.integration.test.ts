@@ -24,8 +24,8 @@ class LargeDimensionService implements EmbeddingService {
 
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      embedding: new Array(3072).fill(0.1),
       dimensions: 3072,
+      embedding: new Array(3072).fill(0.1),
       model: 'text-embedding-3-large',
       usage: { totalTokens: 10 },
     };
@@ -33,8 +33,8 @@ class LargeDimensionService implements EmbeddingService {
 
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     return texts.map(() => ({
-      embedding: new Array(3072).fill(0.1),
       dimensions: 3072,
+      embedding: new Array(3072).fill(0.1),
       model: 'text-embedding-3-large',
       usage: { totalTokens: 10 },
     }));
@@ -48,7 +48,7 @@ class LargeDimensionService implements EmbeddingService {
     }) => Promise<void> | void
   ): Promise<void> {
     const results = await this.generateEmbeddings(texts);
-    await onBatch({ startIndex: 0, endIndex: results.length, results });
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
   }
 
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -60,7 +60,7 @@ class LargeDimensionService implements EmbeddingService {
   }
 
   calculateSimilarity(_embedding1: number[], _embedding2: number[]): SimilarityResult {
-    return { similarity: 0.95, distance: 0.05, method: 'cosine' };
+    return { distance: 0.05, method: 'cosine', similarity: 0.95 };
   }
 
   getStatus(): EmbeddingStatus {
@@ -132,21 +132,21 @@ describe('Embedding Worker Dimensions', () => {
 
     // 4. Enqueue job
     await jq.enqueue({
-      queue: 'embeddings',
       jobType: 'embed_chunk',
       payload: {
         chunkId,
         embeddingSetId: setId,
-        modelKey: 'local::large-dim-model',
         expectedDimension: 3072,
+        modelKey: 'local::large-dim-model',
       },
+      queue: 'embeddings',
     });
 
     // 5. Start worker with custom service that returns 3072-dim embeddings
     worker = await startEmbeddingWorker({
+      concurrency: 1,
       db,
       enable: true,
-      concurrency: 1,
       service: new LargeDimensionService(),
     });
 

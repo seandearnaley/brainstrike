@@ -40,16 +40,16 @@ describe('JobQueue transactional enqueue', () => {
   function makeChunk(overrides: { contentHash?: string; fileRecordId?: string } = {}) {
     const now = new Date().toISOString();
     return {
-      id: 'chunk-1',
-      fileRecordId: overrides.fileRecordId ?? 'file-1',
       chunkIndex: 0,
+      chunkSize: 16,
+      chunkType: 'sentence' as const,
       content: 'chunk content',
       contentHash: overrides.contentHash ?? 'chunk-hash',
-      tokenCount: 2,
-      chunkType: 'sentence' as const,
-      chunkSize: 16,
-      embeddingSetId: 'set-1',
       createdAt: now,
+      embeddingSetId: 'set-1',
+      fileRecordId: overrides.fileRecordId ?? 'file-1',
+      id: 'chunk-1',
+      tokenCount: 2,
       updatedAt: now,
     };
   }
@@ -58,7 +58,7 @@ describe('JobQueue transactional enqueue', () => {
     await expect(
       db.transaction(async (tx: PGlite) => {
         const jq = new JobQueue(tx as IDatabase);
-        await jq.enqueue({ queue: 'embeddings', jobType: 'embed_chunk', payload: { n: 1 } });
+        await jq.enqueue({ jobType: 'embed_chunk', payload: { n: 1 }, queue: 'embeddings' });
         throw new Error('boom');
       })
     ).rejects.toThrow('boom');
@@ -73,12 +73,12 @@ describe('JobQueue transactional enqueue', () => {
 
     await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
       chunks: [makeChunk()],
+      dimensionParameter: null,
       fileRecordId: 'file-1',
       model: 'local::test-model',
       provider: 'local',
       targetDimension: 384,
       targetEmbeddingSetId: 'set-1',
-      dimensionParameter: null,
     });
 
     const chunks = await db.query<{ count: string }>(
@@ -98,12 +98,12 @@ describe('JobQueue transactional enqueue', () => {
     await expect(
       insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
         chunks: [makeChunk({ fileRecordId: 'file-2' })],
+        dimensionParameter: null,
         fileRecordId: 'file-1',
         model: 'local::test-model',
         provider: 'local',
         targetDimension: 384,
         targetEmbeddingSetId: 'set-1',
-        dimensionParameter: null,
       })
     ).rejects.toThrow(
       "Cannot enqueue embedding job for chunk 'chunk-1' with mismatched file record id."

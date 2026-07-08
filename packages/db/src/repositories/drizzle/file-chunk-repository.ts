@@ -165,43 +165,43 @@ export class DrizzleFileChunkRepository {
     const [row] = await this.db
       .insert(fileChunks)
       .values({
-        id: chunk.id,
-        fileRecordId: chunk.fileRecordId,
         chunkIndex: chunk.chunkIndex,
+        chunkSize: chunk.chunkSize ?? null,
+        chunkType: chunk.chunkType ?? null,
         content: chunk.content,
         contentHash: chunk.contentHash ?? null,
-        tokenCount: chunk.tokenCount ?? null,
-        chunkType: chunk.chunkType ?? null,
-        chunkSize: chunk.chunkSize ?? null,
-        startLine: chunk.startLine ?? null,
-        endLine: chunk.endLine ?? null,
-        startOffset: chunk.startOffset ?? null,
-        endOffset: chunk.endOffset ?? null,
+        createdAt: new Date(chunk.createdAt),
         embedding: chunk.embedding ?? null,
+        embeddingHash: chunk.embeddingHash ?? null,
         embeddingSetId: chunk.embeddingSetId ?? null,
         embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
-        embeddingHash: chunk.embeddingHash ?? null,
-        createdAt: new Date(chunk.createdAt),
+        endLine: chunk.endLine ?? null,
+        endOffset: chunk.endOffset ?? null,
+        fileRecordId: chunk.fileRecordId,
+        id: chunk.id,
+        startLine: chunk.startLine ?? null,
+        startOffset: chunk.startOffset ?? null,
+        tokenCount: chunk.tokenCount ?? null,
         updatedAt: new Date(chunk.updatedAt),
       })
       .onConflictDoUpdate({
-        target: fileChunks.id,
         set: {
+          chunkSize: sql`excluded.chunk_size`,
+          chunkType: sql`excluded.chunk_type`,
           content: sql`excluded.content`,
           contentHash: sql`excluded.content_hash`,
-          tokenCount: sql`excluded.token_count`,
-          chunkType: sql`excluded.chunk_type`,
-          chunkSize: sql`excluded.chunk_size`,
-          startLine: sql`excluded.start_line`,
-          endLine: sql`excluded.end_line`,
-          startOffset: sql`excluded.start_offset`,
-          endOffset: sql`excluded.end_offset`,
           embedding: sql`excluded.embedding`,
+          embeddingHash: sql`excluded.embedding_hash`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
-          embeddingHash: sql`excluded.embedding_hash`,
+          endLine: sql`excluded.end_line`,
+          endOffset: sql`excluded.end_offset`,
+          startLine: sql`excluded.start_line`,
+          startOffset: sql`excluded.start_offset`,
+          tokenCount: sql`excluded.token_count`,
           updatedAt: sql`excluded.updated_at`,
         },
+        target: fileChunks.id,
       })
       .returning();
 
@@ -219,23 +219,23 @@ export class DrizzleFileChunkRepository {
     assertTextContentsHaveNoNullBytes(chunks, (chunk) => chunk.content, 'File chunk content');
 
     const values = chunks.map((chunk) => ({
-      id: chunk.id,
-      fileRecordId: chunk.fileRecordId,
       chunkIndex: chunk.chunkIndex,
+      chunkSize: chunk.chunkSize ?? null,
+      chunkType: chunk.chunkType ?? null,
       content: chunk.content,
       contentHash: chunk.contentHash ?? null,
-      tokenCount: chunk.tokenCount ?? null,
-      chunkType: chunk.chunkType ?? null,
-      chunkSize: chunk.chunkSize ?? null,
-      startLine: chunk.startLine ?? null,
-      endLine: chunk.endLine ?? null,
-      startOffset: chunk.startOffset ?? null,
-      endOffset: chunk.endOffset ?? null,
+      createdAt: new Date(chunk.createdAt),
       embedding: chunk.embedding ?? null,
+      embeddingHash: chunk.embeddingHash ?? null,
       embeddingSetId: chunk.embeddingSetId ?? null,
       embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
-      embeddingHash: chunk.embeddingHash ?? null,
-      createdAt: new Date(chunk.createdAt),
+      endLine: chunk.endLine ?? null,
+      endOffset: chunk.endOffset ?? null,
+      fileRecordId: chunk.fileRecordId,
+      id: chunk.id,
+      startLine: chunk.startLine ?? null,
+      startOffset: chunk.startOffset ?? null,
+      tokenCount: chunk.tokenCount ?? null,
       updatedAt: new Date(chunk.updatedAt),
     }));
 
@@ -243,23 +243,23 @@ export class DrizzleFileChunkRepository {
       .insert(fileChunks)
       .values(values)
       .onConflictDoUpdate({
-        target: fileChunks.id,
         set: {
+          chunkSize: sql`excluded.chunk_size`,
+          chunkType: sql`excluded.chunk_type`,
           content: sql`excluded.content`,
           contentHash: sql`excluded.content_hash`,
-          tokenCount: sql`excluded.token_count`,
-          chunkType: sql`excluded.chunk_type`,
-          chunkSize: sql`excluded.chunk_size`,
-          startLine: sql`excluded.start_line`,
-          endLine: sql`excluded.end_line`,
-          startOffset: sql`excluded.start_offset`,
-          endOffset: sql`excluded.end_offset`,
           embedding: sql`excluded.embedding`,
+          embeddingHash: sql`excluded.embedding_hash`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
-          embeddingHash: sql`excluded.embedding_hash`,
+          endLine: sql`excluded.end_line`,
+          endOffset: sql`excluded.end_offset`,
+          startLine: sql`excluded.start_line`,
+          startOffset: sql`excluded.start_offset`,
+          tokenCount: sql`excluded.token_count`,
           updatedAt: sql`excluded.updated_at`,
         },
+        target: fileChunks.id,
       })
       .returning();
 
@@ -480,8 +480,8 @@ export class DrizzleFileChunkRepository {
 
     const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
       chunk: this.fromRawRow(row),
-      similarity: Number(row['similarity']),
       rank: Number(row['rank']),
+      similarity: Number(row['similarity']),
     }));
 
     // Apply threshold and limit
@@ -611,8 +611,8 @@ export class DrizzleFileChunkRepository {
       }
       const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
         chunk: this.fromRawRow(row),
-        rank,
         position: Number(row['position']),
+        rank,
       };
       if (row['headline']) {
         ftsResult.headline = String(row['headline']);
@@ -669,10 +669,10 @@ export class DrizzleFileChunkRepository {
     `);
 
     const stats = {
-      totalChunks,
-      chunksWithEmbeddings: 0,
       averageTokenCount: 0,
+      chunksWithEmbeddings: 0,
       chunkTypeDistribution: {} as Record<string, number>,
+      totalChunks,
     };
 
     let totalTokenSum = 0;
@@ -715,8 +715,8 @@ export class DrizzleFileChunkRepository {
     const countRow = (result.rows as Record<string, unknown>[])[0];
 
     return {
-      totalChunks: totalResult?.count ?? 0,
       chunksWithEmbeddingsForSet: Number(countRow?.['count'] ?? 0),
+      totalChunks: totalResult?.count ?? 0,
     };
   }
 
@@ -770,33 +770,33 @@ export class DrizzleFileChunkRepository {
 
     if (distance === 'l2') {
       return {
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
         orderExpr: `${embeddingCast} <-> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
         orderExpr: `${embeddingCast} <#> ${paramCast}`,
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
       };
     }
     return {
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
       orderExpr: `${embeddingCast} <=> ${paramCast}`,
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
     };
   }
 
   private fromRow(row: typeof fileChunks.$inferSelect): FileChunk {
     const chunk: FileChunk = {
-      id: row.id,
-      fileRecordId: row.fileRecordId,
       chunkIndex: row.chunkIndex,
+      chunkSize: row.chunkSize ?? 0,
+      chunkType: row.chunkType ?? 'text',
       content: row.content,
       contentHash: row.contentHash ?? '',
-      tokenCount: row.tokenCount ?? 0,
-      chunkType: row.chunkType ?? 'text',
-      chunkSize: row.chunkSize ?? 0,
       createdAt: row.createdAt.toISOString(),
+      fileRecordId: row.fileRecordId,
+      id: row.id,
+      tokenCount: row.tokenCount ?? 0,
       updatedAt: row.updatedAt.toISOString(),
     };
 
@@ -830,15 +830,15 @@ export class DrizzleFileChunkRepository {
 
   private fromRawRow(row: Record<string, unknown>): FileChunk {
     const chunk: FileChunk = {
-      id: String(row['id']),
-      fileRecordId: String(row['file_record_id']),
       chunkIndex: Number(row['chunk_index']),
+      chunkSize: Number(row['chunk_size'] ?? 0),
+      chunkType: (row['chunk_type'] as FileChunk['chunkType']) ?? 'text',
       content: String(row['content']),
       contentHash: row['content_hash'] ? String(row['content_hash']) : '',
-      tokenCount: Number(row['token_count'] ?? 0),
-      chunkType: (row['chunk_type'] as FileChunk['chunkType']) ?? 'text',
-      chunkSize: Number(row['chunk_size'] ?? 0),
       createdAt: String(row['created_at']),
+      fileRecordId: String(row['file_record_id']),
+      id: String(row['id']),
+      tokenCount: Number(row['token_count'] ?? 0),
       updatedAt: String(row['updated_at']),
     };
 

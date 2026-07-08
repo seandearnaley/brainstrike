@@ -6,9 +6,9 @@ describe('ContextPacker', () => {
   it('packs chunks in order without exceeding the budget', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'alpha', tokenCount: 5 },
-      { id: 'b', content: 'bravo', tokenCount: 7 },
-      { id: 'c', content: 'charlie', tokenCount: 4 },
+      { content: 'alpha', id: 'a', tokenCount: 5 },
+      { content: 'bravo', id: 'b', tokenCount: 7 },
+      { content: 'charlie', id: 'c', tokenCount: 4 },
     ];
 
     const result = packer.pack(chunks);
@@ -24,7 +24,7 @@ describe('ContextPacker', () => {
   it('falls back to heuristic token estimates when missing', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const content = '12345678';
-    const chunks: ContextPackerChunk[] = [{ id: 'a', content }];
+    const chunks: ContextPackerChunk[] = [{ content, id: 'a' }];
 
     const result = packer.pack(chunks);
 
@@ -35,18 +35,18 @@ describe('ContextPacker', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunks: ContextPackerChunk[] = [
       {
-        id: 'x',
-        content: 'snippet',
-        tokenCount: 3,
-        filePath: 'src/app.ts',
-        fileName: 'app.ts',
         chunkIndex: 2,
-        startOffset: 12,
-        endOffset: 42,
-        startLine: 3,
+        content: 'snippet',
         endLine: 5,
-        score: 0.91,
+        endOffset: 42,
+        fileName: 'app.ts',
+        filePath: 'src/app.ts',
+        id: 'x',
         metadata: { language: 'ts' },
+        score: 0.91,
+        startLine: 3,
+        startOffset: 12,
+        tokenCount: 3,
       },
     ];
 
@@ -54,24 +54,24 @@ describe('ContextPacker', () => {
 
     expect(result.chunks).toHaveLength(1);
     expect(result.chunks[0]).toMatchObject({
-      id: 'x',
-      filePath: 'src/app.ts',
-      fileName: 'app.ts',
       chunkIndex: 2,
-      tokenCount: 3,
-      score: 0.91,
+      fileName: 'app.ts',
+      filePath: 'src/app.ts',
+      id: 'x',
       rank: 1,
+      score: 0.91,
+      tokenCount: 3,
     });
-    expect(result.chunks[0]?.offsets).toEqual({ start: 12, end: 42 });
-    expect(result.chunks[0]?.lineRange).toEqual({ start: 3, end: 5 });
+    expect(result.chunks[0]?.offsets).toEqual({ end: 42, start: 12 });
+    expect(result.chunks[0]?.lineRange).toEqual({ end: 5, start: 3 });
     expect(result.chunks[0]?.metadata).toEqual({ language: 'ts' });
   });
 
   it('respects maxChunks when provided', () => {
     const packer = new ContextPacker({ budgetTokens: 100, maxChunks: 1 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'first', tokenCount: 1 },
-      { id: 'b', content: 'second', tokenCount: 1 },
+      { content: 'first', id: 'a', tokenCount: 1 },
+      { content: 'second', id: 'b', tokenCount: 1 },
     ];
 
     const result = packer.pack(chunks);
@@ -96,9 +96,9 @@ describe('ContextPacker', () => {
   it('falls back to heuristic token estimates for invalid token counts', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'abcd', tokenCount: -3 },
-      { id: 'b', content: 'abcd', tokenCount: null },
-      { id: 'c', content: 'abcd' },
+      { content: 'abcd', id: 'a', tokenCount: -3 },
+      { content: 'abcd', id: 'b', tokenCount: null },
+      { content: 'abcd', id: 'c' },
     ];
 
     const result = packer.pack(chunks);
@@ -109,7 +109,7 @@ describe('ContextPacker', () => {
 
   it('skips chunks when budget is zero', () => {
     const packer = new ContextPacker({ budgetTokens: 0 });
-    const chunks: ContextPackerChunk[] = [{ id: 'a', content: 'alpha', tokenCount: 1 }];
+    const chunks: ContextPackerChunk[] = [{ content: 'alpha', id: 'a', tokenCount: 1 }];
 
     const result = packer.pack(chunks);
 
@@ -123,8 +123,8 @@ describe('ContextPacker', () => {
   it('skips chunks that exceed the budget while allowing later fits', () => {
     const packer = new ContextPacker({ budgetTokens: 5 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'oversize', tokenCount: 10 },
-      { id: 'b', content: 'fits', tokenCount: 3 },
+      { content: 'oversize', id: 'a', tokenCount: 10 },
+      { content: 'fits', id: 'b', tokenCount: 3 },
     ];
 
     const result = packer.pack(chunks);
@@ -138,8 +138,8 @@ describe('ContextPacker', () => {
   it('skips all chunks when the budget is too small for any content', () => {
     const packer = new ContextPacker({ budgetTokens: 1 });
     const chunks: ContextPackerChunk[] = [
-      { id: 'a', content: 'alpha', tokenCount: 2 },
-      { id: 'b', content: 'bravo', tokenCount: 3 },
+      { content: 'alpha', id: 'a', tokenCount: 2 },
+      { content: 'bravo', id: 'b', tokenCount: 3 },
     ];
 
     const result = packer.pack(chunks);

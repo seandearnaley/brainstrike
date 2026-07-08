@@ -133,7 +133,7 @@ export function createFilterFunctions(
   const matchesExclude = (path: string): boolean =>
     matchPath(path, cache.excludeRegex, cache.excludeGlobs, useRegex);
 
-  return { matchesInclude, matchesExclude };
+  return { matchesExclude, matchesInclude };
 }
 
 export function createProcessTreeFunction(

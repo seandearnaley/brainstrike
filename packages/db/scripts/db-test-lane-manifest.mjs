@@ -1,6 +1,5 @@
 export const dbUnitLaneDefinitions = [
   {
-    name: 'schema-migration',
     matches: [
       /^architecture-/,
       /^brainstrike-db-client-contract\.test\.ts$/,
@@ -22,9 +21,9 @@ export const dbUnitLaneDefinitions = [
       /^runtime-import-extensions\.test\.ts$/,
       /^view-filter-presets-migration\.test\.ts$/,
     ],
+    name: 'schema-migration',
   },
   {
-    name: 'repository',
     matches: [
       /repository\.test\.ts$/,
       /repositories\//,
@@ -38,9 +37,9 @@ export const dbUnitLaneDefinitions = [
       /^managed-cache-batch\.test\.ts$/,
       /^repository-/,
     ],
+    name: 'repository',
   },
   {
-    name: 'queue',
     matches: [
       /^batch-insert\.test\.ts$/,
       /^bulk-import\.test\.ts$/,
@@ -50,9 +49,9 @@ export const dbUnitLaneDefinitions = [
       /^job-queue/,
       /^queue-cli\.test\.ts$/,
     ],
+    name: 'queue',
   },
   {
-    name: 'search',
     matches: [
       /^hnsw-search-tuning\.integration\.test\.ts$/,
       /^hybrid-search-service\.test\.ts$/,
@@ -64,9 +63,9 @@ export const dbUnitLaneDefinitions = [
       /^uuidv7-primary-keys\.integration\.test\.ts$/,
       /^vector-extension\.integration\.test\.ts$/,
     ],
+    name: 'search',
   },
   {
-    name: 'integration',
     matches: [
       /^active-collection-live-counts\.test\.ts$/,
       /^atomic-transaction\.integration\.test\.ts$/,
@@ -88,6 +87,7 @@ export const dbUnitLaneDefinitions = [
       /^validate-embedding-batch\.test\.ts$/,
       /^wasm-loader/,
     ],
+    name: 'integration',
   },
 ];
 
@@ -115,11 +115,7 @@ export const dbCoverageLaneDefinitions = {
       'validate-embedding-batch.test.ts',
     ],
     repositories: ['atomic-transaction.integration.test.ts'],
-    runtime: [
-      'wasm-loader-coverage.test.ts',
-      'wasm-loader-worker.test.ts',
-      'wasm-loader.test.ts',
-    ],
+    runtime: ['wasm-loader-coverage.test.ts', 'wasm-loader-worker.test.ts', 'wasm-loader.test.ts'],
   },
   laneOrder: [
     'architecture',
@@ -200,14 +196,12 @@ export function buildDbCoverageLaneMap(testFiles, laneDefinitions = dbCoverageLa
     knownTests
   );
   failures.push(...overrideFailures);
-  const laneNames =
-    laneOrder ??
-    [
-      ...new Set([
-        ...Object.values(coverageDefaultsByUnitLane ?? {}),
-        ...Object.keys(coverageOverridesByLane),
-      ]),
-    ];
+  const laneNames = laneOrder ?? [
+    ...new Set([
+      ...Object.values(coverageDefaultsByUnitLane ?? {}),
+      ...Object.keys(coverageOverridesByLane),
+    ]),
+  ];
   const laneMap = new Map(laneNames.map((lane) => [lane, []]));
   const unitLaneByTest = new Map();
 

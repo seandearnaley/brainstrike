@@ -118,23 +118,23 @@ type IndexingActivitySnapshotInput = Pick<
 const DEFAULT_BACKGROUND_SNAPSHOT: IndexingBackgroundSnapshot = {
   enabled: false,
   lastError: null,
-  paused: false,
   managedCollectionId: null,
   managedCollectionName: null,
-  state: 'disabled',
+  paused: false,
   pauseReasons: [],
+  state: 'disabled',
 };
 
 const DEFAULT_INDEXING_ACTIVITY_SNAPSHOT: IndexingActivitySnapshot = {
-  status: 'unavailable',
-  phase: null,
-  queue: null,
   activeBackfills: [],
   background: DEFAULT_BACKGROUND_SNAPSHOT,
   databaseWork: null,
-  worker: null,
   lastError: null,
   lastUpdatedAt: null,
+  phase: null,
+  queue: null,
+  status: 'unavailable',
+  worker: null,
 };
 
 function isQueueActive(queue: IndexingQueueSnapshot | null): boolean {
@@ -365,8 +365,8 @@ function deriveNextSnapshot(
   >
 ): IndexingActivitySnapshot {
   return deriveSnapshot({
-    activityError,
     activeBackfills: patch.activeBackfills ?? current.activeBackfills,
+    activityError,
     background: patch.background ?? current.background,
     databaseWork: patch.databaseWork === undefined ? current.databaseWork : patch.databaseWork,
     lastUpdatedAt: patch.lastUpdatedAt ?? current.lastUpdatedAt,
@@ -381,25 +381,15 @@ function now(): number {
 
 export const useIndexingActivityStore = create<IndexingActivityStore>()((set) => ({
   indexingActivityError: null,
-  snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
-  setQueueSnapshot: (queue: IndexingQueueSnapshot | null) =>
-    set((state) => ({
-      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
-        queue,
-        lastUpdatedAt: now(),
-      }),
-    })),
+  resetIndexingActivity: () =>
+    set({
+      indexingActivityError: null,
+      snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
+    }),
   setBackfills: (backfills: readonly IndexingBackfillSnapshot[]) =>
     set((state) => ({
       snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
         activeBackfills: [...backfills],
-        lastUpdatedAt: now(),
-      }),
-    })),
-  setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) =>
-    set((state) => ({
-      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
-        worker,
         lastUpdatedAt: now(),
       }),
     })),
@@ -425,11 +415,21 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set) =>
       indexingActivityError: error,
       snapshot: deriveNextSnapshot(state.snapshot, error, { lastUpdatedAt: now() }),
     })),
-  resetIndexingActivity: () =>
-    set({
-      indexingActivityError: null,
-      snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
-    }),
+  setQueueSnapshot: (queue: IndexingQueueSnapshot | null) =>
+    set((state) => ({
+      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
+        lastUpdatedAt: now(),
+        queue,
+      }),
+    })),
+  setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) =>
+    set((state) => ({
+      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
+        lastUpdatedAt: now(),
+        worker,
+      }),
+    })),
+  snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
 }));
 
 export function __resetIndexingActivityStoreForTests(): void {

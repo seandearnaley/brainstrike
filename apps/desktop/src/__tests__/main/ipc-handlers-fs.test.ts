@@ -10,13 +10,13 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
 
 vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/Users/test/Documents'),
+  },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
       handlers.set(channel, listener);
     }),
-  },
-  app: {
-    getPath: vi.fn(() => '/Users/test/Documents'),
   },
 }));
 
@@ -33,29 +33,29 @@ describe('ipc-handlers filesystem endpoints', () => {
     vi.clearAllMocks();
 
     fsAdapter = {
+      exists: vi.fn(async () => true),
+      readDirectory: vi.fn(async () => []),
+      readFile: vi.fn(async () => 'ok'),
+      readFileByPath: vi.fn(async () => 'file content by path'),
       requestDirectoryAccess: vi.fn(
         async () =>
           ({
             id: 'real-dir',
+            kind: 'directory',
             name: 'real',
             path: '/real',
             type: 'directory',
-            kind: 'directory',
           }) as unknown as DirectoryHandle
       ),
-      readDirectory: vi.fn(async () => []),
-      readFile: vi.fn(async () => 'ok'),
-      readFileByPath: vi.fn(async () => 'file content by path'),
-      exists: vi.fn(async () => true),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
 
     storage = {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
       clear: vi.fn(),
       getAllKeys: vi.fn(),
+      getItem: vi.fn(),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
     } as unknown as ElectronStorageAdapter;
 
     store = {};
@@ -99,13 +99,7 @@ describe('ipc-handlers filesystem endpoints', () => {
     const rootPath = '/mock/test/directory';
     expect(items).toEqual([
       {
-        name: 'mock-file1.txt',
-        path: `${rootPath}/mock-file1.txt`,
-        type: 'file',
-        size: 100,
         depth: 1,
-        selectionState: 'unchecked',
-        rootFolderId: 'mock-directory-handle',
         handle: {
           id: 'mock-file-1',
           kind: 'file',
@@ -113,15 +107,15 @@ describe('ipc-handlers filesystem endpoints', () => {
           path: `${rootPath}/mock-file1.txt`,
           platform: 'electron',
         },
+        name: 'mock-file1.txt',
+        path: `${rootPath}/mock-file1.txt`,
+        rootFolderId: 'mock-directory-handle',
+        selectionState: 'unchecked',
+        size: 100,
+        type: 'file',
       },
       {
-        name: 'mock-file2.ts',
-        path: `${rootPath}/mock-file2.ts`,
-        type: 'file',
-        size: 250,
         depth: 1,
-        selectionState: 'unchecked',
-        rootFolderId: 'mock-directory-handle',
         handle: {
           id: 'mock-file-2',
           kind: 'file',
@@ -129,14 +123,16 @@ describe('ipc-handlers filesystem endpoints', () => {
           path: `${rootPath}/mock-file2.ts`,
           platform: 'electron',
         },
+        name: 'mock-file2.ts',
+        path: `${rootPath}/mock-file2.ts`,
+        rootFolderId: 'mock-directory-handle',
+        selectionState: 'unchecked',
+        size: 250,
+        type: 'file',
       },
       {
-        name: 'mock-subfolder',
-        path: `${rootPath}/mock-subfolder`,
-        type: 'directory',
+        children: [],
         depth: 1,
-        selectionState: 'unchecked',
-        rootFolderId: 'mock-directory-handle',
         handle: {
           id: 'mock-subfolder',
           kind: 'directory',
@@ -144,7 +140,11 @@ describe('ipc-handlers filesystem endpoints', () => {
           path: `${rootPath}/mock-subfolder`,
           platform: 'electron',
         },
-        children: [],
+        name: 'mock-subfolder',
+        path: `${rootPath}/mock-subfolder`,
+        rootFolderId: 'mock-directory-handle',
+        selectionState: 'unchecked',
+        type: 'directory',
       },
     ]);
   });

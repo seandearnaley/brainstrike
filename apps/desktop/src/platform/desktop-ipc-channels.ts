@@ -15,17 +15,14 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
-  quickOpen: {
-    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
-    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
-    open: 'quick-open:open',
-  },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
     clearAll: 'db:clearAll',
     diagnostics: 'db:diagnostics',
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
+    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
     liveQueryStop: 'db:live-query:stop',
@@ -36,21 +33,9 @@ export const DESKTOP_IPC_CHANNELS = {
     schedulerSnapshot: 'db:scheduler:snapshot',
     test: 'db:test',
     transaction: 'db:transaction',
-    invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
-    insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
-  },
-  git: {
-    aheadBehind: 'git:aheadBehind',
-    commit: 'git:commit',
-    diff: 'git:diff',
-    pull: 'git:pull',
-    push: 'git:push',
-    stage: 'git:stage',
-    status: 'git:status',
-    unstage: 'git:unstage',
   },
   files: {
     addRoot: 'fs:addRoot',
@@ -64,6 +49,16 @@ export const DESKTOP_IPC_CHANNELS = {
     restoreLastFolder: 'fs:restoreLastFolder',
     restoreRoots: 'fs:restoreRoots',
     saveLastFolder: 'fs:saveLastFolder',
+  },
+  git: {
+    aheadBehind: 'git:aheadBehind',
+    commit: 'git:commit',
+    diff: 'git:diff',
+    pull: 'git:pull',
+    push: 'git:push',
+    stage: 'git:stage',
+    status: 'git:status',
+    unstage: 'git:unstage',
   },
   mcp: {
     configCreateSample: 'mcp:config:createSample',
@@ -83,6 +78,16 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsList: 'mcp:tools:list',
     toolsReset: 'mcp:tools:reset',
     toolsUpdated: 'mcp:tools:updated',
+  },
+  preferences: {
+    layoutLoad: 'layout:load',
+    layoutSave: 'layout:save',
+    settingsClearAll: 'settings:clearAll',
+  },
+  quickOpen: {
+    // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
+    // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
+    open: 'quick-open:open',
   },
   runtime: {
     listModels: 'runtime:listModels',
@@ -114,18 +119,13 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   terminal: {
     create: 'terminal:create',
-    write: 'terminal:write',
-    resize: 'terminal:resize',
-    destroy: 'terminal:destroy',
     // One-way main→renderer pushes (pty output / exit). Not ipcMain.handle
     // channels — see terminal-ipc-handlers.ts.
     data: 'terminal:data',
+    destroy: 'terminal:destroy',
     exit: 'terminal:exit',
-  },
-  preferences: {
-    layoutLoad: 'layout:load',
-    layoutSave: 'layout:save',
-    settingsClearAll: 'settings:clearAll',
+    resize: 'terminal:resize',
+    write: 'terminal:write',
   },
   tools: {
     execute: 'tools:execute',

@@ -4,10 +4,10 @@ import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
-  warn: vi.fn(),
-  info: vi.fn(),
-  error: vi.fn(),
   debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
@@ -61,8 +61,8 @@ describe('initializeQueueTelemetrySink', () => {
     });
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: false,
+      endpoint: 'https://example.com/telemetry',
     });
 
     expect(sink).toBeNull();
@@ -77,8 +77,8 @@ describe('initializeQueueTelemetrySink', () => {
     });
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
     });
 
     expect(sink).not.toBeNull();
@@ -94,9 +94,9 @@ describe('initializeQueueTelemetrySink', () => {
     vi.stubGlobal('navigator', undefined);
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     expect(sink).toBeNull();
@@ -107,19 +107,19 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should collect events and flush after interval', async () => {
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 5000,
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     expect(sink).not.toBeNull();
 
     const event: QueueTelemetryEvent = {
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
+      timestamp: Date.now(),
     };
 
     emitQueueTelemetry(event);
@@ -134,11 +134,11 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should flush immediately when maxBatchSize is reached', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      maxBatchSize: 3,
-      flushIntervalMs: 10_000,
-      useSendBeacon: false,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 10_000,
+      maxBatchSize: 3,
+      useSendBeacon: false,
     });
 
     expect(sink).not.toBeNull();
@@ -146,10 +146,10 @@ describe('initializeQueueTelemetrySink', () => {
     // Emit 3 events (reaches maxBatchSize)
     for (let index = 0; index < 3; index += 1) {
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
+        timestamp: Date.now(),
       });
     }
 
@@ -163,16 +163,16 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should use sendBeacon when available', async () => {
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-beacon',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -187,16 +187,16 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false); // Beacon fails
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-fallback',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -209,18 +209,18 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should include API key in headers when provided', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       apiKey: 'test-api-key',
+      enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-api-key',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -239,21 +239,21 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should include custom headers when provided', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      headers: {
-        'x-custom-header': 'custom-value',
-        authorization: 'Bearer token',
-      },
-      flushIntervalMs: 1000,
-      useSendBeacon: false,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 1000,
+      headers: {
+        authorization: 'Bearer token',
+        'x-custom-header': 'custom-value',
+      },
+      useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-headers',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -262,8 +262,8 @@ describe('initializeQueueTelemetrySink', () => {
       'https://example.com/telemetry',
       expect.objectContaining({
         headers: expect.objectContaining({
-          'x-custom-header': 'custom-value',
           authorization: 'Bearer token',
+          'x-custom-header': 'custom-value',
         }),
       })
     );
@@ -273,19 +273,19 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should include runtime and metadata in payload', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      runtime: 'electron-renderer',
-      metadata: { appVersion: '1.0.0', userId: 'user-123' },
-      flushIntervalMs: 1000,
-      useSendBeacon: false,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 1000,
+      metadata: { appVersion: '1.0.0', userId: 'user-123' },
+      runtime: 'electron-renderer',
+      useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-metadata',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -306,16 +306,16 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-error',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -323,9 +323,9 @@ describe('initializeQueueTelemetrySink', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Queue telemetry sink failed to send payload, will retry',
       expect.objectContaining({
+        consecutiveFailures: 1,
         error: 'Network error',
         eventCount: 1,
-        consecutiveFailures: 1,
       })
     );
 
@@ -340,16 +340,16 @@ describe('initializeQueueTelemetrySink', () => {
         return Promise.reject(new Error('Network error'));
       }
       return Promise.resolve({
+        body: init.body,
         ok: true,
         status: 200,
-        body: init.body,
       });
     });
     beaconSpy.mockReturnValue(false);
 
     const sinkOptions = {
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 60_000,
       maxBatchSize: 10,
       maxBufferedEvents: 3,
@@ -362,20 +362,20 @@ describe('initializeQueueTelemetrySink', () => {
     try {
       for (const taskId of ['task-1', 'task-2', 'task-3']) {
         emitQueueTelemetry({
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId,
+          timestamp: Date.now(),
         });
       }
       await sink?.flush();
 
       for (const taskId of ['task-4', 'task-5']) {
         emitQueueTelemetry({
-          timestamp: Date.now(),
           adapter: 'workerpool',
           event: 'enqueue',
           taskId,
+          timestamp: Date.now(),
         });
       }
       await sink?.flush();
@@ -407,8 +407,8 @@ describe('initializeQueueTelemetrySink', () => {
             'Queue telemetry sink dropped buffered events after reaching maxBufferedEvents',
             expect.objectContaining({
               bufferedEvents: 4,
-              retainedEvents: 3,
               maxBufferedEvents: 3,
+              retainedEvents: 3,
             }),
           ],
         ])
@@ -425,8 +425,8 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sinkOptions = {
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 60_000,
       retryBaseDelayMs: 1000,
       useSendBeacon: false,
@@ -435,10 +435,10 @@ describe('initializeQueueTelemetrySink', () => {
 
     try {
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-backoff',
+        timestamp: Date.now(),
       });
 
       await sink?.flush();
@@ -464,18 +464,18 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 60_000,
       retryBaseDelayMs: 10_000,
       useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-dispose-backoff',
+      timestamp: Date.now(),
     });
 
     await sink?.flush();
@@ -493,18 +493,18 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 60_000,
       retryBaseDelayMs: 1000,
       useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-shorter-retry',
+      timestamp: Date.now(),
     });
 
     await sink?.flush();
@@ -519,18 +519,18 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should retain at least one buffered event when maxBufferedEvents is zero', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 60_000,
       maxBufferedEvents: 0,
       useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-min-buffer',
+      timestamp: Date.now(),
     });
 
     await sink?.dispose();
@@ -547,18 +547,18 @@ describe('initializeQueueTelemetrySink', () => {
       beaconSpy.mockReturnValue(false);
 
       const sink = initializeQueueTelemetrySink({
+        enableInTest: true,
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
-        enableInTest: true,
         retryBaseDelayMs: 0,
       });
 
       // First failure - emit event and flush
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -591,19 +591,19 @@ describe('initializeQueueTelemetrySink', () => {
       beaconSpy.mockReturnValue(false);
 
       const sink = initializeQueueTelemetrySink({
+        enableInTest: true,
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 2,
-        enableInTest: true,
         retryBaseDelayMs: 0,
       });
 
       // First failure
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -629,18 +629,18 @@ describe('initializeQueueTelemetrySink', () => {
       beaconSpy.mockReturnValue(false);
 
       const sink = initializeQueueTelemetrySink({
+        enableInTest: true,
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 1, // Disable after first failure
-        enableInTest: true,
       });
 
       // First event triggers failure and disables sink
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -653,10 +653,10 @@ describe('initializeQueueTelemetrySink', () => {
 
       // New events should be dropped (no fetch calls after sink is disabled)
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-2',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -679,19 +679,19 @@ describe('initializeQueueTelemetrySink', () => {
       beaconSpy.mockReturnValue(false);
 
       const sink = initializeQueueTelemetrySink({
+        enableInTest: true,
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 2,
-        enableInTest: true,
         retryBaseDelayMs: 0,
       });
 
       // First event - will fail
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -708,10 +708,10 @@ describe('initializeQueueTelemetrySink', () => {
 
       // Third event - will fail again, but counter should have been reset
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-3',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -729,18 +729,18 @@ describe('initializeQueueTelemetrySink', () => {
       beaconSpy.mockReturnValue(false);
 
       const sink = initializeQueueTelemetrySink({
+        enableInTest: true,
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 1,
-        enableInTest: true,
       });
 
       // Trigger failure to disable sink
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
+        timestamp: Date.now(),
       });
       await sink?.flush();
 
@@ -765,16 +765,16 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-500',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -782,8 +782,8 @@ describe('initializeQueueTelemetrySink', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Queue telemetry sink failed to send payload, will retry',
       expect.objectContaining({
-        error: 'Unexpected response: 500',
         consecutiveFailures: 1,
+        error: 'Unexpected response: 500',
       })
     );
 
@@ -792,19 +792,19 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should flush on dispose', async () => {
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 10_000, // Long interval
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     expect(sink).not.toBeNull();
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-dispose',
+      timestamp: Date.now(),
     });
 
     // Should not flush yet (interval not reached)
@@ -829,17 +829,17 @@ describe('initializeQueueTelemetrySink', () => {
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     // Emit event and start flush
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -849,10 +849,10 @@ describe('initializeQueueTelemetrySink', () => {
 
     // Emit another event and try to flush again
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-2',
+      timestamp: Date.now(),
     });
 
     // Manual flush should not happen while already flushing
@@ -869,8 +869,8 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should not flush when no events to send', async () => {
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
     });
 
     await sink?.flush();
@@ -886,17 +886,17 @@ describe('initializeQueueTelemetrySink', () => {
     vi.stubGlobal('navigator', {});
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      useSendBeacon: false,
-      flushIntervalMs: 1000,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 1000,
+      useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-runtime',
+      timestamp: Date.now(),
     });
 
     vi.advanceTimersByTime(1000);
@@ -914,17 +914,17 @@ describe('initializeQueueTelemetrySink', () => {
     vi.stubGlobal('window', { electronAPI: {} });
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      useSendBeacon: false,
-      flushIntervalMs: 1000,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 1000,
+      useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-electron',
+      timestamp: Date.now(),
     });
 
     vi.advanceTimersByTime(1000);
@@ -942,17 +942,17 @@ describe('initializeQueueTelemetrySink', () => {
     vi.stubGlobal('window', undefined);
 
     const sink = initializeQueueTelemetrySink({
-      endpoint: 'https://example.com/telemetry',
-      useSendBeacon: false,
-      flushIntervalMs: 1000,
       enableInTest: true,
+      endpoint: 'https://example.com/telemetry',
+      flushIntervalMs: 1000,
+      useSendBeacon: false,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-main',
+      timestamp: Date.now(),
     });
 
     vi.advanceTimersByTime(1000);
@@ -970,16 +970,16 @@ describe('initializeQueueTelemetrySink', () => {
     vi.useRealTimers(); // Use real timers for this test
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-timeout',
+      timestamp: Date.now(),
     });
 
     await sink?.flush();
@@ -987,8 +987,8 @@ describe('initializeQueueTelemetrySink', () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       'https://example.com/telemetry',
       expect.objectContaining({
-        method: 'POST',
         keepalive: true,
+        method: 'POST',
         signal: expect.any(Object),
       })
     );
@@ -998,17 +998,17 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should clear timer on dispose', async () => {
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 5000,
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-timer',
+      timestamp: Date.now(),
     });
 
     await sink?.dispose();
@@ -1026,16 +1026,16 @@ describe('initializeQueueTelemetrySink', () => {
     });
 
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
-      enableInTest: true,
     });
 
     emitQueueTelemetry({
-      timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-beacon-error',
+      timestamp: Date.now(),
     });
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -1054,19 +1054,19 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should batch multiple events in single request', async () => {
     const sink = initializeQueueTelemetrySink({
+      enableInTest: true,
       endpoint: 'https://example.com/telemetry',
       flushIntervalMs: 1000,
       useSendBeacon: false,
-      enableInTest: true,
     });
 
     // Emit multiple events
     for (let index = 0; index < 5; index += 1) {
       emitQueueTelemetry({
-        timestamp: Date.now(),
         adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
+        timestamp: Date.now(),
       });
     }
 

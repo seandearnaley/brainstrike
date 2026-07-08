@@ -2,21 +2,21 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig((options) => [
   {
-    entry: ['src/index.ts'],
-    dts: false,
-    format: ['esm', 'cjs'],
-    target: 'es2020',
-    sourcemap: false,
     clean: !options.watch,
+    dts: false,
+    entry: ['src/index.ts'],
+    format: ['esm', 'cjs'],
     outDir: 'dist',
+    sourcemap: false,
+    target: 'es2020',
   },
   {
-    entry: { cli: 'src/cli.ts' },
-    dts: false,
-    format: ['esm'],
-    target: 'es2020',
-    sourcemap: false,
     clean: false,
+    dts: false,
+    entry: { cli: 'src/cli.ts' },
+    format: ['esm'],
     outDir: 'dist',
+    sourcemap: false,
+    target: 'es2020',
   },
 ]);

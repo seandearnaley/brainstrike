@@ -6,23 +6,6 @@ import { defineConfig } from 'vitest/config';
 // Casting `test` here avoids noisy editor errors without affecting runtime behavior.
 
 export default defineConfig({
-  // Cast mitigates TS2769 type identity noise in some editors
-  test: {
-    ...testBase,
-    setupFiles: [
-      ...(testBase.setupFiles ?? []),
-      resolve(import.meta.dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
-    ],
-    // Default to happy-dom for speed; jsdom-only suites should annotate at file top
-    environment: 'happy-dom',
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    // Switch to threads to reduce memory/startup overhead
-    pool: 'threads',
-    // Keep isolation to avoid cross-file state until a deeper audit completes
-    isolate: true,
-    testTimeout: 30_000,
-  } as InlineConfig,
   resolve: {
     alias: [
       {
@@ -99,4 +82,21 @@ export default defineConfig({
       },
     ],
   },
+  // Cast mitigates TS2769 type identity noise in some editors
+  test: {
+    ...testBase,
+    // Default to happy-dom for speed; jsdom-only suites should annotate at file top
+    environment: 'happy-dom',
+    exclude: ['node_modules', 'dist'],
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
+    // Keep isolation to avoid cross-file state until a deeper audit completes
+    isolate: true,
+    // Switch to threads to reduce memory/startup overhead
+    pool: 'threads',
+    setupFiles: [
+      ...(testBase.setupFiles ?? []),
+      resolve(import.meta.dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
+    ],
+    testTimeout: 30_000,
+  } as InlineConfig,
 });

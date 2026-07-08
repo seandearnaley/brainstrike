@@ -51,7 +51,7 @@ const walkSourceFiles = async ({ root, relativeDirectory }) => {
       if (SKIPPED_DIRECTORIES.has(entry.name)) {
         continue;
       }
-      for (const filePath of await walkSourceFiles({ root, relativeDirectory: relativePath })) {
+      for (const filePath of await walkSourceFiles({ relativeDirectory: relativePath, root })) {
         files.push(filePath);
       }
       continue;
@@ -103,17 +103,17 @@ const collectImportSpecifiers = ({ sourceFile }) => {
 
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
     imports.push({
-      specifier,
-      line: line + 1,
       column: character + 1,
+      line: line + 1,
+      specifier,
     });
   };
 
   const visit = (node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       addImport({
-        specifier: getStringLiteralText(node.moduleSpecifier),
         node,
+        specifier: getStringLiteralText(node.moduleSpecifier),
       });
       ts.forEachChild(node, visit);
       return;
@@ -121,8 +121,8 @@ const collectImportSpecifiers = ({ sourceFile }) => {
 
     if (ts.isImportTypeNode(node)) {
       addImport({
-        specifier: getStringLiteralText(node.argument?.literal),
         node,
+        specifier: getStringLiteralText(node.argument?.literal),
       });
       ts.forEachChild(node, visit);
       return;
@@ -132,8 +132,8 @@ const collectImportSpecifiers = ({ sourceFile }) => {
       const moduleReference = node.moduleReference;
       if (ts.isExternalModuleReference(moduleReference)) {
         addImport({
-          specifier: getStringLiteralText(moduleReference.expression),
           node,
+          specifier: getStringLiteralText(moduleReference.expression),
         });
       }
       ts.forEachChild(node, visit);
@@ -149,7 +149,7 @@ const collectImportSpecifiers = ({ sourceFile }) => {
         node.expression.escapedText === 'require' &&
         node.arguments.length > 0;
       if (isDynamicImport || isRequire) {
-        addImport({ specifier: importSpecifier, node });
+        addImport({ node, specifier: importSpecifier });
       }
     }
 
@@ -166,7 +166,7 @@ const resolveWorkspacePackageSpecifier = ({ specifier, workspacePackageNames }) 
   }
 
   const [scope, packageName] = specifier.split('/');
-  if (!scope || !packageName) {
+  if (!(scope && packageName)) {
     return null;
   }
 
@@ -194,9 +194,9 @@ const buildDomainLookups = ({ contract }) => {
   }
 
   return {
-    packageToDomain,
     allowedDomainDependencies,
     approvedBoundaryExceptions,
+    packageToDomain,
   };
 };
 
@@ -212,7 +212,7 @@ const findSourceWorkspacePackage = ({ filePath, workspacePackages }) => {
 
 export const validateArchitectureDomainBoundaries = async ({ root = process.cwd() } = {}) => {
   const contract = await loadArchitectureDomainContract({ root });
-  const contractResult = await validateArchitectureDomainContract({ root, contract });
+  const contractResult = await validateArchitectureDomainContract({ contract, root });
   if (contractResult.errors.length > 0) {
     throw new Error(
       `Architecture domain contract must pass before boundary validation:\n${contractResult.errors.join(
@@ -222,17 +222,23 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
   }
 
   const workspacePackages = await listWorkspacePackages({ root });
-  const workspacePackageNames = new Set(workspacePackages.map((workspacePackage) => workspacePackage.name));
-  const { packageToDomain, allowedDomainDependencies, approvedBoundaryExceptions } = buildDomainLookups({
-    contract,
-  });
+  const workspacePackageNames = new Set(
+    workspacePackages.map((workspacePackage) => workspacePackage.name)
+  );
+  const { packageToDomain, allowedDomainDependencies, approvedBoundaryExceptions } =
+    buildDomainLookups({
+      contract,
+    });
   const violations = [];
   const usedBoundaryExceptions = new Set();
   let checkedFileCount = 0;
   let checkedImportCount = 0;
 
   for (const workspacePackage of workspacePackages) {
-    const sourceFiles = await walkSourceFiles({ root, relativeDirectory: workspacePackage.directory });
+    const sourceFiles = await walkSourceFiles({
+      relativeDirectory: workspacePackage.directory,
+      root,
+    });
     for (const filePath of sourceFiles) {
       const sourceWorkspacePackage = findSourceWorkspacePackage({ filePath, workspacePackages });
       if (!sourceWorkspacePackage) {
@@ -278,15 +284,15 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
         }
 
         violations.push({
-          filePath,
-          line: importedSpecifier.line,
           column: importedSpecifier.column,
-          sourcePackage: sourceWorkspacePackage.name,
-          sourceDomain: sourcePackageDomain,
-          importedPackage,
+          filePath,
           importedDomain,
-          specifier: importedSpecifier.specifier,
+          importedPackage,
+          line: importedSpecifier.line,
           message: `${sourceWorkspacePackage.name} (${sourcePackageDomain}) must not import ${importedPackage} (${importedDomain})`,
+          sourceDomain: sourcePackageDomain,
+          sourcePackage: sourceWorkspacePackage.name,
+          specifier: importedSpecifier.specifier,
         });
       }
     }
@@ -311,9 +317,9 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
     .map((exceptionKey) => {
       const [sourcePackage, importedPackage] = exceptionKey.split('\0');
       return {
-        sourcePackage,
         importedPackage,
         message: `approved boundary exception is stale: ${sourcePackage} -> ${importedPackage}`,
+        sourcePackage,
       };
     })
     .sort((left, right) => {
@@ -326,14 +332,14 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
 
   return {
     staleBoundaryExceptions,
-    violations,
     summary: {
+      approvedBoundaryExceptionCount: approvedBoundaryExceptions.size,
       checkedFileCount,
       checkedImportCount,
-      approvedBoundaryExceptionCount: approvedBoundaryExceptions.size,
       usedBoundaryExceptionCount: usedBoundaryExceptions.size,
       workspaceCount: workspacePackages.length,
     },
+    violations,
   };
 };
 

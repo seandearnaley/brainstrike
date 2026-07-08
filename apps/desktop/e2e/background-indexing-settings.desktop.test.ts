@@ -125,16 +125,16 @@ test.describe('Workspace Index settings (desktop)', () => {
             .getByText('Managed collection metadata is invalid.', { exact: true })
             .count(),
         {
-          timeout: 15_000,
           message: 'Stale managed collection ids should not surface the invalid-metadata error.',
+          timeout: 15_000,
         }
       )
       .toBe(0);
 
     await expect
       .poll(async () => await readWorkspaceIndexRows(window), {
-        timeout: 15_000,
         message: 'Expected exactly one protected Workspace Index embedding set.',
+        timeout: 15_000,
       })
       .toMatchObject([
         {

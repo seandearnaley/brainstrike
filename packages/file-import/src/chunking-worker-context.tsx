@@ -108,9 +108,9 @@ function handleChunkingWorkerMessageData(
 
   const tokenizerError = tokenizerErrorData.error;
   logger.error('Chunking worker tokenizer failure', {
-    id: tokenizerErrorData.id,
-    fileRecordId: tokenizerErrorData.fileRecordId,
     error: tokenizerError,
+    fileRecordId: tokenizerErrorData.fileRecordId,
+    id: tokenizerErrorData.id,
   });
   context.enterTerminalFailureState(
     new Error(tokenizerError),
@@ -152,7 +152,7 @@ const PARSER_HOST_INVOKE = 'parser-host:invoke';
 const PARSER_HOST_REPLY = 'parser-host:reply';
 
 interface ParserHostBridge {
-  parse(payload: unknown): Promise<unknown>;
+  parse: (payload: unknown) => Promise<unknown>;
 }
 
 function getParserHostBridge(): ParserHostBridge | null {
@@ -220,9 +220,9 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
       // surfaces; reply with a clear error so the worker's promise
       // rejects with a meaningful message rather than timing out.
       logger.error('parser-host bridge invoked but window.parserHost is missing', {
-        requestId: data.requestId,
         diagnosis:
           "Either the worker shouldn't be using the IPC parser here, or preload.ts's parserHost contextBridge exposure isn't running. Check selectAdapter routing and preload load order.",
+        requestId: data.requestId,
       });
       safeWorkerPost(worker, {
         requestId: data.requestId,
@@ -251,8 +251,8 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
         // upstream bug, IPC channel torn down). Surface them at error
         // level so the user sees them in real testing.
         logger.error('parser-host bridge.parse threw', {
-          requestId: data.requestId,
           error: error instanceof Error ? error.message : String(error),
+          requestId: data.requestId,
         });
         safeWorkerPost(worker, {
           requestId: data.requestId,
@@ -392,11 +392,11 @@ function ChunkingHostProxyProvider({
   children,
 }: Pick<ChunkingWorkerProviderProps, 'autoStart' | 'children'>): ReactNode {
   const [status, setStatus] = useState<ChunkingHostLifecycleState>({
-    state: 'stopped',
     active: false,
     lastError: null,
-    runtimeKind: 'chunking-host',
     runtimeId: 'chunking-host:stopped',
+    runtimeKind: 'chunking-host',
+    state: 'stopped',
   });
   const [error, setError] = useState<Error | null>(null);
   const pendingBatchCallbacksRef = useRef(new Map<string, ChunkingBatchCallbacks | undefined>());
@@ -503,10 +503,10 @@ function ChunkingHostProxyProvider({
   const contextValue = useMemo<ChunkingWorkerContextValue>(
     () => ({
       ensureStarted,
-      port: currentPortState,
-      isReady: status.state === 'running',
-      isProcessing: status.active,
       error,
+      isProcessing: status.active,
+      isReady: status.state === 'running',
+      port: currentPortState,
       reinitialize,
     }),
     [currentPortState, ensureStarted, error, reinitialize, status.active, status.state]
@@ -522,30 +522,6 @@ function createChunkingHostProxyPort(
   pendingBatchCallbacksRef: MutableRefObject<Map<string, ChunkingBatchCallbacks | undefined>>
 ): ChunkingWorkerPort {
   return {
-    transportKind: 'host-proxy',
-    chunkFileById: async (fileRecordId: string, options: ChunkingHostProxyRequestOptions) =>
-      bridge.chunkFile({
-        kind: 'chunk-file-by-id',
-        requestId: createChunkingRequestId('file'),
-        fileRecordId,
-        options,
-      }),
-    chunkFile: async (
-      fileRecordId: string,
-      content: string,
-      fileName: string,
-      filePath: string,
-      options: ChunkingRequestOptions
-    ) =>
-      bridge.chunkFile({
-        kind: 'chunk-file',
-        requestId: createChunkingRequestId('file'),
-        fileRecordId,
-        content,
-        fileName,
-        filePath,
-        options: toChunkingHostRequestOptions(options),
-      }),
     chunkBatch: async (
       files: Array<{
         fileRecordId: string;
@@ -594,19 +570,43 @@ function createChunkingHostProxyPort(
 
       try {
         return await bridge.chunkBatch({
-          kind: 'chunk-batch',
-          requestId,
           files,
+          kind: 'chunk-batch',
           options: toChunkingHostRequestOptions(options),
+          requestId,
         });
       } finally {
         cleanupProgress();
         pendingBatchCallbacksRef.current.delete(requestId);
       }
     },
+    chunkFile: async (
+      fileRecordId: string,
+      content: string,
+      fileName: string,
+      filePath: string,
+      options: ChunkingRequestOptions
+    ) =>
+      bridge.chunkFile({
+        content,
+        fileName,
+        filePath,
+        fileRecordId,
+        kind: 'chunk-file',
+        options: toChunkingHostRequestOptions(options),
+        requestId: createChunkingRequestId('file'),
+      }),
+    chunkFileById: async (fileRecordId: string, options: ChunkingHostProxyRequestOptions) =>
+      bridge.chunkFile({
+        fileRecordId,
+        kind: 'chunk-file-by-id',
+        options,
+        requestId: createChunkingRequestId('file'),
+      }),
     isReady: () => true,
     // Host-proxy mode does not own the hidden renderer lifecycle.
     terminate: () => {},
+    transportKind: 'host-proxy',
   };
 }
 
@@ -719,9 +719,9 @@ function ChunkingLocalWorkerProvider({
             return;
           }
           const errorDetails = {
-            message: event.message || 'Unknown worker error',
             filename: event.filename || 'unknown',
             lineno: event.lineno || 0,
+            message: event.message || 'Unknown worker error',
           };
           logger.error('Chunking worker error event', errorDetails);
           const runtimeError = new Error(
@@ -843,18 +843,6 @@ function ChunkingLocalWorkerProvider({
     }
 
     const wrappedPort: ChunkingWorkerPort = {
-      transportKind: currentPortState.transportKind,
-      chunkFile: async (...args) => {
-        setIsProcessing(true);
-        try {
-          const result = await currentPortState.chunkFile(...args);
-          setIsProcessing(false);
-          return result;
-        } catch (err) {
-          setIsProcessing(false);
-          throw err;
-        }
-      },
       chunkBatch: async (files, options, callbacks?: ChunkingBatchCallbacks) => {
         setIsProcessing(true);
         try {
@@ -866,6 +854,18 @@ function ChunkingLocalWorkerProvider({
           throw err;
         }
       },
+      chunkFile: async (...args) => {
+        setIsProcessing(true);
+        try {
+          const result = await currentPortState.chunkFile(...args);
+          setIsProcessing(false);
+          return result;
+        } catch (err) {
+          setIsProcessing(false);
+          throw err;
+        }
+      },
+      transportKind: currentPortState.transportKind,
       ...(currentPortState.chunkFileById
         ? {
             chunkFileById: async (...args) => {
@@ -899,10 +899,10 @@ function ChunkingLocalWorkerProvider({
   const contextValue = useMemo<ChunkingWorkerContextValue>(
     () => ({
       ensureStarted: initialize,
-      port: wrappedPort,
-      isReady,
-      isProcessing,
       error,
+      isProcessing,
+      isReady,
+      port: wrappedPort,
       reinitialize,
     }),
     [error, initialize, isProcessing, isReady, reinitialize, wrappedPort]

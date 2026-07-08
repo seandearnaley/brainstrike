@@ -1,7 +1,11 @@
 import type { Migration } from './migration-runner';
 
 export const migration030CollectionIndexingStats: Migration = {
-  version: 30,
+  down: `
+    DROP INDEX IF EXISTS idx_collection_indexing_stats_dirty;
+    --> statement-breakpoint
+    DROP TABLE IF EXISTS collection_indexing_stats;
+  `,
   name: 'collection_indexing_stats',
   up: `
     CREATE TABLE IF NOT EXISTS collection_indexing_stats (
@@ -63,9 +67,5 @@ export const migration030CollectionIndexingStats: Migration = {
     CREATE INDEX IF NOT EXISTS idx_collection_indexing_stats_dirty
       ON collection_indexing_stats(dirty, last_refreshed_at);
   `,
-  down: `
-    DROP INDEX IF EXISTS idx_collection_indexing_stats_dirty;
-    --> statement-breakpoint
-    DROP TABLE IF EXISTS collection_indexing_stats;
-  `,
+  version: 30,
 };

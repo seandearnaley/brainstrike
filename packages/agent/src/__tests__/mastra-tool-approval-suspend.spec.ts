@@ -36,13 +36,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
   const actual = await importActual<typeof import('../providers/provider-factory')>();
   return {
     ...actual,
-    getDefaultModel: () => 'fake-model',
     createProvider: () => {
       if (!modelHolder.current) {
         throw new Error('test fake model was not configured');
       }
       return modelHolder.current;
     },
+    getDefaultModel: () => 'fake-model',
   };
 });
 
@@ -80,10 +80,6 @@ function createTurnCountedToolCallModel(args: {
     });
 
   return {
-    specificationVersion: 'v2',
-    provider: 'fake',
-    modelId: 'fake-model',
-    supportedUrls: {},
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: () => {
       turn += 1;
@@ -92,12 +88,12 @@ function createTurnCountedToolCallModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              type: 'tool-call',
+              input: args.input,
               toolCallId: args.toolCallId,
               toolName: args.toolName,
-              input: args.input,
+              type: 'tool-call',
             },
-            { type: 'finish', finishReason: 'tool-calls', usage: USAGE },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
           ]),
         });
       }
@@ -105,29 +101,33 @@ function createTurnCountedToolCallModel(args: {
       return Promise.resolve({
         stream: enqueue([
           { type: 'stream-start', warnings: [] },
-          { type: 'text-start', id },
-          { type: 'text-delta', id, delta: args.finalText },
-          { type: 'text-end', id },
-          { type: 'finish', finishReason: 'stop', usage: USAGE },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
         ]),
       });
     },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
   };
 }
 
 const ASK_POLICY = {
-  policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
-  yolo: false,
+  policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
   riskByTool: { shell_tool: 'execute' },
+  yolo: false,
 } as const;
 
 function makeAskTool(execute: ReturnType<typeof vi.fn>) {
   return createTool({
-    id: 'shell_tool',
     description: 'An execute-risk tool gated to ask.',
+    execute,
+    id: 'shell_tool',
     inputSchema: z.object({ command: z.string() }),
     outputSchema: z.object({ ran: z.string() }),
-    execute,
   });
 }
 
@@ -177,27 +177,27 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       Promise.resolve({ ran: inputData.command })
     );
     const askTool = makeAskTool(askExecute);
-    const thread = { threadId: 'thread-approve-1', resourceId: 'resource-approve-1' } as const;
+    const thread = { resourceId: 'resource-approve-1', threadId: 'thread-approve-1' } as const;
 
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'shell_tool',
-      toolCallId: 'call-ask-approve-1',
-      input: JSON.stringify({ command: 'echo approved' }),
       finalText: 'Command finished.',
+      input: JSON.stringify({ command: 'echo approved' }),
+      toolCallId: 'call-ask-approve-1',
+      toolName: 'shell_tool',
     });
 
     // ── Phase 1: the run SUSPENDS for approval ──
     const suspendIterator = await streamMastraAgent(
-      [{ id: 'u-ap-1', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+      [{ id: 'u-ap-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
       {
         memory,
-        storage,
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
           permissionPolicy: ASK_POLICY,
-          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          provider: 'openai',
         },
+        storage,
         tools: { shell_tool: askTool },
       }
     );
@@ -226,14 +226,14 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       },
       {
         memory,
-        storage,
         requireToolApproval: true,
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
           permissionPolicy: ASK_POLICY,
-          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          provider: 'openai',
         },
+        storage,
         tools: { shell_tool: askTool },
       }
     );
@@ -261,27 +261,27 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       Promise.resolve({ ran: inputData.command })
     );
     const askTool = makeAskTool(askExecute);
-    const thread = { threadId: 'thread-decline-1', resourceId: 'resource-decline-1' } as const;
+    const thread = { resourceId: 'resource-decline-1', threadId: 'thread-decline-1' } as const;
 
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'shell_tool',
-      toolCallId: 'call-ask-decline-1',
-      input: JSON.stringify({ command: 'echo declined' }),
       finalText: 'Okay, I will not run that.',
+      input: JSON.stringify({ command: 'echo declined' }),
+      toolCallId: 'call-ask-decline-1',
+      toolName: 'shell_tool',
     });
 
     // ── Phase 1: the run SUSPENDS for approval ──
     const suspendIterator = await streamMastraAgent(
-      [{ id: 'u-dc-1', role: 'user', parts: [{ type: 'text', text: 'run echo' }] }],
+      [{ id: 'u-dc-1', parts: [{ text: 'run echo', type: 'text' }], role: 'user' }],
       {
         memory,
-        storage,
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
           permissionPolicy: ASK_POLICY,
-          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          provider: 'openai',
         },
+        storage,
         tools: { shell_tool: askTool },
       }
     );
@@ -301,14 +301,14 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       },
       {
         memory,
-        storage,
         requireToolApproval: true,
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
           permissionPolicy: ASK_POLICY,
-          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          provider: 'openai',
         },
+        storage,
         tools: { shell_tool: askTool },
       }
     );
@@ -345,39 +345,39 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       Promise.resolve({ ran: inputData.command })
     );
     const readTool = createTool({
-      id: 'read_tool',
       description: 'A read-only tool (allow).',
+      execute: readExecute,
+      id: 'read_tool',
       inputSchema: z.object({ path: z.string() }),
       outputSchema: z.object({ contents: z.string() }),
-      execute: readExecute,
     });
     const askTool = makeAskTool(askExecute);
-    const thread = { threadId: 'thread-free-1', resourceId: 'resource-free-1' } as const;
+    const thread = { resourceId: 'resource-free-1', threadId: 'thread-free-1' } as const;
     // read=allow, execute=ask; both tools registered. The model calls ONLY read.
     const policy = {
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
-      yolo: false,
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
       riskByTool: { read_tool: 'read', shell_tool: 'execute' },
+      yolo: false,
     } as const;
 
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'read_tool',
-      toolCallId: 'call-read-1',
-      input: JSON.stringify({ path: '/README.md' }),
       finalText: 'Here is the file.',
+      input: JSON.stringify({ path: '/README.md' }),
+      toolCallId: 'call-read-1',
+      toolName: 'read_tool',
     });
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u-free-1', role: 'user', parts: [{ type: 'text', text: 'read the readme' }] }],
+      [{ id: 'u-free-1', parts: [{ text: 'read the readme', type: 'text' }], role: 'user' }],
       {
         memory,
-        storage,
         runtime: {
-          provider: 'openai',
           apiKey: 'test-key',
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
           permissionPolicy: policy,
-          memory: { threadId: thread.threadId, resourceId: thread.resourceId },
+          provider: 'openai',
         },
+        storage,
         tools: { read_tool: readTool, shell_tool: askTool },
       }
     );
@@ -422,39 +422,39 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       Promise.resolve({ ok: true, path: inputData.path })
     );
     const writeTool = createTool({
-      id: 'write_tool',
       description: 'An edit-risk write tool gated to ask.',
-      inputSchema: z.object({ path: z.string(), content: z.string() }),
-      outputSchema: z.object({ ok: z.boolean(), path: z.string() }),
       execute: writeExecute,
+      id: 'write_tool',
+      inputSchema: z.object({ content: z.string(), path: z.string() }),
+      outputSchema: z.object({ ok: z.boolean(), path: z.string() }),
     });
-    const thread = { threadId: 'thread-desktop-1', resourceId: 'resource-desktop-1' } as const;
+    const thread = { resourceId: 'resource-desktop-1', threadId: 'thread-desktop-1' } as const;
     // edit gated to ask, exactly like writeWorkspaceFile on the desktop.
     const policy = {
-      policies: { read: 'allow', edit: 'ask', execute: 'ask', mcp: 'allow' },
-      yolo: false,
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
       riskByTool: { write_tool: 'edit' },
+      yolo: false,
     } as const;
     // Tools ride on runtime.mastraTools (desktop wiring); options.tools is UNSET
     // on the resume below — the precise condition that triggered the bug.
     const runtime = {
-      provider: 'openai',
       apiKey: 'test-key',
-      permissionPolicy: policy,
-      memory: { threadId: thread.threadId, resourceId: thread.resourceId },
       mastraTools: { write_tool: writeTool },
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      permissionPolicy: policy,
+      provider: 'openai',
     } as const;
 
     modelHolder.current = createTurnCountedToolCallModel({
-      toolName: 'write_tool',
-      toolCallId: 'call-desktop-write-1',
-      input: JSON.stringify({ path: 'brainblog/hello.txt', content: 'hello Sean' }),
       finalText: 'Created brainblog/hello.txt.',
+      input: JSON.stringify({ content: 'hello Sean', path: 'brainblog/hello.txt' }),
+      toolCallId: 'call-desktop-write-1',
+      toolName: 'write_tool',
     });
 
     // ── Phase 1: initial turn via the DESKTOP path → SUSPENDS for approval ──
     const suspendIterator = await toAiSdkStyleStream(
-      [{ id: 'u-desk-1', role: 'user', parts: [{ type: 'text', text: 'write hello.txt' }] }],
+      [{ id: 'u-desk-1', parts: [{ text: 'write hello.txt', type: 'text' }], role: 'user' }],
       runtime,
       { memory, storage }
     );
@@ -476,9 +476,9 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       },
       {
         memory,
-        storage,
         requireToolApproval: true,
         runtime,
+        storage,
       }
     );
     const resumeChunks = await drainYielding(resumeIterator);
@@ -487,8 +487,8 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     // Agent's tool map) and the run reached a terminal finish.
     expect(writeExecute).toHaveBeenCalledTimes(1);
     expect(writeExecute.mock.calls[0]?.[0]).toMatchObject({
-      path: 'brainblog/hello.txt',
       content: 'hello Sean',
+      path: 'brainblog/hello.txt',
     });
     const resumeRunEventKinds = resumeChunks
       .filter(

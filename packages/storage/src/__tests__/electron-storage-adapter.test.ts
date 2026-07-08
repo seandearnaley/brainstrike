@@ -18,7 +18,6 @@ vi.mock('electron', () => {
   // The mock module object must be created fresh each time
   return {
     app: {
-      whenReady: () => Promise.resolve(),
       getPath: (name: string) => {
         if (name === 'userData') {
           // Access the mockState object which will be mutated by beforeEach
@@ -26,6 +25,7 @@ vi.mock('electron', () => {
         }
         return '';
       },
+      whenReady: () => Promise.resolve(),
     },
   };
 });
@@ -44,7 +44,7 @@ describe('ElectronStorageAdapter', () => {
   afterEach(async () => {
     // Clean up files
     await fsPromises.rm(storageFile, { force: true });
-    await fsPromises.rm(userDataDir, { recursive: true, force: true });
+    await fsPromises.rm(userDataDir, { force: true, recursive: true });
   });
 
   it('should set and get values', async () => {
@@ -217,8 +217,8 @@ describe('ElectronStorageAdapter', () => {
 
     // Cleanup - use the actual path from mock
     await fsPromises.rm(path.join(actualUserDataPath, 'nested'), {
-      recursive: true,
       force: true,
+      recursive: true,
     });
   });
 
@@ -452,8 +452,8 @@ describe('ElectronStorageAdapter', () => {
 
       // Cleanup
       await fsPromises.rm(path.join(userDataDir, 'config'), {
-        recursive: true,
         force: true,
+        recursive: true,
       });
     });
 

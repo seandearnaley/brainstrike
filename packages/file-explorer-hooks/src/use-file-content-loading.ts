@@ -127,10 +127,10 @@ export function useFileContentLoading(
   }, []);
 
   return {
-    fileContents,
-    isLoading,
-    error,
-    handleFileContentLoading,
     clearFileContents,
+    error,
+    fileContents,
+    handleFileContentLoading,
+    isLoading,
   };
 }

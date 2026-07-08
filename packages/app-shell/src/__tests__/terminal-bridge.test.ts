@@ -8,11 +8,11 @@ import {
 function fullBridge(): TerminalBridge {
   return {
     create: vi.fn(),
-    write: vi.fn(),
-    resize: vi.fn(),
     destroy: vi.fn(),
     onData: vi.fn(),
     onExit: vi.fn(),
+    resize: vi.fn(),
+    write: vi.fn(),
   };
 }
 

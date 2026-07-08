@@ -59,14 +59,14 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<GuardedToolError>((resolve) => {
       timer = setTimeout(() => {
-        logger?.error('Tool execution timed out', { toolName, timeoutMs });
+        logger?.error('Tool execution timed out', { timeoutMs, toolName });
         resolve({
-          ok: false,
           error: {
             code: 'tool_timeout',
             message: GUARDED_TOOL_TIMEOUT_MESSAGE,
             toolName,
           },
+          ok: false,
         });
       }, timeoutMs);
       (timer as { unref?: () => void }).unref?.();
@@ -81,10 +81,10 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     try {
       return await Promise.race([run, timeout]);
     } catch (error) {
-      logger?.error('Tool execution failed', { toolName, error });
+      logger?.error('Tool execution failed', { error, toolName });
       return {
-        ok: false,
         error: { code: 'tool_failed', message: GUARDED_TOOL_ERROR_MESSAGE, toolName },
+        ok: false,
       };
     } finally {
       if (timer) {
@@ -109,8 +109,8 @@ export function applyToolGuards<TMap extends Record<string, unknown>>(
   const guarded: Record<string, unknown> = {};
   for (const [toolId, tool] of Object.entries(tools)) {
     guarded[toolId] = guardToolExecution(tool, {
-      toolName: toolId,
       timeoutMs: options.timeoutMs,
+      toolName: toolId,
       ...(options.logger ? { logger: options.logger } : {}),
     });
   }

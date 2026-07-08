@@ -124,10 +124,10 @@ export function useWorkerFlattenedTree(
   }, [isWorkerEnabled, portRef, expandedPaths, treeRevision]);
 
   return {
-    requestFlatten,
     flattenedNodes,
     isWorkerEnabled,
     lastDurationMs,
+    requestFlatten,
   };
 }
 

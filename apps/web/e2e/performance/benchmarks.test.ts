@@ -36,14 +36,14 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       'file2.js': 'function test() {}',
       'README.md': '# Test Project',
       src: {
-        'index.ts': 'export * from "./components";',
         components: {
           'Button.tsx': 'export const Button = () => <button />;',
           'Input.tsx': 'export const Input = () => <input />;',
         },
+        'index.ts': 'export * from "./components";',
         utils: {
-          'helpers.ts': 'export const helper = () => {};',
           'constants.ts': 'export const API_URL = "test";',
+          'helpers.ts': 'export const helper = () => {};',
         },
       },
       tests: {
@@ -177,12 +177,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       let renderCount = 0;
 
       (window as any).__renderTracker = {
-        renderCount: 0,
-        renderTimes: [],
-        startRender: () => {
-          renderCount++;
-          performance.mark(`render-${renderCount}-start`);
-        },
         endRender: () => {
           performance.mark(`render-${renderCount}-end`);
           performance.measure(
@@ -194,6 +188,12 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
           if (measure) {
             (window as any).__renderTracker.renderTimes.push(measure.duration);
           }
+        },
+        renderCount: 0,
+        renderTimes: [],
+        startRender: () => {
+          renderCount++;
+          performance.mark(`render-${renderCount}-start`);
         },
       };
     });
@@ -212,13 +212,13 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const renderMetrics = await page.evaluate(() => {
       const tracker = (window as any).__renderTracker;
       return {
-        totalRenders: tracker?.renderTimes?.length || 0,
         averageRenderTime:
           tracker?.renderTimes?.length > 0
             ? tracker.renderTimes.reduce((a: number, b: number) => a + b, 0) /
               tracker.renderTimes.length
             : 0,
         maxRenderTime: tracker?.renderTimes?.length > 0 ? Math.max(...tracker.renderTimes) : 0,
+        totalRenders: tracker?.renderTimes?.length || 0,
       };
     });
 

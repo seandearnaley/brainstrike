@@ -249,15 +249,6 @@ export const test = base.extend<ElectronTestFixtures>({
     await use(electron);
   },
 
-  window: async ({ electron }, use, testInfo: TestInfo) => {
-    const preserveState = testInfo.annotations.some(
-      (annotation) => annotation.type === 'preserve-electron-state'
-    );
-
-    const page = await electron.ensureWindow({ preserveState });
-    await use(page);
-  },
-
   // BST-180: Failure artifact collector for enhanced test diagnostics
   failureCollector: async ({ window }, use, testInfo: TestInfo) => {
     const collector = createFailureCollector(window);
@@ -272,6 +263,15 @@ export const test = base.extend<ElectronTestFixtures>({
   homePage: async ({ window }, use) => {
     const homePage = new HomePage(window);
     await use(homePage);
+  },
+
+  window: async ({ electron }, use, testInfo: TestInfo) => {
+    const preserveState = testInfo.annotations.some(
+      (annotation) => annotation.type === 'preserve-electron-state'
+    );
+
+    const page = await electron.ensureWindow({ preserveState });
+    await use(page);
   },
 });
 
@@ -327,8 +327,8 @@ async function removeElectronUserDataDir(userDataDir: string | undefined): Promi
     await rm(userDataDir, { force: true, recursive: true });
   } catch (error) {
     console.warn('Failed to remove Electron userData directory after fixture teardown:', {
-      userDataDir,
       error,
+      userDataDir,
     });
   }
 }

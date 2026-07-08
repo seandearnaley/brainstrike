@@ -6,28 +6,28 @@ import type { Category, Prompt } from '../../types';
 import { PromptCard } from '../prompt-card';
 
 const category: Category = {
-  id: 'coding',
-  name: 'Coding',
   color: '#3b82f6',
   icon: 'Code',
+  id: 'coding',
+  name: 'Coding',
 };
 
 const prompt: Prompt = {
-  id: 'prompt-1',
-  title: 'Refactor React hook',
-  content: 'Refactor this hook for better readability and performance.',
   categoryId: 'coding',
-  tags: ['react', 'hooks', 'typescript', 'performance'],
+  content: 'Refactor this hook for better readability and performance.',
+  createdAt: 1_700_000_000_000,
+  id: 'prompt-1',
+  isFavorite: false,
   modelSettings: {
     model: 'openai:gpt-4o-mini',
     temperature: 0.4,
     topP: 1,
   },
-  revisions: [],
   rating: 5,
+  revisions: [],
   site: 'https://docs.example.com/guide',
-  isFavorite: false,
-  createdAt: 1_700_000_000_000,
+  tags: ['react', 'hooks', 'typescript', 'performance'],
+  title: 'Refactor React hook',
   updatedAt: 1_700_000_000_100,
 };
 

@@ -58,8 +58,8 @@ export const useToastManager = () => {
       }
 
       const toastOptions: ResolvedToastOptions = {
-        title,
         description,
+        title,
         variant,
       };
       if (action) {
@@ -73,8 +73,8 @@ export const useToastManager = () => {
   const handlePartialRefreshError = useCallback(
     (error: PartialRefreshError) => {
       showToast({
-        title: FileExplorerStrings.error.title,
         description: error.message,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     },
@@ -87,8 +87,8 @@ export const useToastManager = () => {
         handlePartialRefreshError(error);
       } else {
         showToast({
-          title: FileExplorerStrings.error.title,
           description: FileExplorerStrings.error.refreshFailed,
+          title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
       }
@@ -99,8 +99,8 @@ export const useToastManager = () => {
   const handleBrowserCompatibilityError = useCallback(
     (reason: string) => {
       showToast({
-        title: FileExplorerStrings.error.browserCompatibility,
         description: reason,
+        title: FileExplorerStrings.error.browserCompatibility,
         variant: 'destructive',
       });
     },
@@ -111,8 +111,8 @@ export const useToastManager = () => {
     (error: unknown) => {
       logger.error('Failed to select root directory. Raw error:', error);
       showToast({
-        title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,
+        title: FileExplorerStrings.error.title,
         variant: 'destructive',
       });
     },
@@ -120,11 +120,11 @@ export const useToastManager = () => {
   );
 
   return {
-    toast,
-    showToast,
-    handlePartialRefreshError,
-    handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
+    handlePartialRefreshError,
+    handleRefreshError,
+    showToast,
+    toast,
   };
 };

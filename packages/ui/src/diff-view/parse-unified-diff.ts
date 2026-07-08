@@ -68,31 +68,31 @@ function classifyHunkLine(
   // deletion/addition, NOT mistaken for a `--- ` / `+++ ` file header.
   const marker = line[0];
   if (marker === '+') {
-    return { kind: 'addition', content: line.slice(1) };
+    return { content: line.slice(1), kind: 'addition' };
   }
   if (marker === '-') {
-    return { kind: 'deletion', content: line.slice(1) };
+    return { content: line.slice(1), kind: 'deletion' };
   }
   if (marker === ' ') {
-    return { kind: 'context', content: line.slice(1) };
+    return { content: line.slice(1), kind: 'context' };
   }
   // `\ No newline at end of file` is metadata; the git-service's literal
   // `…(output truncated)` marker is not content (the badge already signals it).
   if (line.startsWith('\\') || line.startsWith('…')) {
-    return { kind: 'skip', content: '' };
+    return { content: '', kind: 'skip' };
   }
   if (isDiffHeaderLine(line)) {
-    return { kind: 'end-hunk', content: '' };
+    return { content: '', kind: 'end-hunk' };
   }
   // An empty line: ONLY the final element is the trailing-newline artifact of
   // `split('\n')` and is dropped. A non-final empty line is a genuine blank
   // context row some producers emit unprefixed — keep it so sides stay aligned.
   if (line.length === 0) {
-    return isLastLine ? { kind: 'skip', content: '' } : { kind: 'context', content: '' };
+    return isLastLine ? { content: '', kind: 'skip' } : { content: '', kind: 'context' };
   }
   // Any other unprefixed, non-header line is unexpected; treat as shared context
   // rather than silently dropping it (keeps alignment).
-  return { kind: 'context', content: line };
+  return { content: line, kind: 'context' };
 }
 
 export function parseUnifiedDiff(unifiedDiff: string): ParsedUnifiedDiff {
@@ -130,8 +130,8 @@ export function parseUnifiedDiff(unifiedDiff: string): ParsedUnifiedDiff {
   }
 
   return {
-    original: originalLines.join('\n'),
-    modified: modifiedLines.join('\n'),
     hasHunks,
+    modified: modifiedLines.join('\n'),
+    original: originalLines.join('\n'),
   };
 }

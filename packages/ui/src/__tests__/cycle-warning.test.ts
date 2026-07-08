@@ -37,9 +37,9 @@ describe('warnCycleOnce', () => {
     const warned = new Set<string>(['existing']);
 
     warnCycleOnce({
+      maxWarnings: 1,
       nodeId: 'node-2',
       warnedNodeIds: warned,
-      maxWarnings: 1,
       warningMessage: 'cycle detected',
     });
 

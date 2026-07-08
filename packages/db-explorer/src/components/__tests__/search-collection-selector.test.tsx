@@ -11,7 +11,6 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
   return {
     ...actual,
-    ErrorBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
     CollectionPicker: ({
       collections,
       loading,
@@ -59,6 +58,7 @@ vi.mock('@brainstrike/ui', async () => {
         ))}
       </div>
     ),
+    ErrorBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
     useToast: () => ({ toast: mockToast }),
   };
 });
@@ -74,23 +74,23 @@ describe('SearchCollectionSelector', () => {
     mockUseCollections.mockReturnValue({
       collections: [
         {
-          id: 'set-1',
-          name: 'Collection One',
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
-          dimensions: 1536,
-          distance: 'cosine',
+          category: null,
+          chunkCount: 0,
           createdAt: '2024-01-01T00:00:00Z',
           description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
+          dimensions: 1536,
+          distance: 'cosine',
           embeddingCount: 0,
+          fileCount: 0,
+          id: 'set-1',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Collection One',
+          tags: null,
         },
       ],
-      loading: false,
       error: null,
+      loading: false,
     });
   });
 
@@ -147,24 +147,24 @@ describe('SearchCollectionSelector', () => {
     mockUseCollections.mockReturnValue({
       collections: [
         {
-          id: 'workspace-index',
-          name: 'Workspace Index',
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
-          dimensions: 1536,
-          distance: 'cosine',
+          category: null,
+          chunkCount: 0,
           createdAt: '2026-06-07T00:00:00Z',
           description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
+          dimensions: 1536,
+          distance: 'cosine',
           embeddingCount: 0,
+          fileCount: 0,
+          id: 'workspace-index',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Workspace Index',
           systemRole: 'workspace-index',
+          tags: null,
         },
       ],
-      loading: false,
       error: null,
+      loading: false,
     });
 
     render(
@@ -196,26 +196,26 @@ describe('SearchCollectionSelector', () => {
     mockUseCollections.mockReturnValue({
       collections: [
         {
-          id: 'curated-set',
-          name: 'Curated Set',
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
-          dimensions: 1536,
-          distance: 'cosine',
+          canDelete: true,
+          canEdit: true,
+          canNormalSearchSelect: false,
+          category: null,
+          chunkCount: 0,
           createdAt: '2026-06-07T00:00:00Z',
           description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
+          dimensions: 1536,
+          distance: 'cosine',
           embeddingCount: 0,
-          canNormalSearchSelect: false,
-          canEdit: true,
-          canDelete: true,
+          fileCount: 0,
+          id: 'curated-set',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Curated Set',
+          tags: null,
         },
       ],
-      loading: false,
       error: null,
+      loading: false,
     });
 
     render(
@@ -243,23 +243,23 @@ describe('SearchCollectionSelector', () => {
     mockUseCollections.mockReturnValue({
       collections: [
         {
-          id: 'set-optimistic',
-          name: 'Optimistic Collection',
-          modelKey: 'openai::text-embedding-3-small',
-          modelId: 'text-embedding-3-small',
-          dimensions: 1536,
-          distance: 'cosine',
+          category: null,
+          chunkCount: 0,
           createdAt: '2024-01-02T00:00:00Z',
           description: null,
-          tags: null,
-          category: null,
-          fileCount: 0,
-          chunkCount: 0,
+          dimensions: 1536,
+          distance: 'cosine',
           embeddingCount: 0,
+          fileCount: 0,
+          id: 'set-optimistic',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
+          name: 'Optimistic Collection',
+          tags: null,
         },
       ],
-      loading: true,
       error: null,
+      loading: true,
     });
 
     render(

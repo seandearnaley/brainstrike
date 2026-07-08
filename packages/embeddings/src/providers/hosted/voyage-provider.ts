@@ -29,24 +29,24 @@ interface VoyageEmbeddingResponse {
 
 const VOYAGE_MODELS: Record<string, ModelConfig> = {
   'voyage-3': {
+    description: 'General-purpose multilingual retrieval (32k context)',
+    dimensions: 1024,
     id: 'voyage-3',
     name: 'Voyage 3',
-    dimensions: 1024,
-    quantized: false,
-    description: 'General-purpose multilingual retrieval (32k context)',
-    tags: ['voyage', 'hosted', 'embedding'],
     origin: 'Voyage AI',
+    quantized: false,
     size: 'hosted',
+    tags: ['voyage', 'hosted', 'embedding'],
   },
   'voyage-3-lite': {
+    description: 'Budget-friendly with long context support',
+    dimensions: 512,
     id: 'voyage-3-lite',
     name: 'Voyage 3 Lite',
-    dimensions: 512,
-    quantized: false,
-    description: 'Budget-friendly with long context support',
-    tags: ['voyage', 'hosted', 'embedding'],
     origin: 'Voyage AI',
+    quantized: false,
     size: 'hosted',
+    tags: ['voyage', 'hosted', 'embedding'],
   },
 };
 
@@ -102,11 +102,11 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     return {
-      providerId: 'voyage',
-      modelKey: modelId,
       dimensions: modelConfig.dimensions,
-      distance: DEFAULT_DISTANCE_METRIC,
       displayName: modelConfig.name,
+      distance: DEFAULT_DISTANCE_METRIC,
+      modelKey: modelId,
+      providerId: 'voyage',
       ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
     };
   }
@@ -126,12 +126,12 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
       return this.processSuccessResponse(response, input.modelId);
     } catch (error) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'voyage',
           originalError: error instanceof Error ? error : new Error(String(error)),
+          provider: 'voyage',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
   }
@@ -139,18 +139,18 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
   private validateBeforeEmbed(): Result<EmbeddingOutput, EmbeddingProviderError> | null {
     if (!this.apiKey) {
       return {
+        error: { provider: 'voyage', type: 'missing_api_key' },
         ok: false,
-        error: { type: 'missing_api_key', provider: 'voyage' },
       };
     }
     if (!this.fetchImpl) {
       return {
-        ok: false,
         error: {
-          type: 'network_error',
-          provider: 'voyage',
           originalError: new Error('Fetch implementation not available'),
+          provider: 'voyage',
+          type: 'network_error',
         },
+        ok: false,
       };
     }
     return null;
@@ -167,13 +167,13 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
     const fetchImpl = this.fetchImpl.bind(globalThis);
     return fetchImpl(this.endpoint, {
-      method: 'POST',
+      body: JSON.stringify(requestBody),
       headers: {
-        'Content-Type': 'application/json',
         // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
         Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      method: 'POST',
     });
   }
 
@@ -183,13 +183,13 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     if (response.status === 429) {
       const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
       const error: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
-        type: 'rate_limit_exceeded',
         provider: 'voyage',
+        type: 'rate_limit_exceeded',
       };
       if (retryAfter !== undefined) {
         error.retryAfter = retryAfter;
       }
-      return { ok: false, error };
+      return { error, ok: false };
     }
 
     const errorPayload = (await safeJson(response)) as VoyageEmbeddingResponse | undefined;
@@ -198,8 +198,8 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
       `Voyage embeddings request failed with status ${response.status}`;
 
     return {
+      error: { message, provider: 'voyage', statusCode: response.status, type: 'api_error' },
       ok: false,
-      error: { type: 'api_error', provider: 'voyage', statusCode: response.status, message },
     };
   }
 
@@ -211,13 +211,13 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (!(payload.data && Array.isArray(payload.data)) || payload.data.length === 0) {
       return {
-        ok: false,
         error: {
-          type: 'api_error',
+          message: 'Voyage response did not include data array.',
           provider: 'voyage',
           statusCode: response.status,
-          message: 'Voyage response did not include data array.',
+          type: 'api_error',
         },
+        ok: false,
       };
     }
 
@@ -227,13 +227,13 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (embeddings.length === 0) {
       return {
-        ok: false,
         error: {
-          type: 'api_error',
+          message: 'Voyage response did not include valid embeddings.',
           provider: 'voyage',
           statusCode: response.status,
-          message: 'Voyage response did not include valid embeddings.',
+          type: 'api_error',
         },
+        ok: false,
       };
     }
 
@@ -248,9 +248,9 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     const output: EmbeddingOutput = {
+      dimensions: embeddings[0]?.length ?? 0,
       embedding: embeddings[0] ?? [], // For backward compatibility
       embeddings,
-      dimensions: embeddings[0]?.length ?? 0,
       modelId,
       provider: 'voyage',
     };
@@ -274,13 +274,13 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
     if (actualDimensions !== expectedDimensions) {
       return {
-        ok: false,
         error: {
-          type: 'dimension_mismatch',
           expected: expectedDimensions,
-          received: actualDimensions,
           modelId: this.modelId,
+          received: actualDimensions,
+          type: 'dimension_mismatch',
         },
+        ok: false,
       };
     }
 

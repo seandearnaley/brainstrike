@@ -13,12 +13,12 @@ const itemB: Item = { id: 'b' };
 const itemC: Item = { id: 'c' };
 
 const group1: GroupedData<Item> = {
+  count: 2,
   groupKey: 'g1',
   groupLabel: 'Group 1',
   items: [itemA, itemB],
-  count: 2,
-  totalTokens: 0,
   totalSize: 0,
+  totalTokens: 0,
 };
 
 const allItems = [itemA, itemB, itemC];
@@ -28,9 +28,9 @@ function useTestHook(initial: string[] = []) {
   return {
     selections,
     ...useGroupSelection<Item>({
-      selections,
-      onSelectionChange: setSelections,
       getItemKey: (item) => item.id,
+      onSelectionChange: setSelections,
+      selections,
     }),
   };
 }
@@ -106,12 +106,12 @@ describe('useGroupSelection', () => {
 
   it('handles empty group correctly', () => {
     const emptyGroup: GroupedData<Item> = {
+      count: 0,
       groupKey: 'empty',
       groupLabel: 'Empty',
       items: [],
-      count: 0,
-      totalTokens: 0,
       totalSize: 0,
+      totalTokens: 0,
     };
 
     const { result } = renderHook(() => useTestHook());

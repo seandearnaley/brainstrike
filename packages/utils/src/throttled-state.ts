@@ -133,7 +133,7 @@ export function createThrottledSetState<T>(
     lastEmitTime,
   });
 
-  return { update, flush, cancel, getPending, getDiagnostics };
+  return { cancel, flush, getDiagnostics, getPending, update };
 }
 
 /**
@@ -159,14 +159,14 @@ export function createThrottledStateRef<T>(
   const throttled = createThrottledSetState<T>(setState, options);
 
   return {
-    update: throttled.update,
-    flush: throttled.flush,
     cancel: throttled.cancel,
-    getPending: throttled.getPending,
-    getDiagnostics: throttled.getDiagnostics,
     cleanup: (): void => {
       throttled.flush(); // Emit final value
       throttled.cancel();
     },
+    flush: throttled.flush,
+    getDiagnostics: throttled.getDiagnostics,
+    getPending: throttled.getPending,
+    update: throttled.update,
   };
 }

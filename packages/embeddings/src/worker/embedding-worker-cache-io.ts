@@ -26,9 +26,9 @@ export async function lookupCacheHits<TItem extends CacheableLoadedChunkItem>(
   }));
   const hits = await cache.getBatch(requests);
   logger.debug('Cache lookup complete', {
-    requested: items.length,
     hits: hits.size,
     modelKey,
+    requested: items.length,
   });
   return hits;
 }
@@ -60,7 +60,7 @@ export function storeToCacheAsync<TItem extends CacheableLoadedChunkItem>(
     .map((item, idx) => {
       const embedding = embeddings[idx];
       return embedding
-        ? { contentHash: item.chunk.contentHash, modelKey, embedding, dimensions }
+        ? { contentHash: item.chunk.contentHash, dimensions, embedding, modelKey }
         : null;
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);

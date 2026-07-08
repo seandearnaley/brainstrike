@@ -36,46 +36,46 @@ describe('worker-node-conversion', () => {
   describe('toWorkerFileNode', () => {
     it('should convert a basic file node', () => {
       const fileNode: IFileNode = {
+        depth: 1,
+        handle: createMockFileHandle('test.ts'),
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
-        handle: createMockFileHandle('test.ts'),
         selectionState: 'checked',
+        type: 'file',
       };
 
       const result = toWorkerFileNode(fileNode);
 
       expect(result).toEqual({
+        depth: 1,
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
+        type: 'file',
       });
     });
 
     it('should convert a directory node with children', () => {
       const dirNode: IFileNode = {
-        name: 'src',
-        path: '/root/src',
-        type: 'directory',
-        depth: 1,
-        rootFolderId: 'root',
-        handle: createMockHandle('src'),
-        selectionState: 'unchecked',
         children: [
           {
+            depth: 2,
+            handle: createMockFileHandle('file.ts'),
             name: 'file.ts',
             path: '/root/src/file.ts',
-            type: 'file',
-            depth: 2,
             rootFolderId: 'root',
-            handle: createMockFileHandle('file.ts'),
             selectionState: 'unchecked',
+            type: 'file',
           },
         ],
+        depth: 1,
+        handle: createMockHandle('src'),
+        name: 'src',
+        path: '/root/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const result = toWorkerFileNode(dirNode);
@@ -88,13 +88,13 @@ describe('worker-node-conversion', () => {
       // loadMore nodes in practice don't have handles, but IFileNode requires one
       // The function filters these out regardless
       const loadMoreNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
         name: 'Load more...',
         path: '/root/loadMore',
-        type: 'loadMore',
-        depth: 1,
         rootFolderId: 'root',
         selectionState: 'unchecked',
-        handle: {} as FileSystemFileHandle,
+        type: 'loadMore',
       } as IFileNode;
 
       const result = toWorkerFileNode(loadMoreNode);
@@ -104,33 +104,33 @@ describe('worker-node-conversion', () => {
 
     it('should filter out loadMore children', () => {
       const dirNode: IFileNode = {
-        name: 'src',
-        path: '/root/src',
-        type: 'directory',
-        depth: 1,
-        rootFolderId: 'root',
-        handle: createMockHandle('src'),
-        selectionState: 'unchecked',
         children: [
           {
+            depth: 2,
+            handle: createMockFileHandle('file.ts'),
             name: 'file.ts',
             path: '/root/src/file.ts',
-            type: 'file',
-            depth: 2,
             rootFolderId: 'root',
-            handle: createMockFileHandle('file.ts'),
             selectionState: 'unchecked',
+            type: 'file',
           },
           {
+            depth: 2,
+            handle: {} as FileSystemFileHandle,
             name: 'Load more...',
             path: '/root/src/loadMore',
-            type: 'loadMore',
-            depth: 2,
             rootFolderId: 'root',
             selectionState: 'unchecked',
-            handle: {} as FileSystemFileHandle,
+            type: 'loadMore',
           } as IFileNode,
         ],
+        depth: 1,
+        handle: createMockHandle('src'),
+        name: 'src',
+        path: '/root/src',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'directory',
       };
 
       const result = toWorkerFileNode(dirNode);
@@ -141,17 +141,17 @@ describe('worker-node-conversion', () => {
 
     it('should copy optional properties', () => {
       const fileNode: IFileNode = {
+        depth: 1,
+        handle: createMockFileHandle('test.ts'),
+        lastModified: 1_234_567_890,
+        loadError: 'test error',
+        loadState: 'loaded',
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
-        handle: createMockFileHandle('test.ts'),
         selectionState: 'unchecked',
-        loadState: 'loaded',
-        loadError: 'test error',
         size: 1024,
-        lastModified: 1_234_567_890,
+        type: 'file',
       };
 
       const result = toWorkerFileNode(fileNode);
@@ -167,22 +167,22 @@ describe('worker-node-conversion', () => {
     it('should convert multiple nodes', () => {
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle: createMockFileHandle('file1.ts'),
           name: 'file1.ts',
           path: '/root/file1.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: createMockFileHandle('file1.ts'),
           selectionState: 'unchecked',
+          type: 'file',
         },
         {
+          depth: 1,
+          handle: createMockFileHandle('file2.ts'),
           name: 'file2.ts',
           path: '/root/file2.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: createMockFileHandle('file2.ts'),
           selectionState: 'unchecked',
+          type: 'file',
         },
       ];
 
@@ -196,22 +196,22 @@ describe('worker-node-conversion', () => {
     it('should filter out loadMore nodes from array', () => {
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle: createMockFileHandle('file.ts'),
           name: 'file.ts',
           path: '/root/file.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: createMockFileHandle('file.ts'),
           selectionState: 'unchecked',
+          type: 'file',
         },
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'Load more...',
           path: '/root/loadMore',
-          type: 'loadMore',
-          depth: 1,
           rootFolderId: 'root',
           selectionState: 'unchecked',
-          handle: {} as FileSystemFileHandle,
+          type: 'loadMore',
         } as IFileNode,
       ];
 
@@ -225,11 +225,11 @@ describe('worker-node-conversion', () => {
   describe('rehydrateFileNode', () => {
     it('should rehydrate a node with handle from map', () => {
       const workerNode: WorkerFileNode = {
+        depth: 1,
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
+        type: 'file',
       };
 
       const handle = createMockFileHandle('test.ts');
@@ -245,11 +245,11 @@ describe('worker-node-conversion', () => {
 
     it('should return null when handle is not in map', () => {
       const workerNode: WorkerFileNode = {
+        depth: 1,
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
+        type: 'file',
       };
 
       const handleMap = new Map<string, FileSystemHandle>();
@@ -261,20 +261,20 @@ describe('worker-node-conversion', () => {
 
     it('should rehydrate children recursively', () => {
       const workerNode: WorkerFileNode = {
-        name: 'src',
-        path: '/root/src',
-        type: 'directory',
-        depth: 1,
-        rootFolderId: 'root',
         children: [
           {
+            depth: 2,
             name: 'file.ts',
             path: '/root/src/file.ts',
-            type: 'file',
-            depth: 2,
             rootFolderId: 'root',
+            type: 'file',
           },
         ],
+        depth: 1,
+        name: 'src',
+        path: '/root/src',
+        rootFolderId: 'root',
+        type: 'directory',
       };
 
       const dirHandle = createMockHandle('src');
@@ -293,27 +293,27 @@ describe('worker-node-conversion', () => {
 
     it('should filter out children without handles', () => {
       const workerNode: WorkerFileNode = {
-        name: 'src',
-        path: '/root/src',
-        type: 'directory',
-        depth: 1,
-        rootFolderId: 'root',
         children: [
           {
+            depth: 2,
             name: 'file1.ts',
             path: '/root/src/file1.ts',
-            type: 'file',
-            depth: 2,
             rootFolderId: 'root',
+            type: 'file',
           },
           {
+            depth: 2,
             name: 'file2.ts',
             path: '/root/src/file2.ts',
-            type: 'file',
-            depth: 2,
             rootFolderId: 'root',
+            type: 'file',
           },
         ],
+        depth: 1,
+        name: 'src',
+        path: '/root/src',
+        rootFolderId: 'root',
+        type: 'directory',
       };
 
       const dirHandle = createMockHandle('src');
@@ -332,15 +332,15 @@ describe('worker-node-conversion', () => {
 
     it('should copy optional properties from worker node', () => {
       const workerNode: WorkerFileNode = {
+        depth: 1,
+        lastModified: 9_876_543_210,
+        loadError: 'some error',
+        loadState: 'loaded',
         name: 'test.ts',
         path: '/root/test.ts',
-        type: 'file',
-        depth: 1,
         rootFolderId: 'root',
-        loadState: 'loaded',
-        loadError: 'some error',
         size: 2048,
-        lastModified: 9_876_543_210,
+        type: 'file',
       };
 
       const handle = createMockFileHandle('test.ts');
@@ -359,18 +359,18 @@ describe('worker-node-conversion', () => {
     it('should rehydrate all nodes in tree', () => {
       const workerNodes: WorkerFileNode[] = [
         {
+          depth: 1,
           name: 'file1.ts',
           path: '/root/file1.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
+          type: 'file',
         },
         {
+          depth: 1,
           name: 'file2.ts',
           path: '/root/file2.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
+          type: 'file',
         },
       ];
 
@@ -391,18 +391,18 @@ describe('worker-node-conversion', () => {
     it('should filter out nodes without handles', () => {
       const workerNodes: WorkerFileNode[] = [
         {
+          depth: 1,
           name: 'file1.ts',
           path: '/root/file1.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
+          type: 'file',
         },
         {
+          depth: 1,
           name: 'file2.ts',
           path: '/root/file2.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
+          type: 'file',
         },
       ];
 
@@ -424,22 +424,22 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle: handle1,
           name: 'file1.ts',
           path: '/root/file1.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: handle1,
           selectionState: 'unchecked',
+          type: 'file',
         },
         {
+          depth: 1,
+          handle: handle2,
           name: 'file2.ts',
           path: '/root/file2.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: handle2,
           selectionState: 'unchecked',
+          type: 'file',
         },
       ];
 
@@ -456,24 +456,24 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
-          name: 'src',
-          path: '/root/src',
-          type: 'directory',
-          depth: 1,
-          rootFolderId: 'root',
-          handle: dirHandle,
-          selectionState: 'unchecked',
           children: [
             {
+              depth: 2,
+              handle: fileHandle,
               name: 'file.ts',
               path: '/root/src/file.ts',
-              type: 'file',
-              depth: 2,
               rootFolderId: 'root',
-              handle: fileHandle,
               selectionState: 'unchecked',
+              type: 'file',
             },
           ],
+          depth: 1,
+          handle: dirHandle,
+          name: 'src',
+          path: '/root/src',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ];
 
@@ -489,23 +489,23 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle,
           name: 'file.ts',
           path: '/root/file.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle,
           selectionState: 'unchecked',
+          type: 'file',
         },
         // loadMore nodes require handle in IFileNode type, so cast with assertion
         {
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
           name: 'loadMore',
           path: '/root/loadMore',
-          type: 'loadMore',
-          depth: 1,
           rootFolderId: 'root',
           selectionState: 'unchecked',
-          handle: {} as FileSystemFileHandle,
+          type: 'loadMore',
         } as IFileNode,
       ];
 
@@ -526,13 +526,13 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle: newHandle,
           name: 'new.ts',
           path: '/root/new.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle: newHandle,
           selectionState: 'unchecked',
+          type: 'file',
         },
       ];
 
@@ -551,13 +551,13 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
+          depth: 1,
+          handle,
           name: 'file.ts',
           path: '/root/file.ts',
-          type: 'file',
-          depth: 1,
           rootFolderId: 'root',
-          handle,
           selectionState: 'unchecked',
+          type: 'file',
         },
       ];
 
@@ -574,24 +574,24 @@ describe('worker-node-conversion', () => {
 
       const nodes: IFileNode[] = [
         {
-          name: 'src',
-          path: '/root/src',
-          type: 'directory',
-          depth: 1,
-          rootFolderId: 'root',
-          handle: dirHandle,
-          selectionState: 'unchecked',
           children: [
             {
+              depth: 2,
+              handle: fileHandle,
               name: 'file.ts',
               path: '/root/src/file.ts',
-              type: 'file',
-              depth: 2,
               rootFolderId: 'root',
-              handle: fileHandle,
               selectionState: 'unchecked',
+              type: 'file',
             },
           ],
+          depth: 1,
+          handle: dirHandle,
+          name: 'src',
+          path: '/root/src',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'directory',
         },
       ];
 

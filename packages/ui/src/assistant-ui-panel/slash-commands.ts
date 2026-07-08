@@ -42,9 +42,9 @@ export function toSlashCommandAdapterOptions(
 ): Unstable_UseSlashCommandAdapterOptions {
   return {
     commands: commands.map((command) => ({
+      execute: command.execute,
       id: command.id,
       label: command.label,
-      execute: command.execute,
     })),
     removeOnExecute: true,
   };

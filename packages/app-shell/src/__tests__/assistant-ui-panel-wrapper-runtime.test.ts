@@ -35,14 +35,14 @@ function createRepositoryStub(
       throw new Error('not used');
     },
     createThreadRun,
-    getThreadCumulativeUsage: async () => null,
-    getCrossRootUsage: async () => [],
-    recordRunUsage: async () => {},
     deleteThread: async () => {},
+    getCrossRootUsage: async () => [],
+    getThreadCumulativeUsage: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
+    recordRunUsage: async () => {},
     renameThread: async () => {},
     updateThreadMetadata: async () => {},
   };
@@ -55,8 +55,8 @@ const baseMemoryReasonArgs = {
   dbError: null,
   dbInitializing: false,
   desktopAssistantBackendAvailable: true,
-  memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   memoryLoadState: { status: 'ready' as const },
+  memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   selectedMemoryThreadId: 'thread-1',
   selectedProvider: 'openai' as const,
   workspaceRootPath: '/workspace',
@@ -117,7 +117,7 @@ describe('assistant runtime helpers', () => {
     expect(
       resolveAssistantMemoryDisabledReason({
         ...baseMemoryReasonArgs,
-        memoryLoadState: { status: 'error', error: 'bad schema' },
+        memoryLoadState: { error: 'bad schema', status: 'error' },
       })
     ).toBe('Assistant memory failed to load: bad schema');
     expect(
@@ -136,8 +136,8 @@ describe('assistant runtime helpers', () => {
           ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: true,
             embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: true,
           },
         },
       })
@@ -158,8 +158,8 @@ describe('assistant runtime helpers', () => {
           },
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
             embeddingModelTarget: 'cohere/embed-english-v3.0',
+            enabled: false,
           },
         },
       })
@@ -179,8 +179,8 @@ describe('assistant runtime helpers', () => {
           },
           semanticRecall: {
             ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
             embeddingModelTarget: 'local/Xenova/all-MiniLM-L6-v2',
+            enabled: false,
           },
         },
       })
@@ -189,10 +189,10 @@ describe('assistant runtime helpers', () => {
 
   it('creates assistant thread run records with copied settings', async () => {
     const createThreadRun = vi.fn(async (input) => ({
-      id: input.id,
       completedAt: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       error: null,
+      id: input.id,
       model: input.model,
       provider: input.provider,
       resourceId: input.resourceId,
@@ -320,10 +320,10 @@ describe('assistant runtime helpers', () => {
 
     const snapshot: PermissionToolGateSnapshotInput = {
       enforce: true,
-      policies: { read: 'allow', edit: 'deny', execute: 'ask', mcp: 'allow' },
-      yolo: false,
-      sessionGrants: ['execute'],
       perToolOverrides: {},
+      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
+      sessionGrants: ['execute'],
+      yolo: false,
     };
     const withSnapshot = buildAssistantRequestData({
       ...baseArgs,
@@ -373,13 +373,13 @@ describe('assistant runtime helpers', () => {
 
   it('resolves provider and local runtime model selections', () => {
     const models = [
-      { id: 'fast', label: 'Fast', type: 'llm' as const, default: false, contextWindow: 200_000 },
+      { contextWindow: 200_000, default: false, id: 'fast', label: 'Fast', type: 'llm' as const },
     ];
     expect(
       resolveProviderModelSelection({
-        provider: 'openai',
         getProviderLlmModels: () => models,
         isModelEnabled: (_provider, modelId) => modelId === 'fast',
+        provider: 'openai',
       })
     ).toBe('fast');
     expect(
@@ -407,20 +407,17 @@ describe('assistant runtime helpers', () => {
     const catalog: LocalRuntimeModelCatalogMap = {
       ollama: {
         availability: {
-          state: 'available',
           checkedAt: 1,
           endpoint: 'http://localhost',
           latencyMs: 1,
+          state: 'available',
         },
         checkedAt: 1,
         endpoint: 'http://localhost',
         freshness: 'live',
-        runtime: 'ollama',
-        source: 'ollama_api_tags',
-        state: 'loaded_non_empty',
         models: [
           {
-            capabilities: { llm: true, embeddings: 'unsupported' },
+            capabilities: { embeddings: 'unsupported', llm: true },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'not_applicable' },
             displayName: 'Llama',
@@ -433,7 +430,7 @@ describe('assistant runtime helpers', () => {
             source: 'ollama_api_tags',
           },
           {
-            capabilities: { llm: false, embeddings: 'supported' },
+            capabilities: { embeddings: 'supported', llm: false },
             capabilitySource: 'provider_reported',
             dimensionsKnown: { state: 'needs_verification' },
             displayName: 'Embed',
@@ -446,29 +443,32 @@ describe('assistant runtime helpers', () => {
             source: 'ollama_api_tags',
           },
         ],
+        runtime: 'ollama',
+        source: 'ollama_api_tags',
+        state: 'loaded_non_empty',
       },
     };
 
     expect(toRuntimeProviderModels('ollama', catalog)).toEqual([
-      expect.objectContaining({ id: 'llama', default: true }),
+      expect.objectContaining({ default: true, id: 'llama' }),
     ]);
     expect(
       buildEnabledModelIdSet({
-        shouldFallbackToPreferences: false,
         configuredProviders: ['local'],
         enabledModelsByProvider: {
           anthropic: [],
           cohere: [],
           google: [],
-          local: ['local-gemma'],
           lmstudio: [],
+          local: ['local-gemma'],
           ollama: [],
           openai: [],
           openrouter: [],
           voyage: [],
         },
-        registryEnabledModelIds: new Set(['registry-model']),
         localRuntimeModels: catalog,
+        registryEnabledModelIds: new Set(['registry-model']),
+        shouldFallbackToPreferences: false,
       })
     ).toEqual(new Set(['registry-model', 'local-gemma', 'llama']));
   });
@@ -478,16 +478,16 @@ describe('assistant runtime helpers', () => {
     expect(
       getEnabledBuiltInLocalRegistryModelIds({ 'local-a': true, 'local-b': false }, [
         {
-          id: 'local-a',
-          providerId: 'local',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          id: 'local-a',
+          isEnabled: true,
+          providerId: 'local',
         },
         {
-          id: 'local-b',
-          providerId: 'local',
-          isEnabled: true,
           capabilities: { type: 'llm' },
+          id: 'local-b',
+          isEnabled: true,
+          providerId: 'local',
         },
       ])
     ).toEqual(['local-a']);
@@ -497,9 +497,9 @@ describe('assistant runtime helpers', () => {
 
   it('builds provider-specific model, agent loop, and provider options', () => {
     expect(buildModelSettings({ maxOutputTokens: 42.9 })).toEqual({ maxOutputTokens: 42 });
-    expect(buildAgentLoopSettings({ agentMaxSteps: 4.8, agentInputTokenLimit: 2048.2 })).toEqual({
-      maxSteps: 4,
+    expect(buildAgentLoopSettings({ agentInputTokenLimit: 2048.2, agentMaxSteps: 4.8 })).toEqual({
       inputTokenLimit: 2048,
+      maxSteps: 4,
     });
     expect(
       buildProviderOptions('anthropic', 'claude-sonnet-4-5', {
@@ -507,7 +507,7 @@ describe('assistant runtime helpers', () => {
         anthropicThinkingBudgetTokens: 1024.8,
       })
     ).toEqual({
-      anthropic: { effort: 'high', thinking: { type: 'enabled', budgetTokens: 1024 } },
+      anthropic: { effort: 'high', thinking: { budgetTokens: 1024, type: 'enabled' } },
     });
     expect(
       buildProviderOptions('ollama', 'llama', {
@@ -553,7 +553,7 @@ describe('buildAgentLoopSettings input-token budget', () => {
 
   it('keeps an explicit user pref over the derived value', () => {
     const settings = buildAgentLoopSettings(
-      { agentMaxSteps: 5, agentInputTokenLimit: 50_000 },
+      { agentInputTokenLimit: 50_000, agentMaxSteps: 5 },
       { contextWindow: 200_000, maxOutputTokens: 64_000 }
     );
     expect(settings?.inputTokenLimit).toBe(50_000);

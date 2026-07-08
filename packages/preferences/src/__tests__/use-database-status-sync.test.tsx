@@ -53,8 +53,8 @@ describe('useDatabaseStatusSync', () => {
 
   it('detects Electron repository and sets IPC location', async () => {
     const electronRepo = new ElectronFileRecordRepository({
-      query: async () => ({ rows: [] }),
       exec: async () => {},
+      query: async () => ({ rows: [] }),
     });
 
     mockUseFileRecordRepository.mockReturnValue(electronRepo as unknown as FileRecordRepository);

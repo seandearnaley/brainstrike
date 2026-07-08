@@ -33,41 +33,41 @@ const rateLimitState = new Map<string, RateLimitEntry>();
 
 // zod schemas for `{ messages, data }`
 const TextPartSchema = z.object({
-  type: z.literal('text'),
   text: z.string().min(1).max(16_000),
+  type: z.literal('text'),
 });
 const ToolPartSchema = z.object({
-  type: z.string().regex(/^tool-/),
-  state: z.enum(['input-available', 'input-streaming', 'output-available', 'output-error']),
+  errorText: z.string().optional(),
   input: z.unknown().optional(),
   output: z.unknown().optional(),
-  errorText: z.string().optional(),
+  state: z.enum(['input-available', 'input-streaming', 'output-available', 'output-error']),
+  type: z.string().regex(/^tool-/),
 });
 
 const AgentMessageSchema = z.object({
   id: z.string().min(1),
-  role: z.enum(['user', 'assistant', 'system']),
   parts: z.array(z.union([TextPartSchema, ToolPartSchema])).min(1),
+  role: z.enum(['user', 'assistant', 'system']),
 });
 
 const RuntimeDataSchema = z
   .object({
+    mcpEnabled: z.boolean().optional(),
+    model: z.string().optional(),
     projectId: z.string().optional(),
     provider: z.string().optional(),
-    model: z.string().optional(),
-    mcpEnabled: z.boolean().optional(),
   })
   .strict()
   .optional();
 
 const ChatBodySchema = z.object({
-  messages: z.array(AgentMessageSchema).min(1),
   data: RuntimeDataSchema,
+  messages: z.array(AgentMessageSchema).min(1),
 });
 
 function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
   const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
-  return { path, message: issue.message };
+  return { message: issue.message, path };
 }
 
 // Export helper for tests
@@ -130,8 +130,8 @@ export async function POST(req: Request): Promise<Response> {
 
     return new Response(readable, {
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8',
       },
       status: 200,
     });
@@ -258,8 +258,8 @@ function createRateLimitResponse(retryAfterMs: number): Response {
     }),
     {
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8',
         'Retry-After': String(retryAfterSeconds),
       },
       status: 429,

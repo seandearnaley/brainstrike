@@ -374,9 +374,9 @@ describe('Drizzle + PGlite Spike', () => {
   describe('Job Queue Operations', () => {
     it('should insert and query job queue entries', async () => {
       await db.insert(jobQueue).values({
-        queue: 'embeddings',
         jobType: 'generate_embedding',
         payload: JSON.stringify({ fileId: '123' }),
+        queue: 'embeddings',
         state: 'queued',
       });
 
@@ -391,10 +391,10 @@ describe('Drizzle + PGlite Spike', () => {
   describe('Embedding Sets Operations', () => {
     it('should create and query embedding sets', async () => {
       await db.insert(embeddingSets).values({
-        modelKey: 'openai-ada-002',
-        modelId: 'text-embedding-ada-002',
         dimensions: 1536,
         distance: 'cosine',
+        modelId: 'text-embedding-ada-002',
+        modelKey: 'openai-ada-002',
         name: 'OpenAI Ada 002',
       });
 
@@ -409,8 +409,8 @@ describe('Drizzle + PGlite Spike', () => {
   describe('Token Cache Operations', () => {
     it('should insert and query token cache entries', async () => {
       await db.insert(tokenCache).values({
-        filePath: '/path/to/file.txt',
         contentHash: 'abc123',
+        filePath: '/path/to/file.txt',
         tokenCount: 500,
       });
 

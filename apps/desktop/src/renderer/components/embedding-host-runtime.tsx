@@ -120,18 +120,18 @@ function createQueryEmbeddingRequestParseErrorReport(
     return null;
   }
   return {
-    type: 'error',
     channel: 'query-embedding-error',
-    requestId,
-    runtimeId,
     payload: {
-      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
       message:
         error instanceof Error && error.message.trim().length > 0
           ? error.message
           : 'Invalid embedding host query embedding request.',
+      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
       ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
     },
+    requestId,
+    runtimeId,
+    type: 'error',
   };
 }
 
@@ -145,11 +145,11 @@ function createEmbeddingHostStatus(
   }
 ): EmbeddingHostStatus {
   return {
-    runtimeKind: 'embedding-host',
-    runtimeId,
-    state,
     active: options?.active ?? false,
     lastError: options?.lastError ?? null,
+    runtimeId,
+    runtimeKind: 'embedding-host',
+    state,
     ...(options?.embeddingRuntime ? { embeddingRuntime: options.embeddingRuntime } : {}),
   };
 }
@@ -376,13 +376,13 @@ async function loadQueryEmbeddingModelConfig(
   }
 
   return {
+    description: row.description ?? '',
+    dimensions,
     id: row.id,
     name: row.name,
-    dimensions,
-    quantized: false,
-    description: row.description ?? '',
-    tags: [row.providerId, resolveOptionalString(capabilities['type']) ?? 'embedding'],
     origin: row.providerId,
+    quantized: false,
+    tags: [row.providerId, resolveOptionalString(capabilities['type']) ?? 'embedding'],
     ...(resolveOptionalString(parameters['size'])
       ? { size: resolveOptionalString(parameters['size']) }
       : {}),
@@ -472,15 +472,8 @@ async function handleQueryEmbeddingRequest(options: {
       throw new Error('Embedding host query request targeted a stale runtime.');
     }
     const result = await runCoordinatedQueryEmbedding({
-      gate,
-      isWorkerActive: () => activeRef.current,
       drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
-      onDrainTimeout: () => {
-        logger.warn('Embedding host query proceeded before background drain completed', {
-          requestId: request.requestId,
-          runtimeId: request.runtimeId,
-        });
-      },
+      gate,
       generate: async () => {
         const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
         const generated = await service.generateQueryEmbedding(request.payload.query);
@@ -498,6 +491,13 @@ async function handleQueryEmbeddingRequest(options: {
           });
         }
         return generated;
+      },
+      isWorkerActive: () => activeRef.current,
+      onDrainTimeout: () => {
+        logger.warn('Embedding host query proceeded before background drain completed', {
+          requestId: request.requestId,
+          runtimeId: request.runtimeId,
+        });
       },
     });
     reportQueryEmbeddingResponse(

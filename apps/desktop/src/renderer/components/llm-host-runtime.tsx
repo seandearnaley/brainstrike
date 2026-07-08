@@ -53,21 +53,21 @@ function resolveLlmHostRuntimeId(): string {
 
 function createActiveStatus(runtimeId: string): LlmHostStatus {
   return {
-    runtimeKind: 'llm-host',
-    runtimeId,
-    state: 'running',
     active: true,
     lastError: null,
+    runtimeId,
+    runtimeKind: 'llm-host',
+    state: 'running',
   };
 }
 
 function createIdleStatus(runtimeId: string): LlmHostStatus {
   return {
-    runtimeKind: 'llm-host',
-    runtimeId,
-    state: 'running',
     active: false,
     lastError: null,
+    runtimeId,
+    runtimeKind: 'llm-host',
+    state: 'running',
   };
 }
 
@@ -89,19 +89,19 @@ function parseLlmHostRequestOrReport(
     const envelopeRuntimeId =
       typeof envelope?.runtimeId === 'string' ? envelope.runtimeId : fallbackRuntimeId;
     logger.error('Llm host received an invalid request', {
+      error: error instanceof Error ? error.message : String(error),
       requestId,
       runtimeId: envelopeRuntimeId,
-      error: error instanceof Error ? error.message : String(error),
     });
     if (requestId) {
       reportResponse(
         createLlmHostErrorReport(
           {
-            type: 'request',
             channel: 'llm',
+            payload: { kind: 'cancel', requestId },
             requestId,
             runtimeId: envelopeRuntimeId,
-            payload: { kind: 'cancel', requestId },
+            type: 'request',
           },
           error
         )
@@ -113,18 +113,18 @@ function parseLlmHostRequestOrReport(
 
 function logRequestReceived(request: LlmHostRequest, runtimeId: string): void {
   logger.info('Llm host request received', {
+    kind: request.payload.kind,
+    messageCount: request.payload.kind === 'generate' ? request.payload.messages.length : undefined,
+    modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
     requestId: request.requestId,
     runtimeId,
-    kind: request.payload.kind,
-    modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
-    messageCount: request.payload.kind === 'generate' ? request.payload.messages.length : undefined,
-    toolCount:
-      request.payload.kind === 'generate'
-        ? (request.payload.options?.tools?.length ?? 0)
-        : undefined,
     thinkingEnabled:
       request.payload.kind === 'generate'
         ? (request.payload.options?.thinking?.enabled ?? true)
+        : undefined,
+    toolCount:
+      request.payload.kind === 'generate'
+        ? (request.payload.options?.tools?.length ?? 0)
         : undefined,
   });
 }
@@ -153,9 +153,9 @@ async function handleWarmupRequest(
     },
   });
   logger.info('Llm host warmup completed', {
+    modelId: request.payload.modelId,
     requestId: request.requestId,
     runtimeId,
-    modelId: request.payload.modelId,
   });
   reportResponse(createLlmHostResultReport(request, null));
 }
@@ -190,21 +190,21 @@ async function handleGenerateRequest(
     ...payload.options,
     signal: abortController.signal,
     stream: {
-      onStageChange: (stage) => {
-        reportProgress(
-          createLlmHostProgressReport(request, {
-            clientRequestId: payload.clientRequestId,
-            kind: 'stage',
-            message: stage,
-          })
-        );
-      },
       onReasoningSnapshot: (reasoningText) => {
         reportProgress(
           createLlmHostProgressReport(request, {
             clientRequestId: payload.clientRequestId,
             kind: 'reasoning',
             reasoningText,
+          })
+        );
+      },
+      onStageChange: (stage) => {
+        reportProgress(
+          createLlmHostProgressReport(request, {
+            clientRequestId: payload.clientRequestId,
+            kind: 'stage',
+            message: stage,
           })
         );
       },
@@ -220,12 +220,12 @@ async function handleGenerateRequest(
     },
   })) as LocalLlmGenerationResult;
   logger.info('Llm host generation completed', {
+    finishReason: result.finishReason,
+    modelId: payload.modelId,
     requestId: request.requestId,
     runtimeId,
-    modelId: payload.modelId,
-    finishReason: result.finishReason,
-    toolCalls: result.toolCalls?.length ?? 0,
     textLength: result.text.length,
+    toolCalls: result.toolCalls?.length ?? 0,
   });
   reportResponse(createLlmHostResultReport(request, result));
 }
@@ -240,10 +240,10 @@ function reportRequestError(
   const message = error instanceof Error ? error.message : String(error);
   logger.error('Llm host request failed', {
     error: message,
-    requestId: request.requestId,
-    runtimeId,
     kind: request.payload.kind,
     modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
+    requestId: request.requestId,
+    runtimeId,
     stage,
     ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
   });

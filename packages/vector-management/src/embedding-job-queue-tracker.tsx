@@ -85,14 +85,14 @@ export function EmbeddingJobQueueTracker({
       const rows = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME);
       const s = rows?.[0];
       if (!s) {
-        return { queued: 0, running: 0, failed: 0, succeeded: 0, nextRunnableAt: null };
+        return { failed: 0, nextRunnableAt: null, queued: 0, running: 0, succeeded: 0 };
       }
       return {
+        failed: s.failed,
+        nextRunnableAt: s.nextRunnableAt ?? null,
         queued: s.queued,
         running: s.running,
-        failed: s.failed,
         succeeded: s.succeeded,
-        nextRunnableAt: s.nextRunnableAt ?? null,
       };
     };
 

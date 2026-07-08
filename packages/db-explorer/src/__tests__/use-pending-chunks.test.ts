@@ -16,8 +16,8 @@ describe('usePendingChunks', () => {
     const { result } = renderHook(() =>
       usePendingChunks({
         database,
-        resolveActiveSetId: () => 'set-a',
         intervalMs: 0,
+        resolveActiveSetId: () => 'set-a',
       })
     );
 
@@ -34,7 +34,7 @@ describe('usePendingChunks', () => {
 
     const { result, rerender } = renderHook(
       ({ resolver }: { resolver: () => string | null }) =>
-        usePendingChunks({ database, resolveActiveSetId: resolver, intervalMs: 0 }),
+        usePendingChunks({ database, intervalMs: 0, resolveActiveSetId: resolver }),
       {
         initialProps: { resolver: (): string | null => 'set-a' },
       }
@@ -64,8 +64,8 @@ describe('usePendingChunks', () => {
     const { unmount } = renderHook(() =>
       usePendingChunks({
         database,
-        resolveActiveSetId: () => 'set-a',
         intervalMs: 25,
+        resolveActiveSetId: () => 'set-a',
       })
     );
 

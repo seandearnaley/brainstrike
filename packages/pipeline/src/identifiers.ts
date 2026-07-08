@@ -138,10 +138,10 @@ export function parseDedupeKey(key: string): ParsedDedupeKey | null {
       }
       const [contentHash, embeddingSetId] = rest;
       return {
-        type: 'file',
         contentHash: contentHash as ContentHash,
         embeddingSetId:
           embeddingSetId === DEFAULT_SET_PLACEHOLDER ? null : (embeddingSetId as EmbeddingSetId),
+        type: 'file',
       };
     }
     case 'chunk': {
@@ -154,9 +154,9 @@ export function parseDedupeKey(key: string): ParsedDedupeKey | null {
         return null;
       }
       return {
-        type: 'chunk',
-        fileId: fileId as FileId,
         chunkIndex,
+        fileId: fileId as FileId,
+        type: 'chunk',
       };
     }
     case 'embed': {
@@ -165,10 +165,10 @@ export function parseDedupeKey(key: string): ParsedDedupeKey | null {
       }
       const [chunkId, embeddingSetId, modelKey] = rest;
       return {
-        type: 'embed',
         chunkId: chunkId as ChunkId,
         embeddingSetId: embeddingSetId as EmbeddingSetId,
         modelKey: modelKey ?? '',
+        type: 'embed',
       };
     }
     default:

@@ -114,13 +114,13 @@ export type LocalLlmProviderStatus =
   | { state: 'error'; error: string };
 
 export interface LocalLlmBackend {
-  dispose(): Promise<void>;
-  generate(
+  dispose: () => Promise<void>;
+  generate: (
     messages: LocalLlmMessage[],
     options?: LocalLlmGenerationOptions
-  ): Promise<LocalLlmGenerationResult>;
-  initialize(config: { modelId: string; onProgress?: LocalLlmProgressCallback }): Promise<void>;
-  isReady(): boolean;
+  ) => Promise<LocalLlmGenerationResult>;
+  initialize: (config: { modelId: string; onProgress?: LocalLlmProgressCallback }) => Promise<void>;
+  isReady: () => boolean;
 }
 
 export type LocalLlmBackendFactory = () => Promise<LocalLlmBackend>;

@@ -73,8 +73,8 @@ function buildSparklinePoints(
   const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.join(' ')} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
-    polylinePoints,
     areaPath,
+    polylinePoints,
   };
 }
 
@@ -324,25 +324,25 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
 
     const segments = [
       {
+        className: 'bg-primary/80',
         id: 'selected',
         label: useTapestryRanges ? 'Output' : 'Selected',
         value: tokenUsage.selectedTokens,
         visualValue: tokenUsage.selectedTokens * budgetRatio,
-        className: 'bg-primary/80',
       },
       {
+        className: 'bg-[hsl(var(--chart-2))]/80',
         id: 'tree',
         label: 'Tree',
         value: treeTokens,
         visualValue: treeTokens * budgetRatio,
-        className: 'bg-[hsl(var(--chart-2))]/80',
       },
       {
+        className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
         id: 'remaining',
         label: tokenUsage.isOverBudget ? 'Over budget' : 'Remaining',
         value: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
         visualValue: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
-        className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
       },
     ];
     const totalValue = Math.max(1, tokenUsage.isOverBudget ? totalUsedTokens : tokenUsage.budget);
@@ -370,8 +370,8 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
               className={segment.className}
               key={segment.id}
               style={{
-                width: `${segment.widthPercent}%`,
                 minWidth: segment.value > 0 ? '4px' : undefined,
+                width: `${segment.widthPercent}%`,
               }}
             />
           ))}

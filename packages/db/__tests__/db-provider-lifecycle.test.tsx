@@ -30,9 +30,9 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     return { rows: [] };
   });
   return {
-    query: baseQuery,
-    exec: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    exec: vi.fn(async () => {}),
+    query: baseQuery,
     ...overrides,
   };
 }
@@ -49,35 +49,35 @@ interface MockIpcBridge {
 
 function createMockIpcBridge(): MockIpcBridge {
   return {
+    clearAll: vi.fn(async () => ({ success: true })),
+    diagnostics: vi.fn(async () => null),
+    exec: vi.fn(async () => {}),
+    ping: vi.fn(async () => ({ success: true })),
     query: vi.fn(async (sql: string) => {
       if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         return { rows: [{ '?column?': 1 }] };
       }
       return { rows: [] };
     }),
-    exec: vi.fn(async () => {}),
-    ping: vi.fn(async () => ({ success: true })),
-    diagnostics: vi.fn(async () => null),
-    test: vi.fn(async () => ({ success: true, message: 'ok' })),
-    clearAll: vi.fn(async () => ({ success: true })),
     resetLocal: vi.fn(async () => ({ success: true })),
+    test: vi.fn(async () => ({ message: 'ok', success: true })),
   };
 }
 
 // Helper to set window.electronAPI in tests
 function setWindowElectronAPI(db: unknown): void {
   Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
     value: { db },
     writable: true,
-    configurable: true,
   });
 }
 
 function clearWindowElectronAPI(): void {
   Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
     value: undefined,
     writable: true,
-    configurable: true,
   });
 }
 
@@ -150,15 +150,15 @@ describe('DbProvider lifecycle', () => {
       // Intentionally partial bridge — omits diagnostics, clearAll, and close
       // to reproduce the original bug where unmount called bridge.close()
       const bridge: Record<string, Mock> = {
+        exec: vi.fn(async () => {}),
+        ping: vi.fn(async () => ({ success: true })),
         query: vi.fn(async (sql: string) => {
           if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
             return { rows: [{ '?column?': 1 }] };
           }
           return { rows: [] };
         }),
-        exec: vi.fn(async () => {}),
-        ping: vi.fn(async () => ({ success: true })),
-        test: vi.fn(async () => ({ success: true, message: 'ok' })),
+        test: vi.fn(async () => ({ message: 'ok', success: true })),
       };
 
       setWindowElectronAPI(bridge);

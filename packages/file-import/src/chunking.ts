@@ -89,12 +89,11 @@ function createChunkingProgressScheduler(
       prev
         ? {
             ...prev,
-            phase: 'chunking',
             chunkingProgress: (() => {
               const progress: NonNullable<EnhancedImportProgress['chunkingProgress']> = {
+                chunksCreated: snapshot.chunksCreated,
                 filesProcessed: snapshot.filesProcessed,
                 totalFiles: snapshot.totalFiles,
-                chunksCreated: snapshot.chunksCreated,
               };
               if (prev.chunkingProgress?.currentFile) {
                 progress.currentFile = prev.chunkingProgress.currentFile;
@@ -105,6 +104,7 @@ function createChunkingProgressScheduler(
               }
               return progress;
             })(),
+            phase: 'chunking',
           }
         : null
     );
@@ -122,6 +122,7 @@ function createChunkingProgressScheduler(
   };
 
   return {
+    flush,
     schedule(snapshot: ChunkingProgressSnapshot) {
       pending = snapshot;
       if (timer) {
@@ -135,7 +136,6 @@ function createChunkingProgressScheduler(
         }
       }, throttleMs);
     },
-    flush,
   };
 }
 
@@ -227,7 +227,6 @@ async function persistChunksAndMaybeEnqueueJobs(
     await options.runInTransaction(async (tx) => {
       await insertChunksWithTransaction(tx, chunkRepository, chunks);
       await options.enqueueJobsForChunksTx?.(tx, chunks, fileRecordId);
-      return;
     });
     return;
   }
@@ -246,9 +245,9 @@ async function updateFileRecordWithChunkInfo(
   strategy: ResolvedChunkingStrategy
 ): Promise<void> {
   const update: FileRecordUpdate = {
-    chunksProcessedAt: new Date().toISOString(),
-    chunksCount,
     chunkingStrategy: strategy,
+    chunksCount,
+    chunksProcessedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   await repository.update(fileId, update);
@@ -287,8 +286,8 @@ function createSkipResult(
   strategyUsed: ChunkingStrategy
 ): ChunkingSkipResult {
   return {
-    enhancedResult: { ...result, chunksCreated: 0 },
     chunksCreated: 0,
+    enhancedResult: { ...result, chunksCreated: 0 },
     strategyUsed,
   };
 }
@@ -312,10 +311,10 @@ async function prepareChunkingExecution(
 
   if (!(result.imported || result.existed) || result.error) {
     logger.debug('Skipping file chunking (not imported or has error)', {
+      error: result.error,
+      existed: result.existed,
       fileId: result.id,
       imported: result.imported,
-      existed: result.existed,
-      error: result.error,
     });
     return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
   }
@@ -325,10 +324,10 @@ async function prepareChunkingExecution(
     typeof options.chunkingWorkerPort.chunkFileById === 'function'
   ) {
     return {
-      kind: 'host-proxy',
-      repository,
       chunkRepository,
       fileRecordId: result.id,
+      kind: 'host-proxy',
+      repository,
     };
   }
 
@@ -337,8 +336,8 @@ async function prepareChunkingExecution(
   if (!fileRecord?.content) {
     logger.warn('File record not found or has no content', {
       fileId: result.id,
-      hasRecord: !!fileRecord,
       hasContent: !!fileRecord?.content,
+      hasRecord: !!fileRecord,
     });
     return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
   }
@@ -353,17 +352,17 @@ async function prepareChunkingExecution(
   const forceStrategy = forceRequested || hasOverride;
 
   return {
-    kind: 'ready',
-    repository,
     chunkRepository,
     fileRecord: {
+      content: fileRecord.content,
       id: fileRecord.id,
       name: fileRecord.name,
       path: fileRecord.path,
-      content: fileRecord.content,
     },
-    strategy,
     forceStrategy,
+    kind: 'ready',
+    repository,
+    strategy,
   };
 }
 
@@ -401,11 +400,11 @@ export async function processFileChunking(
   throwIfAborted(options.abortSignal);
 
   logger.debug('Starting file chunking', {
+    contentLength: fileRecord.content.length,
     fileId: result.id,
+    fileIndex: index + 1,
     fileName: fileRecord.name,
     filePath: fileRecord.path,
-    contentLength: fileRecord.content.length,
-    fileIndex: index + 1,
     totalFiles,
   });
 
@@ -413,13 +412,13 @@ export async function processFileChunking(
     prev
       ? {
           ...prev,
-          phase: 'chunking',
           chunkingProgress: {
+            chunksCreated: totalChunksCreated,
+            currentFile: fileRecord.name,
             filesProcessed: index,
             totalFiles,
-            currentFile: fileRecord.name,
-            chunksCreated: totalChunksCreated,
           },
+          phase: 'chunking',
         }
       : null
   );
@@ -434,11 +433,11 @@ export async function processFileChunking(
 
   // Log which chunking path will be taken
   logger.info('Chunking path decision', {
+    contentLength: fileRecord.content.length,
     fileId: result.id,
     hasWorkerPort: !!options.chunkingWorkerPort,
-    workerPortIsReady: options.chunkingWorkerPort?.isReady?.() ?? false,
     shouldStream,
-    contentLength: fileRecord.content.length,
+    workerPortIsReady: options.chunkingWorkerPort?.isReady?.() ?? false,
   });
 
   // Use worker if available (preferred path - moves chunking off main thread)
@@ -466,9 +465,9 @@ export async function processFileChunking(
     );
     throwIfAborted(options.abortSignal);
     logger.info('File chunked successfully (worker)', {
+      chunksCreated: workerResult.chunksCreated,
       fileId: result.id,
       fileName: fileRecord.name,
-      chunksCreated: workerResult.chunksCreated,
       requestedStrategy: strategy,
       strategyUsed: workerResult.strategyUsed,
     });
@@ -476,14 +475,14 @@ export async function processFileChunking(
       prev
         ? {
             ...prev,
-            phase: 'chunking',
             chunkingProgress: {
-              filesProcessed: index + 1,
-              totalFiles,
-              currentFile: fileRecord.name,
               chunksCreated: totalChunksCreated + workerResult.chunksCreated,
+              currentFile: fileRecord.name,
+              filesProcessed: index + 1,
               strategyUsed: workerResult.strategyUsed,
+              totalFiles,
             },
+            phase: 'chunking',
           }
         : null
     );
@@ -532,13 +531,13 @@ async function processFileChunkingHostProxyPath(
     prev
       ? {
           ...prev,
-          phase: 'chunking',
           chunkingProgress: {
+            chunksCreated: totalChunksCreated,
+            currentFile: preparation.fileRecordId,
             filesProcessed: index,
             totalFiles,
-            currentFile: preparation.fileRecordId,
-            chunksCreated: totalChunksCreated,
           },
+          phase: 'chunking',
         }
       : null
   );
@@ -565,13 +564,13 @@ async function processFileChunkingHostProxyPath(
       workerResult.strategyUsed
     );
     return {
+      chunksCreated: 0,
       enhancedResult: {
         ...result,
+        chunkingStrategy: workerResult.strategyUsed,
         chunksCreated: 0,
         error: `Chunking skipped: ${workerResult.skipReason}`,
-        chunkingStrategy: workerResult.strategyUsed,
       },
-      chunksCreated: 0,
       strategyUsed: workerResult.strategyUsed,
     };
   }
@@ -589,12 +588,12 @@ async function processFileChunkingHostProxyPath(
   );
 
   return {
+    chunksCreated: chunks.length,
     enhancedResult: {
       ...result,
-      chunksCreated: chunks.length,
       chunkingStrategy: workerResult.strategyUsed,
+      chunksCreated: chunks.length,
     },
-    chunksCreated: chunks.length,
     ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
@@ -627,9 +626,9 @@ async function processFileChunkingWorkerPath(
 
   // Build worker options, only including defined properties
   const workerOptions: import('@brainstrike/chunking-worker').ChunkingRequestOptions = {
-    strategy,
     forceStrategy,
     ignoreFileTypeRecommendations: hasUserOverrides,
+    strategy,
     ...(options.chunkSize === undefined ? {} : { maxTokens: options.chunkSize }),
     ...(options.chunkOverlap === undefined ? {} : { overlap: options.chunkOverlap }),
     ...(options.tokenLimit === undefined ? {} : { maxTokensCap: options.tokenLimit }),
@@ -652,13 +651,13 @@ async function processFileChunkingWorkerPath(
     });
     await updateFileRecordWithChunkInfo(repository, result.id, 0, workerResult.strategyUsed);
     return {
+      chunksCreated: 0,
       enhancedResult: {
         ...result,
+        chunkingStrategy: workerResult.strategyUsed,
         chunksCreated: 0,
         error: `Chunking skipped: ${workerResult.skipReason}`,
-        chunkingStrategy: workerResult.strategyUsed,
       },
-      chunksCreated: 0,
       strategyUsed: workerResult.strategyUsed,
     };
   }
@@ -676,12 +675,12 @@ async function processFileChunkingWorkerPath(
   );
 
   return {
+    chunksCreated: chunks.length,
     enhancedResult: {
       ...result,
-      chunksCreated: chunks.length,
       chunkingStrategy: workerResult.strategyUsed,
+      chunksCreated: chunks.length,
     },
-    chunksCreated: chunks.length,
     ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
@@ -785,8 +784,8 @@ export async function processChunking(
   );
 
   logger.info('Starting parallel chunking', {
-    totalFiles: importResults.length,
     concurrency: ChunkingConcurrency,
+    totalFiles: importResults.length,
     transportKind: chunkingWorkerPort.transportKind,
   });
 
@@ -797,10 +796,10 @@ export async function processChunking(
     totalChunksCreated += update.chunksCreatedDelta;
     filesProcessed += 1;
     progressScheduler.schedule({
-      filesProcessed,
-      totalFiles: importResults.length,
       chunksCreated: totalChunksCreated,
+      filesProcessed,
       strategyUsed: update.strategyUsed,
+      totalFiles: importResults.length,
     });
   });
 
@@ -836,10 +835,10 @@ export async function processChunking(
         recordsMap = new Map(records.map((record) => [record.id, record]));
         logger.debug('Window-fetched file records for chunking', {
           count: records.length,
-          requested: ids.length,
           durationMs: batchFetchDuration,
-          sliceStart,
+          requested: ids.length,
           sliceEnd,
+          sliceStart,
         });
       }
     }
@@ -885,9 +884,9 @@ export async function processChunking(
   }
 
   logger.info('Parallel chunking complete', {
-    totalFiles: enhancedResults.length,
-    totalChunks: totalChunksCreated,
     filesWithErrors: enhancedResults.filter((r) => r.error).length,
+    totalChunks: totalChunksCreated,
+    totalFiles: enhancedResults.length,
   });
 
   progressScheduler.flush();
@@ -896,12 +895,12 @@ export async function processChunking(
     prev
       ? {
           ...prev,
-          phase: 'complete',
           chunkingProgress: {
+            chunksCreated: totalChunksCreated,
             filesProcessed: importResults.length,
             totalFiles: importResults.length,
-            chunksCreated: totalChunksCreated,
           },
+          phase: 'complete',
         }
       : null
   );

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createSpawnInvocation } from './spawn-command.mjs';
 
@@ -29,7 +29,9 @@ export function resolveTurboCacheDir({ env = process.env, platform = process.pla
 
   const home = env['HOME'] || env['USERPROFILE'];
   if (!home) {
-    throw new Error('HOME, USERPROFILE, or XDG_CACHE_HOME is required to resolve the Turborepo cache directory.');
+    throw new Error(
+      'HOME, USERPROFILE, or XDG_CACHE_HOME is required to resolve the Turborepo cache directory.'
+    );
   }
   return path.join(home, '.cache', 'brainstrike', 'turbo');
 }
@@ -108,7 +110,7 @@ export function collectCacheFiles(cacheDir, options = {}) {
       if (!stats.isFile()) {
         continue;
       }
-      files.push({ path: entryPath, size: stats.size, mtimeMs: stats.mtimeMs });
+      files.push({ mtimeMs: stats.mtimeMs, path: entryPath, size: stats.size });
     }
   }
 
@@ -122,7 +124,9 @@ export function pruneTurboCache(cacheDir, env = process.env, options = {}) {
   try {
     maxBytes = resolveTurboCacheMaxBytes(env);
   } catch (error) {
-    warn(`Skipped Turborepo cache pruning: ${error instanceof Error ? error.message : String(error)}`);
+    warn(
+      `Skipped Turborepo cache pruning: ${error instanceof Error ? error.message : String(error)}`
+    );
     return;
   }
 

@@ -12,47 +12,47 @@ const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
-    type: 'result',
     id: 'stub',
-    vectors: [new Float32Array(0)],
     metadata: {
-      model: 'stub-model',
-      device: 'webgpu',
-      dtype: 'fp16',
       batchSize: 1,
+      device: 'webgpu',
+      dimensions: 0,
+      dtype: 'fp16',
       elapsedMs: 0,
       fallbackApplied: false,
-      dimensions: 0,
+      model: 'stub-model',
     },
+    type: 'result',
+    vectors: [new Float32Array(0)],
   } satisfies QueueResult;
   return {
     add: vi.fn(async () => result),
     addBulk: vi.fn(async () => [result]),
+    cancel: vi.fn(),
+    drain: vi.fn(async () => {}),
+    isPaused: false,
+    isProcessing: false,
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
-    drain: vi.fn(async () => {}),
-    cancel: vi.fn(),
-    isPaused: false,
-    isProcessing: false,
   };
 };
 
 const queueStub = createQueueStub();
 
 vi.mock('../../../renderer/create-embedding-queue', () => ({
-  getEmbeddingQueue: () => queueStub,
   createBrowserEmbeddingQueue: vi.fn(() => queueStub),
+  getEmbeddingQueue: () => queueStub,
 }));
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({
     storageAdapter: {
+      delete: vi.fn(),
       // Mock storage adapter
       get: vi.fn(),
       set: vi.fn(),
-      delete: vi.fn(),
     },
   })),
 }));
@@ -76,8 +76,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     ElectronPanelPersistenceAdapter: vi.fn(() => ({})),
+    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
 
@@ -164,8 +164,8 @@ function MockHomePage() {
   );
 }
 vi.mock('../../../renderer/components/context-explorer-page-content', () => ({
-  default: MockHomePage,
   DesktopContextExplorerPanel: () => <div data-testid="desktop-file-explorer-panel">Panel</div>,
+  default: MockHomePage,
 }));
 
 vi.mock('../../../renderer/components/settings/page-content', () => ({
@@ -189,10 +189,10 @@ vi.mock('@brainstrike/utils/logger', async () => {
   return {
     ...actual,
     createLogger: () => ({
-      info: loggerInfoMock,
       debug: vi.fn(),
-      warn: loggerWarnMock,
       error: vi.fn(),
+      info: loggerInfoMock,
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -201,8 +201,8 @@ vi.mock('@brainstrike/utils/logger', async () => {
 vi.mock('@brainstrike/preferences', () => ({
   useModelRegistryStore: {
     getState: vi.fn(() => ({
-      setDownloadProgress: vi.fn(),
       setDownloading: vi.fn(),
+      setDownloadProgress: vi.fn(),
     })),
   },
 }));
@@ -303,7 +303,7 @@ describe('RootLayoutContent', () => {
     );
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);
@@ -322,7 +322,7 @@ describe('RootLayoutContent', () => {
     const { rerender } = render(<RootLayoutContent />);
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
 
     rerender(<RootLayoutContent />);
@@ -336,9 +336,9 @@ describe('RootLayoutContent', () => {
     Object.defineProperty(globalThis.performance, 'memory', {
       configurable: true,
       value: {
-        usedJSHeapSize: 1,
-        totalJSHeapSize: 2,
         jsHeapSizeLimit: 3,
+        totalJSHeapSize: 2,
+        usedJSHeapSize: 1,
       },
     });
     const setIntervalSpy = vi.spyOn(window, 'setInterval');
@@ -349,7 +349,7 @@ describe('RootLayoutContent', () => {
     expect(setIntervalSpy).toHaveBeenCalledTimes(2);
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
     (
       globalThis.performance as typeof globalThis.performance & {
@@ -383,9 +383,9 @@ describe('RootLayoutContent', () => {
     Object.defineProperty(globalThis.performance, 'memory', {
       configurable: true,
       value: {
-        usedJSHeapSize: 100,
-        totalJSHeapSize: 200,
         jsHeapSizeLimit: 300,
+        totalJSHeapSize: 200,
+        usedJSHeapSize: 100,
       },
     });
     let rafCallback: FrameRequestCallback | null = null;
@@ -398,7 +398,7 @@ describe('RootLayoutContent', () => {
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
 
     currentDb = {
-      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
     };
     const { unmount } = render(<RootLayoutContent />);
 

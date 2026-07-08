@@ -14,15 +14,15 @@ beforeAll(() => {
 });
 
 const baseProps = {
-  type: 'tool-call' as const,
-  toolCallId: 'call-x',
-  toolName: 'brainstrike.grepSearch',
+  addResult: () => {},
   args: { query: 'foo' },
   argsText: '{"query":"foo"}',
-  status: { type: 'complete' as const },
   result: { matches: [] },
-  addResult: () => {},
   resume: () => {},
+  status: { type: 'complete' as const },
+  toolCallId: 'call-x',
+  toolName: 'brainstrike.grepSearch',
+  type: 'tool-call' as const,
 };
 
 function renderTool(durations: Record<string, number> | null) {

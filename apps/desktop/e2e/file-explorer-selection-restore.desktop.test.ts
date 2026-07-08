@@ -37,8 +37,8 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await seedRestoredExplicitSelectionState({
         electronHarness,
-        rootPath,
         expandedDirectoryPaths: [],
+        rootPath,
         selectedFilePaths: [],
       });
 
@@ -86,12 +86,12 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await seedRestoredExplicitSelectionState({
         electronHarness,
-        rootPath,
         expandedDirectoryPaths: [
           path.join(rootPath, 'hooks'),
           path.join(rootPath, 'hooks/src'),
           path.join(rootPath, 'hooks/src/__tests__'),
         ],
+        rootPath,
         selectedFilePaths: [
           path.join(rootPath, 'hooks/package.json'),
           path.join(rootPath, 'hooks/src/create-debounce.ts'),
@@ -118,20 +118,20 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'hooks',
-        expectedCheckboxStateBefore: 'checked',
         expectedCheckboxStateAfter: 'unchecked',
-        expectedSelectedCountBefore: 4,
+        expectedCheckboxStateBefore: 'checked',
         expectedSelectedCountAfter: 0,
+        expectedSelectedCountBefore: 4,
         fileTree,
         page: restartedWindow,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'hooks',
-        expectedCheckboxStateBefore: 'unchecked',
         expectedCheckboxStateAfter: 'checked',
-        expectedSelectedCountBefore: 0,
+        expectedCheckboxStateBefore: 'unchecked',
         expectedSelectedCountAfter: 4,
+        expectedSelectedCountBefore: 0,
         fileTree,
         page: restartedWindow,
       });
@@ -193,8 +193,8 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await seedRestoredExplicitSelectionState({
         electronHarness,
-        rootPath,
         expandedDirectoryPaths: [path.join(rootPath, 'src')],
+        rootPath,
         selectedFilePaths: [
           path.join(rootPath, 'src/main.tsx'),
           path.join(rootPath, 'src/vite-env.d.ts'),
@@ -239,10 +239,10 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'main.tsx',
-        expectedCheckboxStateBefore: 'checked',
         expectedCheckboxStateAfter: 'unchecked',
-        expectedSelectedCountBefore: 2,
+        expectedCheckboxStateBefore: 'checked',
         expectedSelectedCountAfter: 1,
+        expectedSelectedCountBefore: 2,
         fileTree,
         page: restartedWindow,
       });
@@ -260,10 +260,10 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'App.tsx',
-        expectedCheckboxStateBefore: 'unchecked',
         expectedCheckboxStateAfter: 'checked',
-        expectedSelectedCountBefore: 1,
+        expectedCheckboxStateBefore: 'unchecked',
         expectedSelectedCountAfter: 2,
+        expectedSelectedCountBefore: 1,
         fileTree,
         page: restartedWindow,
       });
@@ -276,10 +276,10 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'src',
+        expectedCheckboxStateAfter: 'unchecked',
         expectedCheckboxStateBefore: 'indeterminate',
-        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountAfter: 0,
         expectedSelectedCountBefore: 2,
-        expectedSelectedCountAfter: 0,
         fileTree,
         page: restartedWindow,
       });
@@ -301,10 +301,10 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'src',
-        expectedCheckboxStateBefore: 'unchecked',
         expectedCheckboxStateAfter: 'checked',
-        expectedSelectedCountBefore: 0,
+        expectedCheckboxStateBefore: 'unchecked',
         expectedSelectedCountAfter: 5,
+        expectedSelectedCountBefore: 0,
         fileTree,
         page: restartedWindow,
       });
@@ -326,30 +326,30 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'src',
-        expectedCheckboxStateBefore: 'checked',
         expectedCheckboxStateAfter: 'unchecked',
+        expectedCheckboxStateBefore: 'checked',
+        expectedSelectedCountAfter: 0,
         expectedSelectedCountBefore: 5,
-        expectedSelectedCountAfter: 0,
         fileTree,
         page: restartedWindow,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'docs',
-        expectedCheckboxStateBefore: 'unchecked',
         expectedCheckboxStateAfter: 'checked',
-        expectedSelectedCountBefore: 0,
+        expectedCheckboxStateBefore: 'unchecked',
         expectedSelectedCountAfter: 1,
+        expectedSelectedCountBefore: 0,
         fileTree,
         page: restartedWindow,
       });
 
       await toggleFileTreeCheckboxAndWaitForSelection({
         checkboxName: 'docs',
-        expectedCheckboxStateBefore: 'checked',
         expectedCheckboxStateAfter: 'unchecked',
-        expectedSelectedCountBefore: 1,
+        expectedCheckboxStateBefore: 'checked',
         expectedSelectedCountAfter: 0,
+        expectedSelectedCountBefore: 1,
         fileTree,
         page: restartedWindow,
       });
@@ -398,17 +398,6 @@ test.describe('Desktop file explorer selection restore', () => {
       ];
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: path.join(rootPath, 'src'),
-        expandedDirectoryPaths: [
-          rootPath,
-          path.join(rootPath, 'src'),
-          path.join(rootPath, 'src/components'),
-          path.join(rootPath, 'src/hooks'),
-          path.join(rootPath, 'src/types'),
-          path.join(rootPath, 'src/utils'),
-        ],
         coveredDirectoryPaths: [
           path.join(rootPath, 'src'),
           path.join(rootPath, 'src/components'),
@@ -416,7 +405,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src/types'),
           path.join(rootPath, 'src/utils'),
         ],
-        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -425,7 +414,18 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [
+          rootPath,
+          path.join(rootPath, 'src'),
+          path.join(rootPath, 'src/components'),
+          path.join(rootPath, 'src/hooks'),
+          path.join(rootPath, 'src/types'),
+          path.join(rootPath, 'src/utils'),
+        ],
+        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
         materializedPaths,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
       });
 
       const restartedContext = await electronHarness.restart();
@@ -522,17 +522,13 @@ test.describe('Desktop file explorer selection restore', () => {
       ];
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: path.join(rootPath, 'src'),
-        expandedDirectoryPaths: [rootPath],
         coveredDirectoryPaths: [
           path.join(rootPath, 'src'),
           path.join(rootPath, 'src/components'),
           path.join(rootPath, 'src/hooks'),
           path.join(rootPath, 'src/utils'),
         ],
-        includeFilters: ['*.tsx', '*.ts'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -541,7 +537,11 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [rootPath],
+        includeFilters: ['*.tsx', '*.ts'],
         materializedPaths,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
       });
 
       const restartedContext = await electronHarness.restart();
@@ -596,16 +596,6 @@ test.describe('Desktop file explorer selection restore', () => {
       ];
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: rootPath,
-        expandedDirectoryPaths: [
-          rootPath,
-          path.join(rootPath, 'public'),
-          path.join(rootPath, 'src'),
-          path.join(rootPath, 'src/components'),
-          path.join(rootPath, 'docs'),
-        ],
         coveredDirectoryPaths: [
           rootPath,
           path.join(rootPath, 'public'),
@@ -613,7 +603,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src/components'),
           path.join(rootPath, 'docs'),
         ],
-        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -622,7 +612,17 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [
+          rootPath,
+          path.join(rootPath, 'public'),
+          path.join(rootPath, 'src'),
+          path.join(rootPath, 'src/components'),
+          path.join(rootPath, 'docs'),
+        ],
+        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
         materializedPaths,
+        rootPath,
+        selectionRootPath: rootPath,
       });
 
       const restartedContext = await electronHarness.restart();
@@ -710,17 +710,6 @@ test.describe('Desktop file explorer selection restore', () => {
       ];
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: path.join(rootPath, 'src'),
-        expandedDirectoryPaths: [
-          rootPath,
-          path.join(rootPath, 'src'),
-          path.join(rootPath, 'src/components'),
-          path.join(rootPath, 'src/hooks'),
-          path.join(rootPath, 'src/types'),
-          path.join(rootPath, 'src/utils'),
-        ],
         coveredDirectoryPaths: [
           rootPath,
           path.join(rootPath, 'src'),
@@ -729,7 +718,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src/types'),
           path.join(rootPath, 'src/utils'),
         ],
-        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -738,8 +727,19 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [
+          rootPath,
+          path.join(rootPath, 'src'),
+          path.join(rootPath, 'src/components'),
+          path.join(rootPath, 'src/hooks'),
+          path.join(rootPath, 'src/types'),
+          path.join(rootPath, 'src/utils'),
+        ],
         includedPaths: [path.join(rootPath, 'eslint.config.js')],
+        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
         materializedPaths,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
       });
 
       const restartedContext = await electronHarness.restart();
@@ -814,22 +814,11 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await seedSelectionSnapshotRows({
         electronHarness,
-        snapshotId,
         filePaths: materializedPaths,
+        snapshotId,
       });
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: path.join(rootPath, 'src'),
-        expandedDirectoryPaths: [
-          '/Users',
-          '/Users/seandearnaley',
-          '/Users/seandearnaley/Documents',
-          '/Users/seandearnaley/Documents/GitHub',
-          rootPath,
-          path.join(rootPath, 'src'),
-        ],
         coveredDirectoryPaths: [
           '/Users',
           '/Users/seandearnaley',
@@ -842,7 +831,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src/types'),
           path.join(rootPath, 'src/utils'),
         ],
-        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -851,8 +840,19 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [
+          '/Users',
+          '/Users/seandearnaley',
+          '/Users/seandearnaley/Documents',
+          '/Users/seandearnaley/Documents/GitHub',
+          rootPath,
+          path.join(rootPath, 'src'),
+        ],
+        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
         manifestSnapshotId: snapshotId,
         materializedPaths,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
       });
 
       const restartedContext = await electronHarness.restart();
@@ -918,22 +918,11 @@ test.describe('Desktop file explorer selection restore', () => {
 
       await seedSelectionSnapshotRows({
         electronHarness,
-        snapshotId,
         filePaths: materializedPaths,
+        snapshotId,
       });
 
       await seedRestoredQuerySelectionState({
-        electronHarness,
-        rootPath,
-        selectionRootPath: path.join(rootPath, 'src'),
-        expandedDirectoryPaths: [
-          '/Users',
-          '/Users/seandearnaley',
-          '/Users/seandearnaley/Documents',
-          '/Users/seandearnaley/Documents/GitHub',
-          rootPath,
-          path.join(rootPath, 'src'),
-        ],
         coveredDirectoryPaths: [
           '/Users',
           '/Users/seandearnaley',
@@ -944,7 +933,7 @@ test.describe('Desktop file explorer selection restore', () => {
           path.join(rootPath, 'src/components'),
           path.join(rootPath, 'src/hooks'),
         ],
-        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
+        electronHarness,
         excludeFilters: [
           '.aider*',
           'node_modules',
@@ -953,8 +942,19 @@ test.describe('Desktop file explorer selection restore', () => {
           'test-results',
           'playwright-report',
         ],
+        expandedDirectoryPaths: [
+          '/Users',
+          '/Users/seandearnaley',
+          '/Users/seandearnaley/Documents',
+          '/Users/seandearnaley/Documents/GitHub',
+          rootPath,
+          path.join(rootPath, 'src'),
+        ],
+        includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'],
         manifestSnapshotId: snapshotId,
         materializedPaths,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
       });
 
       const restartedContext = await electronHarness.restart();

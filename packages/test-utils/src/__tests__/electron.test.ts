@@ -33,7 +33,7 @@ describe('electron test utilities', () => {
     const contextBridge = createContextBridgeMock();
     expect(contextBridge.exposeInMainWorld).toBeTypeOf('function');
 
-    const app = createAppMock({ whenReadyResolved: false, documentsPath: '/docs' });
+    const app = createAppMock({ documentsPath: '/docs', whenReadyResolved: false });
     expect(app.getPath('documents')).toBe('/docs');
     expect(app.whenReady()).toBeInstanceOf(Promise);
   });

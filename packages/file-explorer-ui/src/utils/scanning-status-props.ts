@@ -65,9 +65,9 @@ export function computeScanningStatusProps(input: ScanningStatusPropsInput): Sca
   const onCancel = isExpandingAll ? cancelExpandAll : handleCancelOperation;
 
   const baseProps = {
-    isScanning: true as const,
     cancellable: computedCancellable,
     isCancelling,
+    isScanning: true as const,
     onCancel,
   };
 

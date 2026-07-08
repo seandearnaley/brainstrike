@@ -5,7 +5,20 @@ import type { Migration } from './migration-runner';
 // - Adds embedding_set_id, embedding_updated_at, embedding_hash to file_chunks
 
 export const migration006EmbeddingSetsAndColumns: Migration = {
-  version: 6,
+  down: `
+    -- Drop indexes
+    DROP INDEX IF EXISTS idx_file_chunks_embedhash;
+    DROP INDEX IF EXISTS idx_file_chunks_set;
+
+    -- Remove columns from file_chunks
+    ALTER TABLE file_chunks
+      DROP COLUMN IF EXISTS embedding_hash,
+      DROP COLUMN IF EXISTS embedding_updated_at,
+      DROP COLUMN IF EXISTS embedding_set_id;
+
+    -- Drop embedding_sets table
+    DROP TABLE IF EXISTS embedding_sets;
+  `,
   name: 'embedding_sets_and_columns',
   up: `
     -- Create embedding_sets table
@@ -33,18 +46,5 @@ export const migration006EmbeddingSetsAndColumns: Migration = {
     -- If FK exists already, this will be a no-op
     -- SQLite syntax is different; PGlite emulates Postgres; keep it simple
   `,
-  down: `
-    -- Drop indexes
-    DROP INDEX IF EXISTS idx_file_chunks_embedhash;
-    DROP INDEX IF EXISTS idx_file_chunks_set;
-
-    -- Remove columns from file_chunks
-    ALTER TABLE file_chunks 
-      DROP COLUMN IF EXISTS embedding_hash,
-      DROP COLUMN IF EXISTS embedding_updated_at,
-      DROP COLUMN IF EXISTS embedding_set_id;
-
-    -- Drop embedding_sets table
-    DROP TABLE IF EXISTS embedding_sets;
-  `,
+  version: 6,
 };

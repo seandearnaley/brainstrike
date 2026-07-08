@@ -109,7 +109,6 @@ function resolveSemanticRecallDisabledReason(
       ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
       : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
   }
-
   return;
 }
 
@@ -179,11 +178,11 @@ export function createAssistantThreadRunPromise(args: {
   return args.assistantThreadRepository
     .createThreadRun({
       id: runId,
-      resourceId: args.memoryResourceId,
-      threadId: args.selectedMemoryThreadId,
-      provider: args.selectedProvider,
       model: args.resolvedModelName,
+      provider: args.selectedProvider,
+      resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
+      threadId: args.selectedMemoryThreadId,
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })
@@ -271,10 +270,10 @@ export function buildAssistantRequestData(args: {
   }
   if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
     data['memory'] = {
-      threadId: args.selectedMemoryThreadId,
-      resourceId: args.memoryResourceId,
-      memorySettings: args.memorySettings,
       memoryOptions: args.memoryOptions,
+      memorySettings: args.memorySettings,
+      resourceId: args.memoryResourceId,
+      threadId: args.selectedMemoryThreadId,
     };
   }
   if (args.agentLoopSettings) {
@@ -315,16 +314,16 @@ export function buildAssistantTapestryRange(args: {
   startLine: number;
 }): TapestryRange {
   const internalRange = toolLineRangeToTapestryRange({
-    startLine: args.startLine,
     endLine: args.endLine,
+    startLine: args.startLine,
   });
   const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
   return {
-    id: `assistant-${rangeKey}`,
-    startLine: internalRange.startLine,
-    endLine: internalRange.endLine,
-    isActive: args.isActive !== false,
     color: resolveTapestryColorHex(args.color) ?? getAssistantTapestryColor(rangeKey),
+    endLine: internalRange.endLine,
+    id: `assistant-${rangeKey}`,
+    isActive: args.isActive !== false,
+    startLine: internalRange.startLine,
     userModified: true,
   };
 }
@@ -388,9 +387,9 @@ export function resolveAssistantProviderDisabledReason(args: {
     .getProviderLlmModels(args.selectedProvider)
     .map((model) => model.id);
   const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
-    selectedProvider: args.selectedProvider,
-    selectedModel: args.currentModel ?? null,
     providerModelIds,
+    selectedModel: args.currentModel ?? null,
+    selectedProvider: args.selectedProvider,
   });
   if (unavailableLocalModelReason) {
     return unavailableLocalModelReason;
@@ -488,17 +487,17 @@ export function toRuntimeProviderModels(
 
   const llmCandidates = runtimeState.models.filter((model) => model.capabilities.llm);
   return llmCandidates.map((model, index) => ({
-    id: model.modelId,
-    label: model.displayName,
-    type: 'llm' as const,
-    default: index === 0,
-    supportsStreaming: true,
     // Conservative floor: user-supplied local models don't declare their context window.
     // This intentionally under-budgets large models (a 128k model gets a 32k budget — safe).
     // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
     // compose prompts larger than the model holds. Accepted tradeoff — the local server's
     // own context cap is the real enforcement on that path.
     contextWindow: 32_768,
+    default: index === 0,
+    id: model.modelId,
+    label: model.displayName,
+    supportsStreaming: true,
+    type: 'llm' as const,
   }));
 }
 
@@ -687,8 +686,8 @@ export function toLocalRuntimeInputSchema(toolId: string): Record<string, unknow
 
   for (const parameter of displaySchema.parameters) {
     const schema: Record<string, unknown> = {
-      type: parameter.type === 'enum' ? 'string' : parameter.type,
       description: parameter.description,
+      type: parameter.type === 'enum' ? 'string' : parameter.type,
     };
     if (parameter.type === 'enum' && parameter.enumValues) {
       schema['enum'] = parameter.enumValues;
@@ -705,8 +704,8 @@ export function toLocalRuntimeInputSchema(toolId: string): Record<string, unknow
   }
 
   return {
-    type: 'object',
     properties,
+    type: 'object',
     ...(required.length > 0 ? { required } : {}),
   };
 }
@@ -716,13 +715,13 @@ export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuI
   for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
     for (const tool of serverTools) {
       items.push({
+        category: 'action',
+        description: tool.description ?? `MCP tool: ${tool.id}`,
+        enabled: tool.enabled,
+        group: serverName,
         id: tool.id,
         label: formatToolLabel(tool.id),
-        enabled: tool.enabled,
         source: 'mcp',
-        group: serverName,
-        description: tool.description ?? `MCP tool: ${tool.id}`,
-        category: 'action',
         ...(isPlainRecord(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {}),
         isLocalRuntimeRunnable: true,
       });
@@ -853,8 +852,8 @@ function buildAnthropicOptions(
   const thinking =
     typeof settings.anthropicThinkingBudgetTokens === 'number'
       ? {
-          type: 'enabled' as const,
           budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
+          type: 'enabled' as const,
         }
       : undefined;
   return buildOptionalOptions<AnthropicProviderOptions>([
@@ -1010,10 +1009,10 @@ export type McpAction =
 export function mcpReducer(_state: McpState, action: McpAction): McpState {
   switch (action.type) {
     case 'LOADING':
-      return { tools: [], loading: true };
+      return { loading: true, tools: [] };
     case 'LOADED':
-      return { tools: action.tools, loading: false };
+      return { loading: false, tools: action.tools };
     case 'ERROR':
-      return { tools: [], loading: false };
+      return { loading: false, tools: [] };
   }
 }

@@ -10,18 +10,18 @@ vi.mock('@tanstack/react-virtual', async () => {
   return {
     ...actual,
     useVirtualizer: ({ count }: any) => ({
+      getTotalSize: () => count * 30,
       getVirtualItems: () =>
         Array.from({ length: count }).map((_, i) => ({
-          index: i,
-          start: i * 30,
-          size: 30,
           end: (i + 1) * 30,
+          index: i,
           key: i,
           measureElement: () => {},
+          size: 30,
+          start: i * 30,
         })),
-      getTotalSize: () => count * 30,
-      scrollToIndex: () => {},
       measureElement: () => {},
+      scrollToIndex: () => {},
     }),
   };
 });
@@ -49,12 +49,12 @@ describe('LoggingSettingsSection log viewer', () => {
   it('renders renderer log records', async () => {
     const sampleRecords: LogRecord[] = [
       {
-        level: LogLevel.INFO,
-        timestamp: Date.now(),
         args: ['hello world'],
         bindings: {},
-        scope: 'TestScope',
+        level: LogLevel.INFO,
         message: 'Renderer log row',
+        scope: 'TestScope',
+        timestamp: Date.now(),
       },
     ];
 
@@ -68,12 +68,12 @@ describe('LoggingSettingsSection log viewer', () => {
   it('updates when logs arrive via subscribe after mount', async () => {
     const laterRecords: LogRecord[] = [
       {
-        level: LogLevel.ERROR,
-        timestamp: Date.now() + 1,
         args: ['late log'],
         bindings: {},
-        scope: 'LateScope',
+        level: LogLevel.ERROR,
         message: 'Late arriving row',
+        scope: 'LateScope',
+        timestamp: Date.now() + 1,
       },
     ];
 

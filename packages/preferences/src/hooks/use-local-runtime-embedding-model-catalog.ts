@@ -41,8 +41,8 @@ export function useLocalRuntimeEmbeddingModelCatalog(
   );
   const [requestState, setRequestState] = useState<RuntimeCatalogRequestState>({
     catalog: null,
-    isLoading: false,
     error: null,
+    isLoading: false,
   });
 
   const verifyEmbeddingDimensions = options.verifyEmbeddingDimensions ?? false;
@@ -74,14 +74,14 @@ export function useLocalRuntimeEmbeddingModelCatalog(
         });
         setRequestState({
           catalog: runtimeCatalog,
-          isLoading: false,
           error: null,
+          isLoading: false,
         });
       } catch (cause) {
         setRequestState((previousState) => ({
           ...previousState,
-          isLoading: false,
           error: toErrorMessage(cause),
+          isLoading: false,
         }));
       }
     },
@@ -97,8 +97,8 @@ export function useLocalRuntimeEmbeddingModelCatalog(
 
   return {
     catalog: requestState.catalog,
-    isLoading: requestState.isLoading,
     error: requestState.error,
+    isLoading: requestState.isLoading,
     refresh,
   };
 }

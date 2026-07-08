@@ -13,19 +13,19 @@ const mockIpcMain = ipcMain as unknown as {
 
 const CHANNELS = {
   ensureStarted: 'test:ensureStarted',
-  stop: 'test:stop',
-  reset: 'test:reset',
   getStatus: 'test:getStatus',
   reportStatus: 'test:reportStatus',
+  reset: 'test:reset',
+  stop: 'test:stop',
 } as const;
 
 function createMockManager() {
   return {
-    ensureStarted: vi.fn().mockResolvedValue({ state: 'running' }),
-    stop: vi.fn().mockResolvedValue({ state: 'stopped' }),
-    reset: vi.fn().mockResolvedValue({ state: 'idle' }),
-    getStatus: vi.fn().mockReturnValue({ state: 'idle' }),
     acceptStatusReport: vi.fn(),
+    ensureStarted: vi.fn().mockResolvedValue({ state: 'running' }),
+    getStatus: vi.fn().mockReturnValue({ state: 'idle' }),
+    reset: vi.fn().mockResolvedValue({ state: 'idle' }),
+    stop: vi.fn().mockResolvedValue({ state: 'stopped' }),
   };
 }
 
@@ -54,10 +54,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('registers all 4 handle channels and 1 on listener', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     const handleChannels = (mockIpcMain.handle.mock.calls as [string, unknown][]).map(([ch]) => ch);
@@ -73,10 +73,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('ensureStarted handler delegates with waitForRunning: true', async () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     const handler = (
@@ -92,10 +92,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('stop handler delegates to manager.stop()', async () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     const handler = (
@@ -110,10 +110,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('reset handler delegates to manager.reset()', async () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     const handler = (
@@ -128,10 +128,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('getStatus handler delegates to manager.getStatus()', async () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     const handler = (
@@ -147,10 +147,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     const assertStatus = createMockAssertStatus();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus,
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus,
     });
 
     const listener = (mockIpcMain.on.mock.calls as [string, (...args: unknown[]) => void][]).find(
@@ -172,10 +172,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
       throw new Error('invalid status');
     });
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus,
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus,
     });
 
     const listener = (mockIpcMain.on.mock.calls as [string, (...args: unknown[]) => void][]).find(
@@ -190,10 +190,10 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   it('cleanup removes all handlers and listeners', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
+      assertStatus: createMockAssertStatus(),
       channels: CHANNELS,
       domain: 'runtime',
       manager,
-      assertStatus: createMockAssertStatus(),
     });
 
     cleanup();

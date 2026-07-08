@@ -30,13 +30,13 @@ export const DEFAULT_PORT = DEFAULT_WEB_PORT;
 
 // Port ranges for detection
 export const WEB_PORT_RANGE = {
-  start: DEFAULT_WEB_PORT,
   end: DEFAULT_WEB_PORT + 5,
+  start: DEFAULT_WEB_PORT,
 };
 
 export const DESKTOP_PORT_RANGE = {
-  start: DEFAULT_DESKTOP_PORT,
   end: DEFAULT_DESKTOP_PORT + 5,
+  start: DEFAULT_DESKTOP_PORT,
 };
 
 // Legacy port range for backward compatibility

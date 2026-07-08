@@ -58,8 +58,8 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
       return true;
     } catch (err) {
       logger.warn('localStorage.setItem failed; falling back to in-memory storage', {
-        key,
         error: err instanceof Error ? err.message : String(err),
+        key,
       });
       return false;
     }
@@ -73,8 +73,8 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
       localStorage.removeItem(key);
     } catch (err) {
       logger.warn('localStorage.removeItem failed', {
-        key,
         error: err instanceof Error ? err.message : String(err),
+        key,
       });
     }
   };
@@ -91,8 +91,8 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
       return value;
     } catch (err) {
       logger.warn('Corrupted JSON in localStorage; clearing key for self-heal', {
-        key: name,
         error: err instanceof Error ? err.message : String(err),
+        key: name,
       });
       removeLocalStorage(name);
       memory.delete(name);
@@ -128,15 +128,15 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
       }
       return null;
     },
+    removeItem: (name: string) => {
+      removeLocalStorage(name);
+      memory.delete(name);
+    },
     setItem: (name: string, value: string) => {
       const persisted = writeLocalStorage(name, value);
       if (!persisted) {
         memory.set(name, value);
       }
-    },
-    removeItem: (name: string) => {
-      removeLocalStorage(name);
-      memory.delete(name);
     },
   };
 }

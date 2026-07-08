@@ -28,8 +28,8 @@ export function useFileExplorerSelection({ quickFilteredTree }: UseFileExplorerS
   }, [quickFilteredTree]);
 
   return {
-    selectedFilePaths,
-    handleSelectionChange,
     displayedFiles,
+    handleSelectionChange,
+    selectedFilePaths,
   };
 }

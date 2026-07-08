@@ -5,12 +5,12 @@ describe('tree-table types', () => {
   describe('TreeNode', () => {
     it('can create a basic tree node', () => {
       const node: TreeNode<{ name: string }> = {
-        id: 'node-1',
-        type: 'file',
-        depth: 0,
         data: { name: 'Test Node' },
-        parentId: null,
+        depth: 0,
         hasChildren: false,
+        id: 'node-1',
+        parentId: null,
+        type: 'file',
       };
 
       expect(node.id).toBe('node-1');
@@ -23,12 +23,12 @@ describe('tree-table types', () => {
 
     it('can create a parent node with children', () => {
       const parent: TreeNode<{ name: string }> = {
-        id: 'parent-1',
-        type: 'folder',
-        depth: 0,
         data: { name: 'Parent' },
-        parentId: null,
+        depth: 0,
         hasChildren: true,
+        id: 'parent-1',
+        parentId: null,
+        type: 'folder',
       };
 
       expect(parent.hasChildren).toBe(true);
@@ -36,12 +36,12 @@ describe('tree-table types', () => {
 
     it('can create a child node', () => {
       const child: TreeNode<{ name: string }> = {
-        id: 'child-1',
-        type: 'file',
-        depth: 1,
         data: { name: 'Child' },
-        parentId: 'parent-1',
+        depth: 1,
         hasChildren: false,
+        id: 'child-1',
+        parentId: 'parent-1',
+        type: 'file',
       };
 
       expect(child.parentId).toBe('parent-1');
@@ -52,9 +52,9 @@ describe('tree-table types', () => {
   describe('TreeTableColumn', () => {
     it('can create a basic column', () => {
       const column: TreeTableColumn<{ name: string }> = {
-        id: 'name',
-        header: 'Name',
         cell: ({ node }) => node.data.name,
+        header: 'Name',
+        id: 'name',
       };
 
       expect(column.id).toBe('name');
@@ -64,9 +64,9 @@ describe('tree-table types', () => {
 
     it('can create a column with custom width', () => {
       const column: TreeTableColumn<{ value: number }> = {
-        id: 'value',
-        header: 'Value',
         cell: ({ node }) => String(node.data.value),
+        header: 'Value',
+        id: 'value',
         width: 100,
       };
 

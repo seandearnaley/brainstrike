@@ -7,7 +7,7 @@ import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 export interface Queryable {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 }
 
 /**
@@ -277,13 +277,13 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
     }
 
     logger.warn('parseEmbeddingLoose: Unsupported embedding type', { type: typeof embedding });
-    return;
   } catch (error) {
     logger.warn('parseEmbeddingLoose: Failed to parse embedding', {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
     return;
   }
+  return;
 }
 
 // Shared file_chunks column projections for read queries. Single source of truth
@@ -553,7 +553,7 @@ export interface UpdateBuilder {
 }
 
 export function createUpdateBuilder(startIndex = 1): UpdateBuilder {
-  return { setParts: [], values: [], index: startIndex };
+  return { index: startIndex, setParts: [], values: [] };
 }
 
 export function appendColumn(builder: UpdateBuilder, column: string, value: unknown): void {

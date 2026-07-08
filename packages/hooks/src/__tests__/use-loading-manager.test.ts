@@ -17,7 +17,7 @@ describe('useLoadingManager', () => {
     const stableIsLoaded = vi.fn((k: string) => k === 'a');
 
     renderHook(({ keys, isLoaded, loadFn }) => useLoadingManager<string>(keys, isLoaded, loadFn), {
-      initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+      initialProps: { isLoaded: stableIsLoaded, keys: stableKeys, loadFn: stableLoadFn },
     });
 
     await waitFor(() => {
@@ -37,7 +37,7 @@ describe('useLoadingManager', () => {
     const { result } = renderHook(
       ({ keys, isLoaded, loadFn }) => useLoadingManager<string>(keys, isLoaded, loadFn),
       {
-        initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+        initialProps: { isLoaded: stableIsLoaded, keys: stableKeys, loadFn: stableLoadFn },
       }
     );
 
@@ -61,7 +61,7 @@ describe('useLoadingManager', () => {
     const { result } = renderHook(
       ({ keys, isLoaded, loadFn }) => useLoadingManager<number>(keys, isLoaded, loadFn),
       {
-        initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+        initialProps: { isLoaded: stableIsLoaded, keys: stableKeys, loadFn: stableLoadFn },
       }
     );
     expect(stableLoadFn).not.toHaveBeenCalled();

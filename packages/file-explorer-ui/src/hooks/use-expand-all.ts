@@ -39,7 +39,7 @@ const defaultYieldToBrowser = (): Promise<void> =>
 
 function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reason?: string } {
   if (isAlreadyStarting) {
-    return { skip: true, reason: 'blocked by double-click guard' };
+    return { reason: 'blocked by double-click guard', skip: true };
   }
   return { skip: false };
 }
@@ -621,10 +621,10 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         logExpandAllOutcome({
           discoveredDirectories: result.discoveredDirectories,
           metrics,
+          now,
           outcome: 'completed',
           rootFolderId,
           startedAt,
-          now,
         });
         if (result.firstError) {
           handleExpandError(result.firstError, onError);
@@ -635,10 +635,10 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           logExpandAllOutcome({
             discoveredDirectories: committedPaths.size,
             metrics: createEmptyExpandAllMetrics(),
+            now,
             outcome: 'cancelled',
             rootFolderId,
             startedAt,
-            now,
           });
         }
         handleExpandError(err, onError);
@@ -668,9 +668,9 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   );
 
   return {
-    isExpandingAll: state.isExpandingAll,
-    expandAllProgressively,
     cancelExpandAll,
+    expandAllProgressively,
+    isExpandingAll: state.isExpandingAll,
     isExpandingAllRef,
   };
 }

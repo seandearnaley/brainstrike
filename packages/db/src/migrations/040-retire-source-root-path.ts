@@ -24,7 +24,18 @@ import type { Migration } from './migration-runner';
  * Idempotent (IF EXISTS / NULL guards) so a partially-applied run is safe.
  */
 export const migration040RetireSourceRootPath: Migration = {
-  version: 40,
+  down: `
+    ALTER TABLE file_records
+      ADD COLUMN IF NOT EXISTS source_root_path TEXT;
+
+    CREATE INDEX IF NOT EXISTS idx_file_records_source_root_path
+      ON file_records(source_root_path);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_file_records_cache_identity
+      ON file_records(embedding_set_id, source_root_path, path)
+      WHERE embedding_set_id IS NOT NULL
+        AND source_root_path IS NOT NULL;
+  `,
   name: 'retire_source_root_path',
   up: `
     UPDATE file_records
@@ -53,16 +64,5 @@ export const migration040RetireSourceRootPath: Migration = {
     ALTER TABLE file_records
       DROP COLUMN IF EXISTS source_root_path;
   `,
-  down: `
-    ALTER TABLE file_records
-      ADD COLUMN IF NOT EXISTS source_root_path TEXT;
-
-    CREATE INDEX IF NOT EXISTS idx_file_records_source_root_path
-      ON file_records(source_root_path);
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_file_records_cache_identity
-      ON file_records(embedding_set_id, source_root_path, path)
-      WHERE embedding_set_id IS NOT NULL
-        AND source_root_path IS NOT NULL;
-  `,
+  version: 40,
 };

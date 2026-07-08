@@ -1,7 +1,10 @@
 import type { Migration } from './migration-runner';
 
 export const migration026UpdateProviderModels2026V2: Migration = {
-  version: 26,
+  down: `
+    -- Revert provider display name
+    UPDATE providers SET name = 'Google' WHERE id = 'google';
+  `,
   name: 'update_provider_models_2026_v2',
   up: `
     -- Incremental catalog corrections for hosted providers
@@ -98,8 +101,5 @@ export const migration026UpdateProviderModels2026V2: Migration = {
     -- Ensure removed embeddings are not present
     DELETE FROM models WHERE id = 'text-embedding-004';
   `,
-  down: `
-    -- Revert provider display name
-    UPDATE providers SET name = 'Google' WHERE id = 'google';
-  `,
+  version: 26,
 };

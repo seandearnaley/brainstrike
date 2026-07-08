@@ -105,8 +105,8 @@ export function useGitPanel(): UseGitPanelResult {
           setStatusError(result.error);
           logger.error('git status failed', { error: result.error });
           toast({
-            title: 'Git status failed',
             description: result.error,
+            title: 'Git status failed',
             variant: 'destructive',
           });
         }
@@ -119,7 +119,7 @@ export function useGitPanel(): UseGitPanelResult {
         setStatus(null);
         setStatusError(message);
         logger.error('git status threw', { error: message });
-        toast({ title: 'Git status failed', description: message, variant: 'destructive' });
+        toast({ description: message, title: 'Git status failed', variant: 'destructive' });
       })
       .finally(() => {
         if (!cancelled) {
@@ -151,7 +151,7 @@ export function useGitPanel(): UseGitPanelResult {
         const result = await run(bridge, activeRootId);
         if (!result.ok) {
           logger.error(`${label} failed`, { error: result.error });
-          toast({ title: `${label} failed`, description: result.error, variant: 'destructive' });
+          toast({ description: result.error, title: `${label} failed`, variant: 'destructive' });
           return false;
         }
         refresh();
@@ -159,7 +159,7 @@ export function useGitPanel(): UseGitPanelResult {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error(`${label} threw`, { error: message });
-        toast({ title: `${label} failed`, description: message, variant: 'destructive' });
+        toast({ description: message, title: `${label} failed`, variant: 'destructive' });
         return false;
       }
     },
@@ -185,8 +185,8 @@ export function useGitPanel(): UseGitPanelResult {
       const trimmed = message.trim();
       if (trimmed.length === 0) {
         toast({
-          title: 'Commit failed',
           description: 'Enter a commit message first.',
+          title: 'Commit failed',
           variant: 'destructive',
         });
         return false;
@@ -195,8 +195,8 @@ export function useGitPanel(): UseGitPanelResult {
         const result = await b.commit(rootId, { message: trimmed });
         if (result.ok) {
           toast({
-            title: 'Committed',
             description: `${result.value.commit}${result.value.branch ? ` on ${result.value.branch}` : ''}`,
+            title: 'Committed',
           });
         }
         return result;
@@ -214,7 +214,7 @@ export function useGitPanel(): UseGitPanelResult {
       await runMutation('Push', async (b, rootId) => {
         const result = await b.push(rootId);
         if (result.ok) {
-          toast({ title: 'Pushed', description: result.value.output || 'Up to date.' });
+          toast({ description: result.value.output || 'Up to date.', title: 'Pushed' });
         }
         return result;
       });
@@ -232,7 +232,7 @@ export function useGitPanel(): UseGitPanelResult {
       await runMutation('Pull', async (b, rootId) => {
         const result = await b.pull(rootId);
         if (result.ok) {
-          toast({ title: 'Pulled', description: result.value.output || 'Already up to date.' });
+          toast({ description: result.value.output || 'Already up to date.', title: 'Pulled' });
         }
         return result;
       });
@@ -257,14 +257,14 @@ export function useGitPanel(): UseGitPanelResult {
         });
         if (!result.ok) {
           logger.error('git diff failed', { error: result.error, path });
-          toast({ title: 'Diff failed', description: result.error, variant: 'destructive' });
+          toast({ description: result.error, title: 'Diff failed', variant: 'destructive' });
           return null;
         }
-        return { unifiedDiff: result.value.unifiedDiff, truncated: result.value.truncated };
+        return { truncated: result.value.truncated, unifiedDiff: result.value.unifiedDiff };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('git diff threw', { error: message, path });
-        toast({ title: 'Diff failed', description: message, variant: 'destructive' });
+        toast({ description: message, title: 'Diff failed', variant: 'destructive' });
         return null;
       }
     },
@@ -273,16 +273,16 @@ export function useGitPanel(): UseGitPanelResult {
 
   return {
     activeRootId,
-    status,
+    commit,
     isLoading,
-    statusError,
     isSyncing,
+    loadDiff,
+    pull,
+    push,
     refresh,
     stageFile,
+    status,
+    statusError,
     unstageFile,
-    commit,
-    push,
-    pull,
-    loadDiff,
   };
 }

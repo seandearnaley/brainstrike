@@ -36,9 +36,9 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
     }
 
     const payload: RendererErrorEventPayload = {
-      type: 'error',
       message: event.message,
       source: event.filename,
+      type: 'error',
       ...(event.error instanceof Error && event.error.stack ? { stack: event.error.stack } : {}),
       ...(typeof event.lineno === 'number' ? { line: event.lineno } : {}),
       ...(typeof event.colno === 'number' ? { column: event.colno } : {}),
@@ -50,13 +50,13 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
   const handleRejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
     const payload: RendererErrorEventPayload = {
-      type: 'unhandledrejection',
       message:
         reason instanceof Error
           ? reason.message
           : typeof reason === 'string'
             ? reason
             : 'Unhandled promise rejection',
+      type: 'unhandledrejection',
       ...(reason instanceof Error && reason.stack ? { stack: reason.stack } : {}),
       reason,
     };

@@ -17,18 +17,18 @@ vi.mock('@tanstack/react-virtual', async () => {
   return {
     ...actual,
     useVirtualizer: ({ count }: any) => ({
+      getTotalSize: () => count * 30,
       getVirtualItems: () =>
         Array.from({ length: count }).map((_, i) => ({
-          index: i,
-          start: i * 30,
-          size: 30,
           end: (i + 1) * 30,
+          index: i,
           key: i,
           measureElement: () => {},
+          size: 30,
+          start: i * 30,
         })),
-      getTotalSize: () => count * 30,
-      scrollToIndex: () => {},
       measureElement: () => {},
+      scrollToIndex: () => {},
     }),
   };
 });
@@ -36,11 +36,11 @@ vi.mock('@tanstack/react-virtual', async () => {
 const mockToast = vi.fn();
 
 const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
-  timestamp: Date.now(),
-  level: LogLevel.INFO,
-  message: 'Test log message',
   args: [],
   bindings: {},
+  level: LogLevel.INFO,
+  message: 'Test log message',
+  timestamp: Date.now(),
   ...overrides,
 });
 

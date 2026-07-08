@@ -1,7 +1,26 @@
 import type { Migration } from './migration-runner';
 
 export const migration003AddIndexes: Migration = {
-  version: 3,
+  down: `
+		-- Drop relationship indexes and table
+		DROP INDEX IF EXISTS idx_file_relationships_type;
+		DROP INDEX IF EXISTS idx_file_relationships_target;
+		DROP INDEX IF EXISTS idx_file_relationships_source;
+		DROP TABLE IF EXISTS file_relationships;
+
+		-- Drop tags indexes and table
+		DROP INDEX IF EXISTS idx_file_tags_tag;
+		DROP INDEX IF EXISTS idx_file_tags_unique;
+		DROP TABLE IF EXISTS file_tags;
+
+		-- Drop file type specific indexes
+		DROP INDEX IF EXISTS idx_file_records_javascript;
+		DROP INDEX IF EXISTS idx_file_records_typescript;
+
+		-- Drop composite indexes
+		DROP INDEX IF EXISTS idx_file_records_size_updated;
+		DROP INDEX IF EXISTS idx_file_records_path_name;
+	`,
   name: 'add_performance_indexes',
   up: `
 		-- Add composite indexes for common query patterns
@@ -44,24 +63,5 @@ export const migration003AddIndexes: Migration = {
 		CREATE INDEX IF NOT EXISTS idx_file_relationships_target ON file_relationships(target_id);
 		CREATE INDEX IF NOT EXISTS idx_file_relationships_type ON file_relationships(relationship_type);
 	`,
-  down: `
-		-- Drop relationship indexes and table
-		DROP INDEX IF EXISTS idx_file_relationships_type;
-		DROP INDEX IF EXISTS idx_file_relationships_target;
-		DROP INDEX IF EXISTS idx_file_relationships_source;
-		DROP TABLE IF EXISTS file_relationships;
-
-		-- Drop tags indexes and table
-		DROP INDEX IF EXISTS idx_file_tags_tag;
-		DROP INDEX IF EXISTS idx_file_tags_unique;
-		DROP TABLE IF EXISTS file_tags;
-
-		-- Drop file type specific indexes
-		DROP INDEX IF EXISTS idx_file_records_javascript;
-		DROP INDEX IF EXISTS idx_file_records_typescript;
-		
-		-- Drop composite indexes
-		DROP INDEX IF EXISTS idx_file_records_size_updated;
-		DROP INDEX IF EXISTS idx_file_records_path_name;
-	`,
+  version: 3,
 };

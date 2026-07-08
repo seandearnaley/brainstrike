@@ -18,9 +18,9 @@ const buildRow = (overrides: Partial<TableRowData>): TableRowData => ({
 describe('GROUPING_CONFIGS sort comparators', () => {
   it('keeps root-folder grouping lexicographic for numeric suffixes', () => {
     const data: TableRowData[] = [
-      buildRow({ id: 'row-2', compositeKey: 'folder2::f.ts', rootFolderId: 'folder2' }),
-      buildRow({ id: 'row-10', compositeKey: 'folder10::f.ts', rootFolderId: 'folder10' }),
-      buildRow({ id: 'row-1', compositeKey: 'folder1::f.ts', rootFolderId: 'folder1' }),
+      buildRow({ compositeKey: 'folder2::f.ts', id: 'row-2', rootFolderId: 'folder2' }),
+      buildRow({ compositeKey: 'folder10::f.ts', id: 'row-10', rootFolderId: 'folder10' }),
+      buildRow({ compositeKey: 'folder1::f.ts', id: 'row-1', rootFolderId: 'folder1' }),
     ];
 
     const result = groupData(data, GROUPING_CONFIGS.rootFolder);
@@ -65,16 +65,16 @@ describe('GROUPING_CONFIGS sort comparators', () => {
   it('uses root-prefixed labels for directory grouping on desktop-style absolute paths', () => {
     const data: TableRowData[] = [
       buildRow({
-        id: 'row-root',
         compositeKey: 'brainstrike::README.md',
-        rootFolderId: '/Users/me/BrainStrike',
+        id: 'row-root',
         path: '/Users/me/BrainStrike/README.md',
+        rootFolderId: '/Users/me/BrainStrike',
       }),
       buildRow({
-        id: 'row-source',
         compositeKey: 'brainstrike::source/index.ts',
-        rootFolderId: '/Users/me/BrainStrike',
+        id: 'row-source',
         path: '/Users/me/BrainStrike/source/index.ts',
+        rootFolderId: '/Users/me/BrainStrike',
       }),
     ];
 
@@ -89,20 +89,20 @@ describe('GROUPING_CONFIGS sort comparators', () => {
     const ROOT_ID = '11111111-0000-4000-8000-000000000011';
     const data: TableRowData[] = [
       buildRow({
-        id: 'row-root',
         compositeKey: `${ROOT_ID}|@|/Users/me/BrainStrike/README.md`,
-        rootFolderId: ROOT_ID,
-        rootDisplayName: 'BrainStrike',
-        rootPath: '/Users/me/BrainStrike',
+        id: 'row-root',
         path: '/Users/me/BrainStrike/README.md',
+        rootDisplayName: 'BrainStrike',
+        rootFolderId: ROOT_ID,
+        rootPath: '/Users/me/BrainStrike',
       }),
       buildRow({
-        id: 'row-source',
         compositeKey: `${ROOT_ID}|@|/Users/me/BrainStrike/source/index.ts`,
-        rootFolderId: ROOT_ID,
-        rootDisplayName: 'BrainStrike',
-        rootPath: '/Users/me/BrainStrike',
+        id: 'row-source',
         path: '/Users/me/BrainStrike/source/index.ts',
+        rootDisplayName: 'BrainStrike',
+        rootFolderId: ROOT_ID,
+        rootPath: '/Users/me/BrainStrike',
       }),
     ];
 
@@ -116,20 +116,20 @@ describe('GROUPING_CONFIGS sort comparators', () => {
     const ROOT_ID_B = '22222222-0000-4000-8000-000000000022';
     const data: TableRowData[] = [
       buildRow({
-        id: 'row-a',
         compositeKey: `${ROOT_ID_A}|@|/a/file.ts`,
-        rootFolderId: ROOT_ID_A,
-        rootDisplayName: 'alpha',
-        rootPath: '/a',
+        id: 'row-a',
         path: '/a/file.ts',
+        rootDisplayName: 'alpha',
+        rootFolderId: ROOT_ID_A,
+        rootPath: '/a',
       }),
       buildRow({
-        id: 'row-b',
         compositeKey: `${ROOT_ID_B}|@|/b/file.ts`,
-        rootFolderId: ROOT_ID_B,
-        rootDisplayName: 'beta',
-        rootPath: '/b',
+        id: 'row-b',
         path: '/b/file.ts',
+        rootDisplayName: 'beta',
+        rootFolderId: ROOT_ID_B,
+        rootPath: '/b',
       }),
     ];
 
@@ -143,16 +143,16 @@ describe('GROUPING_CONFIGS sort comparators', () => {
   it('disambiguates duplicate directory labels by falling back to canonical root identities', () => {
     const data: TableRowData[] = [
       buildRow({
-        id: 'row-root-a',
         compositeKey: 'brainstrike-a::README.md',
-        rootFolderId: '/Users/me/BrainStrike',
+        id: 'row-root-a',
         path: '/Users/me/BrainStrike/README.md',
+        rootFolderId: '/Users/me/BrainStrike',
       }),
       buildRow({
-        id: 'row-root-b',
         compositeKey: 'brainstrike-b::README.md',
-        rootFolderId: '/tmp/BrainStrike',
+        id: 'row-root-b',
         path: '/tmp/BrainStrike/README.md',
+        rootFolderId: '/tmp/BrainStrike',
       }),
     ];
 

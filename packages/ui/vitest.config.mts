@@ -83,28 +83,7 @@ export default defineConfig({
           alias: workspaceAliases,
         },
         test: {
-          name: 'unit',
-          environment: 'happy-dom',
-          globals: true,
-          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
-          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
-          server: {
-            deps: {
-              // react-shiki@0.10+ ships a top-level `import './style.css'` side effect in
-              // its shared component chunk; Vitest externalizes node_modules by default,
-              // which hands that CSS import to Node's native ESM loader (no CSS support)
-              // instead of Vite's transform pipeline. Inlining forces Vite to handle it.
-              inline: ['react-shiki'],
-            },
-          },
-          pool: 'threads',
-          maxWorkers: process.env['CI'] ? '50%' : '100%',
-          sequence: {
-            groupOrder: 0,
-          },
           coverage: {
-            include: ['src/**/*.{ts,tsx}'],
             exclude: [
               '**/__tests__/**',
               '**/*.browser.test.{ts,tsx}',
@@ -114,7 +93,28 @@ export default defineConfig({
               '**/dist/**',
               '**/index.ts',
             ],
+            include: ['src/**/*.{ts,tsx}'],
           },
+          environment: 'happy-dom',
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          globals: true,
+          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
+          maxWorkers: process.env['CI'] ? '50%' : '100%',
+          name: 'unit',
+          pool: 'threads',
+          sequence: {
+            groupOrder: 0,
+          },
+          server: {
+            deps: {
+              // react-shiki@0.10+ ships a top-level `import './style.css'` side effect in
+              // its shared component chunk; Vitest externalizes node_modules by default,
+              // which hands that CSS import to Node's native ESM loader (no CSS support)
+              // instead of Vite's transform pipeline. Inlining forces Vite to handle it.
+              inline: ['react-shiki'],
+            },
+          },
+          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
         },
       },
       {

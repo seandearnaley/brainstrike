@@ -264,13 +264,13 @@ export function createFileContentWorker({
       if (!fileContent.isTextContent(content)) {
         throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
       }
-      return { key: req.compositeKey, content };
+      return { content, key: req.compositeKey };
     }
 
     if (!fileContent.isTextContent(content)) {
       throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
     }
-    return { key: req.compositeKey, content };
+    return { content, key: req.compositeKey };
   }
 
   return async function readFiles(

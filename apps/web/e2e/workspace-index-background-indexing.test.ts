@@ -5,10 +5,10 @@ import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 const WORKSPACE_INDEX_TREE: FileTree = {
-  'README.md': '# Web Workspace Index\n\nThis file should be discovered and chunked.',
   docs: {
     'guide.md': '# Guide\n\nBackground indexing should include nested markdown files.',
   },
+  'README.md': '# Web Workspace Index\n\nThis file should be discovered and chunked.',
   src: {
     'index.ts': 'export const webWorkspaceIndex = true;\n',
   },
@@ -127,8 +127,8 @@ async function readWorkspaceIndexStartupSummary(
       hasManagedCollection: snapshot.managedCollectionId !== null,
       hasRoot: snapshot.roots.length > 0,
       runtimeReady: snapshot.runtimeReadiness.serviceAvailable,
-      statusLastError: snapshot.syncStatus.lastError ?? null,
       state: snapshot.syncStatus.state,
+      statusLastError: snapshot.syncStatus.lastError ?? null,
     };
   });
 }
@@ -163,8 +163,8 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
       })
       .toMatchObject({
         accessIssueCount: 0,
-        backgroundEnabled: true,
         backgroundEffectiveHasHydrated: true,
+        backgroundEnabled: true,
         backgroundHydrated: true,
         backgroundManagedCollectionId: expect.any(String),
         chunkedFileCount: 3,

@@ -70,8 +70,8 @@ class SnapshotChannel {
       // non-prefix snapshot means the host rewrote earlier text. Keep what we
       // emitted (it is what the user saw) and log loudly for diagnosis.
       logger.warn('Local llm host snapshot diverged from emitted prefix; ignoring snapshot', {
-        kind: this.kind,
         emittedLength: this.emitted.length,
+        kind: this.kind,
         snapshotLength: snapshot.length,
       });
       return;
@@ -91,9 +91,9 @@ class SnapshotChannel {
         }
       } else {
         logger.warn('Local llm host final text diverged from streamed snapshots', {
-          kind: this.kind,
           emittedLength: this.emitted.length,
           finalLength: finalText.length,
+          kind: this.kind,
         });
       }
     }
@@ -106,8 +106,8 @@ class SnapshotChannel {
     }
     this.controller.enqueue(
       this.kind === 'text'
-        ? { type: 'text-end', id: this.id }
-        : { type: 'reasoning-end', id: this.id }
+        ? { id: this.id, type: 'text-end' }
+        : { id: this.id, type: 'reasoning-end' }
     );
     this.id = null;
   }
@@ -120,14 +120,14 @@ class SnapshotChannel {
       this.id = generateStreamPartId();
       this.controller.enqueue(
         this.kind === 'text'
-          ? { type: 'text-start', id: this.id }
-          : { type: 'reasoning-start', id: this.id }
+          ? { id: this.id, type: 'text-start' }
+          : { id: this.id, type: 'reasoning-start' }
       );
     }
     this.controller.enqueue(
       this.kind === 'text'
-        ? { type: 'text-delta', id: this.id, delta }
-        : { type: 'reasoning-delta', id: this.id, delta }
+        ? { delta, id: this.id, type: 'text-delta' }
+        : { delta, id: this.id, type: 'reasoning-delta' }
     );
   }
 }
@@ -192,7 +192,7 @@ export class LlmHostChatModel implements LanguageModelV2 {
       generateOptions.thinking = this.settings.thinking;
     }
 
-    return { messages, generateOptions };
+    return { generateOptions, messages };
   }
 
   private buildRequestMetadata(prepared: PreparedGenerateRequest): {
@@ -200,11 +200,11 @@ export class LlmHostChatModel implements LanguageModelV2 {
   } {
     return {
       body: {
-        messages: prepared.messages,
         maxNewTokens: prepared.generateOptions.maxNewTokens,
+        messages: prepared.messages,
         temperature: prepared.generateOptions.temperature,
-        topP: prepared.generateOptions.topP,
         topK: prepared.generateOptions.topK,
+        topP: prepared.generateOptions.topP,
       },
     };
   }
@@ -216,8 +216,8 @@ export class LlmHostChatModel implements LanguageModelV2 {
 
     const result = await this.client.generate(
       {
-        modelId: this.modelId,
         messages: prepared.messages,
+        modelId: this.modelId,
         options: prepared.generateOptions,
       },
       options.abortSignal ? { signal: options.abortSignal } : {}
@@ -227,9 +227,9 @@ export class LlmHostChatModel implements LanguageModelV2 {
     return {
       content: buildV2ContentFromResult(result),
       finishReason: mapFinishReason(result.finishReason),
+      request: this.buildRequestMetadata(prepared),
       usage: buildV2UsageFromResult(result),
       warnings,
-      request: this.buildRequestMetadata(prepared),
     };
   }
 
@@ -262,8 +262,8 @@ export class LlmHostChatModel implements LanguageModelV2 {
         try {
           result = await client.generate(
             {
-              modelId,
               messages: prepared.messages,
+              modelId,
               options: prepared.generateOptions,
             },
             {
@@ -282,26 +282,26 @@ export class LlmHostChatModel implements LanguageModelV2 {
         if (result.toolCalls) {
           for (const toolCall of result.toolCalls) {
             controller.enqueue({
-              type: 'tool-call',
+              input: toolCall.function.arguments,
               toolCallId: toolCall.id,
               toolName: toolCall.function.name,
-              input: toolCall.function.arguments,
+              type: 'tool-call',
             });
           }
         }
 
         controller.enqueue({
+          finishReason: mapFinishReason(result.finishReason),
           type: 'finish',
           usage: buildV2UsageFromResult(result),
-          finishReason: mapFinishReason(result.finishReason),
         });
         controller.close();
       },
     });
 
     return {
-      stream,
       request: this.buildRequestMetadata(prepared),
+      stream,
     };
   }
 }

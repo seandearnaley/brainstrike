@@ -8,22 +8,22 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
     const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
-    return { mockToast, mockLoadRecords, mockLoadChunks, handler };
+    return { handler, mockLoadChunks, mockLoadRecords, mockToast };
   };
 
   it('reports successful import of new files with chunks and embeddings', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: true, existed: false, chunksCreated: 10, chunksWithEmbeddings: 8 },
-      { id: 'b.txt', imported: true, existed: false, chunksCreated: 5, chunksWithEmbeddings: 5 },
+      { chunksCreated: 10, chunksWithEmbeddings: 8, existed: false, id: 'a.txt', imported: true },
+      { chunksCreated: 5, chunksWithEmbeddings: 5, existed: false, id: 'b.txt', imported: true },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '2 new • 15 chunks created, 13 embedded',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -32,15 +32,15 @@ describe('createImportCompletionHandler', () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: true, existed: false, chunksCreated: 10, chunksWithEmbeddings: 10 },
-      { id: 'b.txt', imported: false, existed: false, chunksCreated: 0, error: 'Failed' },
+      { chunksCreated: 10, chunksWithEmbeddings: 10, existed: false, id: 'a.txt', imported: true },
+      { chunksCreated: 0, error: 'Failed', existed: false, id: 'b.txt', imported: false },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Completed with Errors',
       description: '1 new • 10 chunks created, 10 embedded, 1 failed',
+      title: 'Import Completed with Errors',
       variant: 'destructive',
     });
   });
@@ -49,14 +49,14 @@ describe('createImportCompletionHandler', () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: false, existed: true, chunksCreated: 3, chunksWithEmbeddings: 3 },
+      { chunksCreated: 3, chunksWithEmbeddings: 3, existed: true, id: 'a.txt', imported: false },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '1 existing • 3 chunks created, 3 embedded',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -65,15 +65,15 @@ describe('createImportCompletionHandler', () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: true, existed: false, chunksCreated: 2, chunksWithEmbeddings: 0 },
-      { id: 'b.txt', imported: false, existed: true, chunksCreated: 1, chunksWithEmbeddings: 0 },
+      { chunksCreated: 2, chunksWithEmbeddings: 0, existed: false, id: 'a.txt', imported: true },
+      { chunksCreated: 1, chunksWithEmbeddings: 0, existed: true, id: 'b.txt', imported: false },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '1 new, 1 existing • 3 chunks created',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -82,15 +82,15 @@ describe('createImportCompletionHandler', () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: false, existed: false, chunksCreated: 0, error: 'Fail' },
-      { id: 'b.txt', imported: false, existed: false, chunksCreated: 0, error: 'Fail' },
+      { chunksCreated: 0, error: 'Fail', existed: false, id: 'a.txt', imported: false },
+      { chunksCreated: 0, error: 'Fail', existed: false, id: 'b.txt', imported: false },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Completed with Errors',
       description: '2 failed',
+      title: 'Import Completed with Errors',
       variant: 'destructive',
     });
   });
@@ -101,8 +101,8 @@ describe('createImportCompletionHandler', () => {
     await handler([]);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: 'No files processed',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -112,20 +112,20 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        id: 'a.txt',
-        imported: true,
-        existed: false,
         chunksCreated: 5,
         chunksWithEmbeddings: 0,
         error: 'Partial failure',
+        existed: false,
+        id: 'a.txt',
+        imported: true,
       },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '1 new • 5 chunks created, 1 errors',
+      title: 'Import Complete',
       variant: 'default',
     });
   });
@@ -134,14 +134,14 @@ describe('createImportCompletionHandler', () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
-      { id: 'a.txt', imported: true, existed: false, chunksCreated: 10, chunksWithEmbeddings: 0 },
+      { chunksCreated: 10, chunksWithEmbeddings: 0, existed: false, id: 'a.txt', imported: true },
     ];
 
     await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
       description: '1 new • 10 chunks created',
+      title: 'Import Complete',
       variant: 'default',
     });
   });

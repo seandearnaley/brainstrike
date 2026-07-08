@@ -40,18 +40,18 @@ function loggingSettingsReducer(
     case 'stop_syncing':
       return { ...state, syncing: false };
     case 'load_success':
-      return { ...state, loading: false, error: null, fileCapabilities: action.fileCapabilities };
+      return { ...state, error: null, fileCapabilities: action.fileCapabilities, loading: false };
     case 'load_error':
-      return { ...state, loading: false, error: action.error };
+      return { ...state, error: action.error, loading: false };
   }
 }
 
 export function DesktopLoggingSettings() {
   const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
-    loading: true,
-    syncing: false,
     error: null,
     fileCapabilities: undefined,
+    loading: true,
+    syncing: false,
   });
   const { loading, syncing, error, fileCapabilities } = settingsState;
   const { toast } = useToast();
@@ -84,13 +84,13 @@ export function DesktopLoggingSettings() {
     (payload: LoggingSettingsPayload) => {
       setPreferences(payload.preferences);
       settingsDispatch({
-        type: 'load_success',
         fileCapabilities: {
-          fileLoggingSupported: payload.capabilities.fileLoggingSupported,
           canSelectDestination: payload.capabilities.canSelectDestination,
-          reason: payload.capabilities.reason,
           defaultDestination: payload.capabilities.defaultDestination,
+          fileLoggingSupported: payload.capabilities.fileLoggingSupported,
+          reason: payload.capabilities.reason,
         },
+        type: 'load_success',
       });
     },
     [setPreferences]
@@ -111,7 +111,7 @@ export function DesktopLoggingSettings() {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      settingsDispatch({ type: 'load_error', error: message });
+      settingsDispatch({ error: message, type: 'load_error' });
     };
 
     const fetchPreferences = async () => {
@@ -156,8 +156,8 @@ export function DesktopLoggingSettings() {
       if (caughtError !== null) {
         const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
         toast({
-          title: 'Failed to persist logging preferences',
           description: message,
+          title: 'Failed to persist logging preferences',
           variant: 'destructive',
         });
         throw caughtError;

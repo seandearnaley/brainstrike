@@ -45,19 +45,19 @@ function notifyEmptySelectionResult(args: {
 }): SelectionResult {
   const { excludeFilters, includeFilters, node, filesVisited, showToast } = args;
   logger.warn('Recursive folder selection matched no files', {
-    path: node.path,
-    includeFilters,
     excludeFilters,
     filesVisited,
+    includeFilters,
+    path: node.path,
   });
   showToast({
-    title: 'No selectable files in this folder',
     description:
       includeFilters.length > 0 || excludeFilters.length > 0
         ? 'Everything in it is hidden by the current view filters. Adjust the workspace filters to select these files.'
         : 'The folder has no files to select.',
+    title: 'No selectable files in this folder',
   });
-  return { success: true, filePaths: [] };
+  return { filePaths: [], success: true };
 }
 
 /** Surface a limit-blocked folder click (the only success-shaped early return). */
@@ -68,8 +68,8 @@ function notifyBlockedSelectionResult(
 ): SelectionResult {
   if (validationResult.success) {
     showToast({
-      title: `Selection limit reached (${maxSelectionCount})`,
       description: 'Deselect some files or raise the limit to select this folder.',
+      title: `Selection limit reached (${maxSelectionCount})`,
       variant: 'destructive',
     });
   }
@@ -83,9 +83,9 @@ function handleSelectionError(err: unknown, onError?: (error: Error) => void): S
   }
 
   return {
-    success: false,
-    filePaths: [],
     cancelled: isCancelled,
+    filePaths: [],
+    success: false,
     ...(isCancelled ? {} : { error: err instanceof Error ? err.message : String(err) }),
   };
 }
@@ -102,7 +102,7 @@ function validateRecursiveFolderSelectionInput(args: {
       result: SelectionResult;
     } {
   if (args.node.type !== 'directory') {
-    return { result: { success: false, filePaths: [], error: 'Node is not a directory' } };
+    return { result: { error: 'Node is not a directory', filePaths: [], success: false } };
   }
 
   const availableSlots = Math.max(0, args.maxSelectionCount - args.currentSelectionSize);
@@ -110,11 +110,11 @@ function validateRecursiveFolderSelectionInput(args: {
     // No-silent-fallbacks: this is a user-visible no-op (the checkbox does
     // nothing) — make the cause diagnosable.
     logger.warn('Recursive folder selection skipped: selection limit reached', {
-      path: args.node.path,
-      maxSelectionCount: args.maxSelectionCount,
       currentSelectionSize: args.currentSelectionSize,
+      maxSelectionCount: args.maxSelectionCount,
+      path: args.node.path,
     });
-    return { result: { success: true, filePaths: [] } };
+    return { result: { filePaths: [], success: true } };
   }
 
   if (!args.fileSystemAdapter) {
@@ -122,7 +122,7 @@ function validateRecursiveFolderSelectionInput(args: {
       path: args.node.path,
     });
     return {
-      result: { success: false, filePaths: [], error: 'File system adapter not ready' },
+      result: { error: 'File system adapter not ready', filePaths: [], success: false },
     };
   }
 
@@ -130,7 +130,7 @@ function validateRecursiveFolderSelectionInput(args: {
     logger.warn('Recursive folder selection skipped: operation already in progress', {
       path: args.node.path,
     });
-    return { result: { success: false, filePaths: [], error: 'Operation already in progress' } };
+    return { result: { error: 'Operation already in progress', filePaths: [], success: false } };
   }
 
   return {
@@ -251,11 +251,11 @@ export function useRecursiveFolderSelect(
       addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
     ): Promise<SelectionResult> => {
       logger.debug('Recursive folder selection requested', {
-        path: node.path,
-        folderId,
-        maxSelectionCount,
         currentSelectionSize,
+        folderId,
         hasAdapter: Boolean(fileSystemAdapter),
+        maxSelectionCount,
+        path: node.path,
       });
       const validation = validateRecursiveFolderSelectionInput({
         currentSelectionSize,
@@ -282,14 +282,13 @@ export function useRecursiveFolderSelect(
 
       try {
         const result = await querySelectableFiles({
-          roots: [currentNode],
           fileSystemAdapter: validation.fileSystemAdapter,
+          roots: [currentNode],
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
-          includeFilters,
-          excludeFilters,
-          maxResults: availableSlots,
-          useRegex,
           abortSignal: abortController.signal,
+          excludeFilters,
+          includeFilters,
+          maxResults: availableSlots,
           onProgress: (progress) => {
             setState((current) => ({
               ...current,
@@ -299,6 +298,7 @@ export function useRecursiveFolderSelect(
               },
             }));
           },
+          useRegex,
         });
 
         if (result.filePaths.length === 0) {
@@ -307,9 +307,9 @@ export function useRecursiveFolderSelect(
           // html-only folder) scans to zero matches.
           return notifyEmptySelectionResult({
             excludeFilters,
+            filesVisited: result.metrics.filesVisited,
             includeFilters,
             node,
-            filesVisited: result.metrics.filesVisited,
             showToast,
           });
         }
@@ -330,11 +330,11 @@ export function useRecursiveFolderSelect(
 
         if (canUseQuerySelection) {
           const manifestFingerprint = buildQuerySelectionFingerprint({
-            kind: 'recursive-folder',
-            folderId,
-            rootPath: node.path,
-            includeFilters,
             excludeFilters,
+            folderId,
+            includeFilters,
+            kind: 'recursive-folder',
+            rootPath: node.path,
             useRegex,
           });
           const snapshotId = await createQuerySelectionSnapshot(db, result.filePaths);
@@ -345,18 +345,18 @@ export function useRecursiveFolderSelect(
           });
           setQuerySelection?.(
             buildQuerySelectionDescriptor({
-              kind: 'recursive-folder',
-              folderId,
-              rootPath: node.path,
               coveredDirectoryPaths: collectAncestorDirectories(result.filePaths),
-              includeFilters,
+              excludedPaths: [],
               excludeFilters,
-              useRegex,
-              totalSelectedCount: result.filePaths.length,
+              folderId,
+              includedPaths: [],
+              includeFilters,
+              kind: 'recursive-folder',
               manifestFingerprint,
               manifestSnapshotId: snapshotId,
-              includedPaths: [],
-              excludedPaths: [],
+              rootPath: node.path,
+              totalSelectedCount: result.filePaths.length,
+              useRegex,
             }),
             manifest,
             new Set(result.filePaths)
@@ -373,8 +373,8 @@ export function useRecursiveFolderSelect(
         }
 
         return {
-          success: true,
           filePaths: result.filePaths,
+          success: true,
         };
       } catch (err) {
         logger.error('selectFolderRecursively failed', { error: err });
@@ -404,11 +404,11 @@ export function useRecursiveFolderSelect(
   );
 
   return {
+    cancelRecursiveSelect,
     isLoadingForSelection: state.isLoadingForSelection,
+    isLoadingForSelectionRef,
     loadingPath: state.loadingPath,
     loadingProgress: state.loadingProgress,
     selectFolderRecursively,
-    cancelRecursiveSelect,
-    isLoadingForSelectionRef,
   };
 }

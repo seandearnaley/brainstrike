@@ -67,6 +67,10 @@ function createNativeToolPreferencesStorage(): StateStorage {
         return null;
       }
     },
+    removeItem: (key) => {
+      removeStoredValue(readLocalStorage(), key);
+      memory.delete(key);
+    },
     setItem: (key, value) => {
       if (!shouldPersistValue(value)) {
         removeStoredValue(readLocalStorage(), key);
@@ -83,10 +87,6 @@ function createNativeToolPreferencesStorage(): StateStorage {
         }
       }
       memory.set(key, value);
-    },
-    removeItem: (key) => {
-      removeStoredValue(readLocalStorage(), key);
-      memory.delete(key);
     },
   };
 }
@@ -123,7 +123,8 @@ function resolveToolEnabled(toolId: string, states: NativeToolStateMap): boolean
 export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>()(
   persist(
     (set, get) => ({
-      toolStates: {},
+      isToolEnabled: (toolId: string) => resolveToolEnabled(toolId, get().toolStates),
+      resetTools: () => set({ toolStates: {} }),
       setToolEnabled: (toolId, enabled) =>
         set((state) => {
           const next = { ...state.toolStates };
@@ -149,13 +150,9 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
           }
           return { toolStates: next };
         }),
-      resetTools: () => set({ toolStates: {} }),
-      isToolEnabled: (toolId: string) => resolveToolEnabled(toolId, get().toolStates),
+      toolStates: {},
     }),
     {
-      name: STORE_NAME,
-      version: 1,
-      storage,
       migrate: (state) => {
         const snapshot = state as Partial<NativeToolPreferencesStore> | undefined;
         return {
@@ -163,17 +160,20 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
           toolStates: sanitizeToolStates(snapshot?.toolStates),
         } satisfies Partial<NativeToolPreferencesStore>;
       },
+      name: STORE_NAME,
       partialize: (store) => ({
         toolStates: store.toolStates,
       }),
+      storage,
+      version: 1,
     }
   )
 );
 
 export const nativeToolPreferencesSelectors = {
-  toolStates: (store: NativeToolPreferencesStore): NativeToolStateMap => store.toolStates,
   isToolEnabled: (store: NativeToolPreferencesStore): NativeToolPreferencesStore['isToolEnabled'] =>
     store.isToolEnabled,
+  toolStates: (store: NativeToolPreferencesStore): NativeToolStateMap => store.toolStates,
 };
 
 export function __resetNativeToolPreferencesStoreForTests(): void {
