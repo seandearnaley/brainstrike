@@ -143,8 +143,24 @@ const SPECIAL_TEXT_PREFIXES = [
   '.editorconfig',
 ];
 
+// Nested-path exclusions the segment matcher can't express. `.claude/worktrees`
+// holds throwaway git worktree copies of the whole repo (Claude Code creates
+// them); indexing them duplicates the entire corpus and pollutes semantic
+// search with near-identical hits. Excluding the two-segment path — rather than
+// the `.claude` segment — keeps the useful rest of `.claude` (skills, commands,
+// settings, memory) indexable. Applied to both presets: for balanced it is a
+// content decision, for full-root a safety exclusion like node_modules.
+const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees'] as const;
+
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];
+
+function matchesExcludedPathPrefix(relativePath: string): boolean {
+  const lowerPath = relativePath.toLowerCase();
+  return EXCLUDED_DIRECTORY_PATH_PREFIXES.some(
+    (prefix) => lowerPath === prefix || lowerPath.startsWith(`${prefix}/`)
+  );
+}
 
 const balancedPathMatcher = createPathFilterMatcher(
   [],
@@ -188,6 +204,9 @@ function isWithinSizeLimit(fileSize: number | undefined): boolean {
 }
 
 function shouldSkipBalancedDirectory(relativePath: string): boolean {
+  if (matchesExcludedPathPrefix(relativePath)) {
+    return true;
+  }
   return shouldSkipDirectoryBySegment(relativePath, BALANCED_EXCLUDED_DIRECTORY_SEGMENTS);
 }
 
@@ -221,6 +240,9 @@ function shouldSkipDirectoryBySegment(
 }
 
 function shouldSkipFullRootDirectory(relativePath: string): boolean {
+  if (matchesExcludedPathPrefix(relativePath)) {
+    return true;
+  }
   return shouldSkipDirectoryBySegment(relativePath, FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS);
 }
 
@@ -236,6 +258,9 @@ function shouldSkipBalancedFile(input: BackgroundIndexingFileInput): boolean {
 }
 
 function shouldIncludeBalancedFile(input: BackgroundIndexingFileInput): boolean {
+  if (matchesExcludedPathPrefix(input.relativePath)) {
+    return false;
+  }
   if (!isWithinSizeLimit(input.fileSize)) {
     return false;
   }
@@ -252,6 +277,9 @@ function shouldIncludeBalancedFile(input: BackgroundIndexingFileInput): boolean 
 }
 
 function shouldIncludeFullRootFile(input: BackgroundIndexingFileInput): boolean {
+  if (matchesExcludedPathPrefix(input.relativePath)) {
+    return false;
+  }
   if (!isWithinSizeLimit(input.fileSize)) {
     return false;
   }
