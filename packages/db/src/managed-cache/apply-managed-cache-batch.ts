@@ -1,5 +1,8 @@
 import type { IDatabase } from '../repositories/interfaces.js';
-import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
+import {
+  markCollectionIndexingStatsDirty,
+  refreshCollectionIndexingStats,
+} from '../services/collection-indexing-stats.js';
 import { assertTextContentHasNoNullBytes } from '../text-content-invariants.js';
 
 interface ManagedCacheRecordBase {
@@ -591,6 +594,92 @@ function normalizeInvalidationTargets(
   });
 }
 
+interface InvalidationMatchRow {
+  chunk_id: string | null;
+  file_record_id: string;
+}
+
+async function listExactPathInvalidationMatches(
+  tx: QueryLike,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<InvalidationMatchRow[]> {
+  // Every target matches the file at exactly its path: exact targets with
+  // their optional expected-id guard, prefix targets unconditionally (a
+  // prefix invalidation also removes a file record AT the prefix path).
+  const exactPathTargets = targets.map((target) => ({
+    expectedFileRecordId: target.mode === 'exact' ? target.expectedFileRecordId : null,
+    relativePath: target.relativePath,
+    rootId: target.rootId,
+  }));
+  const placeholders = buildValuePlaceholders(exactPathTargets.length, 3, 2);
+  const values = exactPathTargets.flatMap((target) => [
+    target.rootId,
+    target.relativePath,
+    target.expectedFileRecordId,
+  ]);
+  const result = await tx.query<InvalidationMatchRow>(
+    `WITH targets(root_id, relative_path, expected_file_record_id) AS (
+       VALUES ${placeholders}
+     )
+     SELECT DISTINCT
+            fr.id::text AS file_record_id,
+            fc.id::text AS chunk_id
+       FROM targets t
+       JOIN file_records fr
+         ON fr.embedding_set_id::text = $1
+        AND fr.root_id = t.root_id
+        AND fr.path = t.relative_path
+        AND (
+          t.expected_file_record_id IS NULL
+          OR fr.id::text = t.expected_file_record_id
+        )
+      LEFT JOIN file_chunks fc
+        ON fc.file_record_id::text = fr.id::text
+      ORDER BY file_record_id, chunk_id`,
+    [embeddingSetId, ...values]
+  );
+  return result.rows;
+}
+
+async function listPrefixDescendantInvalidationMatches(
+  tx: QueryLike,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<InvalidationMatchRow[]> {
+  const prefixTargets = targets.filter((target) => target.mode === 'prefix');
+  if (prefixTargets.length === 0) {
+    return [];
+  }
+  const placeholders = buildValuePlaceholders(prefixTargets.length, 2, 2);
+  const values = prefixTargets.flatMap((target) => [target.rootId, target.relativePath]);
+  // The half-open range [prefix || '/', prefix || '0') equals "starts with
+  // prefix + '/'" under the C collation PGlite databases use ('0' is the code
+  // point after '/'); it exists so the planner can drive the path index. The
+  // substr() recheck stays authoritative, so a non-C collation could only
+  // skip rows (stale entries re-invalidated next sync), never over-delete.
+  const result = await tx.query<InvalidationMatchRow>(
+    `WITH targets(root_id, relative_path) AS (
+       VALUES ${placeholders}
+     )
+     SELECT DISTINCT
+            fr.id::text AS file_record_id,
+            fc.id::text AS chunk_id
+       FROM targets t
+       JOIN file_records fr
+         ON fr.embedding_set_id::text = $1
+        AND fr.root_id = t.root_id
+        AND fr.path >= t.relative_path || '/'
+        AND fr.path < t.relative_path || '0'
+        AND substr(fr.path, 1, length(t.relative_path) + 1) = t.relative_path || '/'
+      LEFT JOIN file_chunks fc
+        ON fc.file_record_id::text = fr.id::text
+      ORDER BY file_record_id, chunk_id`,
+    [embeddingSetId, ...values]
+  );
+  return result.rows;
+}
+
 async function listInvalidationMatches(
   tx: QueryLike,
   embeddingSetId: string,
@@ -606,52 +695,18 @@ async function listInvalidationMatches(
     };
   }
 
-  const placeholders = buildValuePlaceholders(targets.length, 4, 2);
-  const values = targets.flatMap((target) => [
-    target.mode,
-    target.rootId,
-    target.relativePath,
-    target.expectedFileRecordId,
-  ]);
-  const result = await tx.query<{ chunk_id: string | null; file_record_id: string }>(
-    `WITH targets(mode, root_id, relative_path, expected_file_record_id) AS (
-       VALUES ${placeholders}
-     )
-     SELECT DISTINCT
-            fr.id::text AS file_record_id,
-            fc.id::text AS chunk_id
-       FROM file_records fr
-       JOIN targets t
-         ON fr.root_id = t.root_id
-        AND fr.root_id IS NOT NULL
-      LEFT JOIN file_chunks fc
-        ON fc.file_record_id::text = fr.id::text
-      WHERE fr.embedding_set_id::text = $1
-        AND (
-          (
-            t.mode = 'exact'
-            AND fr.path = t.relative_path
-            AND (
-              t.expected_file_record_id IS NULL
-              OR fr.id::text = t.expected_file_record_id
-            )
-          )
-          OR (
-            t.mode = 'prefix'
-            AND (
-              fr.path = t.relative_path
-              OR substr(fr.path, 1, length(t.relative_path) + 1) = t.relative_path || '/'
-            )
-          )
-        )
-      ORDER BY file_record_id, chunk_id`,
-    [embeddingSetId, ...values]
-  );
+  // Two separate sargable queries instead of one OR-ed predicate: with the
+  // modes OR-ed together the planner could push only root_id into the index
+  // condition and re-filtered every file under the root once per target —
+  // 11s per 250-target batch at 88K files, and the whole app blocks behind
+  // it on the single-statement-at-a-time engine.
+  const rows = [
+    ...(await listExactPathInvalidationMatches(tx, embeddingSetId, targets)),
+    ...(await listPrefixDescendantInvalidationMatches(tx, embeddingSetId, targets)),
+  ];
 
-  const fileRecordIds = [...new Set(result.rows.map((row) => row.file_record_id))].sort();
-  const chunkIds = [
-    ...new Set(result.rows.map((row) => row.chunk_id).filter(isNonEmptyString)),
-  ].sort();
+  const fileRecordIds = [...new Set(rows.map((row) => row.file_record_id))].sort();
+  const chunkIds = [...new Set(rows.map((row) => row.chunk_id).filter(isNonEmptyString))].sort();
 
   return {
     chunkIds,
@@ -679,12 +734,19 @@ export async function invalidateManagedCacheEntriesByIdentity(
     };
   }
 
-  return await db.transaction(async (tx) => {
-    const deletedChunkIds = new Set<string>();
-    const deletedFileRecordIds = new Set<string>();
-    let canceledEmbeddingJobCount = 0;
+  const deletedChunkIds = new Set<string>();
+  const deletedFileRecordIds = new Set<string>();
+  let canceledEmbeddingJobCount = 0;
 
-    for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+  // One transaction per target batch, never one across all batches: the
+  // engine executes one statement at a time, so a single long invalidation
+  // transaction starves every other query in the app for its full duration
+  // (observed as 30s db-host request timeouts at ~670K chunks). Deleting a
+  // cache identity is idempotent, so a failure between batches leaves the
+  // already-committed batches valid and the error still propagates; the
+  // dirty flag below records that stats were not refreshed yet.
+  for (const targetBatch of chunkArray(targets, MANAGED_CACHE_INVALIDATION_TARGETS_PER_QUERY)) {
+    await db.transaction(async (tx) => {
       const matches = await listInvalidationMatches(tx, args.embeddingSetId, targetBatch);
       canceledEmbeddingJobCount += await cancelQueuedOrRunningEmbeddingJobsForChunks(
         tx,
@@ -707,16 +769,20 @@ export async function invalidateManagedCacheEntriesByIdentity(
           fileRecordIds,
         ]);
       }
-    }
 
-    await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
+      if (matches.fileRecordIds.length > 0) {
+        await markCollectionIndexingStatsDirty(tx, [args.embeddingSetId]);
+      }
+    });
+  }
 
-    return {
-      canceledEmbeddingJobCount,
-      deletedChunkIds: [...deletedChunkIds].sort(),
-      deletedFileRecordIds: [...deletedFileRecordIds].sort(),
-    };
-  });
+  await refreshCollectionIndexingStats(db, [args.embeddingSetId]);
+
+  return {
+    canceledEmbeddingJobCount,
+    deletedChunkIds: [...deletedChunkIds].sort(),
+    deletedFileRecordIds: [...deletedFileRecordIds].sort(),
+  };
 }
 
 export async function applyManagedCacheBatch(
