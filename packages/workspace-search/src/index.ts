@@ -12,6 +12,7 @@ export {
   buildGrepPattern,
   escapeRegExpLiteral,
   type ResolvedFileInfo,
+  type SemanticSearchRequest,
   type TextSearchRequest,
   WorkspaceSearchExecutor,
   type WorkspaceSearchExecutorDeps,
