@@ -3,6 +3,7 @@
   "description": "Workspace search result model and session-lived search store",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/db": "workspace:*",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

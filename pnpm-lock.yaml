@@ -2443,6 +2443,9 @@ importers:
 
   packages/workspace-search:
     dependencies:
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       react:
         specifier: ^19.2.4
         version: 19.2.7
