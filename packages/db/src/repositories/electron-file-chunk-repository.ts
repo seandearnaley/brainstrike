@@ -5,6 +5,7 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
+import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 import {
   assertTextContentHasNoNullBytes,
   assertTextContentsHaveNoNullBytes,
@@ -84,6 +85,93 @@ export class ElectronFileChunkRepository {
       [fileRecordId]
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
+  }
+
+  /**
+   * Candidate selection for grep search: trigram-accelerated ILIKE/LIKE
+   * prefilter (idx_file_chunks_content_trgm), or a bounded unfiltered scan
+   * when likePattern is null. Joins file_records for the path so the grep
+   * service can emit path:line results without a second lookup.
+   *
+   * filePaths is an allowlist: `undefined` means no path filter (all files),
+   * while an EMPTY array means nothing is allowed and returns no candidates.
+   * Allowlists larger than MAX_INLINE_FILE_PATHS throw (matching
+   * fullTextSearch/searchSimilar).
+   */
+  async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
+    const { likePattern, caseSensitive, embeddingSetId, filePaths, limit, rootId, rootIds } =
+      options;
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (likePattern !== null) {
+      params.push(`%${likePattern}%`);
+      const operator = caseSensitive ? 'LIKE' : 'ILIKE';
+      conditions.push(`fc.content ${operator} $${params.length} ESCAPE '\\'`);
+    }
+    if (embeddingSetId !== undefined) {
+      params.push(embeddingSetId);
+      conditions.push(`fc.embedding_set_id = $${params.length}`);
+    }
+    if (rootId !== undefined) {
+      params.push(rootId);
+      conditions.push(`fr.root_id = $${params.length}`);
+    }
+    if (rootIds !== undefined) {
+      if (rootIds.length === 0) {
+        return []; // empty allowlist = nothing allowed (mirror filePaths semantics)
+      }
+      params.push(Array.from(rootIds));
+      conditions.push(`fr.root_id = ANY($${params.length}::text[])`);
+    }
+    if (filePaths !== undefined) {
+      if (filePaths.length === 0) {
+        return []; // empty allowlist = nothing allowed
+      }
+      if (filePaths.length > MAX_INLINE_FILE_PATHS) {
+        throw new Error(
+          `findGrepCandidates filePaths limit exceeded (${filePaths.length} > ${MAX_INLINE_FILE_PATHS}).`
+        );
+      }
+      params.push(Array.from(filePaths));
+      conditions.push(`fr.path = ANY($${params.length}::text[])`);
+    }
+    params.push(limit);
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // LEFT JOIN roots so legacy/unrooted files (root_id NULL) still appear; the
+    // root id + display name travel with every candidate so matches stay
+    // unambiguous across workspace roots that share a relative path.
+    const result = await this.db.query(
+      `SELECT fc.id AS chunk_id, fc.content, fc.start_line, fc.end_line, fr.path, fr.root_id, r.display_name
+         FROM file_chunks fc
+         JOIN file_records fr ON fr.id = fc.file_record_id
+         LEFT JOIN roots r ON r.id = fr.root_id
+         ${whereClause}
+        ORDER BY fr.path, fc.chunk_index
+        LIMIT $${params.length}`,
+      params
+    );
+
+    return (
+      result.rows as Array<{
+        chunk_id: string;
+        content: string;
+        end_line: number | null;
+        path: string;
+        root_id: string | null;
+        display_name: string | null;
+        start_line: number | null;
+      }>
+    ).map((row) => ({
+      chunkId: row.chunk_id,
+      content: row.content,
+      endLine: row.end_line,
+      filePath: row.path,
+      rootId: row.root_id,
+      rootName: row.display_name,
+      startLine: row.start_line,
+    }));
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
