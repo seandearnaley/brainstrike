@@ -145,23 +145,26 @@ export function createDesktopDatabaseMaintenanceScheduler(
         });
       })
       .then((result) => {
-        if (result.status === 'completed') {
-          options.logger.info(
-            {
-              activeJobs: result.activeJobs,
-              durationMs: result.durationMs,
-              prunedTerminalJobs: result.prunedTerminalJobs,
-              vacuumedTables: result.vacuumedTables,
-            },
-            'Scheduled database maintenance completed'
-          );
-        } else {
+        if (result.status === 'skipped') {
           options.logger.debug(
             {
               activeJobs: result.activeJobs,
               reason: result.reason,
             },
             'Skipped scheduled database maintenance'
+          );
+        } else {
+          // 'completed' (idle: full prune + vacuum) and 'partial' (active
+          // queue: bounded prune, vacuum deferred) both did real work.
+          options.logger.info(
+            {
+              activeJobs: result.activeJobs,
+              durationMs: result.durationMs,
+              prunedTerminalJobs: result.prunedTerminalJobs,
+              status: result.status,
+              vacuumedTables: result.vacuumedTables,
+            },
+            'Scheduled database maintenance completed'
           );
         }
         return result;

@@ -3,6 +3,7 @@ import type { JobState } from '../queue/job-queue.js';
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = ['job_queue'] as const;
+export const DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT = 5000;
 
 const ACTIVE_JOB_STATES = ['queued', 'running'] as const satisfies readonly JobState[];
 const TERMINAL_JOB_STATES = [
@@ -10,13 +11,17 @@ const TERMINAL_JOB_STATES = [
   'failed',
   'canceled',
 ] as const satisfies readonly JobState[];
+// While the queue is active, failed rows stay (they feed the failed-count
+// badge, last-error display, and retry); only finished/abandoned rows go.
+const ACTIVE_PRUNE_JOB_STATES = ['succeeded', 'canceled'] as const satisfies readonly JobState[];
 const ACTIVE_JOB_STATE_SET: ReadonlySet<JobState> = new Set(ACTIVE_JOB_STATES);
 const VACUUM_TABLE_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/u;
 
-export type ScheduledDatabaseMaintenanceStatus = 'completed' | 'skipped';
+export type ScheduledDatabaseMaintenanceStatus = 'completed' | 'partial' | 'skipped';
 export type ScheduledDatabaseMaintenanceSkipReason = 'active-job-queue';
 
 export interface ScheduledDatabaseMaintenanceOptions {
+  readonly activePruneLimit?: number;
   readonly now?: () => Date;
   readonly terminalJobRetentionMs?: number;
   readonly vacuumTables?: readonly string[];
@@ -79,6 +84,14 @@ function resolveTerminalJobRetentionMs(options: ScheduledDatabaseMaintenanceOpti
   return retentionMs;
 }
 
+function resolveActivePruneLimit(options: ScheduledDatabaseMaintenanceOptions): number {
+  const limit = options.activePruneLimit ?? DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT;
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error('Scheduled database maintenance activePruneLimit must be a positive integer.');
+  }
+  return limit;
+}
+
 function resolveVacuumTables(options: ScheduledDatabaseMaintenanceOptions): readonly string[] {
   const tables = options.vacuumTables ?? DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES;
   for (const table of tables) {
@@ -121,6 +134,30 @@ async function pruneTerminalJobs(
   return normalizeCount(result.rows[0]?.count);
 }
 
+async function pruneFinishedJobsBounded(
+  db: ScheduledDatabaseMaintenanceDb,
+  olderThanIso: string,
+  limit: number
+): Promise<number> {
+  const placeholders = ACTIVE_PRUNE_JOB_STATES.map((_, index) => `$${index + 3}`).join(',');
+  const result = await db.query<CountRow>(
+    `WITH del AS (
+       DELETE FROM job_queue
+        WHERE id IN (
+          SELECT id
+            FROM job_queue
+           WHERE updated_at < $1
+             AND state IN (${placeholders})
+           LIMIT $2
+        )
+       RETURNING 1
+     )
+     SELECT COUNT(*)::text AS count FROM del`,
+    [olderThanIso, limit, ...ACTIVE_PRUNE_JOB_STATES]
+  );
+  return normalizeCount(result.rows[0]?.count);
+}
+
 async function vacuumTables(
   db: ScheduledDatabaseMaintenanceDb,
   tables: readonly string[]
@@ -150,14 +187,27 @@ export async function runScheduledDatabaseMaintenance(
   const startedAt = startedAtDate.toISOString();
 
   if (activeJobs > 0) {
+    // A long backfill keeps the queue active for days. Skipping maintenance
+    // outright let finished rows accumulate into a table every status query
+    // then scanned, so active passes still prune succeeded/canceled rows in a
+    // bounded batch (one short statement on the single-statement engine) and
+    // only defer the heavyweight VACUUM until the queue is idle.
+    const activePruneLimit = resolveActivePruneLimit(options);
+    const activeOlderThanIso = new Date(startedAtMs - retentionMs).toISOString();
+    const prunedTerminalJobs = await pruneFinishedJobsBounded(
+      db,
+      activeOlderThanIso,
+      activePruneLimit
+    );
+    const partialCompletedAtDate = resolveNow(options);
     return {
       activeJobs,
-      completedAt: startedAt,
-      durationMs: 0,
-      prunedTerminalJobs: 0,
+      completedAt: partialCompletedAtDate.toISOString(),
+      durationMs: Math.max(0, partialCompletedAtDate.getTime() - startedAtMs),
+      prunedTerminalJobs,
       reason: 'active-job-queue',
       startedAt,
-      status: 'skipped',
+      status: 'partial',
       vacuumedTables: [],
     };
   }
