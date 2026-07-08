@@ -39,14 +39,14 @@ packages/workspace-search/src/
     curation-selection-bridge.ts   # checked nodes ↔ workspace-context-curation-store
 ```
 
-**Composition:** `file-explorer-ui`'s `FileExplorerPanel` gains a two-tab strip and lazy-mounts (`React.lazy`) the search panel so the embedder/hybrid deps stay code-split. Active tab persists in `context-explorer-layout-store` (preferences); query/results are session-only.
+**Composition:** the tab strip lives in **app-shell** (`ExplorerSearchTabs`, mounted where `root-layout-content.tsx:268` renders `<FileExplorerPanel />` today), NOT inside `file-explorer-ui` — `workspace-search` imports the curation store from `@brainstrike/file-explorer-ui/preview`, so `file-explorer-ui` importing `workspace-search` back would be a package cycle. App-shell already depends on both sides. The search panel is lazy-mounted (`React.lazy`) so the embedder/hybrid deps stay code-split. Active tab persists in `context-explorer-layout-store` (preferences, version bump); query/results are session-only.
 
 **Modified existing code (all additive):**
-- `packages/db`: `HybridSearchService`, `FileChunkRepository.fullTextSearch`/`searchSimilar` gain `rootIds: string[]` scoping (grep's single `rootId` generalizes to `rootIds`); `GrepMatch` gains `chunkId`, `chunkStartLine`, `chunkEndLine`.
-- `packages/file-explorer-ui`: tab strip in the panel shell; curation store already exported via `/preview` subpath.
-- `packages/vector-management`: compact variant of (or extracted query hook from) `collection-select`.
+- `packages/db`: `GrepCandidateOptions`/`GrepSearchOptions`, `ChunkSearchOptions`, `FTSSearchOptions`, and `HybridSearchOptions` gain `rootIds: readonly string[]` scoping; `GrepCandidate`/`GrepMatch` gain `chunkId`, `chunkStartLine`, `chunkEndLine`; **`ElectronFileChunkRepository` gains `findGrepCandidates`** (it has `searchSimilar`/`fullTextSearch` but no grep candidate path — without it desktop-renderer Text mode cannot run).
+- `packages/vector-management`: the embedder-resolution machinery (hosted/local `SearchEmbedder`, device-loss retry, visibility dispose) is **extracted from db-explorer's `use-semantic-search-executor.ts` into a shared `useSearchEmbedder`**; db-explorer is refactored to consume it (its tests stay green). Both db-explorer and workspace-search then share one embedder implementation.
+- `packages/preferences`: `context-explorer-layout-store` gains `explorerActiveTab: 'explorer' | 'search'`.
 
-**Not touched:** `OptimizedFileTree`, db-explorer collection-browser search, assistant server tools, Electron main.
+**Not touched:** `OptimizedFileTree`, `FileExplorerPanel` internals, the collection-browser search UX, assistant server tools, Electron main.
 
 ## 3. Search execution & data flow
 
@@ -81,10 +81,11 @@ Both modes run **renderer-side against the DB** on both platforms (the collectio
 
 **Selection unit = chunk**, in both modes. A text match's checkbox selects **its containing chunk** (hence `GrepMatch.chunkId` + range). Multiple checked matches in one chunk dedupe to one range. Rationale: Tapestry consumes line ranges; a lone matched line is rarely useful context; identical semantics across modes.
 
-**Curation store is the single source of truth for checked state:**
-- No `checkedIds` in the search store. Checkbox state is derived from `useWorkspaceContextCurationStore`: chunk checked ⇔ its range fully covered by that file's active ranges; partially covered ⇒ indeterminate; file nodes roll up tri-state.
-- Check chunk → `setTapestryRangesForKey(compositeKey, mergedRanges)` (insert + coalesce overlaps). Check file → whole-file entry **merged** into the existing snapshot via `setContextSnapshot` (upsert; never wholesale replace — the preview panel is a co-producer).
-- Uncheck removes only ranges search added-or-covers; `userModified` ranges are never touched.
+**Existing stores are the single source of truth for checked state** (revised from the earlier snapshot-merge idea after reading the code: the preview panel REBUILDS `contextSnapshot` from the file-explorer selection store, so a second snapshot producer would be clobbered on the next rebuild — and a file absent from the explorer selection never renders in Tapestry at all):
+- The bridge writes to the same two stores the Explorer's own checkboxes drive: **file membership** → the `@brainstrike/file-explorer` selection store (compositeKey = `encodeFileSelection(adapterRootId, path)`, the identical mechanism as an explorer checkbox); **chunk ranges** → `setTapestryRangesForKey(compositeKey, mergedRanges)` (insert + coalesce overlaps). The preview panel remains the snapshot's ONLY producer.
+- No `checkedIds` in the search store. Checkbox state is derived: file node checked ⇔ its compositeKey is in the explorer selection; chunk node checked ⇔ file selected AND (no ranges exist for the key = whole file, or its range fully covered by active ranges); partially covered ⇒ indeterminate.
+- Check chunk → ensure file selected + merge its range. Uncheck chunk → remove exactly the ranges it covers; `userModified` ranges are never touched. Uncheck file → remove from selection + clear search-added ranges for its key.
+- Chunk ranges take effect in Tapestry's ranges mode (`useTapestryRanges`); the panel footer notes this rather than mutating another surface's toggle.
 
 **Token feedback:** panel footer shows "~N tokens selected" from `selectedSourceApproxTokens`.
 
